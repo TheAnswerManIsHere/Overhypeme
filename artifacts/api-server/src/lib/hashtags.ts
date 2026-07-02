@@ -17,61 +17,36 @@
  * import this file.
  */
 
-import { normalizeHashtag } from "@workspace/api-zod";
+import { normalizeHashtag, DENIED_HASHTAGS, isDeniedHashtag } from "@workspace/api-zod";
 import { CANONICAL_SUBJECT_NAMES, possessive } from "./renderCanonical";
 
-// ─── Suggested-hashtag denylist (subject name + app name) ────────────────────
+// ─── Suggested-hashtag denylist ──────────────────────────────────────────────
 //
-// Two kinds of tag must never reach a fact's hashtags, no matter what produced
-// them:
-//   1. The SUBJECT'S name. Classifiers/suggesters see the fact rendered to the
-//      canonical placeholder "Alex" (they/them), so they naturally propose
-//      "alex" — but that is a stand-in for whoever the meme is personalized to,
-//      not a real topic.
-//   2. The APP'S own name. Prompts are steeped in "Overhype.me" branding, so the
-//      model leaks "overhype" / "overhypeme" as a discovery tag.
+// The denylist (subject placeholder name + app name + generic-humor terms) is
+// the SHARED, browser-safe `DENIED_HASHTAGS` from @workspace/api-zod, so the
+// server and the moderation "Add hashtag" button enforce exactly one list.
 //
-// (Previously lived in factEnrichment.ts; moved here because the denylist is a
-// general hashtag concern, not enrichment-only.)
-const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
+// Belt-and-suspenders: api-zod encodes the subject-name forms as the fixed
+// "alex"/"alexs" literals; we also union renderCanonical's authoritative
+// CANONICAL_SUBJECT_NAMES (+ their possessives) here so that if a second
+// canonical placeholder is ever added server-side, server-side stripping picks
+// it up even before the api-zod literals are updated. (The client denylist
+// would still need the api-zod update to match — there is exactly one canonical
+// name today, so the two are in sync.)
+const SERVER_DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>([
+  ...DENIED_HASHTAGS,
+  ...CANONICAL_SUBJECT_NAMES.map((n) => normalizeHashtag(n)),
+  ...CANONICAL_SUBJECT_NAMES.map((n) => normalizeHashtag(possessive(n))),
+].filter((t) => t.length > 0));
 
-//   3. GENERIC-HUMOR descriptors. Every fact on Overhype.me is meant to be
-//      funny, so tags that just assert "this is humor" ("humor", "joke",
-//      "funny", "comedy", "lol", …) carry zero discovery signal — they'd apply
-//      to the entire database. The classifier leaks these constantly because
-//      the prompt frames facts as jokes. Listed as normalized (alphanumeric,
-//      lowercased) forms; keep to pure funniness-descriptors, NOT words that
-//      could be a real subject (e.g. a fact ABOUT a specific meme).
-const GENERIC_HUMOR_HASHTAGS: readonly string[] = [
-  "humor", "humour", "humorous",
-  "funny", "funnier", "funniest", "funnyfacts",
-  "joke", "jokes", "joking",
-  "comedy", "comedic", "comedian",
-  "hilarious", "hilarity",
-  "lol", "lmao", "rofl", "haha", "hahaha",
-  "laugh", "laughs", "laughing", "laughter",
-  "amusing", "amusement", "funnies",
-  "witty", "humorists",
-];
-
-// Include the POSSESSIVE form of each subject name: canonical rendering can feed
-// "{NAME_POSSESSIVE}" → "Alex's", and normalizeHashtag("Alex's") is "alexs" —
-// distinct from "alex", so it would otherwise slip the filter.
-const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
-  [
-    ...CANONICAL_SUBJECT_NAMES,
-    ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)),
-    ...APP_NAME_HASHTAGS,
-    ...GENERIC_HUMOR_HASHTAGS,
-  ]
-    .map((t) => normalizeHashtag(t))
-    .filter((t) => t.length > 0),
-);
-
-/** Drop subject-name / app-name tags (matched on normalized form). */
+/** Drop denied (subject / app / generic-humor) tags, matched on normalized form. */
 export function stripDeniedHashtags(tags: readonly string[]): string[] {
-  return tags.filter((t) => typeof t === "string" && !DENIED_HASHTAGS.has(normalizeHashtag(t)));
+  return tags.filter((t) => typeof t === "string" && !SERVER_DENIED_HASHTAGS.has(normalizeHashtag(t)));
 }
+
+// Re-export the shared client-facing predicate so callers importing from this
+// server module get the same check the UI uses.
+export { isDeniedHashtag };
 
 /**
  * Turn arbitrary tag input into the attachable list: string-only → normalize →
@@ -92,7 +67,7 @@ export function sanitizeHashtagsForPersistence(
     if (typeof raw !== "string") continue;
     const normalized = normalizeHashtag(raw.trim());
     if (!normalized) continue;
-    if (DENIED_HASHTAGS.has(normalized)) continue;
+    if (SERVER_DENIED_HASHTAGS.has(normalized)) continue;
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     out.push(normalized);

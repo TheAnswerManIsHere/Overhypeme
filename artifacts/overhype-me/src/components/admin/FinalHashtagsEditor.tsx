@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
-import { normalizeHashtag } from "@workspace/api-zod";
+import { normalizeHashtag, isDeniedHashtag } from "@workspace/api-zod";
 import { FieldLabel } from "./FieldInfo";
 
 /**
@@ -27,15 +27,27 @@ export function FinalHashtagsEditor({
   aiSuggestions: string[];
 }) {
   const [input, setInput] = useState("");
+  const [rejected, setRejected] = useState<string | null>(null);
   const finalTags = finalHashtags;
 
+  // Reject denied tags (subject name, app name, generic-humor) at Add time
+  // rather than accepting them and stripping silently at approval — the admin
+  // gets immediate feedback and the junk tag never enters the list.
   const addHashtag = (raw: string) => {
     const h = normalizeHashtag(raw);
-    if (h && !finalTags.includes(h)) onFinalHashtagsChange([...finalTags, h]);
+    if (!h) { setInput(""); return; }
+    if (isDeniedHashtag(h)) {
+      setRejected(h);
+      return; // keep the text in the box so the admin can edit it
+    }
+    if (!finalTags.includes(h)) onFinalHashtagsChange([...finalTags, h]);
+    setRejected(null);
     setInput("");
   };
   const removeHashtag = (h: string) => onFinalHashtagsChange(finalTags.filter((x) => x !== h));
-  const aiSuggestionsNotInFinal = aiSuggestions.filter((t) => !finalTags.includes(t));
+  // AI suggestions are denylist-stripped upstream, but filter defensively so a
+  // stale/legacy suggestion can never be pulled in or swept in by "Add all".
+  const aiSuggestionsNotInFinal = aiSuggestions.filter((t) => !finalTags.includes(t) && !isDeniedHashtag(t));
 
   return (
     <div className="rounded-sm border border-border bg-card p-3 space-y-3" data-testid="final-hashtags-editor">
@@ -73,13 +85,19 @@ export function FinalHashtagsEditor({
             className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             placeholder="Add hashtag…"
             value={input}
-            onChange={(ev) => setInput(ev.target.value)}
+            onChange={(ev) => { setInput(ev.target.value); if (rejected) setRejected(null); }}
             onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); addHashtag(input); } }}
           />
           <button type="button" onClick={() => addHashtag(input)} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
         </div>
+        {rejected && (
+          <p className="text-xs text-destructive flex items-center gap-1.5 mt-1.5" data-testid="final-hashtags-rejected">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            "{rejected}" can't be a hashtag — subject names, the app name, and generic-humor tags (funny, joke, comedy, …) aren't allowed. Tag the fact's topic instead.
+          </p>
+        )}
         <p className="text-[11px] text-muted-foreground/70 mt-1.5">
-          Subject names and the app's own tag are removed automatically on approval. At least one tag is required.
+          Subject names, the app's own tag, and generic-humor tags are rejected here and stripped on approval. At least one tag is required.
         </p>
       </div>
 

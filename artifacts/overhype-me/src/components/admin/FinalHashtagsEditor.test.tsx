@@ -40,6 +40,40 @@ describe("FinalHashtagsEditor", () => {
     expect(onChange).toHaveBeenCalledWith(["earth", "legendary"]);
   });
 
+  it("rejects a denied tag (subject/app/humor) at Add time instead of adding it", () => {
+    const onChange = vi.fn();
+    render(<FinalHashtagsEditor finalHashtags={["earth"]} onFinalHashtagsChange={onChange} aiSuggestions={[]} />);
+    const input = screen.getByPlaceholderText("Add hashtag…");
+
+    for (const junk of ["alex", "overhype", "funny"]) {
+      fireEvent.change(input, { target: { value: junk } });
+      fireEvent.keyDown(input, { key: "Enter" });
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("final-hashtags-rejected")).toBeTruthy();
+
+    // A subsequent valid tag clears the rejection and adds normally.
+    fireEvent.change(input, { target: { value: "space" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["earth", "space"]);
+  });
+
+  it("does not offer denied AI suggestions and skips them in 'Add all'", () => {
+    const onChange = vi.fn();
+    render(
+      <FinalHashtagsEditor
+        finalHashtags={[]}
+        onFinalHashtagsChange={onChange}
+        aiSuggestions={["funny", "space", "overhype"]}
+      />,
+    );
+    // Only "space" is a legitimate suggestion chip.
+    expect(screen.queryByText("funny")).toBeNull();
+    expect(screen.queryByText("overhype")).toBeNull();
+    fireEvent.click(screen.getByText("Add all"));
+    expect(onChange).toHaveBeenCalledWith(["space"]);
+  });
+
   it("'Add all' merges every not-yet-added suggestion", () => {
     const onChange = vi.fn();
     render(

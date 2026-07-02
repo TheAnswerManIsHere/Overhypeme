@@ -261,6 +261,50 @@ export function normalizeHashtag(tag: string): string {
   return tag.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// ─── Hashtag denylist (shared, browser-safe) ───────────────────────────────
+//
+// Tags that must never reach a fact, whatever produced them. Lives here (the
+// base package) so BOTH the server (sanitizeHashtagsForPersistence /
+// stripDeniedHashtags) and the client (the moderation "Add hashtag" button)
+// enforce the SAME list — the admin is blocked at Add time instead of adding a
+// junk tag that only gets stripped later at approval.
+//
+// Three families:
+//   1. Subject placeholder name. Facts render to the canonical placeholder
+//      "Alex" (they/them), so classifiers propose "alex" — a stand-in, not a
+//      topic. Mirrors renderCanonical.CANONICAL_SUBJECT_NAMES (exactly one
+//      canonical name by design); keep in sync if a placeholder is ever added.
+//   2. App name. Prompts are steeped in "Overhype.me" branding, so the model
+//      leaks "overhype" / "overhypeme".
+//   3. Generic-humor descriptors. EVERY fact here is meant to be funny, so
+//      "humor"/"funny"/"joke"/… describe the whole database, not this fact.
+const DENIED_SUBJECT_HASHTAGS: readonly string[] = ["alex", "alexs"];
+const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
+const GENERIC_HUMOR_HASHTAGS: readonly string[] = [
+  "humor", "humour", "humorous",
+  "funny", "funnier", "funniest", "funnyfacts",
+  "joke", "jokes", "joking",
+  "comedy", "comedic", "comedian",
+  "hilarious", "hilarity",
+  "lol", "lmao", "rofl", "haha", "hahaha",
+  "laugh", "laughs", "laughing", "laughter",
+  "amusing", "amusement", "funnies",
+  "witty", "humorists",
+];
+
+/** The normalized set of denied hashtags (subject name + app name + generic humor). */
+export const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
+  [...DENIED_SUBJECT_HASHTAGS, ...APP_NAME_HASHTAGS, ...GENERIC_HUMOR_HASHTAGS]
+    .map(normalizeHashtag)
+    .filter((t) => t.length > 0),
+);
+
+/** True when a raw tag normalizes to a denied hashtag (empty tags are not denied). */
+export function isDeniedHashtag(rawTag: string): boolean {
+  const n = normalizeHashtag(rawTag);
+  return n.length > 0 && DENIED_HASHTAGS.has(n);
+}
+
 // ─── Cultural reference + supporting-text policy + visual preview ──────────
 
 /**
