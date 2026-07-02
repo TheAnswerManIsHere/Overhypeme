@@ -121,8 +121,11 @@ describe("VisualStrategyOverridePanel — token chips", () => {
 
   it("does NOT target the admin-only Moderator Intent field", () => {
     renderPanel(enabledOverride());
+    // The label now renders through <FieldLabel>, which wraps it in its own
+    // div; the textarea sits alongside that wrapper under the shared field div.
     const label = screen.getByText(/Moderator Intent/i);
-    const intent = label.parentElement!.querySelector("textarea")!;
+    const fieldBlock = label.closest("div")!.parentElement!;
+    const intent = fieldBlock.querySelector("textarea")!;
     expect(intent.getAttribute("data-token-insert-target")).toBeNull();
   });
 

@@ -87,8 +87,11 @@ export const OVERRIDABLE_PATHS = {
   "/overhypeFit": { field: "overhypeFit", schema: S.overhypeFit, label: "Overhype Fit", decoration: "full" },
   "/adultSuitability": { field: "adultSuitability", schema: S.adultSuitability, label: "Adult Suitability", decoration: "full" },
   "/modifiers": { field: "modifiers", schema: S.modifiers, label: "Modifiers", decoration: "full" },
-  "/culturalReferences": { field: "culturalReferences", schema: S.culturalReferences, label: "Cultural References", decoration: "full" },
-  "/semanticEntities": { field: "semanticEntities", schema: S.semanticEntities, label: "Semantic Entities", decoration: "full" },
+  // Labels mirror the on-screen field labels in the admin editor (the docs
+  // registry is the UI source of truth; these stay aligned by a consistency
+  // test in fieldDocs.test.ts). Used in server-side messages + override chips.
+  "/culturalReferences": { field: "culturalReferences", schema: S.culturalReferences, label: "Cultural / Inside References", decoration: "full" },
+  "/semanticEntities": { field: "semanticEntities", schema: S.semanticEntities, label: "Semantic Entities / Visual Referents", decoration: "full" },
   "/adminReviewNotes": { field: "adminReviewNotes", schema: S.adminReviewNotes, label: "Admin Review Notes", decoration: "light" },
   "/adultSuitabilityNotes": { field: "adultSuitabilityNotes", schema: S.adultSuitabilityNotes, label: "Adult Suitability Notes", decoration: "light" },
 } as const satisfies Record<string, OverridablePathDef>;
