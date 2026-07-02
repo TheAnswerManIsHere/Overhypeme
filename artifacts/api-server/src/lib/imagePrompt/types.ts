@@ -10,6 +10,24 @@ import type {
   GenerationMode,
 } from "@workspace/api-zod";
 
+/**
+ * Which LLM engine actually planned a render attempt. Originates at the
+ * generation layer (resolveImagePromptLLMSettings) so both successful plans
+ * AND prompt-generation failures are attributable to the dedicated
+ * visual-planner engine vs. the default-LLM fallback. Copied into
+ * CompiledPromptDiagnostics on success; attached to ImagePromptError on
+ * failure.
+ */
+export interface PlannerProvenance {
+  configuredEngineId: string;
+  resolvedEngineId: string | null;
+  model: string | null;
+  reasoningEffort: string | null;
+  timeoutMs: number;
+  /** Null when the dedicated engine was used; otherwise why it fell back. */
+  fallbackReason: string | null;
+}
+
 export interface ImagePromptGenerationOutput {
   visualPlan: VisualPlan;
   compiledPrompt: CompiledPrompt;
@@ -17,6 +35,8 @@ export interface ImagePromptGenerationOutput {
   archetypeStrategyVersion: string; // VISUAL_STRATEGY_VERSION
   generatedAt: string;              // ISO timestamp
   generatedBy: "openai";
+  /** Set by generateImagePromptPlan (absent in callModel-injected test paths). */
+  plannerProvenance?: PlannerProvenance;
 }
 
 export type PromptSectionPriority = "required" | "high" | "medium";
@@ -48,6 +68,9 @@ export interface PromptSection {
   text: string;
   /** The full resolved section text before de-dupe/budget trimming. */
   rawText: string;
+  /** True when the section's content was authored by a human moderator
+   *  (e.g. the visual-concept core scene) rather than the planner LLM. */
+  moderatorAuthored?: boolean;
 }
 
 /**
@@ -83,6 +106,9 @@ export interface PromptWarning {
 export interface CompiledPromptDiagnostics {
   removedPlannerProseSentences: RemovedProseSentence[];
   warnings: PromptWarning[];
+  /** Which planner engine produced the visualPlan (copied from the
+   *  generation output so it persists with the attempt + shows in preview). */
+  plannerProvenance?: PlannerProvenance;
 }
 
 export interface CompiledImagePrompt {
