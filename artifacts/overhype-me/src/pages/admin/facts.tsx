@@ -5,27 +5,12 @@ import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
-import { OVERRIDABLE_PATHS, type OverridablePath } from "@workspace/api-zod";
-import { EnrichmentEditor, type EnrichmentOverrideContext } from "@/components/admin/EnrichmentEditor";
-import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
+import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { useDraftForm } from "@/components/admin/useDraftForm";
-
-/** Server response from the enrichment PATCH, including re-synced projection columns. */
-interface EnrichmentSaveResponse {
-  enrichment: FactEnrichment;
-  projection?: {
-    primaryArchetype: string;
-    subtype: string;
-    overhypeFit: string;
-    adultSuitability: string;
-  };
-}
-
-/** The slice of a fact's detail record consumed by the enrichment editor. */
-interface FactServerRecord {
-  enrichment?: FactEnrichment | null;
-  enrichmentStatus?: string | null;
-}
+import {
+  useFactEnrichmentEditing,
+  type EnrichmentSaveResponse,
+} from "@/components/admin/useFactEnrichmentEditing";
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
@@ -142,157 +127,17 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
  * invalid edit surfaces here as a save error rather than being stored.
  */
 function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: EnrichmentSaveResponse) => void }) {
-  const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(fact.enrichmentStatus ?? null);
-
-  const onSavedRef = useRef(onSaved);
-  onSavedRef.current = onSaved;
-
-  // Local-draft model: edits autosave to localStorage; an explicit Save commits to
-  // the server (validated + projections re-synced) and becomes the new baseline;
-  // Discard reverts to the server source of truth. Keyed by fact id at the call
-  // site so the draft resets cleanly between facts.
-  const draft = useDraftForm<FactEnrichment | null, FactServerRecord>({
-    storageKey: `fact-enrichment-draft::${fact.id}`,
-    emptyValue: null,
-    debounceMs: 1500,
-    fetchServer: async () => {
-      const r = await fetch(`/api/admin/facts/${fact.id}`, { credentials: "include" });
-      if (!r.ok) return null;
-      return (await r.json()) as FactServerRecord;
-    },
-    selectValue: (rec) => rec.enrichment ?? null,
-    onServerRecord: (rec) => setEnrichmentStatus(rec?.enrichmentStatus ?? null),
-    commit: async (toSave) => {
-      if (!toSave) throw new Error("Nothing to save.");
-      let r: Response;
-      try {
-        r = await fetch(`/api/admin/facts/${fact.id}/enrichment`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ enrichment: toSave }),
-        });
-      } catch {
-        throw new Error("Network error — could not save.");
-      }
-      if (!r.ok) {
-        let msg = r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`;
-        try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
-        throw new Error(msg);
-      }
-      try {
-        const body = (await r.json()) as EnrichmentSaveResponse;
-        if (body?.enrichment) onSavedRef.current?.(body);
-      } catch {
-        /* response body is best-effort; the save itself succeeded */
-      }
-    },
-  });
-
-  const enrichment = draft.value;
-
-  const jobs = useEnrichmentJobs({
-    resource: "facts",
-    id: fact.id,
-    status: enrichmentStatus,
-    isDirty: () => draft.hasUncommittedChanges,
-    // A background re-run rewrites the enrichment server-side; fold it into BOTH
-    // value and baseline so it becomes the new source of truth.
-    applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); void fetchResolved(); },
-  });
-
-  // ── AI-derived vs. manual-override state ──────────────────────────────────
-  // Tracked taxonomy/notes fields are owned by PUT/DELETE override endpoints (not
-  // the whole-blob draft + PATCH). We hold the resolved baseline/override map
-  // alongside the draft and decorate diverged fields.
-  const [resolved, setResolved] = useState<{
-    aiDerived: FactEnrichment | null;
-    overrides: Record<string, { value: unknown; overriddenFrom: unknown }>;
-    summary: EnrichmentOverrideContext["summary"];
-  } | null>(null);
-  const [pending, setPending] = useState<Record<string, "saving" | "error">>({});
-
-  const fetchResolved = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/admin/facts/${fact.id}/enrichment-resolved`, { credentials: "include" });
-      if (!r.ok) return;
-      const b = (await r.json()) as { aiDerived: FactEnrichment | null; overrides: Record<string, { value: unknown; overriddenFrom: unknown }>; overrideSummary: EnrichmentOverrideContext["summary"] };
-      setResolved({ aiDerived: b.aiDerived ?? null, overrides: b.overrides ?? {}, summary: b.overrideSummary });
-    } catch { /* best-effort; decoration just won't show */ }
-  }, [fact.id]);
-
-  useEffect(() => { void fetchResolved(); }, [fetchResolved]);
-
-  const TRACKED_FIELDS = useMemo(() => (Object.keys(OVERRIDABLE_PATHS) as OverridablePath[]).map((p) => p.slice(1)), []);
-
-  // Apply a PUT/DELETE response: refresh the override map + summary, and fold the
-  // new effective TRACKED fields into the draft (preserving unsaved non-tracked edits).
-  const applyResolved = useCallback((b: { aiDerived: FactEnrichment | null; overrides: Record<string, { value: unknown; overriddenFrom: unknown }>; effective: FactEnrichment | null; overrideSummary: EnrichmentOverrideContext["summary"] }) => {
-    setResolved({ aiDerived: b.aiDerived ?? null, overrides: b.overrides ?? {}, summary: b.overrideSummary });
-    if (b.effective) {
-      const eff = b.effective;
-      draft.adoptServerSlice((prev) => {
-        if (!prev) return eff;
-        const next = { ...prev } as FactEnrichment;
-        for (const f of TRACKED_FIELDS) (next as Record<string, unknown>)[f] = (eff as unknown as Record<string, unknown>)[f];
-        return next;
-      });
-      onSavedRef.current?.({
-        enrichment: eff,
-        projection: { primaryArchetype: eff.primaryArchetype, subtype: eff.subtype, overhypeFit: eff.overhypeFit, adultSuitability: eff.adultSuitability },
-      });
-    }
-  }, [draft, TRACKED_FIELDS]);
-
-  const writeOverride = useCallback(async (path: OverridablePath, run: () => Promise<Response>) => {
-    setPending((p) => ({ ...p, [path]: "saving" }));
-    try {
-      const r = await run();
-      if (!r.ok) throw new Error(`(${r.status})`);
-      applyResolved(await r.json());
-      setPending((p) => { const n = { ...p }; delete n[path]; return n; });
-    } catch {
-      setPending((p) => ({ ...p, [path]: "error" }));
-    }
-  }, [applyResolved]);
-
-  const putOverride = useCallback((path: OverridablePath, value: unknown, acknowledge = false) =>
-    writeOverride(path, () => fetch(`/api/admin/facts/${fact.id}/enrichment-overrides`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify(acknowledge ? { path, value, acknowledgeCurrentAiBaseline: true } : { path, value }),
-    })), [writeOverride, fact.id]);
-
-  const resetOverride = useCallback((path: OverridablePath) =>
-    writeOverride(path, () => fetch(`/api/admin/facts/${fact.id}/enrichment-overrides?path=${encodeURIComponent(path)}`, {
-      method: "DELETE", credentials: "include",
-    })), [writeOverride, fact.id]);
-
-  const overrideContext: EnrichmentOverrideContext | undefined = resolved
-    ? {
-        aiDerived: resolved.aiDerived,
-        overrides: resolved.overrides,
-        summary: resolved.summary,
-        pending,
-        onOverride: (path, value) => putOverride(path, value),
-        onReset: (path) => resetOverride(path),
-        onAcknowledge: (path, value) => putOverride(path, value, true),
-      }
-    : undefined;
-
-  // Re-running classification regenerates the AI baseline. Manual overrides are
-  // PRESERVED (sticky); only the underlying AI value changes — fields whose new
-  // AI value diverges from the overridden value are flagged for review.
-  async function handleRerun() {
-    if (
-      enrichment &&
-      !window.confirm(
-        "Re-enrich this fact? The AI-derived baseline will be regenerated. Existing manual overrides are preserved and keep controlling the active value. If the new AI value differs from the originally-overridden value, the field is marked for review.",
-      )
-    ) {
-      return;
-    }
-    await jobs.onRerun();
-  }
+  // ALL editing machinery (localStorage draft + per-field override tracking +
+  // re-run wiring) lives in the shared useFactEnrichmentEditing hook — the same
+  // engine the moderation ReviewModal mounts, so the two screens stay in
+  // lockstep by construction.
+  const { enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm } =
+    useFactEnrichmentEditing({
+      factId: fact.id,
+      enabled: true,
+      initialStatus: fact.enrichmentStatus ?? null,
+      onSaved,
+    });
 
   const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy;
   const [expanded, setExpanded] = useState(false);
@@ -353,7 +198,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
             factText={fact.text}
             onChange={(next) => draft.setValue(next)}
             onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
-            onRerun={handleRerun}
+            onRerun={rerunWithConfirm}
             busy={busy}
             rerunBusy={jobs.rerunBusy}
             overrideContext={overrideContext}

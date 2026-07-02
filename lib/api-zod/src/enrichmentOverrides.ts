@@ -80,17 +80,20 @@ const S = factEnrichmentBase.shape;
  * keeps its existing edit path.
  */
 export const OVERRIDABLE_PATHS = {
-  "/primaryArchetype": { field: "primaryArchetype", schema: S.primaryArchetype, label: "Primary Archetype", decoration: "full" },
-  "/subtype": { field: "subtype", schema: S.subtype, label: "Subtype", decoration: "full" },
-  "/visualLiteralness": { field: "visualLiteralness", schema: S.visualLiteralness, label: "Visual Literalness", decoration: "full" },
-  "/visualComplexity": { field: "visualComplexity", schema: S.visualComplexity, label: "Visual Complexity", decoration: "full" },
+  "/primaryArchetype": { field: "primaryArchetype", schema: S.primaryArchetype, label: "Joke Mechanism (Archetype)", decoration: "full" },
+  "/subtype": { field: "subtype", schema: S.subtype, label: "Mechanism Subtype", decoration: "full" },
+  "/visualLiteralness": { field: "visualLiteralness", schema: S.visualLiteralness, label: "Depiction Style", decoration: "full" },
+  "/visualComplexity": { field: "visualComplexity", schema: S.visualComplexity, label: "Visualization Difficulty", decoration: "full" },
   "/overhypeFit": { field: "overhypeFit", schema: S.overhypeFit, label: "Overhype Fit", decoration: "full" },
-  "/adultSuitability": { field: "adultSuitability", schema: S.adultSuitability, label: "Adult Suitability", decoration: "full" },
-  "/modifiers": { field: "modifiers", schema: S.modifiers, label: "Modifiers", decoration: "full" },
-  "/culturalReferences": { field: "culturalReferences", schema: S.culturalReferences, label: "Cultural References", decoration: "full" },
-  "/semanticEntities": { field: "semanticEntities", schema: S.semanticEntities, label: "Semantic Entities", decoration: "full" },
+  "/adultSuitability": { field: "adultSuitability", schema: S.adultSuitability, label: "Adult-Mode Compatibility", decoration: "full" },
+  "/modifiers": { field: "modifiers", schema: S.modifiers, label: "Render Modifiers", decoration: "full" },
+  // Labels mirror the on-screen field labels in the admin editor (the docs
+  // registry is the UI source of truth; these stay aligned by a consistency
+  // test in fieldDocs.test.ts). Used in server-side messages + override chips.
+  "/culturalReferences": { field: "culturalReferences", schema: S.culturalReferences, label: "Cultural / Inside References", decoration: "full" },
+  "/semanticEntities": { field: "semanticEntities", schema: S.semanticEntities, label: "Semantic Entities / Visual Referents", decoration: "full" },
   "/adminReviewNotes": { field: "adminReviewNotes", schema: S.adminReviewNotes, label: "Admin Review Notes", decoration: "light" },
-  "/adultSuitabilityNotes": { field: "adultSuitabilityNotes", schema: S.adultSuitabilityNotes, label: "Adult Suitability Notes", decoration: "light" },
+  "/adultSuitabilityNotes": { field: "adultSuitabilityNotes", schema: S.adultSuitabilityNotes, label: "Adult-Mode Notes", decoration: "light" },
 } as const satisfies Record<string, OverridablePathDef>;
 
 export type OverridablePath = keyof typeof OVERRIDABLE_PATHS;

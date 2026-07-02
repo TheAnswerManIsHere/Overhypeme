@@ -297,15 +297,14 @@ interface ReviewRenderContext {
 }
 
 /**
- * Load the renderable context for a review. `enrichmentOverride` lets a caller
- * (e.g. the approval gate, when the request body carries edited Advanced-Options
- * enrichment) compute the grid/staleness against the enrichment that will be
- * PUBLISHED — not the older blob the staging fact still holds — so stale renders
- * can't pass the gate.
+ * Load the renderable context for a review. Always reads the staging fact's
+ * stored effective enrichment (`facts.enrichment`): moderation edits persist
+ * through the fact override/enrichment endpoints before approval, so the
+ * stored blob IS the enrichment that will be published — grid/staleness
+ * computed here can't drift from it.
  */
 async function loadReviewRenderContext(
   reviewId: number,
-  enrichmentOverride?: FactEnrichment,
 ): Promise<
   | { ok: true; ctx: ReviewRenderContext }
   | { ok: false; reason: string; stage?: string }
@@ -323,12 +322,9 @@ async function loadReviewRenderContext(
     .where(eq(factsTable.id, review.stagingFactId))
     .limit(1);
   if (!stagingFact) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
-  let enrichment = enrichmentOverride;
-  if (!enrichment) {
-    const ev = validateEnrichment(stagingFact.enrichment);
-    if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
-    enrichment = ev.data;
-  }
+  const ev = validateEnrichment(stagingFact.enrichment);
+  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
+  const enrichment = ev.data;
   return {
     ok: true,
     ctx: { reviewId, stagingFactId: review.stagingFactId, factText: stagingFact.text, enrichment, stage: review.workflowStage },
@@ -464,9 +460,8 @@ async function buildCard(
 
 export async function buildReviewScenarioGrid(
   reviewId: number,
-  enrichmentOverride?: FactEnrichment,
 ): Promise<RenderScenarioGrid> {
-  const loaded = await loadReviewRenderContext(reviewId, enrichmentOverride);
+  const loaded = await loadReviewRenderContext(reviewId);
   const empty: RenderScenarioGrid = {
     reviewId,
     cards: [],

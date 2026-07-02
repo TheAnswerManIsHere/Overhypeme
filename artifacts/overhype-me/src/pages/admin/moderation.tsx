@@ -16,7 +16,7 @@ import {
   RENDER_SCENARIO_DESCRIPTORS,
 } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
-import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
+import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
@@ -307,19 +307,27 @@ function ReviewModal({
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
 
-  // Production-review enrichment — tuned in Advanced Options, saved to the staging
-  // fact (so Step-2 renders + approval read the edits). `dirtyRef` keeps the live
-  // edit from being clobbered by polling; `dirty` mirrors it as state so the Save
-  // button + "unsaved changes" hint react. `gridReloadKey` bumps after a save so
-  // the scenario grid re-fetches and the now-outdated tiles recompute as stale.
-  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(null);
-  const [enrichmentStatus, setEnrichmentStatus] = useState<PrepStatus>(null);
-  const dirtyRef = useRef(false);
-  const [dirty, setDirty] = useState(false);
-  const [savingEnrichment, setSavingEnrichment] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [justSaved, setJustSaved] = useState(false);
+  const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
+  const isProductionReview = stage === "production_review";
+  const isResolved = review.status !== "pending";
+  const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
+  const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
+
+  // Production-review enrichment editing — the SHARED engine (same hook as the
+  // Edit Fact screen, so the two flows stay in lockstep): tracked fields persist
+  // instantly as per-field overrides on the staging fact (chips / Revert to AI /
+  // "AI changed — review"); the Visual Strategy Override is the only untracked
+  // field this surface may save, through the localStorage-backed draft (an
+  // accidentally closed modal never loses work). Every successful mutation bumps
+  // `gridReloadKey` so the scenario tiles recompute staleness immediately.
   const [gridReloadKey, setGridReloadKey] = useState(0);
+  const enrichEditing = useFactEnrichmentEditing({
+    factId: stagingFactId,
+    enabled: isProductionReview && stagingFactId > 0,
+    editableUntrackedFields: ["visualPromptStrategyOverride"],
+    onAfterMutation: () => setGridReloadKey((k) => k + 1),
+  });
+  const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
   // Seeded from the submitter's tags, or the AI suggestions when the submitter
@@ -337,12 +345,6 @@ function ReviewModal({
     finalHashtagsDirtyRef.current = true;
     setFinalHashtags(tags);
   };
-
-  const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
-  const isProductionReview = stage === "production_review";
-  const isResolved = review.status !== "pending";
-  const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
-  const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
   // Wizard step. Production review opens on Visual review (Step 2); everything
   // else lives on Triage (Step 1). Re-sync the default when the stage advances.
@@ -363,10 +365,8 @@ function ReviewModal({
     setStage(d.workflowStage);
     setNote((cur) => (cur === "" && d.adminNote ? d.adminNote : cur));
     setReason((cur) => (cur === "" && d.reason ? (d.reason as RejectionReason) : cur));
-    if (!dirtyRef.current) {
-      setEnrichment(d.stagingFact?.enrichment ?? null);
-      setEnrichmentStatus(d.stagingFact?.enrichmentStatus ?? null);
-    }
+    // Enrichment state is owned by the shared useFactEnrichmentEditing hook
+    // (it fetches the staging fact itself once production_review is reached).
   }, [review.id]);
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
@@ -378,15 +378,6 @@ function ReviewModal({
     const h = setInterval(() => { void loadDetail(); }, 1200);
     return () => clearInterval(h);
   }, [stage, loadDetail]);
-
-  // Enrichment re-run + polling targets the STAGING FACT during production review.
-  const jobs = useEnrichmentJobs({
-    resource: "facts",
-    id: stagingFactId,
-    status: isProductionReview ? enrichmentStatus : null,
-    isDirty: () => dirtyRef.current,
-    applyServerState: (e, s) => { setEnrichment(e); setEnrichmentStatus(s as PrepStatus); dirtyRef.current = false; setDirty(false); setJustSaved(false); },
-  });
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");
@@ -417,39 +408,6 @@ function ReviewModal({
     }
   }, [review.id, onActionDone, onClose]);
 
-  // Persist the Advanced-Options enrichment edits to the staging fact. This is
-  // the single source of truth the Step-2 test renders and the approval gate
-  // read, so after a save the moderator's tweaks flow into reruns; the existing
-  // tiles (rendered from the pre-save enrichment) recompute as stale once the
-  // grid refreshes (gridReloadKey bump), prompting a rerun.
-  const saveEnrichment = useCallback(async () => {
-    if (!enrichment) return;
-    setSavingEnrichment(true); setSaveError(""); setJustSaved(false);
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}/staging-enrichment`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enrichment }),
-      });
-      if (!r.ok) {
-        const d = (await r.json().catch(() => ({}))) as { error?: string };
-        setSaveError(d.error ?? `Save failed (${r.status})`);
-        return;
-      }
-      const d = (await r.json()) as { enrichment?: FactEnrichment };
-      if (d.enrichment) setEnrichment(d.enrichment);
-      dirtyRef.current = false; setDirty(false); setJustSaved(true);
-      // Re-fetch the grid so tiles rendered against the old enrichment flip stale.
-      setGridReloadKey((k) => k + 1);
-      void loadDetail();
-    } catch {
-      setSaveError("Network error — could not save enrichment.");
-    } finally {
-      setSavingEnrichment(false);
-    }
-  }, [enrichment, review.id, loadDetail]);
-
   const onProvisionalApprove = (variant: boolean) => {
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (variant && review.matchingFact) body.parentFactId = review.matchingFact.id;
@@ -460,10 +418,17 @@ function ReviewModal({
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
   const onApproveProduction = (waive?: boolean) => {
+    // Approval publishes the STAGING FACT's saved enrichment (baseline +
+    // overrides) — the client no longer sends a blob. An unsaved Visual
+    // Strategy draft therefore wouldn't ship; force a Save/Discard first so
+    // nothing silently diverges from what the moderator sees.
+    if (enrichmentDraft.hasUncommittedChanges) {
+      setError("You have unsaved Visual Strategy Override edits — Save or Discard them before approving (approval publishes the saved staging fact).");
+      return;
+    }
     if (pexelsStatus !== "ok" && !confirmApprove && !waive) { setConfirmApprove(true); return; }
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
-      enrichment: enrichment ?? undefined,
       hashtags: finalHashtags,
     };
     if (waive && renderProblems) {
@@ -557,8 +522,10 @@ function ReviewModal({
     </div>
   );
 
+  // data-modal-overlay: FieldInfo's popover uses this to close ONLY itself
+  // (not the whole modal) when an outside-tap lands on this backdrop.
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div data-modal-overlay className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
         className="bg-card border-2 border-border rounded-sm w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
@@ -629,33 +596,43 @@ function ReviewModal({
               >
                 <EnrichmentEditor
                   value={enrichment}
-                  status={enrichmentStatus}
+                  status={enrichEditing.enrichmentStatus}
                   factText={review.submittedText}
-                  onChange={(next) => { dirtyRef.current = true; setDirty(true); setJustSaved(false); setEnrichment(next); }}
-                  onSave={saveEnrichment}
-                  onRerun={jobs.onRerun}
-                  busy={loading || jobs.loading || jobs.rerunBusy || savingEnrichment}
+                  onChange={(next) => enrichmentDraft.setValue(next)}
+                  onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
+                  onRerun={enrichEditing.rerunWithConfirm}
+                  busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
                   rerunBusy={jobs.rerunBusy}
                   finalHashtags={finalHashtags}
                   onFinalHashtagsChange={onFinalHashtagsChange}
+                  overrideContext={enrichEditing.overrideContext}
                 />
-                {/* Save status — unsaved edits don't reach the test renders until saved. */}
-                {dirty && !saveError && (
-                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5" data-testid="enrichment-unsaved">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    Unsaved changes — Save to update the test renders below, then re-run them.
-                  </p>
+                {/* Draft status — same model as Edit Fact: tracked fields save
+                    instantly per-field (chips above); only Visual Strategy
+                    Override edits ride the localStorage draft until Saved. */}
+                {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
+                  <div className="flex items-center justify-between gap-2" data-testid="enrichment-unsaved">
+                    <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      {enrichmentDraft.committing
+                        ? "Saving to server…"
+                        : `Unsaved Visual Strategy edits (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to update the test renders, then re-run them.`}
+                    </p>
+                    <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80 shrink-0">
+                      Discard changes
+                    </button>
+                  </div>
                 )}
-                {justSaved && !dirty && (
+                {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
                   <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                     Saved. Re-run any stale test renders to see the change.
                   </p>
                 )}
-                {saveError && (
+                {enrichmentDraft.commitError && (
                   <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-sm text-destructive">{saveError}</p>
+                    <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
                   </div>
                 )}
                 {jobs.error && (
