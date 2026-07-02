@@ -302,7 +302,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "vso.subjectRealization",
-    label: "Subject Realization",
+    label: "Subject Depiction Mode",
     hint: "Pin HOW the subject is physically realized in the image — human, transformed, object, symbolic — when the AI keeps getting it wrong.",
     whatItIs: [
       "A mode dropdown that pins the subject's physical realization. The default use_ai_plan keeps the AI's own subject treatment; any other mode requires a description (the editor warns when it's empty) — because only the DESCRIPTION is compiled, never the mode name itself.",
@@ -334,7 +334,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "vso.subjectRealizationDescription",
-    label: "Subject Realization Description",
+    label: "Subject Depiction Description",
     hint: "The actual compiled text of the SUBJECT REALIZATION section — write it as a complete instruction.",
     whatItIs: [
       "The token-aware text that IS the SUBJECT REALIZATION section. The mode dropdown categorizes your intent, but this description is the only part the engine ever sees — so it must fully state the realization on its own.",
@@ -410,7 +410,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "vso.roleBindings",
-    label: "Role Bindings",
+    label: "Scene Role Assignments",
     hint: "Who is who in the scene — your bindings REPLACE the AI's secondary-character casting.",
     whatItIs: [
       "A list (max 20) of entity → visual-role pairs. The entity is 'subject' or a relationship/name/type label ('mother', 'crowd/victims'); the visual role is what that entity concretely is/does in the frame. Both sides are token-aware.",
@@ -458,7 +458,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "vso.styleAgnosticPromptAdditions",
-    label: "Style-Agnostic Prompt Additions",
+    label: "Extra Prompt Details (any style)",
     hint: "Extra scene text that must work under EVERY visual style — compiled as ADDITIONAL DETAILS.",
     whatItIs: [
       "A list (max 20) of free-form prompt additions that hold under any look/style the render is later given (photoreal, cartoon, painterly). Don't put style words here — style comes from the separate style system. Token-aware.",
@@ -481,7 +481,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "vso.negativePromptAdditions",
-    label: "Negative Prompt Additions",
+    label: "Do-Not-Render Additions",
     hint: "Exclusions — but Nano Banana 2 has NO negative-prompt parameter, so these become prose \"Do not …\" constraints.",
     whatItIs: [
       "A list (max 20) of exclusion entries. Despite the name, the target engine has no negative-prompt API parameter (the plan validator forces compiledPrompt.negativePrompt empty) — so every entry is turned into a prose constraint inside the positive prompt.",

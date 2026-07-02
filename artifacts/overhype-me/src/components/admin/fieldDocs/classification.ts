@@ -172,7 +172,7 @@ export const ADULT_SUITABILITY_DOCS = {
 export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   {
     key: "primaryArchetype",
-    label: "Primary Archetype",
+    label: "Joke Mechanism (Archetype)",
     hint: "The joke's MECHANISM — the single most important classification on this form.",
     whatItIs: [
       "The primary archetype classifies HOW the fact's joke works (its mechanism), not what it is superficially about. The classifier's own rule: \"Classify by the joke mechanism, not by superficial topic\" — a moon fact caused by a sneeze is a superhuman physical feat with an astronomical-consequence modifier, not a cosmic category.",
@@ -222,7 +222,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "subtype",
-    label: "Subtype",
+    label: "Mechanism Subtype",
     hint: "The archetype's refinement — picks the one-sentence visual principle the planner must apply.",
     whatItIs: [
       "Each archetype has 3–7 subtypes that pin down the joke's specific flavor (e.g. superhuman_physical_feat splits into force/strength/speed/endurance/precision/sensory scaling and ordinary-action-extreme-consequence). The subtype dropdown only offers subtypes valid for the selected archetype, and validation rejects a mismatched pair.",
@@ -263,7 +263,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "visualLiteralness",
-    label: "Visual Literalness",
+    label: "Depiction Style",
     hint: "How literally vs. symbolically the fact should be depicted.",
     whatItIs: [
       "A five-way classification of the depiction approach: show the fact literally as an event, abstract it symbolically, turn it into a concrete metaphor, stage it as realistic social roleplay, or mix literal and symbolic elements.",
@@ -295,7 +295,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "visualComplexity",
-    label: "Visual Complexity",
+    label: "Visualization Difficulty",
     hint: "The AI's rating of how hard this fact is to visualize.",
     whatItIs: [
       "A low/medium/high rating of visualization difficulty. High-complexity facts (abstract, wordplay-heavy, ambiguous) are where AI renders most often miss — the admin UI shows a \"Hard to visualize\" warning for them in both the editor and the Step-2 visual review summary.",
@@ -353,7 +353,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "adultSuitability",
-    label: "Adult Suitability",
+    label: "Adult-Mode Compatibility",
     hint: "Whether this FACT could support adult/spicy rendering — NOT the render's SFW control.",
     whatItIs: [
       "A fact-level compatibility rating for adult/suggestive rendering. Important distinction: this does NOT set the SFW level of any render — the actual content level is the separate contentMode render control chosen at render time. This field only says whether the fact itself could ever support a spicy variant.",
@@ -379,7 +379,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "adultSuitabilityNotes",
-    label: "Adult Suitability Notes",
+    label: "Adult-Mode Notes",
     hint: "The classifier's free-text reasoning behind the adult-suitability rating.",
     whatItIs: [
       "Free text (max 500 chars) where the classifier explains WHY it chose the adult-suitability value — especially useful for 'requires_review', where it should name the ambiguity a human needs to resolve.",
@@ -402,7 +402,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "modifiers",
-    label: "Modifiers",
+    label: "Render Modifiers",
     hint: "Flags that inject specific directives into the engine prompt — the most direct lever on the image.",
     whatItIs: [
       "A list of flags from a 50-value known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They are the most direct admin lever on the final image: about 30 of them map to a literal, fixed English sentence injected into the engine prompt's SUBJECT DETAILS section.",
@@ -526,7 +526,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   },
   {
     key: "taxonomyConfidence",
-    label: "Taxonomy Confidence",
+    label: "AI Classification Confidence",
     hint: "The classifier's 0–1 confidence in its own archetype/subtype call. Read-only.",
     whatItIs: [
       "The model's self-reported confidence (0–1) in the taxonomy classification. Below 0.75, Taxonomy Health raises a low-confidence flag and marks the fact needs_admin_review — your cue to sanity-check the archetype/subtype yourself.",
