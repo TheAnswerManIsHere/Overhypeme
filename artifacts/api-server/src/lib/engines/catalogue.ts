@@ -23,6 +23,7 @@ import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
 import { FAL_YOLO_WORLD } from "./fal-yolo-world";
 import { OPENAI_GENERAL } from "./openai-general";
+import { OPENAI_VISUAL_PLANNER } from "./openai-visual-planner";
 
 /**
  * Code-first engine catalogue. To add a new engine: drop a new file in this
@@ -48,4 +49,5 @@ export const ALL_ENGINES: EngineDefinition[] = [
   FAL_AUTO_SUBTITLE,
   FAL_YOLO_WORLD,
   OPENAI_GENERAL,
+  OPENAI_VISUAL_PLANNER,
 ];

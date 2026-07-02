@@ -43,6 +43,9 @@ interface EngineRow {
   defaultTemperature: string | number | null;
   defaultMaxTokens: number | null;
   defaultReasoningEffort: string | null;
+  /** Derived server-side from the code catalogue — false means the row is
+   *  routed by a dedicated config key and can never be the kind default. */
+  eligibleAsKindDefault: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -82,6 +85,7 @@ const KIND_LABELS: Record<string, string> = {
   "image-to-image": "Image-to-image engines",
   image: "Image engines",
   utility: "Utility engines",
+  llm: "LLM engines",
 };
 
 function msToHuman(ms: number): string {
@@ -1355,7 +1359,9 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
           </button>
           <button
             onClick={() => set("isDefault", !form.isDefault)}
-            className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-sm border transition-colors ${
+            disabled={engine.eligibleAsKindDefault === false}
+            title={engine.eligibleAsKindDefault === false ? "Routed by a dedicated config key — cannot be the kind default" : undefined}
+            className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-sm border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               form.isDefault ? "bg-amber-500/10 border-amber-500/40 text-amber-400" : "bg-muted/30 border-border text-muted-foreground"
             }`}
           >
@@ -1663,7 +1669,7 @@ function EngineCard({
                   <Beaker className="w-3 h-3" /> Test
                 </button>
               )}
-              {!engine.isDefault && (
+              {!engine.isDefault && engine.eligibleAsKindDefault !== false && (
                 <button
                   onClick={setDefault}
                   disabled={busy === "setDefault"}
