@@ -119,10 +119,11 @@ export default defineConfig({
     // Disable automatic dependency scanning in the dev server.
     // The full esbuild dep scan spawns thousands of goroutines which exhausts
     // the container's OS thread limit (~1024 total) and panics. With noDiscovery
-    // and an empty include list, Vite skips the pre-bundling phase entirely and
-    // transforms deps on-demand instead.
+    // and a minimal include list, Vite only pre-bundles the specific CJS deps
+    // that fail on-demand transformation (use-sync-external-store is CJS and
+    // imported by wouter + @radix-ui/react-use-is-hydrated).
     noDiscovery: true,
-    include: [],
+    include: ["use-sync-external-store"],
   },
   server: {
     port,
