@@ -14,14 +14,16 @@ import {
   type ReviewWorkflowStage,
   type RenderScenarioKey,
   RENDER_SCENARIO_DESCRIPTORS,
+  type VisualConceptsResponse,
 } from "@workspace/api-zod";
-import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
+import { EnrichmentEditor, EnrichmentSummary, isApprovable, withCoreSceneOverride } from "@/components/admin/EnrichmentEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
+import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -137,25 +139,36 @@ function StageBadge({ stage }: { stage: ReviewWorkflowStage }) {
   );
 }
 
-/** One prep step's live state. null/"pending" render as "working" (spinner). */
-function PrepStepPill({ icon: Icon, label, status }: { icon: typeof Sparkles; label: string; status: PrepStatus }) {
-  const working = status == null || status === "pending";
+/**
+ * One prep step's live state. null/"pending" render as "working" (spinner).
+ *
+ * `optional` steps (e.g. candidate Visual concepts) never block approval, so
+ * they use a softened palette: a failure reads as muted "unavailable" (not the
+ * alarming destructive red of a required step), and a `null` status means "not
+ * run yet" (muted, no spinner) rather than "working".
+ */
+function PrepStepPill({ icon: Icon, label, status, optional }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean }) {
   const ok = status === "ok";
   const failed = status === "failed";
+  const notStarted = optional && status == null;
   const tone = ok
     ? "text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10"
     : failed
-    ? "text-destructive border-destructive/30 bg-destructive/10"
+    ? (optional ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-destructive border-destructive/30 bg-destructive/10")
+    : notStarted
+    ? "text-muted-foreground border-border bg-muted/40"
     : "text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/10";
-  const word = ok ? "ready" : failed ? "failed" : "working…";
+  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notStarted ? "not run" : "working…";
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-sm border ${tone}`}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="font-semibold">{label}</span>
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" />
-        : failed ? <XCircle className="w-3.5 h-3.5" />
+        : failed ? (optional ? <AlertTriangle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />)
+        : notStarted ? null
         : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
       <span>{word}</span>
+      {optional && <span className="text-[10px] font-mono opacity-70">optional</span>}
     </span>
   );
 }
@@ -168,10 +181,14 @@ function PrepStepPill({ icon: Icon, label, status }: { icon: typeof Sparkles; la
 function PrepStatusPanel({
   enrichmentStatus,
   pexelsStatus,
+  visualConceptStatus,
 }: {
   enrichmentStatus: PrepStatus;
   pexelsStatus: PrepStatus;
+  /** Optional, non-blocking: candidate Visual concepts (Slice 2A). */
+  visualConceptStatus?: PrepStatus;
 }) {
+  // Only the two REQUIRED steps count toward the tally; Visual ideas are a bonus.
   const steps: PrepStatus[] = [enrichmentStatus, pexelsStatus];
   const done = steps.filter((s) => s === "ok").length;
   const failed = steps.filter((s) => s === "failed").length;
@@ -186,6 +203,9 @@ function PrepStatusPanel({
       <div className="flex flex-wrap gap-2">
         <PrepStepPill icon={Sparkles} label="Enrichment" status={enrichmentStatus} />
         <PrepStepPill icon={ImageIcon} label="Pexels images" status={pexelsStatus} />
+        {visualConceptStatus !== undefined && (
+          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus} optional />
+        )}
       </div>
     </div>
   );
@@ -227,6 +247,8 @@ type RejectionReason = typeof REJECTION_REASONS[number]["value"];
 
 interface ReviewDetail extends Review {
   stagingFact: StagingFactDetail | null;
+  /** Slice 2A: normalized candidate Visual concepts (server-computed `current`). */
+  visualConcepts?: VisualConceptsResponse;
 }
 
 /** A single visual-render problem returned by approve-for-production's 409. */
@@ -399,6 +421,47 @@ function ReviewModal({
     const h = setInterval(() => { void loadDetail(); }, 1200);
     return () => clearInterval(h);
   }, [stage, loadDetail]);
+
+  // Finite candidate-concept polling: the concept job runs during
+  // production_review (async), so poll ONLY while its status is "pending" and
+  // stop on any terminal state. `null` = not started (no poll — the picker shows
+  // a manual Generate), so old/pre-feature rows never poll forever.
+  const visualConceptStatus: PrepStatus = detail?.visualConcepts?.status ?? null;
+  useEffect(() => {
+    if (visualConceptStatus !== "pending") return;
+    const h = setInterval(() => { void loadDetail(); }, 1200);
+    return () => clearInterval(h);
+  }, [visualConceptStatus, loadDetail]);
+
+  // POST regenerate: draft 3 fresh concepts. The server offers the moderator's
+  // CURRENT unsaved Visual concept draft as "here's my direction — propose
+  // distinct alternatives" context (it can't see local drafts otherwise). We
+  // optimistically flip the local status to "pending" so the picker shows
+  // "working" immediately, then let polling reconcile.
+  const onGenerateConcepts = useCallback(async (): Promise<void> => {
+    const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.enabled
+      ? (enrichment.visualPromptStrategyOverride.coreSceneOverride?.trim() || null)
+      : null;
+    setDetail((d) => (d ? { ...d, visualConcepts: { status: "pending", candidates: [], current: false } } : d));
+    try {
+      await fetch(`/api/admin/reviews/${review.id}/visual-concepts/regenerate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coreSceneDraft }),
+      });
+    } finally {
+      void loadDetail();
+    }
+  }, [review.id, enrichment, loadDetail]);
+
+  const onPickConcept = useCallback((sceneDescription: string) => {
+    if (!enrichment) return;
+    enrichmentDraft.setValue({
+      ...enrichment,
+      visualPromptStrategyOverride: withCoreSceneOverride(enrichment.visualPromptStrategyOverride, sceneDescription),
+    });
+  }, [enrichment, enrichmentDraft]);
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");
@@ -597,7 +660,11 @@ function ReviewModal({
           {/* ── Live prep status (prep + production review), on Triage step ── */}
           {step === "triage" && (stage === "prep_pending" || stage === "prep_failed" || isProductionReview) && (
             <div className="bg-background border-2 border-border rounded-sm p-4">
-              <PrepStatusPanel enrichmentStatus={isProductionReview ? "ok" : liveEnrichmentStatus} pexelsStatus={pexelsStatus} />
+              <PrepStatusPanel
+                enrichmentStatus={isProductionReview ? "ok" : liveEnrichmentStatus}
+                pexelsStatus={pexelsStatus}
+                visualConceptStatus={isProductionReview ? visualConceptStatus : undefined}
+              />
               {stage === "prep_pending" && (
                 <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Prep is running — this view updates live; you don't need to refresh.
@@ -657,6 +724,16 @@ function ReviewModal({
                 onChange={(next) => {
                   if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
                 }}
+              />
+
+              {/* Candidate Visual concepts (Slice 2A) — 3 planner-drafted ideas to
+                  start from. Optional: picking one fills the field above (draft
+                  only; the moderator still Saves). */}
+              <VisualConceptCandidates
+                visualConcepts={detail?.visualConcepts}
+                disabled={!enrichment || loading || enrichmentDraft.committing}
+                onPick={onPickConcept}
+                onGenerate={onGenerateConcepts}
               />
 
               {/* Draft status + Save/Discard — kept OUTSIDE (above) the collapsed
