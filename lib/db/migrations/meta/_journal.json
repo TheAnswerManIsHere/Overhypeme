@@ -540,6 +540,13 @@
       "when": 1780900000000,
       "tag": "0076_moderation_render_scenarios",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1781000000000,
+      "tag": "0077_visual_planner_reasoning_effort",
+      "breakpoints": true
     }
   ]
 }
