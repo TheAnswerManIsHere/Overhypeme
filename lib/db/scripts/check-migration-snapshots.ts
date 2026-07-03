@@ -206,6 +206,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // diverged recent snapshot chain). Source of truth: lib/db/src/schema/
   // imagePromptAttempts.ts + reviews.ts.
   "0076_moderation_render_scenarios",
+
+  // DML-only fix: lowers the persisted openai-visual-planner
+  // default_reasoning_effort from the old xhigh seed to high (admin-editable
+  // field, so boot reconciliation can't do it). No DDL means no schema delta
+  // means no snapshot.
+  "0077_visual_planner_reasoning_effort",
 ]);
 
 interface JournalEntry {
