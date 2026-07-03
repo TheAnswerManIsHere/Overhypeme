@@ -449,6 +449,38 @@ describe("runEnrichmentForCandidateVersion", () => {
     assert.equal(candidate.enrichment, null, "candidate row untouched");
   });
 
+  it("onAbandon marks a still-in-flight cycle prep_failed, but never rewrites a resolved one", async () => {
+    const { enrichmentJobHandler } = await import("../lib/enrichmentJobs.js");
+
+    // In-flight cycle: terminal abandon → prep_failed + failed pill.
+    const factA = await seedActiveFact();
+    const a = await sendFactBackToReview({ factId: factA.id, adminId });
+    await enrichmentJobHandler.onAbandon!({ payload: { factId: factA.id, versionId: a.candidateVersionId }, id: 991 } as never);
+    const [reviewA] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, a.reviewId));
+    assert.equal(reviewA.workflowStage, "prep_failed");
+    const [fA] = await db.select().from(factsTable).where(eq(factsTable.id, factA.id));
+    assert.equal(fA.enrichmentStatus, "failed");
+
+    // Already-rejected cycle: a late abandon must NOT resurrect it as failed.
+    const factB = await seedActiveFact();
+    const b = await sendFactBackToReview({ factId: factB.id, adminId });
+    await db.transaction(async (tx) => {
+      await tx.update(pendingReviewsTable)
+        .set({ status: "rejected", workflowStage: "production_rejected" })
+        .where(eq(pendingReviewsTable.id, b.reviewId));
+      await tx.update(factEnrichmentVersionsTable)
+        .set({ status: "rejected", rejectedAt: new Date() })
+        .where(eq(factEnrichmentVersionsTable.id, b.candidateVersionId));
+      await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, factB.id));
+    });
+    await enrichmentJobHandler.onAbandon!({ payload: { factId: factB.id, versionId: b.candidateVersionId }, id: 992 } as never);
+    const [reviewB] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, b.reviewId));
+    assert.equal(reviewB.workflowStage, "production_rejected", "resolved cycle must not be rewritten to prep_failed");
+    assert.equal(reviewB.status, "rejected");
+    const [fB] = await db.select().from(factsTable).where(eq(factsTable.id, factB.id));
+    assert.equal(fB.enrichmentStatus, "ok", "the LIVE fact's pill must not flip to failed after a reject");
+  });
+
   it("phase 3 recheck: a mid-classify rejection makes the write a no-op", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });

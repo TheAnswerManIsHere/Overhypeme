@@ -15,7 +15,7 @@
  * handler outcome.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable,
@@ -398,16 +398,31 @@ export const enrichmentJobHandler: JobHandler = {
     const { factId, versionId } = (row.payload ?? {}) as EnrichmentJobPayload;
     if (typeof versionId === "number") {
       const [v] = await db
-        .select({ factId: factEnrichmentVersionsTable.factId, sourceReviewId: factEnrichmentVersionsTable.sourceReviewId })
+        .select({
+          factId: factEnrichmentVersionsTable.factId,
+          status: factEnrichmentVersionsTable.status,
+          sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
+        })
         .from(factEnrichmentVersionsTable)
         .where(eq(factEnrichmentVersionsTable.id, versionId))
         .limit(1);
-      if (v?.sourceReviewId != null) {
-        await db
+      // Stale-abandon guard (mirrors advanceReviewForStagingFactEnrichment):
+      // only a still-in-flight cycle may be marked failed. If the moderator
+      // already resolved it (rejected mid-retries), rewriting the review to
+      // prep_failed — or flipping the LIVE fact's pill to failed — would
+      // corrupt a settled state.
+      if (v?.sourceReviewId != null && v.status === "candidate") {
+        const advanced = await db
           .update(pendingReviewsTable)
           .set({ workflowStage: "prep_failed" })
-          .where(eq(pendingReviewsTable.id, v.sourceReviewId));
-        await db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v.factId));
+          .where(and(
+            eq(pendingReviewsTable.id, v.sourceReviewId),
+            eq(pendingReviewsTable.workflowStage, "prep_pending"),
+          ))
+          .returning({ id: pendingReviewsTable.id });
+        if (advanced.length > 0) {
+          await db.update(factsTable).set({ enrichmentStatus: "failed" }).where(eq(factsTable.id, v.factId));
+        }
       }
       return;
     }
