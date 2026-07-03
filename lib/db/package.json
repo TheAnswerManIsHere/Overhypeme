@@ -16,7 +16,7 @@
     "validate-snapshots": "node --import tsx/esm scripts/validate-migration-snapshots.ts",
     "rebuild-snapshots": "node --import tsx/esm scripts/rebuild-snapshots.ts",
     "test": "node --import tsx/esm --test 'src/**/*.test.ts'",
-    "typecheck": "bash ../../scripts/with-time-limit.sh 15000 tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

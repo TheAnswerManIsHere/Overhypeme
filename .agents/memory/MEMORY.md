@@ -4,3 +4,4 @@
 - [Test database isolation](test-db-isolation.md) — PR132 runner uses per-DB clones; requires TEST_DATABASE_URL (heliumdb_test); both pretest and test-db.sh use it automatically when set.
 - [Image-prompt preview parity](image-prompt-preview-parity.md) — Fact-page preview + engine workbench + production all share generateImagePromptPlan+compileForSubjectRenderMode; previews must share PREVIEW_SUBJECT_NAME; residual prose diff is temp 0.4, not caching.
 - [Test idle-drain timeout](test-idle-drain-timeout.md) — single-file test runs hung ~60s on the pg pool's idle timer, not sharding; lib/db now auto-detects the test runner to unref idle handles.
+- [Running long test suites](running-long-test-suites.md) — foreground `pnpm test | tail` gets killed (exit -1, no output); run node suites detached+poll in one call, run vitest via the sentry-tests workflow.
