@@ -48,6 +48,7 @@ import {
   buildReviewScenarioGrid,
   runReviewScenarios,
   getScenarioAttemptDiagnostics,
+  reviewsWithActiveRenders,
 } from "../lib/reviewRenderScenarios";
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
@@ -252,6 +253,15 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const factMap = Object.fromEntries(matchingFacts.map((f) => [f.id, f]));
   const stagingMap = Object.fromEntries(stagingFacts.map((f) => [f.id, f]));
 
+  // Per-row "test renders in flight" signal, so the list lights up a working pill
+  // + keeps polling when an admin re-runs a render (or the auto-batch runs) — the
+  // render analogue of the enrichment/Pexels prep status (rule 8). Only meaningful
+  // in production_review, where renders exist.
+  const productionReviewIds = reviews
+    .filter((r) => r.workflowStage === "production_review")
+    .map((r) => r.id);
+  const activeRenderIds = await reviewsWithActiveRenders(productionReviewIds);
+
   const enriched = reviews.map((r) => ({
     ...r,
     createdAt: r.createdAt.toISOString(),
@@ -259,6 +269,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
     submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
     matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
     stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
+    rendersRunning: activeRenderIds.has(r.id),
   }));
 
   res.json({ reviews: enriched, total, page, limit });

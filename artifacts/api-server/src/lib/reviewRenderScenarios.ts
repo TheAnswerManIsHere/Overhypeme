@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, pendingReviewsTable, factsTable, type ImagePromptAttempt } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
@@ -512,6 +512,34 @@ export async function buildReviewScenarioGrid(
     stale: cards.filter((c) => c.stale).length,
   };
   return { reviewId, cards, tally };
+}
+
+// ─── List-level active-render signal ─────────────────────────────────────────
+
+/**
+ * Of the given reviews, which currently have a test render in flight — i.e. the
+ * LATEST attempt for at least one scenario is still queued/rendering (no `error`,
+ * no image yet). Mirrors the grid's latest-per-scenario status (via `DISTINCT ON`)
+ * so the moderation LIST can light up a "renders working…" pill and keep polling
+ * while a manual re-run — or the initial auto-batch — runs, exactly like prep does
+ * for enrichment/images (CLAUDE.md rule 8). A single aggregate query keeps the
+ * hot, ~2.5s-polled list endpoint cheap regardless of page size.
+ */
+export async function reviewsWithActiveRenders(reviewIds: number[]): Promise<Set<number>> {
+  if (reviewIds.length === 0) return new Set();
+  const result = await db.execute<{ review_id: number }>(sql`
+    SELECT DISTINCT latest.review_id
+    FROM (
+      SELECT DISTINCT ON (a.review_id, a.review_render_scenario_key)
+        a.review_id, a.error, a.generated_image_object_path
+      FROM image_prompt_attempts a
+      WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+        AND a.review_render_scenario_key IS NOT NULL
+      ORDER BY a.review_id, a.review_render_scenario_key, a.created_at DESC
+    ) latest
+    WHERE latest.error IS NULL AND latest.generated_image_object_path IS NULL
+  `);
+  return new Set(result.rows.map((r) => Number(r.review_id)));
 }
 
 // ─── Frozen per-attempt diagnostics ──────────────────────────────────────────
