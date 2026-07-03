@@ -177,9 +177,15 @@ export async function sendFactBackToReview(args: {
     });
   } catch (err) {
     if (isCandidateUniqueViolation(err)) {
+      // Race path (two send-backs hit the partial-unique index): look the
+      // winner up post-conflict so this path returns the SAME in-flight cycle
+      // ids as the pre-check — the endpoint contract for
+      // REFRESH_ALREADY_IN_PROGRESS. Null-safe if the winner vanished already.
+      const existing = await findInFlightRefreshCandidate(factId);
       throw new SendBackToReviewError(
         "REFRESH_ALREADY_IN_PROGRESS",
         "A refresh is already in progress for this fact.",
+        existing ? { reviewId: existing.reviewId, candidateVersionId: existing.candidateVersionId } : undefined,
       );
     }
     throw err;

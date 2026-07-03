@@ -51,6 +51,14 @@ process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TES
 // We capture the file's start time and, in a top-level after() hook, delete
 // any outbox rows created during this test run. Recipient is not filtered so
 // every test-generated row is removed regardless of which handler made it.
+// Dummy Stripe credentials (same convention as routes.stripe.test.ts): the
+// handlers under test never make real Stripe API calls, but the lazily-built
+// client throws at construction when the mode's env vars are absent. This file
+// previously relied on ANOTHER test file in the same shard setting these as a
+// module side effect — which broke whenever shard composition shifted.
+process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
+process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
+
 const TEST_FILE_START = new Date();
 after(async () => {
   // Only delete rows that came from admin notification paths. Those rows have

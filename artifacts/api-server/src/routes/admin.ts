@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -9,23 +9,29 @@ import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
+import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
+import {
+  applyOverrideReset,
+  applyOverrideUpsert,
+  loadFactOverrideState,
+  serializeResolved,
+  stampOverrideProvenance,
+  stripVisualOverride,
+  type OverrideLayers,
+  type VisualOverride,
+} from "../lib/enrichmentOverrideLayers";
 import { enqueueJob } from "../lib/asyncJobs";
 import {
   validateEnrichment,
-  resolveEnrichment,
   computeBaselineChangedPaths,
   overrideValuesEqual,
-  validateOverrideValue,
   isOverridablePath,
   OVERRIDABLE_PATHS,
   OVERRIDABLE_PATH_KEYS,
   pathToField,
-  subtypesForArchetype,
   type FactEnrichment,
-  type EnrichmentOverrides,
   type ManualOverride,
   type OverridablePath,
-  type PrimaryArchetype,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
@@ -841,171 +847,12 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
   res.json(row);
 });
 
-/**
- * Stamp the moderator visual-strategy override's server-owned provenance
- * (updatedBy/updatedAt) when its content changed vs the prior stored override;
- * otherwise preserve the prior provenance verbatim. These fields are never set
- * by the client or the AI. Returns the enrichment unchanged when there is no
- * override. (Content comparison ignores the provenance fields themselves.)
- */
-// Order-independent serialization: jsonb does NOT preserve object key order on
-// the DB round-trip, so a plain JSON.stringify would falsely flag "changed".
-// Sorts object keys recursively while preserving array order (reordering a list
-// IS a real change).
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    // Drop undefined-valued keys: jsonb drops them on the DB round-trip, so the
-    // in-memory (freshly-parsed) object and the stored one must compare equal.
-    const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
-
-function stampOverrideProvenance(
-  next: FactEnrichment,
-  prior: unknown,
-  adminId: string | null,
-): FactEnrichment {
-  const ov = (next as { visualPromptStrategyOverride?: Record<string, unknown> }).visualPromptStrategyOverride;
-  if (!ov) return next;
-  const priorOv = (prior as { visualPromptStrategyOverride?: Record<string, unknown> } | null | undefined)
-    ?.visualPromptStrategyOverride;
-  const stripProvenance = (o: Record<string, unknown> | undefined) => {
-    if (!o) return null;
-    const { updatedBy: _b, updatedAt: _a, ...rest } = o;
-    return stableStringify(rest);
-  };
-  const changed = stripProvenance(ov) !== stripProvenance(priorOv);
-  const provenance = changed
-    ? { updatedBy: adminId ?? undefined, updatedAt: new Date().toISOString() }
-    : { updatedBy: priorOv?.["updatedBy"] as string | undefined, updatedAt: priorOv?.["updatedAt"] as string | undefined };
-  return {
-    ...next,
-    visualPromptStrategyOverride: { ...ov, ...provenance },
-  } as FactEnrichment;
-}
-
-// ─── AI-derived vs. manual-override helpers ─────────────────────────────────
-
-// Transaction type, inferred from the db.transaction callback parameter.
-type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type VisualOverride = FactEnrichment["visualPromptStrategyOverride"];
-
-/** Recover a best-effort pure AI baseline from an effective blob (strips the
- * moderator visual override) for legacy rows that predate enrichment_ai_derived. */
-function stripVisualOverride(enrichment: FactEnrichment | null | undefined): FactEnrichment | null {
-  if (!enrichment) return null;
-  const copy = { ...enrichment } as FactEnrichment;
-  delete (copy as Record<string, unknown>)["visualPromptStrategyOverride"];
-  return copy;
-}
-
-interface FactOverrideState {
-  aiDerived: FactEnrichment | null;
-  overrides: EnrichmentOverrides;
-  visualPromptStrategyOverride: VisualOverride | undefined;
-  effective: FactEnrichment | null;
-  enrichmentStatus: string | null;
-}
-
-/** Load the three override layers for a fact, normalizing legacy rows (a null
- * enrichment_ai_derived derives its baseline from the current effective blob). */
-async function loadFactOverrideState(
-  executor: typeof db | DbTx,
-  factId: number,
-  forUpdate = false,
-): Promise<FactOverrideState | null> {
-  const base = executor
-    .select({
-      enrichment: factsTable.enrichment,
-      enrichmentAiDerived: factsTable.enrichmentAiDerived,
-      enrichmentOverrides: factsTable.enrichmentOverrides,
-      enrichmentStatus: factsTable.enrichmentStatus,
-    })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  const [row] = forUpdate ? await base.for("update") : await base;
-  if (!row) return null;
-  const effective = (row.enrichment ?? null) as FactEnrichment | null;
-  const visualPromptStrategyOverride = (effective as { visualPromptStrategyOverride?: VisualOverride } | null)
-    ?.visualPromptStrategyOverride;
-  const aiDerived = (row.enrichmentAiDerived as FactEnrichment | null) ?? stripVisualOverride(effective);
-  const overrides = (row.enrichmentOverrides ?? {}) as EnrichmentOverrides;
-  return { aiDerived, overrides, visualPromptStrategyOverride, effective, enrichmentStatus: row.enrichmentStatus ?? null };
-}
-
-/** Ensure the EFFECTIVE subtype is valid for the EFFECTIVE archetype, creating
- * (or dropping) a `/subtype` override as needed. Mutates `overrides` in place;
- * returns the auto-link audit detail (or null when nothing changed). */
-function ensureSubtypeCompatible(args: {
-  overrides: EnrichmentOverrides;
-  aiDerived: FactEnrichment;
-  adminId: string | null;
-}): { oldValue: unknown; newValue: unknown } | null {
-  const { overrides, aiDerived, adminId } = args;
-  const effArchetype = (overrides["/primaryArchetype"]?.value ?? aiDerived.primaryArchetype) as PrimaryArchetype;
-  const effSubtype = overrides["/subtype"]?.value ?? aiDerived.subtype;
-  const allowed = subtypesForArchetype(effArchetype) as readonly string[];
-  if (allowed.includes(effSubtype as string)) return null;
-  const newSubtype = allowed[0];
-  const prev = effSubtype;
-  if (overrideValuesEqual(newSubtype, aiDerived.subtype)) {
-    // The AI subtype is the compatible default → no override needed.
-    delete overrides["/subtype"];
-  } else {
-    const now = new Date().toISOString();
-    overrides["/subtype"] = {
-      value: newSubtype,
-      overriddenFrom: aiDerived.subtype,
-      aiGenerationId: aiDerived.aiGenerationId,
-      createdAt: now,
-      createdBy: adminId,
-      reason: "Auto-adjusted to match Primary Archetype override",
-      autoLinked: true,
-    };
-  }
-  return { oldValue: prev, newValue: newSubtype };
-}
-
-/** Shape the GET-resolved / PUT / DELETE response. */
-function serializeResolved(s: {
-  aiDerived: FactEnrichment | null;
-  overrides: EnrichmentOverrides;
-  effective: FactEnrichment | null;
-  enrichmentStatus: string | null;
-  visualPromptStrategyOverride?: VisualOverride;
-}): Record<string, unknown> {
-  if (!s.aiDerived) {
-    return {
-      aiDerived: null,
-      overrides: {},
-      effective: s.effective,
-      overrideSummary: {
-        hasOverrides: false, overriddenPaths: [], baselineChangedPaths: [],
-        invalidPaths: [], crossFieldInvalid: false,
-        hasVisualStrategyOverride: Boolean(s.visualPromptStrategyOverride?.enabled),
-      },
-      enrichmentStatus: s.enrichmentStatus,
-    };
-  }
-  const { effective, summary } = resolveEnrichment({
-    aiDerived: s.aiDerived,
-    overrides: s.overrides,
-    visualPromptStrategyOverride: s.visualPromptStrategyOverride,
-  });
-  return {
-    aiDerived: s.aiDerived,
-    overrides: s.overrides,
-    effective,
-    overrideSummary: summary,
-    enrichmentStatus: s.enrichmentStatus,
-  };
-}
-
+// The override-layer machinery (loadFactOverrideState, serializeResolved,
+// applyOverrideUpsert/Reset, provenance stamping) lives in
+// lib/enrichmentOverrideLayers.ts, SHARED with the refresh-candidate editing
+// routes so the two write paths can never drift. This file keeps owning the
+// fact-specific persistence: row locks, the refresh write-freeze check,
+// materialization onto facts.*, and override-history audit rows.
 // GET /admin/facts/:id/enrichment-resolved — the AI baseline, the manual override
 // map, the materialized effective blob, and the unified manual-intervention
 // summary the editor uses to decorate diverged fields.
@@ -1033,7 +880,7 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
   const acknowledge = body.acknowledgeCurrentAiBaseline === true;
 
   try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: FactOverrideState }> => {
+    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
       // WRITE FREEZE: while a refresh candidate is in review, the live layers
@@ -1044,63 +891,29 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
       const aiDerived = state.aiDerived;
 
-      const valid = validateOverrideValue(path, body.value);
-      if (!valid.ok) return { status: 400, error: `Invalid value for ${path}: ${valid.error}` };
-      const value = valid.value;
-      const aiGenerationId = aiDerived.aiGenerationId;
-      const aiNow = (aiDerived as Record<string, unknown>)[pathToField(path)];
+      // Shared merge core: validation, reset-when-equal-AI, acknowledge
+      // semantics, subtype auto-link, cross-field validation.
+      const result = applyOverrideUpsert({
+        layers: { ...state, aiDerived },
+        path,
+        value: body.value,
+        ...(reason !== undefined ? { reason } : {}),
+        acknowledge,
+        adminId,
+      });
+      if (!result.ok) return { status: result.status, error: result.error };
 
-      const overrides: EnrichmentOverrides = { ...state.overrides };
-      const history: InsertEnrichmentOverrideHistory[] = [];
-      const existing = overrides[path];
-
-      if (overrideValuesEqual(value, aiNow)) {
-        // Setting a field back to its AI value is a reset.
-        if (existing) {
-          delete overrides[path];
-          history.push({ factId: id, path, action: "reset", oldValue: existing.value ?? null, newValue: null, aiGenerationId: aiGenerationId ?? null, reason: reason ?? null, performedBy: adminId });
-        }
-      } else if (!existing) {
-        const now = new Date().toISOString();
-        overrides[path] = { value, overriddenFrom: aiNow, aiGenerationId, createdAt: now, createdBy: adminId, reason };
-        history.push({ factId: id, path, action: "set", oldValue: aiNow ?? null, newValue: value, aiGenerationId: aiGenerationId ?? null, reason: reason ?? null, performedBy: adminId });
-      } else if (!overrideValuesEqual(existing.value, value)) {
-        const now = new Date().toISOString();
-        overrides[path] = {
-          ...existing,
-          value,
-          // overriddenFrom is only refreshed on an explicit baseline acknowledgement —
-          // never accidentally on an ordinary value edit (so baseline-change detection
-          // survives autosaves / redundant PUTs).
-          overriddenFrom: acknowledge ? aiNow : existing.overriddenFrom,
-          aiGenerationId: acknowledge ? aiGenerationId : existing.aiGenerationId,
-          updatedAt: now,
-          updatedBy: adminId,
-          reason: reason ?? existing.reason,
-        };
-        history.push({ factId: id, path, action: "update", oldValue: existing.value ?? null, newValue: value, aiGenerationId: aiGenerationId ?? null, reason: reason ?? null, performedBy: adminId });
-      }
-      // else: value unchanged → no-op, do NOT refresh overriddenFrom.
-
-      // Overriding the archetype can leave the subtype incompatible — auto-link it.
-      if (path === "/primaryArchetype") {
-        const linked = ensureSubtypeCompatible({ overrides, aiDerived, adminId });
-        if (linked) {
-          history.push({ factId: id, path: "/subtype", action: "auto_linked", oldValue: linked.oldValue ?? null, newValue: linked.newValue ?? null, aiGenerationId: aiGenerationId ?? null, reason: "Auto-adjusted to match Primary Archetype override", performedBy: adminId });
-        }
-      }
-
-      // Validate the full assembled effective before persisting — never knowingly
-      // store an invalid combination and lean on runtime fallback.
-      const resolved = resolveEnrichment({ aiDerived, overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
-      if (resolved.summary.crossFieldInvalid || resolved.summary.invalidPaths.length > 0) {
-        return { status: 400, error: "This override would produce an invalid enrichment" };
-      }
-
-      const { columns } = materializeEnrichment({ aiDerived, overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
       await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
-      await recordOverrideHistory(history, tx);
-      return { status: 200, state: { ...state, overrides } };
+      // Fact edits are the audited surface — map the change list to history rows.
+      await recordOverrideHistory(
+        result.changes.map((c): InsertEnrichmentOverrideHistory => ({
+          factId: id, path: c.path, action: c.action, oldValue: c.oldValue, newValue: c.newValue,
+          aiGenerationId: c.aiGenerationId, reason: c.reason, performedBy: adminId,
+        })),
+        tx,
+      );
+      return { status: 200, state: { ...state, overrides: result.overrides } };
     });
 
     if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
@@ -1122,7 +935,7 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
   const adminId = (req as AuthenticatedRequest).user?.id ?? null;
 
   try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: FactOverrideState }> => {
+    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: OverrideLayers }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
       // WRITE FREEZE while a refresh candidate is in review (see the PUT handler).
@@ -1130,21 +943,19 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
       const aiDerived = state.aiDerived;
-      const overrides: EnrichmentOverrides = { ...state.overrides };
-      const history: InsertEnrichmentOverrideHistory[] = [];
 
-      const toReset = path !== null ? [path as OverridablePath] : (Object.keys(overrides) as OverridablePath[]);
-      for (const p of toReset) {
-        const existing = overrides[p];
-        if (!existing) continue;
-        delete overrides[p];
-        history.push({ factId: id, path: p, action: "reset", oldValue: existing.value ?? null, newValue: null, aiGenerationId: aiDerived.aiGenerationId ?? null, reason: null, performedBy: adminId });
-      }
+      const result = applyOverrideReset({ layers: { ...state, aiDerived }, path: path as OverridablePath | null });
 
-      const { columns } = materializeEnrichment({ aiDerived, overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
       await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
-      await recordOverrideHistory(history, tx);
-      return { status: 200, state: { ...state, overrides } };
+      await recordOverrideHistory(
+        result.changes.map((c): InsertEnrichmentOverrideHistory => ({
+          factId: id, path: c.path, action: c.action, oldValue: c.oldValue, newValue: c.newValue,
+          aiGenerationId: c.aiGenerationId, reason: c.reason, performedBy: adminId,
+        })),
+        tx,
+      );
+      return { status: 200, state: { ...state, overrides: result.overrides } };
     });
 
     if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
@@ -1265,6 +1076,95 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   });
 
   res.json({ success: true, enrichmentStatus: "pending" });
+});
+
+// POST /admin/facts/:id/send-back-to-review — start a versioned-enrichment
+// REFRESH cycle for a live fact (stale-fact refresh). Thin wrapper over the
+// shared primitive; the fact stays live throughout, the candidate is
+// classified by the async job, and the cycle lands in the moderation queue at
+// Step 2. `clearOverrides` wipes the CANDIDATE's seeded manual-edit layers
+// only (the fact's own layers are never touched here).
+router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const clearOverrides = (req.body as { clearOverrides?: unknown } | null | undefined)?.clearOverrides === true;
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+
+  try {
+    const result = await sendFactBackToReview({ factId: id, clearOverrides, adminId });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof SendBackToReviewError) {
+      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
+      // NOT_ACTIVE / HAS_ACTIVE_VARIANTS / REFRESH_ALREADY_IN_PROGRESS — the
+      // in-progress case names the in-flight cycle so the UI can link to it.
+      res.status(409).json({
+        error: err.message,
+        code: err.code,
+        ...(err.existing ? { reviewId: err.existing.reviewId, candidateVersionId: err.existing.candidateVersionId } : {}),
+      });
+      return;
+    }
+    logger.error({ err, factId: id }, "[POST /admin/facts/:id/send-back-to-review] failed");
+    res.status(500).json({ error: "Failed to send fact back to review" });
+  }
+});
+
+// GET /admin/facts/:id/enrichment-versions — the fact's versioned-enrichment
+// history, METADATA ONLY (no jsonb blobs — the panel is for visibility, not
+// rollback). "current" is derived from facts.* (the sole active truth — the
+// version table never holds an active row); "inFlight" is the refresh cycle in
+// review, if any, and doubles as the Facts page's freeze/disable signal.
+router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({
+      enrichment: factsTable.enrichment,
+      enrichmentStatus: factsTable.enrichmentStatus,
+      enrichmentOverrides: factsTable.enrichmentOverrides,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const rows = await db
+    .select({
+      id: factEnrichmentVersionsTable.id,
+      versionNo: factEnrichmentVersionsTable.versionNo,
+      status: factEnrichmentVersionsTable.status,
+      source: factEnrichmentVersionsTable.source,
+      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
+      note: factEnrichmentVersionsTable.note,
+      createdBy: factEnrichmentVersionsTable.createdBy,
+      createdAt: factEnrichmentVersionsTable.createdAt,
+      promotedAt: factEnrichmentVersionsTable.promotedAt,
+      supersededAt: factEnrichmentVersionsTable.supersededAt,
+      rejectedAt: factEnrichmentVersionsTable.rejectedAt,
+      enrichmentReady: sql<boolean>`(${factEnrichmentVersionsTable.enrichment} IS NOT NULL)`,
+    })
+    .from(factEnrichmentVersionsTable)
+    .where(eq(factEnrichmentVersionsTable.factId, id))
+    .orderBy(desc(factEnrichmentVersionsTable.createdAt));
+
+  const candidate = rows.find((r) => r.status === "candidate");
+  res.json({
+    current: {
+      hasEnrichment: fact.enrichment != null,
+      enrichmentStatus: fact.enrichmentStatus ?? null,
+      hasOverrides: Object.keys((fact.enrichmentOverrides ?? {}) as Record<string, unknown>).length > 0,
+    },
+    inFlight: candidate ? { candidateVersionId: candidate.id, reviewId: candidate.sourceReviewId } : null,
+    versions: rows.map((r) => ({
+      ...r,
+      createdAt: r.createdAt.toISOString(),
+      promotedAt: r.promotedAt?.toISOString() ?? null,
+      supersededAt: r.supersededAt?.toISOString() ?? null,
+      rejectedAt: r.rejectedAt?.toISOString() ?? null,
+    })),
+  });
 });
 
 // POST /admin/facts/:id/variants — create a variant linked to a root fact

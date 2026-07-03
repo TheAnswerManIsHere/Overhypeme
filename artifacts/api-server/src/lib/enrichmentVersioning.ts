@@ -20,6 +20,7 @@ import {
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 import { materializeEnrichment } from "./factEnrichment";
+import { stripVisualOverride } from "./enrichmentOverrideLayers";
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -75,6 +76,135 @@ export function refreshInReviewErrorBody(existing: { candidateVersionId: number;
     code: "REFRESH_IN_REVIEW",
     reviewId: existing.reviewId,
     candidateVersionId: existing.candidateVersionId,
+  };
+}
+
+export type CandidateEditErrorCode =
+  | "REVIEW_NOT_FOUND"
+  | "NOT_REFRESH_CYCLE"
+  | "REVIEW_NOT_EDITABLE"
+  | "CANDIDATE_MISMATCH"
+  | "CANDIDATE_NOT_PENDING"
+  | "CANDIDATE_NOT_READY";
+
+/** Typed failure from `loadCandidateEditingContext`; routes map codes to HTTP
+ * (REVIEW_NOT_FOUND → 404, everything else → 409). */
+export class CandidateEditError extends Error {
+  constructor(
+    public readonly code: CandidateEditErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CandidateEditError";
+  }
+}
+
+/**
+ * Guard + loader for the refresh-candidate editing endpoints. Verifies the
+ * review is a refresh cycle whose candidate is still editable and returns the
+ * candidate's override layers in the same shape the fact editors use.
+ *
+ * LOCK SEQUENCE (deliberate — no inversion with promote/reject, which lock
+ * review → candidate → fact): the review row is read LOCK-FREE (validation
+ * only, never locked or written by edit routes); only the candidate row takes
+ * `FOR UPDATE` (when `forUpdate`), and every candidate precondition is checked
+ * from that locked read. Candidate edits serialize on CANDIDATE STATUS, not on
+ * review state: if promote/reject wins the race, the status re-check here
+ * fails with a 409; if an edit wins, it simply becomes part of what is
+ * promoted/retained.
+ *
+ * Error precedence: REVIEW_NOT_FOUND → NOT_REFRESH_CYCLE → CANDIDATE_MISMATCH
+ * (row missing / wrong fact) → CANDIDATE_NOT_PENDING (already
+ * promoted/rejected/superseded — covers post-resolution edits for both
+ * intents) → [write only] REVIEW_NOT_EDITABLE unless the stage is exactly
+ * `production_review` → CANDIDATE_NOT_READY while the blob is null (for reads
+ * during `prep_pending` this is the "classification still running" signal).
+ */
+export async function loadCandidateEditingContext(
+  reviewId: number,
+  executor: DbTx | typeof db,
+  opts: { forUpdate: boolean; intent: "read" | "write" },
+): Promise<{
+  review: { id: number; stagingFactId: number; workflowStage: string; candidateVersionId: number };
+  candidate: typeof factEnrichmentVersionsTable.$inferSelect;
+  layers: {
+    aiDerived: FactEnrichment | null;
+    overrides: EnrichmentOverrides;
+    visualPromptStrategyOverride: FactEnrichment["visualPromptStrategyOverride"] | undefined;
+    effective: FactEnrichment | null;
+    enrichmentStatus: string | null;
+  };
+}> {
+  const [review] = await executor
+    .select({
+      id: pendingReviewsTable.id,
+      stagingFactId: pendingReviewsTable.stagingFactId,
+      workflowStage: pendingReviewsTable.workflowStage,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
+    .from(pendingReviewsTable)
+    .where(eq(pendingReviewsTable.id, reviewId))
+    .limit(1);
+  if (!review) throw new CandidateEditError("REVIEW_NOT_FOUND", `Review ${reviewId} not found.`);
+  if (review.candidateVersionId == null || review.stagingFactId == null) {
+    throw new CandidateEditError(
+      "NOT_REFRESH_CYCLE",
+      "This review is a first-time submission, not a refresh cycle — edit its staging fact instead.",
+    );
+  }
+
+  const base = executor
+    .select()
+    .from(factEnrichmentVersionsTable)
+    .where(eq(factEnrichmentVersionsTable.id, review.candidateVersionId))
+    .limit(1);
+  const [candidate] = opts.forUpdate ? await base.for("update") : await base;
+  if (!candidate || candidate.factId !== review.stagingFactId) {
+    throw new CandidateEditError(
+      "CANDIDATE_MISMATCH",
+      "Refresh candidate missing for this review.",
+    );
+  }
+  if (candidate.status !== "candidate") {
+    throw new CandidateEditError(
+      "CANDIDATE_NOT_PENDING",
+      `This refresh was already ${candidate.status} — its candidate can no longer be edited.`,
+    );
+  }
+  if (opts.intent === "write" && review.workflowStage !== "production_review") {
+    throw new CandidateEditError(
+      "REVIEW_NOT_EDITABLE",
+      `The candidate can only be edited while the review sits at production review (currently ${review.workflowStage}).`,
+    );
+  }
+  if (candidate.enrichment == null) {
+    throw new CandidateEditError(
+      "CANDIDATE_NOT_READY",
+      "Classification is still running for this refresh — the candidate has no enrichment to show yet.",
+    );
+  }
+
+  const effective = candidate.enrichment as FactEnrichment;
+  return {
+    review: {
+      id: review.id,
+      stagingFactId: review.stagingFactId,
+      workflowStage: review.workflowStage,
+      candidateVersionId: review.candidateVersionId,
+    },
+    candidate,
+    layers: {
+      // Defensive normalization mirroring loadFactOverrideState: a candidate
+      // written by the job always has its pure baseline, but fall back safely.
+      aiDerived: (candidate.enrichmentAiDerived as FactEnrichment | null) ?? stripVisualOverride(effective),
+      overrides: (candidate.enrichmentOverrides ?? {}) as EnrichmentOverrides,
+      visualPromptStrategyOverride: (candidate.visualOverride ?? undefined) as
+        | FactEnrichment["visualPromptStrategyOverride"]
+        | undefined,
+      effective,
+      // Version rows carry no status column of their own; derived for the editor.
+      enrichmentStatus: "ok",
+    },
   };
 }
 

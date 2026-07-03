@@ -13,7 +13,9 @@
  *    guard (REFRESH_STALE_TEXT), first-approval side effects skipped
  *  - reject: candidate RETAINED as rejected, live fact untouched, a later
  *    send-back works
- *  - findReviewForStagingFact is deterministic (newest by created_at)
+ *  - generic fact-enrichment guards are refresh-aware (resolved cycles never
+ *    poison live re-enrich; in-flight refresh cycles are never touched by the
+ *    generic job; abandoned staging facts still skip paid work)
  *
  * Same harness as routes.reviews.test.ts (real authMiddleware + session bearer,
  * real test DB, plan generator stubbed so no test hits OpenAI).
@@ -47,7 +49,14 @@ import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview.js";
 import { runEnrichmentForCandidateVersion } from "../lib/enrichmentJobs.js";
-import { findReviewForStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging.js";
+import {
+  advanceReviewForStagingFactEnrichment,
+  findUnresolvedReviewForStagingFact,
+  isStagingImagePrepActive,
+  resolveGenericFactEnrichmentDecision,
+  resolveReviewCycleEnrichment,
+} from "../lib/moderationStaging.js";
+import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { runReviewScenarios } from "../lib/reviewRenderScenarios.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -809,28 +818,175 @@ describe("enrichment write freeze during refresh", () => {
   });
 });
 
-// ── Deterministic active-cycle lookup ────────────────────────────────────────
+// ── Generic fact-enrichment guards (refresh-aware) ───────────────────────────
 
-describe("findReviewForStagingFact", () => {
-  it("returns the NEWEST review by created_at when a fact has accumulated multiple cycles", async () => {
+describe("generic fact-enrichment guards", () => {
+  it("findUnresolvedReviewForStagingFact ignores resolved rows and picks the newest unresolved cycle", async () => {
     const fact = await seedActiveFact();
-    const [older] = await db.insert(pendingReviewsTable).values({
+    await db.insert(pendingReviewsTable).values({
       submittedText: fact.text,
       status: "approved",
       workflowStage: "production_approved",
       stagingFactId: fact.id,
       createdAt: new Date(Date.now() - 60_000),
-    }).returning();
-    const [newer] = await db.insert(pendingReviewsTable).values({
+    });
+    assert.equal(await findUnresolvedReviewForStagingFact(fact.id), null, "resolved rows never count");
+
+    const [unresolved] = await db.insert(pendingReviewsTable).values({
       submittedText: fact.text,
       status: "pending",
       workflowStage: "prep_pending",
       stagingFactId: fact.id,
+      candidateVersionId: null,
       createdAt: new Date(),
     }).returning();
+    const found = await findUnresolvedReviewForStagingFact(fact.id);
+    assert.equal(found?.id, unresolved.id);
+    assert.equal(found?.candidateVersionId, null);
+  });
 
-    const found = await findReviewForStagingFact(fact.id);
-    assert.equal(found?.id, newer.id, "the active refresh cycle wins, deterministically");
-    assert.notEqual(found?.id, older.id);
+  it("resolved cycles never poison live re-enrich: approved refresh, rejected refresh, first-time approval", async () => {
+    // (a) Rejected refresh, then re-enrich.
+    const factA = await seedActiveFact();
+    const a = await seedReadyRefreshCycle(factA);
+    await request(makeApp())
+      .post(`/admin/reviews/${a.reviewId}/reject`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ rejectionReason: "lame" });
+    let classifiedA = false;
+    const resA = await runEnrichmentForFact(factA.id, {
+      classify: async () => { classifiedA = true; return REFRESHED_AI_BASELINE; },
+    });
+    assert.equal(resA.ok, true);
+    assert.equal(classifiedA, true, "live fact must re-enrich after a rejected refresh");
+    const [fA] = await db.select().from(factsTable).where(eq(factsTable.id, factA.id));
+    assert.equal(fA.enrichmentStatus, "ok", "no stranded 'classifying…' pill");
+
+    // (b) Promoted (approved) refresh, then re-enrich.
+    const factB = await seedActiveFact();
+    const b = await seedReadyRefreshCycle(factB);
+    const approve = await request(makeApp())
+      .post(`/admin/reviews/${b.reviewId}/approve-for-production`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(approve.status, 200, JSON.stringify(approve.body));
+    let classifiedB = false;
+    const resB = await runEnrichmentForFact(factB.id, {
+      classify: async () => { classifiedB = true; return REFRESHED_AI_BASELINE; },
+    });
+    assert.equal(resB.ok, true);
+    assert.equal(classifiedB, true, "live fact must re-enrich after an approved refresh");
+
+    // (c) Plain first-time production_approved fact (the latent pre-refresh bug).
+    const factC = await seedActiveFact();
+    await db.insert(pendingReviewsTable).values({
+      submittedText: factC.text, status: "approved", workflowStage: "production_approved",
+      stagingFactId: factC.id, approvedFactId: factC.id,
+    });
+    let classifiedC = false;
+    const resC = await runEnrichmentForFact(factC.id, {
+      classify: async () => { classifiedC = true; return REFRESHED_AI_BASELINE; },
+    });
+    assert.equal(resC.ok, true);
+    assert.equal(classifiedC, true, "a first-time approved fact must re-enrich");
+  });
+
+  it("RACE: a generic fact job during an unresolved refresh cycle skips everything; the candidate job owns the cycle", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
+
+    // The stale generic enrichment:fact:<id> job (queued before send-back) runs now.
+    let classifyCalled = false;
+    const result = await runEnrichmentForFact(fact.id, {
+      classify: async () => { classifyCalled = true; return REFRESHED_AI_BASELINE; },
+    });
+    assert.equal(result.ok, true, "retires as a successful no-op");
+    assert.equal(classifyCalled, false, "no paid classification during a refresh cycle");
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.deepEqual(f.enrichment, fact.enrichment, "live facts.* untouched");
+    assert.deepEqual(f.enrichmentAiDerived, fact.enrichmentAiDerived);
+    assert.equal(f.primaryArchetype, fact.primaryArchetype);
+    assert.deepEqual(f.lastProcessedSignature, fact.lastProcessedSignature);
+    const [rev] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(rev.workflowStage, "prep_pending", "the refresh cycle was NOT advanced");
+    const [cand] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    assert.equal(cand.enrichment, null, "candidate stays unfilled by the generic job");
+
+    // A generic-outcome advancement can never move a refresh cycle either.
+    await advanceReviewForStagingFactEnrichment({ factId: fact.id, outcome: "success" });
+    const [rev2] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(rev2.workflowStage, "prep_pending");
+
+    // The version-targeted job then fills the candidate and advances THAT cycle.
+    const candResult = await runEnrichmentForCandidateVersion(candidateVersionId, {
+      classify: async () => REFRESHED_AI_BASELINE,
+    });
+    assert.equal(candResult.ok, true);
+    const [rev3] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(rev3.workflowStage, "production_review");
+    const [cand2] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    assert.ok(cand2.enrichment, "candidate filled by its own job");
+  });
+
+  it("RACE (mid-classify): a send-back landing DURING a live re-enrich discards the stale result", async () => {
+    const fact = await seedActiveFact();
+    let raceCycle: { reviewId: number; candidateVersionId: number } | null = null;
+
+    // The generic job passes its pre-classify guard (no cycle yet), then the
+    // send-back commits WHILE the "LLM call" is in flight.
+    const result = await runEnrichmentForFact(fact.id, {
+      classify: async () => {
+        raceCycle = await sendFactBackToReview({ factId: fact.id, adminId });
+        return REFRESHED_AI_BASELINE;
+      },
+    });
+    assert.equal(result.ok, true, "retires as a successful no-op");
+    assert.ok(raceCycle, "the send-back succeeded mid-classify");
+
+    // The stale classification was DISCARDED at the transactional recheck.
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.deepEqual(f.enrichment, fact.enrichment, "live facts.* untouched by the stale result");
+    assert.deepEqual(f.enrichmentAiDerived, fact.enrichmentAiDerived);
+    assert.equal(f.enrichmentStatus, "pending", "the refresh cycle owns the pill now");
+
+    // The refresh cycle proceeds normally from here.
+    const { reviewId, candidateVersionId } = raceCycle!;
+    const [rev] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(rev.workflowStage, "prep_pending", "the cycle was not advanced by the generic outcome");
+    const candResult = await runEnrichmentForCandidateVersion(candidateVersionId, {
+      classify: async () => REFRESHED_AI_BASELINE,
+    });
+    assert.equal(candResult.ok, true);
+    const [cand] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    assert.ok(cand.enrichment, "candidate filled by its own job");
+  });
+
+  it("abandoned first-time staging facts still skip late enrichment and pexels retries", async () => {
+    const [staging] = await db.insert(factsTable)
+      .values({ text: "{NAME} abandoned staging", submittedById: submitterId, isActive: false })
+      .returning();
+    insertedFactIds.push(staging.id);
+    await db.insert(pendingReviewsTable).values({
+      submittedText: staging.text, status: "rejected", workflowStage: "production_rejected", stagingFactId: staging.id,
+    });
+
+    assert.deepEqual(
+      await resolveGenericFactEnrichmentDecision(staging.id),
+      { action: "skip", reason: "inactive_staging" },
+    );
+    let classifyCalled = false;
+    const result = await runEnrichmentForFact(staging.id, {
+      classify: async () => { classifyCalled = true; return REFRESHED_AI_BASELINE; },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(classifyCalled, false, "no paid work on an abandoned staging fact");
+    assert.equal(await isStagingImagePrepActive(staging.id), false, "pexels retries skip too");
+
+    // A live fact with only resolved history stays image-prep-eligible.
+    const live = await seedActiveFact();
+    assert.equal(await isStagingImagePrepActive(live.id), true);
   });
 });
