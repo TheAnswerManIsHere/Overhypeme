@@ -9,10 +9,10 @@
  * system unchanged.
  */
 
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
-import { isUnresolvedSubmissionStage, type ReviewWorkflowStage } from "@workspace/api-zod";
+import { UNRESOLVED_SUBMISSION_STAGE_VALUES, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { enqueueJob } from "./asyncJobs";
@@ -21,6 +21,11 @@ import { logger } from "./logger";
 // Queue name owned by reviewRenderScenarios.ts (kept as a literal here to avoid
 // pulling that heavy orchestration module into this widely-imported helper).
 const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
+
+// Queue name owned by visualConceptJobs.ts (kept as a literal for the same
+// reason — and because visualConceptJobs imports resolveReviewCycleEnrichment
+// from THIS module, so importing it back would create a module cycle).
+const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
 
 // Matches any pronoun / gendered template token (same detection the approve
 // path uses) so the staging fact records whether it needs pronoun handling.
@@ -67,31 +72,39 @@ export async function ensureStagingFact(
 }
 
 /**
- * The current (newest) review linked to a staging fact, or null when the fact
- * has no linked review.
+ * The current UNRESOLVED review cycle linked to a staging fact, or null when
+ * every linked review is resolved (or none exists).
  *
- * A fact can accumulate MULTIPLE review rows once the stale-fact refresh feature
- * lands (each send-back creates a new cycle while the original approved review
- * persists). The original `LIMIT 1` with no ordering was nondeterministic in
- * that case, so this now takes the NEWEST review by `created_at` — which is the
- * active refresh cycle when one is in flight, and otherwise the same single row
- * as before. Deterministic ordering is the only change; the resolved-review
- * semantics the cost guards rely on (a rejected staging fact resolves to its
- * rejected review → guards skip paid work) are preserved. The candidate
- * enrichment path does NOT use this helper — it targets its exact
- * `source_review_id` (see runEnrichmentForCandidateVersion).
+ * A fact accumulates MULTIPLE review rows under the stale-fact refresh feature
+ * (each send-back creates a new cycle while the original approved review
+ * persists), and the prep guards below must never key off a RESOLVED row: a
+ * fact whose refresh was approved/rejected — or a plain first-time fact whose
+ * original review sits at production_approved — is simply a live fact again,
+ * not "a staging fact whose review left prep". Newest-by-created_at keeps the
+ * lookup deterministic. `candidateVersionId` is returned because a REFRESH
+ * cycle (non-null) is owned exclusively by the version-targeted job
+ * (runEnrichmentForCandidateVersion); the generic fact job must skip it.
  */
-export async function findReviewForStagingFact(
+export async function findUnresolvedReviewForStagingFact(
   factId: number,
   tx: DbLike = db,
-): Promise<{ id: number; workflowStage: ReviewWorkflowStage } | null> {
+): Promise<{ id: number; workflowStage: ReviewWorkflowStage; candidateVersionId: number | null } | null> {
   const [row] = await tx
-    .select({ id: pendingReviewsTable.id, workflowStage: pendingReviewsTable.workflowStage })
+    .select({
+      id: pendingReviewsTable.id,
+      workflowStage: pendingReviewsTable.workflowStage,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
     .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.stagingFactId, factId))
+    .where(and(
+      eq(pendingReviewsTable.stagingFactId, factId),
+      inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+    ))
     .orderBy(desc(pendingReviewsTable.createdAt))
     .limit(1);
-  return row ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage } : null;
+  return row
+    ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage, candidateVersionId: row.candidateVersionId }
+    : null;
 }
 
 /**
@@ -138,49 +151,86 @@ export async function resolveReviewCycleEnrichment(
 }
 
 /**
- * Cost guard for enrichment prep jobs. Returns false when the fact is a staging
- * fact whose review has LEFT `prep_pending` (e.g. the moderator rejected it
- * mid-flight) — the caller must then skip all paid work. Live facts with no
- * linked review (an admin re-enriching an active fact) always return true.
+ * Structured decision for the GENERIC fact-backed enrichment job ("should this
+ * job classify and write facts.*?"). The generic job writes straight into the
+ * fact's live enrichment layers, so it must run for exactly two shapes of work
+ * and skip everything else:
+ *
+ *  - `live_fact` — no unresolved review cycle and the fact is active: a normal
+ *    admin re-enrich. Resolved historical reviews (an approved first-time cycle,
+ *    a promoted/rejected refresh) must NOT block this.
+ *  - `first_time_staging` — an unresolved FIRST-TIME cycle
+ *    (`candidateVersionId == null`) still in `prep_pending`.
+ *
+ * Skips:
+ *  - `refresh_candidate_in_review` — an unresolved refresh cycle owns this fact:
+ *    the candidate job (runEnrichmentForCandidateVersion) classifies into the
+ *    VERSION row; a stale generic job running here would overwrite live facts.*
+ *    mid-review and could advance the cycle with an unfilled candidate.
+ *  - `staging_prep_left` — a first-time cycle that moved past prep (rejected, or
+ *    already at production_review): the original cost guard, unchanged.
+ *  - `inactive_staging` — no unresolved cycle and the fact is inactive: an
+ *    abandoned/rejected first-time staging fact; skip paid work.
  */
-export async function isStagingPrepActive(factId: number): Promise<boolean> {
-  const review = await findReviewForStagingFact(factId);
-  if (!review) return true; // not a staged prep target — normal live-fact path
-  return review.workflowStage === "prep_pending";
+export type GenericFactEnrichmentDecision =
+  | { action: "run"; mode: "live_fact" | "first_time_staging" }
+  | { action: "skip"; reason: "refresh_candidate_in_review" | "staging_prep_left" | "inactive_staging" | "fact_missing" };
+
+export async function resolveGenericFactEnrichmentDecision(
+  factId: number,
+  tx: DbLike = db,
+): Promise<GenericFactEnrichmentDecision> {
+  const [fact] = await tx
+    .select({ isActive: factsTable.isActive })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  if (!fact) return { action: "skip", reason: "fact_missing" };
+  const unresolved = await findUnresolvedReviewForStagingFact(factId, tx);
+  if (unresolved) {
+    if (unresolved.candidateVersionId != null) return { action: "skip", reason: "refresh_candidate_in_review" };
+    return unresolved.workflowStage === "prep_pending"
+      ? { action: "run", mode: "first_time_staging" }
+      : { action: "skip", reason: "staging_prep_left" };
+  }
+  return fact.isActive ? { action: "run", mode: "live_fact" } : { action: "skip", reason: "inactive_staging" };
 }
 
 /**
- * Cost guard for image prep jobs. Returns false when the fact is a staging fact
- * whose review has been resolved (approved or rejected) — paid Pexels work is no
- * longer needed. Live facts with no linked review (an admin re-enriching an active
- * fact) always return true.
- *
- * Unlike `isStagingPrepActive`, this allows the Pexels job to continue running
- * while the review is in `production_review` (the moderator is still deciding),
- * so images can land before the final approval click.
+ * Cost guard for image prep jobs. Pexels work runs while an unresolved cycle is
+ * still deciding (including `production_review`, so images can land before the
+ * approval click) and for any live fact; it skips only inactive facts with no
+ * unresolved cycle (abandoned/rejected first-time staging).
  */
 export async function isStagingImagePrepActive(factId: number): Promise<boolean> {
-  const review = await findReviewForStagingFact(factId);
-  if (!review) return true; // not a staged prep target — normal live-fact path
-  return isUnresolvedSubmissionStage(review.workflowStage);
+  const unresolved = await findUnresolvedReviewForStagingFact(factId);
+  if (unresolved) return true; // unresolved by definition — moderator still deciding
+  const [fact] = await db
+    .select({ isActive: factsTable.isActive })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  return fact?.isActive ?? false;
 }
 
 /**
- * Advance a review off the terminal outcome of its staging fact's enrichment
- * job. Success → production_review; terminal abandon → prep_failed. Only acts on
- * a review still in `prep_pending`; a review that has moved on (rejected,
- * re-prepped, approved) is left untouched and the stale outcome is logged.
+ * Advance a review off the terminal outcome of its staging fact's GENERIC
+ * enrichment job. Success → production_review; terminal abandon → prep_failed.
+ * Acts ONLY on an unresolved FIRST-TIME cycle (`candidateVersionId == null`)
+ * still in `prep_pending` — refresh cycles are advanced exclusively by
+ * runEnrichmentForCandidateVersion, which targets its exact version/review
+ * pair; a generic outcome must never move one.
  */
 export async function advanceReviewForStagingFactEnrichment(args: {
   factId: number;
   outcome: "success" | "terminal_failed";
 }): Promise<void> {
-  const review = await findReviewForStagingFact(args.factId);
+  const review = await findUnresolvedReviewForStagingFact(args.factId);
   if (!review) return; // live-fact enrichment — nothing to advance
-  if (review.workflowStage !== "prep_pending") {
+  if (review.candidateVersionId != null || review.workflowStage !== "prep_pending") {
     logger.info(
-      { factId: args.factId, reviewId: review.id, stage: review.workflowStage, outcome: args.outcome },
-      "[moderation] stale staging enrichment outcome ignored (review left prep_pending)",
+      { factId: args.factId, reviewId: review.id, stage: review.workflowStage, refreshCycle: review.candidateVersionId != null, outcome: args.outcome },
+      "[moderation] stale staging enrichment outcome ignored (not an in-prep first-time cycle)",
     );
     return;
   }
@@ -210,6 +260,28 @@ export async function advanceReviewForStagingFactEnrichment(args: {
       logger.error(
         { err, reviewId: review.id },
         "[moderation] failed to enqueue review render prepare (stage advance kept)",
+      );
+    }
+
+    // Slice 2A: also draft candidate Visual concepts for the moderator. Purely
+    // best-effort and NON-BLOCKING — a failure here never affects the advance or
+    // the render-prepare enqueue above. Enqueued inline (literal queue name +
+    // "pending" status write, matching enqueueVisualConceptsForReview) so this
+    // widely-imported helper doesn't import visualConceptJobs and create a cycle.
+    try {
+      await db
+        .update(factsTable)
+        .set({ visualConceptStatus: "pending" })
+        .where(eq(factsTable.id, args.factId));
+      await enqueueJob({
+        queue: FACT_VISUAL_CONCEPTS_QUEUE,
+        payload: { reviewId: review.id, factId: args.factId, candidateVersionId: null, moderatorDraftScene: null },
+        dedupeKey: `fact_visual_concepts:review:${review.id}`,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: review.id },
+        "[moderation] failed to enqueue visual concepts (stage advance kept)",
       );
     }
   }

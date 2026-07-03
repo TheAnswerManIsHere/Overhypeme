@@ -114,7 +114,7 @@ export interface ScenarioHashInputs {
  * `contentMode` control, not adultSuitability). Editing any of them must NOT flip
  * a render stale.
  */
-function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
+export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
   return {
     primaryArchetype: e.primaryArchetype,
     subtype: e.subtype,
@@ -128,7 +128,7 @@ function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
 }
 
 /** Deterministic JSON: object keys sorted recursively so key order can't churn the hash. */
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const obj = value as Record<string, unknown>;

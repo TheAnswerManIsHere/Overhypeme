@@ -51,6 +51,27 @@ export const factsTable = pgTable("facts", {
    * surfaced per-fact in the moderation prep UI.
    */
   pexelsStatus: varchar("pexels_status", { length: 16 }),
+  /**
+   * Candidate Visual concepts (Slice 2A). The frontier planner auto-drafts 3
+   * distinct "describe the picture" scenes during prep; the moderator picks /
+   * edits / ignores one into `enrichment.visualPromptStrategyOverride.
+   * coreSceneOverride`. TRANSIENT, latest-only prep metadata (regenerate
+   * overwrites) — NOT provenance, a promoted artifact, or rollback history. The
+   * blob (VisualConceptCandidatesBlob from @workspace/api-zod) carries the 3
+   * candidates + per-candidate token validity + provenance + reviewId /
+   * candidateVersionId / source / inputHash so the server can decide whether the
+   * candidates are still CURRENT for the review. Null on facts that never ran
+   * concept gen.
+   */
+  visualConceptCandidates: jsonb("visual_concept_candidates"),
+  /**
+   * Candidate Visual concept lifecycle for the moderation prep UI:
+   * "pending" | "ok" | "failed". Set "pending" when the concept job is enqueued,
+   * "ok" when candidates land, "failed" only after the queue abandons — so it
+   * stays distinct from "still running". Null on facts that never ran concept
+   * gen through the queue. Mirrors `pexels_status` / `enrichment_status`.
+   */
+  visualConceptStatus: varchar("visual_concept_status", { length: 16 }),
   /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
   aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */

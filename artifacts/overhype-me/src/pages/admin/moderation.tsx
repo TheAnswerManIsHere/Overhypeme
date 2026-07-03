@@ -17,6 +17,7 @@ import {
 } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
+import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
@@ -75,6 +76,12 @@ interface Review {
   hashtags: string[] | null;
   enrichment: FactEnrichment | null;
   enrichmentStatus: string | null;
+  /**
+   * Non-null ⇒ this is a REFRESH cycle of a live fact (versioned enrichment):
+   * Step 2 reviews/edits the candidate version, approval promotes it, and
+   * rejection keeps the live fact exactly as-is. Null for first-time submissions.
+   */
+  candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
 }
@@ -316,6 +323,10 @@ function ReviewModal({
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isProductionReview = stage === "production_review";
   const isResolved = review.status !== "pending";
+  // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
+  // live fact's enrichment is frozen), approval promotes it, rejection keeps
+  // the live fact untouched. Set at review creation — never flips mid-mount.
+  const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
   const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
@@ -328,7 +339,11 @@ function ReviewModal({
   // `gridReloadKey` so the scenario tiles recompute staleness immediately.
   const [gridReloadKey, setGridReloadKey] = useState(0);
   const enrichEditing = useFactEnrichmentEditing({
-    factId: stagingFactId,
+    // Refresh cycles edit the CANDIDATE version through the review-scoped
+    // endpoints; first-time cycles edit the staging fact as before.
+    target: isRefreshCycle
+      ? { kind: "reviewCandidate", reviewId: review.id, factId: stagingFactId }
+      : { kind: "fact", factId: stagingFactId },
     enabled: isProductionReview && stagingFactId > 0,
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
@@ -424,18 +439,26 @@ function ReviewModal({
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
   const onApproveProduction = (waive?: boolean) => {
-    // Approval publishes the STAGING FACT's saved enrichment (baseline +
-    // overrides) — the client no longer sends a blob. An unsaved Visual
-    // Strategy draft therefore wouldn't ship; force a Save/Discard first so
-    // nothing silently diverges from what the moderator sees.
+    // Approval publishes the SAVED enrichment (staging fact for first-time
+    // cycles; the candidate version for refresh cycles) — the client never
+    // sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
+    // force a Save/Discard first so nothing silently diverges from what the
+    // moderator sees.
     if (enrichmentDraft.hasUncommittedChanges) {
-      setError("You have unsaved Visual Strategy Override edits — Save or Discard them before approving (approval publishes the saved staging fact).");
+      setError(
+        isRefreshCycle
+          ? "You have unsaved Visual Strategy Override edits — Save or Discard them before promoting (approval promotes the saved candidate)."
+          : "You have unsaved Visual Strategy Override edits — Save or Discard them before approving (approval publishes the saved staging fact).",
+      );
       return;
     }
-    if (pexelsStatus !== "ok" && !confirmApprove && !waive) { setConfirmApprove(true); return; }
+    // The Pexels-not-ready confirm is a FIRST-TIME concern: a refresh never
+    // re-runs image prep (the live fact keeps its existing library).
+    if (!isRefreshCycle && pexelsStatus !== "ok" && !confirmApprove && !waive) { setConfirmApprove(true); return; }
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
-      hashtags: finalHashtags,
+      // Refresh approval never attaches/rewrites discovery tags — send none.
+      ...(isRefreshCycle ? {} : { hashtags: finalHashtags }),
     };
     if (waive && renderProblems) {
       body.waiveVisualRenderIssues = true;
@@ -444,9 +467,11 @@ function ReviewModal({
     void runAction("approve-for-production", body);
   };
 
-  // A fact can't ship without discovery tags — the curated final list must be
-  // non-empty (in addition to the enrichment being valid).
-  const canApproveProduction = isApprovable(enrichment) && finalHashtags.length > 0;
+  // A first-time fact can't ship without discovery tags; a refresh keeps the
+  // live fact's existing tags, so the gate doesn't apply (the server skips it too).
+  const canApproveProduction = isApprovable(enrichment) && (isRefreshCycle || finalHashtags.length > 0);
+  // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
+  const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -454,8 +479,13 @@ function ReviewModal({
   const SubmitterContext = (
     <>
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-        <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
-        {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
+        <span>
+          Submitted by:{" "}
+          <strong className="text-foreground">
+            {isRefreshCycle ? "Admin-initiated refresh" : (review.submitter?.displayName ?? review.submitter?.email ?? "Unknown")}
+          </strong>
+        </span>
+        {!isRefreshCycle && review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
         <span className="flex items-center gap-2">
           Duplicate Likelihood: <strong className="text-foreground">{review.matchingSimilarity}%</strong>
           {review.matchingSimilarity > 0 && review.matchingSimilarity < duplicateThreshold && !showDuplicate && (
@@ -498,6 +528,11 @@ function ReviewModal({
 
   const DecisionInputs = (
     <div className="space-y-4">
+      {isRefreshCycle && (
+        <p className="text-xs text-muted-foreground" data-testid="refresh-reject-hint">
+          This rejects the refresh candidate only. The live fact stays published and unchanged.
+        </p>
+      )}
       <div>
         <label className="block text-sm font-semibold text-foreground mb-2">
           Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
@@ -541,6 +576,7 @@ function ReviewModal({
             <ClipboardList className="w-5 h-5 text-primary" />
             <h2 className="font-display font-bold uppercase tracking-wide text-foreground">Review #{review.id}</h2>
             <StageBadge stage={stage} />
+            {isRefreshCycle && <RefreshReviewBadge />}
             <ReasonBadge reason={review.reason} />
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0">×</button>
@@ -587,9 +623,19 @@ function ReviewModal({
                   review may be done in separate passes, so the moderator needs the
                   fact in view here without flipping back to Step 1. */}
               <div className="bg-background border-2 border-border rounded-sm p-4">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+                  {isRefreshCycle ? "Live Fact (being refreshed)" : "Submitted Fact"}
+                </p>
                 <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
               </div>
+
+              {isRefreshCycle && (
+                <p className="text-xs text-muted-foreground" data-testid="refresh-step2-hint">
+                  Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Promoting
+                  applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing memes,
+                  images, and hashtags are never changed.
+                </p>
+              )}
 
               <FactVisualReviewGrid
                 reviewId={review.id}
@@ -597,6 +643,7 @@ function ReviewModal({
                 reloadKey={gridReloadKey}
                 finalHashtags={finalHashtags}
                 onFinalHashtagsChange={onFinalHashtagsChange}
+                hideFinalHashtags={isRefreshCycle}
                 onRunScenarios={onRendersEnqueued}
               />
 
@@ -667,7 +714,12 @@ function ReviewModal({
                   factText={review.submittedText}
                   onChange={(next) => enrichmentDraft.setValue(next)}
                   onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
-                  onRerun={enrichEditing.rerunWithConfirm}
+                  // Deliberately NO onRerun at Step 2 (refresh AND first-time):
+                  // the generic job guard skips review-backed facts outside
+                  // prep, so the button could only strand the status on
+                  // "classifying…". Re-classification lives on the Facts page
+                  // (live facts) and Retry Prep (prep_failed); refresh cycles
+                  // are re-classified by rejecting + re-sending.
                   busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
                   rerunBusy={jobs.rerunBusy}
                   hideHashtags
@@ -677,6 +729,12 @@ function ReviewModal({
                   <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
                     <p className="text-sm text-destructive">{jobs.error}</p>
+                  </div>
+                )}
+                {enrichEditing.overrideError && (
+                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="override-error">
+                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{enrichEditing.overrideError}</p>
                   </div>
                 )}
                 {stagingFactId > 0 && (
@@ -759,7 +817,7 @@ function ReviewModal({
                 )}
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject
+                  <XCircle className="w-4 h-4" /> {rejectLabel}
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
@@ -769,7 +827,7 @@ function ReviewModal({
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject (cancels prep)
+                  <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
               </div>
@@ -783,7 +841,7 @@ function ReviewModal({
                 </Button>
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject
+                  <XCircle className="w-4 h-4" /> {rejectLabel}
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
@@ -798,7 +856,7 @@ function ReviewModal({
                 </Button>
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> Reject
+                  <XCircle className="w-4 h-4" /> {rejectLabel}
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
@@ -817,6 +875,10 @@ function ReviewModal({
                     </p>
                   </div>
                 )}
+                {/* Rejection Reason + note live here too (not just Triage), right
+                    above the buttons, so a fact can be rejected from Visual review
+                    without hunting for the field — and regardless of render staleness. */}
+                {DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
@@ -826,18 +888,18 @@ function ReviewModal({
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-anyway-waive">
-                      <Rocket className="w-4 h-4" /> Approve Anyway (Waive {renderProblems.length})
+                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Anyway" : "Approve Anyway"} (Waive {renderProblems.length})
                     </Button>
                   ) : (
                     <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
-                      <Rocket className="w-4 h-4" /> {confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
+                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
                     </Button>
                   )}
                   <Button variant="outline" onClick={onReject} isLoading={loading}
                     className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> Reject
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
                   </Button>
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
@@ -988,10 +1050,11 @@ function FactReviewsPanel() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <StageBadge stage={r.workflowStage} />
+                    {r.candidateVersionId != null && <RefreshReviewBadge />}
                     <ReasonBadge reason={r.reason} />
                     <span className="text-xs text-muted-foreground">
                       {r.matchingSimilarity >= duplicateThreshold ? `${r.matchingSimilarity}% match · ` : ""}
-                      by {r.submitter?.displayName ?? r.submitter?.email ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
+                      by {r.candidateVersionId != null ? "admin refresh" : (r.submitter?.displayName ?? r.submitter?.email ?? "unknown")} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
                   </div>
                   <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>

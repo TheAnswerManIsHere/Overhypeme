@@ -30,6 +30,16 @@ import { eq, and, gte, isNull, or, like, sql } from "drizzle-orm";
 // ── Handler under test ───────────────────────────────────────────────────────
 import { WebhookHandlers } from "../lib/webhookHandlers.js";
 
+// The webhook handlers construct the Stripe client, whose credential guard
+// (lib/stripeClient.ts) requires STRIPE_SECRET_KEY_TEST + STRIPE_PUBLISHABLE_KEY_TEST
+// in test mode. These handlers don't call Stripe's network — they process event
+// payloads against the DB — so dummy values satisfy the guard. Real env vars (on
+// Replit) win via `??`. Without this, CI (which has no Stripe secrets) throws
+// "Stripe credentials not configured" for every test here. Mirrors the setup in
+// routes.stripe.test.ts / routes.adminStripeSync.test.ts.
+process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
+process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
+
 
 // ── Outbox cleanup ────────────────────────────────────────────────────────────
 // These integration tests run real webhook handlers against the dev DB. Some
@@ -41,6 +51,14 @@ import { WebhookHandlers } from "../lib/webhookHandlers.js";
 // We capture the file's start time and, in a top-level after() hook, delete
 // any outbox rows created during this test run. Recipient is not filtered so
 // every test-generated row is removed regardless of which handler made it.
+// Dummy Stripe credentials (same convention as routes.stripe.test.ts): the
+// handlers under test never make real Stripe API calls, but the lazily-built
+// client throws at construction when the mode's env vars are absent. This file
+// previously relied on ANOTHER test file in the same shard setting these as a
+// module side effect — which broke whenever shard composition shifted.
+process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
+process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
+
 const TEST_FILE_START = new Date();
 after(async () => {
   // Only delete rows that came from admin notification paths. Those rows have

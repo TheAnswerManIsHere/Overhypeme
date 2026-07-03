@@ -13,5 +13,6 @@ export * from "./referenceResearch";
 export * from "./taxonomyHealth";
 export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
+export * from "./visualConcepts";
 export * from "./moderationWorkflow";
 export * from "./renderScenarios";

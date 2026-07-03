@@ -32,10 +32,11 @@ import {
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
+import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
-  isStagingPrepActive,
+  resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
 import {
   enqueueJob,
@@ -159,10 +160,14 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `fact ${factId} not found` };
   }
 
-  // COST GUARD: if this fact is a staging fact whose review has left
-  // prep_pending (e.g. the moderator rejected it while a retry was queued),
-  // skip all model calls. Treated as a successful no-op so the job retires.
-  if (!(await isStagingPrepActive(factId))) {
+  // GENERIC-JOB GUARD (cost + isolation): run only for a live fact or an
+  // in-prep first-time staging cycle. Skips are retired as successful no-ops
+  // and touch NOTHING — in particular `refresh_candidate_in_review`, where a
+  // stale generic job writing facts.* would corrupt an in-flight refresh whose
+  // enrichment lives in the candidate VERSION row.
+  const decision = await resolveGenericFactEnrichmentDecision(factId);
+  if (decision.action === "skip") {
+    logger.info({ factId, reason: decision.reason }, "[enrichment] generic fact job skipped");
     return { ok: true };
   }
 
@@ -218,26 +223,52 @@ export async function runEnrichmentForFact(
     visualPromptStrategyOverride,
   });
 
-  await db
-    .update(factsTable)
-    .set({ ...columns, enrichmentStatus: "ok" })
-    .where(eq(factsTable.id, factId));
-
-  if (newlyChanged.length > 0) {
-    await recordOverrideHistory(
-      newlyChanged.map((path) => ({
-        factId,
-        path,
-        action: "baseline_reenriched" as const,
-        oldValue: overrides[path]?.overriddenFrom ?? null,
-        newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
-        aiGenerationId: freshAiDerived.aiGenerationId ?? null,
-      })),
-    );
-  }
+  // Transactional RE-check before the write (mirrors the candidate job's
+  // phase 3): the pre-classify guard can't cover state that changed DURING the
+  // LLM call — most importantly a send-back committing mid-classify, which
+  // must freeze facts.* for its refresh cycle. The fact row lock serializes
+  // with sendFactBackToReview (which locks the fact first), so the recheck
+  // either sees the new candidate (→ discard this stale result) or the
+  // send-back waits and seeds its candidate from the freshly-written active.
+  const wrote = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: factsTable.id })
+      .from(factsTable)
+      .where(eq(factsTable.id, factId))
+      .for("update")
+      .limit(1);
+    if (!locked) return false;
+    const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
+    if (recheck.action === "skip") {
+      logger.info(
+        { factId, reason: recheck.reason },
+        "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
+      );
+      return false;
+    }
+    await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, factId));
+    if (newlyChanged.length > 0) {
+      await recordOverrideHistory(
+        newlyChanged.map((path) => ({
+          factId,
+          path,
+          action: "baseline_reenriched" as const,
+          oldValue: overrides[path]?.overriddenFrom ?? null,
+          newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
+          aiGenerationId: freshAiDerived.aiGenerationId ?? null,
+        })),
+        tx,
+      );
+    }
+    return true;
+  });
+  if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
 
   // Advance a linked staging review prep_pending → production_review. No-op for
-  // live-fact re-enrich (no linked review).
+  // live-fact re-enrich (no linked review) and refused for refresh cycles.
   await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
 
   return { ok: true };
@@ -371,6 +402,24 @@ export async function runEnrichmentForCandidateVersion(
       logger.error(
         { err, reviewId: advancedReviewId, versionId },
         "[refresh] failed to enqueue review render prepare (enrichment kept)",
+      );
+    }
+
+    // Slice 2A: a refresh cycle gets the SAME candidate Visual-concept draft a
+    // first-time cycle gets on this transition (see
+    // advanceReviewForStagingFactEnrichment). Review-aware via candidateVersionId
+    // so concepts reflect the CANDIDATE's enrichment, not the active fact's.
+    // Best-effort + non-blocking — a failure here must not fail the enrichment.
+    try {
+      await enqueueVisualConceptsForReview({
+        reviewId: advancedReviewId,
+        factId: v0.factId,
+        candidateVersionId: versionId,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: advancedReviewId, versionId },
+        "[refresh] failed to enqueue visual concepts (enrichment kept)",
       );
     }
   }

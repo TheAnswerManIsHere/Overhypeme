@@ -129,6 +129,7 @@ export function FactVisualReviewGrid({
   reloadKey = 0,
   finalHashtags = [],
   onFinalHashtagsChange,
+  hideFinalHashtags = false,
   onRunScenarios,
 }: {
   reviewId: number;
@@ -142,6 +143,9 @@ export function FactVisualReviewGrid({
    *  summary and the render controls. */
   finalHashtags?: string[];
   onFinalHashtagsChange?: (tags: string[]) => void;
+  /** REFRESH reviews hide the curation section — refresh approval never touches
+   *  the live fact's discovery tags. */
+  hideFinalHashtags?: boolean;
   /** Fired after a run/re-run is enqueued so the parent list can refresh + show
    *  a "renders working…" row pill and start polling (CLAUDE.md rule 8). */
   onRunScenarios?: () => void;
@@ -206,12 +210,16 @@ export function FactVisualReviewGrid({
       <AiInterpretationSummary enrichment={enrichment} />
 
       {/* (a2) Final discovery hashtags — first-class, between the AI summary and
-          the render controls (was buried in Advanced Options). */}
-      <FinalHashtagsEditor
-        finalHashtags={finalHashtags}
-        onFinalHashtagsChange={onFinalHashtagsChange ?? (() => {})}
-        aiSuggestions={enrichment?.suggestedHashtags ?? []}
-      />
+          the render controls (was buried in Advanced Options). Hidden for
+          REFRESH reviews: refresh approval never attaches or rewrites the live
+          fact's discovery tags, so curation here would be a dead control. */}
+      {!hideFinalHashtags && (
+        <FinalHashtagsEditor
+          finalHashtags={finalHashtags}
+          onFinalHashtagsChange={onFinalHashtagsChange ?? (() => {})}
+          aiSuggestions={enrichment?.suggestedHashtags ?? []}
+        />
+      )}
 
       {/* (c) Run controls */}
       <div className="rounded-sm border border-border bg-card p-3 space-y-2">

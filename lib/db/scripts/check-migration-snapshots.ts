@@ -218,6 +218,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // snapshot). Idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS; the
   // hash-based runner applies it and treats already-exists as pre-applied.
   "0078_fact_enrichment_versions",
+
+  // Hand-written DDL adding the two transient candidate-Visual-concept columns
+  // (visual_concept_candidates jsonb, visual_concept_status varchar) to facts,
+  // mirroring pexels_status / enrichment_status. drizzle-kit generate is broken
+  // on the malformed 0063 snapshot, so this ships without a generated snapshot;
+  // idempotent ADD COLUMN IF NOT EXISTS. Source of truth: lib/db/src/schema/facts.ts.
+  "0079_facts_visual_concepts",
 ]);
 
 interface JournalEntry {

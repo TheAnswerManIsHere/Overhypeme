@@ -217,21 +217,175 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
   };
 }
 
-export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): string {
+// ─── Granular context-block selection ─────────────────────────────────────
+//
+// The render planner needs the FULL context (all blocks, moderator scene as the
+// AUTHORITATIVE directive). Candidate Visual-concept generation (Slice 2A) reuses
+// the SAME descriptive context but must be render-mode-AGNOSTIC — a picked concept
+// becomes coreSceneOverride, which has to work across every render mode/scenario —
+// so it omits the runtime blocks (source-image analysis, subjectRenderMode,
+// identity policy, render controls, style integration, target engine) and treats
+// the moderator scene as fresh-idea seed / draft context, never an authoritative
+// directive. `buildImagePromptContextBlocks` is the shared, behavior-preserving
+// extraction; the planner passes PLANNER_CONTEXT_OPTS (all-true) so its message is
+// byte-identical to before.
+
+export type ModeratorCoreSceneMode = false | "authoritative" | "existing_draft_context";
+
+export interface ImagePromptContextOpts {
+  includeFactText: boolean;
+  includeTaxonomy: boolean;
+  includeRenderPolicy: boolean;
+  includeAuthoredStrategy: boolean;
+  includeExamples: boolean;
+  includeCulturalReferences: boolean;
+  includeSemanticEntities: boolean;
+  includeSourceImageAnalysis: boolean;
+  includeSubjectRenderMode: boolean;
+  includeIdentityPolicy: boolean;
+  includeRenderControls: boolean;
+  includeStyleIntegration: boolean;
+  includeTargetEngine: boolean;
+  /**
+   * Emit the "populate visualPlan.semanticEntitiesUsed / visualPlan.
+   * culturalReferencesUsed" echo-back directives. Planner-only — they reference
+   * the render planner's output schema, which the concept generator (output
+   * `{ concepts: [...] }`) does not have.
+   */
+  includeVisualPlanEchoDirectives: boolean;
+  includeModeratorCoreScene: ModeratorCoreSceneMode;
+  /** For includeModeratorCoreScene="existing_draft_context": the unsaved draft. */
+  moderatorDraftScene?: string;
+}
+
+/** The full-context selection the render planner uses (behavior unchanged). */
+export const PLANNER_CONTEXT_OPTS: ImagePromptContextOpts = {
+  includeFactText: true,
+  includeTaxonomy: true,
+  includeRenderPolicy: true,
+  includeAuthoredStrategy: true,
+  includeExamples: true,
+  includeCulturalReferences: true,
+  includeSemanticEntities: true,
+  includeSourceImageAnalysis: true,
+  includeSubjectRenderMode: true,
+  includeIdentityPolicy: true,
+  includeRenderControls: true,
+  includeStyleIntegration: true,
+  includeTargetEngine: true,
+  includeVisualPlanEchoDirectives: true,
+  includeModeratorCoreScene: "authoritative",
+};
+
+/**
+ * The render-mode-AGNOSTIC subset used by candidate Visual-concept generation:
+ * fact text + taxonomy + render policy + authored strategy + examples + cultural
+ * refs + semantic entities ON; every runtime/mode-specific block OFF.
+ * `includeModeratorCoreScene` is set per call site (false = fresh ideas from a
+ * blank field; "existing_draft_context" = regenerate distinct alternatives).
+ */
+export const CANDIDATE_CONTEXT_OPTS: Omit<ImagePromptContextOpts, "includeModeratorCoreScene" | "moderatorDraftScene"> = {
+  includeFactText: true,
+  includeTaxonomy: true,
+  includeRenderPolicy: true,
+  includeAuthoredStrategy: true,
+  includeExamples: true,
+  includeCulturalReferences: true,
+  includeSemanticEntities: true,
+  includeSourceImageAnalysis: false,
+  includeSubjectRenderMode: false,
+  includeIdentityPolicy: false,
+  includeRenderControls: false,
+  includeStyleIntegration: false,
+  includeTargetEngine: false,
+  includeVisualPlanEchoDirectives: false,
+};
+
+/**
+ * Context builder input. The planner passes a full ImagePromptGenerationInput;
+ * candidate gen passes only the mode-agnostic fields, so the runtime-only fields
+ * (read exclusively inside their include-guards) are optional here.
+ */
+export type ImagePromptContextInput = Omit<
+  ImagePromptGenerationInput,
+  | "sourceImageAnalysis"
+  | "subjectRenderMode"
+  | "userSelectedSubjectRenderMode"
+  | "identityPolicy"
+  | "renderControls"
+  | "stylePrompt"
+  | "referenceImageUrl"
+  | "targetEngine"
+> &
+  Partial<
+    Pick<
+      ImagePromptGenerationInput,
+      | "sourceImageAnalysis"
+      | "subjectRenderMode"
+      | "userSelectedSubjectRenderMode"
+      | "identityPolicy"
+      | "renderControls"
+      | "stylePrompt"
+      | "referenceImageUrl"
+      | "targetEngine"
+    >
+  >;
+
+/** Resolve the moderator scene text for the current mode, token-rendered when a
+ *  render subject is available (matches the planner's original behavior). */
+function resolveModeratorContextScene(input: ImagePromptContextInput, opts: ImagePromptContextOpts): string {
+  let raw = "";
+  if (opts.includeModeratorCoreScene === "authoritative") {
+    const ovb = input.enrichment.visualPromptStrategyOverride;
+    raw = ovb?.enabled ? (ovb.coreSceneOverride?.trim() ?? "") : "";
+  } else if (opts.includeModeratorCoreScene === "existing_draft_context") {
+    raw = opts.moderatorDraftScene?.trim() ?? "";
+  }
+  if (!raw) return "";
+  return input.renderedSubject
+    ? renderPersonalized(raw, input.renderedSubject.name, input.renderedSubject.pronouns)
+    : raw;
+}
+
+/** The moderator-scene lines, in place between the strategy lines and examples. */
+function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptContextOpts): string[] {
+  if (opts.includeModeratorCoreScene === false) return [];
+  const scene = resolveModeratorContextScene(input, opts);
+  if (!scene) return [];
+  if (opts.includeModeratorCoreScene === "authoritative") {
+    return [
+      "",
+      "MODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):",
+      `"${scene}"`,
+      "A human moderator has specified the exact visual concept for this fact. This scene is authoritative:",
+      "- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.",
+      "- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.",
+      "- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.",
+    ];
+  }
+  // existing_draft_context — offer the draft as direction, ask for DISTINCT alternatives.
+  return [
+    "",
+    "CURRENT MODERATOR DRAFT (context only — do NOT simply repeat or reword it):",
+    `"${scene}"`,
+    "The moderator has a working draft of the visual concept. Propose concepts that explore genuinely DIFFERENT stagings/gags — this draft shows the direction they're leaning, it is NOT an instruction to obey or echo.",
+  ];
+}
+
+/**
+ * Build the ordered CONTEXT lines (everything between the intro and the OUTPUT
+ * CONTRACT) for the image-prompt generator, gated by per-block include flags.
+ * Behavior-preserving: the planner passes PLANNER_CONTEXT_OPTS so the emitted
+ * non-empty-line sequence is identical to the pre-refactor message. Blank ("")
+ * entries are filtered by the caller's `.join`, so they are cosmetic separators.
+ */
+export function buildImagePromptContextBlocks(
+  input: ImagePromptContextInput,
+  opts: ImagePromptContextOpts,
+): string[] {
   const e = input.enrichment;
   const strategy = getVisualPromptStrategy(e.primaryArchetype);
   const subtypeGuide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
-
-  // Moderator-authored core scene — the ONLY override field the planner reads
-  // (everything else in visualPromptStrategyOverride is compiler-only). Token-
-  // rendered so the model never sees raw {NAME}/pronoun tokens, matching the
-  // rendered fact text it already receives.
-  const ovb = e.visualPromptStrategyOverride;
-  const moderatorSceneRaw = ovb?.enabled ? (ovb.coreSceneOverride?.trim() ?? "") : "";
-  const moderatorScene =
-    moderatorSceneRaw && input.renderedSubject
-      ? renderPersonalized(moderatorSceneRaw, input.renderedSubject.name, input.renderedSubject.pronouns)
-      : moderatorSceneRaw;
 
   const culturalRefsBlock = e.culturalReferences.length
     ? e.culturalReferences
@@ -279,41 +433,11 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     })
     .join("\n");
 
-  // Per-mode global-rule excerpts.
-  const modeRuleExcerpt = (() => {
-    if (input.subjectRenderMode === "human_identity_i2i") {
-      const physique = input.identityPolicy.preservePhysique
-        ? VISUAL_PROMPT_GLOBAL_RULES.preservePhysiqueOverride
-        : "";
-      return [
-        "Identity rule (human i2i):",
-        VISUAL_PROMPT_GLOBAL_RULES.identityBaseline,
-        physique ? `\nPreserve-physique override:\n${physique}` : "",
-        `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    }
-    if (input.subjectRenderMode === "nonhuman_subject_i2i") {
-      return [
-        "Identity rule (non-human i2i):",
-        VISUAL_PROMPT_GLOBAL_RULES.nonhumanSubjectIdentityPolicy,
-        `\nAnthropomorphic treatment policy:\n${VISUAL_PROMPT_GLOBAL_RULES.anthropomorphicTreatmentPolicy}`,
-        `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
-      ].join("\n");
-    }
-    return [
-      "Identity rule (t2i fallback):",
-      VISUAL_PROMPT_GLOBAL_RULES.textToImageFallbackPolicy,
-    ].join("\n");
-  })();
-
-  const fallbackGender = input.renderControls.fallbackSubjectGender ?? null;
-
   // RENDER POLICY — the ONLY thing that governs how much of the fact's violence /
   // consequences the CORE SCENE depicts. Placed next to the strategy context so
   // it shapes scene planning. Default is allow + strong (depict what the fact
   // requires); only an explicit moderator soften/suppress override reduces it.
+  // Safe for the mode-agnostic subset — reads only input.renderPolicy.
   const renderPolicyBlock = ((): string => {
     const v = input.renderPolicy?.violence;
     const mode = v?.mode ?? "allow";
@@ -330,101 +454,232 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     return guidance ? `${line} Moderator guidance: ${guidance}` : line;
   })();
 
+  const lines: string[] = [];
+
+  // ── Rendered fact text ──
+  if (opts.includeFactText) {
+    lines.push(
+      "RENDERED FACT TEXT (subject/pronouns already resolved). Inspect the EXACT spelling and capitalization — capitalization is meaningful for visual interpretation:",
+      `factTextExact: ${input.factText}`,
+      "",
+    );
+  }
+
+  // ── Taxonomy (fixed) ──
+  if (opts.includeTaxonomy) {
+    lines.push(
+      "TAXONOMY (FIXED — DO NOT reclassify):",
+      `- primaryArchetype: ${e.primaryArchetype}`,
+      `- subtype: ${e.subtype}`,
+      `- modifiers: ${e.modifiers.join(", ") || "(none)"}`,
+      `- visualLiteralness: ${e.visualLiteralness}`,
+      `- visualComplexity: ${e.visualComplexity}`,
+      `- overhypeFit: ${e.overhypeFit}`,
+      `- adultSuitability: ${e.adultSuitability}`,
+      `- taxonomyConfidence: ${e.taxonomyConfidence}`,
+      "",
+    );
+  }
+
+  // ── Render policy ──
+  if (opts.includeRenderPolicy) {
+    lines.push(
+      "RENDER POLICY (governs how much of the fact's violence/consequences the CORE SCENE depicts — this is the ONLY layer that may suppress; do not self-censor beyond it):",
+      renderPolicyBlock,
+      "",
+    );
+  }
+
+  // ── Authored visual strategy (strategy lines, then moderator scene, then
+  //    examples, then locked rule) — kept in this exact order so the planner
+  //    message is byte-identical. ──
+  if (opts.includeAuthoredStrategy) {
+    lines.push(
+      "AUTHORED VISUAL STRATEGY (apply this — do not improvise):",
+      `Strategy block: ${strategy.strategyBlock}`,
+      `Core visual goal: ${strategy.coreVisualGoal}`,
+      `i2i default: ${strategy.i2iDefault}`,
+      strategy.t2iFallback ? `t2i fallback: ${strategy.t2iFallback}` : "",
+      strategy.preservePhysique ? `Per-archetype preservePhysique: ${strategy.preservePhysique}` : "",
+      subtypeGuide ? `Subtype guidance for ${e.subtype}: ${subtypeGuide.principle}${subtypeGuide.useWhen ? ` (use when: ${subtypeGuide.useWhen})` : ""}` : "",
+    );
+  }
+  lines.push(...moderatorSceneLines(input, opts));
+  if (opts.includeExamples) {
+    lines.push(
+      "",
+      "Visualization examples:",
+      examplesBlock,
+    );
+  }
+  if (opts.includeAuthoredStrategy) {
+    lines.push(
+      "",
+      `Locked rule: ${strategy.lockedRule}`,
+      strategy.frameSelectionGuidance && strategy.frameSelectionGuidance.length
+        ? `Frames: ${strategy.frameSelectionGuidance.map((f) => `${f.frame} (${f.useWhen})`).join("; ")}`
+        : "",
+      "",
+    );
+  }
+
+  // ── Per-fact cultural references + semantic entities. The two echo
+  //    instructions both sit AFTER the semantic block (original ordering). ──
+  if (opts.includeCulturalReferences) {
+    lines.push(
+      "PER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):",
+      culturalRefsBlock,
+      "",
+    );
+  }
+  if (opts.includeSemanticEntities) {
+    lines.push(
+      "SEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):",
+      semanticEntitiesBlock,
+    );
+  }
+  // The echo-back directives instruct the model to populate visualPlan.* /
+  // compiledPrompt.* — the RENDER PLANNER's output schema. They are meaningless
+  // (and schema-incompatible) for candidate concept generation, whose structured
+  // output is only `{ concepts: [...] }`, so they are gated on the planner-only
+  // includeVisualPlanEchoDirectives flag. The reference DATA blocks above stay —
+  // they give the model the fact's locked visual interpretation, useful for both.
+  if (opts.includeSemanticEntities && opts.includeVisualPlanEchoDirectives) {
+    lines.push(
+      materialEntities.length > 0
+        ? `\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: ${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}.`
+        : "\n(semanticEntitiesUsed may be an empty array.)",
+    );
+  }
+  if (opts.includeCulturalReferences && opts.includeVisualPlanEchoDirectives) {
+    lines.push(
+      materialCulturalRefs.length > 0
+        ? `\nFor every MATERIAL cultural reference (material=true above), include a matching entry in visualPlan.culturalReferencesUsed (echo sourcePhrase verbatim; fill canonicalReferenceUsed + visualImplicationUsed + a one-sentence effectOnVisualPlan). Bake the reference's visual implication into keyVisualElements + the compiledPrompt.prompt, but never draw a real logo or brand mark. Required sourcePhrases: ${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}.`
+        : "\n(culturalReferencesUsed may be an empty array — no material references in this fact.)",
+      "",
+    );
+  }
+
+  // ── Runtime blocks (EXCLUDED from the mode-agnostic candidate subset) ──
+  if (opts.includeSourceImageAnalysis && input.sourceImageAnalysis) {
+    const sia = input.sourceImageAnalysis;
+    lines.push(
+      "SOURCE-IMAGE ANALYSIS:",
+      `- subjectKind: ${sia.subjectKind}`,
+      `- confidence: ${sia.confidence}`,
+      `- hasUsableHumanFace: ${sia.hasUsableHumanFace}`,
+      `- hasUsableSubject: ${sia.hasUsableSubject}`,
+      `- subjectCount: ${sia.subjectCount}`,
+      sia.subjectDescription ? `- subjectDescription: "${sia.subjectDescription}"` : "",
+      sia.warnings.length ? `- warnings: ${sia.warnings.join("; ")}` : "",
+      `- classificationMethod: ${sia.classificationMethod}`,
+      "",
+    );
+  }
+
+  if (opts.includeSubjectRenderMode && input.subjectRenderMode) {
+    lines.push(
+      `RESOLVED subjectRenderMode: ${input.subjectRenderMode}`,
+      input.userSelectedSubjectRenderMode ? `(user explicitly overrode suggestedRenderMode to ${input.userSelectedSubjectRenderMode})` : "",
+      `RESOLVED generationMode: ${generationModeFromSubjectRenderMode(input.subjectRenderMode)}`,
+      `Reference image present: ${input.referenceImageUrl ? "yes" : "no"}`,
+      "",
+      buildModeRuleExcerpt(input),
+      "",
+    );
+  }
+
+  if (opts.includeIdentityPolicy && input.identityPolicy) {
+    const ip = input.identityPolicy;
+    lines.push(
+      "IDENTITY POLICY:",
+      `- preserveHumanFace: ${ip.preserveHumanFace}`,
+      `- preserveNonhumanSubjectIdentity: ${ip.preserveNonhumanSubjectIdentity}`,
+      `- preservePhysique: ${ip.preservePhysique}`,
+      `- allowBodyExaggeration: ${ip.allowBodyExaggeration}`,
+      `- allowCostumeTransformation: ${ip.allowCostumeTransformation}`,
+      `- allowAnthropomorphicTransformation: ${ip.allowAnthropomorphicTransformation}`,
+      `- ageAndLifeStagePolicy: ${ip.ageAndLifeStagePolicy}`,
+      "",
+    );
+  }
+
+  if (opts.includeRenderControls && input.renderControls) {
+    const rc = input.renderControls;
+    const fallbackGender = rc.fallbackSubjectGender ?? null;
+    lines.push(
+      "RENDER CONTROLS:",
+      `- aspectRatio: ${rc.aspectRatio}`,
+      `- negativeSpacePreference: ${rc.negativeSpacePreference ?? "auto"}`,
+      `- contentMode: ${rc.contentMode}`,
+      `- fallbackSubjectGender: ${fallbackGender ?? "(unset)"} ${input.subjectRenderMode === "t2i_fallback" ? "(REQUIRED for t2i_fallback — reference this in the prompt)" : "(ignore unless t2i_fallback)"}`,
+      "",
+    );
+  }
+
+  if (opts.includeStyleIntegration) {
+    lines.push(
+      "STYLE INTEGRATION (weave naturally):",
+      input.stylePrompt || "(no style suffix configured)",
+      "",
+    );
+  }
+
+  if (opts.includeTargetEngine && input.targetEngine) {
+    lines.push(
+      `TARGET ENGINE: ${input.targetEngine} (use t2i variant when generationMode=t2i, edit/i2i variant otherwise)`,
+      "",
+    );
+  }
+
+  return lines;
+}
+
+/** Per-mode identity global-rule excerpt (runtime block; needs subjectRenderMode). */
+function buildModeRuleExcerpt(input: ImagePromptContextInput): string {
+  if (input.subjectRenderMode === "human_identity_i2i") {
+    const physique = input.identityPolicy?.preservePhysique
+      ? VISUAL_PROMPT_GLOBAL_RULES.preservePhysiqueOverride
+      : "";
+    return [
+      "Identity rule (human i2i):",
+      VISUAL_PROMPT_GLOBAL_RULES.identityBaseline,
+      physique ? `\nPreserve-physique override:\n${physique}` : "",
+      `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (input.subjectRenderMode === "nonhuman_subject_i2i") {
+    return [
+      "Identity rule (non-human i2i):",
+      VISUAL_PROMPT_GLOBAL_RULES.nonhumanSubjectIdentityPolicy,
+      `\nAnthropomorphic treatment policy:\n${VISUAL_PROMPT_GLOBAL_RULES.anthropomorphicTreatmentPolicy}`,
+      `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
+    ].join("\n");
+  }
+  return [
+    "Identity rule (t2i fallback):",
+    VISUAL_PROMPT_GLOBAL_RULES.textToImageFallbackPolicy,
+  ].join("\n");
+}
+
+/**
+ * The render planner's full user message: intro + full context (all blocks,
+ * moderator scene AUTHORITATIVE) + the OUTPUT CONTRACT. Byte-identical to the
+ * pre-refactor message — the generator tests pin this.
+ */
+export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): string {
+  const e = input.enrichment;
+  const semanticEntities = stripSubjectNameSemanticEntities(e.semanticEntities ?? []);
+  const materialEntities = semanticEntities.filter((s) => s.materiallyAffectsVisualPrompt);
+  const materialCulturalRefs = e.culturalReferences.filter(isMaterialCulturalReference).map(culturalReferenceKey).filter(Boolean);
+  const fallbackGender = input.renderControls.fallbackSubjectGender ?? null;
+
   return [
     "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.",
     "",
-    "RENDERED FACT TEXT (subject/pronouns already resolved). Inspect the EXACT spelling and capitalization — capitalization is meaningful for visual interpretation:",
-    `factTextExact: ${input.factText}`,
-    "",
-    "TAXONOMY (FIXED — DO NOT reclassify):",
-    `- primaryArchetype: ${e.primaryArchetype}`,
-    `- subtype: ${e.subtype}`,
-    `- modifiers: ${e.modifiers.join(", ") || "(none)"}`,
-    `- visualLiteralness: ${e.visualLiteralness}`,
-    `- visualComplexity: ${e.visualComplexity}`,
-    `- overhypeFit: ${e.overhypeFit}`,
-    `- adultSuitability: ${e.adultSuitability}`,
-    `- taxonomyConfidence: ${e.taxonomyConfidence}`,
-    "",
-    "RENDER POLICY (governs how much of the fact's violence/consequences the CORE SCENE depicts — this is the ONLY layer that may suppress; do not self-censor beyond it):",
-    renderPolicyBlock,
-    "",
-    "AUTHORED VISUAL STRATEGY (apply this — do not improvise):",
-    `Strategy block: ${strategy.strategyBlock}`,
-    `Core visual goal: ${strategy.coreVisualGoal}`,
-    `i2i default: ${strategy.i2iDefault}`,
-    strategy.t2iFallback ? `t2i fallback: ${strategy.t2iFallback}` : "",
-    strategy.preservePhysique ? `Per-archetype preservePhysique: ${strategy.preservePhysique}` : "",
-    subtypeGuide ? `Subtype guidance for ${e.subtype}: ${subtypeGuide.principle}${subtypeGuide.useWhen ? ` (use when: ${subtypeGuide.useWhen})` : ""}` : "",
-    ...(moderatorScene
-      ? [
-          "",
-          "MODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):",
-          `"${moderatorScene}"`,
-          "A human moderator has specified the exact visual concept for this fact. This scene is authoritative:",
-          "- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.",
-          "- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.",
-          "- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.",
-        ]
-      : []),
-    "",
-    "Visualization examples:",
-    examplesBlock,
-    "",
-    `Locked rule: ${strategy.lockedRule}`,
-    strategy.frameSelectionGuidance && strategy.frameSelectionGuidance.length
-      ? `Frames: ${strategy.frameSelectionGuidance.map((f) => `${f.frame} (${f.useWhen})`).join("; ")}`
-      : "",
-    "",
-    "PER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):",
-    culturalRefsBlock,
-    "",
-    "SEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):",
-    semanticEntitiesBlock,
-    materialEntities.length > 0
-      ? `\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: ${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}.`
-      : "\n(semanticEntitiesUsed may be an empty array.)",
-    materialCulturalRefs.length > 0
-      ? `\nFor every MATERIAL cultural reference (material=true above), include a matching entry in visualPlan.culturalReferencesUsed (echo sourcePhrase verbatim; fill canonicalReferenceUsed + visualImplicationUsed + a one-sentence effectOnVisualPlan). Bake the reference's visual implication into keyVisualElements + the compiledPrompt.prompt, but never draw a real logo or brand mark. Required sourcePhrases: ${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}.`
-      : "\n(culturalReferencesUsed may be an empty array — no material references in this fact.)",
-    "",
-    "SOURCE-IMAGE ANALYSIS:",
-    `- subjectKind: ${input.sourceImageAnalysis.subjectKind}`,
-    `- confidence: ${input.sourceImageAnalysis.confidence}`,
-    `- hasUsableHumanFace: ${input.sourceImageAnalysis.hasUsableHumanFace}`,
-    `- hasUsableSubject: ${input.sourceImageAnalysis.hasUsableSubject}`,
-    `- subjectCount: ${input.sourceImageAnalysis.subjectCount}`,
-    input.sourceImageAnalysis.subjectDescription ? `- subjectDescription: "${input.sourceImageAnalysis.subjectDescription}"` : "",
-    input.sourceImageAnalysis.warnings.length ? `- warnings: ${input.sourceImageAnalysis.warnings.join("; ")}` : "",
-    `- classificationMethod: ${input.sourceImageAnalysis.classificationMethod}`,
-    "",
-    `RESOLVED subjectRenderMode: ${input.subjectRenderMode}`,
-    input.userSelectedSubjectRenderMode ? `(user explicitly overrode suggestedRenderMode to ${input.userSelectedSubjectRenderMode})` : "",
-    `RESOLVED generationMode: ${generationModeFromSubjectRenderMode(input.subjectRenderMode)}`,
-    `Reference image present: ${input.referenceImageUrl ? "yes" : "no"}`,
-    "",
-    modeRuleExcerpt,
-    "",
-    "IDENTITY POLICY:",
-    `- preserveHumanFace: ${input.identityPolicy.preserveHumanFace}`,
-    `- preserveNonhumanSubjectIdentity: ${input.identityPolicy.preserveNonhumanSubjectIdentity}`,
-    `- preservePhysique: ${input.identityPolicy.preservePhysique}`,
-    `- allowBodyExaggeration: ${input.identityPolicy.allowBodyExaggeration}`,
-    `- allowCostumeTransformation: ${input.identityPolicy.allowCostumeTransformation}`,
-    `- allowAnthropomorphicTransformation: ${input.identityPolicy.allowAnthropomorphicTransformation}`,
-    `- ageAndLifeStagePolicy: ${input.identityPolicy.ageAndLifeStagePolicy}`,
-    "",
-    "RENDER CONTROLS:",
-    `- aspectRatio: ${input.renderControls.aspectRatio}`,
-    `- negativeSpacePreference: ${input.renderControls.negativeSpacePreference ?? "auto"}`,
-    `- contentMode: ${input.renderControls.contentMode}`,
-    `- fallbackSubjectGender: ${fallbackGender ?? "(unset)"} ${input.subjectRenderMode === "t2i_fallback" ? "(REQUIRED for t2i_fallback — reference this in the prompt)" : "(ignore unless t2i_fallback)"}`,
-    "",
-    "STYLE INTEGRATION (weave naturally):",
-    input.stylePrompt || "(no style suffix configured)",
-    "",
-    `TARGET ENGINE: ${input.targetEngine} (use t2i variant when generationMode=t2i, edit/i2i variant otherwise)`,
-    "",
+    ...buildImagePromptContextBlocks(input, PLANNER_CONTEXT_OPTS),
     "OUTPUT CONTRACT:",
     "- Echo input targetEngine, generationMode, archetype, subtype, subjectRenderMode verbatim.",
     "- The engine prompt is a fixed labeled contract assembled by the compiler: IMAGE-TO-IMAGE TASK · SUBJECT BINDING · CORE SCENE · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING AND STYLE · STRICT CONSTRAINTS. The compiler owns TASK + BINDING + STRICT CONSTRAINTS; you fill the concrete visual fields.",

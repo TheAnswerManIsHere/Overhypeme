@@ -32,12 +32,36 @@ import {
   visualRenderWaiverRequestSchema,
   type ProblematicScenarioStatus,
   type VisualRenderApprovalWaiver,
+  sanitizeCandidateSceneText,
+  CANDIDATE_SCENE_MAX_CHARS,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
 import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
-import { promoteCandidateEnrichmentVersion, PromoteCandidateError } from "../lib/enrichmentVersioning";
+import {
+  promoteCandidateEnrichmentVersion,
+  PromoteCandidateError,
+  loadCandidateEditingContext,
+  CandidateEditError,
+} from "../lib/enrichmentVersioning";
+import {
+  applyOverrideReset,
+  applyOverrideUpsert,
+  serializeResolved,
+  stampOverrideProvenance,
+  type VisualOverride,
+} from "../lib/enrichmentOverrideLayers";
+import { materializeEnrichment } from "../lib/factEnrichment";
+import {
+  isOverridablePath,
+  overrideValuesEqual,
+  pathToField,
+  OVERRIDABLE_PATHS,
+  OVERRIDABLE_PATH_KEYS,
+  type OverridablePath,
+} from "@workspace/api-zod";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
+import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
   buildRenderStatusPayload,
@@ -303,11 +327,25 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           enrichment: factsTable.enrichment,
           enrichmentStatus: factsTable.enrichmentStatus,
           pexelsStatus: factsTable.pexelsStatus,
+          visualConceptStatus: factsTable.visualConceptStatus,
+          visualConceptCandidates: factsTable.visualConceptCandidates,
         })
           .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
       : null,
   ]);
+
+  // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
+  // `current` flag (stored reviewId/candidateVersionId/inputHash vs. the review's
+  // live state) so the FE never recomputes hashes.
+  const visualConcepts = stagingFact
+    ? await buildVisualConceptsResponse({
+        id: review.id,
+        candidateVersionId: review.candidateVersionId ?? null,
+        visualConceptStatus: stagingFact.visualConceptStatus ?? null,
+        visualConceptCandidates: stagingFact.visualConceptCandidates,
+      })
+    : { status: null, candidates: [], current: false };
 
   res.json({
     ...review,
@@ -318,6 +356,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
       ? { ...matchingFact, createdAt: matchingFact.createdAt.toISOString() }
       : null,
     stagingFact,
+    visualConcepts,
   });
 });
 
@@ -994,6 +1033,199 @@ router.post("/admin/reviews/:id/enrich", requireAdmin, (_req: Request, res: Resp
   });
 });
 
+// ─── Refresh-candidate enrichment editing (production_review) ────────────────
+//
+// During a REFRESH cycle the Step-2 modal edits the CANDIDATE version row —
+// never the live fact, whose enrichment writes are frozen (REFRESH_IN_REVIEW)
+// while the cycle is open. These four routes mirror the fact endpoints
+// (/admin/facts/:id/enrichment-resolved, /enrichment-overrides, /enrichment)
+// through the SHARED merge core in lib/enrichmentOverrideLayers.ts, but
+// persist only the version row's four layer columns. Deliberate differences:
+//  - NO enrichment_override_history rows (per-version audit is a deferred
+//    enhancement; the version row + promote-time snapshot are the audit);
+//  - NO re-run-classification (the candidate job requires prep_pending;
+//    reject + re-send covers it);
+//  - suggestedHashtags are PINNED server-side on PATCH (refresh moderation
+//    edits tracked overrides + the visual concept only — discovery tags are
+//    out of refresh scope).
+
+/** Map a CandidateEditError to its HTTP response. */
+function sendCandidateEditError(res: Response, err: CandidateEditError): void {
+  res.status(err.code === "REVIEW_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
+}
+
+/** Persist a re-materialized candidate: the four layer columns, nothing else.
+ * `visual_override` stays canonical with `enrichment.visualPromptStrategyOverride`
+ * by construction (both come from the same materializeEnrichment output). */
+type ReviewsDbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+async function persistCandidateLayers(
+  tx: ReviewsDbTx,
+  candidateVersionId: number,
+  columns: ReturnType<typeof materializeEnrichment>["columns"],
+): Promise<void> {
+  await tx
+    .update(factEnrichmentVersionsTable)
+    .set({
+      enrichment: columns.enrichment,
+      enrichmentAiDerived: columns.enrichmentAiDerived,
+      enrichmentOverrides: columns.enrichmentOverrides,
+      visualOverride: (columns.enrichment as { visualPromptStrategyOverride?: VisualOverride })
+        .visualPromptStrategyOverride ?? null,
+    })
+    .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+}
+
+// GET /admin/reviews/:id/candidate-enrichment-resolved — the candidate's
+// layers in the exact shape of the fact resolved GET (plus identifiers), so
+// the shared editor consumes either interchangeably.
+router.get("/admin/reviews/:id/candidate-enrichment-resolved", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  try {
+    const ctx = await loadCandidateEditingContext(id, db, { forUpdate: false, intent: "read" });
+    res.json({
+      ...serializeResolved(ctx.layers),
+      factId: ctx.review.stagingFactId,
+      candidateVersionId: ctx.review.candidateVersionId,
+    });
+  } catch (err) {
+    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
+    throw err;
+  }
+});
+
+// PUT /admin/reviews/:id/candidate-overrides — create/update/reset one tracked
+// override ON THE CANDIDATE. Same body + response contract as the fact PUT.
+router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = (req.body ?? {}) as { path?: unknown; value?: unknown; reason?: unknown; acknowledgeCurrentAiBaseline?: unknown };
+  const path = String(body.path ?? "");
+  if (!isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
+  const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : undefined;
+  const acknowledge = body.acknowledgeCurrentAiBaseline === true;
+  const adminId = req.user.id;
+
+  try {
+    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
+      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
+      const aiDerived = ctx.layers.aiDerived!; // write intent guarantees a classified candidate
+      const result = applyOverrideUpsert({
+        layers: { ...ctx.layers, aiDerived },
+        path,
+        value: body.value,
+        ...(reason !== undefined ? { reason } : {}),
+        acknowledge,
+        adminId,
+      });
+      if (!result.ok) return { status: result.status, body: { error: result.error } };
+      const { columns } = materializeEnrichment({
+        aiDerived,
+        overrides: result.overrides,
+        visualPromptStrategyOverride: ctx.layers.visualPromptStrategyOverride,
+      });
+      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
+      return {
+        status: 200,
+        body: { success: true, ...serializeResolved({ ...ctx.layers, aiDerived, overrides: result.overrides }) },
+      };
+    });
+    res.status(out.status).json(out.body);
+  } catch (err) {
+    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
+    logger.error({ err, reviewId: id, path }, "[PUT /admin/reviews/:id/candidate-overrides] failed");
+    res.status(500).json({ error: "Failed to save candidate override" });
+  }
+});
+
+// DELETE /admin/reviews/:id/candidate-overrides[?path=…] — reset one candidate
+// override (or ALL when no path is given) back to the candidate's AI baseline.
+router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const rawPath = req.query["path"];
+  const path = rawPath !== undefined ? String(rawPath) : null;
+  if (path !== null && !isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
+
+  try {
+    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
+      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
+      const aiDerived = ctx.layers.aiDerived!;
+      const result = applyOverrideReset({ layers: { ...ctx.layers, aiDerived }, path: path as OverridablePath | null });
+      const { columns } = materializeEnrichment({
+        aiDerived,
+        overrides: result.overrides,
+        visualPromptStrategyOverride: ctx.layers.visualPromptStrategyOverride,
+      });
+      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
+      return {
+        status: 200,
+        body: { success: true, ...serializeResolved({ ...ctx.layers, aiDerived, overrides: result.overrides }) },
+      };
+    });
+    res.status(out.status).json(out.body);
+  } catch (err) {
+    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
+    logger.error({ err, reviewId: id, path }, "[DELETE /admin/reviews/:id/candidate-overrides] failed");
+    res.status(500).json({ error: "Failed to reset candidate override" });
+  }
+});
+
+// PATCH /admin/reviews/:id/candidate-enrichment — persist the moderator
+// visual-strategy override ON THE CANDIDATE. Tracked fields are rejected (400,
+// same as the fact PATCH) and suggestedHashtags are pinned to the candidate's
+// persisted baseline regardless of the body.
+router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  if (!parsed.ok) { res.status(400).json({ error: `Invalid enrichment: ${parsed.error}` }); return; }
+  const submitted = parsed.data;
+  const adminId = req.user.id;
+
+  try {
+    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
+      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
+      const aiDerived = ctx.layers.aiDerived!;
+
+      // Reject any attempt to change a tracked field through PATCH.
+      const changed = OVERRIDABLE_PATH_KEYS.filter((p) => {
+        const field = pathToField(p);
+        return !overrideValuesEqual(
+          (submitted as Record<string, unknown>)[field],
+          (ctx.layers.effective as unknown as Record<string, unknown>)[field],
+        );
+      });
+      if (changed.length > 0) {
+        return {
+          status: 400,
+          body: {
+            error: `Tracked field(s) ${changed.map((p) => OVERRIDABLE_PATHS[p].label).join(", ")} must be changed via the candidate override endpoint (PUT/DELETE /admin/reviews/${id}/candidate-overrides), not PATCH`,
+            trackedPaths: changed,
+          },
+        };
+      }
+
+      // suggestedHashtags PINNED: keep the candidate's persisted baseline
+      // (never the submitted draft) — refresh moderation never edits tags.
+      const stamped = stampOverrideProvenance(
+        { ...aiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
+        ctx.layers.effective,
+        adminId,
+      );
+      const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
+      const { columns } = materializeEnrichment({ aiDerived, overrides: ctx.layers.overrides, visualPromptStrategyOverride });
+      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
+      return { status: 200, body: { success: true, enrichment: columns.enrichment } };
+    });
+    res.status(out.status).json(out.body);
+  } catch (err) {
+    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
+    logger.error({ err, reviewId: id }, "[PATCH /admin/reviews/:id/candidate-enrichment] failed");
+    res.status(500).json({ error: "Failed to save candidate enrichment" });
+  }
+});
+
 // ─── Moderation render-review tools (production_review) ────────────────────────
 //
 // Two surfaces a moderator uses to vet a fact's imagery before approval:
@@ -1275,6 +1507,56 @@ router.post("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Aut
   if ("error" in result) { res.status(409).json(result); return; }
   logger.info({ reviewId: id, scenarios: parsed.data.scenarios, adminId: req.user.id }, "[moderation] manual scenario rerun");
   res.status(202).json(result);
+});
+
+// POST /admin/reviews/:id/visual-concepts/regenerate — re-draft the 3 candidate
+// Visual concepts (Slice 2A). The body may carry the moderator's UNSAVED draft so
+// the server can offer it as "here's my direction — propose DISTINCT alternatives"
+// context (the server can't see local drafts otherwise). The draft is NOT
+// persisted by regeneration; a blank/invalid draft → fresh ideas.
+const RegenerateVisualConceptsBody = z.object({
+  coreSceneDraft: z.string().max(CANDIDATE_SCENE_MAX_CHARS).nullish(),
+});
+
+router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = RegenerateVisualConceptsBody.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+
+  const [review] = await db
+    .select({
+      workflowStage: pendingReviewsTable.workflowStage,
+      stagingFactId: pendingReviewsTable.stagingFactId,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (review.workflowStage !== "production_review") {
+    res.status(409).json({ error: `Cannot generate visual concepts from stage ${review.workflowStage}. Finish prep first.` });
+    return;
+  }
+  if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
+
+  // Canonicalize + token-validate the draft with the SAME rules a stored
+  // candidate uses. Only offer it as distinct-alt context when non-empty AND
+  // valid; an invalid-token draft is silently ignored (best-effort context, not
+  // a hard input) so regeneration still produces fresh ideas.
+  let draft: string | null = null;
+  const rawDraft = parsed.data.coreSceneDraft?.trim() ?? "";
+  if (rawDraft) {
+    const sanitized = sanitizeCandidateSceneText(rawDraft);
+    if (sanitized.tokenValid) draft = sanitized.text;
+  }
+
+  await enqueueVisualConceptsForReview({
+    reviewId: id,
+    factId: review.stagingFactId,
+    candidateVersionId: review.candidateVersionId ?? null,
+    moderatorDraftScene: draft,
+  });
+  logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
+  res.status(202).json({ success: true, visualConceptStatus: "pending" });
 });
 
 // GET frozen diagnostics for ONE attempt (the prompt/plan that produced THIS

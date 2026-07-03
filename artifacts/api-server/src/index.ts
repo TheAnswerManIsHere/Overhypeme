@@ -20,6 +20,7 @@ import { registerReviewRenderScenarioHandlers } from "./lib/reviewRenderScenario
 import { registerProjectionRepairHandler } from "./lib/projectionRepairJob.js";
 import { registerFactEnrichmentBackfillHandler } from "./lib/factEnrichmentBackfillJob.js";
 import { registerFactPexelsJobHandler } from "./lib/factPexelsJobs.js";
+import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
@@ -423,4 +424,5 @@ registerProjectionRepairHandler();
 registerFactEnrichmentBackfillHandler();
 registerFactPexelsJobHandler();
 registerReviewRenderScenarioHandlers();
+registerVisualConceptJobHandlers();
 runAsyncJobsWorker();
