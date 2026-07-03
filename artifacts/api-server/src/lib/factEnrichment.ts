@@ -38,10 +38,13 @@ import {
 } from "@workspace/api-zod";
 import {
   resolveFactEnrichmentSystemPrompt,
+  getFactEnrichmentEngineId,
+  DEFAULT_FACT_ENRICHMENT_ENGINE_ID,
   FACT_ENRICHMENT_TEMPERATURE,
   FACT_ENRICHMENT_MAX_TOKENS,
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
+import { loadEngine } from "./engineInterpreter";
 import { logger } from "./logger";
 import { stripSubjectNameSemanticEntities } from "./renderCanonical";
 // The subject/app-name hashtag denylist now lives in the shared hashtag module
@@ -312,16 +315,88 @@ export async function enrichFactWithModel(
   return stampProvenance(revalidated.data, options?.promptDiagnostics);
 }
 
+/** Timeout for the enrichment LLM call. Generous headroom for a high-reasoning
+ *  model (the default utility timeout is 30s, which a reasoning model exceeds).
+ *  Only applied on the dedicated enricher route; fallback keeps the 30s default. */
+export const FACT_ENRICHMENT_LLM_TIMEOUT_MS = 120_000;
+
+export interface FactEnrichmentLLMSettings {
+  /** Unset = use the default "llm" engine (current/fallback behavior). */
+  model?: string;
+  temperature: number;
+  maxTokens: number;
+  reasoningEffort?: string;
+  timeoutMs?: number;
+  resolvedEngineId: string | null;
+  fallbackReason: string | null;
+}
+
+function enrichmentFallbackSettings(fallbackReason: string): FactEnrichmentLLMSettings {
+  return {
+    temperature: FACT_ENRICHMENT_TEMPERATURE,
+    maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
+    resolvedEngineId: null,
+    fallbackReason,
+  };
+}
+
+/** Resolve the enrichment LLM from the `fact_enrichment_engine_id` admin_config
+ *  key (dedicated `openai-enricher` by default). Mirrors the visual-planner
+ *  route: any missing/inactive/wrong-kind engine falls back to the default
+ *  utility LLM (byte-identical to the pre-route behavior) with a logged reason. */
+export async function resolveFactEnrichmentLLMSettings(): Promise<FactEnrichmentLLMSettings> {
+  let configuredEngineId = DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
+  try {
+    configuredEngineId = (await getFactEnrichmentEngineId()).trim() || DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
+    const engine = await loadEngine(configuredEngineId);
+    const reason = !engine
+      ? "engine_not_found"
+      : engine.kind !== "llm"
+        ? "engine_not_llm"
+        : engine.provider !== "openai"
+          ? "engine_not_openai"
+          : !engine.isActive
+            ? "engine_inactive"
+            : engine.deletedAt != null
+              ? "engine_deleted"
+              : !engine.endpointId
+                ? "engine_missing_model"
+                : null;
+    if (engine && reason === null) {
+      return {
+        model: engine.endpointId,
+        temperature:
+          engine.defaultTemperature != null ? Number(engine.defaultTemperature) : FACT_ENRICHMENT_TEMPERATURE,
+        maxTokens: engine.defaultMaxTokens ?? FACT_ENRICHMENT_MAX_TOKENS,
+        reasoningEffort: engine.defaultReasoningEffort ?? undefined,
+        timeoutMs: FACT_ENRICHMENT_LLM_TIMEOUT_MS,
+        resolvedEngineId: engine.id,
+        fallbackReason: null,
+      };
+    }
+    logger.warn({ configuredEngineId, reason }, "[factEnrichment] enricher engine fallback");
+    return enrichmentFallbackSettings(reason ?? "unknown");
+  } catch (err) {
+    logger.warn({ configuredEngineId, err }, "[factEnrichment] enricher engine fallback");
+    return enrichmentFallbackSettings("resolver_error");
+  }
+}
+
 /** Classify a fact via OpenAI. Throws EnrichmentError on unrecoverable failure. */
 export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
   // Resolve the EFFECTIVE system prompt (code default vs admin-config vs debug
   // override) so we both use it AND stamp its provenance onto the result.
   const resolution = await resolveFactEnrichmentSystemPrompt();
+  // Resolve the enricher model ONCE (a corrective retry reuses these settings).
+  const settings = await resolveFactEnrichmentLLMSettings();
 
   const callModel = async (userMessages: UserMessage[]): Promise<string> => {
     const response = await callUtilityLLM({
-      temperature: FACT_ENRICHMENT_TEMPERATURE,
-      maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
+      ...(settings.model ? { model: settings.model } : {}),
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      ...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
+      ...(settings.timeoutMs ? { timeoutMs: settings.timeoutMs } : {}),
       responseFormat: zodResponseFormat(factEnrichmentWireSchema, "fact_enrichment"),
       messages: [{ role: "system", content: resolution.prompt }, ...userMessages],
     });

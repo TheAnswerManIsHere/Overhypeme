@@ -24,6 +24,7 @@ import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
 import { FAL_YOLO_WORLD } from "./fal-yolo-world";
 import { OPENAI_GENERAL } from "./openai-general";
 import { OPENAI_VISUAL_PLANNER } from "./openai-visual-planner";
+import { OPENAI_ENRICHER } from "./openai-enricher";
 
 /**
  * Code-first engine catalogue. To add a new engine: drop a new file in this
@@ -50,4 +51,5 @@ export const ALL_ENGINES: EngineDefinition[] = [
   FAL_YOLO_WORLD,
   OPENAI_GENERAL,
   OPENAI_VISUAL_PLANNER,
+  OPENAI_ENRICHER,
 ];

@@ -29,7 +29,11 @@ export const FACT_ENRICHMENT_MAX_TOKENS = 600;
 
 export const FACT_ENRICHMENT_CONFIG_KEYS = {
   system: "fact_enrichment_system",
+  engineId: "fact_enrichment_engine_id",
 } as const;
+
+/** Dedicated enricher engine; NOT the global default `llm` engine. */
+export const DEFAULT_FACT_ENRICHMENT_ENGINE_ID = "openai-enricher";
 
 // ─── Production defaults ─────────────────────────────────────────────────────
 
@@ -332,6 +336,10 @@ export async function getFactEnrichmentSystem(): Promise<string> {
   return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.system, FACT_ENRICHMENT_SYSTEM_DEFAULT);
 }
 
+export async function getFactEnrichmentEngineId(): Promise<string> {
+  return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.engineId, DEFAULT_FACT_ENRICHMENT_ENGINE_ID);
+}
+
 // ─── Prompt provenance ────────────────────────────────────────────────────────
 
 /**
@@ -396,7 +404,15 @@ export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
     // "text" renders as a multi-line textarea in the workbench.
     dataType: "text",
     label: "Fact Enrichment — System Prompt",
-    description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the General Intelligence engine.",
+    description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the dedicated Fact Enricher engine (fact_enrichment_engine_id).",
+  },
+  {
+    key: FACT_ENRICHMENT_CONFIG_KEYS.engineId,
+    value: DEFAULT_FACT_ENRICHMENT_ENGINE_ID,
+    dataType: "string",
+    label: "Fact Enrichment — Active LLM Engine",
+    description:
+      "Engine id for the LLM that classifies a submitted fact into the Overhype taxonomy. Defaults to openai-enricher (gpt-5.5, high reasoning). Invalid or inactive values fall back to the default utility LLM.",
   },
 ];
 
