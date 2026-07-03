@@ -100,7 +100,7 @@ describe("useFactEnrichmentEditing", () => {
   it("moderation commit pins suggestedHashtags to the server value (anti-smuggle guard)", async () => {
     const { calls } = mockFetch({ 7: makeEnrichment() });
     const { result } = renderEditing({
-      factId: 7,
+      target: { kind: "fact", factId: 7 },
       enabled: true,
       editableUntrackedFields: ["visualPromptStrategyOverride"],
     });
@@ -131,7 +131,7 @@ describe("useFactEnrichmentEditing", () => {
 
   it("the Facts-page surface (both fields editable) commits the hashtag edit as-is", async () => {
     const { calls } = mockFetch({ 7: makeEnrichment() });
-    const { result } = renderEditing({ factId: 7, enabled: true });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
     await waitFor(() => expect(result.current.enrichment).not.toBeNull());
 
     act(() =>
@@ -148,7 +148,7 @@ describe("useFactEnrichmentEditing", () => {
 
   it("enabled=false: no fetches, null enrichment, no overrideContext", async () => {
     const { calls } = mockFetch({ 7: makeEnrichment() });
-    const { result } = renderEditing({ factId: 7, enabled: false });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: false });
 
     // Give any (wrong) async work a chance to fire before asserting silence.
     await act(async () => { await Promise.resolve(); });
@@ -160,9 +160,9 @@ describe("useFactEnrichmentEditing", () => {
 
   it("flipping enabled false→true fetches detail + resolved for the fact", async () => {
     const { calls } = mockFetch({ 7: makeEnrichment() });
-    const { result, rerender } = renderEditing({ factId: 7, enabled: false });
+    const { result, rerender } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: false });
 
-    rerender({ factId: 7, enabled: true });
+    rerender({ target: { kind: "fact", factId: 7 }, enabled: true });
     await waitFor(() => expect(result.current.enrichment).not.toBeNull());
     expect(result.current.enrichment?.suggestedHashtags).toEqual(["ai-original"]);
     expect(calls.some((c) => c.method === "GET" && c.url === "/api/admin/facts/7")).toBe(true);
@@ -175,13 +175,120 @@ describe("useFactEnrichmentEditing", () => {
       7: makeEnrichment({ suggestedHashtags: ["fact-a"] }),
       8: makeEnrichment({ suggestedHashtags: ["fact-b"], visualComplexity: "high" }),
     });
-    const { result, rerender } = renderEditing({ factId: 7, enabled: true });
+    const { result, rerender } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
     await waitFor(() => expect(result.current.enrichment?.suggestedHashtags).toEqual(["fact-a"]));
 
-    rerender({ factId: 8, enabled: true });
+    rerender({ target: { kind: "fact", factId: 8 }, enabled: true });
     await waitFor(() => expect(result.current.enrichment?.suggestedHashtags).toEqual(["fact-b"]));
     expect(result.current.enrichment?.visualComplexity).toBe("high");
     expect(result.current.draft.hasUncommittedChanges).toBe(false);
     expect(calls.some((c) => c.method === "GET" && c.url === "/api/admin/facts/8/enrichment-resolved")).toBe(true);
+  });
+
+  // ── reviewCandidate target (refresh cycles) ────────────────────────────────
+
+  /** Stub fetch for CANDIDATE mode: only the review-scoped endpoints exist;
+   *  any /api/admin/facts call is the bug the target abstraction prevents. */
+  function mockCandidateFetch(
+    reviewId: number,
+    enrichment: FactEnrichment,
+    opts: { failPut?: { status: number; error: string; code: string } } = {},
+  ) {
+    const calls: Call[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      calls.push({ url: u, method, body });
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
+
+      if (u === `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`) {
+        return json({
+          aiDerived: enrichment, overrides: {}, effective: enrichment,
+          overrideSummary: EMPTY_SUMMARY, enrichmentStatus: "ok", factId: 42, candidateVersionId: 9,
+        });
+      }
+      if (u === `/api/admin/reviews/${reviewId}/candidate-enrichment` && method === "PATCH") {
+        return json({ success: true, enrichment: (body as { enrichment: FactEnrichment }).enrichment });
+      }
+      if (u.startsWith(`/api/admin/reviews/${reviewId}/candidate-overrides`)) {
+        if (opts.failPut) return json({ error: opts.failPut.error, code: opts.failPut.code }, opts.failPut.status);
+        return json({ aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_SUMMARY });
+      }
+      // Anything else — most importantly /api/admin/facts/* — is a wrong-target bug.
+      return new Response("{}", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return { calls };
+  }
+
+  it("candidate target: every read/write hits the review-scoped endpoints, never /api/admin/facts", async () => {
+    const { calls } = mockCandidateFetch(31, makeEnrichment());
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
+
+    // Tracked override write → candidate endpoint.
+    await act(async () => { result.current.overrideContext!.onOverride("/overhypeFit", "questionable"); });
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PUT" && c.url === "/api/admin/reviews/31/candidate-overrides")).toBe(true),
+    );
+
+    // Draft commit (VSO) → candidate PATCH.
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: VSO })),
+    );
+    await act(async () => { await result.current.draft.save(); });
+    expect(calls.some((c) => c.method === "PATCH" && c.url === "/api/admin/reviews/31/candidate-enrichment")).toBe(true);
+
+    // The invariant: nothing ever touched a fact URL.
+    expect(calls.filter((c) => c.url.includes("/api/admin/facts"))).toEqual([]);
+  });
+
+  it("candidate target: distinct draft namespace + supportsRerun=false (no /enrich call ever)", async () => {
+    const { calls } = mockCandidateFetch(31, makeEnrichment());
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: VSO })),
+    );
+    // The draft persist is debounced (1.5s) — wait past it.
+    await waitFor(
+      () => expect(window.localStorage.getItem("candidate-enrichment-draft::31")).not.toBeNull(),
+      { timeout: 4000 },
+    );
+    expect(window.localStorage.getItem("fact-enrichment-draft::42")).toBeNull();
+
+    expect(result.current.supportsRerun).toBe(false);
+    await act(async () => { await result.current.rerunWithConfirm(); });
+    expect(calls.filter((c) => c.url.includes("/enrich"))).toEqual([]);
+  });
+
+  it("candidate target: a failed override write surfaces the server's message", async () => {
+    mockCandidateFetch(31, makeEnrichment(), {
+      failPut: {
+        status: 409,
+        error: "This refresh was already promoted — its candidate can no longer be edited.",
+        code: "CANDIDATE_NOT_PENDING",
+      },
+    });
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
+
+    await act(async () => { result.current.overrideContext!.onOverride("/overhypeFit", "questionable"); });
+    await waitFor(() => expect(result.current.overrideError).toMatch(/already promoted/));
+    expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
   });
 });

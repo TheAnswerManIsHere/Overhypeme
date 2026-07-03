@@ -75,6 +75,12 @@ interface Review {
   hashtags: string[] | null;
   enrichment: FactEnrichment | null;
   enrichmentStatus: string | null;
+  /**
+   * Non-null ⇒ this is a REFRESH cycle of a live fact (versioned enrichment):
+   * Step 2 reviews/edits the candidate version, approval promotes it, and
+   * rejection keeps the live fact exactly as-is. Null for first-time submissions.
+   */
+  candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
 }
@@ -316,6 +322,10 @@ function ReviewModal({
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isProductionReview = stage === "production_review";
   const isResolved = review.status !== "pending";
+  // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
+  // live fact's enrichment is frozen), approval promotes it, rejection keeps
+  // the live fact untouched. Set at review creation — never flips mid-mount.
+  const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
   const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
@@ -328,7 +338,11 @@ function ReviewModal({
   // `gridReloadKey` so the scenario tiles recompute staleness immediately.
   const [gridReloadKey, setGridReloadKey] = useState(0);
   const enrichEditing = useFactEnrichmentEditing({
-    factId: stagingFactId,
+    // Refresh cycles edit the CANDIDATE version through the review-scoped
+    // endpoints; first-time cycles edit the staging fact as before.
+    target: isRefreshCycle
+      ? { kind: "reviewCandidate", reviewId: review.id, factId: stagingFactId }
+      : { kind: "fact", factId: stagingFactId },
     enabled: isProductionReview && stagingFactId > 0,
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),

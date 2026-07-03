@@ -133,7 +133,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
   // lockstep by construction.
   const { enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm } =
     useFactEnrichmentEditing({
-      factId: fact.id,
+      target: { kind: "fact", factId: fact.id },
       enabled: true,
       initialStatus: fact.enrichmentStatus ?? null,
       onSaved,
