@@ -9,7 +9,7 @@
  * system unchanged.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
 import { isUnresolvedSubmissionStage, type ReviewWorkflowStage } from "@workspace/api-zod";
@@ -66,14 +66,30 @@ export async function ensureStagingFact(
   return { factId: fact.id, created: true };
 }
 
-/** The review linked to a staging fact, or null when the fact has no linked review. */
+/**
+ * The current (newest) review linked to a staging fact, or null when the fact
+ * has no linked review.
+ *
+ * A fact can accumulate MULTIPLE review rows once the stale-fact refresh feature
+ * lands (each send-back creates a new cycle while the original approved review
+ * persists). The original `LIMIT 1` with no ordering was nondeterministic in
+ * that case, so this now takes the NEWEST review by `created_at` — which is the
+ * active refresh cycle when one is in flight, and otherwise the same single row
+ * as before. Deterministic ordering is the only change; the resolved-review
+ * semantics the cost guards rely on (a rejected staging fact resolves to its
+ * rejected review → guards skip paid work) are preserved. The candidate
+ * enrichment path does NOT use this helper — it targets its exact
+ * `source_review_id` (see runEnrichmentForCandidateVersion).
+ */
 export async function findReviewForStagingFact(
   factId: number,
+  tx: DbLike = db,
 ): Promise<{ id: number; workflowStage: ReviewWorkflowStage } | null> {
-  const [row] = await db
+  const [row] = await tx
     .select({ id: pendingReviewsTable.id, workflowStage: pendingReviewsTable.workflowStage })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.stagingFactId, factId))
+    .orderBy(desc(pendingReviewsTable.createdAt))
     .limit(1);
   return row ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage } : null;
 }
