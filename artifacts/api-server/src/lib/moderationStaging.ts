@@ -22,6 +22,11 @@ import { logger } from "./logger";
 // pulling that heavy orchestration module into this widely-imported helper).
 const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
+// Queue name owned by visualConceptJobs.ts (kept as a literal for the same
+// reason — and because visualConceptJobs imports resolveReviewCycleEnrichment
+// from THIS module, so importing it back would create a module cycle).
+const FACT_VISUAL_CONCEPTS_QUEUE = "fact_visual_concepts";
+
 // Matches any pronoun / gendered template token (same detection the approve
 // path uses) so the staging fact records whether it needs pronoun handling.
 const PRONOUN_TOKEN_RE =
@@ -210,6 +215,28 @@ export async function advanceReviewForStagingFactEnrichment(args: {
       logger.error(
         { err, reviewId: review.id },
         "[moderation] failed to enqueue review render prepare (stage advance kept)",
+      );
+    }
+
+    // Slice 2A: also draft candidate Visual concepts for the moderator. Purely
+    // best-effort and NON-BLOCKING — a failure here never affects the advance or
+    // the render-prepare enqueue above. Enqueued inline (literal queue name +
+    // "pending" status write, matching enqueueVisualConceptsForReview) so this
+    // widely-imported helper doesn't import visualConceptJobs and create a cycle.
+    try {
+      await db
+        .update(factsTable)
+        .set({ visualConceptStatus: "pending" })
+        .where(eq(factsTable.id, args.factId));
+      await enqueueJob({
+        queue: FACT_VISUAL_CONCEPTS_QUEUE,
+        payload: { reviewId: review.id, factId: args.factId, candidateVersionId: null, moderatorDraftScene: null },
+        dedupeKey: `fact_visual_concepts:review:${review.id}`,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: review.id },
+        "[moderation] failed to enqueue visual concepts (stage advance kept)",
       );
     }
   }

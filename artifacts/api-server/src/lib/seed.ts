@@ -12,6 +12,7 @@ import { seedVideoDirectionConfig } from "./videoDirection";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
 import { seedReferenceResearchConfig } from "./referenceResearchConfig";
+import { seedVisualConceptsConfig } from "./visualConceptsConfig";
 import { logger } from "./logger";
 
 /**
@@ -663,6 +664,10 @@ export async function ensureSchema(): Promise<void> {
 
   // Seed the admin Reference Research tool's system prompt.
   await seedReferenceResearchConfig();
+
+  // Seed the Slice-2A candidate Visual-concept levers (concept system prompt +
+  // engine id) used to auto-draft three "describe the picture" ideas per fact.
+  await seedVisualConceptsConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

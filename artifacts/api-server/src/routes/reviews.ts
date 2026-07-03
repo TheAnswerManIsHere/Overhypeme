@@ -32,12 +32,15 @@ import {
   visualRenderWaiverRequestSchema,
   type ProblematicScenarioStatus,
   type VisualRenderApprovalWaiver,
+  sanitizeCandidateSceneText,
+  CANDIDATE_SCENE_MAX_CHARS,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
 import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { promoteCandidateEnrichmentVersion, PromoteCandidateError } from "../lib/enrichmentVersioning";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
+import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
   buildRenderStatusPayload,
@@ -303,11 +306,25 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           enrichment: factsTable.enrichment,
           enrichmentStatus: factsTable.enrichmentStatus,
           pexelsStatus: factsTable.pexelsStatus,
+          visualConceptStatus: factsTable.visualConceptStatus,
+          visualConceptCandidates: factsTable.visualConceptCandidates,
         })
           .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
       : null,
   ]);
+
+  // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
+  // `current` flag (stored reviewId/candidateVersionId/inputHash vs. the review's
+  // live state) so the FE never recomputes hashes.
+  const visualConcepts = stagingFact
+    ? await buildVisualConceptsResponse({
+        id: review.id,
+        candidateVersionId: review.candidateVersionId ?? null,
+        visualConceptStatus: stagingFact.visualConceptStatus ?? null,
+        visualConceptCandidates: stagingFact.visualConceptCandidates,
+      })
+    : { status: null, candidates: [], current: false };
 
   res.json({
     ...review,
@@ -318,6 +335,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
       ? { ...matchingFact, createdAt: matchingFact.createdAt.toISOString() }
       : null,
     stagingFact,
+    visualConcepts,
   });
 });
 
@@ -1275,6 +1293,56 @@ router.post("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Aut
   if ("error" in result) { res.status(409).json(result); return; }
   logger.info({ reviewId: id, scenarios: parsed.data.scenarios, adminId: req.user.id }, "[moderation] manual scenario rerun");
   res.status(202).json(result);
+});
+
+// POST /admin/reviews/:id/visual-concepts/regenerate — re-draft the 3 candidate
+// Visual concepts (Slice 2A). The body may carry the moderator's UNSAVED draft so
+// the server can offer it as "here's my direction — propose DISTINCT alternatives"
+// context (the server can't see local drafts otherwise). The draft is NOT
+// persisted by regeneration; a blank/invalid draft → fresh ideas.
+const RegenerateVisualConceptsBody = z.object({
+  coreSceneDraft: z.string().max(CANDIDATE_SCENE_MAX_CHARS).nullish(),
+});
+
+router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = RegenerateVisualConceptsBody.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+
+  const [review] = await db
+    .select({
+      workflowStage: pendingReviewsTable.workflowStage,
+      stagingFactId: pendingReviewsTable.stagingFactId,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (review.workflowStage !== "production_review") {
+    res.status(409).json({ error: `Cannot generate visual concepts from stage ${review.workflowStage}. Finish prep first.` });
+    return;
+  }
+  if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
+
+  // Canonicalize + token-validate the draft with the SAME rules a stored
+  // candidate uses. Only offer it as distinct-alt context when non-empty AND
+  // valid; an invalid-token draft is silently ignored (best-effort context, not
+  // a hard input) so regeneration still produces fresh ideas.
+  let draft: string | null = null;
+  const rawDraft = parsed.data.coreSceneDraft?.trim() ?? "";
+  if (rawDraft) {
+    const sanitized = sanitizeCandidateSceneText(rawDraft);
+    if (sanitized.tokenValid) draft = sanitized.text;
+  }
+
+  await enqueueVisualConceptsForReview({
+    reviewId: id,
+    factId: review.stagingFactId,
+    candidateVersionId: review.candidateVersionId ?? null,
+    moderatorDraftScene: draft,
+  });
+  logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
+  res.status(202).json({ success: true, visualConceptStatus: "pending" });
 });
 
 // GET frozen diagnostics for ONE attempt (the prompt/plan that produced THIS

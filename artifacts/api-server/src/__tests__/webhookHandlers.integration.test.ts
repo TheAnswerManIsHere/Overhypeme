@@ -30,6 +30,16 @@ import { eq, and, gte, isNull, or, like, sql } from "drizzle-orm";
 // ── Handler under test ───────────────────────────────────────────────────────
 import { WebhookHandlers } from "../lib/webhookHandlers.js";
 
+// The webhook handlers construct the Stripe client, whose credential guard
+// (lib/stripeClient.ts) requires STRIPE_SECRET_KEY_TEST + STRIPE_PUBLISHABLE_KEY_TEST
+// in test mode. These handlers don't call Stripe's network — they process event
+// payloads against the DB — so dummy values satisfy the guard. Real env vars (on
+// Replit) win via `??`. Without this, CI (which has no Stripe secrets) throws
+// "Stripe credentials not configured" for every test here. Mirrors the setup in
+// routes.stripe.test.ts / routes.adminStripeSync.test.ts.
+process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
+process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
+
 
 // ── Outbox cleanup ────────────────────────────────────────────────────────────
 // These integration tests run real webhook handlers against the dev DB. Some
