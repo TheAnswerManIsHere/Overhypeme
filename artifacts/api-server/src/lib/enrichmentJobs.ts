@@ -32,6 +32,7 @@ import {
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
+import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
@@ -371,6 +372,24 @@ export async function runEnrichmentForCandidateVersion(
       logger.error(
         { err, reviewId: advancedReviewId, versionId },
         "[refresh] failed to enqueue review render prepare (enrichment kept)",
+      );
+    }
+
+    // Slice 2A: a refresh cycle gets the SAME candidate Visual-concept draft a
+    // first-time cycle gets on this transition (see
+    // advanceReviewForStagingFactEnrichment). Review-aware via candidateVersionId
+    // so concepts reflect the CANDIDATE's enrichment, not the active fact's.
+    // Best-effort + non-blocking — a failure here must not fail the enrichment.
+    try {
+      await enqueueVisualConceptsForReview({
+        reviewId: advancedReviewId,
+        factId: v0.factId,
+        candidateVersionId: versionId,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: advancedReviewId, versionId },
+        "[refresh] failed to enqueue visual concepts (enrichment kept)",
       );
     }
   }

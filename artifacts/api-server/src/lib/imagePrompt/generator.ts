@@ -246,6 +246,13 @@ export interface ImagePromptContextOpts {
   includeRenderControls: boolean;
   includeStyleIntegration: boolean;
   includeTargetEngine: boolean;
+  /**
+   * Emit the "populate visualPlan.semanticEntitiesUsed / visualPlan.
+   * culturalReferencesUsed" echo-back directives. Planner-only — they reference
+   * the render planner's output schema, which the concept generator (output
+   * `{ concepts: [...] }`) does not have.
+   */
+  includeVisualPlanEchoDirectives: boolean;
   includeModeratorCoreScene: ModeratorCoreSceneMode;
   /** For includeModeratorCoreScene="existing_draft_context": the unsaved draft. */
   moderatorDraftScene?: string;
@@ -266,6 +273,7 @@ export const PLANNER_CONTEXT_OPTS: ImagePromptContextOpts = {
   includeRenderControls: true,
   includeStyleIntegration: true,
   includeTargetEngine: true,
+  includeVisualPlanEchoDirectives: true,
   includeModeratorCoreScene: "authoritative",
 };
 
@@ -290,6 +298,7 @@ export const CANDIDATE_CONTEXT_OPTS: Omit<ImagePromptContextOpts, "includeModera
   includeRenderControls: false,
   includeStyleIntegration: false,
   includeTargetEngine: false,
+  includeVisualPlanEchoDirectives: false,
 };
 
 /**
@@ -529,14 +538,20 @@ export function buildImagePromptContextBlocks(
       semanticEntitiesBlock,
     );
   }
-  if (opts.includeSemanticEntities) {
+  // The echo-back directives instruct the model to populate visualPlan.* /
+  // compiledPrompt.* — the RENDER PLANNER's output schema. They are meaningless
+  // (and schema-incompatible) for candidate concept generation, whose structured
+  // output is only `{ concepts: [...] }`, so they are gated on the planner-only
+  // includeVisualPlanEchoDirectives flag. The reference DATA blocks above stay —
+  // they give the model the fact's locked visual interpretation, useful for both.
+  if (opts.includeSemanticEntities && opts.includeVisualPlanEchoDirectives) {
     lines.push(
       materialEntities.length > 0
         ? `\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: ${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}.`
         : "\n(semanticEntitiesUsed may be an empty array.)",
     );
   }
-  if (opts.includeCulturalReferences) {
+  if (opts.includeCulturalReferences && opts.includeVisualPlanEchoDirectives) {
     lines.push(
       materialCulturalRefs.length > 0
         ? `\nFor every MATERIAL cultural reference (material=true above), include a matching entry in visualPlan.culturalReferencesUsed (echo sourcePhrase verbatim; fill canonicalReferenceUsed + visualImplicationUsed + a one-sentence effectOnVisualPlan). Bake the reference's visual implication into keyVisualElements + the compiledPrompt.prompt, but never draw a real logo or brand mark. Required sourcePhrases: ${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}.`

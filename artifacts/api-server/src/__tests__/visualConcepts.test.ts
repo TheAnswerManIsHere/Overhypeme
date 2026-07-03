@@ -142,6 +142,17 @@ describe("buildVisualConceptsUserMessage — mode-agnostic context", () => {
     assert.doesNotMatch(msg, /TARGET ENGINE/);
   });
 
+  it("OMITS the planner-only visualPlan/compiledPrompt echo-back directives (schema-incompatible with concept output)", () => {
+    const msg = buildVisualConceptsUserMessage(base);
+    // Data blocks stay (they carry the fact's locked interpretation)...
+    assert.match(msg, /surfaceText="Earth"/);
+    assert.match(msg, /sourcePhrase="Shark Week"/);
+    // ...but the "populate visualPlan.*/compiledPrompt.*" directives must not.
+    assert.doesNotMatch(msg, /visualPlan\.semanticEntitiesUsed/);
+    assert.doesNotMatch(msg, /visualPlan\.culturalReferencesUsed/);
+    assert.doesNotMatch(msg, /compiledPrompt\.prompt/);
+  });
+
   it("blank field → fresh ideas: no moderator scene block at all", () => {
     const msg = buildVisualConceptsUserMessage(base);
     assert.doesNotMatch(msg, /MODERATOR-AUTHORED CORE SCENE/);
