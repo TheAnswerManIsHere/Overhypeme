@@ -38,10 +38,16 @@ import {
   isStagingPrepActive,
 } from "./moderationStaging";
 import {
+  enqueueJob,
   registerJobHandler,
   type JobHandler,
   type HandlerResult,
 } from "./asyncJobs";
+import { logger } from "./logger";
+
+// Queue name owned by reviewRenderScenarios.ts (kept as a literal, same as
+// moderationStaging.ts, to avoid importing that heavy orchestration module).
+const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -313,21 +319,21 @@ export async function runEnrichmentForCandidateVersion(
   const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides, visualPromptStrategyOverride });
 
   // ── Phase 3: transactional recheck + write ──
-  return db.transaction(async (tx) => {
+  const { advancedReviewId } = await db.transaction(async (tx): Promise<{ advancedReviewId: number | null }> => {
     const [v1] = await tx
       .select({ status: factEnrichmentVersionsTable.status, sourceReviewId: factEnrichmentVersionsTable.sourceReviewId })
       .from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, versionId))
       .for("update")
       .limit(1);
-    if (!v1 || v1.status !== "candidate" || v1.sourceReviewId == null) return { ok: true }; // rejected/superseded mid-run → no-op
+    if (!v1 || v1.status !== "candidate" || v1.sourceReviewId == null) return { advancedReviewId: null }; // rejected/superseded mid-run → no-op
     const [rev1] = await tx
       .select({ stage: pendingReviewsTable.workflowStage })
       .from(pendingReviewsTable)
       .where(eq(pendingReviewsTable.id, v1.sourceReviewId))
       .for("update")
       .limit(1);
-    if (rev1?.stage !== "prep_pending") return { ok: true }; // cycle advanced/resolved mid-run → no-op
+    if (rev1?.stage !== "prep_pending") return { advancedReviewId: null }; // cycle advanced/resolved mid-run → no-op
 
     await tx
       .update(factEnrichmentVersionsTable)
@@ -347,8 +353,28 @@ export async function runEnrichmentForCandidateVersion(
       .where(eq(pendingReviewsTable.id, v1.sourceReviewId));
     // Clear the live fact's "working" pill; facts.* enrichment itself is untouched.
     await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, v0.factId));
-    return { ok: true };
+    return { advancedReviewId: v1.sourceReviewId };
   });
+
+  // Refresh cycles get the SAME Step-2 default render prep a first-time cycle
+  // gets on this transition (see advanceReviewForStagingFactEnrichment) — the
+  // grid renders the CANDIDATE via the review-cycle resolver. Best-effort +
+  // deduped; a failure here must not fail the (already-committed) enrichment.
+  if (advancedReviewId != null) {
+    try {
+      await enqueueJob({
+        queue: REVIEW_RENDER_PREPARE_QUEUE,
+        payload: { reviewId: advancedReviewId },
+        dedupeKey: `review_render_prep:${advancedReviewId}`,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: advancedReviewId, versionId },
+        "[refresh] failed to enqueue review render prepare (enrichment kept)",
+      );
+    }
+  }
+  return { ok: true };
 }
 
 export const enrichmentJobHandler: JobHandler = {
