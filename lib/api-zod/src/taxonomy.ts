@@ -166,6 +166,12 @@ export const KNOWN_FACT_MODIFIERS = [
   "full_body_needed",
   "age_transform",
   "baby_child_version",
+  // Finer-grained age stages the compiler renders distinctly (newborn vs. young
+  // child) — see modifierDirectives.ts. Recognized + documented + moderator-
+  // addable; the classifier's suggestion catalog does not currently list them,
+  // so the AI won't auto-emit them.
+  "infant_version",
+  "child_version",
   "older_self_version",
   "grounded_realism",
   "mock_heroic",

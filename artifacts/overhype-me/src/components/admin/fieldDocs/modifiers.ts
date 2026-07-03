@@ -1,13 +1,17 @@
 /**
- * Field docs — per-value docs for the 50 known fact modifiers, plus the doc
+ * Field docs — per-value docs for the known fact modifiers, plus the doc
  * shown for unknown (custom, amber-chip) modifiers.
  *
  * Pure data (see the purity invariant in ./types.ts): no React, no components.
  * Directive quotes are copied VERBATIM from `modifierDirectives()` in
  * artifacts/api-server/src/lib/imagePrompt/modifierDirectives.ts — if that file
  * changes, these quotes must change with it. Modifiers with no entry there are
- * deliberately unmapped (pure setting/location flags and taxonomy-only signals):
- * they reach the AI prompt planner as taxonomy context but compile to nothing.
+ * deliberately unmapped (pure setting/location flags and taxonomy-only signals).
+ * "Unmapped" does NOT mean inert: every modifier is still serialized into the
+ * planner's TAXONOMY block, so the AI reads it and it can shape the generated
+ * visual plan — there just isn't a fixed compiler directive guaranteeing the
+ * effect. So the split is "hard, deterministic directive" (mapped) vs. "soft AI
+ * hint" (unmapped), not "does something" vs. "does nothing."
  *
  * Note the compiler de-dupes injected directives against the assembled prompt
  * prose (composeModifierDirective), so a quoted sentence may be dropped when the
@@ -76,14 +80,14 @@ function settingDoc(place: string, meaning: string, example: string): ValueDoc {
   };
 }
 
-// ─── The 50 known-modifier docs ──────────────────────────────────────────────
+// ─── The known-modifier docs (one per KNOWN_FACT_MODIFIERS entry) ────────────
 
 export const KNOWN_MODIFIER_DOCS = {
   single_subject_focus: {
     meaning:
       "Composition flag: the image should center on the subject alone, with no competing characters sharing the spotlight.",
     renderImpact:
-      "No fixed compiler directive — planner context only; the archetype strategy and scene decide the actual composition. (Contrast avoid_extra_faces and avoid_duplicate_subject, which DO compile to directives.)",
+      "No fixed compiler directive, so no guaranteed effect — but it IS passed to the AI planner as taxonomy context and can nudge the composition toward a solo subject; the archetype strategy and scene still decide the actual framing. (Contrast avoid_extra_faces and avoid_duplicate_subject, which DO compile to directives.)",
     example:
       '"{NAME} is the gym\'s entire membership" → nudges the planner to keep the frame centered on the subject alone; not a guaranteed rule.',
     sourceRefs: [TAXONOMY_CATALOG, DIRECTIVES_SKIP],
@@ -93,7 +97,7 @@ export const KNOWN_MODIFIER_DOCS = {
     meaning:
       "Identity-policy flag: the subject's recognizable likeness should be preserved strictly — the joke fails if the rendered person doesn't clearly read as the reference photo's person.",
     renderImpact:
-      "No code consumes this flag today — it appears only in the classifier catalog and the known-modifier list; no compiler directive or identity policy keys off it. Actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. Planner context only.",
+      "No compiler directive or identity policy keys off this flag, so it has no guaranteed effect — actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. It is still passed to the AI planner as taxonomy context (a soft hint that likeness matters), but nothing enforces it.",
     example:
       '"{NAME} was recognized from space" → signals strict likeness matters, but today the likeness guarantee comes from the render mode, not this flag.',
     sourceRefs: [TAXONOMY_CATALOG, CLASSIFIER_CATALOG],
@@ -103,7 +107,7 @@ export const KNOWN_MODIFIER_DOCS = {
     meaning:
       "Identity-policy flag: strict likeness may be relaxed — the render only needs to carry the subject's essence (build, hair, vibe), e.g. through a heavy transformation or symbolic treatment.",
     renderImpact:
-      "No code consumes this flag today — like identity_strict, it exists only in the classifier catalog and the known-modifier list; no compiler directive or identity policy branches on it. Planner context only.",
+      "Like identity_strict, no compiler directive or identity policy branches on it, so no guaranteed effect. It still reaches the AI planner as taxonomy context (a soft hint that the likeness may be relaxed), but nothing enforces it.",
     example:
       '"{NAME} turned into pure motivation" → signals the render may keep only the subject\'s essence through the transformation; nothing in the compiler enforces it.',
     sourceRefs: [TAXONOMY_CATALOG, CLASSIFIER_CATALOG],
@@ -149,6 +153,28 @@ export const KNOWN_MODIFIER_DOCS = {
     sourceRefs: [DIRECTIVES, SUBJECT_BINDING],
     authoredStatus: "code-derived",
   },
+  infant_version: {
+    meaning:
+      "A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a newborn/infant. The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.",
+    renderImpact:
+      'Injects: "De-age the reference subject into an infant — the same person rendered as a baby, with newborn/infant proportions and features. Do not add a separate, generic baby, and do not keep an adult version in the frame."' +
+      AGE_BINDING_EXTRA,
+    example:
+      '"{NAME} filed taxes from the womb" → the reference subject is de-aged to a newborn/infant; no separate generic baby, no adult left in frame.',
+    sourceRefs: [DIRECTIVES, SUBJECT_BINDING],
+    authoredStatus: "code-derived",
+  },
+  child_version: {
+    meaning:
+      "A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a young child (past infancy). The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.",
+    renderImpact:
+      'Injects: "Render the reference subject as the young child the fact describes — the same person de-aged to childhood, with child proportions and features. Do not add a separate, generic child, and do not keep an adult version in the frame."' +
+      AGE_BINDING_EXTRA,
+    example:
+      '"{NAME} won a Nobel Prize in third grade" → the reference subject de-aged to a young child; no separate generic child, no adult left in frame.',
+    sourceRefs: [DIRECTIVES, SUBJECT_BINDING],
+    authoredStatus: "code-derived",
+  },
   older_self_version: {
     meaning:
       "The fact describes the subject as a much older version of themselves — the same person aged, not an unrelated elderly extra.",
@@ -164,7 +190,7 @@ export const KNOWN_MODIFIER_DOCS = {
     meaning:
       "Staging flag: keep physics and rendering realistic — the impossibility should live in what's happening (roles, outcomes), not in cartoon physics or surreal style.",
     renderImpact:
-      "No fixed compiler directive — planner context only. It reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.",
+      "No fixed compiler directive, so no guaranteed effect — but it reaches the AI planner as taxonomy context and reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.",
     example:
       '"A baby drove {NAME}\'s mother home" → nudges the planner toward a realistic car interior with the impossibility in who\'s driving.',
     sourceRefs: [TAXONOMY_CATALOG, DIRECTIVES_SKIP],
