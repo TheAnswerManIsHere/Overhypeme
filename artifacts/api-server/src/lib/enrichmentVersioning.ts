@@ -9,7 +9,7 @@
  */
 
 import crypto from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
 import {
@@ -32,6 +32,50 @@ type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  */
 export function hashFactText(text: string): string {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/**
+ * The fact's in-flight refresh candidate, or null when none exists.
+ *
+ * Used as the WRITE FREEZE guard: while a refresh cycle is in review, the fact
+ * enrichment write endpoints (override PUT/DELETE, PATCH, re-enrich) must 409 —
+ * the moderation surfaces show the CANDIDATE, so an edit landing on the live
+ * fact would change something the moderator isn't looking at, be overwritten at
+ * promote, or leak to production through a rejected refresh. First-time staging
+ * facts never have candidate rows, so their moderation editing is unaffected.
+ */
+export async function findInFlightRefreshCandidate(
+  factId: number,
+  tx: DbTx | typeof db = db,
+): Promise<{ candidateVersionId: number; reviewId: number | null } | null> {
+  const [row] = await tx
+    .select({
+      id: factEnrichmentVersionsTable.id,
+      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
+    })
+    .from(factEnrichmentVersionsTable)
+    .where(and(
+      eq(factEnrichmentVersionsTable.factId, factId),
+      eq(factEnrichmentVersionsTable.status, "candidate"),
+    ))
+    .limit(1);
+  return row ? { candidateVersionId: row.id, reviewId: row.sourceReviewId } : null;
+}
+
+/** The 409 body every enrichment write path returns while a refresh is in review. */
+export function refreshInReviewErrorBody(existing: { candidateVersionId: number; reviewId: number | null }): {
+  error: string;
+  code: "REFRESH_IN_REVIEW";
+  reviewId: number | null;
+  candidateVersionId: number;
+} {
+  return {
+    error:
+      "This fact has an enrichment refresh in review — its live enrichment is frozen until that cycle is approved or rejected.",
+    code: "REFRESH_IN_REVIEW",
+    reviewId: existing.reviewId,
+    candidateVersionId: existing.candidateVersionId,
+  };
 }
 
 export type PromoteCandidateErrorCode =

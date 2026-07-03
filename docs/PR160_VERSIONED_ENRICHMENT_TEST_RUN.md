@@ -96,6 +96,8 @@ pnpm --filter overhype-me exec vitest run src/__tests__/RuntimePromptPreview.tes
 | Drift guard | fact text edited after classify → approve returns 409 `REFRESH_STALE_TEXT`, nothing mutated |
 | Not-ready candidate | approval before the job filled the blob → 400 |
 | Reject | candidate RETAINED as `rejected` (blob kept), live fact bit-identical, `enrichment_status='ok'`, no submitter notification, a later send-back works (`version_no=2`) |
+| Write freeze | while a candidate is in flight, PUT/DELETE `/admin/facts/:id/enrichment-overrides`, PATCH `/admin/facts/:id/enrichment`, and POST `/admin/facts/:id/enrich` all 409 `REFRESH_IN_REVIEW` (naming the cycle); live layers untouched; freeze lifts after reject |
+| Abandon guard | version-path `onAbandon` marks a still-`prep_pending` cycle `prep_failed` + fails the pill, but never rewrites an already-rejected cycle (pill stays `ok`) |
 | Lookup determinism | `findReviewForStagingFact` returns the NEWEST review by `created_at` |
 
 ## 5. Manual smoke of the primitive (optional but recommended)

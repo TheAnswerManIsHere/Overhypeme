@@ -23,7 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
 import type { EnrichmentOverrides } from "@workspace/api-zod";
-import { hashFactText } from "./enrichmentVersioning";
+import { findInFlightRefreshCandidate, hashFactText } from "./enrichmentVersioning";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
 
@@ -110,22 +110,12 @@ export async function sendFactBackToReview(args: {
           "This fact has active variants. Refresh the variants individually instead of the root.",
         );
       }
-      const [existing] = await tx
-        .select({
-          id: factEnrichmentVersionsTable.id,
-          sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-        })
-        .from(factEnrichmentVersionsTable)
-        .where(and(
-          eq(factEnrichmentVersionsTable.factId, factId),
-          eq(factEnrichmentVersionsTable.status, "candidate"),
-        ))
-        .limit(1);
+      const existing = await findInFlightRefreshCandidate(factId, tx);
       if (existing) {
         throw new SendBackToReviewError(
           "REFRESH_ALREADY_IN_PROGRESS",
           "A refresh is already in progress for this fact.",
-          { reviewId: existing.sourceReviewId, candidateVersionId: existing.id },
+          { reviewId: existing.reviewId, candidateVersionId: existing.candidateVersionId },
         );
       }
 

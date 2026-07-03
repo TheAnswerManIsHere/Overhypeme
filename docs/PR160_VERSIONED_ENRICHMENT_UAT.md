@@ -102,6 +102,7 @@ to wait for them, same as a normal approval).
 | B5b | While a refresh sits at Step 2, edit the fact's **text** in Admin → Facts, then approve the refresh | Refused with a stale-text error (409 `REFRESH_STALE_TEXT`); nothing changes. Reject the cycle and start a fresh one |
 | B5c | Try a refresh on a fact that has active variants | Refused — refresh the variants individually instead |
 | B5d | Reject a refresh while the enrichment pill is still "working" | Works; the in-flight job quietly discards its result; fact untouched |
+| B5e | While a refresh is at Step 2, try editing the fact's enrichment (override editor, visual concept, or "Re-run classification") from Admin → Facts or the moderation modal | Blocked with "refresh in review — its live enrichment is frozen" (409). Approve or reject the cycle first; after that, edits work again |
 
 ## Bug report template
 

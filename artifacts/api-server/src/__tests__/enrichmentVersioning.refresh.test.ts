@@ -42,6 +42,7 @@ import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import adminRouter from "../routes/admin.js";
 import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview.js";
@@ -196,6 +197,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(reviewsRouter);
+  app.use(adminRouter);
   app.use(adminImagePromptRouter);
   return app;
 }
@@ -744,6 +746,66 @@ describe("refresh reject → candidate retained", () => {
     // The retained rejected row does NOT block a fresh refresh; version_no advances.
     const second = await sendFactBackToReview({ factId: fact.id, adminId });
     assert.equal(second.versionNo, 2);
+  });
+});
+
+// ── Live-fact write freeze while a refresh is in review ──────────────────────
+
+describe("enrichment write freeze during refresh", () => {
+  it("409s every live-enrichment write path while a candidate is in flight, and unfreezes after reject", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
+    const app = makeApp();
+
+    const putRes = await request(app)
+      .put(`/admin/facts/${fact.id}/enrichment-overrides`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ path: "/visualComplexity", value: "low" });
+    assert.equal(putRes.status, 409, JSON.stringify(putRes.body));
+    assert.equal(putRes.body.code, "REFRESH_IN_REVIEW");
+    assert.equal(putRes.body.reviewId, reviewId);
+    assert.equal(putRes.body.candidateVersionId, candidateVersionId);
+
+    const delRes = await request(app)
+      .delete(`/admin/facts/${fact.id}/enrichment-overrides?path=/visualComplexity`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(delRes.status, 409);
+    assert.equal(delRes.body.code, "REFRESH_IN_REVIEW");
+
+    const patchRes = await request(app)
+      .patch(`/admin/facts/${fact.id}/enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: fact.enrichment });
+    assert.equal(patchRes.status, 409);
+    assert.equal(patchRes.body.code, "REFRESH_IN_REVIEW");
+
+    const enrichRes = await request(app)
+      .post(`/admin/facts/${fact.id}/enrich`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(enrichRes.status, 409);
+    assert.equal(enrichRes.body.code, "REFRESH_IN_REVIEW");
+    const directJobs = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "enrichment"), eq(asyncJobsTable.dedupeKey, `enrichment:fact:${fact.id}`)));
+    assert.equal(directJobs.length, 0, "no direct re-enrich job may be enqueued while frozen");
+
+    // The live layers are exactly as they were.
+    const [frozen] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.deepEqual(frozen.enrichment, fact.enrichment);
+    assert.deepEqual(frozen.enrichmentOverrides, fact.enrichmentOverrides);
+
+    // Resolve the cycle (reject) → the freeze lifts.
+    const rejectRes = await request(app)
+      .post(`/admin/reviews/${reviewId}/reject`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ rejectionReason: "lame" });
+    assert.equal(rejectRes.status, 200);
+
+    const putAfter = await request(app)
+      .put(`/admin/facts/${fact.id}/enrichment-overrides`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ path: "/visualComplexity", value: "low" });
+    assert.equal(putAfter.status, 200, JSON.stringify(putAfter.body));
   });
 });
 
