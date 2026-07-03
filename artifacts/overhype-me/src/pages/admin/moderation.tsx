@@ -6,7 +6,7 @@ import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
   MessageSquare, Trash2, User, Image as ImageIcon, Sparkles, RefreshCw, Rocket,
-  CheckCheck, SlidersHorizontal,
+  CheckCheck, SlidersHorizontal, Wand2,
 } from "lucide-react";
 import {
   type FactEnrichment,
@@ -75,6 +75,8 @@ interface Review {
   hashtags: string[] | null;
   enrichment: FactEnrichment | null;
   enrichmentStatus: string | null;
+  /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
+  rendersRunning?: boolean;
 }
 
 interface ReviewsResponse {
@@ -287,11 +289,14 @@ function ReviewModal({
   review,
   onClose,
   onActionDone,
+  onRendersEnqueued,
   duplicateThreshold,
 }: {
   review: Review;
   onClose: () => void;
   onActionDone: () => void;
+  /** Refresh the list after a test render is (re-)run so its row pill lights up. */
+  onRendersEnqueued: () => void;
   duplicateThreshold: number;
 }) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
@@ -592,6 +597,7 @@ function ReviewModal({
                 reloadKey={gridReloadKey}
                 finalHashtags={finalHashtags}
                 onFinalHashtagsChange={onFinalHashtagsChange}
+                onRunScenarios={onRendersEnqueued}
               />
 
               {/* Visual concept — the moderator's primary lever: describe the
@@ -839,7 +845,7 @@ function ReviewModal({
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {!isApprovable(enrichment)
-                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. On approve, the server runs a renderability check — if the fact can't be rendered coherently, approval is blocked with a reason."
+                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. Approval also requires the required test renders above to be fresh and successful (or explicitly waived)."
                       : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the test renders) — clearing them all is usually a mistake."}
                   </p>
                 )}
@@ -888,15 +894,17 @@ function FactReviewsPanel() {
   const [initialized, setInitialized] = useState(false);
   if (!initialized) { setInitialized(true); void load(); }
 
-  // Live list refresh (rule 8, aggregate altitude): while any row is mid-prep,
-  // poll the page so its stage + status advance without a manual refresh. The
-  // modal isn't required to watch progress.
-  const anyPrepping = !!data?.reviews.some((r) => r.workflowStage === "prep_pending");
+  // Live list refresh (rule 8, aggregate altitude): while any row is mid-prep OR
+  // has a test render in flight, poll the page so its stage + per-item status
+  // advance without a manual refresh. The modal isn't required to watch progress.
+  const anyActive = !!data?.reviews.some(
+    (r) => r.workflowStage === "prep_pending" || r.rendersRunning,
+  );
   useEffect(() => {
-    if (!anyPrepping) return;
+    if (!anyActive) return;
     const h = setInterval(() => { void load(); }, 2500);
     return () => clearInterval(h);
-  }, [anyPrepping, load]);
+  }, [anyActive, load]);
 
   const handleFilterChange = (f: typeof statusFilter) => {
     setStatusFilter(f);
@@ -995,6 +1003,11 @@ function FactReviewsPanel() {
                     <div className="flex flex-wrap gap-2 mt-2">
                       <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
                       <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} />
+                      {/* Test renders in flight (re-run or auto-batch): show a working
+                          pill in place, mirroring prep's per-item status (rule 8). */}
+                      {r.workflowStage === "production_review" && r.rendersRunning && (
+                        <PrepStepPill icon={Wand2} label="Test renders" status="pending" />
+                      )}
                     </div>
                   )}
                 </div>
@@ -1033,6 +1046,7 @@ function FactReviewsPanel() {
           review={selectedReview}
           onClose={() => setSelectedReview(null)}
           onActionDone={reloadList}
+          onRendersEnqueued={() => void load()}
           duplicateThreshold={duplicateThreshold}
         />
       )}
