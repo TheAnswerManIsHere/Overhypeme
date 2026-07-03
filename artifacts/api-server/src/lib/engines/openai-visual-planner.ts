@@ -50,5 +50,5 @@ export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
   // it applies only if an admin points the row at a 4.x chat model.
   defaultTemperature: 0.4,
   defaultMaxTokens: 2800,
-  defaultReasoningEffort: "xhigh",
+  defaultReasoningEffort: "high",
 };
