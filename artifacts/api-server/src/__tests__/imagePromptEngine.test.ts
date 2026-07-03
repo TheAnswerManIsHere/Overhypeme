@@ -92,7 +92,7 @@ describe("openai-visual-planner catalogue definition", () => {
     assert.equal(def!.provider, "openai");
     assert.equal(def!.isDefault, false);
     assert.equal(def!.endpointId, "gpt-5.5");
-    assert.equal(def!.defaultReasoningEffort, "xhigh");
+    assert.equal(def!.defaultReasoningEffort, "high");
     assert.equal(def!.defaultMaxTokens, 2800);
     assert.equal(def!.eligibleAsKindDefault, false);
   });

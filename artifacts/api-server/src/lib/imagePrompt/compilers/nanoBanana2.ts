@@ -72,12 +72,19 @@ const T2I_PREAMBLE =
 
 // ─── Text utilities ───────────────────────────────────────────────────────
 
-/** Split a prompt blob into trimmed sentences, keeping terminal punctuation. */
+/** Split a prompt blob into trimmed sentences, keeping terminal punctuation.
+ *  Splits at a sentence terminator followed by whitespace — but NOT when the
+ *  terminator belongs to an initialism ("M.C. Hammer", "J.R.R. Tolkien"), and
+ *  never drops the text between boundaries. (The old `match()`-based splitter
+ *  discarded any run that didn't fit the sentence pattern, so "M.C." lost its
+ *  leading "M." and abbreviations were shattered.) */
 function splitSentences(text: string): string[] {
-  const matches = text.match(/[^.!?]+[.!?]+(?=\s|$)/g);
-  if (matches) return matches.map((s) => s.trim()).filter(Boolean);
   const trimmed = text.trim();
-  return trimmed ? [trimmed] : [];
+  if (!trimmed) return [];
+  return trimmed
+    .split(/(?<!\b[A-Za-z]\.)(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function normalizeSentence(s: string): string {

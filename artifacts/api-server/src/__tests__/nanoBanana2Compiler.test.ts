@@ -146,6 +146,31 @@ describe("nanoBanana2 — labeled visual contract", () => {
   });
 });
 
+describe("nanoBanana2 — initialisms survive sentence splitting", () => {
+  it("keeps 'M.C. Hammer' intact in CORE SCENE (does not shatter on abbreviation periods)", () => {
+    const out = compileNanoBanana2T2I(makeArgs({
+      subjectRenderMode: "t2i_fallback",
+      prompt: "M.C. Hammer dances on stage in his trademark pants.",
+      fallbackSubjectGender: "male",
+    }));
+    assert.match(out.imagePrompt, /M\.C\. Hammer/);
+    // The old splitter dropped the leading "M." and left a bare "C. Hammer".
+    assert.doesNotMatch(out.imagePrompt, /(^|[^.A-Za-z])C\. Hammer/);
+  });
+
+  it("preserves an initialism while still splitting real sentence boundaries", () => {
+    const out = compileNanoBanana2T2I(makeArgs({
+      subjectRenderMode: "t2i_fallback",
+      prompt: "J.R.R. Tolkien writes at a cluttered desk. A pipe rests beside the manuscript.",
+      fallbackSubjectGender: "male",
+    }));
+    assert.match(out.imagePrompt, /J\.R\.R\. Tolkien/);
+    // Both real sentences' content survives (dedup/fit still operate per-sentence).
+    assert.match(out.imagePrompt.toLowerCase(), /cluttered desk/);
+    assert.match(out.imagePrompt.toLowerCase(), /pipe rests beside the manuscript/);
+  });
+});
+
 describe("nanoBanana2 — subject binding (de-aging fix)", () => {
   it("binds the reference person to the transformed life stage from an age modifier", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
