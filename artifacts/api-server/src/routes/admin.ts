@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -9,6 +9,7 @@ import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
+import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
 import {
   applyOverrideReset,
   applyOverrideUpsert,
@@ -1075,6 +1076,95 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
   });
 
   res.json({ success: true, enrichmentStatus: "pending" });
+});
+
+// POST /admin/facts/:id/send-back-to-review — start a versioned-enrichment
+// REFRESH cycle for a live fact (stale-fact refresh). Thin wrapper over the
+// shared primitive; the fact stays live throughout, the candidate is
+// classified by the async job, and the cycle lands in the moderation queue at
+// Step 2. `clearOverrides` wipes the CANDIDATE's seeded manual-edit layers
+// only (the fact's own layers are never touched here).
+router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const clearOverrides = (req.body as { clearOverrides?: unknown } | null | undefined)?.clearOverrides === true;
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+
+  try {
+    const result = await sendFactBackToReview({ factId: id, clearOverrides, adminId });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof SendBackToReviewError) {
+      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
+      // NOT_ACTIVE / HAS_ACTIVE_VARIANTS / REFRESH_ALREADY_IN_PROGRESS — the
+      // in-progress case names the in-flight cycle so the UI can link to it.
+      res.status(409).json({
+        error: err.message,
+        code: err.code,
+        ...(err.existing ? { reviewId: err.existing.reviewId, candidateVersionId: err.existing.candidateVersionId } : {}),
+      });
+      return;
+    }
+    logger.error({ err, factId: id }, "[POST /admin/facts/:id/send-back-to-review] failed");
+    res.status(500).json({ error: "Failed to send fact back to review" });
+  }
+});
+
+// GET /admin/facts/:id/enrichment-versions — the fact's versioned-enrichment
+// history, METADATA ONLY (no jsonb blobs — the panel is for visibility, not
+// rollback). "current" is derived from facts.* (the sole active truth — the
+// version table never holds an active row); "inFlight" is the refresh cycle in
+// review, if any, and doubles as the Facts page's freeze/disable signal.
+router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({
+      enrichment: factsTable.enrichment,
+      enrichmentStatus: factsTable.enrichmentStatus,
+      enrichmentOverrides: factsTable.enrichmentOverrides,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const rows = await db
+    .select({
+      id: factEnrichmentVersionsTable.id,
+      versionNo: factEnrichmentVersionsTable.versionNo,
+      status: factEnrichmentVersionsTable.status,
+      source: factEnrichmentVersionsTable.source,
+      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
+      note: factEnrichmentVersionsTable.note,
+      createdBy: factEnrichmentVersionsTable.createdBy,
+      createdAt: factEnrichmentVersionsTable.createdAt,
+      promotedAt: factEnrichmentVersionsTable.promotedAt,
+      supersededAt: factEnrichmentVersionsTable.supersededAt,
+      rejectedAt: factEnrichmentVersionsTable.rejectedAt,
+      enrichmentReady: sql<boolean>`(${factEnrichmentVersionsTable.enrichment} IS NOT NULL)`,
+    })
+    .from(factEnrichmentVersionsTable)
+    .where(eq(factEnrichmentVersionsTable.factId, id))
+    .orderBy(desc(factEnrichmentVersionsTable.createdAt));
+
+  const candidate = rows.find((r) => r.status === "candidate");
+  res.json({
+    current: {
+      hasEnrichment: fact.enrichment != null,
+      enrichmentStatus: fact.enrichmentStatus ?? null,
+      hasOverrides: Object.keys((fact.enrichmentOverrides ?? {}) as Record<string, unknown>).length > 0,
+    },
+    inFlight: candidate ? { candidateVersionId: candidate.id, reviewId: candidate.sourceReviewId } : null,
+    versions: rows.map((r) => ({
+      ...r,
+      createdAt: r.createdAt.toISOString(),
+      promotedAt: r.promotedAt?.toISOString() ?? null,
+      supersededAt: r.supersededAt?.toISOString() ?? null,
+      rejectedAt: r.rejectedAt?.toISOString() ?? null,
+    })),
+  });
 });
 
 // POST /admin/facts/:id/variants — create a variant linked to a root fact
