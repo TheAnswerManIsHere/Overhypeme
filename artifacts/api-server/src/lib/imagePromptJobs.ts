@@ -68,6 +68,22 @@ export interface ImagePromptJobPayload {
   attemptId: number;
 }
 
+/** True for the review-panel test renders (scenario grid + single render),
+ *  which set `renderControls.mirrorToLegacyStorage: false` so they don't pollute
+ *  the staging fact's shared image set. */
+export function isEphemeralModerationRender(renderControls: RenderControls): boolean {
+  return (
+    (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false
+  );
+}
+
+/** Moderation test renders only need to show whether the visual gag lands, so
+ *  they use the LOWEST resolution the nano-banana engines offer for the fastest
+ *  turnaround. Real user renders stay at 2K for print-ready detail/legibility. */
+export function pickRenderResolution(renderControls: RenderControls): "0.5K" | "2K" {
+  return isEphemeralModerationRender(renderControls) ? "0.5K" : "2K";
+}
+
 // ─── image_prompt_generation handler ──────────────────────────────────────
 
 const objectStorage = new ObjectStorageService();
@@ -257,10 +273,7 @@ export const imageGenerationHandler: JobHandler = {
     }
 
     const renderControls = attempt.renderControls as RenderControls;
-    // Render at 2K. Both nano-banana-2 engines accept it; it materially lifts
-    // detail/legibility for meme backgrounds at the cost of more latency/$ per
-    // image and larger stored files (see PROMPT_FIDELITY_TEST_RUN.md).
-    const resolution = "2K";
+    const resolution = pickRenderResolution(renderControls);
     const pipelineParams: Record<string, unknown> = {
       imagePrompt: promptText,
       aspectRatio: renderControls.aspectRatio,
@@ -331,8 +344,7 @@ export const imageGenerationHandler: JobHandler = {
     // must verify the pipeline without polluting the staging fact's shared set.
     // The generatedImageObjectPath write above already happened, so the poll
     // route can still surface the image either way.
-    const skipMirror =
-      (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false;
+    const skipMirror = isEphemeralModerationRender(renderControls);
     if (!skipMirror) {
       await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
     } else {
