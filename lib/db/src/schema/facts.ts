@@ -113,9 +113,12 @@ export const factsTable = pgTable("facts", {
   adultSuitability: varchar("adult_suitability", { length: 24 }),
   /**
    * The ProcessingSignature this fact's ACTIVE enrichment was last generated
-   * under (engine revision + code-version constants). Stamped only when a
-   * refresh candidate is PROMOTED (never on direct re-enrich). NULL = never
-   * refreshed under the versioned pipeline → reads as stale in Taxonomy Health.
+   * under (engine revision + code-version constants). Stamped at first-time
+   * production approval (via the first-time staging enrichment job) and when a
+   * refresh candidate is PROMOTED — but NEVER on a direct live re-enrich (an
+   * existing live fact only refreshes via send-back → promote). NULL = legacy
+   * fact never processed under the versioned pipeline → reads as stale-for-
+   * reprocess in Taxonomy Health.
    */
   lastProcessedSignature: jsonb("last_processed_signature"),
   embedding: vector("embedding", { dimensions: 384 }),

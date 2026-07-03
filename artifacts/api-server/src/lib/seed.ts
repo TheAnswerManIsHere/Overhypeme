@@ -210,6 +210,14 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed engine_revision",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('engine_revision', '1', 'integer', 'Engine Revision',
+         'Manual marker bumped on a major engine/LLM change. Facts whose enrichment was processed under an older revision read as stale for reprocess in Taxonomy Health.',
+         false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       label: "video_job_status enum",
       ddl: `DO $$ BEGIN
         CREATE TYPE video_job_status AS ENUM ('pending', 'completed', 'failed');
