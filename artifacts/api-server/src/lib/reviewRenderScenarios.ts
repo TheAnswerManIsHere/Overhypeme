@@ -54,6 +54,7 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
+import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -316,11 +317,11 @@ interface ReviewRenderContext {
 }
 
 /**
- * Load the renderable context for a review. Always reads the staging fact's
- * stored effective enrichment (`facts.enrichment`): moderation edits persist
- * through the fact override/enrichment endpoints before approval, so the
- * stored blob IS the enrichment that will be published — grid/staleness
- * computed here can't drift from it.
+ * Load the renderable context for a review. Reads enrichment through the
+ * review-cycle resolver: a REFRESH cycle (`candidateVersionId != null`) renders
+ * its CANDIDATE version's enrichment; a first-time cycle uses the staging fact's
+ * own `facts.enrichment`. Either way the stored blob IS what the moderator is
+ * reviewing, so grid/staleness computed here can't drift from the render.
  */
 async function loadReviewRenderContext(
   reviewId: number,
@@ -329,24 +330,25 @@ async function loadReviewRenderContext(
   | { ok: false; reason: string; stage?: string }
 > {
   const [review] = await db
-    .select({ id: pendingReviewsTable.id, workflowStage: pendingReviewsTable.workflowStage, stagingFactId: pendingReviewsTable.stagingFactId })
+    .select({
+      id: pendingReviewsTable.id,
+      workflowStage: pendingReviewsTable.workflowStage,
+      stagingFactId: pendingReviewsTable.stagingFactId,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
   if (!review) return { ok: false, reason: "review_not_found" };
   if (review.stagingFactId == null) return { ok: false, reason: "no_staging_fact", stage: review.workflowStage };
-  const [stagingFact] = await db
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, review.stagingFactId))
-    .limit(1);
-  if (!stagingFact) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
-  const ev = validateEnrichment(stagingFact.enrichment);
+  const cycle = await resolveReviewCycleEnrichment(review);
+  if (!cycle) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
+  const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
   const enrichment = ev.data;
   return {
     ok: true,
-    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: stagingFact.text, enrichment, stage: review.workflowStage },
+    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage },
   };
 }
 

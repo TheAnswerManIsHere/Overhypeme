@@ -90,6 +90,13 @@ export const factsTable = pgTable("facts", {
   subtype: varchar("subtype", { length: 64 }),
   overhypeFit: varchar("overhype_fit", { length: 16 }),
   adultSuitability: varchar("adult_suitability", { length: 24 }),
+  /**
+   * The ProcessingSignature this fact's ACTIVE enrichment was last generated
+   * under (engine revision + code-version constants). Stamped only when a
+   * refresh candidate is PROMOTED (never on direct re-enrich). NULL = never
+   * refreshed under the versioned pipeline → reads as stale in Taxonomy Health.
+   */
+  lastProcessedSignature: jsonb("last_processed_signature"),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

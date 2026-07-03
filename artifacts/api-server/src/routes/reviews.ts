@@ -8,6 +8,7 @@ import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
+  factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
@@ -33,7 +34,8 @@ import {
   type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { ensureStagingFact } from "../lib/moderationStaging";
+import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
+import { promoteCandidateEnrichmentVersion, PromoteCandidateError } from "../lib/enrichmentVersioning";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import {
@@ -420,6 +422,144 @@ async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): P
 }
 
 /**
+ * Visual-render gate (admin-waivable), shared by first-time and refresh
+ * approvals. Required Step-2 scenarios must each be a fresh successful render;
+ * otherwise the moderator must explicitly waive the EXACT named problems. The
+ * problem set is recomputed server-side so a stale client can't sneak an
+ * approval past missing/failed/blocked/stale renders. The grid reads enrichment
+ * through the review-cycle resolver, so a refresh cycle is gated on renders of
+ * its CANDIDATE, a first-time cycle on the staging fact's stored blob.
+ */
+async function resolveVisualRenderGate(
+  reviewId: number,
+  body: unknown,
+  adminUserId: string,
+): Promise<
+  | { ok: true; waiver: VisualRenderApprovalWaiver | null }
+  | { ok: false; problems: ReturnType<typeof requiredScenarioProblems> }
+> {
+  const scenarioGrid = await buildReviewScenarioGrid(reviewId);
+  const renderProblems = requiredScenarioProblems(
+    scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
+  );
+  if (renderProblems.length === 0) return { ok: true, waiver: null };
+  const waiverReq = visualRenderWaiverRequestSchema.safeParse(body ?? {});
+  const wantsWaive = waiverReq.success && waiverReq.data.waiveVisualRenderIssues === true;
+  const named = new Set(waiverReq.success ? (waiverReq.data.waivedScenarioKeys ?? []) : []);
+  const allNamed = renderProblems.every((p) => named.has(p.scenarioKey));
+  if (!wantsWaive || !allNamed) return { ok: false, problems: renderProblems };
+  return {
+    ok: true,
+    waiver: {
+      waivedAt: new Date().toISOString(),
+      waivedByAdminUserId: adminUserId,
+      waivedScenarios: renderProblems.map((p) => ({
+        scenarioKey: p.scenarioKey,
+        statusAtWaiver: p.status as ProblematicScenarioStatus,
+        latestAttemptId: scenarioGrid.cards.find((c) => c.key === p.scenarioKey)?.latestAttemptId ?? null,
+      })),
+      requiredScenarioPolicyVersion: REQUIRED_SCENARIO_POLICY_VERSION,
+    },
+  };
+}
+
+/**
+ * Approve a REFRESH cycle (`candidateVersionId != null`): promote the candidate
+ * enrichment version into `facts.*` and mark ONLY the review approved.
+ *
+ * Refresh approval is NOT first-time approval — the fact is already live, so
+ * every first-time side effect is deliberately skipped: no `isActive` flip, no
+ * submitter approval email, no "your fact was added" activity, no re-embed.
+ * Hashtag policy for refresh cycles: the "must have hashtags" gate is bypassed,
+ * no candidate/AI-suggested tags are attached, and existing `fact_hashtags` are
+ * never removed or rewritten.
+ *
+ * The gates still run, against the CANDIDATE (what promotion would publish):
+ * the admin-waivable visual-render gate and the canonical render preflight.
+ */
+async function approveRefreshCandidateForProduction(
+  req: AuthenticatedRequest,
+  res: Response,
+  opts: {
+    review: typeof pendingReviewsTable.$inferSelect;
+    stagingFact: typeof factsTable.$inferSelect;
+    adminNote: string | null;
+  },
+): Promise<void> {
+  const { review, stagingFact, adminNote } = opts;
+  const candidateVersionId = review.candidateVersionId!;
+
+  // Advisory pre-checks for clean errors; promoteCandidateEnrichmentVersion
+  // re-verifies everything under row locks.
+  const [candidate] = await db
+    .select({
+      id: factEnrichmentVersionsTable.id,
+      factId: factEnrichmentVersionsTable.factId,
+      status: factEnrichmentVersionsTable.status,
+      enrichment: factEnrichmentVersionsTable.enrichment,
+    })
+    .from(factEnrichmentVersionsTable)
+    .where(eq(factEnrichmentVersionsTable.id, candidateVersionId))
+    .limit(1);
+  if (!candidate || candidate.factId !== review.stagingFactId) {
+    res.status(409).json({ error: "Refresh candidate missing for this review." });
+    return;
+  }
+  if (candidate.status !== "candidate") {
+    res.status(409).json({ error: `Refresh candidate is already ${candidate.status}.` });
+    return;
+  }
+  const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
+  if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
+  const enrichment = enrichmentResult.enrichment;
+
+  const gate = await resolveVisualRenderGate(review.id, req.body, req.user.id);
+  if (!gate.ok) {
+    res.status(409).json({ error: "visual_render_incomplete", problems: gate.problems });
+    return;
+  }
+
+  // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
+  // the currently-active enrichment) is what must render. Persists nothing.
+  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
+
+  try {
+    // Promote + mark the review approved in ONE transaction. The review row gets
+    // NO enrichment audit snapshot: for refresh cycles the candidate blob lives
+    // ONLY in the version table (which is itself the audit trail).
+    await db.transaction(async (tx) => {
+      await promoteCandidateEnrichmentVersion(
+        { reviewId: review.id, candidateVersionId, adminId: req.user.id },
+        tx,
+      );
+      await tx.update(pendingReviewsTable).set({
+        status: "approved",
+        workflowStage: "production_approved",
+        reviewedById: req.user.id,
+        approvedFactId: stagingFact.id,
+        adminNote,
+        reviewedAt: new Date(),
+        ...(gate.waiver ? { visualRenderApprovalWaiver: gate.waiver } : {}),
+      }).where(eq(pendingReviewsTable.id, review.id));
+    });
+  } catch (err) {
+    if (err instanceof PromoteCandidateError) {
+      const status = err.code === "REFRESH_STALE_TEXT" ? 409 : err.code === "ENRICHMENT_INVALID" ? 400 : 409;
+      res.status(status).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
+
+  // Admin-only audit trail; deliberately NOT submitter-facing activity.
+  logger.info(
+    { event: "fact_refresh_promoted", reviewId: review.id, factId: stagingFact.id, candidateVersionId, adminId: req.user.id },
+    "[refresh] candidate enrichment promoted to active",
+  );
+  res.json({ success: true, factId: stagingFact.id, refreshPromoted: true });
+}
+
+/**
  * Second moderation gate — activate a prepared staging fact for production.
  *
  * The staging fact already exists (created at provisional approval) and already
@@ -482,6 +622,14 @@ async function approveForProduction(
     );
   }
 
+  // REFRESH cycle (versioned enrichment): promote the candidate instead of the
+  // first-time activation flow. Strictly guarded to `candidateVersionId != null`
+  // so the anti-override-wipe invariant below holds for normal staging approvals.
+  if (review.candidateVersionId != null) {
+    await approveRefreshCandidateForProduction(req, res, { review, stagingFact, adminNote });
+    return;
+  }
+
   // The enrichment to ship is ALWAYS the staging fact's stored effective blob.
   const enrichmentResult = resolveApprovalEnrichment(stagingFact.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
@@ -502,37 +650,15 @@ async function approveForProduction(
   }
 
   // Visual-render gate (admin-waivable), checked BEFORE the expensive preflight.
-  // Required Step-2 scenarios must each be a fresh successful render; otherwise
-  // the moderator must explicitly waive the EXACT named problems. The problem set
-  // is recomputed server-side so a stale client can't sneak an approval past
-  // missing/failed/blocked/stale renders. Staleness reads the staging fact's
-  // stored effective enrichment — the same blob being published — because the
-  // override-model write paths keep facts.enrichment current on every edit.
-  const scenarioGrid = await buildReviewScenarioGrid(reviewId);
-  const renderProblems = requiredScenarioProblems(
-    scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
-  );
-  let visualRenderWaiver: VisualRenderApprovalWaiver | null = null;
-  if (renderProblems.length > 0) {
-    const waiverReq = visualRenderWaiverRequestSchema.safeParse(req.body ?? {});
-    const wantsWaive = waiverReq.success && waiverReq.data.waiveVisualRenderIssues === true;
-    const named = new Set(waiverReq.success ? (waiverReq.data.waivedScenarioKeys ?? []) : []);
-    const allNamed = renderProblems.every((p) => named.has(p.scenarioKey));
-    if (!wantsWaive || !allNamed) {
-      res.status(409).json({ error: "visual_render_incomplete", problems: renderProblems });
-      return;
-    }
-    visualRenderWaiver = {
-      waivedAt: new Date().toISOString(),
-      waivedByAdminUserId: req.user.id,
-      waivedScenarios: renderProblems.map((p) => ({
-        scenarioKey: p.scenarioKey,
-        statusAtWaiver: p.status as ProblematicScenarioStatus,
-        latestAttemptId: scenarioGrid.cards.find((c) => c.key === p.scenarioKey)?.latestAttemptId ?? null,
-      })),
-      requiredScenarioPolicyVersion: REQUIRED_SCENARIO_POLICY_VERSION,
-    };
+  // Staleness reads the staging fact's stored effective enrichment — the same
+  // blob being published — because the override-model write paths keep
+  // facts.enrichment current on every edit.
+  const gate = await resolveVisualRenderGate(reviewId, req.body, req.user.id);
+  if (!gate.ok) {
+    res.status(409).json({ error: "visual_render_incomplete", problems: gate.problems });
+    return;
   }
+  const visualRenderWaiver = gate.waiver;
 
   // Renderability gate — real runtime pipeline over a neutral canonical subject
   // BEFORE any state mutation. Nothing is persisted on any failure path.
@@ -740,19 +866,43 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     || review.workflowStage === "production_review";
   const targetStage: ReviewWorkflowStage = prepStarted ? "production_rejected" : "triage_rejected";
 
-  await db.update(pendingReviewsTable).set({
-    status: "rejected",
-    workflowStage: targetStage,
-    reviewedById: req.user.id,
-    adminNote,
-    reason: rejectionReason,
-    reviewedAt: new Date(),
-    ...(prepStarted
-      ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }
-      : {}),
-  }).where(eq(pendingReviewsTable.id, id));
+  // REFRESH cycle: "don't promote this refresh," NOT "unpublish the fact." The
+  // candidate is RETAINED as rejected history (never hard-deleted, and it no
+  // longer blocks a future send-back — the one-candidate index covers
+  // status='candidate' only). The live fact's enrichment, projections, Pexels,
+  // memes, and isActive are all left exactly as they were.
+  const isRefreshCycle = review.candidateVersionId != null;
 
-  if (review.submittedById) {
+  await db.transaction(async (tx) => {
+    await tx.update(pendingReviewsTable).set({
+      status: "rejected",
+      workflowStage: targetStage,
+      reviewedById: req.user.id,
+      adminNote,
+      reason: rejectionReason,
+      reviewedAt: new Date(),
+      ...(prepStarted
+        ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }
+        : {}),
+    }).where(eq(pendingReviewsTable.id, id));
+    if (isRefreshCycle) {
+      await tx.update(factEnrichmentVersionsTable)
+        .set({ status: "rejected", rejectedAt: new Date() })
+        .where(and(
+          eq(factEnrichmentVersionsTable.id, review.candidateVersionId!),
+          eq(factEnrichmentVersionsTable.status, "candidate"),
+        ));
+      if (review.stagingFactId != null) {
+        // Clear the "prep running" pill; the active enrichment itself was never touched.
+        await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, review.stagingFactId));
+      }
+    }
+  });
+
+  // Submitter notifications are for first-time submissions only: a refresh
+  // rejection must never tell the original submitter their live fact "could not
+  // be added" (refresh reviews carry submittedById=null; guarded here too).
+  if (review.submittedById && !isRefreshCycle) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
       .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
 
@@ -990,19 +1140,17 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
 
-  const [stagingFact] = await db
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, review.stagingFactId))
-    .limit(1);
-  if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
+  // Resolve enrichment through the review-cycle resolver: a refresh cycle
+  // previews its CANDIDATE version; a first-time cycle uses the staging fact.
+  const cycle = await resolveReviewCycleEnrichment(review);
+  if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
-  const ev = validateEnrichment(stagingFact.enrichment);
+  const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
 
   // Shared deterministic assembly — identical to the prompt-preview factId path,
   // forced to t2i with a fallback gender so the generator can build a protagonist.
-  const resolved = await resolveRenderReviewInput(stagingFact.text, ev.data, {
+  const resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
     subjectRenderMode: T2I_MODE,
     userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
     lookStyleId: body.lookStyleId ?? null,

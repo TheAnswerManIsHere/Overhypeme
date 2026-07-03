@@ -547,6 +547,13 @@
       "when": 1781000000000,
       "tag": "0077_visual_planner_reasoning_effort",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1781100000000,
+      "tag": "0078_fact_enrichment_versions",
+      "breakpoints": true
     }
   ]
 }

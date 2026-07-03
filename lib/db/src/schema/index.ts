@@ -31,3 +31,4 @@ export * from "./heroExamples";
 export * from "./imagePromptAttempts";
 export * from "./referenceResearchCache";
 export * from "./enrichmentOverrideHistory";
+export * from "./factEnrichmentVersions";
