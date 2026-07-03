@@ -285,45 +285,60 @@ async function processClaimedJob(dbInstance: DbWithTransaction, row: AsyncJobRow
 
   const newAttempts = row.attempts + 1;
 
-  if (outcome.ok) {
+  // Finalize must never throw out of here: a rejection would exit this worker
+  // (dropping its share of the batch's remaining concurrency) and, worse, leave
+  // the row committed as `processing`. On a finalize failure we log and rely on
+  // the periodic stuck-row recovery to requeue it.
+  let abandoned = false;
+  let outcomeError: string | null = null;
+  try {
+    if (outcome.ok) {
+      await dbInstance.transaction(async (tx) => {
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: "done",
+            attempts: newAttempts,
+            result: (outcome.result as object | undefined) ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+      });
+      return;
+    }
+
+    outcomeError = outcome.error;
+    const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
+    const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+    const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
+    abandoned = newAttempts >= effectiveMax;
+    const scheduledDelay = retryDelays[newAttempts];
+    const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
     await dbInstance.transaction(async (tx) => {
       await tx
         .update(asyncJobsTable)
         .set({
-          status: "done",
+          status: abandoned ? "failed" : "pending",
           attempts: newAttempts,
-          result: (outcome.result as object | undefined) ?? null,
+          lastError: outcome.error,
+          nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
           updatedAt: new Date(),
         })
         .where(eq(asyncJobsTable.id, row.id));
     });
+  } catch (finalizeErr) {
+    logger.error(
+      { err: finalizeErr, queue: row.queue, id: row.id },
+      "[asyncJobs] finalize failed — row left in processing for stuck-row recovery",
+    );
     return;
   }
 
-  const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
-  const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
-  const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
-  const abandoned = newAttempts >= effectiveMax;
-  const scheduledDelay = retryDelays[newAttempts];
-  const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
-  await dbInstance.transaction(async (tx) => {
-    await tx
-      .update(asyncJobsTable)
-      .set({
-        status: abandoned ? "failed" : "pending",
-        attempts: newAttempts,
-        lastError: outcome.error,
-        nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
-        updatedAt: new Date(),
-      })
-      .where(eq(asyncJobsTable.id, row.id));
-  });
-
   if (abandoned) {
-    logger.error({ queue: row.queue, id: row.id, error: outcome.error }, "[asyncJobs] job abandoned after max retries");
+    logger.error({ queue: row.queue, id: row.id, error: outcomeError }, "[asyncJobs] job abandoned after max retries");
     if (handler.onAbandon) {
       try {
-        await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcome.error });
+        await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcomeError });
       } catch (hookErr) {
         logger.error({ err: hookErr, queue: row.queue, id: row.id }, "[asyncJobs] onAbandon hook threw");
       }
@@ -470,6 +485,21 @@ export async function purgeTerminalJobs(
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
+/**
+ * How often to sweep for rows stranded in `processing`. Since claim now commits
+ * `processing` before the (concurrent) handler runs, a crash — OR a rejection in
+ * the finalize transaction after the handler returned — can leave a row
+ * committed as `processing`. Boot-only recovery would never retry it in a
+ * long-running process, so sweep periodically too.
+ */
+const RECOVER_INTERVAL_MS = 60_000;
+/**
+ * Only reclaim rows whose `updatedAt` (stamped at claim) is older than this.
+ * Must sit comfortably above the slowest real handler (planner ≤180s + image
+ * gen) so an in-flight job is never yanked out from under itself and re-run
+ * concurrently — 10 min leaves wide margin while still bounding stuck-row retry.
+ */
+const RECOVER_STUCK_CUTOFF_MIN = 10;
 
 export function runAsyncJobsWorker(
   intervalMs = Number(process.env["ASYNC_JOBS_WORKER_INTERVAL_MS"]) || DEFAULT_WORKER_INTERVAL_MS,
@@ -490,6 +520,7 @@ export function runAsyncJobsWorker(
   // responsive when idle, self-throttling under load.
   let ticking = false;
   let lastPurgeAt = 0;
+  let lastRecoverAt = Date.now();
   const tick = async () => {
     if (ticking) return;
     ticking = true;
@@ -498,6 +529,17 @@ export function runAsyncJobsWorker(
         await asyncJobsTick(defaultDb);
       } catch (err) {
         logger.error({ err }, "[asyncJobs] worker tick failed");
+      }
+      // Backstop: requeue rows stranded in `processing` (crash mid-run, or a
+      // finalize that failed after the handler returned) so a healthy
+      // long-running worker eventually retries them, not only on the next boot.
+      if (Date.now() - lastRecoverAt >= RECOVER_INTERVAL_MS) {
+        lastRecoverAt = Date.now();
+        try {
+          await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+        } catch (err) {
+          logger.error({ err }, "[asyncJobs] periodic stuck-row recovery failed");
+        }
       }
       if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
         lastPurgeAt = Date.now();
