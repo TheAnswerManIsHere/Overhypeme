@@ -472,7 +472,7 @@ In the render-input hash: editing it flips test renders stale.
 *Does this fact fit the positive Overhype.me product rule?*
 
 - **Effect:** Gating only — approval/health gate, never compiled into the prompt
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -487,7 +487,7 @@ The classifier applies the core product rule from its system prompt: strong = cl
 
 NOT compiled into the prompt — this is a quality/approval gate. Taxonomy Health raises a warning for 'questionable' and an error for 'reject' (both mark the fact needs_admin_review), and the value is a filterable projected column in the admin fact list.
 
-It is included in the render-input hash, so editing it does flip test renders stale even though the compiled prompt doesn't change because of it.
+It is NOT in the render-input hash, so editing it does not flip test renders stale (the compiled prompt doesn't depend on it).
 
 **Values (3)**
 
@@ -511,14 +511,13 @@ It is included in the render-input hash, so editing it does flip test renders st
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/taxonomyHealth/index.ts` `computeTaxonomyHealth` — The questionable/reject health flags and needs_admin_review gating.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
 ### Adult-Mode Compatibility
 
 *Whether this FACT could support adult/spicy rendering — NOT the render's SFW control.*
 
 - **Effect:** Gating only — approval/health gate, never compiled into the prompt
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -535,7 +534,7 @@ The classifier applies the definitions in its system prompt — notably the 'inc
 
 None on the compiled prompt. 'requires_review' raises a Taxonomy Health flag for a human decision; the value is a projected, filterable column.
 
-Included in the render-input hash, so edits flip test renders stale.
+NOT in the render-input hash, so editing it does not flip test renders stale — the render's actual SFW/spicy level is the separate contentMode render control, not this field.
 
 **Values (4)**
 
@@ -561,7 +560,6 @@ Included in the render-input hash, so edits flip test renders stale.
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
 ### Adult-Mode Notes
 
@@ -622,16 +620,16 @@ Three modifiers (cinematic_aftermath, projectile_impact_power, action_comedy) al
 
 Editing modifiers flips test renders stale.
 
-**Values (50)**
+**Values (52)**
 
 - `single_subject_focus` *(authored — verify)* — Composition flag: the image should center on the subject alone, with no competing characters sharing the spotlight.
-  - *Render:* No fixed compiler directive — planner context only; the archetype strategy and scene decide the actual composition. (Contrast avoid_extra_faces and avoid_duplicate_subject, which DO compile to directives.)
+  - *Render:* No fixed compiler directive, so no guaranteed effect — but it IS passed to the AI planner as taxonomy context and can nudge the composition toward a solo subject; the archetype strategy and scene still decide the actual framing. (Contrast avoid_extra_faces and avoid_duplicate_subject, which DO compile to directives.)
   - *Example:* "{NAME} is the gym's entire membership" → nudges the planner to keep the frame centered on the subject alone; not a guaranteed rule.
 - `identity_strict` *(authored — verify)* — Identity-policy flag: the subject's recognizable likeness should be preserved strictly — the joke fails if the rendered person doesn't clearly read as the reference photo's person.
-  - *Render:* No code consumes this flag today — it appears only in the classifier catalog and the known-modifier list; no compiler directive or identity policy keys off it. Actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. Planner context only.
+  - *Render:* No compiler directive or identity policy keys off this flag, so it has no guaranteed effect — actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. It is still passed to the AI planner as taxonomy context (a soft hint that likeness matters), but nothing enforces it.
   - *Example:* "{NAME} was recognized from space" → signals strict likeness matters, but today the likeness guarantee comes from the render mode, not this flag.
 - `identity_essence_only` *(authored — verify)* — Identity-policy flag: strict likeness may be relaxed — the render only needs to carry the subject's essence (build, hair, vibe), e.g. through a heavy transformation or symbolic treatment.
-  - *Render:* No code consumes this flag today — like identity_strict, it exists only in the classifier catalog and the known-modifier list; no compiler directive or identity policy branches on it. Planner context only.
+  - *Render:* Like identity_strict, no compiler directive or identity policy branches on it, so no guaranteed effect. It still reaches the AI planner as taxonomy context (a soft hint that the likeness may be relaxed), but nothing enforces it.
   - *Example:* "{NAME} turned into pure motivation" → signals the render may keep only the subject's essence through the transformation; nothing in the compiler enforces it.
 - `face_prominent` — Framing flag: the joke depends on the subject's face and expression reading clearly, so the face must be framed large and unobstructed.
   - *Render:* Injects: "Frame the subject's face prominently and clearly."
@@ -645,11 +643,17 @@ Editing modifiers flips test renders stale.
 - `baby_child_version` — The fact describes the subject as a baby or young child — the reference person must be de-aged, not accompanied by a random infant.
   - *Render:* Injects: "De-age the reference subject into the baby/child the fact describes — the same person rendered at that life stage, with infant/child proportions, skin, and hair. Do not add a separate, generic baby or child, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
   - *Example:* "{NAME} as a baby negotiated their own bedtime" → the reference adult is de-aged into the baby; no separate generic baby, no adult left in frame.
+- `infant_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a newborn/infant. The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
+  - *Render:* Injects: "De-age the reference subject into an infant — the same person rendered as a baby, with newborn/infant proportions and features. Do not add a separate, generic baby, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Example:* "{NAME} filed taxes from the womb" → the reference subject is de-aged to a newborn/infant; no separate generic baby, no adult left in frame.
+- `child_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a young child (past infancy). The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
+  - *Render:* Injects: "Render the reference subject as the young child the fact describes — the same person de-aged to childhood, with child proportions and features. Do not add a separate, generic child, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Example:* "{NAME} won a Nobel Prize in third grade" → the reference subject de-aged to a young child; no separate generic child, no adult left in frame.
 - `older_self_version` — The fact describes the subject as a much older version of themselves — the same person aged, not an unrelated elderly extra.
   - *Render:* Injects: "Age the reference subject into the much older version the fact describes — the same person with aged skin, greyed/thinned hair, and elderly posture. Do not add a separate, generic elderly person, and do not keep a young version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
   - *Example:* "At 90, {NAME} still outruns ambulances" → the reference subject rendered elderly — same face aged, not a random senior beside a young {NAME}.
 - `grounded_realism` *(authored — verify)* — Staging flag: keep physics and rendering realistic — the impossibility should live in what's happening (roles, outcomes), not in cartoon physics or surreal style.
-  - *Render:* No fixed compiler directive — planner context only. It reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.
+  - *Render:* No fixed compiler directive, so no guaranteed effect — but it reaches the AI planner as taxonomy context and reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.
   - *Example:* "A baby drove {NAME}'s mother home" → nudges the planner toward a realistic car interior with the impossibility in who's driving.
 - `mock_heroic` — The comedy comes from treating something trivial with epic gravitas — the subject should be staged like a monument to a mundane act.
   - *Render:* Injects: "Stage the subject in an exaggerated, mock-heroic pose."

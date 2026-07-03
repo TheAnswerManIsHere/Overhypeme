@@ -586,7 +586,13 @@ function ReviewModal({
                 <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
               </div>
 
-              <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} reloadKey={gridReloadKey} />
+              <FactVisualReviewGrid
+                reviewId={review.id}
+                enrichment={enrichment}
+                reloadKey={gridReloadKey}
+                finalHashtags={finalHashtags}
+                onFinalHashtagsChange={onFinalHashtagsChange}
+              />
 
               {/* Visual concept — the moderator's primary lever: describe the
                   picture in plain language and the planner/compiler realize it.
@@ -658,8 +664,7 @@ function ReviewModal({
                   onRerun={enrichEditing.rerunWithConfirm}
                   busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
                   rerunBusy={jobs.rerunBusy}
-                  finalHashtags={finalHashtags}
-                  onFinalHashtagsChange={onFinalHashtagsChange}
+                  hideHashtags
                   overrideContext={enrichEditing.overrideContext}
                 />
                 {jobs.error && (
@@ -835,7 +840,7 @@ function ReviewModal({
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {!isApprovable(enrichment)
                       ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. On approve, the server runs a renderability check — if the fact can't be rendered coherently, approval is blocked with a reason."
-                      : "Approve is locked until there's at least one hashtag. Add a tag under Advanced Options → Final hashtags — clearing them all is usually a mistake."}
+                      : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the test renders) — clearing them all is usually a mistake."}
                   </p>
                 )}
               </div>

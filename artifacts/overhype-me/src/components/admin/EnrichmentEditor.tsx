@@ -1361,6 +1361,7 @@ export function EnrichmentEditor({
   rerunBusy = false,
   finalHashtags,
   onFinalHashtagsChange,
+  hideHashtags = false,
   overrideContext,
 }: {
   value: FactEnrichment | null;
@@ -1379,6 +1380,11 @@ export function EnrichmentEditor({
    * is shown (the live Facts page). */
   finalHashtags?: string[];
   onFinalHashtagsChange?: (tags: string[]) => void;
+  /** Suppress the hashtag section entirely. The moderation panel now renders the
+   * final-hashtags editor as its own first-class section (FinalHashtagsEditor in
+   * the Visual review step), so it hides this editor's copy to avoid a second,
+   * redundant hashtag control. */
+  hideHashtags?: boolean;
   overrideContext?: EnrichmentOverrideContext;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
@@ -1603,7 +1609,7 @@ export function EnrichmentEditor({
         </div>
       </div>
 
-      {reviewMode ? (
+      {hideHashtags ? null : reviewMode ? (
         <div className="space-y-3">
           {/* Final hashtags — the moderator-curated list that ships on approval. */}
           <div>

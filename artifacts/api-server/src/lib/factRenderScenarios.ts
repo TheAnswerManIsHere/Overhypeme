@@ -38,8 +38,10 @@ import type { ImagePromptAttempt } from "@workspace/db/schema";
 
 // ─── Version constants (bumping any of these invalidates prior hashes) ───────
 
-/** Bump when the *set/shape* of default scenarios or hash inputs changes. */
-export const SCENARIO_CONFIG_VERSION = "1";
+/** Bump when the *set/shape* of default scenarios or hash inputs changes.
+ *  v2: dropped overhypeFit / adultSuitability from the render-input hash (they
+ *  are quality/gating signals that never reach the compiled prompt). */
+export const SCENARIO_CONFIG_VERSION = "2";
 /** Bump when the required-scenario set or approval gate semantics change. */
 export const REQUIRED_SCENARIO_POLICY_VERSION = "1";
 /**
@@ -94,10 +96,23 @@ export interface ScenarioHashInputs {
 }
 
 /**
- * The RENDER-AFFECTING projection of an enrichment blob. Excludes admin-only /
- * non-visual fields (adminReviewNotes, taxonomyConfidence, suggestedHashtags,
- * adultSuitabilityNotes) so editing an admin note never marks a render stale,
- * while editing a modifier / override / reference / entity does.
+ * The RENDER-AFFECTING projection of an enrichment blob — exactly the fields that
+ * can change the compiled t2i/i2i prompt (traced through the image-prompt
+ * generator + the Nano-Banana-2 compiler):
+ *   - primaryArchetype / subtype  → select the authored visual strategy + guidance
+ *   - modifiers                   → LLM taxonomy block AND compiler directives
+ *   - visualLiteralness / visualComplexity → visual-treatment directives
+ *   - culturalReferences / semanticEntities → dedicated per-fact visual-context blocks
+ *   - visualPromptStrategyOverride → consumed by the compiler
+ *
+ * Excludes fields that DON'T feed the prompt: adminReviewNotes,
+ * suggestedHashtags, adultSuitabilityNotes (never referenced in generation), and
+ * the quality/gating signals overhypeFit, adultSuitability, taxonomyConfidence —
+ * these appear only in the generator's "TAXONOMY (FIXED — DO NOT reclassify)"
+ * context block, are ignored by the compiler, and never change the drawn image
+ * (overhypeFit is an approval gate; the render's SFW level is the separate
+ * `contentMode` control, not adultSuitability). Editing any of them must NOT flip
+ * a render stale.
  */
 function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
   return {
@@ -106,8 +121,6 @@ function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
     modifiers: [...e.modifiers].sort(),
     visualLiteralness: e.visualLiteralness,
     visualComplexity: e.visualComplexity,
-    overhypeFit: e.overhypeFit,
-    adultSuitability: e.adultSuitability,
     culturalReferences: e.culturalReferences,
     semanticEntities: e.semanticEntities,
     visualPromptStrategyOverride: e.visualPromptStrategyOverride ?? null,

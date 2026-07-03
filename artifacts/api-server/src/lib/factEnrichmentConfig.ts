@@ -221,9 +221,10 @@ Hashtag rules:
 - Do not include spaces.
 - Do not include the subject's name. The subject is shown to you with the canonical placeholder name "Alex" (they/them) — it is a stand-in for whoever the meme is personalized to, NOT a topic. Never emit "alex" (in any form) as a hashtag, the same way you never list the subject as a semanticEntity.
 - Do not include the name of this app. "Overhype", "Overhype.me", and "overhypeme" are this platform's own name (it appears throughout these instructions and as branding, NOT in the fact itself) — never emit it as a hashtag.
+- Do not include generic-humor tags. EVERY fact on this platform is meant to be funny, so tags that merely assert that ("humor", "humour", "funny", "joke", "jokes", "comedy", "comedic", "hilarious", "lol", "lmao", "haha", "laugh", "amusing", "witty", and the like) describe the whole database, not this fact — they carry no discovery value. Tag the fact's actual TOPIC (what it's about), never the fact that it's a joke.
 - Prefer tags useful for discovery, not one-off words.
 - Include brand or company tags only when explicitly present in the fact. The app's own name (Overhype.me) does NOT count as such a brand.
-- The subject name and the app name are stripped automatically if they slip through, so spending a hashtag slot on them just wastes it — always provide 3 to 8 genuine discovery tags that are neither the subject name nor the app name.
+- The subject name, the app name, and generic-humor tags are stripped automatically if they slip through, so spending a hashtag slot on them just wastes it — always provide 3 to 8 genuine discovery tags that describe the fact's topic.
 
 Cultural reference rules:
 Detect outside-context dependencies in the fact and emit them as a culturalReferences array. Outside-context means the joke relies on knowledge that isn't obvious from the literal words: a brand, a workplace/professional context, a familiar phrase or idiom, wordplay, mechanism knowledge (e.g. how a magnifying glass normally focuses sunlight), or an inside reference to a cultural artifact (TV show, song, event). Examples:
