@@ -33,7 +33,7 @@ import {
   type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { ensureStagingFact } from "../lib/moderationStaging";
+import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import {
@@ -990,19 +990,17 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
 
-  const [stagingFact] = await db
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, review.stagingFactId))
-    .limit(1);
-  if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
+  // Resolve enrichment through the review-cycle resolver: a refresh cycle
+  // previews its CANDIDATE version; a first-time cycle uses the staging fact.
+  const cycle = await resolveReviewCycleEnrichment(review);
+  if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
-  const ev = validateEnrichment(stagingFact.enrichment);
+  const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
 
   // Shared deterministic assembly — identical to the prompt-preview factId path,
   // forced to t2i with a fallback gender so the generator can build a protagonist.
-  const resolved = await resolveRenderReviewInput(stagingFact.text, ev.data, {
+  const resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
     subjectRenderMode: T2I_MODE,
     userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
     lookStyleId: body.lookStyleId ?? null,

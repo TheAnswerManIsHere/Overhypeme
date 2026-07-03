@@ -11,7 +11,7 @@
 
 import { eq, desc } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
+import { pendingReviewsTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { isUnresolvedSubmissionStage, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
@@ -92,6 +92,49 @@ export async function findReviewForStagingFact(
     .orderBy(desc(pendingReviewsTable.createdAt))
     .limit(1);
   return row ? { id: row.id, workflowStage: row.workflowStage as ReviewWorkflowStage } : null;
+}
+
+/**
+ * Resolve the ENRICHMENT + text a moderation-side visual surface should use for
+ * a review cycle. The single source of truth so every review render/preview
+ * reads the SAME enrichment — otherwise one surface could preview the active
+ * fact while another previews the candidate.
+ *
+ * - Refresh cycle (`candidateVersionId != null`): the candidate version's
+ *   enrichment (what the moderator is reviewing), with the fact's own text.
+ * - First-time staging cycle: the staging fact's own `facts.enrichment`.
+ *
+ * Returns the RAW enrichment jsonb (caller validates) so it drops into the
+ * existing `validateEnrichment` + `resolveRenderReviewInput` flow unchanged.
+ * Null when the review has no staging fact / the fact is missing.
+ */
+export async function resolveReviewCycleEnrichment(
+  review: { stagingFactId: number | null; candidateVersionId: number | null },
+  tx: DbLike = db,
+): Promise<{
+  factId: number;
+  text: string;
+  rawEnrichment: unknown;
+  source: "candidate_version" | "staging_fact";
+} | null> {
+  if (review.stagingFactId == null) return null;
+  const [fact] = await tx
+    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, review.stagingFactId))
+    .limit(1);
+  if (!fact) return null;
+  if (review.candidateVersionId != null) {
+    const [version] = await tx
+      .select({ enrichment: factEnrichmentVersionsTable.enrichment })
+      .from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, review.candidateVersionId))
+      .limit(1);
+    if (version) {
+      return { factId: review.stagingFactId, text: fact.text, rawEnrichment: version.enrichment, source: "candidate_version" };
+    }
+  }
+  return { factId: review.stagingFactId, text: fact.text, rawEnrichment: fact.enrichment, source: "staging_fact" };
 }
 
 /**
