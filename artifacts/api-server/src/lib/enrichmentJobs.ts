@@ -35,7 +35,7 @@ import { hashFactText } from "./enrichmentVersioning";
 import { renderCanonical } from "./renderCanonical";
 import {
   advanceReviewForStagingFactEnrichment,
-  isStagingPrepActive,
+  resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
 import {
   enqueueJob,
@@ -159,10 +159,14 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `fact ${factId} not found` };
   }
 
-  // COST GUARD: if this fact is a staging fact whose review has left
-  // prep_pending (e.g. the moderator rejected it while a retry was queued),
-  // skip all model calls. Treated as a successful no-op so the job retires.
-  if (!(await isStagingPrepActive(factId))) {
+  // GENERIC-JOB GUARD (cost + isolation): run only for a live fact or an
+  // in-prep first-time staging cycle. Skips are retired as successful no-ops
+  // and touch NOTHING — in particular `refresh_candidate_in_review`, where a
+  // stale generic job writing facts.* would corrupt an in-flight refresh whose
+  // enrichment lives in the candidate VERSION row.
+  const decision = await resolveGenericFactEnrichmentDecision(factId);
+  if (decision.action === "skip") {
+    logger.info({ factId, reason: decision.reason }, "[enrichment] generic fact job skipped");
     return { ok: true };
   }
 
