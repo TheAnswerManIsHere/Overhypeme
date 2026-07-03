@@ -20,11 +20,12 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { defaultIdentityPolicyForRenderMode, type FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
 import { ensureDefaultReviewRenders } from "../lib/reviewRenderScenarios.js";
+import { buildScenarioInputHash } from "../lib/factRenderScenarios.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -169,6 +170,44 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     assert.equal(attempts.length, 1);
     assert.equal(attempts[0]!.reviewRenderScenarioKey, "generic_t2i");
     assert.ok(attempts[0]!.reviewRenderInputHash, "input hash recorded");
+  });
+
+  it("hashes the t2i scenario with the SAME gender-matched subject the render uses", async () => {
+    const reviewId = await seedReview(plainId);
+    await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/render-scenarios`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ scenarios: ["generic_t2i"] });
+
+    const [attempt] = await db.select().from(imagePromptAttemptsTable)
+      .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
+    // The default t2i scenario renders a neutral protagonist (Alex/they), not
+    // the historical David/he brand default…
+    assert.match(attempt!.renderedFactText!, /Alex Franklin/);
+    // …and the stored input hash must be computed from that SAME rendered text,
+    // or staleness/idempotency compares against inputs no render ever used.
+    const expectedHash = buildScenarioInputHash({
+      stagingFactId: attempt!.factId!,
+      scenarioKey: "generic_t2i",
+      subjectRenderMode: "t2i_fallback",
+      renderedFactText: attempt!.renderedFactText!,
+      enrichment: ENRICHMENT,
+      referenceIdentityType: null,
+      referenceAssetVersion: null,
+      renderControls: { aspectRatio: "portrait", contentMode: "sfw", fallbackSubjectGender: "neutral" },
+      lookStyleId: null,
+      styleSuffixVersion: null,
+      identityPolicy: defaultIdentityPolicyForRenderMode("t2i_fallback"),
+      actualImageEngineId: "nano-banana-2",
+    });
+    assert.equal(attempt!.reviewRenderInputHash, expectedHash);
+
+    // A just-enqueued attempt is NOT stale — the live grid recomputes the same hash.
+    const grid = await request(makeApp())
+      .get(`/admin/reviews/${reviewId}/render-scenarios`)
+      .set("authorization", `Bearer ${adminSid}`);
+    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
+    assert.equal(t2i.stale, false);
   });
 
   it("rejects invalid scenario keys (400)", async () => {

@@ -71,7 +71,7 @@ export interface ResolvedRenderReviewInput {
  *  "Generate a female protagonist" render sampling "David Franklin … his pants"
  *  is an incoherent test image). i2i modes carry a null gender (the reference IS
  *  the subject) and keep the historical brand default. */
-function defaultPreviewSubjectForGender(
+export function defaultPreviewSubjectForGender(
   gender: RenderControls["fallbackSubjectGender"] | null | undefined,
 ): { name: string; pronouns: string } {
   switch (gender) {
