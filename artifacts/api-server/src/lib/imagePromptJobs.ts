@@ -545,21 +545,28 @@ async function mirrorToLegacyStorage(
     // fallbackSubjectGender when present, else neutral.
     const renderControls = attempt.renderControls as RenderControls;
     const gender: "male" | "female" | "neutral" = renderControls.fallbackSubjectGender ?? "neutral";
-    const [factRow] = await db
-      .select({ aiMemeImages: factsTable.aiMemeImages })
-      .from(factsTable)
-      .where(eq(factsTable.id, attempt.factId))
-      .limit(1);
-    if (factRow) {
+    // Row-locked read-modify-write: with the worker now running image_generation
+    // handlers concurrently, two completions for the SAME fact could otherwise
+    // read the same aiMemeImages array and clobber each other on write (last
+    // write drops the other image). `SELECT … FOR UPDATE` serializes the append
+    // on the fact row so both paths survive.
+    await db.transaction(async (tx) => {
+      const [factRow] = await tx
+        .select({ aiMemeImages: factsTable.aiMemeImages })
+        .from(factsTable)
+        .where(eq(factsTable.id, attempt.factId))
+        .for("update")
+        .limit(1);
+      if (!factRow) return;
       const current = (factRow.aiMemeImages ?? {}) as Record<string, string[]>;
       const arr = Array.isArray(current[gender]) ? [...current[gender]!] : [];
       arr.push(storedPath);
       const next = { ...current, [gender]: arr };
-      await db
+      await tx
         .update(factsTable)
         .set({ aiMemeImages: next as unknown as Record<string, string[]>, updatedAt: new Date() })
         .where(eq(factsTable.id, attempt.factId));
-    }
+    });
     if (attempt.userId) {
       await db.insert(userAiImagesTable).values({
         userId: attempt.userId,

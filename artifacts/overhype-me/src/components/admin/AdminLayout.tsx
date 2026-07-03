@@ -174,7 +174,12 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   }
 
   return (
-    <div className="h-[100dvh] bg-background flex overflow-hidden">
+    // `fixed inset-0` pins the whole admin shell to the viewport so the sidebar
+    // (Admin/nav) and the top header (title/View Site/Sign Out) never move —
+    // only the inner content area scrolls. Plain `h-[100dvh]` let iOS Safari
+    // body-scroll the entire shell out of view, which is what dragged the top
+    // bar and sidebar away on scroll.
+    <div className="fixed inset-0 bg-background flex overflow-hidden">
       {/* Persistent sidebar — hidden on mobile */}
       <aside
         className={`hidden md:flex shrink-0 bg-card border-r border-border flex-col transition-all duration-200 ${

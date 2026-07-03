@@ -234,15 +234,136 @@ export async function enqueueJob(
 type DbWithTransaction = Pick<typeof defaultDb, "transaction" | "delete">;
 
 /**
- * Process one tick: claim due pending rows across all registered queues,
- * dispatch by `queue`, apply success/retry/abandon. Exported for tests with
- * an injected db.
+ * Max jobs a single tick processes CONCURRENTLY (phase 2). Bounds fan-out of
+ * external calls (LLM planner / fal / email) so a batch can't stampede a
+ * provider or exhaust the ~10-connection pool. Tunable per-deploy; default 4 is
+ * enough to run a moderation review's 3–4 scenario renders in parallel instead
+ * of back-to-back. Raising it trades provider cost/rate-limit headroom for
+ * drain speed.
+ */
+const ASYNC_JOBS_MAX_CONCURRENCY = Math.max(
+  1,
+  Number(process.env["ASYNC_JOBS_MAX_CONCURRENCY"]) || 4,
+);
+
+/** Run `fn` over `items` with at most `limit` in flight at once. */
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++]!;
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * Run one claimed job to completion and finalize its own outcome in an
+ * independent short transaction. Isolated per job so jobs can run concurrently
+ * (a single tx/connection can't) and so one job's finalize never blocks or
+ * rolls back another's.
+ */
+async function processClaimedJob(dbInstance: DbWithTransaction, row: AsyncJobRow): Promise<void> {
+  const handler = HANDLERS.get(row.queue);
+  if (!handler) return; // filtered at claim time; defensive.
+
+  // The handler is responsible for not throwing; if it does, we treat it as a
+  // retryable failure with a synthetic error message.
+  let outcome: HandlerResult;
+  try {
+    outcome = await handler.run(row.payload, row);
+  } catch (err) {
+    outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const newAttempts = row.attempts + 1;
+
+  // Finalize must never throw out of here: a rejection would exit this worker
+  // (dropping its share of the batch's remaining concurrency) and, worse, leave
+  // the row committed as `processing`. On a finalize failure we log and rely on
+  // the periodic stuck-row recovery to requeue it.
+  let abandoned = false;
+  let outcomeError: string | null = null;
+  try {
+    if (outcome.ok) {
+      await dbInstance.transaction(async (tx) => {
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: "done",
+            attempts: newAttempts,
+            result: (outcome.result as object | undefined) ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+      });
+      return;
+    }
+
+    outcomeError = outcome.error;
+    const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
+    const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+    const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
+    abandoned = newAttempts >= effectiveMax;
+    const scheduledDelay = retryDelays[newAttempts];
+    const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
+    await dbInstance.transaction(async (tx) => {
+      await tx
+        .update(asyncJobsTable)
+        .set({
+          status: abandoned ? "failed" : "pending",
+          attempts: newAttempts,
+          lastError: outcome.error,
+          nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
+          updatedAt: new Date(),
+        })
+        .where(eq(asyncJobsTable.id, row.id));
+    });
+  } catch (finalizeErr) {
+    logger.error(
+      { err: finalizeErr, queue: row.queue, id: row.id },
+      "[asyncJobs] finalize failed — row left in processing for stuck-row recovery",
+    );
+    return;
+  }
+
+  if (abandoned) {
+    logger.error({ queue: row.queue, id: row.id, error: outcomeError }, "[asyncJobs] job abandoned after max retries");
+    if (handler.onAbandon) {
+      try {
+        await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcomeError });
+      } catch (hookErr) {
+        logger.error({ err: hookErr, queue: row.queue, id: row.id }, "[asyncJobs] onAbandon hook threw");
+      }
+    }
+  }
+}
+
+/**
+ * Process one tick in two phases:
+ *   1. CLAIM (short transaction): grab up to 10 due rows with FOR UPDATE SKIP
+ *      LOCKED, skip unhandled/delivery-deferred ones, and flip the rest to
+ *      `processing`. Committing here releases the row locks immediately so the
+ *      slow handler work below never holds them.
+ *   2. PROCESS (concurrent, bounded): run the claimed handlers up to
+ *      ASYNC_JOBS_MAX_CONCURRENCY at a time, each finalizing its own outcome.
+ *
+ * Claimed rows sit in `processing` across phase 2; a crash leaves them there and
+ * `recoverStuckProcessing` (boot, 5-min cutoff) returns them to `pending`.
+ * Exported for tests with an injected db.
  */
 export async function asyncJobsTick(
   dbInstance: DbWithTransaction,
   now: Date = new Date(),
 ): Promise<void> {
-  await dbInstance.transaction(async (tx) => {
+  const claimed = await dbInstance.transaction(async (tx) => {
     const rows = (await tx
       .select()
       .from(asyncJobsTable)
@@ -254,74 +375,27 @@ export async function asyncJobsTick(
       .limit(10)
       .for("update", { skipLocked: true })) as AsyncJobRow[];
 
+    const toProcess: AsyncJobRow[] = [];
     for (const row of rows) {
-      const handler = HANDLERS.get(row.queue);
-      if (!handler) {
+      if (!HANDLERS.get(row.queue)) {
         logger.warn({ queue: row.queue, id: row.id }, "[asyncJobs] no handler registered for queue — skipping");
         continue;
       }
-
       if (await deferEmailWhileDeliveryDisabled(row, tx)) {
         continue;
       }
-
       await tx
         .update(asyncJobsTable)
         .set({ status: "processing", updatedAt: new Date() })
         .where(eq(asyncJobsTable.id, row.id));
-
-      // Run the handler. The handler is responsible for not throwing; if it
-      // does, we treat it as a retryable failure with a synthetic error message.
-      let outcome: HandlerResult;
-      try {
-        outcome = await handler.run(row.payload, row);
-      } catch (err) {
-        outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-
-      const newAttempts = row.attempts + 1;
-
-      if (outcome.ok) {
-        await tx
-          .update(asyncJobsTable)
-          .set({
-            status: "done",
-            attempts: newAttempts,
-            result: (outcome.result as object | undefined) ?? null,
-            updatedAt: new Date(),
-          })
-          .where(eq(asyncJobsTable.id, row.id));
-      } else {
-        const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
-        const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
-        const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
-        const abandoned = newAttempts >= effectiveMax;
-        const scheduledDelay = retryDelays[newAttempts];
-        const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
-        await tx
-          .update(asyncJobsTable)
-          .set({
-            status: abandoned ? "failed" : "pending",
-            attempts: newAttempts,
-            lastError: outcome.error,
-            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
-            updatedAt: new Date(),
-          })
-          .where(eq(asyncJobsTable.id, row.id));
-
-        if (abandoned) {
-          logger.error({ queue: row.queue, id: row.id, error: outcome.error }, "[asyncJobs] job abandoned after max retries");
-          if (handler.onAbandon) {
-            try {
-              await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcome.error });
-            } catch (hookErr) {
-              logger.error({ err: hookErr, queue: row.queue, id: row.id }, "[asyncJobs] onAbandon hook threw");
-            }
-          }
-        }
-      }
+      toProcess.push(row);
     }
+    return toProcess;
   });
+
+  await mapWithConcurrency(claimed, ASYNC_JOBS_MAX_CONCURRENCY, (row) =>
+    processClaimedJob(dbInstance, row),
+  );
 }
 
 // ─── Stuck-row recovery (on boot) ───────────────────────────────────────────
@@ -404,13 +478,28 @@ export async function purgeTerminalJobs(
  * transactional email, an image render) starts within a few seconds rather
  * than waiting up to half a minute. Override per-deploy with
  * `ASYNC_JOBS_WORKER_INTERVAL_MS`. This is a *latency* knob, NOT a throughput
- * one — throughput is bounded by the batch size (10/tick) processed
- * sequentially; raise that, not this, to drain a backlog faster (and only
- * after weighing external-API cost / rate limits).
+ * one — throughput is bounded by the batch size (10/tick) processed up to
+ * `ASYNC_JOBS_MAX_CONCURRENCY` at a time; raise those, not this, to drain a
+ * backlog faster (and only after weighing external-API cost / rate limits).
  */
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
+/**
+ * How often to sweep for rows stranded in `processing`. Since claim now commits
+ * `processing` before the (concurrent) handler runs, a crash — OR a rejection in
+ * the finalize transaction after the handler returned — can leave a row
+ * committed as `processing`. Boot-only recovery would never retry it in a
+ * long-running process, so sweep periodically too.
+ */
+const RECOVER_INTERVAL_MS = 60_000;
+/**
+ * Only reclaim rows whose `updatedAt` (stamped at claim) is older than this.
+ * Must sit comfortably above the slowest real handler (planner ≤180s + image
+ * gen) so an in-flight job is never yanked out from under itself and re-run
+ * concurrently — 10 min leaves wide margin while still bounding stuck-row retry.
+ */
+const RECOVER_STUCK_CUTOFF_MIN = 10;
 
 export function runAsyncJobsWorker(
   intervalMs = Number(process.env["ASYNC_JOBS_WORKER_INTERVAL_MS"]) || DEFAULT_WORKER_INTERVAL_MS,
@@ -423,13 +512,15 @@ export function runAsyncJobsWorker(
     logger.error({ err }, "[asyncJobs] startup recovery failed");
   });
 
-  // Re-entrancy guard: a tick can take longer than `intervalMs` (a batch of 10
-  // slow LLM/image jobs runs sequentially in one transaction). Without this,
-  // setInterval would fire overlapping ticks and multiply concurrent external
-  // calls. With it, the cadence is effectively "interval AFTER the previous
-  // tick finishes" — responsive when idle, self-throttling under load.
+  // Re-entrancy guard: a tick can take longer than `intervalMs` (a batch of
+  // slow LLM/image jobs, processed up to ASYNC_JOBS_MAX_CONCURRENCY at a time).
+  // Without this, setInterval would fire overlapping ticks and re-claim rows /
+  // multiply concurrent external calls beyond the intended bound. With it, the
+  // cadence is effectively "interval AFTER the previous tick finishes" —
+  // responsive when idle, self-throttling under load.
   let ticking = false;
   let lastPurgeAt = 0;
+  let lastRecoverAt = Date.now();
   const tick = async () => {
     if (ticking) return;
     ticking = true;
@@ -438,6 +529,17 @@ export function runAsyncJobsWorker(
         await asyncJobsTick(defaultDb);
       } catch (err) {
         logger.error({ err }, "[asyncJobs] worker tick failed");
+      }
+      // Backstop: requeue rows stranded in `processing` (crash mid-run, or a
+      // finalize that failed after the handler returned) so a healthy
+      // long-running worker eventually retries them, not only on the next boot.
+      if (Date.now() - lastRecoverAt >= RECOVER_INTERVAL_MS) {
+        lastRecoverAt = Date.now();
+        try {
+          await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+        } catch (err) {
+          logger.error({ err }, "[asyncJobs] periodic stuck-row recovery failed");
+        }
       }
       if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
         lastPurgeAt = Date.now();
