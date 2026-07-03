@@ -67,12 +67,26 @@ function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
   contentMode: ContentMode;
   fallbackSubjectGender: FallbackSubjectGender | null;
 } {
-  const mode = RENDER_SCENARIO_DESCRIPTORS[scenarioKey].subjectRenderMode;
+  const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
+  const mode = desc.subjectRenderMode;
+  // t2i: always neutral (Alex Franklin / they/them) so the protagonist is gender-agnostic.
+  // i2i: the reference image IS the visual subject, but the rendered fact text still
+  // substitutes a name + pronouns. Derive them from the reference's known gender so
+  // the text is coherent ("Susan Franklin … her gold pants" for the female reference,
+  // not the incoherent "David Franklin … his gold pants"). Male / non-human references
+  // keep null → David Franklin / he/him (historical default).
+  let fallbackSubjectGender: FallbackSubjectGender | null;
+  if (mode === "t2i_fallback") {
+    fallbackSubjectGender = "neutral";
+  } else if (desc.referenceIdentityType === "female") {
+    fallbackSubjectGender = "female";
+  } else {
+    fallbackSubjectGender = null;
+  }
   return {
     aspectRatio: "portrait",
     contentMode: "sfw",
-    // t2i needs a gender to build a protagonist; i2i ignores it (the reference is the subject).
-    fallbackSubjectGender: mode === "t2i_fallback" ? "neutral" : null,
+    fallbackSubjectGender,
   };
 }
 
