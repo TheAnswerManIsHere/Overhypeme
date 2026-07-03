@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
-  CheckCircle2, XCircle, Clock, Info, X,
+  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send,
 } from "lucide-react";
 import {
   currentTaxonomyVersions,
@@ -20,6 +20,14 @@ import {
   useTaxonomyHealthActions,
   type UiOpState,
 } from "@/components/admin/useTaxonomyHealthActions";
+import { MarkMajorUpdateModal } from "@/components/admin/MarkMajorUpdateModal";
+import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
+
+/**
+ * The summary response carries the shared count shape PLUS `engineRevision`
+ * (the current manual marker, for the header readout + "Mark major update").
+ */
+type TaxonomyHealthSummaryResponse = TaxonomyHealthSummaryCounts & { engineRevision: number };
 
 interface HealthRow {
   factId: number;
@@ -31,7 +39,15 @@ interface HealthRow {
   taxonomyConfidence: number | null;
   health: FactTaxonomyHealth;
   updatedAt: string | null;
+  /** True when a refresh candidate is already in flight — pre-disables send-back. */
+  refreshInReview: boolean;
 }
+
+/** Local per-row state for the synchronous "Send back to review" action. */
+type SendBackRowState =
+  | { status: "sending" }
+  | { status: "sent"; reviewId?: number }
+  | { status: "error"; message: string };
 
 interface ListResponse {
   rows: HealthRow[];
@@ -167,20 +183,71 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
   }
 }
 
+/**
+ * The stale-for-reprocess row action: a direct "Send back to review" button
+ * that flips to an "in review" pill once fired (or if a refresh was already in
+ * flight). The row stays listed — it's still stale until the refresh promotes.
+ */
+function RowSendBack({
+  row,
+  state,
+  onSend,
+}: {
+  row: HealthRow;
+  state: SendBackRowState | undefined;
+  onSend: () => void;
+}) {
+  const inReview = row.refreshInReview || state?.status === "sent";
+  if (inReview) {
+    const reviewId = state?.status === "sent" ? state.reviewId : undefined;
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+        data-testid="send-back-in-review"
+      >
+        <Clock className="w-3 h-3" /> {reviewId != null ? `Refresh #${reviewId} — in review` : "Refresh in review"}
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={state?.status === "sending"}
+        onClick={onSend}
+        data-testid="send-back-to-review"
+      >
+        {state?.status === "sending"
+          ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+          : <Send className="w-3 h-3 mr-1" />}
+        Send back to review
+      </Button>
+      {state?.status === "error" && (
+        <span className="text-[10px] text-red-600 dark:text-red-400" data-testid="send-back-error">{state.message}</span>
+      )}
+    </div>
+  );
+}
+
 export default function TaxonomyHealth() {
-  const [summary, setSummary] = useState<TaxonomyHealthSummaryCounts | null>(null);
+  const [summary, setSummary] = useState<TaxonomyHealthSummaryResponse | null>(null);
   const [rows, setRows] = useState<HealthRow[]>([]);
   const [total, setTotal] = useState(0);
   const [filter, setFilter] = useState<FilterStatus>("missing_enrichment");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [markModalOpen, setMarkModalOpen] = useState(false);
+  // Keyed by factId — the synchronous send-back is NOT routed through the async
+  // job hook (that's for pollable jobs; PR4's bulk reprocess will use it).
+  const [sendBackStates, setSendBackStates] = useState<Record<number, SendBackRowState>>({});
 
   const loadSummary = useCallback(async () => {
     try {
       const r = await fetch("/api/admin/taxonomy-health/summary", { credentials: "include" });
       if (!r.ok) throw new Error("summary_failed");
-      setSummary(await r.json() as TaxonomyHealthSummaryCounts);
+      setSummary(await r.json() as TaxonomyHealthSummaryResponse);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -284,6 +351,22 @@ export default function TaxonomyHealth() {
     [actions],
   );
 
+  // Direct, inline send-back for a stale-for-reprocess row (David's choice:
+  // fire immediately, no modal, keep overrides). The row stays listed (still
+  // stale until the refresh is promoted); only the button flips to "in review".
+  const handleSendBack = useCallback(async (factId: number) => {
+    setSendBackStates((prev) => ({ ...prev, [factId]: { status: "sending" } }));
+    const result = await sendFactBackToReview(factId);
+    if (result.success) {
+      setSendBackStates((prev) => ({ ...prev, [factId]: { status: "sent", reviewId: result.reviewId } }));
+      // The count is unchanged (still stale), but refresh the summary so any
+      // other lens that tracks in-flight work stays current.
+      void loadSummary();
+    } else {
+      setSendBackStates((prev) => ({ ...prev, [factId]: { status: "error", message: result.error ?? "Send back failed" } }));
+    }
+  }, [loadSummary]);
+
   // Live "X of N done" tally + per-state breakdown, recomputed on every poll.
   const banner = useMemo(() => {
     const op = actions.lastOp;
@@ -314,12 +397,35 @@ export default function TaxonomyHealth() {
           <Button variant="secondary" size="sm" onClick={() => { void loadSummary(); void loadList(); }} disabled={loading}>
             <RefreshCw className="w-3 h-3 mr-1" /> Refresh
           </Button>
-          <span className="text-[11px] text-muted-foreground ml-auto" data-testid="current-versions">
-            Current versions — taxonomy{" "}
-            <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · strategy{" "}
-            <span className="font-mono text-foreground">{CURRENT_VERSIONS.visualStrategyVersion}</span>
-          </span>
+          <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+            <span className="text-[11px] text-muted-foreground" data-testid="engine-revision">
+              Engine revision{" "}
+              <span className="font-mono text-foreground">{summary?.engineRevision ?? "—"}</span>
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setMarkModalOpen(true)} data-testid="mark-major-update-open">
+              <Rocket className="w-3 h-3 mr-1" /> Mark major update
+            </Button>
+            <span className="text-[11px] text-muted-foreground" data-testid="current-versions">
+              Current versions — taxonomy{" "}
+              <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · strategy{" "}
+              <span className="font-mono text-foreground">{CURRENT_VERSIONS.visualStrategyVersion}</span>
+            </span>
+          </div>
         </div>
+
+        {markModalOpen && (
+          <MarkMajorUpdateModal
+            currentRevision={summary?.engineRevision ?? null}
+            onCancel={() => setMarkModalOpen(false)}
+            onDone={(result) => {
+              setMarkModalOpen(false);
+              // Reflect the new revision immediately, then reconcile from the server.
+              setSummary((prev) => (prev ? { ...prev, engineRevision: result.engineRevision } : prev));
+              void loadSummary();
+              void loadList();
+            }}
+          />
+        )}
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -480,7 +586,12 @@ export default function TaxonomyHealth() {
                             <Wrench className="w-3 h-3 mr-1" /> Repair
                           </Button>
                         )}
-                        {(row.health.statuses.includes("missing_enrichment") || row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.invalidEnrichment) && (
+                        {(row.health.statuses.includes("missing_enrichment") || row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.invalidEnrichment) &&
+                          // Refresh-first: a stale-for-reprocess row offers ONLY
+                          // "Send back to review". A direct Re-enrich writes
+                          // facts.* without stamping a signature, so it wouldn't
+                          // clear the stale-for-reprocess flag anyway.
+                          !row.health.reviewFlags.staleForReprocess && (
                           <Button
                             variant="secondary"
                             size="sm"
@@ -489,6 +600,13 @@ export default function TaxonomyHealth() {
                           >
                             <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
                           </Button>
+                        )}
+                        {row.health.reviewFlags.staleForReprocess && (
+                          <RowSendBack
+                            row={row}
+                            state={sendBackStates[row.factId]}
+                            onSend={() => void handleSendBack(row.factId)}
+                          />
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>
