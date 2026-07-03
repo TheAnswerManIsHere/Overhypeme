@@ -28,6 +28,7 @@ import {
 } from "@workspace/api-zod";
 import { renderPersonalized } from "../renderCanonical";
 import { assembleImagePromptForPreview } from "./preview";
+import { IMAGE_PROMPT_LLM_TIMEOUT_MS } from "./generator";
 
 // Neutral canonical subject for the preflight — deliberately NOT the brand
 // protagonist ("David") so the check can't pass/fail on a fixed-David bias. The
@@ -41,8 +42,19 @@ const PREFLIGHT_SUBJECT_RENDER_MODE: SubjectRenderMode = "human_identity_i2i";
 // Bounded deadline so a stalled provider call can never hang the approval
 // request. One retry on timeout only (never on a valid "poor" result or a
 // thrown planner/compiler error). Overridable via env so tests can use a short
-// deadline instead of waiting the full production timeout.
-const PREFLIGHT_TIMEOUT_MS = Number(process.env["RENDER_PREFLIGHT_TIMEOUT_MS"]) || 20_000;
+// deadline instead of waiting the full production timeout. Read lazily (per call,
+// not at import) so a test can set the override on `process.env` in-process.
+//
+// The default MUST sit above the planner's own LLM timeout
+// (`IMAGE_PROMPT_LLM_TIMEOUT_MS`): the approval preflight runs the SAME frontier
+// visual planner that routinely needs minutes at xhigh effort, so a shorter outer
+// deadline would guillotine a legitimately-running call and make every approval
+// fail with a spurious "retry shortly" (503). Set it a hair above the planner
+// timeout so the planner's own bound is what actually fires, and this stays a
+// true last-resort backstop.
+function preflightTimeoutMs(): number {
+  return Number(process.env["RENDER_PREFLIGHT_TIMEOUT_MS"]) || IMAGE_PROMPT_LLM_TIMEOUT_MS + 15_000;
+}
 
 export type RenderPreflightResult =
   | { ok: true }
@@ -86,7 +98,7 @@ async function runOnce(factText: string, enrichment: FactEnrichment): Promise<Re
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new PreflightTimeoutError()), PREFLIGHT_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new PreflightTimeoutError()), preflightTimeoutMs());
   });
 
   try {

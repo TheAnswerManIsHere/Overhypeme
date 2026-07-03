@@ -1002,20 +1002,29 @@ describe("approval render preflight", () => {
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    // The preflight races a ~20s deadline; a planner that never resolves trips
-    // the timeout (with one retry, also timing out) → retryable 503.
+    // The preflight races a bounded deadline; a planner that never resolves trips
+    // the timeout (with one retry, also timing out) → retryable 503. The default
+    // deadline sits above the frontier planner's own minutes-long timeout, so pin
+    // a short override here to exercise the path without a real wall-clock wait.
+    const prevTimeout = process.env["RENDER_PREFLIGHT_TIMEOUT_MS"];
+    process.env["RENDER_PREFLIGHT_TIMEOUT_MS"] = "50";
     __setPlanGeneratorForTest(() => new Promise(() => {}) as never);
 
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-variant`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
+    try {
+      const res = await request(makeApp())
+        .post(`/admin/reviews/${reviewId}/approve-variant`)
+        .set("authorization", `Bearer ${sid}`)
+        .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
-    assert.equal(res.status, 503);
-    assert.match(String(res.body.error), /retry/i);
+      assert.equal(res.status, 503);
+      assert.match(String(res.body.error), /retry/i);
 
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.status, "pending", "review must NOT be mutated on a transient failure");
+      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+      assert.equal(r.status, "pending", "review must NOT be mutated on a transient failure");
+    } finally {
+      if (prevTimeout === undefined) delete process.env["RENDER_PREFLIGHT_TIMEOUT_MS"];
+      else process.env["RENDER_PREFLIGHT_TIMEOUT_MS"] = prevTimeout;
+    }
   });
 
   it("returns 422 (non-retryable) when the planner throws and leaves the review unchanged", async () => {
