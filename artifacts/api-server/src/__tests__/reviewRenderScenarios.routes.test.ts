@@ -345,7 +345,8 @@ describe("ensureDefaultReviewRenders idempotency", () => {
 describe("approval visual-render gate (admin-waivable)", () => {
   it("blocks approval naming the missing required scenarios (409)", async () => {
     const reviewId = await seedReview(plainId);
-    // The visual gate runs BEFORE the render preflight, so no planner stub needed.
+    // The required-render gate is the only renderability gate on approval — it
+    // 409s on missing required scenarios; no planner stub is involved.
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)

@@ -53,14 +53,13 @@ import {
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import type { FactPexelsImages, PexelsPhotoEntry } from "../lib/factImagePipeline";
-import {
-  assertFactPassesCanonicalRenderPreflight,
-  type RenderPreflightResult,
-} from "../lib/imagePrompt/renderPreflight";
 import { logger } from "../lib/logger";
 
-// Re-export the plan-generator test seam (owned by the shared preview helper)
-// so the approval render-preflight can be stubbed in tests that import it here.
+// Re-export the plan-generator test seam (owned by the shared preview helper).
+// Approval no longer runs any synchronous planner call — its renderability
+// signal comes entirely from the Step-2 required-render gate — so this exists
+// only to let a regression test assert the visual planner is NOT invoked on the
+// approve path.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
@@ -346,10 +345,11 @@ const ApproveVariantBody = z.object({
  * Resolve the enrichment to ship on approval: the staging fact's stored
  * effective blob, validated. Client bodies are never consulted.
  *
- * **Hard approval gate:** approval requires a valid enrichment. The
- * renderability check (a NON-PERSISTENT render preflight over the real
- * runtime path) runs separately in the route handler AFTER this and BEFORE any
- * state mutation — see `runApprovalRenderPreflight`.
+ * **Hard approval gate:** approval requires a valid enrichment. Renderability is
+ * gated separately by the Step-2 required-render check (`requiredScenarioProblems`
+ * over the live scenario grid) in the route handler — the required test renders
+ * must be fresh + successful (or explicitly waived). Approval makes NO
+ * synchronous planner/compiler call of its own.
  */
 function resolveApprovalEnrichment(
   storedEnrichment: unknown,
@@ -367,47 +367,6 @@ function resolveApprovalEnrichment(
     ok: false,
     error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
   };
-}
-
-/**
- * Run the canonical render preflight and, on failure, write the mapped HTTP
- * status + error onto `res`. Returns true when the caller should HALT (the
- * response has already been sent); false when the preflight passed and approval
- * may proceed. The preflight persists nothing, so review state is untouched on
- * every failure path.
- *
- * HTTP mapping:
- *  - unrenderable (content-specific "poor" rating) → 400 (actionable message).
- *  - preflight_failed + retryable (timeout/transient) → 503 ("retry").
- *  - preflight_failed + non-retryable (planner/compiler threw) → 422 (+ server log).
- */
-async function runApprovalRenderPreflight(
-  factText: string,
-  enrichment: FactEnrichment,
-  res: Response,
-): Promise<boolean> {
-  let result: RenderPreflightResult;
-  try {
-    result = await assertFactPassesCanonicalRenderPreflight(factText, enrichment);
-  } catch (err) {
-    // Defensive: the helper is designed never to throw, but if it does, treat
-    // it as a non-retryable preflight failure rather than crashing approval.
-    logger.error({ err }, "[reviews] render preflight threw unexpectedly");
-    res.status(422).json({ error: "Render check failed — the image pipeline could not validate this fact." });
-    return true;
-  }
-  if (result.ok) return false;
-  if (result.kind === "unrenderable") {
-    res.status(400).json({ error: result.message });
-    return true;
-  }
-  if (result.retryable) {
-    res.status(503).json({ error: "Render check failed; please retry approval shortly." });
-    return true;
-  }
-  logger.error({ detail: result.detail }, "[reviews] render preflight failed (non-retryable)");
-  res.status(422).json({ error: "Render check failed — the image pipeline could not validate this fact." });
-  return true;
 }
 
 /** A drizzle executor — either the root `db` or an open transaction `tx`. */
@@ -485,8 +444,10 @@ async function resolveVisualRenderGate(
  * no candidate/AI-suggested tags are attached, and existing `fact_hashtags` are
  * never removed or rewritten.
  *
- * The gates still run, against the CANDIDATE (what promotion would publish):
- * the admin-waivable visual-render gate and the canonical render preflight.
+ * The gate still runs, against the CANDIDATE (what promotion would publish):
+ * the admin-waivable required-render gate (the scenario grid resolves a refresh
+ * review to its candidate enrichment, so the required renders are validated
+ * against the promoted blob). No synchronous render preflight.
  */
 async function approveRefreshCandidateForProduction(
   req: AuthenticatedRequest,
@@ -520,19 +481,21 @@ async function approveRefreshCandidateForProduction(
     res.status(409).json({ error: `Refresh candidate is already ${candidate.status}.` });
     return;
   }
+  // Advisory validity pre-check for a clean 400 (promoteCandidateEnrichmentVersion
+  // re-verifies under row locks); the validated blob itself isn't needed here.
   const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
-  const enrichment = enrichmentResult.enrichment;
 
+  // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
+  // the currently-active enrichment) is what must render. The scenario grid
+  // resolves a refresh review's enrichment to the candidate version, so this
+  // gate's required renders are validated against exactly the blob being
+  // promoted. That is the only renderability gate — no synchronous planner call.
   const gate = await resolveVisualRenderGate(review.id, req.body, req.user.id);
   if (!gate.ok) {
     res.status(409).json({ error: "visual_render_incomplete", problems: gate.problems });
     return;
   }
-
-  // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
-  // the currently-active enrichment) is what must render. Persists nothing.
-  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
 
   try {
     // Promote + mark the review approved in ONE transaction. The review row gets
@@ -575,9 +538,10 @@ async function approveRefreshCandidateForProduction(
  *
  * The staging fact already exists (created at provisional approval) and already
  * carries its effective enrichment (written by the fact-backed enrichment job
- * and any moderator overrides). This handler validates + render-preflights that
- * enrichment, then transactionally flips the fact active and marks the review
- * approved. Embedding + submitter notification happen once, after commit.
+ * and any moderator overrides). This handler validates that enrichment and
+ * gates on the required test renders, then transactionally flips the fact active
+ * and marks the review approved. Embedding + submitter notification happen once,
+ * after commit.
  *
  * Idempotent: a re-call on an already-approved review returns the existing fact
  * without re-activating, re-embedding, or re-notifying. Hashtags are deferred to
@@ -660,9 +624,9 @@ async function approveForProduction(
     return;
   }
 
-  // Visual-render gate (admin-waivable), checked BEFORE the expensive preflight.
-  // Staleness reads the staging fact's stored effective enrichment — the same
-  // blob being published — because the override-model write paths keep
+  // Visual-render gate (admin-waivable) — the sole renderability gate on
+  // approval. Staleness reads the staging fact's stored effective enrichment —
+  // the same blob being published — because the override-model write paths keep
   // facts.enrichment current on every edit.
   const gate = await resolveVisualRenderGate(reviewId, req.body, req.user.id);
   if (!gate.ok) {
@@ -671,9 +635,12 @@ async function approveForProduction(
   }
   const visualRenderWaiver = gate.waiver;
 
-  // Renderability gate — real runtime pipeline over a neutral canonical subject
-  // BEFORE any state mutation. Nothing is persisted on any failure path.
-  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
+  // Renderability is already gated above by the Step-2 required-render check
+  // (`requiredScenarioProblems`): the required test renders must be fresh +
+  // successful, or explicitly waived. Those renders exercise the same
+  // planner→compiler→image pipeline and actually produce images — a stronger
+  // signal than a plan-only re-check — so approval makes no synchronous planner
+  // call of its own and proceeds straight to the commit.
 
   // Approval never rewrites enrichment columns: the staging fact already holds
   // the materialized layers (AI baseline + override map + effective) written by

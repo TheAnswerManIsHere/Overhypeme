@@ -40,85 +40,6 @@ import { runFactPexelsJob, factPexelsJobHandler } from "../lib/factPexelsJobs.js
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
-// A minimal valid render-time plan output the Nano Banana compiler accepts.
-// `rating` is overridable so a test can simulate the "poor" (unrenderable) case.
-function makePlanOutput(rating: "strong" | "poor" = "strong") {
-  return {
-    visualPlan: {
-      sceneConcept: "Alex Jordan performing a superhuman feat",
-      visualGoal: "Make the feat legible",
-      visualApproach: "Cinematic close-up",
-      archetypeApplication: {
-        primaryArchetype: "superhuman_physical_feat",
-        subtype: "force_scaled_action",
-        selectedFrame: "direct_action",
-        strategyRationale: "Authored strategy applies.",
-      },
-      coreScene: "Alex Jordan performs a superhuman feat in the foreground as onlookers react.",
-      subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
-      environment: ["dramatic stage lighting", "blurred background crowd"],
-      lightingAndStyle: "high-contrast cinematic key light",
-      keyVisualElements: ["central foreground", "dramatic lighting", "exertion pose"],
-      subjectTreatment: {
-        roleInScene: "Legendary protagonist",
-        subjectRenderMode: "human_identity_i2i",
-        identityPreservation: "human_face",
-        nonhumanSubjectTreatment: {
-          applicable: false,
-          subjectKind: "not_applicable",
-          preserveTraits: [],
-          anthropomorphicTreatment: "none",
-          doNotTransformIntoHuman: false,
-        },
-        fallbackSubjectGender: "not_applicable",
-        expressionAndPose: "Confident, focused",
-        ageLifeStageTransform: { applies: false, targetState: "" },
-      },
-      subjectFactCompatibility: {
-        rating,
-        reason: rating === "poor" ? "The fact cannot be staged on a human subject." : "Stages well.",
-        recommendedFallback: rating === "poor" ? "choose_different_fact" : "none",
-      },
-      composition: {
-        subjectFraming: "Medium close-up",
-        negativeSpace: "top",
-        cameraStyle: "Cinematic 35mm",
-        sceneReadability: "Subject is the readable element",
-      },
-      supportingTextPolicy: {
-        allowSupportingText: false,
-        supportingTextElements: [],
-        forbiddenTextTypes: [
-          "full meme captions",
-          "full fact text",
-          "hashtags",
-          "watermarks",
-          "real logos",
-          "brand marks",
-          "long explanatory paragraphs",
-        ],
-      },
-      secondaryCharacters: [],
-      semanticEntitiesUsed: [],
-      culturalReferencesUsed: [],
-      styleIntegration: "Apply cinematic style",
-      contentNotes: "SFW",
-      debugNotes: "Strategy v2",
-      targetEngine: "nano_banana_2" as const,
-      generationMode: "i2i" as const,
-    },
-    compiledPrompt: {
-      prompt: "Alex Jordan lifts a mountain over their head with one arm.",
-      negativePrompt: "",
-      engineNotes: "",
-    },
-    promptVersion: "test-prompt-v1",
-    archetypeStrategyVersion: "test-strategy-v1",
-    generatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
-    generatedBy: "openai" as const,
-  };
-}
-
 const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
   subtype: "force_scaled_action",
@@ -908,13 +829,14 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
   });
 });
 
-// ── Approval render preflight ─────────────────────────────────────────────
+// ── Approval renderability gating (no synchronous preflight) ──────────────
 //
-// Approval runs a NON-PERSISTENT renderability preflight (the real runtime
-// pipeline over the neutral canonical subject "Alex Jordan"/they-them) BEFORE
-// any state mutation. The planner is stubbed via __setPlanGeneratorForTest; the
-// real Nano Banana compiler still runs on the stubbed plan.
-describe("approval render preflight", () => {
+// Approval makes NO planner/compiler call of its own: renderability is gated
+// entirely by the Step-2 required-render check (required scenarios must be
+// fresh + successful, or explicitly waived). These tests pin that contract,
+// including the intentionally-changed edge behavior that a waiver is now a
+// true override with no hidden second renderability veto.
+describe("approval renderability gating", () => {
   // A review that has finished prep: it owns an inactive staging fact carrying
   // the effective enrichment, and sits at production_review — the precondition
   // for production approval.
@@ -951,15 +873,18 @@ describe("approval render preflight", () => {
     return { reviewId: review.id, parentId: parent.id, stagingFactId: staging.id };
   }
 
-  it("passes on a non-poor rating and the canonical subject is Alex Jordan / they-them", async () => {
+  it("approves via waiver WITHOUT invoking the visual planner, and records the waiver", async () => {
     const { reviewId, parentId } = await seedPendingReviewWithParent();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    let seenFactText = "";
-    __setPlanGeneratorForTest(async (input) => {
-      seenFactText = input.factText;
-      return makePlanOutput("strong") as never;
+    // Guard the core of this change: the approve path must make NO planner call.
+    // If it does, the seam throws and the request fails — so a green 200 proves
+    // renderability came from the (waived) required-render gate, not a re-check.
+    let plannerCalled = false;
+    __setPlanGeneratorForTest(async () => {
+      plannerCalled = true;
+      throw new Error("visual planner must not be invoked on approval");
     });
 
     const res = await request(makeApp())
@@ -967,143 +892,37 @@ describe("approval render preflight", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.success, true);
-    // The preflight rendered the fact text for the neutral canonical subject.
-    assert.match(seenFactText, /Alex Jordan/);
-    assert.doesNotMatch(seenFactText, /\{NAME\}/);
-    assert.doesNotMatch(seenFactText, /David/);
+    assert.equal(plannerCalled, false, "approval must not run the visual planner");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.status, "approved");
+    // Waiver is a true override now — and it stays audited.
+    assert.ok(r.visualRenderApprovalWaiver, "the waiver snapshot must be recorded");
   });
 
-  it("blocks with 400 on a poor rating and leaves the review unchanged", async () => {
+  it("blocks approval (409 visual_render_incomplete) when required renders are missing and unwaived", async () => {
     const { reviewId, parentId } = await seedPendingReviewWithParent();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    __setPlanGeneratorForTest(async () => makePlanOutput("poor") as never);
-
+    // No render attempts seeded → required scenarios are "missing". Without a
+    // waiver the gate must 409 rather than let an unvalidated fact ship — this
+    // is the guarantee that makes dropping the preflight safe.
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
+      .send({ parentFactId: parentId }); // no waiver
 
-    assert.equal(res.status, 400);
-    assert.match(String(res.body.error), /render coherently|achievable/i);
-
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.status, "pending", "review must NOT be mutated when the preflight blocks");
-  });
-
-  it("returns 503 (retryable) on a simulated timeout and leaves the review unchanged", async () => {
-    const { reviewId, parentId } = await seedPendingReviewWithParent();
-    const adminId = await createTestUser({ isAdmin: true });
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-
-    // The preflight races a bounded deadline; a planner that never resolves trips
-    // the timeout (with one retry, also timing out) → retryable 503. The default
-    // deadline sits above the frontier planner's own minutes-long timeout, so pin
-    // a short override here to exercise the path without a real wall-clock wait.
-    const prevTimeout = process.env["RENDER_PREFLIGHT_TIMEOUT_MS"];
-    process.env["RENDER_PREFLIGHT_TIMEOUT_MS"] = "50";
-    __setPlanGeneratorForTest(() => new Promise(() => {}) as never);
-
-    try {
-      const res = await request(makeApp())
-        .post(`/admin/reviews/${reviewId}/approve-variant`)
-        .set("authorization", `Bearer ${sid}`)
-        .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
-
-      assert.equal(res.status, 503);
-      assert.match(String(res.body.error), /retry/i);
-
-      const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-      assert.equal(r.status, "pending", "review must NOT be mutated on a transient failure");
-    } finally {
-      if (prevTimeout === undefined) delete process.env["RENDER_PREFLIGHT_TIMEOUT_MS"];
-      else process.env["RENDER_PREFLIGHT_TIMEOUT_MS"] = prevTimeout;
-    }
-  });
-
-  it("returns 422 (non-retryable) when the planner throws and leaves the review unchanged", async () => {
-    const { reviewId, parentId } = await seedPendingReviewWithParent();
-    const adminId = await createTestUser({ isAdmin: true });
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-
-    __setPlanGeneratorForTest(async () => { throw new Error("planner schema validation failed"); });
-
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-variant`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
-
-    assert.equal(res.status, 422);
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error, "visual_render_incomplete");
+    assert.ok(Array.isArray(res.body.problems) && res.body.problems.length > 0, "the blocking problems must be named");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.status, "pending", "review must NOT be mutated when the planner throws");
+    assert.equal(r.status, "pending", "an unvalidated fact must NOT be approved");
   });
 
-  it("feeds the moderator override through to the planner input (override-driven case)", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const submitterId = await createTestUser();
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-    const [parent] = await db
-      .insert(factsTable)
-      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
-      .returning();
-    const overrideEnrichment: FactEnrichment = {
-      ...VALID_APPROVAL_ENRICHMENT,
-      visualPromptStrategyOverride: {
-        version: 1,
-        enabled: true,
-        requiredVisualDetails: ["{NAME} wearing a glowing crown"],
-        forbiddenVisualDetails: [],
-        roleBindings: [],
-        compositionGuidance: [],
-        styleAgnosticPromptAdditions: [],
-        negativePromptAdditions: [],
-      },
-    };
-    const [staging] = await db
-      .insert(factsTable)
-      .values({
-        text: "{NAME} bench-presses the Earth.",
-        submittedById: submitterId,
-        isActive: false,
-        enrichment: overrideEnrichment,
-      })
-      .returning();
-    const [review] = await db
-      .insert(pendingReviewsTable)
-      .values({
-        submittedText: "{NAME} bench-presses the Earth.",
-        submittedById: submitterId,
-        status: "pending",
-        workflowStage: "production_review",
-        stagingFactId: staging.id,
-        enrichment: overrideEnrichment,
-        enrichmentStatus: "ok",
-      })
-      .returning();
-
-    let seenRenderPolicy: unknown;
-    __setPlanGeneratorForTest(async (input) => {
-      seenRenderPolicy = input.renderPolicy;
-      return makePlanOutput("strong") as never;
-    });
-
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${review.id}/approve-variant`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parent.id, ...WAIVE_ALL_REQUIRED });
-
-    assert.equal(res.status, 200);
-    // resolveRenderPolicy folds the moderator override into the planner input —
-    // proving the override reaches the same runtime path as render time.
-    assert.ok(seenRenderPolicy, "render policy (with the override folded in) reached the planner");
-  });
 });
 
 describe("POST /admin/reviews/:id/approve-for-production", () => {
@@ -1123,7 +942,6 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const { reviewId, stagingFactId } = await seedProductionReview();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
 
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
@@ -1182,7 +1000,6 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
 
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
@@ -1205,7 +1022,6 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const { reviewId, stagingFactId } = await seedProductionReview();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
 
     // A stale pre-override-model client ships its flattened edited blob on
     // approve. The edit (visualComplexity medium → high) must NOT take effect.
