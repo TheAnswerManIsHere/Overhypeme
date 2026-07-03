@@ -116,15 +116,19 @@ function collectRenderedTexts(ov: VisualPromptStrategyOverride): string[] {
   return out;
 }
 
-/** Canonicalize the name-token case variants {name}/{Name} → {NAME} and the
- *  possessive variants {name_possessive}/{Name_Possessive}/… → {NAME_POSSESSIVE}.
- *  The other personalization (pronoun) tokens have meaningful case variants and
- *  are left alone. Possessive is canonicalized first so the bare-{NAME} pass
- *  can't partially touch it. */
+/** Canonicalize personalization-token case so a hand-typed token behaves like
+ *  the toolbar chip. Name variants {name}/{Name} → {NAME} and possessives
+ *  {name_possessive}/… → {NAME_POSSESSIVE}. For the pronoun tokens, an
+ *  ALL-lowercase form is folded to its ALL-CAPS (lowercase-output) equivalent —
+ *  {poss} → {POSS}, {subj} → {SUBJ}, etc. — so typing lowercase just works. The
+ *  Title-case forms ({Poss} → "Their") are intentionally left untouched, since
+ *  case there controls output capitalization. Possessive is canonicalized first
+ *  so the bare-{NAME} pass can't partially touch it. */
 export function canonicalizeNameToken(text: string): string {
   return text
     .replace(/\{(?:name|Name|NAME)_(?:possessive|Possessive|POSSESSIVE)\}/g, "{NAME_POSSESSIVE}")
-    .replace(/\{(?:name|Name)\}/g, "{NAME}");
+    .replace(/\{(?:name|Name)\}/g, "{NAME}")
+    .replace(/\{(subj|obj|poss_pro|poss|refl)\}/g, (_m, t: string) => `{${t.toUpperCase()}}`);
 }
 
 function mapText(text: string): string {

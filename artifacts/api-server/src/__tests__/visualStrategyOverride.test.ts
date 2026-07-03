@@ -154,6 +154,17 @@ describe("token helpers", () => {
     );
   });
 
+  it("canonicalizeNameToken folds all-lowercase pronoun tokens to their ALL-CAPS form", () => {
+    assert.equal(
+      canonicalizeNameToken("{poss} {subj} {obj} {poss_pro} {refl}"),
+      "{POSS} {SUBJ} {OBJ} {POSS_PRO} {REFL}",
+    );
+  });
+
+  it("canonicalizeNameToken leaves Title-case (capitalized-output) and ALL-CAPS pronoun tokens untouched", () => {
+    assert.equal(canonicalizeNameToken("{Poss} {POSS} {Subj} {Poss_Pro}"), "{Poss} {POSS} {Subj} {Poss_Pro}");
+  });
+
   it("firstOverrideTokenError skips empty entries and flags unknown tokens", () => {
     const ok = makeOverride({ requiredVisualDetails: ["", "  ", "plain text", "{NAME} ok"] }) as unknown as VisualPromptStrategyOverride;
     assert.equal(firstOverrideTokenError(ok), null);
