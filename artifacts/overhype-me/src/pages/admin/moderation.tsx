@@ -442,14 +442,24 @@ function ReviewModal({
     const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.enabled
       ? (enrichment.visualPromptStrategyOverride.coreSceneOverride?.trim() || null)
       : null;
+    setError("");
+    // Optimistic "pending" for instant feedback; loadDetail() in finally
+    // reconciles against the real server state, so a rejected POST (409 stale
+    // stage, 400, 5xx) reverts the pending rather than sticking on "Drafting…".
     setDetail((d) => (d ? { ...d, visualConcepts: { status: "pending", candidates: [], current: false } } : d));
     try {
-      await fetch(`/api/admin/reviews/${review.id}/visual-concepts/regenerate`, {
+      const r = await fetch(`/api/admin/reviews/${review.id}/visual-concepts/regenerate`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coreSceneDraft }),
       });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        setError(d.error ?? `Could not generate visual ideas (${r.status}).`);
+      }
+    } catch {
+      setError("Network error — could not generate visual ideas.");
     } finally {
       void loadDetail();
     }
