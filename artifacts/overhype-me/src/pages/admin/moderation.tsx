@@ -817,6 +817,10 @@ function ReviewModal({
                     </p>
                   </div>
                 )}
+                {/* Rejection Reason + note live here too (not just Triage), right
+                    above the buttons, so a fact can be rejected from Visual review
+                    without hunting for the field — and regardless of render staleness. */}
+                {DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
