@@ -25,6 +25,7 @@ import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
 import { ImagePromptError } from "../lib/imagePrompt/generator";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
+import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
@@ -37,6 +38,14 @@ const router: IRouter = Router();
 interface PreviewBody {
   factId?: number;
   reviewId?: number;
+  /**
+   * Moderation-modal context: the review whose Step-2 cycle this preview
+   * belongs to (the modal passes factId = stagingFactId AND this). Makes the
+   * preview read enrichment through the review-cycle resolver, so a REFRESH
+   * cycle previews its CANDIDATE version — the same enrichment the scenario
+   * grid renders — instead of the fact's active blob.
+   */
+  reviewIdForRender?: number;
   subjectRenderMode?: SubjectRenderMode;
   userSelectedSubjectRenderMode?: SubjectRenderMode;
   sourceImageAnalysis?: SourceImageAnalysis;
@@ -57,6 +66,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as PreviewBody;
   const factId = typeof body.factId === "number" ? body.factId : NaN;
   const reviewId = typeof body.reviewId === "number" ? body.reviewId : NaN;
+  const reviewIdForRender = typeof body.reviewIdForRender === "number" ? body.reviewIdForRender : NaN;
 
   if (!Number.isFinite(factId) && !Number.isFinite(reviewId)) {
     res.status(400).json({ error: "factId or reviewId is required" });
@@ -67,25 +77,56 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   let enrichment: FactEnrichment;
   let resolvedFactId: number | null = null;
 
-  if (Number.isFinite(reviewId)) {
-    // Review path: look up the pending review for its submitted text + enrichment.
-    // persist is silently ignored — there is no approved fact row yet to link to.
+  if (Number.isFinite(reviewId) || Number.isFinite(reviewIdForRender)) {
+    // Review-context path: resolve text + enrichment through the review-cycle
+    // resolver so THIS preview and the review's renders/grid can never drift —
+    // a refresh cycle previews its CANDIDATE version, a first-time cycle its
+    // staging fact's stored blob. Legacy reviews with no staging fact fall back
+    // to the review-blob columns (pre-two-gate rows).
+    const targetReviewId = Number.isFinite(reviewId) ? reviewId : reviewIdForRender;
     const [reviewRow] = await db
-      .select({ submittedText: pendingReviewsTable.submittedText, enrichment: pendingReviewsTable.enrichment })
+      .select({
+        submittedText: pendingReviewsTable.submittedText,
+        enrichment: pendingReviewsTable.enrichment,
+        stagingFactId: pendingReviewsTable.stagingFactId,
+        candidateVersionId: pendingReviewsTable.candidateVersionId,
+      })
       .from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.id, reviewId))
+      .where(eq(pendingReviewsTable.id, targetReviewId))
       .limit(1);
     if (!reviewRow) {
-      res.status(400).json({ error: "review_not_found", reviewId });
+      res.status(400).json({ error: "review_not_found", reviewId: targetReviewId });
       return;
     }
-    const ev = validateEnrichment(reviewRow.enrichment);
-    if (!ev.ok) {
-      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+    // The moderation modal sends factId = stagingFactId alongside the review
+    // context; a mismatch means a stale client — refuse rather than guess.
+    if (Number.isFinite(factId) && reviewRow.stagingFactId != null && factId !== reviewRow.stagingFactId) {
+      res.status(400).json({ error: "review_fact_mismatch", reviewId: targetReviewId, factId });
       return;
     }
-    sourceText = reviewRow.submittedText;
-    enrichment = ev.data;
+    if (reviewRow.stagingFactId != null) {
+      const cycle = await resolveReviewCycleEnrichment(reviewRow);
+      if (!cycle) {
+        res.status(400).json({ error: "staging_fact_missing", reviewId: targetReviewId });
+        return;
+      }
+      const ev = validateEnrichment(cycle.rawEnrichment);
+      if (!ev.ok) {
+        res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+        return;
+      }
+      sourceText = cycle.text;
+      enrichment = ev.data;
+      resolvedFactId = cycle.factId;
+    } else {
+      const ev = validateEnrichment(reviewRow.enrichment);
+      if (!ev.ok) {
+        res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+        return;
+      }
+      sourceText = reviewRow.submittedText;
+      enrichment = ev.data;
+    }
   } else {
     // Fact path: existing behaviour.
     const [factRow] = await db

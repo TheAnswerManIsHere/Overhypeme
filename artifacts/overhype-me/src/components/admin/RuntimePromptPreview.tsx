@@ -391,6 +391,10 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
       const body = {
         // Send reviewId for review-mode, factId otherwise.
         ...(isReviewMode ? { reviewId } : { factId }),
+        // Moderation modal: also send the review context so the server resolves
+        // enrichment through the review cycle — a refresh review previews its
+        // CANDIDATE version, matching what the scenario grid renders.
+        ...(reviewIdForRender !== undefined ? { reviewIdForRender } : {}),
         subjectRenderMode,
         userSelectedSubjectRenderMode: subjectRenderMode,
         // For t2i_fallback there is no source subject — let the server use its

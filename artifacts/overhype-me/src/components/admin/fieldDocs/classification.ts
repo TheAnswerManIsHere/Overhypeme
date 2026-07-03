@@ -328,7 +328,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     howDerived: ["The classifier applies the core product rule from its system prompt: strong = clearly positive; questionable = funny but possibly confusing/negative/gross/non-visual/weakly overhyped; reject = doesn't fit without a rewrite."],
     renderImpact: [
       "NOT compiled into the prompt — this is a quality/approval gate. Taxonomy Health raises a warning for 'questionable' and an error for 'reject' (both mark the fact needs_admin_review), and the value is a filterable projected column in the admin fact list.",
-      "It is included in the render-input hash, so editing it does flip test renders stale even though the compiled prompt doesn't change because of it.",
+      "It is NOT in the render-input hash, so editing it does not flip test renders stale (the compiled prompt doesn't depend on it).",
     ],
     values: valuesFrom(OVERHYPE_FIT_VALUES, OVERHYPE_FIT_DOCS),
     workedExamples: [
@@ -339,7 +339,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       },
     ],
     effect: "gating-only",
-    staleBehavior: "marks-render-stale",
+    staleBehavior: "does-not-mark-render-stale",
     sourceRefs: [
       CLASSIFIER_PROMPT,
       {
@@ -347,7 +347,6 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
         symbol: "computeTaxonomyHealth",
         note: "The questionable/reject health flags and needs_admin_review gating.",
       },
-      STALE_HASH,
     ],
     authoredStatus: "code-derived",
   },
@@ -362,7 +361,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     howDerived: ["The classifier applies the definitions in its system prompt — notably the 'incompatible' list: minors, childhood, family, school, medical vulnerability, workplace/professional contexts, brands, institutions."],
     renderImpact: [
       "None on the compiled prompt. 'requires_review' raises a Taxonomy Health flag for a human decision; the value is a projected, filterable column.",
-      "Included in the render-input hash, so edits flip test renders stale.",
+      "NOT in the render-input hash, so editing it does not flip test renders stale — the render's actual SFW/spicy level is the separate contentMode render control, not this field.",
     ],
     values: valuesFrom(ADULT_SUITABILITY_VALUES, ADULT_SUITABILITY_DOCS),
     workedExamples: [
@@ -373,8 +372,8 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       },
     ],
     effect: "gating-only",
-    staleBehavior: "marks-render-stale",
-    sourceRefs: [CLASSIFIER_PROMPT, STALE_HASH],
+    staleBehavior: "does-not-mark-render-stale",
+    sourceRefs: [CLASSIFIER_PROMPT],
     authoredStatus: "code-derived",
   },
   {

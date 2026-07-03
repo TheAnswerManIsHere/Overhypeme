@@ -8,6 +8,7 @@ import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
+import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { enqueueJob } from "../lib/asyncJobs";
 import {
   validateEnrichment,
@@ -1032,9 +1033,14 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
   const acknowledge = body.acknowledgeCurrentAiBaseline === true;
 
   try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; state?: FactOverrideState }> => {
+    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: FactOverrideState }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
+      // WRITE FREEZE: while a refresh candidate is in review, the live layers
+      // are read-only (checked under the fact row lock, so it can't race the
+      // send-back transaction). See findInFlightRefreshCandidate.
+      const inFlight = await findInFlightRefreshCandidate(id, tx);
+      if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
       const aiDerived = state.aiDerived;
 
@@ -1097,7 +1103,7 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       return { status: 200, state: { ...state, overrides } };
     });
 
-    if (out.status !== 200 || !out.state) { res.status(out.status).json({ error: out.error ?? "Error" }); return; }
+    if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
     res.json({ success: true, ...serializeResolved({ ...out.state, enrichmentStatus: "ok" }) });
   } catch (e) {
     logger.error({ err: e, factId: id, path }, "[PUT /admin/facts/:id/enrichment-overrides] failed");
@@ -1116,9 +1122,12 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
   const adminId = (req as AuthenticatedRequest).user?.id ?? null;
 
   try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; state?: FactOverrideState }> => {
+    const out = await db.transaction(async (tx): Promise<{ status: number; error?: string; body?: object; state?: FactOverrideState }> => {
       const state = await loadFactOverrideState(tx, id, true);
       if (!state) return { status: 404, error: "Fact not found" };
+      // WRITE FREEZE while a refresh candidate is in review (see the PUT handler).
+      const inFlight = await findInFlightRefreshCandidate(id, tx);
+      if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
       const aiDerived = state.aiDerived;
       const overrides: EnrichmentOverrides = { ...state.overrides };
@@ -1138,7 +1147,7 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
       return { status: 200, state: { ...state, overrides } };
     });
 
-    if (out.status !== 200 || !out.state) { res.status(out.status).json({ error: out.error ?? "Error" }); return; }
+    if (out.status !== 200 || !out.state) { res.status(out.status).json(out.body ?? { error: out.error ?? "Error" }); return; }
     res.json({ success: true, ...serializeResolved({ ...out.state, enrichmentStatus: "ok" }) });
   } catch (e) {
     logger.error({ err: e, factId: id, path }, "[DELETE /admin/facts/:id/enrichment-overrides] failed");
@@ -1174,6 +1183,10 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
 
   const state = await loadFactOverrideState(db, id);
   if (!state) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  // WRITE FREEZE while a refresh candidate is in review (see the PUT handler).
+  const inFlightPatch = await findInFlightRefreshCandidate(id);
+  if (inFlightPatch) { res.status(409).json(refreshInReviewErrorBody(inFlightPatch)); return; }
 
   // Reject any attempt to change a tracked field through PATCH.
   if (state.effective) {
@@ -1238,6 +1251,11 @@ router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: R
 
   const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  // WRITE FREEZE while a refresh candidate is in review: a direct re-enrich
+  // rewrites facts.* out from under the cycle the moderator is judging.
+  const inFlight = await findInFlightRefreshCandidate(id);
+  if (inFlight) { res.status(409).json(refreshInReviewErrorBody(inFlight)); return; }
 
   await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, id));
   await enqueueJob({

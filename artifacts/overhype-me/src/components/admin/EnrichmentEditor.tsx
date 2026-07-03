@@ -1361,6 +1361,7 @@ export function EnrichmentEditor({
   rerunBusy = false,
   finalHashtags,
   onFinalHashtagsChange,
+  hideHashtags = false,
   overrideContext,
 }: {
   value: FactEnrichment | null;
@@ -1379,6 +1380,11 @@ export function EnrichmentEditor({
    * is shown (the live Facts page). */
   finalHashtags?: string[];
   onFinalHashtagsChange?: (tags: string[]) => void;
+  /** Suppress the hashtag section entirely. The moderation panel now renders the
+   * final-hashtags editor as its own first-class section (FinalHashtagsEditor in
+   * the Visual review step), so it hides this editor's copy to avoid a second,
+   * redundant hashtag control. */
+  hideHashtags?: boolean;
   overrideContext?: EnrichmentOverrideContext;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
@@ -1603,7 +1609,7 @@ export function EnrichmentEditor({
         </div>
       </div>
 
-      {reviewMode ? (
+      {hideHashtags ? null : reviewMode ? (
         <div className="space-y-3">
           {/* Final hashtags — the moderator-curated list that ships on approval. */}
           <div>
@@ -1750,7 +1756,7 @@ export function EnrichmentEditor({
         (Visual Strategy Override). To see what the image will actually be, use the{" "}
         <span className="font-semibold text-foreground">Prompt Diagnostics</span> panel and the visual-review test renders —
         it is the single source of truth for the rendered prompt and reflects this enrichment and any override. Approval
-        runs the same runtime pipeline as a renderability check before publishing.
+        requires those required test renders to be fresh and successful (or explicitly waived) — that is the renderability gate.
       </div>
 
       {!validity.ok && validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).length > 0 && (
@@ -1775,9 +1781,10 @@ export function EnrichmentEditor({
 
 /**
  * True when an enrichment is ready to approve — used by the moderation page
- * to gate the Approve / Approve-as-Variant buttons. The renderability check is
- * a SERVER-side gate run at approval time (a non-persistent render preflight);
- * the client gate only requires a valid enrichment.
+ * to gate the Approve / Approve-as-Variant buttons. Renderability is gated
+ * SERVER-side by the required-render check at approval time (the required test
+ * renders must be fresh + successful, or waived); the client gate here only
+ * requires a valid enrichment.
  */
 export function isApprovable(enrichment: FactEnrichment | null | undefined): boolean {
   if (!enrichment) return false;

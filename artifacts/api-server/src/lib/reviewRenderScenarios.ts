@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db, imagePromptAttemptsTable, pendingReviewsTable, factsTable, type ImagePromptAttempt } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
@@ -54,6 +54,7 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
+import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -316,11 +317,11 @@ interface ReviewRenderContext {
 }
 
 /**
- * Load the renderable context for a review. Always reads the staging fact's
- * stored effective enrichment (`facts.enrichment`): moderation edits persist
- * through the fact override/enrichment endpoints before approval, so the
- * stored blob IS the enrichment that will be published — grid/staleness
- * computed here can't drift from it.
+ * Load the renderable context for a review. Reads enrichment through the
+ * review-cycle resolver: a REFRESH cycle (`candidateVersionId != null`) renders
+ * its CANDIDATE version's enrichment; a first-time cycle uses the staging fact's
+ * own `facts.enrichment`. Either way the stored blob IS what the moderator is
+ * reviewing, so grid/staleness computed here can't drift from the render.
  */
 async function loadReviewRenderContext(
   reviewId: number,
@@ -329,24 +330,25 @@ async function loadReviewRenderContext(
   | { ok: false; reason: string; stage?: string }
 > {
   const [review] = await db
-    .select({ id: pendingReviewsTable.id, workflowStage: pendingReviewsTable.workflowStage, stagingFactId: pendingReviewsTable.stagingFactId })
+    .select({
+      id: pendingReviewsTable.id,
+      workflowStage: pendingReviewsTable.workflowStage,
+      stagingFactId: pendingReviewsTable.stagingFactId,
+      candidateVersionId: pendingReviewsTable.candidateVersionId,
+    })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
   if (!review) return { ok: false, reason: "review_not_found" };
   if (review.stagingFactId == null) return { ok: false, reason: "no_staging_fact", stage: review.workflowStage };
-  const [stagingFact] = await db
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, review.stagingFactId))
-    .limit(1);
-  if (!stagingFact) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
-  const ev = validateEnrichment(stagingFact.enrichment);
+  const cycle = await resolveReviewCycleEnrichment(review);
+  if (!cycle) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
+  const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
   const enrichment = ev.data;
   return {
     ok: true,
-    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: stagingFact.text, enrichment, stage: review.workflowStage },
+    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage },
   };
 }
 
@@ -510,6 +512,34 @@ export async function buildReviewScenarioGrid(
     stale: cards.filter((c) => c.stale).length,
   };
   return { reviewId, cards, tally };
+}
+
+// ─── List-level active-render signal ─────────────────────────────────────────
+
+/**
+ * Of the given reviews, which currently have a test render in flight — i.e. the
+ * LATEST attempt for at least one scenario is still queued/rendering (no `error`,
+ * no image yet). Mirrors the grid's latest-per-scenario status (via `DISTINCT ON`)
+ * so the moderation LIST can light up a "renders working…" pill and keep polling
+ * while a manual re-run — or the initial auto-batch — runs, exactly like prep does
+ * for enrichment/images (CLAUDE.md rule 8). A single aggregate query keeps the
+ * hot, ~2.5s-polled list endpoint cheap regardless of page size.
+ */
+export async function reviewsWithActiveRenders(reviewIds: number[]): Promise<Set<number>> {
+  if (reviewIds.length === 0) return new Set();
+  const result = await db.execute<{ review_id: number }>(sql`
+    SELECT DISTINCT latest.review_id
+    FROM (
+      SELECT DISTINCT ON (a.review_id, a.review_render_scenario_key)
+        a.review_id, a.error, a.generated_image_object_path
+      FROM image_prompt_attempts a
+      WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+        AND a.review_render_scenario_key IS NOT NULL
+      ORDER BY a.review_id, a.review_render_scenario_key, a.created_at DESC
+    ) latest
+    WHERE latest.error IS NULL AND latest.generated_image_object_path IS NULL
+  `);
+  return new Set(result.rows.map((r) => Number(r.review_id)));
 }
 
 // ─── Frozen per-attempt diagnostics ──────────────────────────────────────────

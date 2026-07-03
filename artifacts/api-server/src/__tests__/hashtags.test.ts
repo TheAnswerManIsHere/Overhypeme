@@ -37,6 +37,30 @@ describe("sanitizeHashtagsForPersistence", () => {
     );
   });
 
+  it("removes generic-humor tags (every fact is meant to be funny → zero signal)", () => {
+    assert.deepEqual(
+      sanitizeHashtagsForPersistence(
+        ["humor", "funny", "joke", "comedy", "lol", "hilarious", "coffee"],
+        { limit: 10 },
+      ),
+      ["coffee"],
+    );
+  });
+
+  it("matches humor denials on normalized form (#Funny!, HUMOR)", () => {
+    assert.deepEqual(
+      sanitizeHashtagsForPersistence(["#Funny!", "HUMOR", "strength"], { limit: 10 }),
+      ["strength"],
+    );
+  });
+
+  it("keeps real topics that merely resemble humor words (e.g. 'comedian' denied, 'comet' kept)", () => {
+    assert.deepEqual(
+      sanitizeHashtagsForPersistence(["comedian", "comet"], { limit: 10 }),
+      ["comet"],
+    );
+  });
+
   it("dedupes on normalized form, preserving first-seen order", () => {
     assert.deepEqual(
       sanitizeHashtagsForPersistence(["Coffee", "#coffee", "COFFEE!", "tea"], { limit: 10 }),

@@ -212,6 +212,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // field, so boot reconciliation can't do it). No DDL means no schema delta
   // means no snapshot.
   "0077_visual_planner_reasoning_effort",
+
+  // Hand-written DDL (drizzle-kit generate is broken on the pre-existing
+  // malformed 0063 snapshot, so this migration ships without a generated
+  // snapshot). Idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS; the
+  // hash-based runner applies it and treats already-exists as pre-applied.
+  "0078_fact_enrichment_versions",
 ]);
 
 interface JournalEntry {

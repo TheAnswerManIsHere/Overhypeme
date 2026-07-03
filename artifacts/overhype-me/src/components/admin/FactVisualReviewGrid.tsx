@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, AlertTriangle, ImageIcon, Sparkles, Play } from "lucide-react";
 import {
   type FactEnrichment,
@@ -9,6 +9,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { ModerationPexelsPanel } from "./ModerationPexelsPanel";
 import { useFactRenderScenarios } from "./useFactRenderScenarios";
 import { FactRenderScenarioTile } from "./FactRenderScenarioTile";
+import { FinalHashtagsEditor } from "./FinalHashtagsEditor";
 
 /**
  * Step-2 "Visual review" surface for the moderation wizard. Output-first: the
@@ -126,6 +127,9 @@ export function FactVisualReviewGrid({
   enrichment,
   enabled = true,
   reloadKey = 0,
+  finalHashtags = [],
+  onFinalHashtagsChange,
+  onRunScenarios,
 }: {
   reviewId: number;
   enrichment: FactEnrichment | null;
@@ -133,9 +137,27 @@ export function FactVisualReviewGrid({
   /** Bumped by the parent (e.g. after saving enrichment) to force a grid re-fetch
    *  so tiles recompute staleness against the newly-saved staging-fact enrichment. */
   reloadKey?: number;
+  /** The moderator-curated final discovery tags (what ships on approval), owned
+   *  by the modal. Rendered as a first-class section between the AI-interpretation
+   *  summary and the render controls. */
+  finalHashtags?: string[];
+  onFinalHashtagsChange?: (tags: string[]) => void;
+  /** Fired after a run/re-run is enqueued so the parent list can refresh + show
+   *  a "renders working…" row pill and start polling (CLAUDE.md rule 8). */
+  onRunScenarios?: () => void;
 }) {
   const { grid, loading, error, runScenarios, refresh } = useFactRenderScenarios(reviewId, { enabled });
   const [selected, setSelected] = useState<Set<RunGroup>>(new Set());
+
+  // Any run (checkbox batch or per-tile re-run) also nudges the parent list, so a
+  // review sitting in production_review lights up its render pill immediately.
+  const runAndNotify = useCallback(
+    async (keys: RenderScenarioKey[], force?: boolean) => {
+      await runScenarios(keys, force);
+      onRunScenarios?.();
+    },
+    [runScenarios, onRunScenarios],
+  );
 
   // Re-fetch when the parent signals a saved enrichment. The hook's poll loop is
   // idle once every tile is terminal, so a stale-recompute needs this nudge.
@@ -171,7 +193,7 @@ export function FactVisualReviewGrid({
       }
     }
     if (keys.length > 0) {
-      void runScenarios(keys, force);
+      void runAndNotify(keys, force);
       setSelected(new Set());
     }
   };
@@ -182,6 +204,14 @@ export function FactVisualReviewGrid({
     <div className="space-y-4" data-testid="fact-visual-review-grid">
       {/* (a) AI interpretation summary */}
       <AiInterpretationSummary enrichment={enrichment} />
+
+      {/* (a2) Final discovery hashtags — first-class, between the AI summary and
+          the render controls (was buried in Advanced Options). */}
+      <FinalHashtagsEditor
+        finalHashtags={finalHashtags}
+        onFinalHashtagsChange={onFinalHashtagsChange ?? (() => {})}
+        aiSuggestions={enrichment?.suggestedHashtags ?? []}
+      />
 
       {/* (c) Run controls */}
       <div className="rounded-sm border border-border bg-card p-3 space-y-2">
@@ -241,7 +271,7 @@ export function FactVisualReviewGrid({
       {grid && cards.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="render-scenario-cards">
           {cards.map((card) => (
-            <FactRenderScenarioTile key={card.key} reviewId={reviewId} card={card} onRun={runScenarios} />
+            <FactRenderScenarioTile key={card.key} reviewId={reviewId} card={card} onRun={runAndNotify} />
           ))}
         </div>
       )}

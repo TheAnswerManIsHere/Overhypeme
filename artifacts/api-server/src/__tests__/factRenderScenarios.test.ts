@@ -75,7 +75,7 @@ describe("buildScenarioInputHash", () => {
     assert.notEqual(buildScenarioInputHash(inputs), a);
   });
 
-  it("does NOT change when only an admin-only field changes (adminReviewNotes / hashtags / confidence)", () => {
+  it("does NOT change when only a non-render field changes (notes / hashtags / confidence / overhypeFit / adultSuitability)", () => {
     const a = buildScenarioInputHash(baseHashInputs());
     const inputs = baseHashInputs();
     inputs.enrichment = {
@@ -84,6 +84,10 @@ describe("buildScenarioInputHash", () => {
       suggestedHashtags: ["other", "tags", "here"],
       taxonomyConfidence: 0.1,
       adultSuitabilityNotes: "changed",
+      // Quality/gating signals: printed only in the generator's fixed-taxonomy
+      // context block, ignored by the compiler → must not flip renders stale.
+      overhypeFit: "questionable",
+      adultSuitability: "requires_review",
     };
     assert.equal(buildScenarioInputHash(inputs), a);
   });

@@ -10,9 +10,9 @@
  *     form
  *
  * The render-time visual is owned entirely by the runtime pipeline
- * (RuntimePromptPreview at view time, a non-persistent render preflight at
- * approval time), so there is no preview-regeneration action or preview-status
- * polling here anymore.
+ * (RuntimePromptPreview at view time; the Step-2 required test renders are the
+ * renderability gate at approval time), so there is no preview-regeneration
+ * action or preview-status polling here anymore.
  *
  * It deliberately does NOT own the enrichment form state. The page owns
  * `enrichment` + `enrichmentStatus` (so the universal `useFormDraft` can read
