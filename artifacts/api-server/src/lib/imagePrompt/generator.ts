@@ -25,20 +25,125 @@ import {
   type PlanExpectations,
   type FactSubtype,
 } from "@workspace/api-zod";
-import { callUtilityLLM } from "../utilityLLM";
-import { getImagePromptSystem, composeImagePromptSystemPrompt } from "../imagePromptConfig";
+import { callUtilityLLM, UTILITY_LLM_TIMEOUT_MS } from "../utilityLLM";
+import {
+  getImagePromptSystem,
+  composeImagePromptSystemPrompt,
+  getImagePromptEngineId,
+  DEFAULT_IMAGE_PROMPT_ENGINE_ID,
+} from "../imagePromptConfig";
+import { loadEngine } from "../engineInterpreter";
 import { logger } from "../logger";
 import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
-import { stripSubjectNameSemanticEntities } from "../renderCanonical";
-import type { ImagePromptGenerationOutput } from "./types";
+import { stripSubjectNameSemanticEntities, renderPersonalized } from "../renderCanonical";
+import type { ImagePromptGenerationOutput, PlannerProvenance } from "./types";
 
 export const IMAGE_PROMPT_TEMPERATURE = 0.4;
 export const IMAGE_PROMPT_MAX_TOKENS = 2800;
 
+/**
+ * Timeout for the DEDICATED visual-planner engine path. A frontier reasoning
+ * model at xhigh effort routinely needs minutes, not the 30s utility default —
+ * without this override the feature would mostly manifest as timeouts. The
+ * fallback path (default llm engine) keeps the utility default.
+ */
+export const IMAGE_PROMPT_LLM_TIMEOUT_MS = 180_000;
+
 export class ImagePromptError extends Error {
+  /** Which planner engine produced (or failed to produce) this error — set by
+   *  generateImagePromptPlan so attempt errors are attributable. */
+  plannerProvenance?: PlannerProvenance;
+
   constructor(message: string) {
     super(message);
     this.name = "ImagePromptError";
+  }
+}
+
+// ─── Planner LLM settings resolution ──────────────────────────────────────
+
+export interface ImagePromptLLMSettings {
+  /** Unset = use the default "llm" engine (current/fallback behavior). */
+  model?: string;
+  temperature: number;
+  maxTokens: number;
+  reasoningEffort?: string;
+  timeoutMs?: number;
+  plannerProvenance: PlannerProvenance;
+}
+
+function fallbackImagePromptLLMSettings(
+  configuredEngineId: string,
+  fallbackReason: string,
+): ImagePromptLLMSettings {
+  return {
+    temperature: IMAGE_PROMPT_TEMPERATURE,
+    maxTokens: IMAGE_PROMPT_MAX_TOKENS,
+    plannerProvenance: {
+      configuredEngineId,
+      resolvedEngineId: null,
+      model: null,
+      reasoningEffort: null,
+      timeoutMs: UTILITY_LLM_TIMEOUT_MS,
+      fallbackReason,
+    },
+  };
+}
+
+/**
+ * Resolve the dedicated visual-planner engine (config key
+ * `fact_image_prompt_engine_id`) into per-call LLM settings + provenance.
+ * Any invalid state falls back to the pre-feature behavior (default llm
+ * engine, original constants) with the reason recorded — never throws.
+ * Note: `loadEngine` does NOT filter isActive/deletedAt, so we must.
+ */
+export async function resolveImagePromptLLMSettings(): Promise<ImagePromptLLMSettings> {
+  let configuredEngineId = DEFAULT_IMAGE_PROMPT_ENGINE_ID;
+  try {
+    configuredEngineId = (await getImagePromptEngineId()).trim() || DEFAULT_IMAGE_PROMPT_ENGINE_ID;
+    const engine = await loadEngine(configuredEngineId);
+    const reason = !engine
+      ? "engine_not_found"
+      : engine.kind !== "llm"
+        ? "engine_not_llm"
+        : engine.provider !== "openai"
+          ? "engine_not_openai"
+          : !engine.isActive
+            ? "engine_inactive"
+            : engine.deletedAt != null
+              ? "engine_deleted"
+              : !engine.endpointId
+                ? "engine_missing_model"
+                : null;
+    if (engine && reason === null) {
+      return {
+        model: engine.endpointId,
+        temperature:
+          engine.defaultTemperature != null ? Number(engine.defaultTemperature) : IMAGE_PROMPT_TEMPERATURE,
+        maxTokens: engine.defaultMaxTokens ?? IMAGE_PROMPT_MAX_TOKENS,
+        reasoningEffort: engine.defaultReasoningEffort ?? undefined,
+        timeoutMs: IMAGE_PROMPT_LLM_TIMEOUT_MS,
+        plannerProvenance: {
+          configuredEngineId,
+          resolvedEngineId: engine.id,
+          model: engine.endpointId,
+          reasoningEffort: engine.defaultReasoningEffort ?? null,
+          timeoutMs: IMAGE_PROMPT_LLM_TIMEOUT_MS,
+          fallbackReason: null,
+        },
+      };
+    }
+    logger.warn(
+      { configuredEngineId, reason },
+      "[imagePrompt.generator] visual planner engine fallback",
+    );
+    return fallbackImagePromptLLMSettings(configuredEngineId, reason ?? "unknown");
+  } catch (err) {
+    logger.warn(
+      { configuredEngineId, err },
+      "[imagePrompt.generator] visual planner engine fallback",
+    );
+    return fallbackImagePromptLLMSettings(configuredEngineId, "resolver_error");
   }
 }
 
@@ -116,6 +221,17 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
   const e = input.enrichment;
   const strategy = getVisualPromptStrategy(e.primaryArchetype);
   const subtypeGuide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
+
+  // Moderator-authored core scene — the ONLY override field the planner reads
+  // (everything else in visualPromptStrategyOverride is compiler-only). Token-
+  // rendered so the model never sees raw {NAME}/pronoun tokens, matching the
+  // rendered fact text it already receives.
+  const ovb = e.visualPromptStrategyOverride;
+  const moderatorSceneRaw = ovb?.enabled ? (ovb.coreSceneOverride?.trim() ?? "") : "";
+  const moderatorScene =
+    moderatorSceneRaw && input.renderedSubject
+      ? renderPersonalized(moderatorSceneRaw, input.renderedSubject.name, input.renderedSubject.pronouns)
+      : moderatorSceneRaw;
 
   const culturalRefsBlock = e.culturalReferences.length
     ? e.culturalReferences
@@ -240,6 +356,17 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     strategy.t2iFallback ? `t2i fallback: ${strategy.t2iFallback}` : "",
     strategy.preservePhysique ? `Per-archetype preservePhysique: ${strategy.preservePhysique}` : "",
     subtypeGuide ? `Subtype guidance for ${e.subtype}: ${subtypeGuide.principle}${subtypeGuide.useWhen ? ` (use when: ${subtypeGuide.useWhen})` : ""}` : "",
+    ...(moderatorScene
+      ? [
+          "",
+          "MODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):",
+          `"${moderatorScene}"`,
+          "A human moderator has specified the exact visual concept for this fact. This scene is authoritative:",
+          "- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.",
+          "- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.",
+          "- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.",
+        ]
+      : []),
     "",
     "Visualization examples:",
     examplesBlock,
@@ -384,32 +511,49 @@ export async function generateImagePromptPlanWithModel(
 
 // ─── Live wrapper ─────────────────────────────────────────────────────────
 
-async function callOpenAIImagePrompt(userMessages: UserMessage[]): Promise<string> {
-  // Append the non-configurable platform hard rules so the no-self-censoring rule
-  // holds even when admin_config carries a stale base prompt.
-  const systemPrompt = composeImagePromptSystemPrompt(await getImagePromptSystem());
-  const response = await callUtilityLLM({
-    temperature: IMAGE_PROMPT_TEMPERATURE,
-    maxTokens: IMAGE_PROMPT_MAX_TOKENS,
-    responseFormat: zodResponseFormat(imagePromptPlanWireSchema, "image_prompt_plan"),
-    messages: [{ role: "system", content: systemPrompt }, ...userMessages],
-  });
-  return response.choices[0]?.message?.content ?? "{}";
+function makeOpenAIImagePromptCaller(
+  settings: ImagePromptLLMSettings,
+): (userMessages: UserMessage[]) => Promise<string> {
+  return async (userMessages: UserMessage[]): Promise<string> => {
+    // Append the non-configurable platform hard rules so the no-self-censoring rule
+    // holds even when admin_config carries a stale base prompt.
+    const systemPrompt = composeImagePromptSystemPrompt(await getImagePromptSystem());
+    const response = await callUtilityLLM({
+      model: settings.model,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      reasoningEffort: settings.reasoningEffort,
+      timeoutMs: settings.timeoutMs,
+      responseFormat: zodResponseFormat(imagePromptPlanWireSchema, "image_prompt_plan"),
+      messages: [{ role: "system", content: systemPrompt }, ...userMessages],
+    });
+    return response.choices[0]?.message?.content ?? "{}";
+  };
 }
 
 /**
- * Generate the image-prompt plan via OpenAI. Throws `ImagePromptError` on
- * unrecoverable failure. Callers (the async-jobs handler + admin route)
- * catch this and surface `error` on the attempt row.
+ * Generate the image-prompt plan via the dedicated visual-planner engine
+ * (falling back to the default utility LLM — see
+ * `resolveImagePromptLLMSettings`). Throws `ImagePromptError` on unrecoverable
+ * failure, with `plannerProvenance` attached so callers (the async-jobs
+ * handler + admin route) can attribute the failure to planner vs. fallback
+ * when they surface `error` on the attempt row.
  */
 export async function generateImagePromptPlan(
   input: ImagePromptGenerationInput,
 ): Promise<ImagePromptGenerationOutput> {
+  const settings = await resolveImagePromptLLMSettings();
   try {
-    return await generateImagePromptPlanWithModel(input, callOpenAIImagePrompt);
+    const output = await generateImagePromptPlanWithModel(input, makeOpenAIImagePromptCaller(settings));
+    return { ...output, plannerProvenance: settings.plannerProvenance };
   } catch (err) {
-    if (err instanceof ImagePromptError) throw err;
-    logger.error({ err }, "[imagePrompt.generator] unexpected failure");
-    throw new ImagePromptError(err instanceof Error ? err.message : String(err));
+    if (err instanceof ImagePromptError) {
+      err.plannerProvenance ??= settings.plannerProvenance;
+      throw err;
+    }
+    logger.error({ err, plannerProvenance: settings.plannerProvenance }, "[imagePrompt.generator] unexpected failure");
+    const wrapped = new ImagePromptError(err instanceof Error ? err.message : String(err));
+    wrapped.plannerProvenance = settings.plannerProvenance;
+    throw wrapped;
   }
 }

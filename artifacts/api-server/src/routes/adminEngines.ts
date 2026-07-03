@@ -66,6 +66,7 @@ export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 const WORKBENCH_TEST_NAME = RUNTIME_PREVIEW_DEFAULT_NAME;
 const WORKBENCH_TEST_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
+import { ALL_ENGINES } from "../lib/engines/catalogue.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -143,10 +144,20 @@ const VALID_TIERS = new Set(["unregistered", "registered", "legendary"]);
  *  4.1 chat family and the gpt-5 / o-series reasoning family. */
 const ALLOWED_LLM_MODELS = new Set([
   "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
-  "gpt-5.1", "gpt-5.2", "gpt-5.4-mini",
+  "gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5.5",
 ]);
 
-const VALID_REASONING_EFFORTS = new Set(["none", "low", "medium", "high"]);
+const VALID_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh"]);
+
+/**
+ * Kind-default eligibility comes from the in-process catalogue, not a DB
+ * column. Rows with no catalogue definition (legacy/DB-only engines) stay
+ * eligible — only an explicit `eligibleAsKindDefault: false` blocks.
+ */
+function isEligibleAsKindDefault(engineId: string): boolean {
+  const def = ALL_ENGINES.find((e) => e.id === engineId);
+  return def?.eligibleAsKindDefault !== false;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Synthetic-test asset
@@ -359,7 +370,7 @@ function buildPatchUpdates(body: Record<string, unknown>): { updates: Record<str
     const v = body.defaultReasoningEffort;
     if (v === null || v === "") updates.defaultReasoningEffort = null;
     else if (typeof v === "string" && VALID_REASONING_EFFORTS.has(v)) updates.defaultReasoningEffort = v;
-    else return { error: "defaultReasoningEffort must be one of none | low | medium | high, or null" };
+    else return { error: "defaultReasoningEffort must be one of none | low | medium | high | xhigh, or null" };
   }
 
   return { updates };
@@ -383,7 +394,11 @@ router.get("/admin/engines", requireAdmin, async (_req: Request, res: Response) 
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
     return a.id.localeCompare(b.id);
   });
-  res.json({ engines: rows, editableFields: ADMIN_EDITABLE_FIELDS });
+  const engines = rows.map((row) => ({
+    ...row,
+    eligibleAsKindDefault: isEligibleAsKindDefault(row.id),
+  }));
+  res.json({ engines, editableFields: ADMIN_EDITABLE_FIELDS });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -400,6 +415,17 @@ router.patch("/admin/engines/:id", requireAdmin, async (req: Request, res: Respo
   const result = buildPatchUpdates(body);
   if ("error" in result) {
     res.status(400).json({ error: result.error });
+    return;
+  }
+
+  // The PATCH surface can also flip isDefault (the editor's toggle), so the
+  // kind-default eligibility guard must cover it — not just /set-default.
+  if (result.updates.isDefault === true && !isEligibleAsKindDefault(id)) {
+    res.status(400).json({
+      error:
+        "This engine is routed by a dedicated config key and cannot become the " +
+        "default for its kind (it would reroute every call of this kind through it).",
+    });
     return;
   }
 
@@ -477,6 +503,15 @@ router.post("/admin/engines/:id/set-default", requireAdmin, async (req: Request,
   const target = await fetchEngineById(id);
   if (!target) {
     res.status(404).json({ error: "Engine not found" });
+    return;
+  }
+
+  if (!isEligibleAsKindDefault(id)) {
+    res.status(400).json({
+      error:
+        "This engine is routed by a dedicated config key and cannot become the " +
+        "default for its kind (it would reroute every call of this kind through it).",
+    });
     return;
   }
 

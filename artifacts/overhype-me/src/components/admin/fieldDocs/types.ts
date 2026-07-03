@@ -91,6 +91,7 @@ export type FieldDocKey =
   | "adminReviewNotes"
   // Visual Strategy Overrides
   | "vso.panel"
+  | "vso.coreSceneOverride"
   | "vso.moderatorIntent"
   | "vso.subjectRealization"
   | "vso.subjectRealizationDescription"

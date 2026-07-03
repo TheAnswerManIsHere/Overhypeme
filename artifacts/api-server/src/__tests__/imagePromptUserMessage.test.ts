@@ -373,3 +373,77 @@ describe("buildImagePromptUserMessage — no automatic violence/gore self-censor
     assert.doesNotMatch(msg, /violence=ALLOW/);
   });
 });
+
+// ── Moderator-authored core scene directive ("Visual concept") — slice 1 ────
+
+describe("buildImagePromptUserMessage — moderator core-scene directive", () => {
+  function withOverride(
+    override: Record<string, unknown> | undefined,
+    renderedSubject?: { name: string; pronouns: string | null },
+  ): ImagePromptGenerationInput {
+    const base = makeInput();
+    return {
+      ...base,
+      enrichment: { ...base.enrichment, ...(override ? { visualPromptStrategyOverride: override } : {}) },
+      ...(renderedSubject ? { renderedSubject } : {}),
+    } as unknown as ImagePromptGenerationInput;
+  }
+  const OV = (partial: Record<string, unknown> = {}) => ({
+    version: 1,
+    enabled: true,
+    requiredVisualDetails: [],
+    forbiddenVisualDetails: [],
+    roleBindings: [],
+    compositionGuidance: [],
+    styleAgnosticPromptAdditions: [],
+    negativePromptAdditions: [],
+    ...partial,
+  });
+
+  it("injects the authoritative directive when enabled + non-empty", () => {
+    const msg = buildImagePromptUserMessage(
+      withOverride(OV({ coreSceneOverride: "David rides a giant rubber duck across a stadium." })),
+    );
+    assert.match(msg, /MODERATOR-AUTHORED CORE SCENE \(AUTHORITATIVE — hard directive\)/);
+    assert.match(msg, /"David rides a giant rubber duck across a stadium\."/);
+    assert.match(msg, /Do NOT invent a different concept/);
+    assert.match(msg, /faithful \(optionally tightened\) version/);
+  });
+
+  it("token-renders the directive so the model never sees raw tokens", () => {
+    const msg = buildImagePromptUserMessage(
+      withOverride(
+        OV({ coreSceneOverride: "{NAME} rides a T-Rex through {NAME_POSSESSIVE} office." }),
+        { name: "David Franklin", pronouns: "he/him" },
+      ),
+    );
+    assert.match(msg, /"David Franklin rides a T-Rex through David Franklin's office\."/);
+    assert.doesNotMatch(msg, /\{NAME\}|\{SUBJ\}|\{POSS\}/);
+  });
+
+  it("omits the directive when the override is disabled, empty, or absent", () => {
+    for (const input of [
+      withOverride(OV({ enabled: false, coreSceneOverride: "David rides a duck." })),
+      withOverride(OV({ coreSceneOverride: "   " })),
+      withOverride(undefined),
+    ]) {
+      const msg = buildImagePromptUserMessage(input);
+      assert.doesNotMatch(msg, /MODERATOR-AUTHORED CORE SCENE/);
+    }
+  });
+
+  it("reads ONLY coreSceneOverride — other override fields stay out of the planner message", () => {
+    const msg = buildImagePromptUserMessage(
+      withOverride(
+        OV({
+          coreSceneOverride: "David rides a duck.",
+          requiredVisualDetails: ["a scoreboard reading 9999"],
+          forbiddenVisualDetails: ["a separate adult version"],
+        }),
+      ),
+    );
+    assert.match(msg, /David rides a duck\./);
+    assert.doesNotMatch(msg, /scoreboard reading 9999/);
+    assert.doesNotMatch(msg, /separate adult version/);
+  });
+});

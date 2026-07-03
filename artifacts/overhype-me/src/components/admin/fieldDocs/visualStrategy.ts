@@ -276,6 +276,40 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     authoredStatus: "code-derived",
   },
   {
+    key: "vso.coreSceneOverride",
+    label: "Visual Concept (Core Scene)",
+    hint: "Describe the picture you want in plain language — it becomes the authoritative CORE SCENE, winning over the AI plan's scene.",
+    whatItIs: [
+      "The moderator-authored scene: 2–4 plain-language sentences describing exactly what the image shows (subject, action, setting, objects, composition). When non-empty, it is AUTHORITATIVE — the planner LLM is directed to realize exactly this scene (not invent its own), and the compiler emits it as the CORE SCENE section at required priority, never compressed under the char budget.",
+      "Token-capable: use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens — never a real name. Capped at 1500 characters: it is a scene brief, not a full prompt.",
+      "Also surfaced as the prominent 'Visual concept — describe the picture' card in moderation visual review; both surfaces edit this same field. Typing a non-empty concept auto-enables the override.",
+    ],
+    howDerived: [
+      "Authored by moderators only — the AI never writes it. Preserved verbatim across re-classification like the rest of the override.",
+    ],
+    renderImpact: [
+      "Replaces the AI plan's coreScene as the CORE SCENE section (required, non-compressible, marked MODERATOR in the prompt breakdown).",
+      "The compiler still owns identity/reference/text-policy language: engine instructions written here ('preserve the face', 'no readable text') are stripped, with a visible warning in the prompt diagnostics. A concept that consists ONLY of such instructions falls back to the AI scene with a loud warning — never a silently empty scene.",
+      "The planner LLM also receives it as a hard directive, so subjectDetails/environment/lighting are planned to support THIS scene.",
+    ],
+    workedExamples: [
+      {
+        scenario: "The AI keeps missing the scale gag in a participation-trophy fact.",
+        input: 'Visual concept: "{NAME} triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory."',
+        outcome: "CORE SCENE is exactly that sentence (token-rendered per render), the planner fleshes out supporting detail around it, and it survives the char budget uncompressed.",
+      },
+      {
+        scenario: "You write engine instructions instead of a scene.",
+        input: 'Visual concept: "Preserve the uploaded face and do not show readable text."',
+        outcome: "Both clauses are compiler-owned and stripped; the diagnostics warn that the concept emptied out and the AI scene was used instead. Rewrite as visible scene description.",
+      },
+    ],
+    effect: "render-affecting",
+    staleBehavior: "marks-render-stale",
+    sourceRefs: [OVERRIDE_SCHEMA, COMPILER, STALE_HASH],
+    authoredStatus: "code-derived",
+  },
+  {
     key: "vso.moderatorIntent",
     label: "Moderator Intent",
     labelSuffix: "(admin-only, not rendered)",

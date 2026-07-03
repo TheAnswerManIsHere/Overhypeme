@@ -1159,3 +1159,77 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     assert.equal(res.status, 400);
   });
 });
+
+// ─── Kind-default eligibility guard (visual planner) ─────────────────────────
+
+describe("kind-default eligibility guard", () => {
+  // The guard reads the CODE catalogue by id, so we exercise it with the real
+  // catalogue id. Snapshot/restore any pre-existing row (reconcile may or may
+  // not have run in this shard).
+  const PLANNER_ID = "openai-visual-planner";
+  let plannerSnapshot: Record<string, unknown> | null = null;
+
+  before(async () => {
+    const rows = await db.select().from(enginesTable).where(eq(enginesTable.id, PLANNER_ID));
+    plannerSnapshot = (rows[0] as Record<string, unknown> | undefined) ?? null;
+    if (!plannerSnapshot) {
+      await seedEngine({ id: PLANNER_ID, kind: "llm", provider: "openai", endpointId: "gpt-5.5" });
+    }
+    clearEngineCaches();
+  });
+
+  after(async () => {
+    if (!plannerSnapshot) {
+      await db.delete(enginesTable).where(eq(enginesTable.id, PLANNER_ID));
+      const idx = insertedEngineIds.indexOf(PLANNER_ID);
+      if (idx >= 0) insertedEngineIds.splice(idx, 1);
+    }
+    clearEngineCaches();
+  });
+
+  it("POST /set-default refuses the visual planner with a clear 400", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).post(`/api/admin/engines/${PLANNER_ID}/set-default`).send({});
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /dedicated config key/i);
+  });
+
+  it("PATCH isDefault:true is refused too (the editor toggle path)", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).patch(`/api/admin/engines/${PLANNER_ID}`).send({ isDefault: true });
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /dedicated config key/i);
+    // isDefault:false (a no-op direction) stays allowed.
+    const ok = await request(app).patch(`/api/admin/engines/${PLANNER_ID}`).send({ isDefault: false });
+    assert.equal(ok.status, 200);
+  });
+
+  it("a DB-only row absent from the code catalogue stays eligible (current behavior preserved)", async () => {
+    const id = await seedEngine({ kind: "llm", provider: "openai", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).post(`/api/admin/engines/${id}/set-default`).send({});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isDefault, true);
+  });
+
+  it("GET /admin/engines derives eligibleAsKindDefault per row", async () => {
+    const dbOnlyId = await seedEngine({ kind: "llm", provider: "openai", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get("/api/admin/engines");
+    assert.equal(res.status, 200);
+    const rows = res.body.engines as Array<{ id: string; eligibleAsKindDefault: boolean }>;
+    assert.equal(rows.find((e) => e.id === PLANNER_ID)?.eligibleAsKindDefault, false);
+    assert.equal(rows.find((e) => e.id === dbOnlyId)?.eligibleAsKindDefault, true);
+  });
+
+  it("PATCH round-trips gpt-5.5 + xhigh through the expanded allowlists", async () => {
+    const id = await seedEngine({ kind: "llm", provider: "openai", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-5.5", defaultReasoningEffort: "xhigh" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.endpointId, "gpt-5.5");
+    assert.equal(res.body.defaultReasoningEffort, "xhigh");
+  });
+});

@@ -72,12 +72,19 @@ const T2I_PREAMBLE =
 
 // ─── Text utilities ───────────────────────────────────────────────────────
 
-/** Split a prompt blob into trimmed sentences, keeping terminal punctuation. */
+/** Split a prompt blob into trimmed sentences, keeping terminal punctuation.
+ *  Splits at a sentence terminator followed by whitespace — but NOT when the
+ *  terminator belongs to an initialism ("M.C. Hammer", "J.R.R. Tolkien"), and
+ *  never drops the text between boundaries. (The old `match()`-based splitter
+ *  discarded any run that didn't fit the sentence pattern, so "M.C." lost its
+ *  leading "M." and abbreviations were shattered.) */
 function splitSentences(text: string): string[] {
-  const matches = text.match(/[^.!?]+[.!?]+(?=\s|$)/g);
-  if (matches) return matches.map((s) => s.trim()).filter(Boolean);
   const trimmed = text.trim();
-  return trimmed ? [trimmed] : [];
+  if (!trimmed) return [];
+  return trimmed
+    .split(/(?<!\b[A-Za-z]\.)(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function normalizeSentence(s: string): string {
@@ -720,6 +727,8 @@ interface Section {
   text: string;
   priority: Priority;
   compressible?: boolean;
+  /** Content authored by a human moderator (visual-concept core scene). */
+  moderatorAuthored?: boolean;
 }
 
 /**
@@ -740,7 +749,15 @@ function assembleSections(
   let assembled = "";
   const breakdown: PromptSection[] = [];
   const record = (s: Section, status: PromptSection["status"], text: string, rawText: string) =>
-    breakdown.push({ id: s.id, label: s.label, priority: s.priority, status, text, rawText });
+    breakdown.push({
+      id: s.id,
+      label: s.label,
+      priority: s.priority,
+      status,
+      text,
+      rawText,
+      ...(s.moderatorAuthored ? { moderatorAuthored: true } : {}),
+    });
 
   for (const section of sections) {
     const raw = section.text.trim();
@@ -866,12 +883,50 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   });
   haystack = [haystack, referenceInterpretation].filter(Boolean).join(" ");
 
-  // 3. CORE SCENE — the concrete scene. Prefer the structured coreScene; fall
-  // back to the LLM prose. Strip compiler-owned clauses (identity/text/ref/
-  // token) and scrub authorial intent so only pixels-mapping language remains.
-  const rawCore = vp.coreScene?.trim() ? vp.coreScene : args.compiledPrompt.prompt;
-  const sanitized = sanitizePlannerProse(rawCore);
-  const coreScene = scrubIntentLanguage(sanitized.text);
+  // 3. CORE SCENE — the concrete scene. A moderator-authored coreSceneOverride
+  // is AUTHORITATIVE and wins over the AI plan; otherwise prefer the structured
+  // coreScene, falling back to the LLM prose. Moderator text is token-rendered
+  // BEFORE sanitation (sanitizePlannerProse drops any sentence carrying an
+  // unresolved token; the shared section render at assembly time runs too late)
+  // and then passes the SAME compiler-owned stripping + intent scrub — the
+  // override cannot smuggle identity/reference/text-policy language. A scene
+  // left empty by sanitation falls back to the AI scene with a loud warning,
+  // never silently.
+  const removedProse: RemovedProseSentence[] = [];
+  const moderatorCoreWarnings: PromptWarning[] = [];
+  const moderatorCoreRaw = renderIdentityTokens(ov?.coreSceneOverride?.trim() ?? "", args.renderedSubject);
+  const aiCore = vp.coreScene?.trim() ? vp.coreScene : args.compiledPrompt.prompt;
+  let coreScene = "";
+  let coreSceneModeratorAuthored = false;
+  if (moderatorCoreRaw) {
+    const moderatorSanitized = sanitizePlannerProse(moderatorCoreRaw);
+    removedProse.push(...moderatorSanitized.removed);
+    const moderatorCore = scrubIntentLanguage(moderatorSanitized.text);
+    if (moderatorCore.trim()) {
+      coreScene = moderatorCore;
+      coreSceneModeratorAuthored = true;
+      if (moderatorSanitized.removed.length > 0) {
+        moderatorCoreWarnings.push({
+          code: "moderator_core_scene_stripped",
+          severity: "warning",
+          message:
+            "Some Visual concept text was stripped because the compiler owns identity/reference/text-policy instructions. Rewrite this field as visible scene description only.",
+        });
+      }
+    } else {
+      moderatorCoreWarnings.push({
+        code: "moderator_core_scene_empty_after_sanitize",
+        severity: "warning",
+        message:
+          "The Visual concept became empty after stripping compiler-owned instructions, so the AI scene was used instead.",
+      });
+    }
+  }
+  if (!coreSceneModeratorAuthored) {
+    const sanitized = sanitizePlannerProse(aiCore);
+    removedProse.push(...sanitized.removed);
+    coreScene = scrubIntentLanguage(sanitized.text);
+  }
   haystack = `${haystack} ${coreScene}`;
 
   // 4. SUBJECT DETAILS — subject-specific visible details, plus expression/pose,
@@ -950,7 +1005,17 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
     { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
     { id: "reference_interpretation", label: "REFERENCE INTERPRETATION", text: labeled("REFERENCE INTERPRETATION", referenceInterpretation), priority: "required" },
-    { id: "core_scene", label: "CORE SCENE", text: labeled("CORE SCENE", coreScene), priority: "high", compressible: true },
+    // A moderator-authored core scene is required + non-compressible: the joke
+    // must never be compressed out under the char budget. AI-authored keeps the
+    // original high/compressible behavior.
+    {
+      id: "core_scene",
+      label: "CORE SCENE",
+      text: labeled("CORE SCENE", coreScene),
+      priority: coreSceneModeratorAuthored ? "required" : "high",
+      compressible: !coreSceneModeratorAuthored,
+      ...(coreSceneModeratorAuthored ? { moderatorAuthored: true } : {}),
+    },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
     { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
@@ -969,6 +1034,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const { prompt: finalPrompt, breakdown } = assembleSections(sections, notes);
 
   const warnings = [
+    ...moderatorCoreWarnings,
     ...detectToneWarnings({ visualApproach, prose: coreScene }),
     ...detectDensityWarnings({
       coreScene,
@@ -996,7 +1062,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     prompt: finalPrompt,
     imagePrompt: finalPrompt,
     promptBreakdown: breakdown,
-    diagnostics: { removedPlannerProseSentences: sanitized.removed, warnings },
+    diagnostics: { removedPlannerProseSentences: removedProse, warnings },
   };
 
   // Nano Banana 2 has no negative-prompt parameter; the validator already

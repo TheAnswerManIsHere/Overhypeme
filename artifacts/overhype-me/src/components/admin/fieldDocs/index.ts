@@ -57,6 +57,7 @@ export const FIELD_DOC_USAGE = {
   taxonomyConfidence: "field-label",
   adminReviewNotes: "field-label",
   "vso.panel": "panel-level",
+  "vso.coreSceneOverride": "field-label",
   "vso.moderatorIntent": "field-label",
   "vso.subjectRealization": "field-label",
   "vso.subjectRealizationDescription": "field-label",

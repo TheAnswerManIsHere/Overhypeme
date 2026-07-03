@@ -66,16 +66,35 @@ export interface ResolvedRenderReviewInput {
   previewPronouns: string;
 }
 
-/** Pronouns must look like "subj/obj"; otherwise fall back to the brand default. */
+/** Default sampled subject for a t2i fallback gender, so the sampled name AND
+ *  pronouns match the protagonist the engine is told to generate (a female
+ *  "Generate a female protagonist" render sampling "David Franklin … his pants"
+ *  is an incoherent test image). i2i modes carry a null gender (the reference IS
+ *  the subject) and keep the historical brand default. */
+export function defaultPreviewSubjectForGender(
+  gender: RenderControls["fallbackSubjectGender"] | null | undefined,
+): { name: string; pronouns: string } {
+  switch (gender) {
+    case "female":
+      return { name: "Susan Franklin", pronouns: "she/her" };
+    case "neutral":
+      return { name: "Alex Franklin", pronouns: "they/them" };
+    default: // "male" and null/undefined (i2i) → historical default
+      return { name: RUNTIME_PREVIEW_DEFAULT_NAME, pronouns: RUNTIME_PREVIEW_DEFAULT_PRONOUNS };
+  }
+}
+
+/** Pronouns must look like "subj/obj"; otherwise fall back to the gender default. */
 function resolvePreviewSubject(controls: RenderReviewControls): { name: string; pronouns: string } {
+  const fallback = defaultPreviewSubjectForGender(controls.renderControls?.fallbackSubjectGender);
   const name =
     typeof controls.previewName === "string" && controls.previewName.trim()
       ? controls.previewName.trim()
-      : RUNTIME_PREVIEW_DEFAULT_NAME;
+      : fallback.name;
   const pronouns =
     typeof controls.previewPronouns === "string" && /^\s*[a-z]+\/[a-z]+\s*$/i.test(controls.previewPronouns)
       ? controls.previewPronouns.trim().toLowerCase()
-      : RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
+      : fallback.pronouns;
   return { name, pronouns };
 }
 

@@ -68,6 +68,22 @@ export interface ImagePromptJobPayload {
   attemptId: number;
 }
 
+/** True for the review-panel test renders (scenario grid + single render),
+ *  which set `renderControls.mirrorToLegacyStorage: false` so they don't pollute
+ *  the staging fact's shared image set. */
+export function isEphemeralModerationRender(renderControls: RenderControls): boolean {
+  return (
+    (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false
+  );
+}
+
+/** Moderation test renders only need to show whether the visual gag lands, so
+ *  they use the LOWEST resolution the nano-banana engines offer for the fastest
+ *  turnaround. Real user renders stay at 2K for print-ready detail/legibility. */
+export function pickRenderResolution(renderControls: RenderControls): "0.5K" | "2K" {
+  return isEphemeralModerationRender(renderControls) ? "0.5K" : "2K";
+}
+
 // ─── image_prompt_generation handler ──────────────────────────────────────
 
 const objectStorage = new ObjectStorageService();
@@ -134,6 +150,9 @@ export const imagePromptGenerationHandler: JobHandler = {
       referenceImageUrl: extractReferenceImageUrl(attempt),
       targetEngine: "nano_banana_2",
       requestId: attempt.requestId ?? undefined,
+      // Token-renders moderator-authored override text (visual concept) before
+      // the planner sees it — the planner never receives raw {NAME} tokens.
+      renderedSubject,
     };
 
     let output;
@@ -141,8 +160,14 @@ export const imagePromptGenerationHandler: JobHandler = {
       output = await generateImagePromptPlan(input);
     } catch (err) {
       const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, `prompt-gen failed: ${msg}`);
-      return { ok: false, error: `prompt-gen failed: ${msg}` };
+      // Attribute the failure to the planner engine vs. fallback — a gpt-5.5
+      // timeout and a fallback-path failure are different diagnoses.
+      const prov = err instanceof ImagePromptError ? err.plannerProvenance : undefined;
+      const provNote = prov
+        ? ` [planner: ${prov.fallbackReason ? `fallback (${prov.fallbackReason})` : `${prov.model ?? "?"} via ${prov.resolvedEngineId ?? "?"}`}]`
+        : "";
+      await markAttemptError(p.attemptId, `prompt-gen failed: ${msg}${provNote}`);
+      return { ok: false, error: `prompt-gen failed: ${msg}${provNote}` };
     }
 
     const compiled = compileForSubjectRenderMode({
@@ -151,6 +176,11 @@ export const imagePromptGenerationHandler: JobHandler = {
       input,
       renderedSubject,
     });
+    // Persist which planner engine produced this plan alongside the compiled
+    // prompt so attempts (and the admin preview) can attribute render quality.
+    if (output.plannerProvenance && compiled.diagnostics) {
+      compiled.diagnostics.plannerProvenance = output.plannerProvenance;
+    }
 
     // A "poor" subject↔fact compatibility means the uploaded subject can't
     // carry this fact — rendering anyway wastes a paid generation and produces
@@ -243,10 +273,7 @@ export const imageGenerationHandler: JobHandler = {
     }
 
     const renderControls = attempt.renderControls as RenderControls;
-    // Render at 2K. Both nano-banana-2 engines accept it; it materially lifts
-    // detail/legibility for meme backgrounds at the cost of more latency/$ per
-    // image and larger stored files (see PROMPT_FIDELITY_TEST_RUN.md).
-    const resolution = "2K";
+    const resolution = pickRenderResolution(renderControls);
     const pipelineParams: Record<string, unknown> = {
       imagePrompt: promptText,
       aspectRatio: renderControls.aspectRatio,
@@ -317,8 +344,7 @@ export const imageGenerationHandler: JobHandler = {
     // must verify the pipeline without polluting the staging fact's shared set.
     // The generatedImageObjectPath write above already happened, so the poll
     // route can still surface the image either way.
-    const skipMirror =
-      (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false;
+    const skipMirror = isEphemeralModerationRender(renderControls);
     if (!skipMirror) {
       await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
     } else {
