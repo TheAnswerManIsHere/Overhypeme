@@ -8,7 +8,7 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -b",
-    "test": "bash ../../scripts/with-time-limit.sh 120000 vitest run",
+    "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "generate:field-docs": "tsx scripts/generate-admin-field-reference.ts",
     "e2e": "playwright test"

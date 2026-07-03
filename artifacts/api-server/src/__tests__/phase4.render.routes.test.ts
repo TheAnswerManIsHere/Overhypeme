@@ -225,15 +225,23 @@ describe("POST /api/render-preview", () => {
       })
       .expect(200);
 
-    await new Promise((r) => setTimeout(r, 100));
+    // The audit insert is fire-and-forget; poll until the row lands or the
+    // deadline passes. A fixed short wait is too tight on a loaded machine.
+    const selectRecent = () =>
+      db
+        .select({ ipHash: transientRendersTable.ipHash })
+        .from(transientRendersTable)
+        .where(and(
+          eq(transientRendersTable.factId, factId),
+          gt(transientRendersTable.createdAt, new Date(Date.now() - 5_000)),
+        ));
+    const deadline = Date.now() + 5_000;
+    let recent = await selectRecent();
+    while (recent.length < 1 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      recent = await selectRecent();
+    }
     // ip_hash must never equal the raw IP.
-    const recent = await db
-      .select({ ipHash: transientRendersTable.ipHash })
-      .from(transientRendersTable)
-      .where(and(
-        eq(transientRendersTable.factId, factId),
-        gt(transientRendersTable.createdAt, new Date(Date.now() - 5_000)),
-      ));
     assert.ok(recent.length >= 1);
     for (const row of recent) {
       assert.notEqual(row.ipHash, "203.0.113.7");
