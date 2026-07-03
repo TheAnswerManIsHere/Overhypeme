@@ -6,6 +6,8 @@ import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
+import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm } from "@/components/admin/useDraftForm";
 import {
   useFactEnrichmentEditing,
@@ -126,12 +128,26 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
  * validated server-side on save and its projection columns re-synced — so an
  * invalid edit surfaces here as a save error rather than being stored.
  */
-function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: EnrichmentSaveResponse) => void }) {
+function FactEnrichmentPanel({
+  fact,
+  onSaved,
+  disabled = false,
+  disabledReason,
+}: {
+  fact: Fact;
+  onSaved: (resp: EnrichmentSaveResponse) => void;
+  /** Read-only mode while a refresh is in review: the editor stays mounted so
+   *  the ACTIVE enrichment is inspectable, but every write path (save, per-field
+   *  overrides, re-run) is withheld — the backend REFRESH_IN_REVIEW 409s remain
+   *  the backstop for stale tabs. */
+  disabled?: boolean;
+  disabledReason?: string;
+}) {
   // ALL editing machinery (localStorage draft + per-field override tracking +
   // re-run wiring) lives in the shared useFactEnrichmentEditing hook — the same
   // engine the moderation ReviewModal mounts, so the two screens stay in
   // lockstep by construction.
-  const { enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm } =
+  const { enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError } =
     useFactEnrichmentEditing({
       target: { kind: "fact", factId: fact.id },
       enabled: true,
@@ -139,7 +155,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
       onSaved,
     });
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -157,6 +173,11 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
 
       {expanded && (
         <div className="px-3 pb-3 space-y-2">
+          {disabled && disabledReason && (
+            <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="enrichment-panel-disabled">
+              {disabledReason}
+            </p>
+          )}
           {/* Pinned header bar with draft status */}
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-2">
@@ -196,13 +217,19 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
             value={enrichment}
             status={enrichmentStatus}
             factText={fact.text}
-            onChange={(next) => draft.setValue(next)}
-            onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
-            onRerun={rerunWithConfirm}
+            onChange={(next) => { if (!disabled) draft.setValue(next); }}
+            onSave={!disabled && draft.hasUncommittedChanges ? () => void draft.save() : undefined}
+            onRerun={disabled ? undefined : rerunWithConfirm}
             busy={busy}
             rerunBusy={jobs.rerunBusy}
-            overrideContext={overrideContext}
+            overrideContext={disabled ? undefined : overrideContext}
           />
+          {overrideError && !disabled && (
+            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-sm text-destructive">{overrideError}</p>
+            </div>
+          )}
           <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
             <Button
               variant="outline"
@@ -357,6 +384,13 @@ export default function AdminFacts() {
 
   const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Stale-fact refresh: the selected fact's version history + in-flight cycle
+  // (drives the send-back button state and the live-editor freeze notice).
+  const [versionInfo, setVersionInfo] = useState<EnrichmentVersionInfo | null>(null);
+  const [versionInfoLoading, setVersionInfoLoading] = useState(false);
+  const [sendBackModal, setSendBackModal] = useState(false);
+  const [sendingBack, setSendingBack] = useState(false);
 
   // Image pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -584,6 +618,67 @@ export default function AdminFacts() {
     }
   }
 
+  // ── Stale-fact refresh: version info + send-back ────────────────────────────
+
+  const loadVersionInfo = useCallback(async (factId: number) => {
+    setVersionInfoLoading(true);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/enrichment-versions`, { credentials: "include" });
+      if (res.ok && selectedFactRef.current?.id === factId) {
+        setVersionInfo((await res.json()) as EnrichmentVersionInfo);
+      }
+    } catch {
+      /* best-effort; the panel just shows no history */
+    } finally {
+      setVersionInfoLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setVersionInfo(null);
+    setSendBackModal(false);
+    if (selectedFact?.id != null) void loadVersionInfo(selectedFact.id);
+    // Refetch only when the SELECTED FACT changes — mutations refetch explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFact?.id, loadVersionInfo]);
+
+  async function sendBackToReview(clearOverrides: boolean) {
+    if (!selectedFact) return;
+    const factId = selectedFact.id;
+    setSendingBack(true);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/send-back-to-review`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearOverrides }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean; reviewId?: number; error?: string; code?: string;
+      };
+      if (res.ok) {
+        setSendBackModal(false);
+        setSaveResult({
+          type: "success",
+          message: `Sent back to review — Review #${data.reviewId} is preparing a refresh candidate. The fact stays live; approve or reject the refresh from the Moderation queue.`,
+        });
+        // The send-back flips the live pill to "classifying…" — mirror it locally.
+        setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
+        setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
+      } else {
+        setSendBackModal(false);
+        setSaveResult({ type: "error", message: data.error ?? `Send back failed (${res.status})` });
+      }
+      // Either way the in-flight state may have changed (success, or a
+      // REFRESH_ALREADY_IN_PROGRESS race) — refetch so the button/notice track it.
+      void loadVersionInfo(factId);
+    } catch {
+      setSaveResult({ type: "error", message: "Network error — could not reach the server." });
+    } finally {
+      setSendingBack(false);
+    }
+  }
+
   async function handleImport() {
     setImporting(true);
     setImportResult(null);
@@ -664,6 +759,17 @@ export default function AdminFacts() {
 
   return (
     <AdminLayout title="Facts Management">
+      {/* Send Back to Review (stale-fact refresh) confirm modal */}
+      {sendBackModal && selectedFact && (
+        <SendBackToReviewModal
+          factId={selectedFact.id}
+          factText={selectedFact.text}
+          busy={sendingBack}
+          onCancel={() => setSendBackModal(false)}
+          onConfirm={(clearOverrides) => void sendBackToReview(clearOverrides)}
+        />
+      )}
+
       {/* Delete Modal */}
       {deleteModal && selectedFact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -1199,12 +1305,37 @@ export default function AdminFacts() {
                 Edit + autosave the metadata, regenerate the visual preview, or
                 re-run classification to tune a fact rendering bad images/videos.
                 Collapsible; starts closed. */}
+            {/* Refresh in review: the live enrichment is frozen (server-enforced);
+                the notice + disabled editor make that visible instead of 409s. */}
+            {versionInfo?.inFlight && (
+              <div
+                className="flex items-start gap-2 rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-2.5"
+                data-testid="refresh-in-flight-notice"
+              >
+                <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  <strong>Refresh in review</strong> — this fact's enrichment is frozen while review
+                  {versionInfo.inFlight.reviewId != null ? ` #${versionInfo.inFlight.reviewId}` : ""} is in progress.
+                  Edit the refresh candidate from the{" "}
+                  <a href="/admin/moderation" className="underline hover:opacity-80">Moderation queue</a>, or approve/reject
+                  it there to unfreeze this editor. The live fact keeps serving its current enrichment meanwhile.
+                </p>
+              </div>
+            )}
+
             <div className="border-t border-border pt-3">
               <FactEnrichmentPanel
                 key={selectedFact.id}
                 fact={selectedFact}
                 onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
+                disabled={Boolean(versionInfo?.inFlight)}
+                disabledReason="Read-only: a refresh is in review for this fact. Edit the candidate from the Moderation queue."
               />
+            </div>
+
+            {/* Enrichment version history (read-only; stale-fact refresh) */}
+            <div className="border-t border-border pt-3">
+              <FactEnrichmentVersionHistory info={versionInfo} loading={versionInfoLoading} />
             </div>
 
             {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL render-time
@@ -1252,6 +1383,26 @@ export default function AdminFacts() {
                 Cancel
               </Button>
             </div>
+
+            {/* Send back to review (stale-fact refresh) — live facts only. */}
+            {selectedFact.isActive && (
+              <div className="border-t border-border pt-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setSendBackModal(true)}
+                  disabled={Boolean(versionInfo?.inFlight) || versionInfoLoading}
+                  className="w-full text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/10 hover:border-blue-500/60 gap-2"
+                  data-testid="send-back-button"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {versionInfo?.inFlight ? "Refresh in review" : "Send Back to Review"}
+                </Button>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Re-runs enrichment with the current pipeline as a refresh candidate for moderator approval. The fact
+                  stays live throughout.
+                </p>
+              </div>
+            )}
 
             <div className="border-t border-border pt-3">
               <Button
