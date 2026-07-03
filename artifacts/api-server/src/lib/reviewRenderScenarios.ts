@@ -53,8 +53,7 @@ import {
   buildRenderStatusPayload,
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
-import { resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
-import { RUNTIME_PREVIEW_DEFAULT_NAME, RUNTIME_PREVIEW_DEFAULT_PRONOUNS } from "./imagePrompt/preview";
+import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -113,15 +112,19 @@ function computeScenarioInputHash(
   const referenceAssetVersion = referenceIdentityType
     ? (DEFAULT_REFERENCE_ASSET_VERSION[referenceIdentityType] ?? "1")
     : null;
+  const renderControls = defaultScenarioRenderControls(scenarioKey);
+  // Hash the SAME sampled subject the render path resolves (gender-matched name
+  // + pronouns), or staleness/idempotency compares against text no render uses.
+  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
   return buildScenarioInputHash({
     stagingFactId,
     scenarioKey,
     subjectRenderMode: mode,
-    renderedFactText: renderPersonalized(factText, RUNTIME_PREVIEW_DEFAULT_NAME, RUNTIME_PREVIEW_DEFAULT_PRONOUNS),
+    renderedFactText: renderPersonalized(factText, subject.name, subject.pronouns),
     enrichment,
     referenceIdentityType,
     referenceAssetVersion,
-    renderControls: defaultScenarioRenderControls(scenarioKey),
+    renderControls,
     lookStyleId: null,
     styleSuffixVersion: null,
     identityPolicy: defaultIdentityPolicyForRenderMode(mode),
@@ -189,6 +192,8 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
   const desc = RENDER_SCENARIO_DESCRIPTORS[args.scenarioKey];
   const mode = desc.subjectRenderMode;
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment);
+  const renderControls = defaultScenarioRenderControls(args.scenarioKey);
+  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
     .values({
@@ -202,12 +207,12 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
       sourceImageAnalysis: syntheticAnalysisForReference(desc.referenceIdentityType as ReferenceIdentityType),
       identityPolicy: defaultIdentityPolicyForRenderMode(mode),
       renderControls: {
-        ...defaultScenarioRenderControls(args.scenarioKey),
+        ...renderControls,
         mirrorToLegacyStorage: false,
         reviewAudit: { reviewId: args.reviewId, adminUserId: args.adminUserId },
       } satisfies RenderControlsWithRefs,
       factEnrichmentSnapshot: args.enrichment,
-      renderedFactText: renderPersonalized(args.factText, RUNTIME_PREVIEW_DEFAULT_NAME, RUNTIME_PREVIEW_DEFAULT_PRONOUNS),
+      renderedFactText: renderPersonalized(args.factText, subject.name, subject.pronouns),
       archetypeStrategyVersion: "v2",
       error: errorMessage,
       reviewId: args.reviewId,
