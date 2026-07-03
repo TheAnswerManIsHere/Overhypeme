@@ -222,26 +222,52 @@ export async function runEnrichmentForFact(
     visualPromptStrategyOverride,
   });
 
-  await db
-    .update(factsTable)
-    .set({ ...columns, enrichmentStatus: "ok" })
-    .where(eq(factsTable.id, factId));
-
-  if (newlyChanged.length > 0) {
-    await recordOverrideHistory(
-      newlyChanged.map((path) => ({
-        factId,
-        path,
-        action: "baseline_reenriched" as const,
-        oldValue: overrides[path]?.overriddenFrom ?? null,
-        newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
-        aiGenerationId: freshAiDerived.aiGenerationId ?? null,
-      })),
-    );
-  }
+  // Transactional RE-check before the write (mirrors the candidate job's
+  // phase 3): the pre-classify guard can't cover state that changed DURING the
+  // LLM call — most importantly a send-back committing mid-classify, which
+  // must freeze facts.* for its refresh cycle. The fact row lock serializes
+  // with sendFactBackToReview (which locks the fact first), so the recheck
+  // either sees the new candidate (→ discard this stale result) or the
+  // send-back waits and seeds its candidate from the freshly-written active.
+  const wrote = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: factsTable.id })
+      .from(factsTable)
+      .where(eq(factsTable.id, factId))
+      .for("update")
+      .limit(1);
+    if (!locked) return false;
+    const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
+    if (recheck.action === "skip") {
+      logger.info(
+        { factId, reason: recheck.reason },
+        "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
+      );
+      return false;
+    }
+    await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, factId));
+    if (newlyChanged.length > 0) {
+      await recordOverrideHistory(
+        newlyChanged.map((path) => ({
+          factId,
+          path,
+          action: "baseline_reenriched" as const,
+          oldValue: overrides[path]?.overriddenFrom ?? null,
+          newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
+          aiGenerationId: freshAiDerived.aiGenerationId ?? null,
+        })),
+        tx,
+      );
+    }
+    return true;
+  });
+  if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
 
   // Advance a linked staging review prep_pending → production_review. No-op for
-  // live-fact re-enrich (no linked review).
+  // live-fact re-enrich (no linked review) and refused for refresh cycles.
   await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
 
   return { ok: true };

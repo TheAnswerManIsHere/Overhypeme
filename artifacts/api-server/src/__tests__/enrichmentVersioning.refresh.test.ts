@@ -930,6 +930,40 @@ describe("generic fact-enrichment guards", () => {
     assert.ok(cand2.enrichment, "candidate filled by its own job");
   });
 
+  it("RACE (mid-classify): a send-back landing DURING a live re-enrich discards the stale result", async () => {
+    const fact = await seedActiveFact();
+    let raceCycle: { reviewId: number; candidateVersionId: number } | null = null;
+
+    // The generic job passes its pre-classify guard (no cycle yet), then the
+    // send-back commits WHILE the "LLM call" is in flight.
+    const result = await runEnrichmentForFact(fact.id, {
+      classify: async () => {
+        raceCycle = await sendFactBackToReview({ factId: fact.id, adminId });
+        return REFRESHED_AI_BASELINE;
+      },
+    });
+    assert.equal(result.ok, true, "retires as a successful no-op");
+    assert.ok(raceCycle, "the send-back succeeded mid-classify");
+
+    // The stale classification was DISCARDED at the transactional recheck.
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.deepEqual(f.enrichment, fact.enrichment, "live facts.* untouched by the stale result");
+    assert.deepEqual(f.enrichmentAiDerived, fact.enrichmentAiDerived);
+    assert.equal(f.enrichmentStatus, "pending", "the refresh cycle owns the pill now");
+
+    // The refresh cycle proceeds normally from here.
+    const { reviewId, candidateVersionId } = raceCycle!;
+    const [rev] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(rev.workflowStage, "prep_pending", "the cycle was not advanced by the generic outcome");
+    const candResult = await runEnrichmentForCandidateVersion(candidateVersionId, {
+      classify: async () => REFRESHED_AI_BASELINE,
+    });
+    assert.equal(candResult.ok, true);
+    const [cand] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    assert.ok(cand.enrichment, "candidate filled by its own job");
+  });
+
   it("abandoned first-time staging facts still skip late enrichment and pexels retries", async () => {
     const [staging] = await db.insert(factsTable)
       .values({ text: "{NAME} abandoned staging", submittedById: submitterId, isActive: false })
