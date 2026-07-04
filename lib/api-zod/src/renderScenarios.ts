@@ -174,6 +174,14 @@ export interface RenderScenarioCard {
   message: string | null;
   /** Only set for the non-human scenarios: why it was included / skipped. */
   applicability: NonHumanApplicability | null;
+  // Eval harness (Slice 2B): the moderator's opportunistic verdict on the latest
+  // attempt, so the Step-2 tile can render the rating control + chips. Null when
+  // unrated (or no attempt). Optional so pre-eval card constructors still satisfy
+  // the type; the server (buildCard) always populates them. These moderation
+  // ratings are "directional only" in the dashboard — only eval-run rows are A/B.
+  moderatorRating?: number | null;
+  failureTag?: string | null;
+  evalNotes?: string | null;
 }
 
 export interface RenderScenarioGrid {

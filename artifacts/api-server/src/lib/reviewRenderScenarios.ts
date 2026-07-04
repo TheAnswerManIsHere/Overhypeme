@@ -63,7 +63,7 @@ export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Canonical default render controls (must match enqueue + hash + grid) ────
 
-function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
+export function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
   aspectRatio: string;
   contentMode: ContentMode;
   fallbackSubjectGender: FallbackSubjectGender | null;
@@ -92,7 +92,7 @@ function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
 }
 
 /** Synthetic analysis for a KNOWN default reference — avoids a network analyze call. */
-function syntheticAnalysisForReference(identityType: ReferenceIdentityType): SourceImageAnalysis {
+export function syntheticAnalysisForReference(identityType: ReferenceIdentityType): SourceImageAnalysis {
   const isHuman = identityType === "male" || identityType === "female";
   const subjectKind = isHuman
     ? "human_face"
@@ -451,6 +451,9 @@ async function buildCard(
   let message: string | null = null;
   let latestAttemptId: number | null = null;
   let imageUrl: string | null = null;
+  let moderatorRating: number | null = null;
+  let failureTag: string | null = null;
+  let evalNotes: string | null = null;
 
   if (!attempt) {
     // No attempt: a non-applicable optional (non-human, not autoRun) is "skipped"; else "missing".
@@ -462,6 +465,9 @@ async function buildCard(
     imageUrl = imageUrlForAttempt(reviewId, attempt, status);
     if (status === "failed") message = attempt.error;
     else if (status === "blocked") message = buildRenderStatusPayload(attempt).blockReason;
+    moderatorRating = attempt.moderatorRating ?? null;
+    failureTag = attempt.failureTag ?? null;
+    evalNotes = attempt.evalNotes ?? null;
   }
 
   return {
@@ -476,6 +482,9 @@ async function buildCard(
     imageUrl,
     message,
     applicability,
+    moderatorRating,
+    failureTag,
+    evalNotes,
   };
 }
 

@@ -121,6 +121,14 @@ export const factsTable = pgTable("facts", {
    * reprocess in Taxonomy Health.
    */
   lastProcessedSignature: jsonb("last_processed_signature"),
+  /**
+   * Eval harness (Slice 2B): part of the GOLDEN SET — a curated set of stable
+   * active facts rendered by every eval run for regression comparison. Toggled
+   * by admins on active facts only. `eval_golden_reason` records why it's a
+   * good regression case.
+   */
+  evalGolden: boolean("eval_golden").notNull().default(false),
+  evalGoldenReason: text("eval_golden_reason"),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -129,6 +137,8 @@ export const factsTable = pgTable("facts", {
   index("facts_parent_id_idx").on(table.parentId),
   index("facts_primary_archetype_idx").on(table.primaryArchetype),
   index("facts_adult_suitability_idx").on(table.adultSuitability),
+  // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
+  // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });
