@@ -4,7 +4,8 @@
 > agent's memory, **this file wins** (and if it's wrong, fix it here). For the
 > *why/priorities* see [`product-direction.md`](./product-direction.md) and
 > [`current-roadmap.md`](./current-roadmap.md); for *how it's built* see
-> [`architecture-map.md`](./architecture-map.md).
+> [`architecture-map.md`](./architecture-map.md); for term definitions see the
+> [`glossary.md`](./glossary.md).
 
 ## Product in one paragraph
 

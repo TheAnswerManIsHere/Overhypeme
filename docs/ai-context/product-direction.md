@@ -86,6 +86,9 @@ energy now):**
 
 ## Decisions agents should not reverse without David
 
+*(The **why/when** behind each is in the [decision log](./decisions.md) — read it
+before proposing to reverse one.)*
+
 - The Visual Concept as the authoritative scene; the planner/compiler split.
 - The no-blanket-text-ban policy.
 - Staged/cost-gated moderation (no paid work pre-triage).

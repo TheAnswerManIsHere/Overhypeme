@@ -24,6 +24,8 @@ Start with:
 - [`docs/ai-context/product-brief.md`](docs/ai-context/product-brief.md)
 - [`docs/ai-context/architecture-map.md`](docs/ai-context/architecture-map.md)
 - [`docs/ai-context/current-roadmap.md`](docs/ai-context/current-roadmap.md)
+- [`docs/ai-context/glossary.md`](docs/ai-context/glossary.md) — term lookup
+- [`docs/ai-context/decisions.md`](docs/ai-context/decisions.md) — why settled decisions are settled
 
 For **visual pipeline** work, also read:
 
