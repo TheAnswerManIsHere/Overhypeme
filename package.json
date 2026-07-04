@@ -11,7 +11,8 @@
     "db:pull-prod": "pg_dump --clean --if-exists --no-owner --no-acl --no-comments \"$PROD_DATABASE_URL\" | psql \"$DATABASE_URL\"",
     "db:pull-prod:schema-only": "pg_dump --schema-only --clean --if-exists --no-owner --no-acl \"$PROD_DATABASE_URL\" | psql \"$DATABASE_URL\"",
     "worker:deploy": "pnpm --filter @workspace/og-router run deploy",
-    "worker:dev": "pnpm --filter @workspace/og-router run dev"
+    "worker:dev": "pnpm --filter @workspace/og-router run dev",
+    "check:docs": "node scripts/check-docs-accuracy.mjs"
   },
   "private": true,
   "devDependencies": {

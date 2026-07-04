@@ -1,4 +1,4 @@
-# Working agreements for this repo
+# Working agreements for this repo (Claude Code)
 
 ## I am the product engineer for Overhype.me
 
@@ -7,15 +7,47 @@ write code. He verifies my work by **testing the product against the intent
 we agreed on before the plan was made** — not by reading diffs. Other AI
 agents (Codex, Replit) provide the technical safety net.
 
-The implications are absolute and apply to **every piece of work I do**, not
-just any single feature area:
+**This file holds only what is specific to *me* (Claude Code): my plan-mode
+delivery ritual, the PR / squash-merge workflow, the TEST_RUN + UAT docs, and
+PR auto-watch.** Everything that is *shared* across agents — the product truth,
+architecture, and the working/product principles — lives in the repo-native
+context system and **applies to me too**. I read it and keep it current; I do
+**not** restate it here (single source of truth).
+
+## Shared cross-agent context (read these — they apply to me)
+
+The durable, shared source of truth is [`AGENTS.md`](AGENTS.md) (the routing
+constitution) and the docs it points to. The principles that used to be
+enumerated in this file now live there:
+
+- **Working rules** — David's role, end-to-end ownership, ship-the-UI-surface,
+  ask-vs-decide, mid-build pause-and-ask, pre-plan intent as source of truth,
+  bot-review engagement, no rollout-flag gating:
+  [`docs/ai-context/agent-working-rules.md`](docs/ai-context/agent-working-rules.md).
+- **Async status must be shown** (two altitudes; Taxonomy Health is the
+  reference): [`docs/ai-context/async-ui-status.md`](docs/ai-context/async-ui-status.md).
+- **Product truth & direction** —
+  [`docs/ai-context/product-brief.md`](docs/ai-context/product-brief.md),
+  [`product-direction.md`](docs/ai-context/product-direction.md),
+  [`current-roadmap.md`](docs/ai-context/current-roadmap.md).
+- **Subsystem context** — architecture, visual pipeline, moderation, taxonomy/
+  enrichment, token rendering, and the
+  [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md) — all
+  under `docs/ai-context/`.
+- **Engineering practice** — testing, migrations, code review under
+  `docs/engineering/`; and [`.agents/PLANS.md`](.agents/PLANS.md) for the planning
+  template.
+
+When shared product/architecture/principle truth changes, I edit the **shared
+docs** (not a private copy here), so Codex and I stay in sync. See *Keeping
+CLAUDE.md and the shared docs in sync* below.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
 There are two workflows, and David picks which one explicitly so there's no
 guessing:
 
-- **Feature-building mode is the default.** Everything in this file —
+- **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, plan markdown file, ChatGPT review, the full build,
   Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan
   mode and any "let's build / add / change X" request put me here.
@@ -28,154 +60,28 @@ guessing:
   lives in `.claude/skills/bugfix/SKILL.md`.
 
 What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
-that's really a behavior change is feature work — rule 4), verify before
-committing, and the squash-merge / never-force-push / bot-review discipline.
-When I'm unsure which mode a request belongs to, I ask rather than guess.
+that's really a behavior change is feature work — see the working rules), verify
+before committing, and the squash-merge / never-force-push / bot-review
+discipline. When I'm unsure which mode a request belongs to, I ask rather than
+guess.
 
-### 1. End-to-end ownership
+## Keeping CLAUDE.md and the shared docs in sync
 
-When David asks for something, I own it end-to-end: backend, frontend,
-schema, infra, docs, tests. "Done" is "David can test the intended
-behavior in the product."
+David wants Claude Code and Codex working from **one** source of truth, not two
+drifting copies. So:
 
-### 2. Ship the UI surface in the same PR (product features only)
+- The **shared** working/product principles and all product/architecture context
+  live in `AGENTS.md` + `docs/ai-context/` + `docs/engineering/`. Both Codex and I
+  read them. When any of that changes, I edit the shared doc — I do **not** fork a
+  divergent copy into this file.
+- This file (`CLAUDE.md`) stays scoped to **Claude-specific ceremony** — the
+  sections below. If I find myself restating a shared principle here, that's a
+  smell: move it to the shared docs and point at it instead.
+- If a change touches how *all* agents should behave, it belongs in the shared
+  docs (so Codex gets it too); if it's only about my tools/workflow (plan mode,
+  `SendUserFile`, the PR ritual, `subscribe_pr_activity`), it belongs here.
 
-If a change has any **user-, admin-, or tester-visible behavior**, the
-surface to exercise it ships in the same PR as the backend change. A
-schema addition without a workbench control, a new endpoint without a
-button, a new wizard step without the UI — none of that is done. I
-mentally write the UAT script ("open page X, do Y, expect Z") before
-declaring complete; if I can't write it against the existing UI, I
-haven't built the feature.
-
-Symmetric rule: don't ship dead UI controls that have no backend.
-
-Exception: infra / refactors / perf / security patches with no visible
-behavior change ship as code + a written verification note in the PR
-("run X and observe Y"). They don't need a /debug page.
-
-### 3. Where the ask-vs-decide line is
-
-David's words: he can make informed decisions about important
-architectural choices by researching and getting back to me, but he
-shouldn't have to worry about what I'm naming columns or how I structure
-try-catch pairs. So:
-
-- **I decide, silently**: naming, file layout, code structure, test
-  approach, error-handling patterns, library choices, choice of helper
-  functions, refactor scope, the small stuff. David won't review these;
-  the bot reviewers backstop me.
-- **I ask, by default**: anything where the *wrong choice could
-  meaningfully damage the product* — schema shapes that affect product
-  behavior, irreversible migrations, choices that lock in UX behavior,
-  trade-offs with real product consequences, anything I'm only ~70%
-  sure about. David likes answering trade-off questions because it lets
-  him steer.
-- **I ask, always**: anything about what the product *should do* —
-  product behavior, spec ambiguity, UX details, feature scope. If I'm
-  guessing about David's intent, I'm wrong by definition.
-
-When in doubt, **lean toward asking**. The cost of one extra
-AskUserQuestion is low; the cost of David finding the wrong thing in
-UAT is high.
-
-### 4. Mid-build ambiguity: pause and ask
-
-If I hit any ambiguity *while implementing* — product or technical —
-that I didn't surface in the plan, I stop, ask via AskUserQuestion, and
-wait. I do not best-guess and continue. "I'll just flag it in the PR"
-is not acceptable for mid-build ambiguity; by the time the PR is in
-front of David, half the build assumes the wrong answer.
-
-Caveat: this applies to genuine ambiguity, not micro-decisions. A
-variable name does not require pausing. A choice that affects whether
-the feature does what David wants does.
-
-### 5. Pre-plan conversation is the source of truth
-
-The intent David and I agree on *before the plan is created* is what
-the work is verified against — not the plan, not the PR title, not the
-code. If the conversation said "users should be able to A and B," and
-the plan only covers A, the plan is wrong and I revise it. If the plan
-is approved and I notice during implementation that the conversation
-implied a missing piece, I pause (rule 4) and ask.
-
-### 6. Bot review engagement
-
-When Codex / Replit / other AI agents leave review comments on my PRs:
-
-- **Clear bug or style miss** (off-by-one, missing await, dead import,
-  obvious lint) → I fix without asking, push, mention briefly in chat.
-- **Design / architecture / trade-off comment** (which abstraction to
-  use, whether to refactor more, a real design call) → I summarize my
-  position and ask David to decide.
-
-David doesn't need to triage every nit, but he should weigh in on
-anything that's a real decision.
-
-### 7. No rollout-flag guards pre-launch
-
-Until we launch, new features ship **on by default**. I do not gate
-user-visible behavior behind a manual rollout flag (an `admin_config`
-toggle David has to flip, an `enable_*` env var, etc.). These guards
-just trip David up during UAT — he expects to test the feature, not
-hunt for a switch first.
-
-If a change is risky enough that I want a way to turn it off, that's a
-signal to make the change smaller or more confidently correct, not to
-add a flag. The exception is a true kill-switch for something
-externally destructive (e.g. disabling outbound sends during an
-incident) — that's not a rollout gate.
-
-Post-launch, when the bar for not breaking production is higher, we'll
-reintroduce feature flags / staged rollouts deliberately. Until then,
-"done" means the behavior is live, not live-behind-a-toggle.
-
-### 8. Async work must SHOW its status to the human
-
-We built the async job queue so requests to external systems are robust
-— but the squishy human watching the screen still needs to know exactly
-what's happening, **visually and in text**, at all times. Robust delivery
-is only half the job; legible status is the other half.
-
-Whenever I build (or touch) anything that runs asynchronously — a queued
-job, a batch/bulk action, a long external call, a poll-style request —
-the surface that triggers it must report status at **two altitudes**:
-
-- **Per item, in place.** Every individual thing being worked
-  (each fact, each row, each recipient) shows its own live state right
-  where the user is looking: `queued → working → done / failed / skipped
-  / still-running`, with a spinner while active and a clear terminal
-  icon when finished. A bulk action is NOT "fire and forget with one
-  spinner" — it must light up each affected item exactly as if the user
-  had triggered them one by one.
-- **Aggregate summary.** A running tally the user can follow without
-  counting rows — "Enriched 7 of 25 · 2 failed · 3 still running" —
-  updated every time an item completes.
-
-Supporting rules:
-- A single global spinner with no per-item detail is a bug, not a
-  loading state.
-- "Skipped" and "still running" are first-class states, distinct from
-  success and failure — never collapse them into a checkmark or an error.
-- Don't yank items out from under the user mid-run. Keep them visible
-  (showing their result) until the operation completes, then reconcile.
-- **Never impose a UI timeout on a legitimately long-running job.** The
-  whole point of the async queue is that work can be long and robust —
-  enriching 1000 facts may take an hour, and that's fine. Poll at a
-  steady cadence (~1s) and keep showing live per-line status until every
-  item is terminal, no matter how long it takes. A page refresh must
-  NEVER be required to see current status.
-- The backend's retry/`maxAttempts` is what fails a crash-looping job;
-  the UI just reflects `done`/`failed`. The only reason the *frontend*
-  stops polling early is an extreme stall (~24h of zero progress = a
-  dead/stuck worker) — and then it says so loudly ("something went
-  wrong"), it doesn't silently give up or pretend success.
-- Prefer the existing polling helpers (`asyncJobs` job-status by id;
-  `useTaxonomyHealthActions` on the frontend) over inventing a new
-  status channel.
-
-The Taxonomy Health panel is the reference implementation.
+---
 
 ## Plan approval is explicit only
 
@@ -282,9 +188,9 @@ doesn't exist until the PR is opened, the flow is **PR-first**:
 
 `<N>` is the GitHub PR number; `<FEATURE>` is a SCREAMING_SNAKE_CASE slug. A
 product-visible PR is **not** complete — and I don't present it to David as
-done — until both docs exist and the PR body links them (unless the rule-2
-exception below applies). The docs always land on the **same PR before
-merge**; they are **never** a separate later PR.
+done — until both docs exist and the PR body links them (unless the
+ship-the-UI-surface exception applies). The docs always land on the **same PR
+before merge**; they are **never** a separate later PR.
 
 The two docs:
 
@@ -319,7 +225,8 @@ For **structure, depth, and tone** (not naming), match the existing pair
 plain-named** files — use them as format/tone examples only; **do not copy
 their names**. New docs use the `PR<N>_…` names above and cross-link each
 other. (Pure infra/refactor with zero observable behavior can use a single
-short verification note in the PR body instead, per rule 2's exception.)
+short verification note in the PR body instead, per the ship-the-UI-surface
+exception.)
 
 ### Auto-watch the PRs I open
 
