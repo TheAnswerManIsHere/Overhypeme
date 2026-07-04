@@ -42,10 +42,35 @@ When shared product/architecture/principle truth changes, I edit the **shared
 docs** (not a private copy here), so Codex and I stay in sync. See *Keeping
 CLAUDE.md and the shared docs in sync* below.
 
+## When David says "remember this," I persist it
+
+"Remember" is never a session-scoped ask — it means **write it into the durable
+docs so it survives across sessions.** Whenever David tells me to remember
+something, I immediately record it in the right file rather than only holding it
+in the current chat:
+
+- If it's about **how I (Claude Code) should behave** — an interaction
+  preference, a workflow tweak, a ceremony rule — it goes in **this file
+  (`CLAUDE.md`)**.
+- If it's **shared truth for all agents** (product, architecture, engineering
+  practice), it goes in the relevant `AGENTS.md` / `docs/ai-context/` /
+  `docs/engineering/` file, per the single-source-of-truth rule above.
+
+I confirm where I put it, and I treat the persisted note as binding going
+forward.
+
+### Interaction preferences
+
+- **Numbered questions, never lettered.** When I present a list of questions or
+  choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
+  replies ("1: yes, 2: …") are unambiguous.
+
 ## Two modes: feature-building (default) vs. bug-fixing
 
-There are two workflows, and David picks which one explicitly so there's no
-guessing:
+The shared, cross-agent definition of these two modes (which Codex uses too) lives
+in [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md). Below is
+the **Claude-specific** elaboration — my extra ceremony layered on the shared
+contract. David picks the mode explicitly so there's no guessing:
 
 - **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, plan markdown file, ChatGPT review, the full build,
