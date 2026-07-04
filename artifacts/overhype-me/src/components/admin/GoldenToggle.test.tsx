@@ -8,7 +8,8 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { GoldenToggle } from "./GoldenToggle";
 
 function mockFetch(ok = true) {
-  const fn = vi.fn(async () => ({ ok, json: async () => ({ success: true }) }) as unknown as Response);
+  const fn = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) =>
+    ({ ok, json: async () => ({ success: true }) }) as unknown as Response);
   vi.stubGlobal("fetch", fn);
   return fn;
 }
