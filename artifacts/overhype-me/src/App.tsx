@@ -26,6 +26,7 @@ const AdminBilling = lazy(() => import("@/pages/admin/billing"));
 const AdminRefundsDisputes = lazy(() => import("@/pages/admin/refundsDisputes"));
 const AdminAffiliate = lazy(() => import("@/pages/admin/affiliate"));
 const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
+const AdminEvalDashboard = lazy(() => import("@/pages/admin/evalDashboard"));
 const AdminVideoStyles = lazy(() => import("@/pages/admin/videoStyles"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
 const AdminEngines = lazy(() => import("@/pages/admin/engines"));
@@ -377,6 +378,7 @@ function Router() {
         <Route path="/admin/billing" component={AdminBilling} />
         <Route path="/admin/refunds-disputes" component={AdminRefundsDisputes} />
         <Route path="/admin/moderation" component={AdminModeration} />
+        <Route path="/admin/eval" component={AdminEvalDashboard} />
         <Route path="/admin/comments"><AdminModerationRedirect /></Route>
         <Route path="/admin/reviews"><AdminModerationRedirect /></Route>
         <Route path="/admin/affiliate" component={AdminAffiliate} />

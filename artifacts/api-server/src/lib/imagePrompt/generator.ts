@@ -21,6 +21,7 @@ import {
   VISUAL_STRATEGY_VERSION,
   getVisualPromptStrategy,
   getSubtypeGuidance,
+  isRetiredTextModifier,
   type ImagePromptGenerationInput,
   type PlanExpectations,
   type FactSubtype,
@@ -373,6 +374,16 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
 }
 
 /**
+ * Modifiers the frontier planner is allowed to see. Drops the retired text/logo
+ * suppression flags (RETIRED_TEXT_MODIFIERS) so a stored legacy value can't bias
+ * a fresh plan toward suppressing intentional in-scene text. Non-mutating; every
+ * other known/custom modifier is preserved as planner context.
+ */
+function plannerVisibleModifiers(modifiers: readonly string[]): string[] {
+  return modifiers.filter((m) => !isRetiredTextModifier(m));
+}
+
+/**
  * Build the ordered CONTEXT lines (everything between the intro and the OUTPUT
  * CONTRACT) for the image-prompt generator, gated by per-block include flags.
  * Behavior-preserving: the planner passes PLANNER_CONTEXT_OPTS so the emitted
@@ -471,7 +482,7 @@ export function buildImagePromptContextBlocks(
       "TAXONOMY (FIXED — DO NOT reclassify):",
       `- primaryArchetype: ${e.primaryArchetype}`,
       `- subtype: ${e.subtype}`,
-      `- modifiers: ${e.modifiers.join(", ") || "(none)"}`,
+      `- modifiers: ${plannerVisibleModifiers(e.modifiers).join(", ") || "(none)"}`,
       `- visualLiteralness: ${e.visualLiteralness}`,
       `- visualComplexity: ${e.visualComplexity}`,
       `- overhypeFit: ${e.overhypeFit}`,

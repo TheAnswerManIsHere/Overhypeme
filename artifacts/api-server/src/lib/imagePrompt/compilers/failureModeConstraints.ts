@@ -1,9 +1,11 @@
 /**
  * Reusable failure-mode NEGATIVE constraints for the Nano Banana 2 compiler.
  *
- * These complement the POSITIVE `modifierDirectives` ("do X") with conservative
- * "do not / keep" guards that block the predictable rendering mistakes for a
- * fact's role/action shape. Everything is keyed off normalized data we already
+ * These are conservative "do not / keep" guards that block the predictable
+ * rendering mistakes for a fact's role/action shape. They are the surviving
+ * structural consumer of `enrichment.modifiers` in the compiler (the positive
+ * modifier→prose channel was retired); everything is keyed off normalized data
+ * we already
  * store — the selected frame, fact modifiers, and the presence of secondary
  * characters — NEVER off raw fact text. The compiler folds the result into
  * STRICT CONSTRAINTS and de-dupes it against the rest of the prompt, so a line

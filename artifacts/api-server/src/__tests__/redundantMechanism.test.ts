@@ -26,7 +26,6 @@ import {
   type PrimaryArchetype,
 } from "@workspace/api-zod";
 import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
-import { modifierDirectives } from "../lib/imagePrompt/modifierDirectives.js";
 import { repairRedundantMechanismMisclassification } from "../lib/factEnrichment.js";
 import { FACT_ENRICHMENT_SYSTEM_DEFAULT } from "../lib/factEnrichmentConfig.js";
 
@@ -180,12 +179,6 @@ describe("superhuman strategy steers the redundant-mechanism render", () => {
     assert.doesNotMatch(blob, /time paradox/i);
   });
 
-  it("the modifier directive stages the throw as the force and keeps the mechanism redundant", () => {
-    const out = modifierDirectives(["normal_function_rendered_unnecessary"]).join(" ");
-    assert.equal(modifierDirectives(["normal_function_rendered_unnecessary"]).length, 1);
-    assert.match(out, /intact|unused|delayed|secondary|redundant/i);
-    assert.doesNotMatch(out, /explosion.*before.*throw/i);
-  });
 });
 
 // ─── Part 6 Test E: no automatic violence/gore self-censoring ───────────────
@@ -259,12 +252,20 @@ describe("classifier system prompt encodes the redundant-mechanism rule", () => 
     );
   });
 
-  it("no longer advertises the retired violence-softening modifiers", () => {
+  it("no longer advertises the retired violence-softening or text/logo modifiers", () => {
     assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /avoid_gore/);
     assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /non_graphic_action/);
     assert.equal(isKnownModifier("avoid_gore"), false);
     assert.equal(isKnownModifier("non_graphic_action"), false);
+    // The retired text/brand suppression modifiers are gone from the catalog
+    // and the classifier prompt (they contradicted intentional in-scene text).
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /no_readable_text/);
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /avoid_real_logos/);
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /avoid_readable_ui/);
+    assert.equal(isKnownModifier("no_readable_text"), false);
+    assert.equal(isKnownModifier("avoid_real_logos"), false);
+    assert.equal(isKnownModifier("avoid_readable_ui"), false);
     // The classifier-prompt contract changed → version bumped.
-    assert.equal(CLASSIFICATION_PROMPT_VERSION, "v5");
+    assert.equal(CLASSIFICATION_PROMPT_VERSION, "v6");
   });
 });

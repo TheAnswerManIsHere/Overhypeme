@@ -39,7 +39,12 @@ import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 // non-subject person/animal/crowd) so the compiler can emit a deterministic
 // REFERENCE INTERPRETATION section binding the subject's role + each secondary
 // character's role, and reusable failure-mode role/action constraints.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v4";
+// v5: removed the modifier→prompt-prose injection channel (modifiers are now
+// planner context only); added the always-on incidental-text guard and
+// content-word key-element gap-fill; generalized age-transform SUBJECT BINDING
+// to non-human/t2i renders. Compiled output changes for identical inputs, so
+// existing test renders correctly flag stale.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v5";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
   type RenderScenarioKey,
   type RenderScenarioStatus,
 } from "@workspace/api-zod";
+import { AttemptEvalControl } from "./AttemptEvalControl";
 
 /**
  * One scenario card in the Step-2 visual-review grid (rule 8: per-item, in-place
@@ -417,6 +418,27 @@ export function FactRenderScenarioTile({
       {/* Lazy diagnostics (frozen prompt) — only when there is a real attempt. */}
       {card.latestAttemptId != null && (
         <ScenarioDiagnostics reviewId={reviewId} scenarioKey={card.key} attemptId={card.latestAttemptId} />
+      )}
+
+      {/* Eval (Slice 2B): rate this render + attribute a failure. Opportunistic —
+          "directional only" until it's rendered under a controlled eval run. */}
+      {card.latestAttemptId != null && (
+        <div className="pt-1.5 border-t border-border/60" data-testid="tile-eval">
+          <AttemptEvalControl
+            rating={card.moderatorRating}
+            failureTag={card.failureTag}
+            notes={card.evalNotes}
+            onSave={async (body) => {
+              const r = await fetch(
+                `/api/admin/reviews/${reviewId}/render-scenarios/${card.key}/attempts/${card.latestAttemptId}/eval`,
+                { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+              ).catch(() => null);
+              if (r && r.ok) return { ok: true };
+              const d = r ? ((await r.json().catch(() => ({}))) as { error?: string }) : {};
+              return { ok: false, error: d.error ?? "Save failed" };
+            }}
+          />
+        </div>
       )}
     </div>
   );

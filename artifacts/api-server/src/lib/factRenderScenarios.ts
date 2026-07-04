@@ -22,6 +22,7 @@
 import { createHash } from "node:crypto";
 import {
   IMAGE_PROMPT_GENERATION_VERSION,
+  isRetiredTextModifier,
   RENDER_SCENARIO_DESCRIPTORS,
   REQUIRED_RENDER_SCENARIO_KEYS,
   type FactEnrichment,
@@ -100,7 +101,12 @@ export interface ScenarioHashInputs {
  * can change the compiled t2i/i2i prompt (traced through the image-prompt
  * generator + the Nano-Banana-2 compiler):
  *   - primaryArchetype / subtype  → select the authored visual strategy + guidance
- *   - modifiers                   → LLM taxonomy block AND compiler directives
+ *   - modifiers                   → planner-visible modifiers feed the LLM taxonomy
+ *                                   block; structural modifiers (age transforms,
+ *                                   duplicate-subject, violence relevance, failure
+ *                                   modes) feed compiler signals. Retired text/logo
+ *                                   modifiers are filtered out — inert legacy display
+ *                                   data, so removing an old chip never flips stale.
  *   - visualLiteralness / visualComplexity → visual-treatment directives
  *   - culturalReferences / semanticEntities → dedicated per-fact visual-context blocks
  *   - visualPromptStrategyOverride → consumed by the compiler
@@ -118,7 +124,7 @@ export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unk
   return {
     primaryArchetype: e.primaryArchetype,
     subtype: e.subtype,
-    modifiers: [...e.modifiers].sort(),
+    modifiers: e.modifiers.filter((m) => !isRetiredTextModifier(m)).sort(),
     visualLiteralness: e.visualLiteralness,
     visualComplexity: e.visualComplexity,
     culturalReferences: e.culturalReferences,
