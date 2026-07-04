@@ -53,6 +53,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 - New content formats beyond "facts."
 - A multi-role admin permission model.
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
+- **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
+  (`docs/manual/README.md`) and the `/document` ceremony that grows it
+  incrementally are in place; writing the initial set of chapters for
+  already-built areas (content lifecycle, moderation, visual pipeline,
+  taxonomy/enrichment, personalization/grammar, admin console, background work)
+  is a separate deferred pass. **Needs David confirmation** on timing (he plans
+  to kick it off when usage resets).
 
 ## Open product questions
 

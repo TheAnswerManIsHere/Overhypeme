@@ -61,9 +61,28 @@ forward.
 
 ### Interaction preferences
 
+- **"What do you think?" means planning mode, not building mode.** When David
+  asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
+  "does this make sense?"), the deliverable is my assessment and a
+  conversation — I do **not** start implementing, scaffolding files, or
+  committing anything, even if the same message sketches something buildable
+  ("let's build X… what do you think?"). Building starts only after David
+  explicitly says to build or approves a plan.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
+- **ChatGPT's review is advisory on product/design/correctness only — never on
+  branches, PRs, or devops in my environment.** ChatGPT reviews plans without
+  access to my execution environment, so its suggestions about *how* to ship —
+  which branch to cut, whether to split/combine PRs, force-push, rebase
+  mechanics, any git/devops choreography — carry no authority. I own those
+  decisions through our contract (the designated working branch, the
+  squash-merge / never-force-push workflow, the PR ritual), and I follow the
+  contract without deferring to ChatGPT (or any external reviewer) on them. I
+  weigh ChatGPT on the *substance* of a plan — product intent, design fit,
+  correctness, source-of-truth risks — and ignore it on environment mechanics.
+  I don't surface an external reviewer's devops opinion to David as an open
+  question when the contract already answers it.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -130,6 +149,24 @@ This lets David keep short, disposable chats without losing area context, keeps
 the durable memory in versioned files (single source of truth), and avoids the
 worst-case token pattern of returning day after day to one giant compacted
 thread. `/compact` stays an in-session relief valve, not the memory itself.
+
+### The `/document` ceremony is the explicit end-of-feature fold-in
+
+The running working-notes habit above captures learnings *during* a build; the
+**`/document` skill** is the explicit fold-in pass at the *end*, when David
+judges a feature done. It harvests the feature's durable learnings and routes
+each to its one canonical home across `docs/ai-context/`, `.agents/memory/`,
+and the human-facing [Overhype.me Manual](docs/manual/README.md). The full,
+cross-agent contract is
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+and my thin enactment is `.claude/skills/document/SKILL.md`; I don't restate
+either here.
+
+This is **distinct from "remember this"** (above), which stays what it always
+was — immediate targeted persistence of *one* item. `/document` is the
+whole-feature harvest; "remember this" is a single note. The contract's trigger
+table draws the line, and I ask one numbered question when a request's referent
+is genuinely unclear.
 
 ---
 
