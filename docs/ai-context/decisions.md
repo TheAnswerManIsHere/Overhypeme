@@ -13,6 +13,28 @@
 
 ---
 
+### 2026-07 · End-of-feature `/document` ceremony + human-facing Overhype.me Manual
+- **Decision:** Adopt an explicit, David-triggered `/document` ceremony that
+  harvests a finished feature's durable learnings and routes each to its one
+  canonical home. Its cross-agent contract lives in
+  [`documentation-workflow.md`](./documentation-workflow.md) (Claude adds a thin
+  enactment skill; Codex reads the contract directly). Introduce
+  [`docs/manual/`](../manual/README.md) — a human-facing *narrative* manual (how
+  the system works and *why*) that grows one chapter at a time via that ceremony
+  and lives **alongside** `docs/ai-context/` (the agent-facing operational
+  spec), never absorbing it. Two layers, one truth: a fact is canonical in one
+  place and linked from the other; generated docs stay generated.
+- **Why:** Learnings otherwise evaporate with the chat transcript, and the
+  "memory lives in files" habit had no explicit end-of-feature trigger. There
+  was also no human-readable account of *why* the system is built the way it is;
+  the generated Admin Field Reference was a first step. The ceremony is kept
+  **distinct from "remember this"** (immediate single-item persistence) so a
+  small memory request doesn't trigger a heavyweight harvest.
+- **Reference:** PR #180.
+- **Revisit if:** the manual and `docs/ai-context/` start duplicating rather
+  than linking, or a lighter trigger than a full ceremony is wanted for most
+  features.
+
 ### 2026-07 · One source of truth for agent context; CLAUDE.md deduped
 - **Decision:** Shared product/architecture/principle truth lives once in
   `AGENTS.md` + `docs/ai-context/` + `docs/engineering/`; `CLAUDE.md` (Claude) and

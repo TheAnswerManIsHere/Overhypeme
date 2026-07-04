@@ -26,6 +26,9 @@ Start with:
 - [`docs/ai-context/current-roadmap.md`](docs/ai-context/current-roadmap.md)
 - [`docs/ai-context/glossary.md`](docs/ai-context/glossary.md) — term lookup
 - [`docs/ai-context/decisions.md`](docs/ai-context/decisions.md) — why settled decisions are settled
+- [`docs/manual/`](docs/manual/README.md) — the human-facing narrative manual
+  (how the system works and *why*); a companion to `docs/ai-context/`, **not** a
+  replacement for it
 
 For **visual pipeline** work, also read:
 
@@ -60,6 +63,11 @@ David turns on by saying so (e.g. a prompt starting **"Bugfix mode:"**); absent 
 explicit signal you are in feature mode. Read
 [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
 contract of each and how to switch between them.
+
+**End-of-feature documentation.** When David invokes `/document` or asks to lock
+in a finished feature's learnings, follow
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+(distinct from a one-off "remember this," which is immediate targeted persistence).
 
 When asked to **plan**:
 1. Inspect the repo first.

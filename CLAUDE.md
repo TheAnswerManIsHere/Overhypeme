@@ -150,6 +150,24 @@ the durable memory in versioned files (single source of truth), and avoids the
 worst-case token pattern of returning day after day to one giant compacted
 thread. `/compact` stays an in-session relief valve, not the memory itself.
 
+### The `/document` ceremony is the explicit end-of-feature fold-in
+
+The running working-notes habit above captures learnings *during* a build; the
+**`/document` skill** is the explicit fold-in pass at the *end*, when David
+judges a feature done. It harvests the feature's durable learnings and routes
+each to its one canonical home across `docs/ai-context/`, `.agents/memory/`,
+and the human-facing [Overhype.me Manual](docs/manual/README.md). The full,
+cross-agent contract is
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+and my thin enactment is `.claude/skills/document/SKILL.md`; I don't restate
+either here.
+
+This is **distinct from "remember this"** (above), which stays what it always
+was — immediate targeted persistence of *one* item. `/document` is the
+whole-feature harvest; "remember this" is a single note. The contract's trigger
+table draws the line, and I ask one numbered question when a request's referent
+is genuinely unclear.
+
 ---
 
 ## Plan approval is explicit only
