@@ -47,6 +47,11 @@ const NAV_ITEMS = [
 
 const COLLAPSED_KEY = "admin_sidebar_collapsed";
 
+export function isAdminNavItemActive(location: string, href: string, exact?: boolean): boolean {
+  if (exact) return location === href;
+  return location === href || location.startsWith(`${href}/`);
+}
+
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
   const { isAuthenticated, logout, isLoading, role } = useAuth();
@@ -130,7 +135,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     return (
       <nav className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
         {NAV_ITEMS.map(({ href, label, icon: Icon, exact, badge }) => {
-          const active = exact ? location === href : location.startsWith(href);
+          const active = isAdminNavItemActive(location, href, exact);
           const badgeCount = badge === "moderation" ? totalBadge : 0;
           const compact = !forMobile && collapsed;
           return (

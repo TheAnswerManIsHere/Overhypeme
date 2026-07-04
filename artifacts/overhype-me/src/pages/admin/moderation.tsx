@@ -341,6 +341,11 @@ function ReviewModal({
 
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
+  const scrollReviewToTop = useCallback(() => {
+    modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isProductionReview = stage === "production_review";
@@ -397,8 +402,9 @@ function ReviewModal({
     if (stage === "production_review" && !sawProductionRef.current) {
       sawProductionRef.current = true;
       setStep("visual");
+      requestAnimationFrame(scrollReviewToTop);
     }
-  }, [stage]);
+  }, [stage, scrollReviewToTop]);
 
   const loadDetail = useCallback(async () => {
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
@@ -655,7 +661,7 @@ function ReviewModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0">×</button>
         </div>
 
-        <div className="p-6 space-y-6 overflow-y-auto">
+        <div ref={modalBodyRef} className="p-6 space-y-6 overflow-y-auto">
           {/* Step indicator — only for the non-terminal wizard. */}
           {!isResolved && <StepIndicator step={step} />}
 
@@ -937,7 +943,7 @@ function ReviewModal({
             {/* Production review on Triage step: a "next" affordance to Step 2. */}
             {!isResolved && step === "triage" && isProductionReview && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => setStep("visual")} disabled={loading}
+                <Button onClick={() => { setStep("visual"); requestAnimationFrame(scrollReviewToTop); }} disabled={loading}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   Continue to Visual Review <ChevronRight className="w-4 h-4" />
                 </Button>
@@ -1152,7 +1158,7 @@ function FactReviewsPanel() {
                   {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "production_review") && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
-                      <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} />
+                      <PrepStepPill icon={ImageIcon} label="Stock photos" status={r.stagingFact.pexelsStatus} />
                       {/* Test renders in flight (re-run or auto-batch): show a working
                           pill in place, mirroring prep's per-item status (rule 8). */}
                       {r.workflowStage === "production_review" && r.rendersRunning && (

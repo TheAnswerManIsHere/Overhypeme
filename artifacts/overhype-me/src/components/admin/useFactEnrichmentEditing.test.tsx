@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { useFactEnrichmentEditing, type UseFactEnrichmentEditingOptions } from "./useFactEnrichmentEditing";
+import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 
 function makeEnrichment(over: Partial<FactEnrichment> = {}): FactEnrichment {
   return {
@@ -271,6 +272,31 @@ describe("useFactEnrichmentEditing", () => {
     expect(result.current.supportsRerun).toBe(false);
     await act(async () => { await result.current.rerunWithConfirm(); });
     expect(calls.filter((c) => c.url.includes("/enrich"))).toEqual([]);
+  });
+
+  it("candidate target: ignores stale restored fields outside the editable visual-strategy draft", async () => {
+    const server = makeEnrichment({
+      primaryArchetype: "superhuman_physical_feat",
+      visualPromptStrategyOverride: VSO,
+    });
+    createLocalStorageAdapter<FactEnrichment>({ key: "candidate-enrichment-draft::31" }).save(
+      makeEnrichment({
+        primaryArchetype: "object_logic_impossibility",
+        visualPromptStrategyOverride: VSO,
+      }),
+    );
+    mockCandidateFetch(31, server);
+
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+    await waitFor(() => expect(result.current.draft.hasUncommittedChanges).toBe(false));
+    expect(result.current.enrichment?.primaryArchetype).toBe("superhuman_physical_feat");
+    expect(window.localStorage.getItem("candidate-enrichment-draft::31")).toBeNull();
   });
 
   it("candidate target: a failed override write surfaces the server's message", async () => {

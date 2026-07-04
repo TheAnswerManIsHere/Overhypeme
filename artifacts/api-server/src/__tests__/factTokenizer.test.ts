@@ -6,6 +6,7 @@ import {
   TOKENIZER_MODEL,
   TOKENIZER_REASONING_EFFORT,
   TOKENIZER_ALLOWED_MODELS,
+  collapseNameSubjectConjugationPairs,
 } from "../lib/factTokenizer.js";
 import { validateTemplate, collapseIdenticalConjugationBranches } from "../lib/templateGrammar.js";
 
@@ -38,6 +39,19 @@ describe("factTokenizer — stripUnknownTokens", () => {
 });
 
 describe("factTokenizer — postProcessTokenizedTemplate", () => {
+  it("collapses a name-subject conjugation pair so names keep singular verbs for every pronoun set", () => {
+    const { template, conjugated, collapsed } = postProcessTokenizedTemplate(
+      "When {NAME} {gives|give} you the finger, {Subj} {is|are} telling you how many seconds you have left to live.",
+    );
+    assert.equal(
+      template,
+      "When {NAME} gives you the finger, {Subj} {is|are} telling you how many seconds you have left to live.",
+    );
+    assert.equal(conjugated, false);
+    assert.equal(collapsed, false);
+    assert.deepEqual(validateTemplate(template), { valid: true });
+  });
+
   it("conjugates a missed person-subject verb and flags it", () => {
     const { template, conjugated } = postProcessTokenizedTemplate(
       "{NAME} caught the Corona virus. {Subj} keeps it locked up in {POSS} back yard.",
@@ -65,9 +79,9 @@ describe("factTokenizer — postProcessTokenizedTemplate", () => {
 
   it("collapses an identical conjugation branch and flags it WITHOUT touching `conjugated`", () => {
     const { template, conjugated, collapsed } = postProcessTokenizedTemplate(
-      "{NAME} {can|can} fill up an electric car at a gas station.",
+      "{Subj} {can|can} fill up an electric car at a gas station.",
     );
-    assert.equal(template, "{NAME} can fill up an electric car at a gas station.");
+    assert.equal(template, "{Subj} can fill up an electric car at a gas station.");
     // The collapse is its own pass — the auto-conjugation net did nothing here.
     assert.equal(conjugated, false);
     assert.equal(collapsed, true);
@@ -78,6 +92,29 @@ describe("factTokenizer — postProcessTokenizedTemplate", () => {
     const { template, collapsed } = postProcessTokenizedTemplate("{Subj} {is|are} unstoppable");
     assert.equal(template, "{Subj} {is|are} unstoppable");
     assert.equal(collapsed, false);
+  });
+});
+
+describe("factTokenizer — collapseNameSubjectConjugationPairs", () => {
+  it("keeps the singular branch for verbs directly following {NAME}", () => {
+    assert.equal(
+      collapseNameSubjectConjugationPairs("When {NAME} {gives|give} you the finger"),
+      "When {NAME} gives you the finger",
+    );
+  });
+
+  it("handles a skippable adverb between {NAME} and the pair", () => {
+    assert.equal(
+      collapseNameSubjectConjugationPairs("{NAME} always {runs|run} toward danger"),
+      "{NAME} always runs toward danger",
+    );
+  });
+
+  it("leaves pronoun-subject pairs untouched", () => {
+    assert.equal(
+      collapseNameSubjectConjugationPairs("{Subj} {gives|give} you the finger"),
+      "{Subj} {gives|give} you the finger",
+    );
   });
 });
 
