@@ -2,6 +2,12 @@
 
 These instructions apply to the entire repository.
 
+> **Product context:** before building a feature, read
+> [`docs/PRODUCT_CONTEXT.md`](docs/PRODUCT_CONTEXT.md) — what Overhype.me is, who
+> it serves, the current business goals, near-term priorities, product
+> principles, non-goals, and a glossary. This file (`AGENTS.md`) covers *how* to
+> set up and verify; `PRODUCT_CONTEXT.md` covers *what* to build and *why*.
+
 ## Canonical setup and typecheck order
 
 After installing dependencies, build generated API artifacts and referenced workspace libraries before running package-local checks:
