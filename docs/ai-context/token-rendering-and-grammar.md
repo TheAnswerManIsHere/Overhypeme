@@ -72,7 +72,8 @@ The name-subject collapse is also applied at the OTHER template-writing
 ingress points (direct fact insert in `facts.ts`, review submission in
 `reviews.ts`, the retokenize script), because `validateTemplate` accepts any
 well-formed pair position-independently. Stored rows created under the old
-contract are repaired by `scripts/backfill-collapse-name-subject-pairs.ts`.
+contract are repaired by
+`artifacts/api-server/scripts/backfill-collapse-name-subject-pairs.ts`.
 
 ## Renderer responsibilities
 
