@@ -40,6 +40,12 @@ merges. Use a non-resetting create (fail rather than wipe an existing same-day
 batch), pick a disambiguated name if it already exists, and **never** force/reset
 onto `origin/main` to "fix" a name clash.
 
+> **Exception — a preselected/assigned branch wins.** If you were already invoked
+> on a designated task branch (a preselected branch, a Codex cloud run, an assigned
+> working branch, or a runner that disallows branch creation), **stay on it** — do
+> not create a fresh branch. The fresh-branch step is only for the normal case
+> where David starts a bug batch from scratch with no branch assigned.
+
 **Per bug — fix, verify, commit:**
 1. Reproduce / locate the cause.
 2. Make the **smallest correct fix**.
