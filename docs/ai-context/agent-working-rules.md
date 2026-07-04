@@ -106,6 +106,19 @@ product or architecture truth. **If product/architecture truth changes as a resu
 of your work, update the relevant shared doc in the same change** (don't fork a
 private copy).
 
+## Memory notes vs. the shared library (promotion rule)
+
+`.agents/memory/*.md` are short engineering breadcrumbs — narrow gotchas an agent
+hit and wants the next one to avoid (a flaky-test cause, a build-order trap). They
+are a **staging tier**, not the source of truth. When a memory note (a) gets cited
+across more than one task, or (b) encodes **product- or architecture-level truth**
+rather than a one-off gotcha, **promote it** into the relevant `docs/ai-context/`
+or `docs/engineering/` doc and leave a one-line pointer behind in the note. This
+keeps the two tiers from silently diverging — the library stays the canonical
+truth, and memory stays a scratchpad. When in doubt about which tier something
+belongs in: durable/shared/product → library; transient/mechanical/agent-hit-this
+→ memory.
+
 ## How to use external docs
 
 For external APIs, SDKs, model behavior, pricing, rate limits, or platform claims,
