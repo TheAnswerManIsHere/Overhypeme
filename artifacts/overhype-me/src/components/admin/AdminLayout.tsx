@@ -22,6 +22,7 @@ import {
   Menu,
   X,
   Activity,
+  FlaskConical,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { href: "/admin/facts", label: "Facts", icon: FileText, badge: false as const },
   { href: "/admin/users", label: "Users", icon: Users, badge: false as const },
   { href: "/admin/moderation", label: "Moderation", icon: ShieldAlert, badge: "moderation" as const },
+  { href: "/admin/eval", label: "Eval", icon: FlaskConical, badge: false as const },
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
   { href: "/admin/refunds-disputes", label: "Refunds & Disputes", icon: Undo2, badge: false as const },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
