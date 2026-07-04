@@ -152,29 +152,38 @@ function StageBadge({ stage }: { stage: ReviewWorkflowStage }) {
 /**
  * One prep step's live state. null/"pending" render as "working" (spinner).
  *
- * `optional` steps (e.g. candidate Visual concepts) never block approval, so
- * they use a softened palette: a failure reads as muted "unavailable" (not the
- * alarming destructive red of a required step), and a `null` status means "not
- * run yet" (muted, no spinner) rather than "working".
+ * `optional` steps (e.g. best-effort seeding) never block approval, so they use a
+ * softened palette: a failure reads as muted "unavailable" (not the alarming
+ * destructive red of a required step), and a `null` status means "not run yet"
+ * (muted, no spinner) rather than "working".
+ *
+ * `attentionWhenNull` is for a REQUIRED step whose `null` means "never generated
+ * for this cycle" (e.g. Visual ideas on an old Step-3 row bounced back to Visual
+ * Concept) — an actionable not-ready state, NOT work in progress. It renders as
+ * amber "not generated" with no spinner, so the prep summary never masks it.
  */
-function PrepStepPill({ icon: Icon, label, status, optional }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean }) {
+function PrepStepPill({ icon: Icon, label, status, optional, attentionWhenNull }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean; attentionWhenNull?: boolean }) {
   const ok = status === "ok";
   const failed = status === "failed";
+  const notGenerated = !optional && attentionWhenNull === true && status == null;
   const notStarted = optional && status == null;
   const tone = ok
     ? "text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10"
     : failed
     ? (optional ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-destructive border-destructive/30 bg-destructive/10")
+    : notGenerated
+    ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10"
     : notStarted
     ? "text-muted-foreground border-border bg-muted/40"
     : "text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/10";
-  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notStarted ? "not run" : "working…";
+  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notGenerated ? "not generated" : notStarted ? "not run" : "working…";
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-sm border ${tone}`}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="font-semibold">{label}</span>
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" />
         : failed ? (optional ? <AlertTriangle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />)
+        : notGenerated ? <AlertTriangle className="w-3.5 h-3.5" />
         : notStarted ? null
         : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
       <span>{word}</span>
@@ -211,18 +220,23 @@ function PrepStatusPanel({
     : [enrichmentStatus, pexelsStatus];
   const done = tallySteps.filter((s) => s === "ok").length;
   const failed = tallySteps.filter((s) => s === "failed").length;
-  const running = tallySteps.length - done - failed;
+  // A required Visual-ideas step that's `null` means "never generated for this
+  // cycle" — an actionable not-ready state, NOT work in progress. Keep it out of
+  // the running count so the summary doesn't mask it as a spinner.
+  const notGenerated = conceptRequired === true && visualConceptStatus == null ? 1 : 0;
+  const running = tallySteps.length - done - failed - notGenerated;
   return (
     <div className="space-y-2">
       <p className="text-xs font-mono text-muted-foreground">
         Prep: {done} of {tallySteps.length} ready
         {failed > 0 ? ` · ${failed} failed` : ""}
+        {notGenerated > 0 ? ` · ${notGenerated} not generated` : ""}
         {running > 0 ? ` · ${running} working` : ""}
       </p>
       <div className="flex flex-wrap gap-2">
         <PrepStepPill icon={Sparkles} label="Enrichment" status={enrichmentStatus} />
         {conceptRequired && (
-          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus ?? null} />
+          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus ?? null} attentionWhenNull />
         )}
         <PrepStepPill
           icon={ImageIcon}
@@ -1401,9 +1415,11 @@ function FactReviewsPanel() {
                   {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "concept_review" || r.workflowStage === "production_review") && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "concept_review" || r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
-                      {/* Step 2: Visual ideas are the required gate. */}
+                      {/* Step 2: Visual ideas are the required gate. A null status
+                          (e.g. an old row bounced back) reads as "not generated",
+                          never a spinner. */}
                       {r.workflowStage === "concept_review" && (
-                        <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} />
+                        <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
                       <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
                       {/* Step 3: test renders in flight (re-run, or the forced batch). */}
