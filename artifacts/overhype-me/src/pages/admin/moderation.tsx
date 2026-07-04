@@ -386,10 +386,6 @@ function ReviewModal({
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
-  const scrollReviewToTop = useCallback(() => {
-    modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isConceptReview = stage === "concept_review";
@@ -456,6 +452,14 @@ function ReviewModal({
     const target = stageToWizardStep(stage);
     if (target) setStep(target);
   }, [stage]);
+
+  // Every step change — auto-nav, "Continue", "Back" — starts the new step at
+  // the top of the modal body. The rAF defers until after the new step's
+  // content has rendered. (Only the modal body scrolls: the admin shell is a
+  // fixed viewport, so the page behind never moves.)
+  useEffect(() => {
+    requestAnimationFrame(() => modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
+  }, [step]);
 
   const loadDetail = useCallback(async () => {
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });

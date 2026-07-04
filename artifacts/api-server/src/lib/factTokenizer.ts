@@ -14,7 +14,12 @@ import {
   ALLOWED_SIMPLE_TOKENS,
   autoConjugatePersonSubjectVerbs,
   collapseIdenticalConjugationBranches,
+  collapseNameSubjectConjugationPairs,
 } from "./templateGrammar";
+
+// Re-exported for callers/tests that reach the grammar passes through the
+// tokenizer module; the implementation lives in api-zod with its siblings.
+export { collapseNameSubjectConjugationPairs };
 
 // Deliberately code-owned tokenizer models — NOT governed by adminEngines'
 // ALLOWED_LLM_MODELS (that list only gates the admin-editable engine row). Keep
@@ -79,20 +84,6 @@ Output: {"template": "Sharks have a {NAME} Week."}
 Input: "Alex keeps the virus in his back yard."
 Output: {"template": "{NAME} keeps the virus in {POSS} back yard."}`;
 
-// A {NAME} token renders as a literal singular name for every pronoun set, so
-// a verb immediately following {NAME} must also stay singular. The model may
-// still emit "{NAME} {gives|give}" because {SUBJ} verbs do need pairs; collapse
-// those name-subject pairs to their left/singular branch before validation.
-const NAME_SUBJECT_CONJUGATION_PAIR_RE =
-  /(\{NAME\}\s+(?:(?:[A-Za-z]+ly|always|never|often|sometimes|still|just|also|secretly|once|only|really|simply)\s+)*)\{([^|{}]+)\|([^|{}]+)\}/g;
-
-export function collapseNameSubjectConjugationPairs(template: string): string {
-  if (!template) return template;
-  return template.replace(NAME_SUBJECT_CONJUGATION_PAIR_RE, (_match, prefix: string, singular: string) => {
-    return `${prefix}${singular}`;
-  });
-}
-
 /**
  * Remove braces from tokens the grammar validator does not recognise.
  *
@@ -119,7 +110,7 @@ export function stripUnknownTokens(template: string): string {
 }
 
 /**
- * Clean up a raw model-produced template into its final form, in three passes:
+ * Clean up a raw model-produced template into its final form, in four passes:
  *   1. strip hallucinated tokens ({When} → When),
  *   2. collapse name-subject conjugation pairs ({NAME} {gives|give} → {NAME} gives)
  *      because {NAME} is a singular literal name for every pronoun set,
@@ -129,20 +120,23 @@ export function stripUnknownTokens(template: string): string {
  *      other non-conjugating verbs whose he/she and they forms match, which the
  *      model sometimes wraps into a useless duplicate pair.
  *
- * Returns the final template plus two scoped flags so callers can log each pass
- * independently: `conjugated` (the net wrapped a missed verb) and `collapsed` (a
- * duplicate pair was dropped). `conjugated` is NOT overloaded to mean "anything
- * changed" — a raw `{can|can}` collapses with `conjugated: false, collapsed: true`.
+ * Returns the final template plus one scoped flag per rewrite pass so callers
+ * can log each independently: `nameCollapsed` (a {NAME}-subject pair was
+ * collapsed to its singular branch), `conjugated` (the net wrapped a missed
+ * verb), and `collapsed` (a duplicate pair was dropped). No flag is overloaded
+ * to mean "anything changed" — a raw `{can|can}` collapses with
+ * `conjugated: false, collapsed: true`.
  */
 export function postProcessTokenizedTemplate(
   raw: string,
-): { template: string; conjugated: boolean; collapsed: boolean } {
+): { template: string; nameCollapsed: boolean; conjugated: boolean; collapsed: boolean } {
   const stripped = stripUnknownTokens(raw);
   const nameSubjectCollapsed = collapseNameSubjectConjugationPairs(stripped);
   const conjugatedTemplate = autoConjugatePersonSubjectVerbs(nameSubjectCollapsed);
   const collapsedTemplate = collapseIdenticalConjugationBranches(conjugatedTemplate);
   return {
     template: collapsedTemplate,
+    nameCollapsed: nameSubjectCollapsed !== stripped,
     conjugated: conjugatedTemplate !== nameSubjectCollapsed,
     collapsed: collapsedTemplate !== conjugatedTemplate,
   };

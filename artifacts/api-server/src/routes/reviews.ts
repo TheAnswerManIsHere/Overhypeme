@@ -19,7 +19,7 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from ".
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
-import { validateTemplate } from "../lib/templateGrammar";
+import { validateTemplate, collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
 import {
   validateEnrichment,
   type FactEnrichment,
@@ -142,7 +142,12 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  const { text: rawText, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  // Collapse {NAME}-subject conjugation pairs at ingress: names render as a
+  // singular literal for every pronoun set, and a submission that bypassed the
+  // tokenize route (API clients, stale front-ends) may still carry the pair the
+  // route would have collapsed.
+  const text = collapseNameSubjectConjugationPairs(rawText);
   // Normalize submitter tags at ingress so `pending_reviews.hashtags` always
   // holds clean values (the Zod schema only caps count; API clients can send
   // arbitrary strings). Same sanitizer used at approval, so storage never drifts.
