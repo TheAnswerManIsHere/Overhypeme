@@ -671,6 +671,10 @@ const FACT_LIST_COLUMNS = {
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
   hasEnrichmentOverrides: sql<boolean>`(${factsTable.enrichmentOverrides} <> '{}'::jsonb)`,
   enrichmentBaselineChanged: factsTable.enrichmentBaselineChanged,
+  // Eval harness (Slice 2B): golden-set membership, so the Facts editor can show
+  // + toggle it and reflect the saved state.
+  evalGolden: factsTable.evalGolden,
+  evalGoldenReason: factsTable.evalGoldenReason,
 } as const;
 
 // The Facts list is paginated by ROOT fact (parentId IS NULL); each root carries
