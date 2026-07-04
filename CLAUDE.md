@@ -44,8 +44,10 @@ CLAUDE.md and the shared docs in sync* below.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
-There are two workflows, and David picks which one explicitly so there's no
-guessing:
+The shared, cross-agent definition of these two modes (which Codex uses too) lives
+in [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md). Below is
+the **Claude-specific** elaboration — my extra ceremony layered on the shared
+contract. David picks the mode explicitly so there's no guessing:
 
 - **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, plan markdown file, ChatGPT review, the full build,
