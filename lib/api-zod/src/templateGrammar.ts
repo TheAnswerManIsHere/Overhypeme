@@ -91,8 +91,9 @@ export function validateTemplate(template: string): GrammarValidationResult {
 // renders "They keeps" for they/them. This pass is the actual guarantee: it
 // finds a present-tense 3rd-person-singular verb directly following a person
 // subject token and rewrites it to the conjugation pair. It is deliberately
-// narrow — it only fires right after {SUBJ}/{Subj}/{NAME}, so it can never
-// mis-pluralize a verb whose subject is some other noun ("Sharks have…").
+// narrow — it only fires right after {SUBJ}/{Subj}, so it can never
+// mis-pluralize a verb whose subject is a literal name ("{NAME} gives…") or
+// some other noun ("Sharks have…").
 // ---------------------------------------------------------------------------
 
 /** Irregular 3rd-person-singular → they/base form. Keys are lowercase. */
@@ -148,18 +149,18 @@ function thirdPersonToBase(word: string): string | null {
   return word.slice(0, -1);
 }
 
-// A person subject token, then whitespace, then any run of skippable adverbs
+// A person-pronoun subject token, then whitespace, then any run of skippable adverbs
 // (an "…ly" word or a known bare adverb), then the candidate verb. The candidate
 // matcher allows a single internal apostrophe so contractions ("doesn't",
 // "isn't") are captured; it cannot match a "{...}" token or an existing
 // "{a|b}" pair (those start with "{", not a letter), which keeps the pass
 // idempotent.
 const PERSON_SUBJECT_VERB_RE =
-  /(\{(?:SUBJ|Subj|NAME)\}\s+(?:(?:[A-Za-z]+ly|always|never|often|sometimes|still|just|also|secretly|once|only|really|simply)\s+)*)([A-Za-z]+(?:['’][A-Za-z]+)?)/g;
+  /(\{(?:SUBJ|Subj)\}\s+(?:(?:[A-Za-z]+ly|always|never|often|sometimes|still|just|also|secretly|once|only|really|simply)\s+)*)([A-Za-z]+(?:['’][A-Za-z]+)?)/g;
 
 /**
  * Repair missed verb conjugations: wrap a present-tense 3rd-person-singular verb
- * that directly follows a person subject token ({SUBJ}/{Subj}/{NAME}) as a
+ * that directly follows a person pronoun subject token ({SUBJ}/{Subj}) as a
  * {singular|plural} pair. Pure and idempotent — running it twice equals running
  * it once.
  */

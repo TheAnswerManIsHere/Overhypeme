@@ -59,6 +59,23 @@ const UNTRACKED_FIELDS: readonly UntrackedEnrichmentField[] = [
   "visualPromptStrategyOverride",
 ];
 
+function reconcileEnrichmentDraftToEditableFields(
+  serverValue: FactEnrichment | null,
+  restoredDraft: FactEnrichment | null,
+  editableFields: readonly UntrackedEnrichmentField[],
+): FactEnrichment | null {
+  if (!serverValue || !restoredDraft) return restoredDraft;
+  const next = { ...serverValue } as FactEnrichment;
+  const restoredRecord = restoredDraft as unknown as Record<string, unknown>;
+  const nextRecord = next as unknown as Record<string, unknown>;
+  for (const field of editableFields) {
+    if (Object.prototype.hasOwnProperty.call(restoredRecord, field)) {
+      nextRecord[field] = restoredRecord[field];
+    }
+  }
+  return next;
+}
+
 interface ResolvedState {
   aiDerived: FactEnrichment | null;
   overrides: Record<string, { value: unknown; overriddenFrom: unknown }>;
@@ -203,6 +220,8 @@ export function useFactEnrichmentEditing({
       return body as FactServerRecord;
     },
     selectValue: (rec) => rec.enrichment ?? null,
+    reconcileRestoredDraft: (serverValue, restoredDraft) =>
+      reconcileEnrichmentDraftToEditableFields(serverValue, restoredDraft, editableRef.current),
     onServerRecord: (rec) => {
       if (rec?.enrichment) serverEnrichmentRef.current = rec.enrichment;
       setEnrichmentStatus(rec?.enrichmentStatus ?? null);

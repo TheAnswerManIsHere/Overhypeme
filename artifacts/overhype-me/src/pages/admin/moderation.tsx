@@ -385,6 +385,11 @@ function ReviewModal({
 
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
+  const scrollReviewToTop = useCallback(() => {
+    modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isConceptReview = stage === "concept_review";
@@ -879,7 +884,7 @@ function ReviewModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0">×</button>
         </div>
 
-        <div className="p-6 space-y-6 overflow-y-auto">
+        <div ref={modalBodyRef} className="p-6 space-y-6 overflow-y-auto">
           {/* Step indicator — only for the non-terminal wizard. */}
           {!isResolved && <StepIndicator step={step} />}
 
@@ -1421,7 +1426,7 @@ function FactReviewsPanel() {
                       {r.workflowStage === "concept_review" && (
                         <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
-                      <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
+                      <PrepStepPill icon={ImageIcon} label="Stock photos" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
                       {/* Step 3: test renders in flight (re-run, or the forced batch). */}
                       {r.workflowStage === "production_review" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />

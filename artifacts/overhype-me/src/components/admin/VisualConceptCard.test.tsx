@@ -92,6 +92,22 @@ describe("VisualConceptCard", () => {
     expect(next.coreSceneOverride).toBe("a {NAME} b");
   });
 
+  it("shows David/he-him examples beside each token chip", () => {
+    render(<Harness />);
+    const cardText = screen.getByTestId("visual-concept-card").textContent ?? "";
+    for (const expected of [
+      "{NAME}David",
+      "{NAME_POSSESSIVE}David’s",
+      "{SUBJ}he",
+      "{OBJ}him",
+      "{POSS}his",
+      "{POSS_PRO}his",
+      "{REFL}himself",
+    ]) {
+      expect(cardText).toContain(expected);
+    }
+  });
+
   it("shows the char counter and the don't-write-engine-instructions helper copy", () => {
     render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "abc" }} />);
     expect(screen.getByText(`3/${CORE_SCENE_MAX_CHARS}`)).toBeTruthy();
