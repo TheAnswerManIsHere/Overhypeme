@@ -12,7 +12,7 @@ import { usersTable } from "./auth";
  * image engine, reference identity/version, look style) lives on each
  * `image_prompt_attempts` row so a run can span multiple scenarios/engines.
  *
- * See migration 0080 + lib/eval/*.
+ * See migration 0081 + lib/eval/*.
  */
 export const evalRunsTable = pgTable("eval_runs", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
