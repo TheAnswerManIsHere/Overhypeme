@@ -15,6 +15,7 @@ export const TAXONOMY_HEALTH_STATUS_VALUES = [
   "invalid_enrichment",
   "needs_admin_review",
   "stale_enrichment_version",
+  "stale_for_reprocess",
   "projection_mismatch",
   "incomplete_cultural_references",
   "semantic_entities_need_review",
@@ -35,6 +36,10 @@ export type TaxonomyOverallStatus = (typeof TAXONOMY_OVERALL_STATUS_VALUES)[numb
 export const TAXONOMY_HEALTH_RECOMMENDED_ACTION_VALUES = [
   "open_fact_editor",
   "rerun_enrichment",
+  // Refresh-first: send a live fact back through moderation (send-back →
+  // promote) so its enrichment is regenerated AND re-stamped. Distinct from
+  // `rerun_enrichment` (direct write to facts.*, no signature stamp, no review).
+  "send_back_to_review",
   "research_cultural_reference",
   "review_semantic_entity",
   "repair_projection_columns",
@@ -153,6 +158,9 @@ export interface TaxonomyHealthReviewFlags {
   culturalReferenceNeedsResearch: boolean;
   semanticEntityNeedsReview: boolean;
   staleEnrichmentVersion: boolean;
+  /** Enrichment generated under an older/absent ProcessingSignature — needs a
+   *  refresh (send-back → promote) to come up to the current pipeline. */
+  staleForReprocess: boolean;
   projectionMismatch: boolean;
   invalidEnrichment: boolean;
 }
@@ -234,6 +242,7 @@ export interface TaxonomyHealthSummaryCounts {
   invalidEnrichment: number;
   needsAdminReview: number;
   staleEnrichmentVersion: number;
+  staleForReprocess: number;
   projectionMismatch: number;
   incompleteCulturalReferences: number;
   semanticEntitiesNeedReview: number;
@@ -259,6 +268,7 @@ export const TAXONOMY_HEALTH_FILTER_VALUES = [
   "invalid_enrichment",
   "needs_admin_review",
   "stale_enrichment_version",
+  "stale_for_reprocess",
   "projection_mismatch",
   "incomplete_cultural_references",
   "semantic_entities_need_review",
@@ -290,6 +300,8 @@ export function matchesHealthFilter(
       return health.statuses.includes("needs_admin_review");
     case "stale_enrichment_version":
       return health.reviewFlags.staleEnrichmentVersion;
+    case "stale_for_reprocess":
+      return health.reviewFlags.staleForReprocess;
     case "projection_mismatch":
       return health.reviewFlags.projectionMismatch;
     case "incomplete_cultural_references":
@@ -322,6 +334,7 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
   invalidEnrichment: "invalid_enrichment",
   needsAdminReview: "needs_admin_review",
   staleEnrichmentVersion: "stale_enrichment_version",
+  staleForReprocess: "stale_for_reprocess",
   projectionMismatch: "projection_mismatch",
   incompleteCulturalReferences: "incomplete_cultural_references",
   semanticEntitiesNeedReview: "semantic_entities_need_review",

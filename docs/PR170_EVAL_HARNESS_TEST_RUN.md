@@ -15,7 +15,7 @@
 A golden set + per-render moderator verdict + controlled eval runs, so a pipeline
 change's effect on render quality is measurable rather than vibes. Backend only.
 
-1. **Migration `0080_eval_harness.sql`** — `eval_runs` table; eval columns on
+1. **Migration `0081_eval_harness.sql`** — `eval_runs` table; eval columns on
    `image_prompt_attempts` (`moderator_rating`, `failure_tag`, `eval_notes`,
    `eval_by`, `eval_at`; and `eval_run_id` / `eval_scenario_key` /
    `eval_input_hash` set ONLY on eval-run attempts, `review_id` NULL there so

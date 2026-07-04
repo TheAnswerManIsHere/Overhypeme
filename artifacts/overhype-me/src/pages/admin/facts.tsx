@@ -7,6 +7,7 @@ import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitB
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
+import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm } from "@/components/admin/useDraftForm";
 import {
@@ -647,33 +648,23 @@ export default function AdminFacts() {
     const factId = selectedFact.id;
     setSendingBack(true);
     try {
-      const res = await fetch(`/api/admin/facts/${factId}/send-back-to-review`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clearOverrides }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean; reviewId?: number; error?: string; code?: string;
-      };
-      if (res.ok) {
+      const result = await sendFactBackToReview(factId, { clearOverrides });
+      if (result.success) {
         setSendBackModal(false);
         setSaveResult({
           type: "success",
-          message: `Sent back to review — Review #${data.reviewId} is preparing a refresh candidate. The fact stays live; approve or reject the refresh from the Moderation queue.`,
+          message: `Sent back to review — Review #${result.reviewId} is preparing a refresh candidate. The fact stays live; approve or reject the refresh from the Moderation queue.`,
         });
         // The send-back flips the live pill to "classifying…" — mirror it locally.
         setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
         setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
       } else {
         setSendBackModal(false);
-        setSaveResult({ type: "error", message: data.error ?? `Send back failed (${res.status})` });
+        setSaveResult({ type: "error", message: result.error ?? "Send back failed" });
       }
       // Either way the in-flight state may have changed (success, or a
       // REFRESH_ALREADY_IN_PROGRESS race) — refetch so the button/notice track it.
       void loadVersionInfo(factId);
-    } catch {
-      setSaveResult({ type: "error", message: "Network error — could not reach the server." });
     } finally {
       setSendingBack(false);
     }

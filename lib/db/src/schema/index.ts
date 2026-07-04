@@ -32,4 +32,5 @@ export * from "./imagePromptAttempts";
 export * from "./referenceResearchCache";
 export * from "./enrichmentOverrideHistory";
 export * from "./factEnrichmentVersions";
+export * from "./engineRevisionBumps";
 export * from "./evalRuns";

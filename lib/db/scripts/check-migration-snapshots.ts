@@ -226,13 +226,20 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // idempotent ADD COLUMN IF NOT EXISTS. Source of truth: lib/db/src/schema/facts.ts.
   "0079_facts_visual_concepts",
 
+  // Hand-written DDL: the engine_revision_bumps audit table + an idempotent
+  // engine_revision admin_config seed (stale-fact refresh PR3). drizzle-kit
+  // generate is broken on the malformed 0063 snapshot, so this ships without a
+  // generated snapshot; idempotent CREATE TABLE IF NOT EXISTS / ON CONFLICT DO
+  // NOTHING. Source of truth: lib/db/src/schema/engineRevisionBumps.ts.
+  "0080_engine_revision",
+
   // Hand-written DDL for the eval harness: eval_runs table, eval columns on
   // image_prompt_attempts (moderator rating / failure tag / eval-run tagging),
   // golden-set columns on facts, and partial dashboard indexes. drizzle-kit
   // generate is broken on the malformed 0063 snapshot, so this ships without a
   // generated snapshot; idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS.
   // Source of truth: lib/db/src/schema/{evalRuns,imagePromptAttempts,facts}.ts.
-  "0080_eval_harness",
+  "0081_eval_harness",
 ]);
 
 interface JournalEntry {

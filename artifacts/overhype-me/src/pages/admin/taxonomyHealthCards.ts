@@ -97,8 +97,26 @@ export const CARD_META: CardMeta[] = [
     tone: "amber",
     description:
       "Enrichment was classified under an older classification-prompt version (or has no version field at all).",
-    whatToDo: "Re-enrich to re-classify under the current prompt version.",
+    whatToDo:
+      "Re-enrich to re-classify under the current prompt version. Note: facts that are ALSO \"Stale for reprocess\" are deliberately EXCLUDED from this bulk re-enrich (a direct re-enrich can't clear that signal) — send those back from the Stale-for-reprocess card instead. On the legacy corpus that's most of them, so this bulk action may report \"no matching facts\" until those are refreshed.",
     actions: [REENRICH_ACTION],
+  },
+  {
+    key: "staleForReprocess",
+    label: "Stale for reprocess",
+    filter: "stale_for_reprocess",
+    tone: "amber",
+    description:
+      "Enrichment is valid, but the fact was last processed under an older engine revision or older pipeline code versions (or has never been through the versioned refresh). Its enrichment is good — it just hasn't benefited from the latest thinking.",
+    whatToDo:
+      "Send it back to review to refresh it through the pipeline (moderated, then promoted). This is refresh-first — a direct Re-enrich is intentionally not offered here, since it would bypass moderation and wouldn't clear the stale-for-reprocess signal.",
+    actions: [
+      {
+        label: "Send back to review",
+        help: "Opens a fresh refresh cycle for this fact: seeds a candidate from its current enrichment and re-runs classification, leaving the live fact untouched until you promote the candidate. Keeps your manual overrides. The row stays listed (still stale) until the refresh is promoted.",
+        safety: "safe",
+      },
+    ],
   },
   {
     key: "projectionMismatch",
