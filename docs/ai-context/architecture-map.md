@@ -1,0 +1,150 @@
+# Architecture Map
+
+> A map to orient before modifying code. Paths are concrete and verified against
+> the repo; where a boundary is fuzzy it's marked **Needs verification**. Inspect
+> the actual files before relying on any summary here.
+
+## Stack overview
+
+- **Monorepo:** pnpm workspaces + TypeScript. Packages under `artifacts/*`,
+  `lib/*`, `lib/integrations/*`, `cloudflare/*`, `scripts`.
+- **API server:** Express 5, Zod validation (`artifacts/api-server`).
+- **Frontend:** React 19 + Vite, TanStack Query (`artifacts/overhype-me`).
+- **Database:** PostgreSQL + `pgvector`, Drizzle ORM (`lib/db`).
+- **API codegen:** OpenAPI 3.1 + Orval → generated React Query hooks
+  (`lib/api-client-react`) and Zod schemas (`lib/api-zod`).
+- **Auth:** Replit OIDC + Google/Apple OAuth + local email/password (bcryptjs).
+- **Build:** esbuild (backend), Vite (frontend), `tsc` (typecheck).
+
+## Repository layout
+
+```
+artifacts/
+  api-server/        Express API, domain logic in src/lib/*, routes in src/routes/*, tests in src/__tests__/*
+  overhype-me/       React+Vite frontend (pages/, components/, admin under pages/admin & components/admin)
+lib/
+  db/                Drizzle schema (src/schema/*) + migrations
+  api-spec/          OpenAPI spec + codegen (pnpm --filter @workspace/api-spec run codegen)
+  api-client-react/  generated React Query client
+  api-zod/           generated Zod schemas + shared vocab (moderationWorkflow, taxonomy, renderScenarios, visualPromptStrategies)
+  engines/           code-first generative engine catalogue (catalogue.ts, reconcile.ts, one file per engine)
+  integrations*/     OpenAI / Anthropic / fal.ai / redact integration wrappers
+  replit-auth-web/   Replit auth helper
+cloudflare/og-router/  Cloudflare Worker (OG image routing); deploy: pnpm worker:deploy
+scripts/             operational one-off scripts (e.g. resubmit facts for review)
+.agents/memory/      engineering "memory" notes — read these before deep work in a subsystem
+docs/                this documentation
+```
+
+## Frontend surfaces
+
+- **Public** (`artifacts/overhype-me/src/pages/`): `Home.tsx` (cold vs warm
+  visitor), `SubmitFact.tsx`, `TopFacts.tsx` (leaderboard), `Search.tsx`,
+  `Hashtags.tsx`, `Profile.tsx`, `ActivityFeed.tsx`, fact detail + comments,
+  meme builder (`components/meme-builder/`, `MemeStudio.tsx`), video builder
+  (`VideoBuilder.tsx`, `MemeMagicVideo.tsx`), merch (`WearIt.tsx`).
+- **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
+  Dashboard, Facts, Users, Moderation, Comments, Billing, Refunds & Disputes,
+  Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,
+  Configuration, AI Settings. Shared: `EnrichmentEditor.tsx` (+ `fieldDocs/`),
+  `useTaxonomyHealthActions.ts` (async-status reference).
+- Frontend consumes the API only through generated hooks
+  (`lib/api-client-react`); do not hand-roll fetch calls.
+
+## Backend services and routes
+
+Routes in `artifacts/api-server/src/routes/*`; domain logic in
+`artifacts/api-server/src/lib/*`. Notable areas:
+
+- `routes/facts.ts`, `routes/reviews.ts` — submission + moderation lifecycle.
+- `routes/ai.ts` — tokenize-fact, suggest-hashtags, check-duplicate.
+- `routes/admin.ts` + `routes/admin*.ts` (e.g. `adminImagePrompt.ts`,
+  `adminEngines.ts`) — admin surfaces, all guarded by `requireAdmin`.
+- `routes/stripe.ts` + webhook handlers — billing/checkout.
+- `routes/affiliate.ts` — Zazzle click tracking.
+- Domain libs: `imagePrompt/`, `factImagePipeline.ts`, `factEnrichment*.ts`,
+  `enrichmentVersioning.ts`, `taxonomyHealth/`, `factTokenizer.ts`,
+  `render-fact.ts`, `videoPipelineRunner.ts`, `moderation/` (safety scanners),
+  `stripe*`, `budgetGate.ts`.
+
+## Database and Drizzle conventions
+
+- Schema per concern in `lib/db/src/schema/*.ts` (e.g. `facts`, `reviews`
+  → `pending_reviews`, `engines`, `asyncJobs` → `async_jobs`,
+  `factEnrichmentVersions`, `memberships`, `auth`).
+- `pgvector` `vector(384)` embedding on `facts.embedding`.
+- **Migration tooling caveat:** `drizzle-kit generate` currently fails on a
+  malformed snapshot; new migrations use a `SNAPSHOT_EXEMPT_TAGS` workaround plus
+  hand-written idempotent `ADD COLUMN IF NOT EXISTS`. See
+  [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md).
+- Apply schema locally with `pnpm --filter @workspace/db push-force` then
+  `pnpm --filter @workspace/db run migrate`.
+
+## Async jobs and queues
+
+- Single durable table **`async_jobs`** (`lib/db/src/schema/asyncJobs.ts`), a
+  `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
+  `pending → processing → done | failed`. A polling worker dispatches by queue to
+  registered handlers.
+- Queues include: email, enrichment, `fact_pexels`, `image_prompt_generation`,
+  `image_generation`, preview, visual-concept, video pipeline.
+- Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
+  `visualConceptStatus`: `pending | ok | failed`).
+- **Enqueue is not completion** — never report a job "done" at enqueue time; poll
+  its terminal state. UI must show per-item + aggregate status (see
+  [`known-failure-patterns.md`](./known-failure-patterns.md)).
+
+## Storage / CDN
+
+- Images persist to **Google Cloud Storage** via the Replit sidecar today. (The
+  stated long-term intent is Cloudflare R2 — **not yet done**; treat GCS as
+  current truth.)
+- **Cloudflare Worker** at `cloudflare/og-router/` handles OG image routing;
+  edit in code and `pnpm worker:deploy` (never ask for dashboard changes). A
+  Google-infra `GAESA` cookie breaks X/Twitter OG cards and is fixed at the
+  Worker layer — see `docs/cloudflare-gaesa-og-fix.md`.
+
+## AI / vendor integration points
+
+- **OpenAI** — tokenization, enrichment classification (Structured Outputs),
+  embeddings (`text-embedding-3-small`, 384-dim), and the visual planner.
+  **Never route OpenAI through a Replit proxy** — direct `OPENAI_API_KEY` only
+  (`.agents/memory/openai-no-replit-proxy.md`).
+- **fal.ai** — image + video generation (Nano Banana family, PuLID identity,
+  Kling video, etc.) and safety scanning.
+- **Stripe** — billing/subscriptions/webhooks.
+- **Resend** — transactional email. **hCaptcha** — submission captcha.
+- **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).
+- Generative models are configured **code-first** in `lib/engines/` and reconciled
+  into the `engines` table at boot; admin owns `isActive`/`isDefault`/pricing.
+
+## Admin and moderation surfaces
+
+- Admin gate: single `is_admin` (via DB flag, `ADMIN_USER_IDS` env, or bootstrap
+  email); `requireAdmin` on every admin route. No multi-role model.
+- Two **separate** moderation systems: content-quality review
+  (`pending_reviews` + workflow stages — see
+  [`moderation-workflow.md`](./moderation-workflow.md)) and legal/safety
+  moderation (`quarantined_memes`/`ncmec_reports`, `lib/moderation/`).
+
+## Test structure
+
+- API DB-backed tests: `artifacts/api-server/src/__tests__/*.test.ts`, run via the
+  isolated runners (never raw `node --test`). See
+  [`../engineering/testing-guide.md`](../engineering/testing-guide.md) and
+  `docs/TESTING.md` (canonical).
+- Frontend: Vitest under `artifacts/overhype-me`.
+- **GitHub CI is the authoritative gate** (`Build` + `Test` required on PRs to
+  `main`).
+
+## Where to inspect before common tasks
+
+| Task | Read first |
+| --- | --- |
+| Visual pipeline / prompts / renders | [`visual-pipeline.md`](./visual-pipeline.md), `imagePrompt/`, `.agents/memory/image-prompt-preview-parity.md` |
+| Moderation flow | [`moderation-workflow.md`](./moderation-workflow.md), `lib/api-zod/src/moderationWorkflow.ts`, `routes/reviews.ts` |
+| Enrichment / taxonomy | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md), `factEnrichment*.ts`, `enrichmentVersioning.ts`, `taxonomyHealth/` |
+| Tokenizer / grammar | [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md), `factTokenizer.ts`, `templateGrammar.ts`, `render-fact.ts` |
+| Schema / migration / backfill | [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md), `lib/db/src/schema/*` |
+| Billing | `routes/stripe.ts`, `stripe*`, `lib/db/src/schema/memberships.ts` |
+| Async jobs | `lib/db/src/schema/asyncJobs.ts`, the `*Jobs.ts` handlers |
