@@ -127,13 +127,17 @@ PuLID.
 
 ## Admin preview/debug surfaces (Runtime Compiled Prompt)
 
-The admin **"Runtime Compiled Prompt Preview" must match runtime.** The parity
-guarantor is `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`), which
-calls the **same** `generateImagePromptPlan()` + `compileForSubjectRenderMode()`
-as production and nothing else. Three surfaces share it (Fact-page preview, the
-i2i/t2i engine workbench, and production). Both *preview* surfaces must feed the
-canonical test identity `RUNTIME_PREVIEW_DEFAULT_NAME = "David Franklin"` /
-he/him; production uses the real user identity (`resolveAttemptIdentity`).
+The admin **"Runtime Compiled Prompt Preview" must match runtime.** Parity comes
+from all three surfaces going through the **same core path** —
+`generateImagePromptPlan()` + `compileForSubjectRenderMode()` — not from a shared
+wrapper. The **two admin preview surfaces** (the admin fact-page RCP preview,
+`POST /admin/image-prompt/preview`, and the i2i/t2i engine workbench) call those two
+functions via `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`) and
+nothing else; **production** (`imagePromptJobs.ts`) calls the same two functions
+**directly** (it does *not* route through the preview helper). Both preview surfaces
+must feed the canonical test identity `RUNTIME_PREVIEW_DEFAULT_NAME = "David
+Franklin"` / he/him; production uses the real user identity
+(`resolveAttemptIdentity`).
 
 **Preview ≠ byte-identical to production** because `IMAGE_PROMPT_TEMPERATURE = 0.4`
 (two live calls word differently). Divergence is **temperature, not caching** —

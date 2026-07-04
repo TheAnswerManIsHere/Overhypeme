@@ -89,15 +89,19 @@ candidate as `rejected` history (never hard-deleted). Guards include
 to record the engine/prompt/code revision an enrichment was generated under, so a
 fact processed under old assumptions reads as stale. **Current state: NOT
 implemented — a TODO.** There are live `signature: null // TODO(PR3-signature)`
-sites in `sendBackToReview.ts`, `enrichmentJobs.ts`, and `enrichmentVersioning.ts`,
-and no `currentProcessingSignature()` function exists yet. The columns and the
-copy-at-promote path exist; nothing computes a signature. **If you work here,
-this is the gap to close — don't assume signatures are live.**
+sites in `sendBackToReview.ts` and `enrichmentJobs.ts`, and no
+`currentProcessingSignature()` function exists yet. (`enrichmentVersioning.ts` does
+*not* stamp `null` — at promote it copies the candidate's signature through, e.g.
+`lastProcessedSignature: candidate.signature`, which is always null until PR3.) The
+columns and the copy-at-promote path exist; nothing computes a signature. **If you
+work here, this is the gap to close — don't assume signatures are live.**
 
 ## Staleness tracking
 
-- Version constants in `lib/api-zod/src/taxonomy.ts`: `TAXONOMY_VERSION`,
-  `CLASSIFICATION_PROMPT_VERSION` (currently `"v5"`), `VISUAL_STRATEGY_VERSION`.
+- Version constants: `TAXONOMY_VERSION` and `CLASSIFICATION_PROMPT_VERSION`
+  (currently `"v5"`) live in `lib/api-zod/src/taxonomy.ts`; `VISUAL_STRATEGY_VERSION`
+  lives in `lib/api-zod/src/visualPromptStrategies.ts` (re-surfaced through the
+  taxonomy-health helpers, not defined in `taxonomy.ts`).
 - Per fact, `enrichment.classificationPromptVersion` is stamped at classify time;
   when it differs from the current constant the fact is flagged **stale**.
 - `VISUAL_STRATEGY_VERSION` is surfaced for visibility but **not gated on** today

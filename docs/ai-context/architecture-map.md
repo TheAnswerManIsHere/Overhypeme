@@ -21,13 +21,13 @@
 ```
 artifacts/
   api-server/        Express API, domain logic in src/lib/*, routes in src/routes/*, tests in src/__tests__/*
+                     (generative engine catalogue lives here: src/lib/engines/ — catalogue.ts, reconcile.ts, one file per engine)
   overhype-me/       React+Vite frontend (pages/, components/, admin under pages/admin & components/admin)
 lib/
   db/                Drizzle schema (src/schema/*) + migrations
   api-spec/          OpenAPI spec + codegen (pnpm --filter @workspace/api-spec run codegen)
   api-client-react/  generated React Query client
   api-zod/           generated Zod schemas + shared vocab (moderationWorkflow, taxonomy, renderScenarios, visualPromptStrategies)
-  engines/           code-first generative engine catalogue (catalogue.ts, reconcile.ts, one file per engine)
   integrations*/     OpenAI / Anthropic / fal.ai / redact integration wrappers
   replit-auth-web/   Replit auth helper
 cloudflare/og-router/  Cloudflare Worker (OG image routing); deploy: pnpm worker:deploy
@@ -41,15 +41,18 @@ docs/                this documentation
 - **Public** (`artifacts/overhype-me/src/pages/`): `Home.tsx` (cold vs warm
   visitor), `SubmitFact.tsx`, `TopFacts.tsx` (leaderboard), `Search.tsx`,
   `Hashtags.tsx`, `Profile.tsx`, `ActivityFeed.tsx`, fact detail + comments,
-  meme builder (`components/meme-builder/`, `MemeStudio.tsx`), video builder
-  (`VideoBuilder.tsx`, `MemeMagicVideo.tsx`), merch (`WearIt.tsx`).
+  merch (`WearIt.tsx`). The meme/video builders live under
+  `artifacts/overhype-me/src/components/` (not `pages/`): `components/meme-builder/`,
+  `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`.
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Comments, Billing, Refunds & Disputes,
   Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,
   Configuration, AI Settings. Shared: `EnrichmentEditor.tsx` (+ `fieldDocs/`),
   `useTaxonomyHealthActions.ts` (async-status reference).
-- Frontend consumes the API only through generated hooks
-  (`lib/api-client-react`); do not hand-roll fetch calls.
+- Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
+  Note this is **not** universal: many surfaces (admin prompt-preview/moderation
+  hooks, the meme/video builder flows) intentionally use hand-written `fetch`.
+  Match the local surface — don't do unrelated client refactors to "fix" this.
 
 ## Backend services and routes
 
@@ -62,10 +65,12 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
   `adminEngines.ts`) — admin surfaces, all guarded by `requireAdmin`.
 - `routes/stripe.ts` + webhook handlers — billing/checkout.
 - `routes/affiliate.ts` — Zazzle click tracking.
-- Domain libs: `imagePrompt/`, `factImagePipeline.ts`, `factEnrichment*.ts`,
-  `enrichmentVersioning.ts`, `taxonomyHealth/`, `factTokenizer.ts`,
-  `render-fact.ts`, `videoPipelineRunner.ts`, `moderation/` (safety scanners),
-  `stripe*`, `budgetGate.ts`.
+- Domain libs (`artifacts/api-server/src/lib/`): `imagePrompt/`,
+  `factImagePipeline.ts`, `factEnrichment*.ts`, `enrichmentVersioning.ts`,
+  `taxonomyHealth/`, `factTokenizer.ts`, `videoPipelineRunner.ts`, `engines/`,
+  `moderation/` (safety scanners), `stripe*`, `budgetGate.ts`. (The token
+  *renderer*, `render-fact.ts`, is a **frontend** file —
+  `artifacts/overhype-me/src/lib/render-fact.ts` — not an api-server lib.)
 
 ## Database and Drizzle conventions
 
@@ -86,8 +91,11 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
   `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
   `pending → processing → done | failed`. A polling worker dispatches by queue to
   registered handlers.
-- Queues include: email, enrichment, `fact_pexels`, `image_prompt_generation`,
-  `image_generation`, preview, visual-concept, video pipeline.
+- Registered queues include: `email`, `enrichment`, `fact_enrichment_backfill`,
+  `fact_pexels`, `image_prompt_generation`, `image_generation`,
+  `review_render_scenarios_prepare`, `fact_visual_concepts`, `projection_repair`.
+  (`fal_video` is defined but marked a **future** queue — the video pipeline does
+  not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
 - Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll
@@ -115,8 +123,10 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - **Stripe** — billing/subscriptions/webhooks.
 - **Resend** — transactional email. **hCaptcha** — submission captcha.
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).
-- Generative models are configured **code-first** in `lib/engines/` and reconciled
-  into the `engines` table at boot; admin owns `isActive`/`isDefault`/pricing.
+- Generative models are configured **code-first** in
+  `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, `reconcile.ts`, one file
+  per engine) and reconciled into the `engines` table at boot; admin owns
+  `isActive`/`isDefault`/pricing.
 
 ## Admin and moderation surfaces
 

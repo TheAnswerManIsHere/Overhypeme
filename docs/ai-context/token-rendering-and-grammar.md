@@ -26,8 +26,12 @@ in the allowed set — new tokenization/validation must use the closed set above
 ## Pronoun sets
 
 The renderer resolves a pronoun map from `KNOWN_MAPS` (he/she/they/ze/xe/ey/fae/it,
-plus pipe-delimited custom and slash presets). **Plurality:** only they/them is
-treated as plural — that's the branch that flips verb conjugation.
+plus pipe-delimited custom and slash presets). **Plurality** is the branch that
+flips verb conjugation: among the `KNOWN_MAPS` presets only they/them is plural,
+**but plurality is not hardcoded to they/them** — a pipe-delimited custom pronoun
+set carries its own plural flag (`parseCustom(...).plural`, the trailing `|p`/`|s`
+field), and `resolveMap()` uses `custom.plural ? "plural" : "singular"`. So a custom
+set can render plural too — don't assume only they/them conjugates plural.
 
 ## Verb conjugation pairs
 
