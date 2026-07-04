@@ -167,9 +167,17 @@ describe("POST /admin/facts/:id/eval-golden", () => {
     assert.equal(f!.r, "clean regression case");
   });
 
-  it("rejects an inactive fact (409) and a non-admin (drift)", async () => {
-    const inactive = await makeFact({ active: false });
+  it("rejects ADDING an inactive fact (409) but still allows REMOVING one", async () => {
+    const inactive = await makeFact({ active: false, golden: true });
+    // Can't add an inactive fact to the golden set...
     assert.equal((await authp(request(app).post(`/admin/facts/${inactive}/eval-golden`), adminSid).send({ golden: true })).status, 409);
+    // ...but CAN remove one that went inactive after being marked golden.
+    assert.equal((await authp(request(app).post(`/admin/facts/${inactive}/eval-golden`), adminSid).send({ golden: false })).status, 200);
+    const [f] = await db.select({ g: factsTable.evalGolden }).from(factsTable).where(eq(factsTable.id, inactive));
+    assert.equal(f!.g, false);
+  });
+
+  it("rejects a non-admin (drift)", async () => {
     const active = await makeFact({ active: true });
     const drift = await authp(request(app).post(`/admin/facts/${active}/eval-golden`), plainSid).send({ golden: true });
     assert.ok(drift.status === 401 || drift.status === 403, `expected 401/403, got ${drift.status}`);

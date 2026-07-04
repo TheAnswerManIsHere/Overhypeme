@@ -50,7 +50,13 @@ router.post("/admin/facts/:id/eval-golden", requireAdmin, async (req: Request, r
     .where(eq(factsTable.id, id))
     .limit(1);
   if (!fact) { res.status(404).json({ error: "fact_not_found" }); return; }
-  if (!fact.isActive) { res.status(409).json({ error: "fact_inactive", detail: "Only active facts can be in the golden set." }); return; }
+  // Only ADDING to the golden set requires an active fact — a fact that went
+  // inactive after being marked golden must still be removable (golden:false),
+  // otherwise it's stuck in the dashboard until someone edits the DB.
+  if (parsed.data.golden && !fact.isActive) {
+    res.status(409).json({ error: "fact_inactive", detail: "Only active facts can be added to the golden set." });
+    return;
+  }
 
   const reason = parsed.data.reason && parsed.data.reason.trim() ? parsed.data.reason.trim() : null;
   await db

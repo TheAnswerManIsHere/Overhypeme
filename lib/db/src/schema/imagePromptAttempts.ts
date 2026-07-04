@@ -4,6 +4,7 @@ import {
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 import { pendingReviewsTable } from "./reviews";
+import { evalRunsTable } from "./evalRuns";
 
 /**
  * Phase 2 — per-attempt image prompt generation metadata.
@@ -100,7 +101,10 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   // Set ONLY on eval-run attempts (review_id stays NULL there, so eval renders
   // never appear in the moderation grid). eval_input_hash is the eval-specific
   // signature (fixed sample subject), NOT the review render hash.
-  evalRunId: bigint("eval_run_id", { mode: "number" }),
+  // FK declared HERE (not just in the migration) so `drizzle-kit push` creates
+  // the column WITH the constraint — otherwise push makes a plain bigint and the
+  // migration's `ADD COLUMN IF NOT EXISTS … REFERENCES` skips the FK on those DBs.
+  evalRunId: bigint("eval_run_id", { mode: "number" }).references(() => evalRunsTable.id, { onDelete: "set null" }),
   evalScenarioKey: varchar("eval_scenario_key", { length: 40 }),
   evalInputHash: text("eval_input_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
