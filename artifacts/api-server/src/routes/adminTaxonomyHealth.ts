@@ -611,10 +611,20 @@ async function pickEnrichmentTargets(
       .map((id) => byId.get(id))
       .filter((f): f is FactRowSelect => f != null);
   } else {
+    // Refresh-first: a fact that is ALSO stale-for-reprocess must go through
+    // send-back (which stamps a fresh signature), NOT a direct bulk re-enrich —
+    // that would spend model calls and leave `stale_for_reprocess` uncleared
+    // (direct re-enrich never stamps `last_processed_signature`). Reading the
+    // current signature lets the evaluator populate `staleForReprocess` so we
+    // can exclude the overlap from the stale target set. (Missing/invalid facts
+    // are never stale-for-reprocess — valid-only — so they're unaffected.)
+    const currentSignature = await currentProcessingSignatureFromConfig();
     candidates = facts.filter((row) => {
-      const h = evaluateFactTaxonomyHealth(toHealthInput(row));
+      const h = evaluateFactTaxonomyHealth(toHealthInput(row, currentSignature));
       const isMissing = h.statuses.includes("missing_enrichment");
-      const isStale = h.reviewFlags.staleEnrichmentVersion || h.reviewFlags.invalidEnrichment;
+      const isStale =
+        (h.reviewFlags.staleEnrichmentVersion || h.reviewFlags.invalidEnrichment) &&
+        !h.reviewFlags.staleForReprocess;
       return (
         (mode === "missing_only" && isMissing) ||
         (mode === "stale_only" && isStale) ||

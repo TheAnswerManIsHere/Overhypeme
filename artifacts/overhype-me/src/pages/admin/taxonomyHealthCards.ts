@@ -97,7 +97,8 @@ export const CARD_META: CardMeta[] = [
     tone: "amber",
     description:
       "Enrichment was classified under an older classification-prompt version (or has no version field at all).",
-    whatToDo: "Re-enrich to re-classify under the current prompt version.",
+    whatToDo:
+      "Re-enrich to re-classify under the current prompt version. Note: facts that are ALSO \"Stale for reprocess\" are deliberately EXCLUDED from this bulk re-enrich (a direct re-enrich can't clear that signal) — send those back from the Stale-for-reprocess card instead. On the legacy corpus that's most of them, so this bulk action may report \"no matching facts\" until those are refreshed.",
     actions: [REENRICH_ACTION],
   },
   {
