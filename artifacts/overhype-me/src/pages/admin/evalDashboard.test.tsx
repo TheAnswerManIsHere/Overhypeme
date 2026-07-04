@@ -49,6 +49,10 @@ describe("EvalDashboard", () => {
     // Opportunistic is separated + labeled directional.
     const opp = screen.getByTestId("eval-opportunistic");
     expect(opp.textContent?.toLowerCase()).toMatch(/directional only/);
+    // An image_ready eval attempt shows its render (via the admin eval image
+    // route) so ratings are informed, not blind.
+    const img = screen.getByTestId("eval-attempt-image") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/api/admin/eval/attempts/100/image");
   });
 
   it("Start eval run shows a cost confirmation, then posts and shows per-item status", async () => {
@@ -67,6 +71,27 @@ describe("EvalDashboard", () => {
     expect(fetchFn.mock.calls.some((c) => String(c[0]).endsWith("/eval/runs") && (c[1] as RequestInit)?.method === "POST")).toBe(true);
     // The active-run per-item status panel appears.
     await waitFor(() => expect(screen.getByTestId("eval-active-run")).toBeTruthy());
+  });
+
+  it("stops polling once the run reaches a terminal state (no infinite loop)", async () => {
+    const fetchFn = routeFetch({
+      runStatus: {
+        run: { id: 99, label: null },
+        items: [{ attemptId: 1, factId: 11, scenarioKey: "generic_t2i", status: "image_ready" }],
+        tally: { total: 1, done: 1, failed: 0, blocked: 0, working: 0 },
+      },
+    });
+    vi.stubGlobal("fetch", fetchFn);
+    render(<EvalDashboard />);
+    await waitFor(() => expect(screen.getByTestId("eval-golden-list")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("eval-start-run"));
+    await act(async () => { fireEvent.click(screen.getByTestId("eval-run-confirm-yes")); });
+    await waitFor(() => expect(screen.getByTestId("eval-active-run")).toBeTruthy());
+    const statusCalls = () => fetchFn.mock.calls.filter((c) => String(c[0]).includes("/eval/runs/99")).length;
+    const settled = statusCalls();
+    // Wait well past the 1.5s poll interval; a terminal run must NOT keep polling.
+    await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
+    expect(statusCalls()).toBe(settled);
   });
 
   it("disables Start when there are no golden facts", async () => {

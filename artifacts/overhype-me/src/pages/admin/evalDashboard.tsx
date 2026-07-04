@@ -71,12 +71,19 @@ export default function EvalDashboard() {
     if (r && r.ok) setActiveRun((await r.json()) as RunStatusData);
   }, []);
   useEffect(() => {
-    if (activeRunId.current == null) return;
     const runId = activeRunId.current;
-    const h = setInterval(() => {
-      if (activeRun && activeRun.tally.working === 0 && activeRun.tally.total > 0) { void load(); return; }
-      void loadRunStatus(runId);
-    }, 1500);
+    if (runId == null) return;
+    // Terminal once no item is still working. Stop polling (clear the ref so a
+    // re-render can't re-arm the interval) and reconcile the dashboard ONCE;
+    // keep the active-run panel visible showing its final per-item state
+    // (rule 8). A run with zero items reports working === 0 immediately, so this
+    // also can't spin forever on an empty run.
+    if (activeRun && activeRun.tally.working === 0) {
+      activeRunId.current = null;
+      void load();
+      return;
+    }
+    const h = setInterval(() => { void loadRunStatus(runId); }, 1500);
     return () => clearInterval(h);
   }, [activeRun, loadRunStatus, load]);
 
@@ -247,7 +254,23 @@ export default function EvalDashboard() {
                         {sg.signature.scenarioKey} · {sg.signature.actualImageEngineId}
                       </p>
                       {sg.attempts.map((a) => (
-                        <div key={a.attemptId} className="pl-2" data-testid="eval-run-attempt">
+                        <div key={a.attemptId} className="pl-2 space-y-1" data-testid="eval-run-attempt">
+                          {/* You can't validly rate a render you can't see — eval
+                              attempts have no review grid, so surface the image
+                              here via the admin-gated eval image route. */}
+                          {a.status === "image_ready" ? (
+                            <img
+                              src={`/api/admin/eval/attempts/${a.attemptId}/image`}
+                              alt={`eval render for attempt ${a.attemptId}`}
+                              loading="lazy"
+                              data-testid="eval-attempt-image"
+                              className="max-h-40 rounded-sm border border-border"
+                            />
+                          ) : (
+                            <p className="text-[10px] italic text-muted-foreground">
+                              {a.status === "failed" ? "render failed" : a.status === "blocked" ? "blocked" : "no image yet"}
+                            </p>
+                          )}
                           <AttemptEvalControl compact rating={a.rating} failureTag={a.failureTag} onSave={rateEvalAttempt(a.attemptId)} />
                         </div>
                       ))}

@@ -842,6 +842,11 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
       enrichmentStatus: factsTable.enrichmentStatus,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
       hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
+      // Eval golden-set membership, so the focused/deep-linked Facts editor
+      // (e.g. /admin/facts?focus=<id>) reflects the saved state and can toggle it
+      // — matching the list projection above.
+      evalGolden: factsTable.evalGolden,
+      evalGoldenReason: factsTable.evalGoldenReason,
     })
     .from(factsTable)
     .where(eq(factsTable.id, id))
