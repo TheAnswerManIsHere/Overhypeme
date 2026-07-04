@@ -75,12 +75,11 @@ auto-softeners; `enrichment_pending` stage name (it's `prep_pending`).
 **Looks like:** reporting a job "done" when it was only *queued*; a single global
 spinner for a bulk action. **Dangerous:** the user thinks work finished (or
 failed) when it's still running; per-item failures/skips get hidden. **Avoid:**
-poll the job's terminal state; show **per-item** status (queued→working→done/
-failed/skipped/still-running) **and** an aggregate tally; never impose a UI
-timeout on legitimately long jobs; treat "skipped" and "still running" as
-first-class. **Overhype:** the async queue is `async_jobs` (`pending → processing →
-done | failed`); **Taxonomy Health (`useTaxonomyHealthActions.ts`) is the reference
-implementation** — copy it, don't invent a new status channel.
+poll the job's terminal state and show per-item + aggregate status — the full
+contract is [`async-ui-status.md`](./async-ui-status.md); read it before building
+any queued/bulk surface. **Overhype:** the async queue is `async_jobs` (`pending →
+processing → done | failed`); **Taxonomy Health (`useTaxonomyHealthActions.ts`) is
+the reference implementation** — copy it, don't invent a new status channel.
 
 ## One-example bug fixes
 

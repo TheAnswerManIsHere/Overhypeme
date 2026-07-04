@@ -5,6 +5,13 @@
 > non-negotiable** — it is deliberately not the full product bible. The detail
 > lives in `docs/ai-context/` (product/architecture truth) and `docs/engineering/`
 > (test/migration/review). Keep this file concise.
+>
+> **One source of truth for all agents.** These docs are shared by Codex, Claude
+> Code, and future agents. Claude Code's `CLAUDE.md` holds only Claude-specific
+> ceremony (plan-mode delivery, its PR/squash-merge workflow, TEST_RUN/UAT,
+> auto-watch) and defers to these shared docs for every cross-agent principle. When
+> shared product/architecture/principle truth changes, edit the shared doc here —
+> do not fork a divergent copy into any agent's own file or private memory.
 
 ## Project context
 
@@ -80,9 +87,8 @@ Prefer, in order:
 - **Do not patch only the latest example — solve the general mechanism.**
 - **Prefer database-backed config for tunable operational settings.**
 - **Migrations must be idempotent and observable.**
-- **Async work must show status** — admins should be able to tell what is planned,
-  what is happening, what worked, what failed, what was skipped, and what action is
-  needed next (per-item + aggregate).
+- **Async work must show status** at two altitudes (per-item + aggregate) — see
+  [`docs/ai-context/async-ui-status.md`](docs/ai-context/async-ui-status.md).
 - **Ship the surface with the behavior** (no dead UI, no invisible backend), and
   **enforce every permission server-side.**
 - Pre-launch: features ship **on-by-default, no rollout flags**; **no new external
