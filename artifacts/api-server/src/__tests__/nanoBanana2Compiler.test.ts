@@ -214,14 +214,18 @@ describe("nanoBanana2 — subject binding (de-aging fix)", () => {
     assert.match(out.imagePrompt.toLowerCase(), /do not show both an adult david and a baby\/young child/);
   });
 
-  it("compiles age modifiers into a loud de-aging directive (never silently dropped)", () => {
+  it("age modifiers stay a loud de-aging binding, now owned solely by SUBJECT BINDING (no modifier prose)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "An infant drives a car.",
       renderedSubject: { name: "David", pronouns: "he/him" },
       modifiers: ["baby_child_version"],
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /de-age the reference subject into the baby\/child/);
+    // SUBJECT BINDING carries the de-aging fusion (the sole compiled owner now
+    // that the modifier→prose channel is gone).
+    assert.match(out.imagePrompt.toLowerCase(), /the same person de-aged or aged, not a second person/);
+    // The retired modifier-directive prose is gone.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /de-age the reference subject into the baby\/child/);
   });
 
   it("emits a single-instance binding for avoid_duplicate_subject without an age transform", () => {
@@ -259,8 +263,11 @@ describe("nanoBanana2 — subject binding (de-aging fix)", () => {
     }));
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /the reference person is/);
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /adult version/);
-    // The age modifier still compiles into a loud directive (never dropped).
-    assert.match(out.imagePrompt.toLowerCase(), /transform the reference subject's apparent age/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /\badult\b/);
+    // The age transform still compiles loudly — now via mode-appropriate SUBJECT
+    // BINDING single-entity wording (the sole compiled owner), not modifier prose.
+    assert.match(out.imagePrompt, /SUBJECT BINDING:/);
+    assert.match(out.imagePrompt.toLowerCase(), /the same subject rendered at that life stage, not a different individual/);
   });
 
   it("omits SUBJECT BINDING entirely for a plain non-transform fact", () => {
@@ -474,13 +481,35 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.equal(countOccurrences(out.imagePrompt, "sharks circling on a TV screen behind David"), 1, out.imagePrompt);
   });
 
-  it("injects high-impact modifier directives", () => {
+  it("does NOT inject modifier prose into the compiled prompt (the planner owns staging)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David stands.",
+      modifiers: ["mock_heroic", "object_transformation", "metaphorical_visualization"],
+    }));
+    const lower = out.imagePrompt.toLowerCase();
+    // None of the retired modifier-directive sentences appear.
+    assert.doesNotMatch(lower, /mock-heroic pose/);
+    assert.doesNotMatch(lower, /object mid-transformation/);
+    assert.doesNotMatch(lower, /clear visual metaphor/);
+    // And the SUBJECT DETAILS section carries no modifier-derived text — it holds
+    // only subject details, expression/pose, and genuine key-element gaps.
+    const sd = out.promptBreakdown?.find((s) => s.id === "subject_details");
+    const sdText = (sd?.rawText ?? "").toLowerCase();
+    assert.doesNotMatch(sdText, /mock-heroic|mid-transformation|visual metaphor/);
+  });
+
+  it("crowd_reaction keeps its STRUCTURAL failure-mode guard (not prose injection)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
       modifiers: ["crowd_reaction"],
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /crowd reacting/);
+    // The old positive prose ("Include a visible crowd reacting to the subject.")
+    // is gone; the conservative failure-mode focal-point guard remains.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /include a visible crowd reacting/);
+    assert.match(out.imagePrompt, /the crowd reacts to and supports David rather than replacing David/);
   });
 
   it("resolves residual identity tokens in emitted elements (keyVisualElements + semantic referent) using renderedSubject", () => {
@@ -500,6 +529,149 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
     assert.match(out.imagePrompt, /David's banner overhead/);
     assert.match(out.imagePrompt, /David standing on the planet/);
+  });
+});
+
+describe("nanoBanana2 — retired text modifiers are inert (de-scaffolding)", () => {
+  it("legacy text/logo modifiers + explicit in-scene text: text survives, zero contradiction", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David holds a diary in a trophy room.",
+      modifiers: ["no_readable_text", "avoid_readable_ui", "avoid_real_logos"],
+      visualPlan: {
+        supportingTextPolicy: {
+          allowSupportingText: true,
+          supportingTextElements: [
+            { content: "My Diary - AKA The Guinness Book of World Records", purpose: "cover", placement: "on the diary cover" },
+          ],
+          forbiddenTextTypes: [],
+        },
+      },
+    }));
+    const lower = out.imagePrompt.toLowerCase();
+    // The specimen contradiction can never happen: no blanket text/logo bans.
+    assert.doesNotMatch(lower, /free of readable text/);
+    assert.doesNotMatch(lower, /keep all surfaces free/);
+    assert.doesNotMatch(lower, /on-screen ui abstract/);
+    assert.doesNotMatch(lower, /do not depict any real-world logos/);
+    // The intentional in-scene text is rendered clearly.
+    assert.match(out.imagePrompt, /Render this in-scene text clearly: "My Diary - AKA The Guinness Book of World Records"/);
+    // The always-on incidental-text guard is present and yields to it.
+    assert.match(lower, /keep incidental background text non-readable/);
+  });
+});
+
+describe("nanoBanana2 — always-on incidental-text guard (yields to intentional text)", () => {
+  const GUARD = /keep incidental background text non-readable/;
+
+  function textPolicyOut(opts: Partial<Parameters<typeof makeArgs>[0]> = {}) {
+    return compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David wins.",
+      ...opts,
+    }));
+  }
+
+  it("allow, no guidance: guard present, no in-scene-text directive, no contradiction", () => {
+    const out = textPolicyOut({});
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /avoid readable in-scene text/);
+  });
+
+  it("allow + guidance: guidance emitted and the guard yields to it", () => {
+    const out = textPolicyOut({
+      renderPolicy: { supportingText: { mode: "allow", guidance: 'a banner reading "CHAMP"' }, violence: { mode: "allow", intensity: "strong" } },
+    });
+    assert.match(out.imagePrompt, /a banner reading "CHAMP"/);
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+  });
+
+  it("require: required-text line and guard coexist", () => {
+    const out = textPolicyOut({
+      renderPolicy: { supportingText: { mode: "require", guidance: "a scoreboard reading 100" }, violence: { mode: "allow", intensity: "strong" } },
+    });
+    assert.match(out.imagePrompt, /Readable in-scene text is required/);
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+  });
+
+  it("forbid: the avoid line and the guard coexist", () => {
+    const out = textPolicyOut({
+      renderPolicy: { supportingText: { mode: "forbid" }, violence: { mode: "allow", intensity: "strong" } },
+    });
+    assert.match(out.imagePrompt.toLowerCase(), /avoid readable in-scene text unless required/);
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+  });
+
+  it("explicit supportingTextElements: rendered, guard present, no contradiction", () => {
+    const out = textPolicyOut({
+      visualPlan: { supportingTextPolicy: { allowSupportingText: true, supportingTextElements: [{ content: "999", purpose: "score", placement: "on the scoreboard" }], forbiddenTextTypes: [] } },
+    });
+    assert.match(out.imagePrompt, /Render this in-scene text clearly: "999"/);
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
+  });
+
+  it("is compiler-owned: present in the prompt, never counted as stripped planner prose", () => {
+    const out = textPolicyOut({});
+    assert.match(out.imagePrompt.toLowerCase(), GUARD);
+    const removed = out.diagnostics?.removedPlannerProseSentences ?? [];
+    assert.ok(removed.every((r) => !/incidental background text/i.test(r.sentence)), "guard must not be stripped");
+  });
+});
+
+describe("nanoBanana2 — age-transform SUBJECT BINDING across all render modes", () => {
+  it("t2i: single-entity life-stage wording, no reference-photo vocabulary", () => {
+    const out = compileNanoBanana2T2I(makeArgs({
+      subjectRenderMode: "t2i_fallback",
+      prompt: "A baby wins a Nobel Prize.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      fallbackSubjectGender: "male",
+      modifiers: ["baby_child_version"],
+      visualPlan: { subjectTreatment: { ...makeVisualPlan().subjectTreatment, subjectRenderMode: "t2i_fallback" } },
+    }));
+    assert.match(out.imagePrompt, /SUBJECT BINDING:/);
+    assert.match(out.imagePrompt.toLowerCase(), /david is a baby\/young child in this scene — the same subject rendered at that life stage, not a different individual/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /the reference person is/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /reference photo|reference image/);
+  });
+});
+
+describe("nanoBanana2 — key-element gap-fill (content-word coverage)", () => {
+  function gapOut(keyVisualElements: string[], coreScene = "") {
+    return compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: coreScene || "David stands.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { coreScene, keyVisualElements },
+    }));
+  }
+
+  it("suppresses an element already covered by scattered content words", () => {
+    const out = gapOut(["TV screen"], "A large TV screen glows behind David.");
+    assert.equal(countOccurrences(out.imagePrompt.toLowerCase(), "tv screen"), 1, out.imagePrompt);
+  });
+
+  it("emits short title/number elements that are genuinely absent", () => {
+    const out = gapOut(["My Diary", "999"], "David stands in a room.");
+    assert.match(out.imagePrompt, /Ensure these elements are clearly visible:/);
+    assert.match(out.imagePrompt, /My Diary/);
+    assert.match(out.imagePrompt, /999/);
+  });
+
+  it("treats singular/plural as covered (naive plural strip)", () => {
+    const out = gapOut(["shark fins"], "A shark fin cuts the water behind David.");
+    assert.doesNotMatch(out.imagePrompt, /shark fins/);
+  });
+
+  it("does not treat 'earth' as covered by 'earthquake' (word boundary, not substring)", () => {
+    const out = gapOut(["earth"], "An earthquake rattles the city behind David.");
+    assert.match(out.imagePrompt, /Ensure these elements are clearly visible: earth\./);
+  });
+
+  it("first emitted element suppresses a near-duplicate second (local haystack)", () => {
+    const out = gapOut(["a large golden championship trophy", "a golden trophy"]);
+    assert.match(out.imagePrompt, /Ensure these elements are clearly visible: a large golden championship trophy\./);
   });
 });
 

@@ -119,16 +119,16 @@ export const SUPPORTING_TEXT_MODE_DOCS = {
   allow: {
     meaning: "In-world readable text (signs, TV titles, scoreboards, documents) is permitted but not requested.",
     renderImpact:
-      "The compiler stays SILENT about in-world text unless the planner picked explicit supportingTextElements or your guidance is set — absence of a ban is enough; unnecessary text is not encouraged. The narrow overlay-text exclusion (no captions/watermarks/logos baked in) is always emitted regardless.",
-    example: 'allow + guidance \'a TV title reading "{NAME} Week"\' → the guidance line is emitted so the title card appears.',
+      "The compiler adds no in-world-text directive of its own unless the planner picked explicit supportingTextElements or your guidance is set — unnecessary text is not encouraged. Two lines are always emitted regardless: the narrow overlay-text exclusion (no captions/watermarks/logos baked in) and an always-on incidental-text guard that steers background signage non-readable while YIELDING to any intentional in-scene text.",
+    example: 'allow + guidance \'a TV title reading "{NAME} Week"\' → the guidance line is emitted so the title card appears; the incidental-text guard yields to it.',
     sourceRefs: [COMPILER],
     authoredStatus: "code-derived",
   },
   forbid: {
     meaning: "In-world readable text should be avoided in this scene.",
     renderImpact:
-      'Emits the literal line: "Avoid readable in-scene text unless required by a higher-priority instruction." into STRICT CONSTRAINTS. Exception: if the planner selected concrete supportingTextElements, those still render (the planner\'s scene content is the strongest signal).',
-    example: "Renders keep producing gibberish signage → forbid cleans the scene of readable text.",
+      'Emits the literal line: "Avoid readable in-scene text unless required by a higher-priority instruction." into STRICT CONSTRAINTS (alongside the always-on incidental-text guard). This is the way to fully suppress in-scene text — it replaces the retired no_readable_text modifier. Exception: if the planner selected concrete supportingTextElements, those still render (the planner\'s scene content is the strongest signal).',
+    example: "A scene should have NO readable text at all → forbid emits the avoid line and cleans the scene of readable text.",
     sourceRefs: [COMPILER],
     authoredStatus: "code-derived",
   },
@@ -555,7 +555,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     ],
     howDerived: ["Moderator-set. The editor warns when mode=require has no guidance — required text must be described."],
     renderImpact: [
-      "Compiled into the required-priority STRICT CONSTRAINTS section per mode (see the per-value docs). If the AI planner picked concrete supportingTextElements, those render regardless of mode — the planner's scene content is the strongest signal.",
+      "Compiled into the required-priority STRICT CONSTRAINTS section per mode (see the per-value docs). Independently, an always-on incidental-text guard keeps background signage non-readable while yielding to any intentional in-scene text, so you only need mode=forbid to fully suppress text the scene would otherwise want. If the AI planner picked concrete supportingTextElements, those render regardless of mode — the planner's scene content is the strongest signal.",
     ],
     values: valuesFrom(SUPPORTING_TEXT_MODE_VALUES, SUPPORTING_TEXT_MODE_DOCS),
     workedExamples: [

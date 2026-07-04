@@ -144,6 +144,27 @@ describe("buildScenarioInputHash", () => {
     b.enrichment = { ...ENRICHMENT, modifiers: ["b_mod", "a_mod"] };
     assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(b));
   });
+
+  it("does NOT change when only a retired text/logo modifier is added (inert legacy data)", () => {
+    const a = baseHashInputs();
+    a.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism"] };
+    const withRetired = baseHashInputs();
+    withRetired.enrichment = {
+      ...ENRICHMENT,
+      modifiers: ["grounded_realism", "no_readable_text", "avoid_readable_ui", "avoid_real_logos"],
+    };
+    // Retired names are filtered out of the render-affecting projection, so
+    // removing an old amber chip must not spuriously flip a render stale.
+    assert.equal(buildScenarioInputHash(a), buildScenarioInputHash(withRetired));
+  });
+
+  it("DOES change when a non-retired custom modifier is added (still render-affecting)", () => {
+    const a = baseHashInputs();
+    a.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism"] };
+    const withCustom = baseHashInputs();
+    withCustom.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism", "custom_live_modifier"] };
+    assert.notEqual(buildScenarioInputHash(a), buildScenarioInputHash(withCustom));
+  });
 });
 
 describe("isAttemptStale", () => {

@@ -402,19 +402,19 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
   {
     key: "modifiers",
     label: "Render Modifiers",
-    hint: "Flags that inject specific directives into the engine prompt — the most direct lever on the image.",
+    hint: "Flags that steer the image — most as planner context, a few as structural compiler signals.",
     whatItIs: [
-      "A list of flags from a 50-value known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They are the most direct admin lever on the final image: about 30 of them map to a literal, fixed English sentence injected into the engine prompt's SUBJECT DETAILS section.",
-      "Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation. If a custom modifier should have a guaranteed effect, it needs a directive added in code.",
+      "A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They work in two tiers: MOST are serialized into the planner's TAXONOMY block as context (the frontier planner reads them and they can shape the plan, but nothing guarantees the effect); a SMALL set have a deterministic compiler effect (see renderImpact).",
+      "Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation.",
     ],
     howDerived: [
       "The classifier prefers known modifiers from its catalog and may add a custom one only when no known modifier captures an important rendering, discovery, identity, setting, or safety constraint. Admins freely add/remove them here.",
     ],
     renderImpact: [
-      "Mapped modifiers inject their exact directive sentence (see per-value docs below — each quotes the literal text). Age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) additionally force the compiler's SUBJECT BINDING section, guaranteeing the reference person IS the transformed person (never a separate generic baby/elder added beside them).",
-      "Setting/location modifiers (office_setting, gym_setting, …) and taxonomy-only flags have NO fixed directive — they are deliberately planner-context only, because the authored strategy and scene already cover setting.",
+      "Most modifiers are planner-context only: they inform the frontier planner (which, steered by the moderator's Visual concept, owns the scene) but there is no fixed directive guaranteeing the effect. See the per-value docs below.",
+      "Structural signals (guaranteed compiler effect): age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) drive the SUBJECT BINDING section so the subject IS the transformed person (never a separate generic baby/elder beside them); avoid_duplicate_subject drives the single-instance binding; crowd_reaction / clear_causal_relationship / subject_object_reversal drive conservative failure-mode guards.",
       "Three modifiers (cinematic_aftermath, projectile_impact_power, action_comedy) also mark the fact violence-relevant, which permits the default violence-allow line in the prompt.",
-      "Editing modifiers flips test renders stale.",
+      "Editing modifiers flips test renders stale (except the inert legacy text/logo names, which are filtered out of the render hash).",
     ],
     values: valuesFrom(KNOWN_FACT_MODIFIERS, KNOWN_MODIFIER_DOCS),
     workedExamples: [
@@ -422,12 +422,13 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
         scenario: '"{NAME} as a baby negotiated their own bedtime." — render shows an adult plus a random baby.',
         input: 'Add modifier: "baby_child_version"',
         outcome:
-          'The compiler injects: "De-age the reference subject into the baby/child the fact describes — the same person rendered at that life stage… Do not add a separate, generic baby or child, and do not keep an adult version in the frame." Plus a SUBJECT BINDING section enforcing one entity.',
+          "The compiler emits a SUBJECT BINDING section fusing the subject with the transformed life stage as ONE entity (\"the same person de-aged… no separate generic baby, no adult version left in frame\"), plus anti-split strict constraints. The modifier also reaches the planner as context.",
       },
       {
-        scenario: "A render keeps drawing readable gibberish signage.",
-        input: 'Add modifier: "no_readable_text"',
-        outcome: 'Injects: "Keep all surfaces free of readable text, captions, and labels."',
+        scenario: "A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.",
+        input: "Turn ON the Visual Strategy Override and set Supporting-text policy → forbid.",
+        outcome:
+          'STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)',
       },
       {
         scenario: 'You add a custom modifier "sepia_flashback".',
@@ -439,9 +440,9 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     staleBehavior: "marks-render-stale",
     sourceRefs: [
       {
-        path: "artifacts/api-server/src/lib/imagePrompt/modifierDirectives.ts",
-        symbol: "modifierDirectives",
-        note: "The literal modifier→directive sentences quoted in the per-value docs.",
+        path: "artifacts/api-server/src/lib/imagePrompt/generator.ts",
+        symbol: "buildImagePromptContextBlocks",
+        note: "Where modifiers are serialized into the planner's TAXONOMY context block.",
       },
       CLASSIFIER_PROMPT,
       STALE_HASH,

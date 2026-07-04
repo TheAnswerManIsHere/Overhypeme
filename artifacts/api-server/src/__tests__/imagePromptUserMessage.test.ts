@@ -76,6 +76,22 @@ describe("buildImagePromptUserMessage", () => {
     assert.match(msg, /TAXONOMY \(FIXED — DO NOT reclassify\)/);
   });
 
+  it("lists non-retired modifiers in the TAXONOMY block but filters out retired text/logo names (non-mutating)", () => {
+    const input = makeInput({ modifiers: ["crowd_reaction", "no_readable_text", "avoid_readable_ui", "avoid_real_logos", "custom_live_modifier"] });
+    const before = [...(input.enrichment.modifiers as string[])];
+    const msg = buildImagePromptUserMessage(input);
+    const line = msg.split("\n").find((l) => l.startsWith("- modifiers:")) ?? "";
+    // Live modifiers reach the planner…
+    assert.match(line, /crowd_reaction/);
+    assert.match(line, /custom_live_modifier/);
+    // …but the retired text/logo names are filtered from planner context.
+    assert.doesNotMatch(line, /no_readable_text/);
+    assert.doesNotMatch(line, /avoid_readable_ui/);
+    assert.doesNotMatch(line, /avoid_real_logos/);
+    // Building context must not mutate the stored enrichment.
+    assert.deepEqual(input.enrichment.modifiers, before);
+  });
+
   it("describes the concrete visual contract fields and the age-transform binding", () => {
     const msg = buildImagePromptUserMessage(makeInput());
     assert.match(msg, /coreScene: REQUIRED/);

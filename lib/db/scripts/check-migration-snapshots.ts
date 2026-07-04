@@ -189,6 +189,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // prompt in admin_config. No DDL means no schema delta means no snapshot.
   "0073_strip_retired_violence_modifiers",
 
+  // DML-only scrub of the retired text/brand modifiers (no_readable_text,
+  // avoid_readable_ui, avoid_real_logos) out of the classifier prompt in
+  // admin_config. No stored-enrichment strip (legacy strings are inert). No DDL.
+  "0080_strip_retired_text_modifiers",
+
   // Hand-authored DDL adding the moderation `review_workflow_stage` enum +
   // staging-fact pointer + production-rejection audit columns to pending_reviews.
   // Source of truth: lib/db/src/schema/reviews.ts.

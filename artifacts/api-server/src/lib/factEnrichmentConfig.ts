@@ -311,9 +311,6 @@ Known modifier catalog:
 - space_setting
 - outdoor_nature_setting
 - city_setting
-- no_readable_text
-- avoid_real_logos
-- avoid_readable_ui
 - avoid_weapons_focus
 - avoid_gross_literalization
 - avoid_extra_faces
