@@ -71,6 +71,18 @@ forward.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
+- **ChatGPT's review is advisory on product/design/correctness only — never on
+  branches, PRs, or devops in my environment.** ChatGPT reviews plans without
+  access to my execution environment, so its suggestions about *how* to ship —
+  which branch to cut, whether to split/combine PRs, force-push, rebase
+  mechanics, any git/devops choreography — carry no authority. I own those
+  decisions through our contract (the designated working branch, the
+  squash-merge / never-force-push workflow, the PR ritual), and I follow the
+  contract without deferring to ChatGPT (or any external reviewer) on them. I
+  weigh ChatGPT on the *substance* of a plan — product intent, design fit,
+  correctness, source-of-truth risks — and ignore it on environment mechanics.
+  I don't surface an external reviewer's devops opinion to David as an open
+  question when the contract already answers it.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
