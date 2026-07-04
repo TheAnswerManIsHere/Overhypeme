@@ -12,15 +12,16 @@
 import { and, eq, desc, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
-import { UNRESOLVED_SUBMISSION_STAGE_VALUES, type ReviewWorkflowStage } from "@workspace/api-zod";
+import {
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
+  validateEnrichment,
+  type FactEnrichment,
+  type ReviewWorkflowStage,
+} from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
-
-// Queue name owned by reviewRenderScenarios.ts (kept as a literal here to avoid
-// pulling that heavy orchestration module into this widely-imported helper).
-const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // Queue name owned by visualConceptJobs.ts (kept as a literal for the same
 // reason — and because visualConceptJobs imports resolveReviewCycleEnrichment
@@ -151,6 +152,45 @@ export async function resolveReviewCycleEnrichment(
 }
 
 /**
+ * Resolve the SAVED Visual Concept (core scene) for a review cycle, gating the
+ * Step-2 "approve the visual gag" transition. Built on resolveReviewCycleEnrichment
+ * so refresh cycles read the candidate version's enrichment and first-time cycles
+ * read the staging fact's — the single source of truth every gag-gate check uses.
+ *
+ * The concept the moderator is approving is the *persisted* enrichment, NOT the
+ * AI candidate cards or an unsaved browser draft (the server can't see those).
+ * Each failure carries a distinct HTTP status + code so the endpoint returns a
+ * precise 4xx. Shared by the endpoint and its tests.
+ */
+export type SavedCoreSceneResult =
+  | { ok: true; coreScene: string; enrichment: FactEnrichment; source: "candidate_version" | "staging_fact" }
+  | { ok: false; status: number; code: string; error: string };
+
+export async function resolveSavedCoreSceneForReview(
+  review: { stagingFactId: number | null; candidateVersionId: number | null },
+  tx: DbLike = db,
+): Promise<SavedCoreSceneResult> {
+  const cycle = await resolveReviewCycleEnrichment(review, tx);
+  if (!cycle) {
+    return { ok: false, status: 409, code: "NO_STAGING_FACT", error: "No staging fact for this review — provisionally approve it first." };
+  }
+  const validated = validateEnrichment(cycle.rawEnrichment);
+  if (!validated.ok) {
+    return { ok: false, status: 400, code: "ENRICHMENT_INVALID", error: `Enrichment is invalid: ${validated.error}` };
+  }
+  const enrichment = validated.data;
+  const ov = enrichment.visualPromptStrategyOverride;
+  if (!ov || ov.enabled !== true) {
+    return { ok: false, status: 409, code: "CONCEPT_DISABLED", error: "The Visual Concept is disabled. Enable it and save a scene before approving the visual gag." };
+  }
+  const coreScene = ov.coreSceneOverride?.trim() ?? "";
+  if (!coreScene) {
+    return { ok: false, status: 409, code: "CONCEPT_MISSING", error: "Save a non-empty Visual Concept (core scene) before approving the visual gag." };
+  }
+  return { ok: true, coreScene, enrichment, source: cycle.source };
+}
+
+/**
  * Structured decision for the GENERIC fact-backed enrichment job ("should this
  * job classify and write facts.*?"). The generic job writes straight into the
  * fact's live enrichment layers, so it must run for exactly two shapes of work
@@ -215,11 +255,17 @@ export async function isStagingImagePrepActive(factId: number): Promise<boolean>
 
 /**
  * Advance a review off the terminal outcome of its staging fact's GENERIC
- * enrichment job. Success → production_review; terminal abandon → prep_failed.
- * Acts ONLY on an unresolved FIRST-TIME cycle (`candidateVersionId == null`)
- * still in `prep_pending` — refresh cycles are advanced exclusively by
- * runEnrichmentForCandidateVersion, which targets its exact version/review
- * pair; a generic outcome must never move one.
+ * enrichment job. Success → concept_review (Step 2: Visual Concept gate);
+ * terminal abandon → prep_failed. Acts ONLY on an unresolved FIRST-TIME cycle
+ * (`candidateVersionId == null`) still in `prep_pending` — refresh cycles are
+ * advanced exclusively by runEnrichmentForCandidateVersion, which targets its
+ * exact version/review pair; a generic outcome must never move one.
+ *
+ * On success we enqueue the Visual-Idea candidates (fact_visual_concepts) but
+ * NOT the render batch: renders are Step 3 and only fire once the moderator
+ * approves the visual gag (see approve-visual-concept). Visual Ideas are a
+ * BLOCKING prep artifact for that gag approval, so an enqueue failure marks the
+ * status "failed" (retryable) rather than leaving it stuck "pending".
  */
 export async function advanceReviewForStagingFactEnrichment(args: {
   factId: number;
@@ -234,7 +280,7 @@ export async function advanceReviewForStagingFactEnrichment(args: {
     );
     return;
   }
-  const nextStage: ReviewWorkflowStage = args.outcome === "success" ? "production_review" : "prep_failed";
+  const nextStage: ReviewWorkflowStage = args.outcome === "success" ? "concept_review" : "prep_failed";
   await db
     .update(pendingReviewsTable)
     .set({ workflowStage: nextStage })
@@ -244,30 +290,16 @@ export async function advanceReviewForStagingFactEnrichment(args: {
     "[moderation] staging enrichment advanced review stage",
   );
 
-  // Success path ONLY: enrichment is now valid + the review is in
-  // production_review, so the Step-2 default render scenarios can be prepared.
-  // A separate durable job does the (expensive, multi-scenario) enqueue so this
-  // transition stays cheap; the dedupeKey makes re-entry a no-op. Best-effort —
-  // a failure here must not roll back the stage advance.
-  if (nextStage === "production_review") {
-    try {
-      await enqueueJob({
-        queue: REVIEW_RENDER_PREPARE_QUEUE,
-        payload: { reviewId: review.id },
-        dedupeKey: `review_render_prep:${review.id}`,
-      });
-    } catch (err) {
-      logger.error(
-        { err, reviewId: review.id },
-        "[moderation] failed to enqueue review render prepare (stage advance kept)",
-      );
-    }
-
-    // Slice 2A: also draft candidate Visual concepts for the moderator. Purely
-    // best-effort and NON-BLOCKING — a failure here never affects the advance or
-    // the render-prepare enqueue above. Enqueued inline (literal queue name +
-    // "pending" status write, matching enqueueVisualConceptsForReview) so this
-    // widely-imported helper doesn't import visualConceptJobs and create a cycle.
+  // Success path ONLY: enrichment is valid and the review has entered Step 2
+  // (concept_review). Draft the Visual-Idea candidates for the moderator. These
+  // gate gag approval (Step 2 = Visual Concept gate), so on enqueue failure we
+  // flip the status to "failed" (retryable via regenerate) — never leave it
+  // hanging "pending" with no job behind it. NO render-prepare here: the render
+  // batch is force-enqueued at gag approval (Step 3), not on enrichment success.
+  // Enqueued inline (literal queue name + "pending" status write, matching
+  // enqueueVisualConceptsForReview) so this widely-imported helper doesn't import
+  // visualConceptJobs and create a cycle.
+  if (nextStage === "concept_review") {
     try {
       await db
         .update(factsTable)
@@ -281,8 +313,21 @@ export async function advanceReviewForStagingFactEnrichment(args: {
     } catch (err) {
       logger.error(
         { err, reviewId: review.id },
-        "[moderation] failed to enqueue visual concepts (stage advance kept)",
+        "[moderation] failed to enqueue visual concepts (stage advance kept; status → failed)",
       );
+      // Don't leave the gate stuck "pending" with no job — mark failed so the
+      // moderator can retry/regenerate. Best-effort; swallow secondary errors.
+      try {
+        await db
+          .update(factsTable)
+          .set({ visualConceptStatus: "failed" })
+          .where(eq(factsTable.id, args.factId));
+      } catch (statusErr) {
+        logger.error(
+          { err: statusErr, reviewId: review.id },
+          "[moderation] failed to mark visual concepts failed after enqueue error",
+        );
+      }
     }
   }
 }

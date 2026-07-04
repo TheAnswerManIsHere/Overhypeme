@@ -1,7 +1,7 @@
 /**
  * Moderation workflow stages (leaf module — no cross-package imports).
  *
- * Overhype's fact moderation is a two-gate, cost-gated lifecycle:
+ * Overhype's fact moderation is a three-gate, cost-gated lifecycle:
  *
  *   triage_pending ──reject──> triage_rejected
  *         │
@@ -9,18 +9,27 @@
  *         ▼
  *   prep_pending ──enrichment terminal abandon──> prep_failed ──retry──> prep_pending
  *         │                                              └────reject────> triage_rejected
- *  enrichment success
+ *  enrichment success (enqueues Visual-Idea candidates; NO renders yet)
  *         ▼
- *   production_review ──reject──> production_rejected
+ *   concept_review ──reject──> production_rejected        ← Step 2: Visual Concept gate
+ *         │                ↑ back-to-visual-concept
+ *  approve the visual gag (saved non-empty coreScene + ideas terminal-OK)
+ *   → force-enqueues the default render batch (auto-fire)
+ *         ▼
+ *   production_review ──reject──> production_rejected      ← Step 3: Test Renders gate
  *         │
  *  production approve (flips staging fact active, embeds, notifies user)
  *         ▼
  *   production_approved
  *
+ * Step 2 = Visual Concept gate (a saved concept + generated Visual Ideas gate the
+ * gag approval; Visual Ideas are a blocking prep artifact, not best-effort).
+ * Step 3 = Test Renders gate (render grid + final production approval).
+ *
  * `pending_reviews.status` (pending|approved|rejected) stays as a coarse bucket;
  * `workflowStage` is the fine-grained driver. The string values are also the
- * Postgres enum labels (see migration 0074) and the FE display keys, so this is
- * the single source of truth shared by schema, routes, jobs, and UI.
+ * Postgres enum labels (see migrations 0074 + 0083) and the FE display keys, so
+ * this is the single source of truth shared by schema, routes, jobs, and UI.
  */
 
 export const REVIEW_WORKFLOW_STAGE_VALUES = [
@@ -28,6 +37,7 @@ export const REVIEW_WORKFLOW_STAGE_VALUES = [
   "triage_rejected",
   "prep_pending",
   "prep_failed",
+  "concept_review",
   "production_review",
   "production_rejected",
   "production_approved",
@@ -51,6 +61,7 @@ export const UNRESOLVED_SUBMISSION_STAGE_VALUES = [
   "triage_pending",
   "prep_pending",
   "prep_failed",
+  "concept_review",
   "production_review",
 ] as const satisfies readonly ReviewWorkflowStage[];
 
@@ -68,13 +79,17 @@ export function isUnresolvedSubmissionStage(stage: ReviewWorkflowStage): boolean
 
 /**
  * First moderator gate. Allowed from triage, from a failed prep (re-attempt),
- * and from production_review (re-run prep / re-derive the staging fact). The
- * coarse status must still be "pending" — a resolved review can't be re-prepped.
+ * and from concept_review / production_review (re-run prep / re-derive the
+ * staging fact). The coarse status must still be "pending" — a resolved review
+ * can't be re-prepped.
  */
 export function canProvisionallyApprove(stage: ReviewWorkflowStage, status: string): boolean {
   return (
     status === "pending" &&
-    (stage === "triage_pending" || stage === "prep_failed" || stage === "production_review")
+    (stage === "triage_pending" ||
+      stage === "prep_failed" ||
+      stage === "concept_review" ||
+      stage === "production_review")
   );
 }
 
@@ -83,25 +98,72 @@ export function canRetryPrep(stage: ReviewWorkflowStage, status: string): boolea
   return status === "pending" && stage === "prep_failed";
 }
 
-/** Second moderator gate — only a fully-prepped fact can go live. */
+/**
+ * Step 2 gate — "approve the visual gag". Advances concept_review →
+ * production_review and force-enqueues the default render batch. Only the
+ * saved concept + generated Visual Ideas (checked at the route) gate this;
+ * here we only assert the stage/status shape.
+ */
+export function canApproveVisualConcept(stage: ReviewWorkflowStage, status: string): boolean {
+  return status === "pending" && stage === "concept_review";
+}
+
+/** Third moderator gate — only a fully-rendered fact can go live. */
 export function canProductionApprove(stage: ReviewWorkflowStage, status: string): boolean {
   return status === "pending" && stage === "production_review";
+}
+
+/**
+ * A refresh-cycle candidate's enrichment/Visual-Concept is editable in BOTH
+ * Step 2 (concept_review) and Step 3 (production_review) — the moderator tunes
+ * the concept in Step 2 and the render inputs in Step 3. Promotion, by contrast,
+ * stays Step-3-only (canProductionApprove). Stage-only (mirrors the pre-existing
+ * production_review-only check it replaces).
+ */
+export function canEditRefreshCandidate(stage: ReviewWorkflowStage): boolean {
+  return stage === "concept_review" || stage === "production_review";
 }
 
 /** Reject a staged candidate after prep work has begun. */
 export function canRejectAfterPrep(stage: ReviewWorkflowStage, status: string): boolean {
   return (
     status === "pending" &&
-    (stage === "prep_pending" || stage === "prep_failed" || stage === "production_review")
+    (stage === "prep_pending" ||
+      stage === "prep_failed" ||
+      stage === "concept_review" ||
+      stage === "production_review")
   );
 }
+
+/**
+ * Coarse, list-level render state for a Step-3 (production_review) row, derived
+ * from a single aggregate SQL pass over the latest attempt per scenario. This is
+ * intentionally cheaper and coarser than the modal's `buildReviewScenarioGrid`:
+ *
+ *  - `not_started`     — no render attempts exist yet.
+ *  - `running`         — at least one scenario's latest attempt is still in flight.
+ *  - `ready`           — every existing latest attempt succeeded (has an image).
+ *  - `needs_attention` — none running, but at least one latest attempt failed.
+ *
+ * `"stale"` is deliberately NOT a value here: staleness needs the TS input-hash
+ * recompute and is not a pure SQL property, so the modal/grid stays the
+ * authoritative place for it.
+ */
+export const RENDER_REVIEW_STATE_VALUES = [
+  "not_started",
+  "running",
+  "ready",
+  "needs_attention",
+] as const;
+
+export type RenderReviewState = (typeof RENDER_REVIEW_STATE_VALUES)[number];
 
 /** FE-safe display metadata (label + short helper copy + coarse grouping). */
 export interface ReviewWorkflowStageDisplay {
   label: string;
   hint: string;
   /** List-grouping bucket for the moderation queue. */
-  group: "needs_first_pass" | "prep" | "production_review" | "resolved";
+  group: "needs_first_pass" | "prep" | "concept_review" | "production_review" | "resolved";
 }
 
 export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWorkflowStageDisplay> = {
@@ -125,9 +187,14 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
     hint: "Enrichment failed after retries — retry or reject.",
     group: "prep",
   },
+  concept_review: {
+    label: "Visual Concept",
+    hint: "Accept, edit, or write the Visual Concept and approve the visual gag — no renders spend yet.",
+    group: "concept_review",
+  },
   production_review: {
-    label: "Production review",
-    hint: "Tune enrichment, inspect CPP/test memes, then approve for production.",
+    label: "Test Renders",
+    hint: "Inspect the test-render grid, tweak enrichment/CPP, then approve for production.",
     group: "production_review",
   },
   production_rejected: {

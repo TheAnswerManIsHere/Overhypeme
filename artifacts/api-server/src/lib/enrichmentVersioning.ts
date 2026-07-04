@@ -15,6 +15,7 @@ import { factsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@w
 import {
   validateEnrichment,
   canProductionApprove,
+  canEditRefreshCandidate,
   type FactEnrichment,
   type EnrichmentOverrides,
   type ReviewWorkflowStage,
@@ -171,10 +172,10 @@ export async function loadCandidateEditingContext(
       `This refresh was already ${candidate.status} — its candidate can no longer be edited.`,
     );
   }
-  if (opts.intent === "write" && review.workflowStage !== "production_review") {
+  if (opts.intent === "write" && !canEditRefreshCandidate(review.workflowStage as ReviewWorkflowStage)) {
     throw new CandidateEditError(
       "REVIEW_NOT_EDITABLE",
-      `The candidate can only be edited while the review sits at production review (currently ${review.workflowStage}).`,
+      `The candidate can only be edited during Visual Concept or Test Renders review (currently ${review.workflowStage}).`,
     );
   }
   if (candidate.enrichment == null) {

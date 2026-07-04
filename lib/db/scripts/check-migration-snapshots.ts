@@ -245,6 +245,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // generated snapshot; idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS.
   // Source of truth: lib/db/src/schema/{evalRuns,imagePromptAttempts,facts}.ts.
   "0081_eval_harness",
+
+  // Hand-authored DDL adding the `concept_review` stage (Step 2: Visual Concept
+  // gate) to the review_workflow_stage enum via a text-cast recreate (0027
+  // precedent — the runner wraps migrations in a transaction, so ALTER TYPE ADD
+  // VALUE is avoided). No new table/column, so no schema delta beyond the enum;
+  // drizzle-kit generate is broken on the malformed 0063 snapshot. Source of
+  // truth: lib/db/src/schema/reviews.ts + lib/api-zod/src/moderationWorkflow.ts.
+  "0083_review_workflow_stage_concept_review",
 ]);
 
 interface JournalEntry {

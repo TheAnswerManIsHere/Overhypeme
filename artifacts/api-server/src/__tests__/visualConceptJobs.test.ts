@@ -241,8 +241,8 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
 describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
   const app = makeApp();
 
-  it("202 + sets status pending for an admin on a production_review", async () => {
-    const { reviewId, factId } = await seedReview(adminId);
+  it("202 + sets status pending for an admin on a concept_review", async () => {
+    const { reviewId, factId } = await seedReview(adminId, "concept_review");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -260,7 +260,7 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
   });
 
   it("rejects a non-admin (auth drift)", async () => {
-    const { reviewId } = await seedReview(adminId);
+    const { reviewId } = await seedReview(adminId, "concept_review");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${plainSid}`)
@@ -268,13 +268,24 @@ describe("POST /admin/reviews/:id/visual-concepts/regenerate", () => {
     assert.ok(res.status === 401 || res.status === 403, `expected 401/403, got ${res.status}`);
   });
 
-  it("409 when the review is not in production_review", async () => {
+  it("409 when the review is not in concept_review (regenerate is a Step-2 action)", async () => {
     const { reviewId } = await seedReview(adminId, "prep_pending");
     const res = await request(app)
       .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
       .set("authorization", `Bearer ${adminSid}`)
       .send({});
     assert.equal(res.status, 409);
+  });
+
+  it("409 IDEAS_PENDING: regenerate is blocked while a concept job is in flight (no coalescing on stale)", async () => {
+    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    await db.update(factsTable).set({ visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
+    const res = await request(app)
+      .post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "IDEAS_PENDING");
   });
 });
 

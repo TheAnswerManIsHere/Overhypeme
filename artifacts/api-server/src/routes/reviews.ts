@@ -26,6 +26,7 @@ import {
   type ReviewWorkflowStage,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   canProvisionallyApprove,
+  canApproveVisualConcept,
   canProductionApprove,
   RENDER_SCENARIO_KEYS,
   renderScenarioKeySchema,
@@ -39,7 +40,7 @@ import {
   evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
+import { ensureStagingFact, resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
 import {
   promoteCandidateEnrichmentVersion,
   PromoteCandidateError,
@@ -75,7 +76,8 @@ import {
   buildReviewScenarioGrid,
   runReviewScenarios,
   getScenarioAttemptDiagnostics,
-  reviewsWithActiveRenders,
+  reviewRenderStates,
+  enqueueForceReviewRenderPrepare,
 } from "../lib/reviewRenderScenarios";
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
@@ -270,7 +272,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
           .from(factsTable).where(and(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`, eq(factsTable.isActive, true)))
       : Promise.resolve([]),
     stagingIds.length
-      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, pexelsStatus: factsTable.pexelsStatus, isActive: factsTable.isActive })
+      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, pexelsStatus: factsTable.pexelsStatus, visualConceptStatus: factsTable.visualConceptStatus, isActive: factsTable.isActive })
           .from(factsTable).where(inArray(factsTable.id, stagingIds))
       : Promise.resolve([]),
   ]);
@@ -279,24 +281,31 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const factMap = Object.fromEntries(matchingFacts.map((f) => [f.id, f]));
   const stagingMap = Object.fromEntries(stagingFacts.map((f) => [f.id, f]));
 
-  // Per-row "test renders in flight" signal, so the list lights up a working pill
-  // + keeps polling when an admin re-runs a render (or the auto-batch runs) — the
-  // render analogue of the enrichment/Pexels prep status (rule 8). Only meaningful
-  // in production_review, where renders exist.
+  // Per-row coarse render state (Step 3), so the queue can show "Rendering…" /
+  // "Renders ready" / "Renders need attention" and keep polling while renders run
+  // — the render analogue of the enrichment/Pexels prep status (rule 8). Only
+  // meaningful in production_review, where renders exist. `rendersRunning` is kept
+  // as the back-compat boolean, derived from the same aggregate.
   const productionReviewIds = reviews
     .filter((r) => r.workflowStage === "production_review")
     .map((r) => r.id);
-  const activeRenderIds = await reviewsWithActiveRenders(productionReviewIds);
+  const renderStates = await reviewRenderStates(productionReviewIds);
 
-  const enriched = reviews.map((r) => ({
-    ...r,
-    createdAt: r.createdAt.toISOString(),
-    reviewedAt: r.reviewedAt?.toISOString() ?? null,
-    submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
-    matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
-    stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
-    rendersRunning: activeRenderIds.has(r.id),
-  }));
+  const enriched = reviews.map((r) => {
+    const renderReviewState = r.workflowStage === "production_review"
+      ? renderStates.get(r.id) ?? "not_started"
+      : null;
+    return {
+      ...r,
+      createdAt: r.createdAt.toISOString(),
+      reviewedAt: r.reviewedAt?.toISOString() ?? null,
+      submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
+      matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
+      stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
+      rendersRunning: renderReviewState === "running",
+      renderReviewState,
+    };
+  });
 
   res.json({ reviews: enriched, total, page, limit });
 });
@@ -812,6 +821,23 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     return;
   }
 
+  // Block re-prep from Step 2 while a concept job is still in-flight: a new prep
+  // cycle would enqueue a fresh fact_visual_concepts job that COALESCES onto the
+  // pending one (review-scoped dedupe), so the gag gate could later complete on
+  // stale candidates. Make the moderator wait for the current run to land first.
+  if (review.workflowStage === "concept_review" && review.stagingFactId != null) {
+    const [conceptFact] = await db
+      .select({ visualConceptStatus: factsTable.visualConceptStatus })
+      .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
+    if (conceptFact?.visualConceptStatus === "pending") {
+      res.status(409).json({
+        error: "Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.",
+        code: "IDEAS_PENDING",
+      });
+      return;
+    }
+  }
+
   // Verify the parent fact (variant case) exists and is active.
   if (parentFactId != null) {
     const [parentFact] = await db.select({ id: factsTable.id })
@@ -883,6 +909,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   // stale-job guard). Rejecting before prep is a plain triage rejection.
   const prepStarted = review.workflowStage === "prep_pending"
     || review.workflowStage === "prep_failed"
+    || review.workflowStage === "concept_review"
     || review.workflowStage === "production_review";
   const targetStage: ReviewWorkflowStage = prepStarted ? "production_rejected" : "triage_rejected";
 
@@ -945,6 +972,128 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   }
 
   res.json({ success: true });
+});
+
+// ─── Approve the visual gag: Step 2 (concept_review) → Step 3 (production_review) ─
+//
+// Gates on the SAVED enrichment (persisted coreSceneOverride) + generated Visual
+// Ideas — NOT the AI candidate cards or an unsaved browser draft. Each
+// precondition returns a distinct code. Advances via an atomic compare-and-set so
+// two concurrent approvals produce exactly ONE force render batch; the loser 409s.
+router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  if (!canApproveVisualConcept(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    res.status(409).json({
+      error: `Cannot approve the visual gag from stage ${review.workflowStage} (${review.status}).`,
+      code: "CONCEPT_STAGE_ALREADY_ADVANCED",
+    });
+    return;
+  }
+  if (review.stagingFactId == null) {
+    res.status(409).json({ error: "No staging fact for this review.", code: "NO_STAGING_FACT" });
+    return;
+  }
+
+  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_DISABLED /
+  // CONCEPT_MISSING). Stale-but-saved is allowed — this reads the *persisted*
+  // enrichment, not the AI candidate cards or a browser-only draft.
+  const saved = await resolveSavedCoreSceneForReview(review);
+  if (!saved.ok) { res.status(saved.status).json({ error: saved.error, code: saved.code }); return; }
+
+  // Ideas-generated gate — Visual Ideas are a BLOCKING prep artifact. A pending
+  // job = "still generating"; failed/never-run = "not generated".
+  const [conceptFact] = await db
+    .select({ visualConceptStatus: factsTable.visualConceptStatus })
+    .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
+  const conceptStatus = conceptFact?.visualConceptStatus ?? null;
+  if (conceptStatus === "pending") {
+    res.status(409).json({ error: "Visual ideas are still generating. Wait for them to finish, then approve.", code: "IDEAS_PENDING" });
+    return;
+  }
+  if (conceptStatus !== "ok") {
+    res.status(409).json({ error: "Visual ideas were never generated (or failed). Regenerate them before approving the gag.", code: "IDEAS_NOT_GENERATED" });
+    return;
+  }
+
+  // Atomic compare-and-set: advance ONLY if still pending @ concept_review. A
+  // single UPDATE…RETURNING is its own guard — a concurrent approval that already
+  // moved the row leaves this WHERE unmatched, so it returns no row → 409. This,
+  // not the async queue, is the double-click / concurrency guard because the force
+  // render enqueue below carries no dedupe key.
+  const advancedRows = await db.update(pendingReviewsTable)
+    .set({ workflowStage: "production_review" })
+    .where(and(
+      eq(pendingReviewsTable.id, id),
+      eq(pendingReviewsTable.status, "pending"),
+      eq(pendingReviewsTable.workflowStage, "concept_review"),
+    ))
+    .returning({ id: pendingReviewsTable.id });
+  if (advancedRows.length === 0) {
+    res.status(409).json({
+      error: "This review already advanced past the Visual Concept step.",
+      code: "CONCEPT_STAGE_ALREADY_ADVANCED",
+    });
+    return;
+  }
+
+  // Post-commit — ONLY because THIS request performed the CAS: force a fresh
+  // render batch (no dedupe key, so it can't coalesce onto a stale prepare job).
+  let renderPrepareJobId: number | undefined;
+  try {
+    const enq = await enqueueForceReviewRenderPrepare(id);
+    renderPrepareJobId = enq.jobId;
+  } catch (err) {
+    logger.error({ err, reviewId: id }, "[moderation] failed to enqueue force render prepare (stage advance kept)");
+  }
+  logger.info(
+    { reviewId: id, renderPrepareJobId, force: true, adminUserId: req.user.id },
+    "[moderation] visual concept approved, force render prepare enqueued",
+  );
+
+  res.json({
+    success: true,
+    workflowStage: "production_review",
+    ...(renderPrepareJobId != null ? { renderPrepareJobId } : {}),
+    forceRenderBatch: true,
+  });
+});
+
+// ─── Back to Visual Concept: Step 3 (production_review) → Step 2 (concept_review) ─
+//
+// No render deletion: in-flight jobs finish but are no longer the active set. A
+// later re-approval force-creates a fresh batch (see approve-visual-concept).
+router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [review] = await db
+    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (!(review.status === "pending" && review.workflowStage === "production_review")) {
+    res.status(409).json({ error: `Cannot send back to Visual Concept from stage ${review.workflowStage} (${review.status}).` });
+    return;
+  }
+
+  const rows = await db.update(pendingReviewsTable)
+    .set({ workflowStage: "concept_review" })
+    .where(and(
+      eq(pendingReviewsTable.id, id),
+      eq(pendingReviewsTable.status, "pending"),
+      eq(pendingReviewsTable.workflowStage, "production_review"),
+    ))
+    .returning({ id: pendingReviewsTable.id });
+  if (rows.length === 0) {
+    res.status(409).json({ error: "This review is no longer at Test Renders." });
+    return;
+  }
+  logger.info({ reviewId: id, adminUserId: req.user.id }, "[moderation] review sent back to Visual Concept (Step 2)");
+  res.json({ success: true, workflowStage: "concept_review" });
 });
 
 // ─── Consolidated draft autosave: note / rejection reason (admin) ─────────────
@@ -1535,11 +1684,28 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     })
     .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.workflowStage !== "production_review") {
-    res.status(409).json({ error: `Cannot generate visual concepts from stage ${review.workflowStage}. Finish prep first.` });
+  // Regeneration is the Step-2 (Visual Concept) retry path; Visual Ideas are a
+  // Step-2 artifact, so it only runs while the review sits at concept_review.
+  if (review.workflowStage !== "concept_review") {
+    res.status(409).json({ error: `Cannot regenerate visual ideas from stage ${review.workflowStage}. Only available during Visual Concept review (Step 2).` });
     return;
   }
   if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
+
+  // Block while a concept job is still in-flight: fact_visual_concepts is review-
+  // scoped-deduped, so a regenerate enqueued now would COALESCE onto the pending
+  // job (returning it, ignoring the draft) and could complete the gag gate on
+  // stale candidates. Force the moderator to wait for the current run to land.
+  const [conceptFact] = await db
+    .select({ visualConceptStatus: factsTable.visualConceptStatus })
+    .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
+  if (conceptFact?.visualConceptStatus === "pending") {
+    res.status(409).json({
+      error: "Visual ideas are still generating. Wait for them to finish, then regenerate.",
+      code: "IDEAS_PENDING",
+    });
+    return;
+  }
 
   // Canonicalize + token-validate the draft with the SAME rules a stored
   // candidate uses. Only offer it as distinct-alt context when non-empty AND

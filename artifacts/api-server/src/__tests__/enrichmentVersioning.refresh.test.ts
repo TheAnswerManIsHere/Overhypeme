@@ -261,13 +261,20 @@ async function seedActiveFact(opts: { text?: string } = {}): Promise<typeof fact
   return fact;
 }
 
-/** Send back + run the candidate enrichment job (stubbed classify) → cycle at production_review. */
+/**
+ * Send back + run the candidate enrichment job (stubbed classify). Enrichment now
+ * lands the cycle at Step 2 (`concept_review`); this helper then advances it to
+ * Step 3 (`production_review`) — simulating "approve the visual gag" — so the
+ * downstream render/promote (Step-3) assertions can run unchanged.
+ */
 async function seedReadyRefreshCycle(fact: { id: number }): Promise<{ reviewId: number; candidateVersionId: number }> {
   const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
   const result = await runEnrichmentForCandidateVersion(candidateVersionId, {
     classify: async () => REFRESHED_AI_BASELINE,
   });
   assert.equal(result.ok, true);
+  await db.update(pendingReviewsTable).set({ workflowStage: "production_review" })
+    .where(eq(pendingReviewsTable.id, reviewId));
   return { reviewId, candidateVersionId };
 }
 
@@ -410,7 +417,7 @@ describe("sendFactBackToReview", () => {
 // ── Candidate enrichment job (two-phase guard) ───────────────────────────────
 
 describe("runEnrichmentForCandidateVersion", () => {
-  it("writes the VERSION row (never facts.*), advances its exact review, and preps default renders", async () => {
+  it("writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
 
@@ -428,20 +435,27 @@ describe("runEnrichmentForCandidateVersion", () => {
     assert.equal((candidate.enrichmentAiDerived as FactEnrichment).visualComplexity, "medium");
 
     const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(review.workflowStage, "production_review");
+    assert.equal(review.workflowStage, "concept_review");
 
     // facts.* stayed the ACTIVE enrichment; only the pill cleared.
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
     assert.deepEqual(f.enrichment, fact.enrichment);
     assert.equal(f.enrichmentStatus, "ok");
 
-    // Same Step-2 default-render prep a first-time cycle gets on this transition.
+    // Step 2: the Visual-Idea concept job is enqueued; NO render prepare fires
+    // until the moderator approves the visual gag (Step 3).
     const prep = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
       .where(and(
         eq(asyncJobsTable.queue, "review_render_scenarios_prepare"),
         eq(asyncJobsTable.dedupeKey, `review_render_prep:${reviewId}`),
       ));
-    assert.equal(prep.length, 1);
+    assert.equal(prep.length, 0, "no render prepare at Step 2");
+    const concepts = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
+      .where(and(
+        eq(asyncJobsTable.queue, "fact_visual_concepts"),
+        eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`),
+      ));
+    assert.equal(concepts.length, 1, "concepts enqueued at Step 2");
   });
 
   it("COST GUARD phase 1: skips classification when the cycle was already resolved", async () => {
@@ -848,6 +862,9 @@ describe("processing signature stamping (PR3)", () => {
       },
     });
     assert.equal(result.ok, true);
+    // Enrichment lands at Step 2 (concept_review); advance to Step 3 to promote.
+    await db.update(pendingReviewsTable).set({ workflowStage: "production_review" })
+      .where(eq(pendingReviewsTable.id, reviewId));
 
     const [candidate] = await db.select().from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
@@ -1002,7 +1019,7 @@ describe("generic fact-enrichment guards", () => {
     });
     assert.equal(candResult.ok, true);
     const [rev3] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(rev3.workflowStage, "production_review");
+    assert.equal(rev3.workflowStage, "concept_review");
     const [cand2] = await db.select().from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
     assert.ok(cand2.enrichment, "candidate filled by its own job");
