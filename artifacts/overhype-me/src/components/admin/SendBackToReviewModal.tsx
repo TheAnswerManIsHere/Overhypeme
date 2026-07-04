@@ -41,8 +41,8 @@ export function SendBackToReviewModal({
         <p className="text-sm text-muted-foreground">
           The fact <strong className="text-foreground">stays live</strong> the whole time. AI re-classifies it with the
           current pipeline into a <strong className="text-foreground">refresh candidate</strong>, which lands in the
-          Moderation queue at Visual review — nothing changes until a moderator promotes it. Existing memes, images,
-          and hashtags are never touched.
+          Moderation queue at <strong className="text-foreground">Visual Concept</strong> (Step 2) — nothing changes
+          until a moderator promotes it. Existing memes, images, and hashtags are never touched.
         </p>
         <label className="flex items-start gap-2 text-sm text-foreground cursor-pointer">
           <input

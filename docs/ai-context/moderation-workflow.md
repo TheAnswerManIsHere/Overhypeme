@@ -28,17 +28,30 @@ triage_pending ──reject──> triage_rejected
       │ provisionally accept
       ▼
 prep_pending ──prep abandon──> prep_failed ──retry──> prep_pending
-      │ prep ok                      └────reject────> triage_rejected
+      │ prep ok (enqueues Visual-Idea candidates; NO renders yet)
       ▼
-production_review ──reject──> production_rejected
+concept_review ──reject──> production_rejected        ← Step 2: Visual Concept gate
+      │  approve the visual gag        ↑ back to visual concept
+      │  (saved coreScene + ideas OK → force-enqueue the default render batch)
+      ▼
+production_review ──reject──> production_rejected      ← Step 3: Test Renders gate
       │ production approve
       ▼
 production_approved   (fact is now live)
 ```
 
-Stages group in the UI as **Needs first pass → Prep → Production review →
-Resolved**. Rejection reasons (`review_reason`): `duplicate | spam | offensive |
-lame`.
+Stages group in the UI as **Needs first pass → Prep → Visual Concept →
+Test Renders → Resolved**. The wizard shows three steps: **Triage → Visual
+Concept → Test Renders**. Rejection reasons (`review_reason`): `duplicate | spam
+| offensive | lame`.
+
+**Three gates, not two.** Enrichment success now lands at `concept_review`
+(Step 2), NOT `production_review`, and enqueues **no renders**. The moderator
+must evaluate/approve the **Visual Concept** — the core description of how the
+gag works visually — on every fact before any render spend. "Approve the visual
+gag" advances `concept_review → production_review` via an atomic compare-and-set
+and force-enqueues a fresh default render batch (no dedupe key). Renders only
+ever fire in Step 3.
 
 ## Staging facts
 
@@ -63,16 +76,36 @@ point.**
 lookup, and render-scenario preparation. On terminal failure the review moves to
 `prep_failed` (retryable, or reject).
 
-## Production review ("Step 2")
+## Visual Concept review ("Step 2", `concept_review`)
 
-The expensive human review. In `production_review` the moderator:
+The mandatory human gate on the **Visual Concept** — the authoritative scene
+description of how the gag works (see [`visual-pipeline.md`](./visual-pipeline.md))
+— **before any render spend**. In `concept_review` the moderator:
 
-- tunes the enrichment via the embedded **Enrichment Editor**,
-- authors or picks the **Visual Concept** (the authoritative scene — see
-  [`visual-pipeline.md`](./visual-pipeline.md)),
-- inspects the **Runtime Compiled Prompt** preview (must match real runtime
-  output) and the **test-render** meme grid,
-- then production-approves or rejects.
+- accepts an AI-drafted Visual-Idea candidate, edits it, or writes a new concept,
+- tunes the enrichment via the embedded **Enrichment Editor** (Advanced Options),
+- inspects the **Runtime Compiled Prompt** preview,
+- then **approves the visual gag** (advances to Step 3, force-firing renders),
+  sends it back to prep, or rejects.
+
+**Visual Ideas are a blocking prep artifact here**, not best-effort: the gag
+gate requires a saved, non-empty `visualPromptStrategyOverride.coreSceneOverride`
+**and** terminal-OK generated ideas (`facts.visual_concept_status === "ok"`).
+A stale-but-saved concept is allowed (the *saved* concept, not the AI candidate
+cards, is the approved artifact). Re-prep/regenerate is blocked while ideas are
+`pending` so a new cycle can't coalesce onto a stale in-flight concept job.
+
+## Test Renders review ("Step 3", `production_review`)
+
+The expensive render review. Renders **auto-fire** on arrival (a forced,
+no-dedupe-key batch). All taxonomy/enrichment knobs stay exposed for render
+tweaking. The moderator:
+
+- inspects the **test-render** meme grid and the **Runtime Compiled Prompt**,
+- tweaks enrichment/concept and re-runs renders as needed,
+- then **production-approves** (existing render/waiver gate) or rejects — or
+  **sends the fact back to Visual Concept** (Step 3 → Step 2), which supersedes
+  the in-flight renders; re-approval force-creates a fresh batch.
 
 ## Pexels and test renders
 

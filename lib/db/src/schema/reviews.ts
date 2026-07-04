@@ -13,6 +13,7 @@ export const reviewWorkflowStageEnum = pgEnum("review_workflow_stage", [
   "triage_rejected",
   "prep_pending",
   "prep_failed",
+  "concept_review",
   "production_review",
   "production_rejected",
   "production_approved",
