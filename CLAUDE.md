@@ -83,6 +83,31 @@ drifting copies. So:
 
 ---
 
+## Area work: memory lives in files, not a marathon chat
+
+David scopes his work into long-running areas of functionality and wants the
+model to have that area's full context on tap. The cheap, reliable way to
+deliver that is **durable files, not one ever-growing chat** — a long chat
+re-reads its entire transcript *uncached* every time he returns to it across
+sessions, and `/compact` only preserves a lossy summary of it. So by
+**default**, without being asked, whenever we dig into an area of functionality:
+
+- I **proactively keep a running working-notes doc** for that area (a scratch
+  doc, or the relevant `docs/ai-context/` file), capturing the decisions,
+  gotchas, and subsystem shape *as we go* rather than letting them accumulate
+  only in the transcript.
+- Before we wrap a session, I **fold the durable bits into the shared docs**
+  (`docs/ai-context/`, `decisions.md`, `known-failure-patterns.md`, etc.) so the
+  next **fresh** chat — mine or Codex's — loads that context cheaply instead of
+  paying to re-read an old transcript.
+
+This lets David keep short, disposable chats without losing area context, keeps
+the durable memory in versioned files (single source of truth), and avoids the
+worst-case token pattern of returning day after day to one giant compacted
+thread. `/compact` stays an in-session relief valve, not the memory itself.
+
+---
+
 ## Plan approval is explicit only
 
 A plan I present in plan mode is approved **only** when David says so explicitly
