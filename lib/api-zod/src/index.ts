@@ -11,6 +11,7 @@ export * from "./visualPromptStrategies";
 export * from "./imagePromptGeneration";
 export * from "./referenceResearch";
 export * from "./taxonomyHealth";
+export * from "./processingSignature";
 export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
 export * from "./visualConcepts";

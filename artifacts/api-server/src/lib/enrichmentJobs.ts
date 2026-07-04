@@ -32,6 +32,7 @@ import {
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { hashFactText } from "./enrichmentVersioning";
+import { currentProcessingSignatureFromConfig } from "./processingSignature";
 import { enqueueVisualConceptsForReview } from "./visualConceptJobs";
 import { renderCanonical } from "./renderCanonical";
 import {
@@ -186,6 +187,14 @@ export async function runEnrichmentForFact(
   const renderedFactText = renderCanonical(factRow.text);
   const renderedParentText = parentText != null ? renderCanonical(parentText) : null;
 
+  // Capture the processing signature BEFORE the (slow) classify call. It is
+  // stamped onto facts.last_processed_signature only for FIRST-TIME staging
+  // prep (decided under the fact lock below) — so a brand-new fact approved
+  // today reads fresh (not stale-for-reprocess). A direct LIVE re-enrich never
+  // stamps: an existing live fact only becomes "fresh" via the versioned
+  // refresh (send-back → promote), keeping refresh-first intact.
+  const signature = await currentProcessingSignatureFromConfig();
+
   let freshAiDerived: FactEnrichment;
   try {
     freshAiDerived = await deps.classify({
@@ -246,9 +255,17 @@ export async function runEnrichmentForFact(
       );
       return false;
     }
+    // Stamp the signature ONLY for first-time staging prep (never live_fact —
+    // that's refresh-first). Use the RECHECK's mode (observed under the lock),
+    // with the pre-classify signature VALUE captured above.
+    const stampSignature = recheck.mode === "first_time_staging";
     await tx
       .update(factsTable)
-      .set({ ...columns, enrichmentStatus: "ok" })
+      .set({
+        ...columns,
+        enrichmentStatus: "ok",
+        ...(stampSignature ? { lastProcessedSignature: signature } : {}),
+      })
       .where(eq(factsTable.id, factId));
     if (newlyChanged.length > 0) {
       await recordOverrideHistory(
@@ -327,6 +344,11 @@ export async function runEnrichmentForCandidateVersion(
   }
   const factTextHash = hashFactText(factRow.text);
 
+  // Capture the processing signature the candidate is being classified UNDER,
+  // BEFORE the (slow) LLM call — so a "Mark major update" landing mid-classify
+  // stamps the revision in effect when the model work began, not after.
+  const signature = await currentProcessingSignatureFromConfig();
+
   // ── Phase 2: LLM classification (no locks held) ──
   let freshAiDerived: FactEnrichment;
   try {
@@ -374,7 +396,10 @@ export async function runEnrichmentForCandidateVersion(
         enrichmentOverrides: columns.enrichmentOverrides,
         visualOverride: visualPromptStrategyOverride ?? null,
         factTextHash,
-        signature: null, // TODO(PR3-signature): stamp currentProcessingSignature() captured at classify time
+        // Captured before classify (above). Promote copies this onto
+        // facts.last_processed_signature (permissive: candidate's classify-time
+        // signature, not a fresh one).
+        signature,
       })
       .where(eq(factEnrichmentVersionsTable.id, versionId));
     // Advance THIS exact cycle (deterministic — not the fact-only re-discovery helper).

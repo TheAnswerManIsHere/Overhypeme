@@ -19,9 +19,9 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db, factsTable, usersTable } from "@workspace/db";
-import { asyncJobsTable } from "@workspace/db/schema";
+import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -213,5 +213,85 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.equal(res.body.outcomes.length, 1);
     assert.equal(res.body.outcomes[0].status, "done");
     assert.equal(res.body.summary.done, 1);
+  });
+
+  // ─── stale_for_reprocess lens (PR3) ──────────────────────────────────────
+
+  it("summary carries engineRevision and a staleForReprocess count", async () => {
+    const res = await request(app).get("/api/admin/taxonomy-health/summary");
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.engineRevision, "number");
+    assert.ok(res.body.engineRevision >= 1, "engine revision seeds at 1");
+    assert.equal(typeof res.body.staleForReprocess, "number");
+    // Every seeded valid fact carries a null signature → stale-for-reprocess.
+    assert.ok(res.body.staleForReprocess >= 1, "legacy null-signature facts read stale-for-reprocess");
+  });
+
+  it("stale_for_reprocess lists valid null-signature facts but excludes missing_enrichment", async () => {
+    const ids = await listIds("stale_for_reprocess");
+    assert.ok(ids.includes(healthyId), "a valid, never-stamped fact is stale-for-reprocess");
+    assert.ok(!ids.includes(missingId), "a missing-enrichment fact is NOT stale-for-reprocess (valid-only scope)");
+  });
+
+  it("bulk stale re-enrich excludes facts that are ALSO stale-for-reprocess (refresh-first)", async () => {
+    // The current signature for THIS shard's engine revision (deterministic).
+    const sres = await request(app).get("/api/admin/taxonomy-health/summary");
+    const currentSig = currentProcessingSignature(sres.body.engineRevision as number);
+
+    // Overlap fact: stale-enrichment (old prompt version) + null signature →
+    // ALSO stale-for-reprocess → must be EXCLUDED from bulk direct re-enrich.
+    const overlapId = await insertFact(
+      TEXT("stale overlap reprocess"),
+      validEnrichment({ classificationPromptVersion: "v0-prehistoric" }),
+      MATCHING_COLS,
+    );
+    // Stale-enrichment but signature is CURRENT → NOT stale-for-reprocess → INCLUDED.
+    const [b] = await db
+      .insert(factsTable)
+      .values({
+        text: TEXT("stale not reprocess"),
+        submittedById: adminUserId,
+        enrichment: validEnrichment({ classificationPromptVersion: "v0-prehistoric" }),
+        lastProcessedSignature: currentSig,
+        ...MATCHING_COLS,
+      })
+      .returning({ id: factsTable.id });
+    factIds.push(b!.id);
+
+    const res = await request(app)
+      .post("/api/admin/taxonomy-health/actions/backfill-enrichment")
+      .send({ mode: "stale_only", forceOverwriteAdminEdited: true });
+    assert.equal(res.status, 200);
+    const queuedIds = (res.body.jobs as Array<{ factId: number; jobId: number }>).map((j) => {
+      jobIds.push(j.jobId);
+      return j.factId;
+    });
+    assert.ok(!queuedIds.includes(overlapId), "stale+reprocess overlap is NOT bulk-re-enriched");
+    assert.ok(queuedIds.includes(b!.id), "a stale-enrichment fact on a current signature is still queued");
+  });
+
+  it("refreshInReview is true for a fact with an in-flight refresh candidate, false otherwise", async () => {
+    const [f] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .returning({ id: factsTable.id });
+    factIds.push(f!.id);
+    await db.insert(factEnrichmentVersionsTable).values({
+      factId: f!.id,
+      versionNo: 1,
+      status: "candidate",
+      source: "refresh_candidate",
+    });
+
+    const res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    assert.equal(res.status, 200);
+    const rows = res.body.rows as Array<{ factId: number; refreshInReview: boolean }>;
+    const inFlight = rows.find((r) => r.factId === f!.id);
+    assert.ok(inFlight, "the in-flight fact is listed");
+    assert.equal(inFlight!.refreshInReview, true, "a candidate in review pre-disables its send-back button");
+    const other = rows.find((r) => r.factId === healthyId);
+    assert.equal(other?.refreshInReview, false, "a fact with no candidate is not marked in-review");
   });
 });

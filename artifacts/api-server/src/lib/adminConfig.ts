@@ -183,6 +183,25 @@ export async function getConfigStringRaw(key: string, defaultValue: string): Pro
   }
 }
 
+/**
+ * Get a config integer reading the `value` column directly, bypassing debug-mode
+ * resolution. Use for audit-bearing markers (like `engine_revision`) whose
+ * effective value must never be shifted by the debug overlay — a debug value
+ * could make the corpus appear stale/fresh under a revision that was never
+ * formally bumped + audited.
+ */
+export async function getConfigIntRaw(key: string, defaultValue: number): Promise<number> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    if (!row) return defaultValue;
+    const parsed = parseInt(row.value, 10);
+    return isNaN(parsed) ? defaultValue : parsed;
+  } catch {
+    return defaultValue;
+  }
+}
+
 /** Get all config rows ordered by key (for the admin list endpoint). */
 export async function getAllConfig(): Promise<AdminConfig[]> {
   const { rows } = await loadAll();

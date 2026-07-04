@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CLASSIFICATION_PROMPT_VERSION,
+  currentProcessingSignature,
   validateEnrichment,
 } from "@workspace/api-zod";
 import { evaluateFactTaxonomyHealth, isEnrichmentAdminEdited } from "../lib/taxonomyHealth";
@@ -198,6 +199,99 @@ describe("evaluateFactTaxonomyHealth", () => {
     });
     const issue = h.issues.find((i) => i.code === "projection_mismatch");
     assert.equal(issue?.recommendedAction, "repair_projection_columns");
+  });
+
+  // ─── stale_for_reprocess (processing-signature staleness) ─────────────────
+
+  const CURRENT_SIG = currentProcessingSignature(3);
+
+  it("does NOT flag stale_for_reprocess when no currentSignature is supplied", () => {
+    // Backward-compatible: the lens is opt-in per call.
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(VALID_ENRICHMENT()), lastProcessedSignature: null },
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, false);
+    assert.ok(!h.statuses.includes("stale_for_reprocess"));
+  });
+
+  it("flags stale_for_reprocess (never_processed) for a null signature", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(VALID_ENRICHMENT()), lastProcessedSignature: null },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, true);
+    assert.ok(h.statuses.includes("stale_for_reprocess"));
+    const issue = h.issues.find((i) => i.code === "stale_for_reprocess");
+    assert.equal(issue?.severity, "info");
+    assert.equal(issue?.recommendedAction, "send_back_to_review");
+    assert.notEqual(issue?.recommendedAction, "rerun_enrichment");
+    assert.match(issue!.message, /never been processed/);
+  });
+
+  it("does NOT flag stale_for_reprocess when the signature matches current", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(VALID_ENRICHMENT()), lastProcessedSignature: { ...CURRENT_SIG } },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, false);
+    assert.ok(!h.statuses.includes("stale_for_reprocess"));
+  });
+
+  it("flags stale_for_reprocess (engine_revision) when the engine revision is behind", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: {
+        ...row(VALID_ENRICHMENT()),
+        lastProcessedSignature: { ...CURRENT_SIG, engineRevision: CURRENT_SIG.engineRevision - 1 },
+      },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, true);
+    const issue = h.issues.find((i) => i.code === "stale_for_reprocess");
+    assert.equal(issue?.recommendedAction, "send_back_to_review");
+    assert.match(issue!.message, /older engine revision/);
+  });
+
+  it("flags stale_for_reprocess (code_version) when a code-version field is behind", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: {
+        ...row(VALID_ENRICHMENT()),
+        lastProcessedSignature: { ...CURRENT_SIG, taxonomyVersion: "v0" },
+      },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, true);
+    const issue = h.issues.find((i) => i.code === "stale_for_reprocess");
+    assert.match(issue!.message, /code versions/);
+  });
+
+  it("keeps a stale-for-reprocess-only fact overall healthy (info severity)", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(VALID_ENRICHMENT()), lastProcessedSignature: null },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.staleForReprocess, true);
+    assert.equal(h.overallStatus, "healthy");
+  });
+
+  it("does NOT flag stale_for_reprocess on a missing_enrichment fact (valid-only scope)", () => {
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(null), lastProcessedSignature: null },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.ok(h.statuses.includes("missing_enrichment"));
+    assert.equal(h.reviewFlags.staleForReprocess, false);
+    assert.ok(!h.statuses.includes("stale_for_reprocess"));
+  });
+
+  it("does NOT flag stale_for_reprocess on an invalid_enrichment fact (valid-only scope)", () => {
+    const broken = VALID_ENRICHMENT({ subtype: "not_a_real_subtype" });
+    const h = evaluateFactTaxonomyHealth({
+      fact: { ...row(broken), lastProcessedSignature: null },
+      currentSignature: CURRENT_SIG,
+    });
+    assert.equal(h.reviewFlags.invalidEnrichment, true);
+    assert.equal(h.reviewFlags.staleForReprocess, false);
+    assert.ok(!h.statuses.includes("stale_for_reprocess"));
   });
 });
 
