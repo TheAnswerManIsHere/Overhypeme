@@ -34,6 +34,9 @@ import {
   type VisualRenderApprovalWaiver,
   sanitizeCandidateSceneText,
   CANDIDATE_SCENE_MAX_CHARS,
+  evalWriteSchema,
+  resolveEvalColumns,
+  evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
 import { ensureStagingFact, resolveReviewCycleEnrichment } from "../lib/moderationStaging";
@@ -1571,6 +1574,45 @@ router.get("/admin/reviews/:id/render-scenarios/:scenarioKey/attempts/:attemptId
   const diag = await getScenarioAttemptDiagnostics(id, keyParsed.data, attemptId);
   if (!diag) { res.status(404).json({ error: "attempt_not_found" }); return; }
   res.json(diag);
+});
+
+// POST a moderator eval (rating + failure-tag + notes) on ONE moderation
+// test-render attempt (Slice 2B). Sibling of the diagnostics route. Ownership
+// guards: the attempt exists, belongs to THIS review + scenario, and is a
+// moderation attempt (not an eval-run render — those rate via the generic
+// /admin/eval/attempts/:id/eval route). Opportunistic ratings here are
+// "directional only" in the dashboard; only eval-run rows are a true A/B.
+router.post("/admin/reviews/:id/render-scenarios/:scenarioKey/attempts/:attemptId/eval", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  const attemptId = parseInt(String(req.params["attemptId"] ?? ""), 10);
+  if (isNaN(id) || isNaN(attemptId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const keyParsed = renderScenarioKeySchema.safeParse(req.params["scenarioKey"]);
+  if (!keyParsed.success) { res.status(400).json({ error: "Invalid scenario key" }); return; }
+  const parsed = evalWriteSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid eval body", details: parsed.error.flatten() }); return; }
+  const update = resolveEvalColumns(parsed.data);
+  if (evalColumnUpdateIsEmpty(update)) { res.status(400).json({ error: "No eval fields provided (rating, failureTag, or notes)." }); return; }
+
+  const [attempt] = await db
+    .select({
+      id: imagePromptAttemptsTable.id,
+      reviewId: imagePromptAttemptsTable.reviewId,
+      scenarioKey: imagePromptAttemptsTable.reviewRenderScenarioKey,
+      evalRunId: imagePromptAttemptsTable.evalRunId,
+    })
+    .from(imagePromptAttemptsTable)
+    .where(eq(imagePromptAttemptsTable.id, attemptId))
+    .limit(1);
+  if (!attempt) { res.status(404).json({ error: "attempt_not_found" }); return; }
+  if (attempt.reviewId !== id) { res.status(404).json({ error: "attempt_not_in_review" }); return; }
+  if (attempt.scenarioKey !== keyParsed.data) { res.status(409).json({ error: "scenario_mismatch" }); return; }
+  if (attempt.evalRunId != null) { res.status(409).json({ error: "eval_run_attempt", detail: "Rate eval-run renders via /admin/eval/attempts/:attemptId/eval." }); return; }
+
+  await db
+    .update(imagePromptAttemptsTable)
+    .set({ ...update, evalBy: req.user.id, evalAt: new Date(), updatedAt: new Date() })
+    .where(eq(imagePromptAttemptsTable.id, attemptId));
+  res.json({ success: true });
 });
 
 // GET default-reference-asset readiness (which i2i scenarios can render).

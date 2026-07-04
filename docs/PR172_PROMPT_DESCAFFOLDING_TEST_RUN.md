@@ -31,7 +31,7 @@ docs. A diff means the fieldDocs source and the generated doc drifted.
 node lib/db/scripts/check-migration-snapshots.ts   # or the package's check script
 ```
 Expect: "All journal entries have snapshot files (or are explicitly exempt)" and
-a valid snapshot chain. Migration `0080_strip_retired_text_modifiers` is a
+a valid snapshot chain. Migration `0082_strip_retired_text_modifiers` is a
 DML-only migration and is in `SNAPSHOT_EXEMPT_TAGS`.
 
 ## 2. Test suites
@@ -74,7 +74,7 @@ Expect: **all files pass** (this run: 63 files / 692 tests — includes the merg
 
 ## 3. DB / migration checks (Replit's connection)
 
-- Apply migrations. Confirm `0080_strip_retired_text_modifiers` runs cleanly.
+- Apply migrations. Confirm `0082_strip_retired_text_modifiers` runs cleanly.
 - If an `admin_config` row `key = 'fact_enrichment_system'` exists, confirm its
   `value` (and `debug_value` when non-NULL) **no longer contain** the lines
   `- no_readable_text`, `- avoid_real_logos`, `- avoid_readable_ui`. Any other

@@ -37,6 +37,7 @@ const ROUTES: Array<{ method: "get" | "post"; path: string }> = [
   { method: "get",  path: "/admin/taxonomy-health/facts" },
   { method: "post", path: "/admin/taxonomy-health/actions/backfill-enrichment" },
   { method: "post", path: "/admin/taxonomy-health/actions/repair-projections" },
+  { method: "post", path: "/admin/taxonomy-health/actions/mark-major-update" },
 ];
 
 describe("/admin/taxonomy-health — auth", () => {

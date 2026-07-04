@@ -1,5 +1,5 @@
 /**
- * Fixture test for migration 0080_strip_retired_text_modifiers.
+ * Fixture test for migration 0082_strip_retired_text_modifiers.
  *
  * The migration scrubs the retired text/brand modifier catalog lines
  * (no_readable_text / avoid_readable_ui / avoid_real_logos) out of the
@@ -22,7 +22,7 @@ import { eq, sql } from "drizzle-orm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
-  path.resolve(__dirname, "../../../../lib/db/migrations/0080_strip_retired_text_modifiers.sql"),
+  path.resolve(__dirname, "../../../../lib/db/migrations/0082_strip_retired_text_modifiers.sql"),
   "utf8",
 );
 
