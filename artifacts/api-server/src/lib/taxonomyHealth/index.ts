@@ -25,10 +25,12 @@
 import {
   validateEnrichment,
   buildCapitalizationSensitiveRegex,
+  computeProcessingSignatureStaleness,
   CLASSIFICATION_PROMPT_VERSION,
   VISUAL_STRATEGY_VERSION,
   type FactEnrichment,
   type FactTaxonomyHealth,
+  type ProcessingSignature,
   type TaxonomyHealthIssue,
   type TaxonomyHealthStatus,
   type TaxonomyHealthSeverity,
@@ -47,6 +49,12 @@ export interface FactRowForHealth {
   subtype: string | null;
   overhypeFit: string | null;
   adultSuitability: string | null;
+  /**
+   * The stored ProcessingSignature blob (facts.last_processed_signature).
+   * Optional: only read when `currentSignature` is supplied (the
+   * `stale_for_reprocess` lens); callers that don't evaluate that lens may omit it.
+   */
+  lastProcessedSignature?: unknown;
 }
 
 export interface EvaluateFactTaxonomyHealthInput {
@@ -60,6 +68,14 @@ export interface EvaluateFactTaxonomyHealthInput {
     classificationPromptVersion?: string;
     visualStrategyVersion?: string;
   };
+  /**
+   * The current ProcessingSignature to compare `fact.lastProcessedSignature`
+   * against for the `stale_for_reprocess` lens. The route reads
+   * `engine_revision` once and passes it here; when OMITTED the check is
+   * skipped entirely (keeps this pure function total + backward-compatible with
+   * callers/tests that don't care about signature staleness).
+   */
+  currentSignature?: ProcessingSignature;
 }
 
 const LOW_CONFIDENCE_THRESHOLD = 0.75;
@@ -85,6 +101,7 @@ export function evaluateFactTaxonomyHealth(
     culturalReferenceNeedsResearch: false,
     semanticEntityNeedsReview: false,
     staleEnrichmentVersion: false,
+    staleForReprocess: false,
     projectionMismatch: false,
     invalidEnrichment: false,
   };
@@ -285,6 +302,38 @@ export function evaluateFactTaxonomyHealth(
       message: `Promoted columns don't match enrichment: ${projectionDiffs.join("; ")}`,
       recommendedAction: "repair_projection_columns",
     });
+  }
+
+  // 11. Stale for reprocess (processing-signature staleness).
+  //
+  // Reached ONLY for facts with VALID enrichment (missing/invalid returned
+  // early above) — the deliberate product scope: this card is "old-but-good
+  // facts that should go back through the pipeline", not broken facts (which
+  // have their own error cards). Refresh-first: the recommended action is
+  // `send_back_to_review`, never a direct re-enrich (which wouldn't stamp the
+  // signature). `severity: "info"` keeps it out of the overall-status rollup —
+  // a fact whose only issue is this stays overall "healthy"; the dedicated
+  // card/filter is the surface. Skipped entirely when no `currentSignature` is
+  // supplied.
+  if (input.currentSignature) {
+    const staleness = computeProcessingSignatureStaleness(
+      fact.lastProcessedSignature,
+      input.currentSignature,
+    );
+    if (staleness.stale) {
+      flags.staleForReprocess = true;
+      addIssue(issues, statuses, {
+        code: "stale_for_reprocess",
+        severity: "info",
+        message:
+          staleness.reason === "engine_revision"
+            ? "This fact was processed under an older engine revision — send it back through the refresh pipeline to bring it up to date."
+            : staleness.reason === "code_version"
+              ? "This fact was processed under older taxonomy/classification/image-prompt/visual-strategy code versions — send it back through the refresh pipeline."
+              : "This fact has never been processed through the versioned refresh pipeline — send it back to refresh its enrichment.",
+        recommendedAction: "send_back_to_review",
+      });
+    }
   }
 
   return finalize(fact, issues, statuses, flags, buildSummary(fact, e));

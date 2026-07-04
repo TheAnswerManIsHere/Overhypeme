@@ -14,8 +14,10 @@ import assert from "node:assert/strict";
 import {
   CLASSIFICATION_PROMPT_VERSION,
   SUMMARY_COUNT_TO_FILTER,
+  currentProcessingSignature,
   matchesHealthFilter,
   type FactTaxonomyHealth,
+  type ProcessingSignature,
   type TaxonomyHealthSummaryCounts,
   type TaxonomyHealthFilter,
 } from "@workspace/api-zod";
@@ -53,9 +55,11 @@ function evalFact(
   factId: number,
   factText: string,
   enrichment: Record<string, unknown> | null,
+  opts: { lastProcessedSignature?: unknown; currentSignature?: ProcessingSignature } = {},
 ): FactTaxonomyHealth {
   return evaluateFactTaxonomyHealth({
-    fact: { factId, factText, enrichment, ...MATCHING_COLS },
+    fact: { factId, factText, enrichment, lastProcessedSignature: opts.lastProcessedSignature, ...MATCHING_COLS },
+    ...(opts.currentSignature ? { currentSignature: opts.currentSignature } : {}),
   });
 }
 
@@ -86,7 +90,7 @@ describe("matchesHealthFilter", () => {
     // Tally the summary exactly as the route does — via SUMMARY_COUNT_TO_FILTER.
     const summary = {
       healthy: 0, missingEnrichment: 0, invalidEnrichment: 0, needsAdminReview: 0,
-      staleEnrichmentVersion: 0,
+      staleEnrichmentVersion: 0, staleForReprocess: 0,
       projectionMismatch: 0, incompleteCulturalReferences: 0,
       semanticEntitiesNeedReview: 0, lowConfidence: 0,
     } as Omit<TaxonomyHealthSummaryCounts, "totalFacts">;
@@ -108,5 +112,27 @@ describe("matchesHealthFilter", () => {
     assert.equal(summary.healthy, 2);
     assert.equal(summary.semanticEntitiesNeedReview, 1);
     assert.equal(summary.missingEnrichment, 1);
+  });
+
+  it("stale_for_reprocess filter matches a null-signature valid fact and keeps count/list parity", () => {
+    const sig = currentProcessingSignature(2);
+    // Valid enrichment, null signature → stale-for-reprocess but still overall healthy.
+    const staleReprocess = evalFact(4, "A neutral fact needing refresh.", validEnrichment(), {
+      lastProcessedSignature: null,
+      currentSignature: sig,
+    });
+    // Same fact stamped with the current signature → NOT stale.
+    const fresh = evalFact(5, "A freshly-processed fact.", validEnrichment(), {
+      lastProcessedSignature: { ...sig },
+      currentSignature: sig,
+    });
+    assert.equal(matchesHealthFilter(staleReprocess, "stale_for_reprocess"), true);
+    assert.equal(matchesHealthFilter(fresh, "stale_for_reprocess"), false);
+    assert.equal(staleReprocess.overallStatus, "healthy");
+
+    const facts = [staleReprocess, fresh];
+    const filter = SUMMARY_COUNT_TO_FILTER.staleForReprocess;
+    const count = facts.filter((h) => matchesHealthFilter(h, filter)).length;
+    assert.equal(count, 1, "exactly one fact is stale-for-reprocess");
   });
 });

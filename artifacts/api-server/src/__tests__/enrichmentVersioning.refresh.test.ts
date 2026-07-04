@@ -39,9 +39,11 @@ import {
   hashtagsTable,
   factHashtagsTable,
   imagePromptAttemptsTable,
+  adminConfigTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { currentProcessingSignature, type FactEnrichment, type ProcessingSignature } from "@workspace/api-zod";
+import { bustConfigCache } from "../lib/adminConfig.js";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
@@ -819,6 +821,82 @@ describe("enrichment write freeze during refresh", () => {
 });
 
 // ── Generic fact-enrichment guards (refresh-aware) ───────────────────────────
+
+describe("processing signature stamping (PR3)", () => {
+  async function setEngineRevision(value: number): Promise<void> {
+    await db
+      .insert(adminConfigTable)
+      .values({ key: "engine_revision", value: String(value), dataType: "integer", label: "Engine Revision (test)" })
+      .onConflictDoUpdate({ target: adminConfigTable.key, set: { value: String(value) } });
+    bustConfigCache();
+  }
+
+  afterEach(async () => {
+    // Restore the seed default so other suites read a stable engine revision.
+    await setEngineRevision(1);
+  });
+
+  it("stamps the candidate with the engine revision captured BEFORE classify; promote copies it onto facts", async () => {
+    await setEngineRevision(5);
+    const fact = await seedActiveFact();
+    const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
+    const result = await runEnrichmentForCandidateVersion(candidateVersionId, {
+      classify: async () => {
+        // A "Mark major update" landing mid-classify must NOT change the stamp.
+        await setEngineRevision(6);
+        return REFRESHED_AI_BASELINE;
+      },
+    });
+    assert.equal(result.ok, true);
+
+    const [candidate] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    const sig = candidate.signature as ProcessingSignature;
+    assert.equal(sig.engineRevision, 5, "pre-classify revision, not the mid-classify bump");
+    assert.deepEqual(sig, currentProcessingSignature(5));
+
+    // Promote copies the candidate's signature onto facts.last_processed_signature.
+    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
+    const approve = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(approve.status, 200, JSON.stringify(approve.body));
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.deepEqual(f.lastProcessedSignature, sig, "promote copied the candidate's classify-time signature");
+  });
+
+  it("first-time staging prep stamps facts.last_processed_signature fresh; a live re-enrich never stamps", async () => {
+    await setEngineRevision(4);
+
+    // (a) First-time staging cycle: unresolved prep_pending review, candidateVersionId null.
+    const [staging] = await db
+      .insert(factsTable)
+      .values({ text: "{NAME} first-time staging fact", submittedById: submitterId, isActive: false })
+      .returning();
+    insertedFactIds.push(staging.id);
+    await db.insert(pendingReviewsTable).values({
+      submittedText: staging.text, status: "pending", workflowStage: "prep_pending",
+      stagingFactId: staging.id, candidateVersionId: null,
+    });
+    const resA = await runEnrichmentForFact(staging.id, { classify: async () => REFRESHED_AI_BASELINE });
+    assert.equal(resA.ok, true);
+    const [fStaging] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.deepEqual(
+      fStaging.lastProcessedSignature,
+      currentProcessingSignature(4),
+      "first-time staging stamps the current signature (newly-approved facts read fresh, not stale-for-reprocess)",
+    );
+
+    // (b) Live re-enrich of an existing active fact: NEVER stamps (refresh-first).
+    const live = await seedActiveFact();
+    assert.equal(live.lastProcessedSignature, null, "starts unstamped");
+    const resB = await runEnrichmentForFact(live.id, { classify: async () => REFRESHED_AI_BASELINE });
+    assert.equal(resB.ok, true);
+    const [fLive] = await db.select().from(factsTable).where(eq(factsTable.id, live.id));
+    assert.equal(fLive.lastProcessedSignature, null, "a direct live re-enrich leaves the signature untouched");
+  });
+});
 
 describe("generic fact-enrichment guards", () => {
   it("findUnresolvedReviewForStagingFact ignores resolved rows and picks the newest unresolved cycle", async () => {

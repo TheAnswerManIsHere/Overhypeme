@@ -1,9 +1,10 @@
 import {
-  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index,
+  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index, smallint, bigint,
 } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 import { pendingReviewsTable } from "./reviews";
+import { evalRunsTable } from "./evalRuns";
 
 /**
  * Phase 2 — per-attempt image prompt generation metadata.
@@ -85,6 +86,27 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
   /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
   reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),
+  // ── Eval harness (migration 0080) ─────────────────────────────────────────
+  // A moderator's verdict on a render. Applies to BOTH ordinary moderation
+  // attempts (opportunistic, directional-only) and eval-run attempts. rating +
+  // failure_tag are INDEPENDENT (a tag with no rating is valid quick-triage);
+  // failure_tag "none" = "rated, no dominant failure" (distinct from NULL =
+  // unreviewed). See lib/api-zod/src/eval.ts.
+  moderatorRating: smallint("moderator_rating"),
+  /** "concept" | "compiler" | "image_model" | "none" (FailureTag). */
+  failureTag: varchar("failure_tag", { length: 16 }),
+  evalNotes: text("eval_notes"),
+  evalBy: varchar("eval_by"),
+  evalAt: timestamp("eval_at", { withTimezone: true }),
+  // Set ONLY on eval-run attempts (review_id stays NULL there, so eval renders
+  // never appear in the moderation grid). eval_input_hash is the eval-specific
+  // signature (fixed sample subject), NOT the review render hash.
+  // FK declared HERE (not just in the migration) so `drizzle-kit push` creates
+  // the column WITH the constraint — otherwise push makes a plain bigint and the
+  // migration's `ADD COLUMN IF NOT EXISTS … REFERENCES` skips the FK on those DBs.
+  evalRunId: bigint("eval_run_id", { mode: "number" }).references(() => evalRunsTable.id, { onDelete: "set null" }),
+  evalScenarioKey: varchar("eval_scenario_key", { length: 40 }),
+  evalInputHash: text("eval_input_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -96,6 +118,9 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   index("IDX_ipa_review_scenario_created").on(t.reviewId, t.reviewRenderScenarioKey, t.createdAt.desc()),
   // Idempotency lookup (has this exact input already been rendered for this review?).
   index("IDX_ipa_review_input_hash").on(t.reviewId, t.reviewRenderInputHash),
+  // Eval-dashboard grouping indexes (IDX_ipa_eval_run_fact_created,
+  // IDX_ipa_eval_fact_run_created) are partial (WHERE eval_run_id IS NOT NULL) and
+  // live in the migration SQL only — drizzle-kit partial-index detection is brittle.
   // Partial indexes for request_id / render_job_id (and the moderation-only
   // `WHERE review_id IS NOT NULL` partial) are declared in the migration SQL
   // only — drizzle-kit's partial-index detection is brittle.
