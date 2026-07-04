@@ -225,6 +225,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // on the malformed 0063 snapshot, so this ships without a generated snapshot;
   // idempotent ADD COLUMN IF NOT EXISTS. Source of truth: lib/db/src/schema/facts.ts.
   "0079_facts_visual_concepts",
+
+  // Hand-written DDL for the eval harness: eval_runs table, eval columns on
+  // image_prompt_attempts (moderator rating / failure tag / eval-run tagging),
+  // golden-set columns on facts, and partial dashboard indexes. drizzle-kit
+  // generate is broken on the malformed 0063 snapshot, so this ships without a
+  // generated snapshot; idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS.
+  // Source of truth: lib/db/src/schema/{evalRuns,imagePromptAttempts,facts}.ts.
+  "0080_eval_harness",
 ]);
 
 interface JournalEntry {

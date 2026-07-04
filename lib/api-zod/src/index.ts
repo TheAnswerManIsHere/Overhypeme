@@ -14,5 +14,6 @@ export * from "./taxonomyHealth";
 export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
 export * from "./visualConcepts";
+export * from "./eval";
 export * from "./moderationWorkflow";
 export * from "./renderScenarios";
