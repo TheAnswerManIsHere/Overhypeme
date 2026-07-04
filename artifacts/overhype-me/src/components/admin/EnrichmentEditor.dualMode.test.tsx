@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor, type EnrichmentOverrideContext } from "./EnrichmentEditor";
 
@@ -100,6 +100,59 @@ describe("EnrichmentEditor dual mode (review hashtags + override decoration)", (
 
     expect(oc.onOverride).toHaveBeenCalledWith("/visualComplexity", "low");
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ visualComplexity: "low" }));
+  });
+
+  it("debounces semantic entity override writes so spaces are not trimmed mid-typing", () => {
+    vi.useFakeTimers();
+    try {
+      const oc = makeOverrideContext();
+      const semanticEntity = {
+        surfaceText: "sign language",
+        normalizedText: "sign language",
+        entityKind: "abstract_concept" as const,
+        visualReferent: "hands signing",
+        capitalizationSignal: "not_relevant" as const,
+        materiallyAffectsVisualPrompt: true,
+        requiresAdminReview: false,
+        confidence: 0.96,
+        notes: "",
+      };
+      const value: FactEnrichment = { ...EFFECTIVE, semanticEntities: [semanticEntity] };
+      const onChange = vi.fn();
+
+      render(
+        <EnrichmentEditor
+          value={value}
+          status="ok"
+          onChange={onChange}
+          overrideContext={oc}
+        />,
+      );
+
+      fireEvent.change(screen.getByDisplayValue("hands signing"), {
+        target: { value: "hands signing " },
+      });
+
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+        semanticEntities: [expect.objectContaining({ visualReferent: "hands signing " })],
+      }));
+      expect(oc.onOverride).not.toHaveBeenCalledWith("/semanticEntities", expect.anything());
+
+      act(() => {
+        vi.advanceTimersByTime(599);
+      });
+      expect(oc.onOverride).not.toHaveBeenCalledWith("/semanticEntities", expect.anything());
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(oc.onOverride).toHaveBeenCalledWith(
+        "/semanticEntities",
+        [expect.objectContaining({ visualReferent: "hands signing " })],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a Visual Strategy Override edit calls onChange only — never the override endpoints", () => {
