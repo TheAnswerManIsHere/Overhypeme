@@ -61,6 +61,13 @@ forward.
 
 ### Interaction preferences
 
+- **"What do you think?" means planning mode, not building mode.** When David
+  asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
+  "does this make sense?"), the deliverable is my assessment and a
+  conversation — I do **not** start implementing, scaffolding files, or
+  committing anything, even if the same message sketches something buildable
+  ("let's build X… what do you think?"). Building starts only after David
+  explicitly says to build or approves a plan.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
