@@ -137,13 +137,20 @@ async function seedActiveFact(): Promise<typeof factsTable.$inferSelect> {
   return fact;
 }
 
-/** Send back + run the candidate job → a refresh cycle at production_review. */
+/**
+ * Send back + run the candidate job. Enrichment now lands the cycle at Step 2
+ * (`concept_review`); advance it to Step 3 (`production_review`) — simulating gag
+ * approval — so promote/render (Step-3) assertions run unchanged. (Candidate
+ * editing is allowed in both steps; promotion stays Step-3-only.)
+ */
 async function seedReadyRefreshCycle(fact: { id: number }): Promise<{ reviewId: number; candidateVersionId: number }> {
   const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId: fact.id, adminId });
   const result = await runEnrichmentForCandidateVersion(candidateVersionId, {
     classify: async () => REFRESHED_AI_BASELINE,
   });
   assert.equal(result.ok, true);
+  await db.update(pendingReviewsTable).set({ workflowStage: "production_review" })
+    .where(eq(pendingReviewsTable.id, reviewId));
   return { reviewId, candidateVersionId };
 }
 

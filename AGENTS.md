@@ -1,97 +1,131 @@
-# Codex Verification Instructions
+# Overhype.me Agent Instructions
 
-These instructions apply to the entire repository.
+> Short root-level constitution and routing file for AI agents (Codex, Claude,
+> future agents). It tells you **where to look, how to behave, and what's
+> non-negotiable** — it is deliberately not the full product bible. The detail
+> lives in `docs/ai-context/` (product/architecture truth) and `docs/engineering/`
+> (test/migration/review). Keep this file concise.
+>
+> **One source of truth for all agents.** These docs are shared by Codex, Claude
+> Code, and future agents. Claude Code's `CLAUDE.md` holds only Claude-specific
+> ceremony (plan-mode delivery, its PR/squash-merge workflow, TEST_RUN/UAT,
+> auto-watch) and defers to these shared docs for every cross-agent principle. When
+> shared product/architecture/principle truth changes, edit the shared doc here —
+> do not fork a divergent copy into any agent's own file or private memory.
 
-## Canonical setup and typecheck order
+## Project context
 
-After installing dependencies, build generated API artifacts and referenced workspace libraries before running package-local checks:
+Before architecture, data-model, moderation, visual-pipeline, taxonomy,
+AI-generation, or product-direction work, read the relevant files in
+`docs/ai-context/`.
 
-```sh
-pnpm --filter @workspace/api-spec run codegen
-pnpm run typecheck:libs
-```
+Start with:
 
-For general typechecking, prefer the repo-level command:
+- [`docs/ai-context/product-brief.md`](docs/ai-context/product-brief.md)
+- [`docs/ai-context/architecture-map.md`](docs/ai-context/architecture-map.md)
+- [`docs/ai-context/current-roadmap.md`](docs/ai-context/current-roadmap.md)
+- [`docs/ai-context/glossary.md`](docs/ai-context/glossary.md) — term lookup
+- [`docs/ai-context/decisions.md`](docs/ai-context/decisions.md) — why settled decisions are settled
 
-```sh
-pnpm typecheck
-```
+For **visual pipeline** work, also read:
 
-Do not use isolated package typechecks as standalone verification in a cold environment unless the referenced libraries have already been generated and built. In particular, `@workspace/overhype-me` has TypeScript project references to workspace libraries such as `lib/api-client-react`, `lib/replit-auth-web`, and `lib/api-zod`, so `pnpm --filter @workspace/overhype-me run typecheck` can produce false negatives before those referenced outputs exist.
+- [`docs/ai-context/visual-pipeline.md`](docs/ai-context/visual-pipeline.md)
+- [`docs/ai-context/moderation-workflow.md`](docs/ai-context/moderation-workflow.md)
+- [`docs/ai-context/known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)
 
-## Frontend-only changes
+For **taxonomy, enrichment, or moderation review** work, also read:
 
-For frontend-only changes, use this safe verification sequence:
+- [`docs/ai-context/taxonomy-and-enrichment.md`](docs/ai-context/taxonomy-and-enrichment.md)
+- [`docs/ai-context/moderation-workflow.md`](docs/ai-context/moderation-workflow.md)
 
-```sh
-pnpm --filter @workspace/api-spec run codegen
-pnpm run typecheck:libs
-pnpm --filter @workspace/overhype-me run typecheck
-pnpm --filter @workspace/overhype-me exec vitest run <relevant test file if known>
-```
+For **grammar, token rendering, or tokenizer** work, also read:
 
-## API DB-backed tests
+- [`docs/ai-context/token-rendering-and-grammar.md`](docs/ai-context/token-rendering-and-grammar.md)
 
-For API database-backed tests, use the package test script:
+Engineering practice: [`docs/engineering/`](docs/engineering/) —
+[testing-guide](docs/engineering/testing-guide.md),
+[migrations-and-backfills](docs/engineering/migrations-and-backfills.md),
+[code-review](docs/engineering/code-review.md). Subsystem gotchas: `.agents/memory/`.
 
-```sh
-pnpm --filter @workspace/db push-force
-pnpm --filter @workspace/db run migrate
-pnpm --filter @workspace/api-server test
-```
+## Working agreement with David
 
-Do not run these tests with raw `node --test`. The full-suite runner isolates each parallel worker in its **own** throwaway database (per-worker databases cloned from a structure-only template, by default; per-worker schemas as a fallback when `CREATE DATABASE` is denied), and seeds only required boot-time, code-owned rows such as the engine catalogue reconciliation. (The targeted `run-test.sh` runner uses a single cached `heliumdb_test` schema instead — see below.) `docs/TESTING.md` is the canonical reference for all of this: isolation modes, the production guard, the DB-name glossary, and the CI gate.
+David is the product owner. **Do not implement major changes from a non-trivial
+plan until David has explicitly approved that plan.** An ambiguous nudge or another
+agent's approval is not David's approval. Full working rules:
+[`docs/ai-context/agent-working-rules.md`](docs/ai-context/agent-working-rules.md).
 
-The DB setup commands above must be run before api-server tests so the branch's current Drizzle schema and migration SQL have been applied to the local public schema that the runner clones from. The runner must not copy development or production data into the test databases; tests that need facts, pending reviews, Pexels image JSON, moderation state, pricing rows, or other domain data must create those rows explicitly in the test or in a focused helper/factory. External services such as Pexels, object storage, pricing APIs, embeddings, and image generation must be stubbed/mocked or disabled with test-mode helpers so Codex/local tests do not require real credentials or real network calls.
+**Two working modes — David picks explicitly.** Default is **feature mode** (plan
+→ approval → full build → PR). **Bugfix mode** is a lightweight fix-and-commit path
+David turns on by saying so (e.g. a prompt starting **"Bugfix mode:"**); absent an
+explicit signal you are in feature mode. Read
+[`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
+contract of each and how to switch between them.
 
-**Production guard:** the runner refuses to run when `DATABASE_URL` points at `heliumdb` (Overhype's prod *and* dev share that exact name) or when `NODE_ENV=production`. Point `DATABASE_URL` at the test database — `heliumdb_test` on Replit (via `TEST_DATABASE_URL`), `overhype_test` in CI/sandbox — never at `heliumdb`.
+When asked to **plan**:
+1. Inspect the repo first.
+2. Identify source-of-truth boundaries.
+3. Call out product ambiguities (ask David; don't guess intent).
+4. Propose a phased plan.
+5. Include tests and migration/backfill handling where relevant.
 
-**GitHub CI is the authoritative gate.** Every PR to `main` runs required `Build` (typecheck + build + migration-snapshot validation) and `Test` (the api-server suite against Postgres + pgvector) checks; both must pass before merge. If a sandbox cannot run a DB-backed test (no Postgres, or only an invalid raw-`node` command is available), report it as an environment/command failure **deferred-to-CI** — not as a product or test failure. See "Reporting failures" below.
+When asked to **implement** (an approved plan):
+1. Re-read the approved plan + relevant `docs/ai-context/` files.
+2. Confirm the affected files.
+3. Make the smallest coherent change.
+4. Run relevant tests.
+5. Summarize what changed, what was tested, and what remains risky.
 
-## Codex review-fix verification rules
+## Technical priorities
 
-When fixing a Codex review comment, run the repository's own verification commands before reporting test status. Never run raw `node --test` against api-server TypeScript test files — plain Node does not load this repo's `tsx/esm` setup, so it fails to even read a `.ts` file even when the code is correct. A command that fails that way is an invalid command, not a failing test.
+Prefer, in order:
+1. Runtime correctness.
+2. Durable data and source-of-truth boundaries.
+3. Repository fit.
+4. Migration and backfill safety.
+5. Security, validation, permissions, and auditability.
+6. Admin UX clarity.
+7. Tests and regression protection.
+8. Simplicity and scope control.
+9. Observability and debuggability.
 
-For a targeted api-server test file, use the existing isolated runner:
+## Important product principles
 
-```sh
-bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>.test.ts
-```
+- **Human-moderated decisions must not be silently overwritten by AI reprocessing.**
+- **Runtime behavior must match admin preview and debug surfaces.**
+- **Avoid duplicate sources of truth.**
+- **Do not patch only the latest example — solve the general mechanism.**
+- **Prefer database-backed config for tunable operational settings.**
+- **Migrations must be idempotent and observable.**
+- **Async work must show status** at two altitudes (per-item + aggregate) — see
+  [`docs/ai-context/async-ui-status.md`](docs/ai-context/async-ui-status.md).
+- **Ship the surface with the behavior** (no dead UI, no invisible backend), and
+  **enforce every permission server-side.**
+- Pre-launch: features ship **on-by-default, no rollout flags**; **no new external
+  vendors** without David's sign-off.
 
-It loads the TypeScript loader, points `DATABASE_URL` at the isolated `heliumdb_test` schema (the live/public schema is never touched), stubs the test env vars, clones the schema when it is stale, and seeds the boot-time engine-catalogue rows — so a single-file run sets up the same baseline as the full suite. It is runnable from the repo root or from `artifacts/api-server`.
+## Planning standard
 
-After adding or changing a DB migration, apply it to the local public schema first, then force a fresh clone of that updated schema into the test schema:
+For non-trivial implementation work, create or update a plan using
+[`.agents/PLANS.md`](.agents/PLANS.md). **Do not begin implementation until David
+approves the plan.**
 
-```sh
-pnpm --filter @workspace/db push-force
-pnpm --filter @workspace/db run migrate
-bash artifacts/api-server/scripts/run-test.sh --setup src/__tests__/<file>.test.ts
-```
+## Setup, verification, and the CI gate
 
-(`--setup` only re-clones the test schema from the already-updated public schema; it does not apply migrations itself.)
+Full commands, DB isolation, and the production guard are in
+[`docs/engineering/testing-guide.md`](docs/engineering/testing-guide.md) and the
+canonical [`docs/TESTING.md`](docs/TESTING.md). The essentials:
 
-For the full api-server suite, use the package test runner, which sets up the isolated schema and boot-time seed rows for you:
-
-```sh
-pnpm --filter @workspace/api-server test
-```
-
-A command that was typed incorrectly and then corrected is not a product or test failure. Do not report a self-corrected invalid-command attempt as a failure. In final testing summaries, separate valid repo-command failures (which may block merge) from invalid-command/environment failures (which must not block if the valid command passed).
-
-Use PR #130 as a concrete example:
-
-Invalid (raw Node cannot load the `.ts` file):
-
-```sh
-pnpm --filter @workspace/api-server exec node --test src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
-```
-
-Valid (the isolated targeted runner):
-
-```sh
-bash artifacts/api-server/scripts/run-test.sh src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
-```
-
-## Reporting failures
-
-When reporting verification results, separate known full-suite fixture or environment failures from the focused checks relevant to the pull request. Do not treat known fixture/environment issues as failures of unrelated PR-focused checks. See `docs/TESTING.md` ("How to report test failures") for the valid-failure vs invalid-command/environment-failure distinction and the deferred-to-CI rule.
+- Build generated artifacts + libs before package checks:
+  `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →
+  `pnpm typecheck`.
+- API DB-backed tests: `pnpm --filter @workspace/db push-force` →
+  `pnpm --filter @workspace/db run migrate` → `pnpm --filter @workspace/api-server
+  test`. Single file: `bash artifacts/api-server/scripts/run-test.sh
+  src/__tests__/<file>.test.ts`.
+- **Never** run api-server tests with raw `node --test` (can't load the `tsx/esm`
+  setup — an invalid command, not a failing test).
+- **GitHub CI is the authoritative gate** — required `Build` + `Test` on every PR
+  to `main`; both must pass before merge. If a sandbox can't run a DB-backed test,
+  report it as an environment/command failure **deferred-to-CI**, not a product
+  failure. Separate valid repo-command failures from invalid-command/environment
+  failures in every summary.

@@ -28,6 +28,11 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      # Static, dependency-free gate: fail fast if the agent-context docs cite a
+      # repo path or link that no longer exists (keeps docs/ai-context true).
+      - name: Check docs accuracy (links + cited paths)
+        run: node scripts/check-docs-accuracy.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

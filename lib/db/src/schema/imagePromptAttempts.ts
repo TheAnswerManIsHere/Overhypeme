@@ -86,7 +86,7 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
   /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
   reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),
-  // ── Eval harness (migration 0080) ─────────────────────────────────────────
+  // ── Eval harness (migration 0081) ─────────────────────────────────────────
   // A moderator's verdict on a render. Applies to BOTH ordinary moderation
   // attempts (opportunistic, directional-only) and eval-run attempts. rating +
   // failure_tag are INDEPENDENT (a tag with no rating is valid quick-triage);

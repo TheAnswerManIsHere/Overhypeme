@@ -5,6 +5,10 @@ description: Enter bug-fixing mode — the lightweight workflow for small, well-
 
 # Bug-fixing mode
 
+> The shared, cross-agent definition of feature vs. bugfix mode is
+> `docs/ai-context/working-modes.md` (Codex uses it too). This skill is the
+> **Claude-specific** enactment of bugfix mode — same contract, my tooling.
+
 This skill puts me in **bug-fixing mode**: the deliberately lightweight
 counterpart to the heavy feature-building flow that CLAUDE.md describes by
 default. David invokes it explicitly (`/bugfix`) so there is **zero

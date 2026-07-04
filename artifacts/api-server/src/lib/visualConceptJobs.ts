@@ -19,8 +19,15 @@
  * COST GUARD: concepts are only useful while the review is unresolved. If the
  * review is missing / resolved (approved/rejected) by the time the job runs, the
  * handler writes NOTHING and retires as a successful no-op — mirroring the
- * enrichment / Pexels queues. Concept generation is best-effort and NEVER gates
- * the moderation workflow.
+ * enrichment / Pexels queues.
+ *
+ * GATING: Visual Ideas are the Step 2 (Visual Concept) gate's "ideas generated"
+ * artifact — a BLOCKING prep artifact, not best-effort. "approve-visual-concept"
+ * refuses while the status is pending/failed/never-run (see routes/reviews.ts),
+ * and re-prep/regenerate is blocked while the status is "pending" so a new cycle
+ * can never coalesce onto a stale in-flight concept job. The generation itself is
+ * still fire-and-poll (status drives the UI); "gating" means the moderator can't
+ * approve the gag until it lands.
  */
 
 import { eq } from "drizzle-orm";
@@ -195,7 +202,8 @@ export async function runVisualConceptsJob(
   const cycle = resolved.cycle;
 
   // COST GUARD: only draft while the review is still unresolved (prep_pending /
-  // production_review). Once approved/rejected, concepts are useless — no-op.
+  // concept_review / production_review). Once approved/rejected, concepts are
+  // useless — no-op. concept_review is where these Visual Ideas actually gate.
   if (!isUnresolvedSubmissionStage(cycle.stage)) {
     logger.info({ reviewId, factId, stage: cycle.stage }, "[fact_visual_concepts] no-op (review resolved)");
     return { ok: true };

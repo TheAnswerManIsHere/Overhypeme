@@ -31,6 +31,7 @@ import {
   type RenderScenarioGrid,
   type RenderScenarioKey,
   type RenderScenarioStatus,
+  type RenderReviewState,
   type SourceImageAnalysis,
   type SubjectRenderMode,
 } from "@workspace/api-zod";
@@ -56,7 +57,7 @@ import {
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
-import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
+import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
 
 export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
@@ -356,19 +357,31 @@ async function loadReviewRenderContext(
 
 /**
  * Enqueue the default render scenarios for a review exactly once per
- * scenario/input-hash. Safe to call repeatedly (the enrichment transition fires
- * it; a defensive backstop may too). No-op when the review isn't ready.
+ * scenario/input-hash. Safe to call repeatedly (the gag-approval transition
+ * fires it; a defensive backstop may too). No-op when the review isn't ready.
+ *
+ * `opts.force` (set on the gag-approval "approve the visual gag" path): skip the
+ * per-scenario/input-hash idempotency check so a FRESH batch is always created,
+ * even when a prior batch's attempts share the current input hash. This is how a
+ * Step-3 → Step-2 bounce re-renders from scratch on re-approval even if the
+ * concept text is unchanged. Default (non-force) idempotency is unchanged.
  */
-export async function ensureDefaultReviewRenders(reviewId: number): Promise<{ enqueued: EnqueueScenarioResult[] }> {
+export async function ensureDefaultReviewRenders(
+  reviewId: number,
+  opts?: { force?: boolean },
+): Promise<{ enqueued: EnqueueScenarioResult[] }> {
+  const force = opts?.force === true;
   const loaded = await loadReviewRenderContext(reviewId);
   if (!loaded.ok) {
     logger.info({ reviewId, reason: loaded.reason }, "[moderation] ensureDefaultReviewRenders skipped");
     return { enqueued: [] };
   }
   const { ctx } = loaded;
-  // Stage guard: a delayed/retried prepare job (or any re-entry) must NOT enqueue
-  // paid renders once the review has left production_review (e.g. rejected). The
-  // manual route guards at the HTTP layer; this guards the async/auto path.
+  // Stage guard: renders are the Step 3 (Test Renders) artifact, so this only
+  // fires in production_review. A delayed/retried prepare job (or any re-entry)
+  // must NOT enqueue paid renders once the review has left production_review
+  // (e.g. rejected, or bounced back to concept_review). The manual route guards
+  // at the HTTP layer; this guards the async/auto path.
   if (ctx.stage !== "production_review") {
     logger.info({ reviewId, stage: ctx.stage }, "[moderation] ensureDefaultReviewRenders skipped (not production_review)");
     return { enqueued: [] };
@@ -380,8 +393,12 @@ export async function ensureDefaultReviewRenders(reviewId: number): Promise<{ en
   const batchId = randomUUID();
   const enqueued: EnqueueScenarioResult[] = [];
   for (const scenarioKey of keys) {
-    const inputHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment);
-    if (await scenarioAttemptExists(reviewId, scenarioKey, inputHash)) continue; // idempotent
+    // Force mode always creates a fresh attempt; non-force stays idempotent per
+    // (scenario, input-hash).
+    if (!force) {
+      const inputHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment);
+      if (await scenarioAttemptExists(reviewId, scenarioKey, inputHash)) continue; // idempotent
+    }
     enqueued.push(await enqueueScenarioRender({
       reviewId,
       stagingFactId: ctx.stagingFactId,
@@ -393,7 +410,7 @@ export async function ensureDefaultReviewRenders(reviewId: number): Promise<{ en
     }));
   }
   if (enqueued.length) {
-    logger.info({ reviewId, count: enqueued.length, batchId }, "[moderation] default review render scenarios enqueued");
+    logger.info({ reviewId, count: enqueued.length, batchId, force }, "[moderation] default review render scenarios enqueued");
   }
   return { enqueued };
 }
@@ -523,21 +540,27 @@ export async function buildReviewScenarioGrid(
   return { reviewId, cards, tally };
 }
 
-// ─── List-level active-render signal ─────────────────────────────────────────
+// ─── List-level coarse render state ──────────────────────────────────────────
 
 /**
- * Of the given reviews, which currently have a test render in flight — i.e. the
- * LATEST attempt for at least one scenario is still queued/rendering (no `error`,
- * no image yet). Mirrors the grid's latest-per-scenario status (via `DISTINCT ON`)
- * so the moderation LIST can light up a "renders working…" pill and keep polling
- * while a manual re-run — or the initial auto-batch — runs, exactly like prep does
- * for enrichment/images (CLAUDE.md rule 8). A single aggregate query keeps the
- * hot, ~2.5s-polled list endpoint cheap regardless of page size.
+ * Coarse per-review render state for the moderation LIST, computed in ONE
+ * aggregate query over the latest attempt per scenario (via `DISTINCT ON`) so the
+ * hot, ~2.5s-polled endpoint stays cheap regardless of page size. Reviews with no
+ * attempts are ABSENT from the map — the caller treats a miss as `not_started`.
+ *
+ * This is deliberately coarser than the modal's `buildReviewScenarioGrid`: it
+ * never computes staleness (no `"stale"` — that needs the TS input-hash recompute)
+ * and does not cross-check required-scenario completeness. The modal/grid remains
+ * the authoritative surface; this only drives the queue chip + polling (rule 8).
  */
-export async function reviewsWithActiveRenders(reviewIds: number[]): Promise<Set<number>> {
-  if (reviewIds.length === 0) return new Set();
-  const result = await db.execute<{ review_id: number }>(sql`
-    SELECT DISTINCT latest.review_id
+export async function reviewRenderStates(reviewIds: number[]): Promise<Map<number, RenderReviewState>> {
+  const states = new Map<number, RenderReviewState>();
+  if (reviewIds.length === 0) return states;
+  const result = await db.execute<{ review_id: number; total: number; running: number; failed: number }>(sql`
+    SELECT latest.review_id,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE latest.error IS NULL AND latest.generated_image_object_path IS NULL)::int AS running,
+      COUNT(*) FILTER (WHERE latest.error IS NOT NULL)::int AS failed
     FROM (
       SELECT DISTINCT ON (a.review_id, a.review_render_scenario_key)
         a.review_id, a.error, a.generated_image_object_path
@@ -546,9 +569,20 @@ export async function reviewsWithActiveRenders(reviewIds: number[]): Promise<Set
         AND a.review_render_scenario_key IS NOT NULL
       ORDER BY a.review_id, a.review_render_scenario_key, a.created_at DESC
     ) latest
-    WHERE latest.error IS NULL AND latest.generated_image_object_path IS NULL
+    GROUP BY latest.review_id
   `);
-  return new Set(result.rows.map((r) => Number(r.review_id)));
+  for (const row of result.rows) {
+    const total = Number(row.total);
+    const running = Number(row.running);
+    const failed = Number(row.failed);
+    const state: RenderReviewState =
+      total === 0 ? "not_started"
+      : running > 0 ? "running"
+      : failed > 0 ? "needs_attention"
+      : "ready";
+    states.set(Number(row.review_id), state);
+  }
+  return states;
 }
 
 // ─── Frozen per-attempt diagnostics ──────────────────────────────────────────
@@ -591,12 +625,12 @@ export async function getScenarioAttemptDiagnostics(
 
 export const reviewRenderScenariosPrepareHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const p = payload as { reviewId?: number };
+    const p = payload as { reviewId?: number; force?: boolean };
     if (typeof p.reviewId !== "number") {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: payload missing reviewId` };
     }
     try {
-      const { enqueued } = await ensureDefaultReviewRenders(p.reviewId);
+      const { enqueued } = await ensureDefaultReviewRenders(p.reviewId, { force: p.force === true });
       return { ok: true, result: { enqueued: enqueued.length } };
     } catch (err) {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: ${err instanceof Error ? err.message : String(err)}` };
@@ -614,5 +648,23 @@ export async function enqueueReviewRenderPrepare(reviewId: number): Promise<void
     queue: REVIEW_RENDER_PREPARE_QUEUE,
     payload: { reviewId },
     dedupeKey: `review_render_prep:${reviewId}`,
+  });
+}
+
+/**
+ * Enqueue a FORCE prepare job with NO dedupe key — the gag-approval "approve the
+ * visual gag" path. Deliberately keyless so it can never coalesce onto a stale
+ * pending/processing prepare job carrying the stable `review_render_prep:<id>`
+ * key (that coalescing would silently drop the fresh batch). The double-click /
+ * concurrency guard is the atomic compare-and-set stage transition at the call
+ * site — this is only ever reached after THIS request advanced the row, so two
+ * concurrent approvals produce exactly one force batch. Returns the job result so
+ * the caller can surface the concrete render-prepare job id.
+ */
+export async function enqueueForceReviewRenderPrepare(reviewId: number): Promise<EnqueueJobResult> {
+  return enqueueJob({
+    queue: REVIEW_RENDER_PREPARE_QUEUE,
+    payload: { reviewId, force: true },
+    // NO dedupeKey — see docstring.
   });
 }

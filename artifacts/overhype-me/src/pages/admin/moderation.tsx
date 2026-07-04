@@ -12,10 +12,16 @@ import {
   type FactEnrichment,
   REVIEW_WORKFLOW_STAGE_DISPLAY,
   type ReviewWorkflowStage,
+  type RenderReviewState,
   type RenderScenarioKey,
   RENDER_SCENARIO_DESCRIPTORS,
   type VisualConceptsResponse,
 } from "@workspace/api-zod";
+import {
+  deriveModerationQueueState,
+  stageToWizardStep,
+  type WizardStep,
+} from "@/components/admin/moderationQueueState";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable, withCoreSceneOverride } from "@/components/admin/EnrichmentEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
@@ -52,6 +58,8 @@ interface StagingFactSlice {
   isActive: boolean;
   enrichmentStatus: PrepStatus;
   pexelsStatus: PrepStatus;
+  /** Visual-Idea generation lifecycle (facts.visual_concept_status). */
+  visualConceptStatus: PrepStatus;
 }
 
 /** Full staging-fact slice returned on the review detail (adds the blob to tune). */
@@ -86,6 +94,8 @@ interface Review {
   candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
   rendersRunning?: boolean;
+  /** Coarse Step-3 render state (production_review rows only; null otherwise). */
+  renderReviewState?: RenderReviewState | null;
 }
 
 interface ReviewsResponse {
@@ -142,29 +152,38 @@ function StageBadge({ stage }: { stage: ReviewWorkflowStage }) {
 /**
  * One prep step's live state. null/"pending" render as "working" (spinner).
  *
- * `optional` steps (e.g. candidate Visual concepts) never block approval, so
- * they use a softened palette: a failure reads as muted "unavailable" (not the
- * alarming destructive red of a required step), and a `null` status means "not
- * run yet" (muted, no spinner) rather than "working".
+ * `optional` steps (e.g. best-effort seeding) never block approval, so they use a
+ * softened palette: a failure reads as muted "unavailable" (not the alarming
+ * destructive red of a required step), and a `null` status means "not run yet"
+ * (muted, no spinner) rather than "working".
+ *
+ * `attentionWhenNull` is for a REQUIRED step whose `null` means "never generated
+ * for this cycle" (e.g. Visual ideas on an old Step-3 row bounced back to Visual
+ * Concept) — an actionable not-ready state, NOT work in progress. It renders as
+ * amber "not generated" with no spinner, so the prep summary never masks it.
  */
-function PrepStepPill({ icon: Icon, label, status, optional }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean }) {
+function PrepStepPill({ icon: Icon, label, status, optional, attentionWhenNull }: { icon: typeof Sparkles; label: string; status: PrepStatus; optional?: boolean; attentionWhenNull?: boolean }) {
   const ok = status === "ok";
   const failed = status === "failed";
+  const notGenerated = !optional && attentionWhenNull === true && status == null;
   const notStarted = optional && status == null;
   const tone = ok
     ? "text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10"
     : failed
     ? (optional ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-destructive border-destructive/30 bg-destructive/10")
+    : notGenerated
+    ? "text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10"
     : notStarted
     ? "text-muted-foreground border-border bg-muted/40"
     : "text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/10";
-  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notStarted ? "not run" : "working…";
+  const word = ok ? "ready" : failed ? (optional ? "unavailable" : "failed") : notGenerated ? "not generated" : notStarted ? "not run" : "working…";
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-sm border ${tone}`}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="font-semibold">{label}</span>
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" />
         : failed ? (optional ? <AlertTriangle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />)
+        : notGenerated ? <AlertTriangle className="w-3.5 h-3.5" />
         : notStarted ? null
         : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
       <span>{word}</span>
@@ -182,28 +201,50 @@ function PrepStatusPanel({
   enrichmentStatus,
   pexelsStatus,
   visualConceptStatus,
+  conceptRequired,
 }: {
   enrichmentStatus: PrepStatus;
   pexelsStatus: PrepStatus;
-  /** Optional, non-blocking: candidate Visual concepts (Slice 2A). */
+  /** Candidate Visual ideas (facts.visual_concept_status). */
   visualConceptStatus?: PrepStatus;
+  /**
+   * Step 2 (Visual Concept): Visual Ideas are a REQUIRED gate — counted in the
+   * tally alongside Enrichment, and Pexels drops to best-effort background
+   * seeding. Elsewhere (prep / Step 3) the old Enrichment + Pexels tally holds
+   * and Visual ideas render as an optional bonus pill.
+   */
+  conceptRequired?: boolean;
 }) {
-  // Only the two REQUIRED steps count toward the tally; Visual ideas are a bonus.
-  const steps: PrepStatus[] = [enrichmentStatus, pexelsStatus];
-  const done = steps.filter((s) => s === "ok").length;
-  const failed = steps.filter((s) => s === "failed").length;
-  const running = steps.length - done - failed;
+  const tallySteps: PrepStatus[] = conceptRequired
+    ? [enrichmentStatus, visualConceptStatus ?? null]
+    : [enrichmentStatus, pexelsStatus];
+  const done = tallySteps.filter((s) => s === "ok").length;
+  const failed = tallySteps.filter((s) => s === "failed").length;
+  // A required Visual-ideas step that's `null` means "never generated for this
+  // cycle" — an actionable not-ready state, NOT work in progress. Keep it out of
+  // the running count so the summary doesn't mask it as a spinner.
+  const notGenerated = conceptRequired === true && visualConceptStatus == null ? 1 : 0;
+  const running = tallySteps.length - done - failed - notGenerated;
   return (
     <div className="space-y-2">
       <p className="text-xs font-mono text-muted-foreground">
-        Prep: {done} of {steps.length} ready
+        Prep: {done} of {tallySteps.length} ready
         {failed > 0 ? ` · ${failed} failed` : ""}
+        {notGenerated > 0 ? ` · ${notGenerated} not generated` : ""}
         {running > 0 ? ` · ${running} working` : ""}
       </p>
       <div className="flex flex-wrap gap-2">
         <PrepStepPill icon={Sparkles} label="Enrichment" status={enrichmentStatus} />
-        <PrepStepPill icon={ImageIcon} label="Pexels images" status={pexelsStatus} />
-        {visualConceptStatus !== undefined && (
+        {conceptRequired && (
+          <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus ?? null} attentionWhenNull />
+        )}
+        <PrepStepPill
+          icon={ImageIcon}
+          label={conceptRequired ? "Pexels images (background)" : "Pexels images"}
+          status={pexelsStatus}
+          optional={conceptRequired}
+        />
+        {!conceptRequired && visualConceptStatus !== undefined && (
           <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus} optional />
         )}
       </div>
@@ -257,12 +298,11 @@ interface VisualRenderProblem {
   status: string;
 }
 
-/** Two-step wizard steps for a non-terminal review. */
-type WizardStep = "triage" | "visual";
-
+/** Three-step wizard for a non-terminal review (WizardStep from the shared helper). */
 const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
   { id: "triage", label: "Triage" },
-  { id: "visual", label: "Visual review" },
+  { id: "concept", label: "Visual Concept" },
+  { id: "render", label: "Test Renders" },
 ];
 
 /** SubmitFact-style two-step indicator (numbered steps + connector). */
@@ -300,18 +340,22 @@ function StepIndicator({ step }: { step: WizardStep }) {
 }
 
 /**
- * Stage-aware review modal for the two-gate moderation lifecycle, presented as a
- * two-step wizard for non-terminal reviews:
+ * Stage-aware review modal for the three-gate moderation lifecycle, presented as
+ * a three-step wizard for non-terminal reviews:
  *
  *  - Step 1 "Triage": keep/reject decision + duplicate context + submitter info.
- *  - Step 2 "Visual review": output-first scenario grid + collapsed Advanced
- *    Options (enrichment / references / strategy / prompt diagnostics).
+ *  - Step 2 "Visual Concept": Visual-Idea candidates + Visual Concept card +
+ *    Advanced Options (enrichment / strategy / prompt diagnostics). NO renders
+ *    yet — "Approve the visual gag" advances to Step 3 and force-fires renders.
+ *  - Step 3 "Test Renders": output-first scenario grid + Advanced Options; final
+ *    "Approve for Production" (existing render gate) or "Back to Visual Concept".
  *
  * Stage mapping:
  *  - triage_pending     → Step 1 only (provisional approve / variant / reject).
  *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
  *  - prep_failed         → Step 1 + retry prep / reject.
- *  - production_review   → both steps; Step 2 is the default; approve from Step 2.
+ *  - concept_review      → Step 2 default (approve the visual gag / send back / reject).
+ *  - production_review   → Step 3 default (approve for production / back to concept).
  *  - resolved            → read-only summary + link to the live fact.
  */
 function ReviewModal({
@@ -343,7 +387,10 @@ function ReviewModal({
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
+  const isConceptReview = stage === "concept_review";
   const isProductionReview = stage === "production_review";
+  // Both Step 2 and Step 3 expose the enrichment/Visual-Concept editor.
+  const isEditableStep = isConceptReview || isProductionReview;
   const isResolved = review.status !== "pending";
   // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
   // live fact's enrichment is frozen), approval promotes it, rejection keeps
@@ -366,7 +413,8 @@ function ReviewModal({
     target: isRefreshCycle
       ? { kind: "reviewCandidate", reviewId: review.id, factId: stagingFactId }
       : { kind: "fact", factId: stagingFactId },
-    enabled: isProductionReview && stagingFactId > 0,
+    // Editable in BOTH Step 2 (Visual Concept) and Step 3 (Test Renders).
+    enabled: isEditableStep && stagingFactId > 0,
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
@@ -389,15 +437,19 @@ function ReviewModal({
     setFinalHashtags(tags);
   };
 
-  // Wizard step. Production review opens on Visual review (Step 2); everything
-  // else lives on Triage (Step 1). Re-sync the default when the stage advances.
-  const [step, setStep] = useState<WizardStep>(review.workflowStage === "production_review" ? "visual" : "triage");
-  const sawProductionRef = useRef(review.workflowStage === "production_review");
+  // Wizard step. The step follows the stage: concept_review opens on Step 2,
+  // production_review on Step 3, everything else on Triage. When the stage first
+  // reaches a NEW value (e.g. prep finishing → concept_review, or the dedicated
+  // approve/back handlers moving it), auto-navigate to the matching step — but
+  // only ONCE per newly-seen stage, so a moderator who manually flips back isn't
+  // yanked forward again by polling.
+  const [step, setStep] = useState<WizardStep>(stageToWizardStep(review.workflowStage) ?? "triage");
+  const autoNavStagesRef = useRef<Set<ReviewWorkflowStage>>(new Set([review.workflowStage]));
   useEffect(() => {
-    if (stage === "production_review" && !sawProductionRef.current) {
-      sawProductionRef.current = true;
-      setStep("visual");
-    }
+    if (autoNavStagesRef.current.has(stage)) return;
+    autoNavStagesRef.current.add(stage);
+    const target = stageToWizardStep(stage);
+    if (target) setStep(target);
   }, [stage]);
 
   const loadDetail = useCallback(async () => {
@@ -540,9 +592,83 @@ function ReviewModal({
     void runAction("approve-for-production", body);
   };
 
+  // Dedicated Step-2/Step-3 transition handlers. Unlike runAction (which CLOSES
+  // the modal on success), these keep it OPEN: apply the returned workflowStage,
+  // move the wizard step, and reload detail + the list row.
+  const applyTransition = useCallback((nextStage: ReviewWorkflowStage, nextStep: WizardStep) => {
+    setStage(nextStage);
+    autoNavStagesRef.current.add(nextStage); // don't let the sync effect re-nav
+    setStep(nextStep);
+    void loadDetail();
+    onRendersEnqueued(); // refresh the list row (stage / render state)
+  }, [loadDetail, onRendersEnqueued]);
+
+  const onApproveVisualConcept = useCallback(async (): Promise<void> => {
+    setLoading(true); setError("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/approve-visual-concept`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; workflowStage?: ReviewWorkflowStage };
+      if (r.ok && d.workflowStage) { applyTransition(d.workflowStage, "render"); return; }
+      setError(d.error ?? `Could not approve the visual gag (${r.status}).`);
+    } catch {
+      setError("Network error — could not approve the visual gag.");
+    } finally {
+      setLoading(false);
+    }
+  }, [review.id, applyTransition]);
+
+  // Save the dirty Visual Concept draft first, then approve the gag — but ONLY if
+  // the save succeeded. The server gates on the PERSISTED coreSceneOverride, so we
+  // must never advance on a browser-only draft.
+  const onSaveConceptAndApprove = useCallback(async (): Promise<void> => {
+    if (enrichmentDraft.hasUncommittedChanges) {
+      const ok = await enrichmentDraft.save();
+      if (!ok) return; // save() surfaces its own error; don't advance
+    }
+    await onApproveVisualConcept();
+  }, [enrichmentDraft, onApproveVisualConcept]);
+
+  const onBackToVisualConcept = useCallback(async (): Promise<void> => {
+    setLoading(true); setError("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/back-to-visual-concept`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; workflowStage?: ReviewWorkflowStage };
+      if (r.ok && d.workflowStage) { setRenderProblems(null); applyTransition(d.workflowStage, "concept"); return; }
+      setError(d.error ?? `Could not send back to Visual Concept (${r.status}).`);
+    } catch {
+      setError("Network error — could not send back to Visual Concept.");
+    } finally {
+      setLoading(false);
+    }
+  }, [review.id, applyTransition]);
+
   // A first-time fact can't ship without discovery tags; a refresh keeps the
   // live fact's existing tags, so the gate doesn't apply (the server skips it too).
   const canApproveProduction = isApprovable(enrichment) && (isRefreshCycle || finalHashtags.length > 0);
+
+  // ── Step-2 (Visual Concept) gag-gate derivation ──
+  // `enrichment` from the hook is the DRAFT value; when the draft is clean it
+  // equals the persisted enrichment, so a clean non-empty concept == a SAVED one.
+  const conceptOverride = enrichment?.visualPromptStrategyOverride;
+  const draftHasConcept = !!(conceptOverride?.enabled && conceptOverride.coreSceneOverride?.trim());
+  const conceptDirty = enrichmentDraft.hasUncommittedChanges;
+  const ideasPending = visualConceptStatus === "pending";
+  const ideasFailed = visualConceptStatus === "failed";
+  const ideasTerminalOk = visualConceptStatus === "ok";
+  // The AI candidate cards are stale relative to the current enrichment input,
+  // but a SAVED concept is what drives renders — so this is non-blocking.
+  const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && draftHasConcept;
+  // "Approve the visual gag": enabled only with a SAVED (clean) non-empty concept
+  // AND terminal-OK ideas. When dirty, the primary action is Save & Continue,
+  // which needs a non-empty concept in the draft to persist.
+  const canApproveGag = !conceptDirty && draftHasConcept && ideasTerminalOk;
+  const canSaveConceptAndContinue = conceptDirty && draftHasConcept;
   // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
   const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
@@ -636,6 +762,104 @@ function ReviewModal({
     </div>
   );
 
+  // The submitted/live fact card, repeated at the top of Step 2 and Step 3 (each
+  // may be reviewed in a separate pass, so the fact must be in view on both).
+  const SubmittedFactCard = (
+    <div className="bg-background border-2 border-border rounded-sm p-4">
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+        {isRefreshCycle ? "Live Fact (being refreshed)" : "Submitted Fact"}
+      </p>
+      <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
+    </div>
+  );
+
+  // Draft status + Save/Discard bar — shared by Step 2 and Step 3, kept OUTSIDE
+  // (above) the collapsed Advanced Options so an edit made with the section
+  // collapsed always has a visible way to persist it.
+  const DraftSaveBar = (
+    <>
+      {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
+        <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
+          <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            {enrichmentDraft.committing
+              ? "Saving to server…"
+              : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your Visual Concept / render inputs.`}
+          </p>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => void enrichmentDraft.save()}
+              disabled={enrichmentDraft.committing}
+              className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+              data-testid="enrichment-save"
+            >
+              Save
+            </button>
+            <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80">
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+      {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
+        <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          Saved.
+        </p>
+      )}
+      {enrichmentDraft.commitError && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
+        </div>
+      )}
+    </>
+  );
+
+  // Advanced Options — the technical machinery, collapsed by default. Shared by
+  // Step 2 (tune the concept) and Step 3 (all knobs for render tweaking).
+  const AdvancedOptions = (
+    <CollapsibleSection
+      title="Advanced Options"
+      icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
+      description="Enrichment, references, visual-strategy overrides, and prompt diagnostics."
+      storageKey={`overhype:moderation:advanced:${review.id}`}
+    >
+      <EnrichmentEditor
+        value={enrichment}
+        status={enrichEditing.enrichmentStatus}
+        factText={review.submittedText}
+        onChange={(next) => enrichmentDraft.setValue(next)}
+        onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
+        // Deliberately NO onRerun at Step 2/3 (refresh AND first-time): the
+        // generic job guard skips review-backed facts outside prep, so the button
+        // could only strand the status on "classifying…". Re-classification lives
+        // on the Facts page (live facts) and Retry Prep (prep_failed); refresh
+        // cycles are re-classified by rejecting + re-sending.
+        busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
+        rerunBusy={jobs.rerunBusy}
+        hideHashtags
+        overrideContext={enrichEditing.overrideContext}
+      />
+      {jobs.error && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{jobs.error}</p>
+        </div>
+      )}
+      {enrichEditing.overrideError && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="override-error">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{enrichEditing.overrideError}</p>
+        </div>
+      )}
+      {stagingFactId > 0 && (
+        <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
+      )}
+    </CollapsibleSection>
+  );
+
   // data-modal-overlay: FieldInfo's popover uses this to close ONLY itself
   // (not the whole modal) when an outside-tap lands on this backdrop.
   return (
@@ -667,13 +891,14 @@ function ReviewModal({
             <p className="text-sm text-muted-foreground">{REVIEW_WORKFLOW_STAGE_DISPLAY[stage].hint}</p>
           )}
 
-          {/* ── Live prep status (prep + production review), on Triage step ── */}
-          {step === "triage" && (stage === "prep_pending" || stage === "prep_failed" || isProductionReview) && (
+          {/* ── Live prep status (prep + concept + Test Renders), on Triage step ── */}
+          {step === "triage" && (stage === "prep_pending" || stage === "prep_failed" || isConceptReview || isProductionReview) && (
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <PrepStatusPanel
-                enrichmentStatus={isProductionReview ? "ok" : liveEnrichmentStatus}
+                enrichmentStatus={isEditableStep ? "ok" : liveEnrichmentStatus}
                 pexelsStatus={pexelsStatus}
-                visualConceptStatus={isProductionReview ? visualConceptStatus : undefined}
+                visualConceptStatus={isEditableStep ? visualConceptStatus : undefined}
+                conceptRequired={isConceptReview}
               />
               {stage === "prep_pending" && (
                 <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
@@ -685,29 +910,97 @@ function ReviewModal({
                   <AlertTriangle className="w-3.5 h-3.5" /> Enrichment failed after retries. Retry prep, or reject.
                 </p>
               )}
+              {isConceptReview && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Prep is complete. Go to <strong>Visual Concept</strong> to review the visual gag and approve it.
+                </p>
+              )}
               {isProductionReview && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Prep is complete. Go to <strong>Visual review</strong> to check the test renders and approve.
+                  Go to <strong>Test Renders</strong> to check the test renders and approve for production.
                 </p>
               )}
             </div>
           )}
 
-          {/* ── STEP 2: VISUAL REVIEW (production review only) ── */}
-          {!isResolved && step === "visual" && isProductionReview && (
+          {/* ── STEP 2: VISUAL CONCEPT (concept_review) — NO renders yet ── */}
+          {!isResolved && step === "concept" && isConceptReview && (
             <div className="space-y-4">
-              {/* Submitted fact, repeated at the top of Step 2 — triage and visual
-                  review may be done in separate passes, so the moderator needs the
-                  fact in view here without flipping back to Step 1. */}
-              <div className="bg-background border-2 border-border rounded-sm p-4">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
-                  {isRefreshCycle ? "Live Fact (being refreshed)" : "Submitted Fact"}
-                </p>
-                <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
-              </div>
+              {SubmittedFactCard}
 
               {isRefreshCycle && (
                 <p className="text-xs text-muted-foreground" data-testid="refresh-step2-hint">
+                  Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Approving the
+                  visual gag applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing
+                  memes, images, and hashtags are never changed.
+                </p>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Accept, edit, or write the Visual Concept — the plain-language description of how the gag works
+                visually. Approving the gag spends nothing yet; it unlocks the test renders in the next step.
+              </p>
+
+              {/* Visual concept — the moderator's primary lever: describe the
+                  picture in plain language and the planner/compiler realize it.
+                  Edits the same override blob (and rides the same draft) as the
+                  panel inside Advanced Options. */}
+              <VisualConceptCard
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
+              />
+
+              {/* Candidate Visual ideas — REQUIRED gate in Step 2: picking one
+                  fills the concept field above (draft only; still Save). */}
+              <VisualConceptCandidates
+                visualConcepts={detail?.visualConcepts}
+                disabled={!enrichment || loading || enrichmentDraft.committing}
+                onPick={onPickConcept}
+                onGenerate={onGenerateConcepts}
+              />
+
+              {/* Blocking-gate status for the Visual Ideas prep artifact. */}
+              {ideasPending && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.
+                </p>
+              )}
+              {ideasFailed && (
+                <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep.
+                </p>
+              )}
+              {visualConceptStatus == null && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5" data-testid="ideas-missing-note">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Visual ideas haven't been generated for this cycle. Generate them (above) before approving the gag.
+                </p>
+              )}
+              {ideasStaleButSaved && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-stale-note">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  Visual ideas were generated before your latest Advanced Options edit. You can regenerate them, but the
+                  saved Visual Concept below is what will drive renders.
+                </p>
+              )}
+
+              {DraftSaveBar}
+              {AdvancedOptions}
+            </div>
+          )}
+
+          {/* ── STEP 3: TEST RENDERS (production_review) — renders + all knobs ── */}
+          {!isResolved && step === "render" && isProductionReview && (
+            <div className="space-y-4">
+              {SubmittedFactCard}
+
+              {isRefreshCycle && (
+                <p className="text-xs text-muted-foreground" data-testid="refresh-step3-hint">
                   Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Promoting
                   applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing memes,
                   images, and hashtags are never changed.
@@ -724,110 +1017,8 @@ function ReviewModal({
                 onRunScenarios={onRendersEnqueued}
               />
 
-              {/* Visual concept — the moderator's primary lever: describe the
-                  picture in plain language and the planner/compiler realize it.
-                  Edits the same override blob (and rides the same draft) as the
-                  panel inside Advanced Options. */}
-              <VisualConceptCard
-                value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
-                onChange={(next) => {
-                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
-                }}
-              />
-
-              {/* Candidate Visual concepts (Slice 2A) — 3 planner-drafted ideas to
-                  start from. Optional: picking one fills the field above (draft
-                  only; the moderator still Saves). */}
-              <VisualConceptCandidates
-                visualConcepts={detail?.visualConcepts}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
-                onPick={onPickConcept}
-                onGenerate={onGenerateConcepts}
-              />
-
-              {/* Draft status + Save/Discard — kept OUTSIDE (above) the collapsed
-                  Advanced Options so a Visual concept edit made with the section
-                  collapsed always has a visible way to persist it. Tracked fields
-                  save instantly per-field; only Visual Strategy / Visual concept
-                  edits ride the localStorage draft until Saved. */}
-              {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
-                <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
-                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {enrichmentDraft.committing
-                      ? "Saving to server…"
-                      : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to update the test renders, then re-run them.`}
-                  </p>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => void enrichmentDraft.save()}
-                      disabled={enrichmentDraft.committing}
-                      className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
-                      data-testid="enrichment-save"
-                    >
-                      Save
-                    </button>
-                    <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80">
-                      Discard
-                    </button>
-                  </div>
-                </div>
-              )}
-              {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
-                <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  Saved. Re-run any stale test renders to see the change.
-                </p>
-              )}
-              {enrichmentDraft.commitError && (
-                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
-                </div>
-              )}
-
-              {/* Advanced Options — the technical machinery, collapsed by default. */}
-              <CollapsibleSection
-                title="Advanced Options"
-                icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
-                description="Enrichment, references, visual-strategy overrides, and prompt diagnostics."
-                storageKey={`overhype:moderation:advanced:${review.id}`}
-              >
-                <EnrichmentEditor
-                  value={enrichment}
-                  status={enrichEditing.enrichmentStatus}
-                  factText={review.submittedText}
-                  onChange={(next) => enrichmentDraft.setValue(next)}
-                  onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
-                  // Deliberately NO onRerun at Step 2 (refresh AND first-time):
-                  // the generic job guard skips review-backed facts outside
-                  // prep, so the button could only strand the status on
-                  // "classifying…". Re-classification lives on the Facts page
-                  // (live facts) and Retry Prep (prep_failed); refresh cycles
-                  // are re-classified by rejecting + re-sending.
-                  busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
-                  rerunBusy={jobs.rerunBusy}
-                  hideHashtags
-                  overrideContext={enrichEditing.overrideContext}
-                />
-                {jobs.error && (
-                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-sm text-destructive">{jobs.error}</p>
-                  </div>
-                )}
-                {enrichEditing.overrideError && (
-                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="override-error">
-                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-sm text-destructive">{enrichEditing.overrideError}</p>
-                  </div>
-                )}
-                {stagingFactId > 0 && (
-                  <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
-                )}
-              </CollapsibleSection>
+              {DraftSaveBar}
+              {AdvancedOptions}
             </div>
           )}
 
@@ -934,12 +1125,12 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Production review on Triage step: a "next" affordance to Step 2. */}
-            {!isResolved && step === "triage" && isProductionReview && (
+            {/* Concept / Test-Renders reachable from Triage: a "next" affordance. */}
+            {!isResolved && step === "triage" && (isConceptReview || isProductionReview) && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => setStep("visual")} disabled={loading}
+                <Button onClick={() => setStep(isConceptReview ? "concept" : "render")} disabled={loading}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-                  Continue to Visual Review <ChevronRight className="w-4 h-4" />
+                  {isConceptReview ? "Continue to Visual Concept" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
@@ -949,8 +1140,52 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Visual-review step: approve for production (with waiver path). */}
-            {!isResolved && step === "visual" && isProductionReview && (
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders) or reject. */}
+            {!isResolved && step === "concept" && isConceptReview && (
+              <div className="space-y-3">
+                {DecisionInputs}
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
+                    <ChevronLeft className="w-4 h-4" /> Back to Triage
+                  </Button>
+                  {conceptDirty ? (
+                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing}
+                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing}
+                      title={canSaveConceptAndContinue ? undefined : "Write or pick a Visual Concept first"}
+                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
+                      data-testid="save-concept-and-continue">
+                      <ChevronRight className="w-4 h-4" /> Save Visual Concept &amp; Continue
+                    </Button>
+                  ) : (
+                    <Button onClick={() => void onApproveVisualConcept()} isLoading={loading}
+                      disabled={!canApproveGag || loading}
+                      title={canApproveGag ? undefined : "Approve is disabled — see the note below"}
+                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
+                      data-testid="approve-visual-gag">
+                      <Wand2 className="w-4 h-4" /> Approve the Visual Gag
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                  </Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                </div>
+                {!conceptDirty && !canApproveGag && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {!draftHasConcept
+                      ? "Approve is locked until a Visual Concept is saved. Write one above (or pick an idea) and Save."
+                      : ideasPending
+                      ? "Approve is locked while visual ideas are still generating — this updates live."
+                      : "Approve is locked until visual ideas have been generated. Regenerate them above."}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Step 3 (Test Renders): approve for production (with waiver path). */}
+            {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
                 {confirmApprove && pexelsStatus !== "ok" && !renderProblems && (
                   <div className="flex items-start gap-2 rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-2">
@@ -962,13 +1197,14 @@ function ReviewModal({
                     </p>
                   </div>
                 )}
-                {/* Rejection Reason + note live here too (not just Triage), right
-                    above the buttons, so a fact can be rejected from Visual review
-                    without hunting for the field — and regardless of render staleness. */}
+                {/* Rejection Reason + note live here too, right above the buttons,
+                    so a fact can be rejected from Test Renders without hunting for
+                    the field — and regardless of render staleness. */}
                 {DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
-                    <ChevronLeft className="w-4 h-4" /> Back to Triage
+                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
+                    className="gap-2" data-testid="back-to-visual-concept">
+                    <ChevronLeft className="w-4 h-4" /> Back to Visual Concept
                   </Button>
                   {renderProblems ? (
                     <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
@@ -1043,11 +1279,18 @@ function FactReviewsPanel() {
   const [initialized, setInitialized] = useState(false);
   if (!initialized) { setInitialized(true); void load(); }
 
-  // Live list refresh (rule 8, aggregate altitude): while any row is mid-prep OR
-  // has a test render in flight, poll the page so its stage + per-item status
-  // advance without a manual refresh. The modal isn't required to watch progress.
+  // Live list refresh (rule 8, aggregate altitude): while any row is still
+  // "working" — prep running, visual ideas generating, or test renders in flight
+  // (incl. a just-forced batch not yet materialized) — poll the page so its stage
+  // + per-item status advance without a manual refresh. `deriveModerationQueueState`
+  // owns the "is this row spinning?" decision (shared with the row chip).
   const anyActive = !!data?.reviews.some(
-    (r) => r.workflowStage === "prep_pending" || r.rendersRunning,
+    (r) => deriveModerationQueueState({
+      status: r.status,
+      workflowStage: r.workflowStage,
+      visualConceptStatus: r.stagingFact?.visualConceptStatus ?? null,
+      renderReviewState: r.renderReviewState ?? null,
+    }).spinner,
   );
   useEffect(() => {
     if (!anyActive) return;
@@ -1129,7 +1372,21 @@ function FactReviewsPanel() {
 
       {data && data.reviews.length > 0 && (
         <div className="space-y-3">
-          {data.reviews.map((r) => (
+          {data.reviews.map((r) => {
+            // Shared queue-state derivation (§8 label table) — one place decides
+            // the row's headline label + spinner (also used for the poll trigger).
+            const qs = deriveModerationQueueState({
+              status: r.status,
+              workflowStage: r.workflowStage,
+              visualConceptStatus: r.stagingFact?.visualConceptStatus ?? null,
+              renderReviewState: r.renderReviewState ?? null,
+            });
+            const qsTone =
+              qs.tone === "working" ? "text-blue-600 dark:text-blue-400"
+              : qs.tone === "ready" ? "text-green-600 dark:text-green-400"
+              : qs.tone === "attention" ? "text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground";
+            return (
             <div key={r.id}
               className="bg-card border border-border rounded-sm p-4 hover:border-primary/40 cursor-pointer transition-colors"
               onClick={() => setSelectedReview(r)}>
@@ -1139,6 +1396,12 @@ function FactReviewsPanel() {
                     <StageBadge stage={r.workflowStage} />
                     {r.candidateVersionId != null && <RefreshReviewBadge />}
                     <ReasonBadge reason={r.reason} />
+                    {r.status === "pending" && (
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${qsTone}`} data-testid="queue-state-label">
+                        {qs.spinner && <Loader2 className="w-3 h-3 animate-spin" />}
+                        {qs.label}
+                      </span>
+                    )}
                     <span className="text-xs text-muted-foreground">
                       {r.matchingSimilarity >= duplicateThreshold ? `${r.matchingSimilarity}% match · ` : ""}
                       by {r.candidateVersionId != null ? "admin refresh" : (r.submitter?.displayName ?? r.submitter?.email ?? "unknown")} · {new Date(r.createdAt).toLocaleDateString()}
@@ -1149,12 +1412,17 @@ function FactReviewsPanel() {
                     <p className="text-xs text-muted-foreground mt-1 truncate">vs. "{r.matchingFact.text}"</p>
                   )}
                   {/* Per-row live prep status (rule 8: per-item, in place). */}
-                  {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "production_review") && (
+                  {r.stagingFact && (r.workflowStage === "prep_pending" || r.workflowStage === "prep_failed" || r.workflowStage === "concept_review" || r.workflowStage === "production_review") && (
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
-                      <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} />
-                      {/* Test renders in flight (re-run or auto-batch): show a working
-                          pill in place, mirroring prep's per-item status (rule 8). */}
+                      <PrepStepPill icon={Sparkles} label="Enrichment" status={r.workflowStage === "concept_review" || r.workflowStage === "production_review" ? "ok" : r.stagingFact.enrichmentStatus} />
+                      {/* Step 2: Visual ideas are the required gate. A null status
+                          (e.g. an old row bounced back) reads as "not generated",
+                          never a spinner. */}
+                      {r.workflowStage === "concept_review" && (
+                        <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
+                      )}
+                      <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
+                      {/* Step 3: test renders in flight (re-run, or the forced batch). */}
                       {r.workflowStage === "production_review" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />
                       )}
@@ -1168,7 +1436,8 @@ function FactReviewsPanel() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

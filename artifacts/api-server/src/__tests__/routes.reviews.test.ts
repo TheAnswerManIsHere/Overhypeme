@@ -434,7 +434,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
 });
 
 describe("staging-fact enrichment stage advancement", () => {
-  it("success advances the linked review prep_pending → production_review", async () => {
+  it("success advances the linked review prep_pending → concept_review (Step 2)", async () => {
     const submitterId = await createTestUser();
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a car", submittedById: submitterId, isActive: false }).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
@@ -448,7 +448,7 @@ describe("staging-fact enrichment stage advancement", () => {
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
     assert.equal(f.enrichmentStatus, "ok");
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_review");
+    assert.equal(r.workflowStage, "concept_review");
   });
 
   it("COST GUARD: skips classification when the linked review left prep_pending", async () => {

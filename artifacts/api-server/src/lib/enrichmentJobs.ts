@@ -40,16 +40,11 @@ import {
   resolveGenericFactEnrichmentDecision,
 } from "./moderationStaging";
 import {
-  enqueueJob,
   registerJobHandler,
   type JobHandler,
   type HandlerResult,
 } from "./asyncJobs";
 import { logger } from "./logger";
-
-// Queue name owned by reviewRenderScenarios.ts (kept as a literal, same as
-// moderationStaging.ts, to avoid importing that heavy orchestration module).
-const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -284,8 +279,8 @@ export async function runEnrichmentForFact(
   });
   if (!wrote) return { ok: true }; // retired as a successful no-op — the new owner (e.g. a refresh cycle) has the fact
 
-  // Advance a linked staging review prep_pending → production_review. No-op for
-  // live-fact re-enrich (no linked review) and refused for refresh cycles.
+  // Advance a linked staging review prep_pending → concept_review (Step 2). No-op
+  // for live-fact re-enrich (no linked review) and refused for refresh cycles.
   await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
 
   return { ok: true };
@@ -301,7 +296,7 @@ export async function runEnrichmentForFact(
  *   2. LLM classification;
  *   3. transactional recheck under row locks — re-validate the candidate + its
  *      exact review are still current, then write the candidate row and advance
- *      that exact review prep_pending → production_review.
+ *      that exact review prep_pending → concept_review (Step 2).
  */
 export async function runEnrichmentForCandidateVersion(
   versionId: number,
@@ -402,39 +397,26 @@ export async function runEnrichmentForCandidateVersion(
         signature,
       })
       .where(eq(factEnrichmentVersionsTable.id, versionId));
-    // Advance THIS exact cycle (deterministic — not the fact-only re-discovery helper).
+    // Advance THIS exact cycle (deterministic — not the fact-only re-discovery
+    // helper) to Step 2 (concept_review). Renders wait for gag approval.
     await tx
       .update(pendingReviewsTable)
-      .set({ workflowStage: "production_review" })
+      .set({ workflowStage: "concept_review" })
       .where(eq(pendingReviewsTable.id, v1.sourceReviewId));
     // Clear the live fact's "working" pill; facts.* enrichment itself is untouched.
     await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, v0.factId));
     return { advancedReviewId: v1.sourceReviewId };
   });
 
-  // Refresh cycles get the SAME Step-2 default render prep a first-time cycle
-  // gets on this transition (see advanceReviewForStagingFactEnrichment) — the
-  // grid renders the CANDIDATE via the review-cycle resolver. Best-effort +
-  // deduped; a failure here must not fail the (already-committed) enrichment.
+  // A refresh cycle lands at Step 2 (concept_review) — NO render prep here.
+  // Renders are Step 3 and force-fire only when the moderator approves the visual
+  // gag (see approve-visual-concept). We draft the candidate Visual-Idea
+  // concepts, review-aware via candidateVersionId so they reflect the CANDIDATE's
+  // enrichment, not the active fact's. Visual Ideas gate gag approval (Step 2 =
+  // Visual Concept gate), so on enqueue failure we mark the status "failed"
+  // (retryable) rather than leaving it stuck "pending". A failure here must not
+  // fail the (already-committed) enrichment.
   if (advancedReviewId != null) {
-    try {
-      await enqueueJob({
-        queue: REVIEW_RENDER_PREPARE_QUEUE,
-        payload: { reviewId: advancedReviewId },
-        dedupeKey: `review_render_prep:${advancedReviewId}`,
-      });
-    } catch (err) {
-      logger.error(
-        { err, reviewId: advancedReviewId, versionId },
-        "[refresh] failed to enqueue review render prepare (enrichment kept)",
-      );
-    }
-
-    // Slice 2A: a refresh cycle gets the SAME candidate Visual-concept draft a
-    // first-time cycle gets on this transition (see
-    // advanceReviewForStagingFactEnrichment). Review-aware via candidateVersionId
-    // so concepts reflect the CANDIDATE's enrichment, not the active fact's.
-    // Best-effort + non-blocking — a failure here must not fail the enrichment.
     try {
       await enqueueVisualConceptsForReview({
         reviewId: advancedReviewId,
@@ -444,8 +426,16 @@ export async function runEnrichmentForCandidateVersion(
     } catch (err) {
       logger.error(
         { err, reviewId: advancedReviewId, versionId },
-        "[refresh] failed to enqueue visual concepts (enrichment kept)",
+        "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
       );
+      try {
+        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, v0.factId));
+      } catch (statusErr) {
+        logger.error(
+          { err: statusErr, reviewId: advancedReviewId, versionId },
+          "[refresh] failed to mark visual concepts failed after enqueue error",
+        );
+      }
     }
   }
   return { ok: true };
