@@ -564,7 +564,7 @@ describe("validateImagePromptPlan", () => {
     if (!result.ok) assert.match(result.error, /secondaryCharacters/);
   });
 
-  it("is on generation version v4", () => {
-    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v4");
+  it("is on generation version v5", () => {
+    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v5");
   });
 });

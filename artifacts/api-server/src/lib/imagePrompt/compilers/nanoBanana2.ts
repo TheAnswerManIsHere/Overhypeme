@@ -24,6 +24,7 @@ import type {
   CompiledPrompt,
   ImagePromptGenerationInput,
   RenderPolicy,
+  SubjectRenderMode,
   VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES } from "@workspace/api-zod";
@@ -34,7 +35,6 @@ import type {
   RemovedProseSentence,
   PromptWarning,
 } from "../types";
-import { modifierDirectives } from "../modifierDirectives";
 import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 
@@ -150,6 +150,39 @@ function fitSentences(text: string, budget: number): string {
  * compiler-side guarantee that their concrete visual still reaches the engine
  * when the scene omitted it. De-duped against the running scene + each other.
  */
+/** Function words dropped before content-word coverage matching. */
+const GAP_FILL_STOPWORDS = new Set([
+  "a", "an", "the", "of", "in", "on", "at", "to", "and", "or", "with", "for",
+  "by", "from", "as", "is", "are", "be", "that", "this", "it", "its", "into",
+  "onto", "over", "under", "behind", "near", "around", "my", "his", "her",
+  "their", "your", "our",
+]);
+
+/** Tokenize to lowercase content words: drop punctuation + stopwords, strip a
+ *  naive trailing plural so "fins"↔"fin" match. Word-level (not substring), so
+ *  "earth" never matches "earthquake". */
+function gapFillContentWords(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w))
+    .filter((w) => w.length >= 2 && !GAP_FILL_STOPWORDS.has(w));
+}
+
+/** True when the assembled prompt already conveys this element. Exact-phrase
+ *  fast path, else content-word coverage: ALL content words present for short
+ *  (≤3-word) elements, ≥80% for longer ones. An element with no content words
+ *  (e.g. only stopwords) is treated as NOT covered, so it is emitted rather than
+ *  silently dropped. */
+function elementCovered(haystack: string, element: string): boolean {
+  if (containsMeaningfulPhrase(haystack, element)) return true;
+  const words = gapFillContentWords(element);
+  if (words.length === 0) return false;
+  const hay = new Set(gapFillContentWords(haystack));
+  const present = words.filter((w) => hay.has(w)).length;
+  return words.length <= 3 ? present === words.length : present / words.length >= 0.8;
+}
+
 function composeKeyElementsDirective(vp: VisualPlan, haystack: string): string {
   const candidates = [
     ...vp.keyVisualElements,
@@ -158,11 +191,16 @@ function composeKeyElementsDirective(vp: VisualPlan, haystack: string): string {
   ].map((e) => e.trim()).filter(Boolean);
   const seen = new Set<string>();
   const missing: string[] = [];
+  // Fold each emitted element into a local haystack so two near-duplicate
+  // candidates don't both surface (the first suppresses the second).
+  let localHaystack = haystack;
   for (const e of candidates) {
     const key = e.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!containsMeaningfulPhrase(haystack, e)) missing.push(e);
+    if (elementCovered(localHaystack, e)) continue;
+    missing.push(e);
+    localHaystack = `${localHaystack} ${e}`;
   }
   if (!missing.length) return "";
   return `Ensure these elements are clearly visible: ${missing.join("; ")}.`;
@@ -193,15 +231,30 @@ function composeCompositionDirective(vp: VisualPlan, haystack: string): string {
 const OVERLAY_TEXT_EXCLUSION = `Do not bake overlay or caption text into the image: no ${MANDATORY_FORBIDDEN_TEXT_TYPES.join(", ")}.`;
 
 /**
- * The supporting-text directive. Always emits the narrow overlay-text exclusion;
- * then, depending on the render policy and the planner-selected scene text,
- * governs whether IN-WORLD readable text (signs, TV titles, scoreboards,
- * documents, labels) is rendered, required, or avoided.
+ * Always-on anti-gibberish guard for INCIDENTAL text. Image models love to
+ * splatter garbled lettering onto background signage/labels; this steers those
+ * surfaces clean while YIELDING to any intentional in-scene text ("requested by
+ * these instructions" — the explicit elements / require / guidance lines above
+ * it). This replaces the retired `no_readable_text` modifier's blanket ban,
+ * which did not yield and contradicted intentional in-scene text. Phrasing is
+ * deliberately clear of the planner-prose scrubber patterns (no "readable text"
+ * / "free of … text" bigram).
+ */
+const INCIDENTAL_TEXT_GUARD =
+  "Keep incidental background text non-readable; render only the specific in-scene text requested by these instructions.";
+
+/**
+ * The supporting-text directive. Always emits the narrow overlay-text exclusion
+ * and the always-on incidental-text guard; between them, depending on the render
+ * policy and the planner-selected scene text, governs whether IN-WORLD readable
+ * text (signs, TV titles, scoreboards, documents, labels) is rendered, required,
+ * or avoided.
  *
- * Phase 1 (R1): in "allow" mode the compiler stays SILENT about in-world text
- * unless the planner picked explicit `supportingTextElements` or the policy
- * carries intentional `guidance` — the absence of a ban is enough, and we do not
- * encourage unnecessary text. "require"/"forbid" always emit their line.
+ * Phase 1 (R1): in "allow" mode the compiler adds no in-world-text directive of
+ * its own unless the planner picked explicit `supportingTextElements` or the
+ * policy carries intentional `guidance` — we do not encourage unnecessary text.
+ * "require"/"forbid" always emit their line. The incidental-text guard is
+ * appended last in every path and yields to whatever text those lines request.
  */
 function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["supportingText"]): string {
   const lines: string[] = [OVERLAY_TEXT_EXCLUSION];
@@ -215,6 +268,7 @@ function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["su
       .map((e) => `"${e.content.trim()}"${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
       .join("; ");
     lines.push(`Render this in-scene text clearly: ${items}.`);
+    lines.push(INCIDENTAL_TEXT_GUARD);
     return lines.join(" ");
   }
 
@@ -231,6 +285,7 @@ function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["su
     lines.push(guidance);
   }
 
+  lines.push(INCIDENTAL_TEXT_GUARD);
   return lines.join(" ");
 }
 
@@ -356,21 +411,6 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
  * kept on the visual plan for the validator + admin debug, but never compiled in.
  */
 
-/** High-impact fact modifiers the prose did not already cover. */
-function composeModifierDirective(
-  input: ImagePromptGenerationInput,
-  haystack: string,
-): string {
-  const modifiers = input.enrichment.modifiers ?? [];
-  const directives = modifierDirectives(modifiers)
-    .filter((d) => {
-      // De-dupe on the directive's leading clause (before the first comma/dash).
-      const lead = d.split(/[,.—-]/)[0]?.trim() ?? d;
-      return lead.length > 6 ? !containsMeaningfulPhrase(haystack, lead) : true;
-    });
-  return directives.join(" ").trim();
-}
-
 // ─── Reference interpretation (positive role binding) ───────────────────────
 
 /**
@@ -443,39 +483,86 @@ function bareNoun(s: string): string {
 }
 
 /**
- * Build the deterministic SUBJECT BINDING block. This is the fix for the core
- * failure: it fuses the reference identity, the transformed life stage, and the
- * single-instance constraint into ONE entity, so the engine de-ages/ages the
- * SAME person instead of pairing an adult with a separate baby (or cloning the
- * subject). Emitted when an age transform applies OR a duplicate-subject guard
- * is requested. Returns "" when neither applies.
+ * How the subject is being realized, which fixes the subject vocabulary so the
+ * binding copy can't import human/i2i language into a non-human or t2i render:
+ *   - `human_i2i`   → "the reference person"; de-aging a real person.
+ *   - `nonhuman_i2i`→ "the uploaded subject"; life-stage transform of that subject.
+ *   - `t2i`         → "the subject"; generated protagonist, no reference photo.
  */
-function composeSubjectBinding(opts: {
+type BindingMode = "human_i2i" | "nonhuman_i2i" | "t2i";
+
+function bindingModeFromRenderMode(mode: SubjectRenderMode): BindingMode {
+  switch (mode) {
+    case "human_identity_i2i": return "human_i2i";
+    case "nonhuman_subject_i2i": return "nonhuman_i2i";
+    case "t2i_fallback": return "t2i";
+    default: {
+      const exhaustive: never = mode;
+      throw new Error(`Unknown subjectRenderMode: ${exhaustive}`);
+    }
+  }
+}
+
+/** The subject noun used throughout the binding copy for this mode. */
+function bindingSubjectNoun(name: string, mode: BindingMode): string {
+  if (name) return name;
+  switch (mode) {
+    case "human_i2i": return "the reference person";
+    case "nonhuman_i2i": return "the uploaded subject";
+    case "t2i": return "the subject";
+  }
+}
+
+interface BindingArgs {
   name: string;
   applies: boolean;
   targetState: string;
   avoidDuplicate: boolean;
-  humanIdentity: boolean;
-}): string {
-  const subject = opts.name || "the reference person";
+  bindingMode: BindingMode;
+}
+
+/**
+ * Build the deterministic SUBJECT BINDING block. This is the fix for the core
+ * failure: it fuses the subject identity, the transformed life stage, and the
+ * single-instance constraint into ONE entity, so the engine de-ages/ages the
+ * SAME subject instead of pairing it with a separate younger/older copy (or
+ * cloning it). Emitted when an age transform applies OR a duplicate-subject
+ * guard is requested. Returns "" when neither applies.
+ *
+ * Age handling covers ALL render modes: human i2i keeps the "reference person"
+ * de-aging language; non-human i2i and t2i get mode-appropriate single-entity
+ * life-stage wording (no "reference person"/"adult" vocabulary). This is the
+ * sole compiled owner of age transforms now that the modifier prose channel is
+ * gone.
+ */
+function composeSubjectBinding(opts: BindingArgs): string {
+  const subject = bindingSubjectNoun(opts.name, opts.bindingMode);
   const lines: string[] = [];
-  // The person/adult de-aging language only makes sense for a human identity
-  // subject. Non-human subjects get their age handling from the modifier
-  // directives + the non-human identity preamble instead.
-  if (opts.humanIdentity && opts.applies && opts.targetState.trim()) {
+  if (opts.applies && opts.targetState.trim()) {
     const ts = opts.targetState.trim();
     const bare = bareNoun(ts);
-    lines.push(
-      `The reference person is ${subject}.`,
-      `${subject} is ${ts} in this scene.`,
-      `Render exactly one ${subject}.`,
-      `The transformed ${bare} IS ${subject} — the same person de-aged or aged, not a second person.`,
-    );
+    if (opts.bindingMode === "human_i2i") {
+      lines.push(
+        `The reference person is ${subject}.`,
+        `${subject} is ${ts} in this scene.`,
+        `Render exactly one ${subject}.`,
+        `The transformed ${bare} IS ${subject} — the same person de-aged or aged, not a second person.`,
+      );
+    } else {
+      lines.push(
+        `${subject} is ${ts} in this scene — the same subject rendered at that life stage, not a different individual.`,
+        `Render exactly one ${subject}.`,
+      );
+    }
   } else if (opts.avoidDuplicate) {
-    lines.push(
-      `The reference person is ${subject}.`,
-      `Render exactly one ${subject} — a single instance.`,
-    );
+    if (opts.bindingMode === "human_i2i") {
+      lines.push(
+        `The reference person is ${subject}.`,
+        `Render exactly one ${subject} — a single instance.`,
+      );
+    } else {
+      lines.push(`Render exactly one ${subject} — a single instance.`);
+    }
   }
   return lines.join(" ");
 }
@@ -485,22 +572,23 @@ function composeSubjectBinding(opts: {
  * STRICT CONSTRAINTS so the positive binding and the "do not" guards don't
  * duplicate each other. Returns "" when no transform/dup case applies.
  */
-function composeAntiSplitConstraints(opts: {
-  name: string;
-  applies: boolean;
-  targetState: string;
-  avoidDuplicate: boolean;
-  humanIdentity: boolean;
-}): string {
-  const subject = opts.name || "the reference person";
+function composeAntiSplitConstraints(opts: BindingArgs): string {
+  const subject = bindingSubjectNoun(opts.name, opts.bindingMode);
   const lines: string[] = [];
-  if (opts.humanIdentity && opts.applies && opts.targetState.trim()) {
+  if (opts.applies && opts.targetState.trim()) {
     const bare = bareNoun(opts.targetState);
-    lines.push(
-      `Do not render the adult reference person separately.`,
-      `Do not add a second, generic ${bare}.`,
-      `Do not show both an adult ${subject} and a ${bare} in the same frame.`,
-    );
+    if (opts.bindingMode === "human_i2i") {
+      lines.push(
+        `Do not render the adult reference person separately.`,
+        `Do not add a second, generic ${bare}.`,
+        `Do not show both an adult ${subject} and a ${bare} in the same frame.`,
+      );
+    } else {
+      lines.push(
+        `Do not add a separate, generic ${bare}.`,
+        `Do not show the subject at two ages or life stages in the same frame.`,
+      );
+    }
   } else if (opts.avoidDuplicate) {
     lines.push(`Do not duplicate, clone, or mirror ${subject} anywhere in the frame.`);
   }
@@ -830,8 +918,8 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const ageApplies = Boolean(lifeStage?.applies) || modifierTargetState !== null;
   const targetState = (lifeStage?.targetState?.trim() || modifierTargetState || "").trim();
   const avoidDuplicate = modifierSet.has("avoid_duplicate_subject");
-  const humanIdentity = input.subjectRenderMode === "human_identity_i2i";
-  const bindingArgs = { name: subjectName, applies: ageApplies, targetState, avoidDuplicate, humanIdentity };
+  const bindingMode = bindingModeFromRenderMode(input.subjectRenderMode);
+  const bindingArgs: BindingArgs = { name: subjectName, applies: ageApplies, targetState, avoidDuplicate, bindingMode };
 
   // Moderator visual-strategy override (Phase 2). null when absent/disabled.
   const ov = activeOverride(input);
@@ -929,17 +1017,18 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   }
   haystack = `${haystack} ${coreScene}`;
 
-  // 4. SUBJECT DETAILS — subject-specific visible details, plus expression/pose,
-  // age-transform + other modifier directives, and any key element gap-fill.
+  // 4. SUBJECT DETAILS — subject-specific visible details, plus expression/pose
+  // and any key-element gap-fill. Modifiers are NOT re-injected as prose here:
+  // they steer the frontier planner as context, and their structural effects
+  // (age transforms → SUBJECT BINDING, duplicate-subject/failure modes →
+  // STRICT CONSTRAINTS) are emitted by their dedicated owners.
   const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
   const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
-  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`);
-  const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody} ${modifierBody}`);
+  const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody}`);
   const subjectDetails = [
     subjectListBody,
     expressionPose && !containsMeaningfulPhrase(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
     keyElements,
-    modifierBody,
   ].filter(Boolean).join(" ");
   haystack = `${haystack} ${subjectDetails}`;
 

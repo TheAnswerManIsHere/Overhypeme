@@ -38,9 +38,9 @@ export type AuthoredStatus = "code-derived" | "authored-needs-david-review";
 // ─── Provenance (structured data — emitted into the generated reference doc) ─
 
 export interface FieldDocSourceRef {
-  /** Repo-relative path, e.g. "artifacts/api-server/src/lib/imagePrompt/modifierDirectives.ts". */
+  /** Repo-relative path, e.g. "artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts". */
   path: string;
-  /** Preferred: a stable exported symbol, e.g. "modifierDirectives", "FACT_ENRICHMENT_SYSTEM_DEFAULT". */
+  /** Preferred: a stable exported symbol, e.g. "composeSubjectBinding", "FACT_ENRICHMENT_SYSTEM_DEFAULT". */
   symbol?: string;
   /** For docs-only or prompt-text anchors where no symbol exists. */
   anchor?: string;

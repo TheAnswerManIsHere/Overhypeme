@@ -167,9 +167,9 @@ export const KNOWN_FACT_MODIFIERS = [
   "age_transform",
   "baby_child_version",
   // Finer-grained age stages the compiler renders distinctly (newborn vs. young
-  // child) — see modifierDirectives.ts. Recognized + documented + moderator-
-  // addable; the classifier's suggestion catalog does not currently list them,
-  // so the AI won't auto-emit them.
+  // child) — see the age-transform binding in nanoBanana2.ts. Recognized +
+  // documented + moderator-addable; the classifier's suggestion catalog does
+  // not currently list them, so the AI won't auto-emit them.
   "infant_version",
   "child_version",
   "older_self_version",
@@ -200,9 +200,6 @@ export const KNOWN_FACT_MODIFIERS = [
   "space_setting",
   "outdoor_nature_setting",
   "city_setting",
-  "no_readable_text",
-  "avoid_real_logos",
-  "avoid_readable_ui",
   "avoid_weapons_focus",
   "avoid_gross_literalization",
   "avoid_extra_faces",
@@ -225,6 +222,32 @@ export type KnownFactModifier = (typeof KNOWN_FACT_MODIFIERS)[number];
 
 export function isKnownModifier(modifier: string): boolean {
   return (KNOWN_FACT_MODIFIERS as readonly string[]).includes(modifier);
+}
+
+/**
+ * Text/brand suppression modifiers RETIRED from the catalog (2026-07). The AI
+ * classifier over-applied a blanket "no readable text on any surface" that
+ * contradicted intentional in-scene text (a book cover, a scoreboard). These
+ * concerns now have single, correct owners: incidental-text gibberish is a
+ * built-in yielding line in the compiler's supporting-text rules; a full in-scene
+ * text ban is the moderator's `supportingTextPolicyOverride` (mode "forbid"); and
+ * logos/brand marks are always banned by the overlay-text exclusion.
+ *
+ * Deliberately typed as its own list (NOT `KnownFactModifier`): these are no
+ * longer valid known values. They may survive on old fact rows as inert legacy
+ * strings — filtered out of planner context AND the render-scenario hash so they
+ * are display-only provenance, never render-affecting.
+ */
+export const RETIRED_TEXT_MODIFIERS = [
+  "no_readable_text",
+  "avoid_readable_ui",
+  "avoid_real_logos",
+] as const;
+export type RetiredTextModifier = (typeof RETIRED_TEXT_MODIFIERS)[number];
+
+/** True when a modifier string is a retired text/logo suppression flag. */
+export function isRetiredTextModifier(modifier: string): boolean {
+  return (RETIRED_TEXT_MODIFIERS as readonly string[]).includes(modifier);
 }
 
 // ─── Cultural-reference metadata (Phase 2A) ────────────────────────────────
@@ -257,7 +280,12 @@ export const TAXONOMY_VERSION = "v1";
 // "threw a grenade and killed 50 people, then it exploded") classify as a
 // superhuman physical feat with the `normal_function_rendered_unnecessary`
 // modifier, NOT temporal causality inversion.
-export const CLASSIFICATION_PROMPT_VERSION = "v5";
+// v6: retired the text/brand suppression modifiers (no_readable_text,
+// avoid_readable_ui, avoid_real_logos) from the classifier catalog — see
+// RETIRED_TEXT_MODIFIERS. The AI no longer emits blanket text bans; incidental
+// text is owned by the compiler's supporting-text rules and full bans by the
+// moderator override.
+export const CLASSIFICATION_PROMPT_VERSION = "v6";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────

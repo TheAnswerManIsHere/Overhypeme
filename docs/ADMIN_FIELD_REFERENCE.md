@@ -594,7 +594,7 @@ None — human-only. Never enters the planner message or the compiled prompt, an
 
 ### Render Modifiers
 
-*Flags that inject specific directives into the engine prompt — the most direct lever on the image.*
+*Flags that steer the image — most as planner context, a few as structural compiler signals.*
 
 - **Effect:** Render-affecting — feeds the prompt pipeline
 - **Staleness:** Editing re-flags render scenarios as stale.
@@ -602,9 +602,9 @@ None — human-only. Never enters the planner message or the compiled prompt, an
 
 **What it is**
 
-A list of flags from a 50-value known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They are the most direct admin lever on the final image: about 30 of them map to a literal, fixed English sentence injected into the engine prompt's SUBJECT DETAILS section.
+A list of flags from a known catalog (custom values allowed) that mark rendering, identity, setting, and safety constraints. They work in two tiers: MOST are serialized into the planner's TAXONOMY block as context (the frontier planner reads them and they can shape the plan, but nothing guarantees the effect); a SMALL set have a deterministic compiler effect (see renderImpact).
 
-Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation. If a custom modifier should have a guaranteed effect, it needs a directive added in code.
+Unknown (custom) modifiers render as amber chips. They carry no fixed directive — the prompt planner sees them as raw context only, so their effect depends on the AI's interpretation.
 
 **How the AI sets it**
 
@@ -612,18 +612,18 @@ The classifier prefers known modifiers from its catalog and may add a custom one
 
 **How it affects the render**
 
-Mapped modifiers inject their exact directive sentence (see per-value docs below — each quotes the literal text). Age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) additionally force the compiler's SUBJECT BINDING section, guaranteeing the reference person IS the transformed person (never a separate generic baby/elder added beside them).
+Most modifiers are planner-context only: they inform the frontier planner (which, steered by the moderator's Visual concept, owns the scene) but there is no fixed directive guaranteeing the effect. See the per-value docs below.
 
-Setting/location modifiers (office_setting, gym_setting, …) and taxonomy-only flags have NO fixed directive — they are deliberately planner-context only, because the authored strategy and scene already cover setting.
+Structural signals (guaranteed compiler effect): age/life-stage modifiers (baby_child_version, older_self_version, age_transform, …) drive the SUBJECT BINDING section so the subject IS the transformed person (never a separate generic baby/elder beside them); avoid_duplicate_subject drives the single-instance binding; crowd_reaction / clear_causal_relationship / subject_object_reversal drive conservative failure-mode guards.
 
 Three modifiers (cinematic_aftermath, projectile_impact_power, action_comedy) also mark the fact violence-relevant, which permits the default violence-allow line in the prompt.
 
-Editing modifiers flips test renders stale.
+Editing modifiers flips test renders stale (except the inert legacy text/logo names, which are filtered out of the render hash).
 
-**Values (52)**
+**Values (49)**
 
 - `single_subject_focus` *(authored — verify)* — Composition flag: the image should center on the subject alone, with no competing characters sharing the spotlight.
-  - *Render:* No fixed compiler directive, so no guaranteed effect — but it IS passed to the AI planner as taxonomy context and can nudge the composition toward a solo subject; the archetype strategy and scene still decide the actual framing. (Contrast avoid_extra_faces and avoid_duplicate_subject, which DO compile to directives.)
+  - *Render:* No fixed compiler directive, so no guaranteed effect — but it IS passed to the AI planner as taxonomy context and can nudge the composition toward a solo subject; the archetype strategy and scene still decide the actual framing. (Contrast avoid_duplicate_subject, which DOES have a structural compiler effect.)
   - *Example:* "{NAME} is the gym's entire membership" → nudges the planner to keep the frame centered on the subject alone; not a guaranteed rule.
 - `identity_strict` *(authored — verify)* — Identity-policy flag: the subject's recognizable likeness should be preserved strictly — the joke fails if the rendered person doesn't clearly read as the reference photo's person.
   - *Render:* No compiler directive or identity policy keys off this flag, so it has no guaranteed effect — actual likeness preservation is owned by the subject render mode and the SUBJECT BINDING machinery. It is still passed to the AI planner as taxonomy context (a soft hint that likeness matters), but nothing enforces it.
@@ -631,147 +631,138 @@ Editing modifiers flips test renders stale.
 - `identity_essence_only` *(authored — verify)* — Identity-policy flag: strict likeness may be relaxed — the render only needs to carry the subject's essence (build, hair, vibe), e.g. through a heavy transformation or symbolic treatment.
   - *Render:* Like identity_strict, no compiler directive or identity policy branches on it, so no guaranteed effect. It still reaches the AI planner as taxonomy context (a soft hint that the likeness may be relaxed), but nothing enforces it.
   - *Example:* "{NAME} turned into pure motivation" → signals the render may keep only the subject's essence through the transformation; nothing in the compiler enforces it.
-- `face_prominent` — Framing flag: the joke depends on the subject's face and expression reading clearly, so the face must be framed large and unobstructed.
-  - *Render:* Injects: "Frame the subject's face prominently and clearly."
-  - *Example:* "{NAME}'s wink restarted the power grid" → the compiled prompt orders prominent, clear face framing so the expression carries the joke.
-- `full_body_needed` — Framing flag: the joke needs the whole body visible (a pose, a feat, a stance) — a chest-up crop would lose it.
-  - *Render:* Injects: "Show the subject's full body within the frame."
-  - *Example:* "{NAME} deadlifts a city bus" → full-body framing so the stance and lift read; no waist-up crop.
+- `face_prominent` *(authored — verify)* — Framing flag: the joke depends on the subject's face and expression reading clearly, so the face must be framed large and unobstructed.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME}'s wink restarted the power grid" → nudges the planner toward prominent, clear face framing so the expression can carry the joke.
+- `full_body_needed` *(authored — verify)* — Framing flag: the joke needs the whole body visible (a pose, a feat, a stance) — a chest-up crop would lose it.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} deadlifts a city bus" → nudges the planner toward full-body framing so the stance and lift read.
 - `age_transform` — The fact requires the subject rendered at a different age or life stage than the reference photo — the generic form of the baby/older variants below.
-  - *Render:* Injects: "Transform the reference subject's apparent age and life stage to match the fact — the same person rendered at that age. Do not add a separate person for the transformed age, and do not keep the original-age version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "{NAME} was born flexing" → the subject is rendered at the fact's implied age — the same person, with no original-age copy left in frame.
 - `baby_child_version` — The fact describes the subject as a baby or young child — the reference person must be de-aged, not accompanied by a random infant.
-  - *Render:* Injects: "De-age the reference subject into the baby/child the fact describes — the same person rendered at that life stage, with infant/child proportions, skin, and hair. Do not add a separate, generic baby or child, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "{NAME} as a baby negotiated their own bedtime" → the reference adult is de-aged into the baby; no separate generic baby, no adult left in frame.
 - `infant_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a newborn/infant. The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
-  - *Render:* Injects: "De-age the reference subject into an infant — the same person rendered as a baby, with newborn/infant proportions and features. Do not add a separate, generic baby, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "{NAME} filed taxes from the womb" → the reference subject is de-aged to a newborn/infant; no separate generic baby, no adult left in frame.
 - `child_version` — A finer-grained age stage than baby_child_version: the fact needs the subject rendered specifically as a young child (past infancy). The compiler renders it distinctly; the classifier's suggestion catalog doesn't list it, so it's typically moderator-added.
-  - *Render:* Injects: "Render the reference subject as the young child the fact describes — the same person de-aged to childhood, with child proportions and features. Do not add a separate, generic child, and do not keep an adult version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "{NAME} won a Nobel Prize in third grade" → the reference subject de-aged to a young child; no separate generic child, no adult left in frame.
 - `older_self_version` — The fact describes the subject as a much older version of themselves — the same person aged, not an unrelated elderly extra.
-  - *Render:* Injects: "Age the reference subject into the much older version the fact describes — the same person with aged skin, greyed/thinned hair, and elderly posture. Do not add a separate, generic elderly person, and do not keep a young version in the frame." Additionally forces the compiler's deterministic SUBJECT BINDING section, which fuses the reference identity with the transformed life stage as ONE entity ("The transformed X IS {subject} — the same person de-aged or aged, not a second person.") plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). Applies to human-identity i2i renders.
+  - *Render:* Drives the compiler's deterministic SUBJECT BINDING section, which fuses the subject identity with the transformed life stage as ONE entity — human-identity renders get "The transformed X IS {subject} — the same person de-aged or aged, not a second person."; non-human and t2i renders get equivalent single-entity life-stage wording — plus anti-split strict constraints (no separate generic baby/elder, no original-age copy left in frame). This is the SOLE compiled owner of age transforms; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "At 90, {NAME} still outruns ambulances" → the reference subject rendered elderly — same face aged, not a random senior beside a young {NAME}.
 - `grounded_realism` *(authored — verify)* — Staging flag: keep physics and rendering realistic — the impossibility should live in what's happening (roles, outcomes), not in cartoon physics or surreal style.
   - *Render:* No fixed compiler directive, so no guaranteed effect — but it reaches the AI planner as taxonomy context and reinforces what a grounded_roleplay literalness rating already tells the planner; the authored strategy and scene prose do the real steering.
   - *Example:* "A baby drove {NAME}'s mother home" → nudges the planner toward a realistic car interior with the impossibility in who's driving.
-- `mock_heroic` — The comedy comes from treating something trivial with epic gravitas — the subject should be staged like a monument to a mundane act.
-  - *Render:* Injects: "Stage the subject in an exaggerated, mock-heroic pose."
-  - *Example:* "{NAME} plugged in a USB right on the first try" → the trivial act staged with an exaggerated heroic pose, cape-in-the-wind energy.
+- `mock_heroic` *(authored — verify)* — The comedy comes from treating something trivial with epic gravitas — the subject should be staged like a monument to a mundane act.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} plugged in a USB right on the first try" → nudges the planner to stage the trivial act with an exaggerated heroic pose, cape-in-the-wind energy.
 - `action_comedy` — The fact is an action joke — energetic, slapstick, physical comedy staging suits it better than solemn cinematics.
-  - *Render:* Injects: "Lean into energetic, slapstick action-comedy staging." Additionally marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME} fought the office printer and won" → energetic slapstick staging; the fact is also treated as violence-relevant so the action can be depicted clearly.
+  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
+  - *Example:* "{NAME} fought the office printer and won" → the slapstick staging is a planner hint; the fact is also treated as violence-relevant so the action can be depicted clearly.
 - `cinematic_aftermath` — The funniest frame is AFTER the action — the crater, the dust, the stunned onlookers — rather than the action itself.
-  - *Render:* Injects: "Capture the cinematic aftermath of the action." Additionally marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME} high-fived a mountain" → the scene shows the aftermath: the crater, settling dust, awed onlookers.
-- `symbolic_abstraction_required` — The fact cannot be shown literally at all — it demands symbolic visual language (the modifier-flag counterpart of the symbolic_abstraction literalness rating).
-  - *Render:* Injects: "Render the idea symbolically rather than literally."
-  - *Example:* "{NAME} counted to infinity. Twice." → the compiled prompt orders symbolic rendering — endless number-scapes, not a person mouthing numbers.
-- `metaphorical_visualization` — The joke should land as one concrete visual metaphor — a phrase made physically true in the image (the modifier-flag counterpart of the same-named literalness rating).
-  - *Render:* Injects: "Carry the joke through a clear visual metaphor."
-  - *Example:* "{NAME}'s handshake seals deals" → one clear metaphor (a literal wax seal pressed by a handshake) carries the image.
+  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
+  - *Example:* "{NAME} high-fived a mountain" → the aftermath staging (crater, settling dust, awed onlookers) is a planner hint; the fact is also marked violence-relevant.
+- `symbolic_abstraction_required` *(authored — verify)* — The fact cannot be shown literally at all — it demands symbolic visual language (the modifier-flag counterpart of the symbolic_abstraction literalness rating).
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} counted to infinity. Twice." → nudges the planner toward symbolic rendering — endless number-scapes, not a person mouthing numbers.
+- `metaphorical_visualization` *(authored — verify)* — The joke should land as one concrete visual metaphor — a phrase made physically true in the image (the modifier-flag counterpart of the same-named literalness rating).
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME}'s handshake seals deals" → nudges the planner toward one clear metaphor (a literal wax seal pressed by a handshake).
 - `clear_causal_relationship` — The joke is a cause→effect gag, and it only lands if the viewer instantly sees which action caused which consequence.
-  - *Render:* Injects: "Make the scene's cause-and-effect visually unmistakable."
-  - *Example:* "{NAME} clapped and the thunder answered" → clap and thundercrack composed so the cause-and-effect reads at a glance.
+  - *Render:* Drives a conservative failure-mode guard in STRICT CONSTRAINTS via failureModeConstraints ("Show the cause and its effect together in the frame so the causal link is legible, not an unrelated aftermath."). The staging idea also reaches the planner as TAXONOMY context; there is no positive prose directive.
+  - *Example:* "{NAME} clapped and the thunder answered" → the compiler guards that clap and thundercrack read as cause-and-effect, not an unrelated aftermath.
 - `crowd_reaction` — Witnesses are part of the joke — the scene needs a visible crowd whose reaction sells how impressive the subject is.
-  - *Render:* Injects: "Include a visible crowd reacting to the subject."
-  - *Example:* "{NAME} parallel-parked on the first attempt" → a visible crowd gasping and applauding in frame.
-- `environmental_reaction` — The environment itself should visibly respond to the subject — nature, buildings, or weather reacting is the punchline's proof.
-  - *Render:* Injects: "Show the surrounding environment visibly reacting to the action."
-  - *Example:* "{NAME} whispered and the forest leaned in" → trees bending toward the subject; the environment is the reacting witness.
-- `object_transformation` — An object changes state because of the subject, and the change itself must be legible — best shown mid-transformation.
-  - *Render:* Injects: "Show the object mid-transformation so the change reads at a glance."
-  - *Example:* "{NAME} stared at coal until it became a diamond" → the coal shown mid-morph into diamond so the change is unmistakable.
-- `technology_reaction` — Devices and machines visibly respond to the subject — screens, routers, robots reacting is the gag's evidence.
-  - *Render:* Injects: "Show nearby technology visibly reacting to the subject."
-  - *Example:* "WiFi gets stronger when {NAME} walks by" → routers and phones visibly lighting up in response.
+  - *Render:* Drives a conservative crowd focus/relationship guard pack in STRICT CONSTRAINTS via failureModeConstraints (keeping the crowd a reacting background, not competing with the subject). The 'include a crowd' idea itself reaches the planner as TAXONOMY context; there is no positive prose directive.
+  - *Example:* "{NAME} parallel-parked on the first attempt" → the planner may add a gasping crowd; the compiler guards keep them a reacting background, not co-stars.
+- `environmental_reaction` *(authored — verify)* — The environment itself should visibly respond to the subject — nature, buildings, or weather reacting is the punchline's proof.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} whispered and the forest leaned in" → nudges the planner toward trees bending toward the subject; the environment as reacting witness.
+- `object_transformation` *(authored — verify)* — An object changes state because of the subject, and the change itself must be legible — best shown mid-transformation.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} stared at coal until it became a diamond" → nudges the planner to show the coal mid-morph into diamond so the change is legible.
+- `technology_reaction` *(authored — verify)* — Devices and machines visibly respond to the subject — screens, routers, robots reacting is the gag's evidence.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "WiFi gets stronger when {NAME} walks by" → nudges the planner toward routers and phones visibly lighting up in response.
 - `official_setting` *(authored — verify)* — Setting flag: the fact implies a formal, official, or ceremonial venue — a swearing-in, a podium, a state occasion.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the formal/ceremonial setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the formal/ceremonial setting.
   - *Example:* "{NAME} was sworn in as everyone's emergency contact" → suggests a ceremonial venue to the planner; the authored strategy still writes the scene.
 - `professional_context` *(authored — verify)* — Context flag: the fact lives in a professional/expert domain (consultants, doctors, engineers at work). Also an adult-suitability signal — professional contexts are on the classifier's adult-incompatible list.
   - *Render:* No fixed compiler directive — passed to the AI prompt planner as taxonomy context only; the authored strategy and scene decide the actual staging. Its firmer role is taxonomy/safety context (adult-suitability review), not the compiled prompt.
   - *Example:* "{NAME} closed the deal by nodding" → hints at a professional environment; also the kind of context that keeps adult mode off the table.
 - `domestic_setting` *(authored — verify)* — Setting flag: the fact plays out at home — kitchens, living rooms, household life.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the home/domestic setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the home/domestic setting.
   - *Example:* "{NAME}'s houseplants water themselves out of respect" → suggests a home interior to the planner; informative, not enforced.
 - `office_setting` *(authored — verify)* — Setting flag: the fact plays out in an office — desks, meetings, office equipment.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the office setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the office setting.
   - *Example:* "The office printer works only for {NAME}" → hints office context; the scene prose decides the actual set dressing.
 - `school_setting` *(authored — verify)* — Setting flag: the fact involves school — classrooms, teachers, hallways. (School context also makes the fact adult-incompatible per the adult-suitability rules.)
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the school setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the school setting.
   - *Example:* "Teachers ask {NAME} for hall passes" → suggests a school scene; separately, school context blocks adult mode.
 - `hospital_setting` *(authored — verify)* — Setting flag: the fact involves a hospital or medical environment. (Medical vulnerability is also on the adult-incompatible list.)
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the hospital/medical setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the hospital/medical setting.
   - *Example:* "Doctors check {NAME}'s pulse to calibrate their watches" → suggests a medical scene to the planner; nothing is compiled from the flag itself.
 - `courtroom_setting` *(authored — verify)* — Setting flag: the fact stages a courtroom — judges, benches, gavels, legal theater.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the courtroom setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the courtroom setting.
   - *Example:* "{NAME} was called as an expert witness on being impressive" → courtroom staging suggested; the archetype strategy still owns the scene.
 - `airport_setting` *(authored — verify)* — Setting flag: the fact plays out in an airport — terminals, security, gates.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the airport setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the airport setting.
   - *Example:* "TSA waves {NAME} through with applause" → airport context hinted to the planner; not a compiled constraint.
 - `gym_setting` *(authored — verify)* — Setting flag: the fact lives in a gym — weights, racks, mirrors, workout culture.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the gym setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the gym setting.
   - *Example:* "The gym renamed leg day after {NAME}" → gym environment suggested; the planned scene determines what actually appears.
 - `bar_setting` *(authored — verify)* — Setting flag: the fact plays out in a bar or pub environment.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the bar setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the bar setting.
   - *Example:* "Bartenders tip {NAME}" → bar context hinted; advisory to the planner only.
 - `battlefield_setting` *(authored — verify)* — Setting flag: the fact stages combat-scale territory — battlefields, war-movie scenery. (Violence permission is separate: it comes from the violence policy and the violence-relevance modifiers, not this flag.)
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the battlefield setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the battlefield setting.
   - *Example:* "{NAME} won the battle by showing up" → battlefield scenery hinted; whether violence is depicted is governed elsewhere.
 - `technology_setting` *(authored — verify)* — Setting flag: the fact lives among technology — server rooms, labs, screens, gadgets.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the tech/data-center setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the tech/data-center setting.
   - *Example:* "Servers cool down when {NAME} logs on" → data-center environment suggested to the planner; informative only.
 - `underwater_setting` *(authored — verify)* — Setting flag: the scene is underwater — ocean depths, marine life.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the underwater setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the underwater setting.
   - *Example:* "Sharks have a {NAME} Week" → underwater staging hinted; the archetype strategy still writes the actual scene.
 - `space_setting` *(authored — verify)* — Setting flag: the scene is in space — orbit, spacecraft, cosmic backdrops.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outer-space setting.
-  - *Example:* "{NAME} waved at the ISS and it waved back" → space backdrop suggested; not a compiled directive (contrast celestial_object, which is).
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outer-space setting.
+  - *Example:* "{NAME} waved at the ISS and it waved back" → space backdrop suggested; not a compiled directive (contrast celestial_object, a load-bearing prop the planner is told to render).
 - `outdoor_nature_setting` *(authored — verify)* — Setting flag: the fact plays out in nature — mountains, forests, open landscapes.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outdoor/nature setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the outdoor/nature setting.
   - *Example:* "Mountains adjust their height for {NAME}'s photos" → outdoor nature scenery hinted to the planner.
 - `city_setting` *(authored — verify)* — Setting flag: the fact lives in an urban environment — streets, skylines, traffic.
-  - *Render:* No fixed compiler directive — deliberately unmapped: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the urban/city setting.
+  - *Render:* No fixed compiler directive: setting/location flags are passed to the AI prompt planner as taxonomy context only, and the authored archetype strategy plus the planned scene largely determine the environment. Treat this as informing, not guaranteeing, the urban/city setting.
   - *Example:* "Traffic lights turn green when {NAME} approaches" → city-street staging suggested; advisory only.
-- `no_readable_text` — Text-safety flag: the render must not contain readable text anywhere — AI-generated signage/captions tend to come out as gibberish and break the image.
-  - *Render:* Injects: "Keep all surfaces free of readable text, captions, and labels."
-  - *Example:* "{NAME} renamed the airport" → signage renders as clean, non-readable surfaces instead of garbled fake lettering.
-- `avoid_real_logos` — Brand-safety flag: no real-world logos or trademarks may appear — generic stand-ins replace any brand the fact evokes.
-  - *Render:* Injects: "Do not depict any real-world logos or brand marks; use generic stand-ins."
-  - *Example:* "{NAME} out-delivered the delivery company" → generic unbranded vans and uniforms, no recognizable brand marks.
-- `avoid_readable_ui` — Screen-safety flag: any phone/computer screens in frame must stay abstract — fake readable UI text comes out garbled and distracts.
-  - *Render:* Injects: "Keep any on-screen UI abstract and non-readable."
-  - *Example:* "{NAME}'s selfie crashed the app" → the phone screen stays an abstract glow, no fake readable interface.
-- `avoid_weapons_focus` — Presentation constraint (not moderation): a weapon may appear if the fact requires it, but it must not be the visual centerpiece of the scene.
-  - *Render:* Injects: "Do not make weapons the visual focus of the scene."
-  - *Example:* "{NAME} caught the arrow mid-flight" → the catch is the focal point; the weapon is incidental, not glorified.
-- `avoid_gross_literalization` — Taste constraint: a literal rendering of the fact would be gross or off-putting — the idea should be staged tastefully instead.
-  - *Render:* Injects: "Render the idea tastefully rather than grossly literal."
-  - *Example:* "{NAME} sweats pure espresso" → tasteful coffee-steam staging rather than a literally dripping render.
-- `avoid_extra_faces` — Focus constraint: background faces dilute the subject and risk identity confusion — keep other faces minimal so the subject stays the one clear face.
-  - *Render:* Injects: "Keep extra background faces to a minimum; the subject stays the clear focal point."
-  - *Example:* "{NAME} won the marathon running backwards" → background runners de-emphasized/turned away; the subject is the only clear face.
+- `avoid_weapons_focus` *(authored — verify)* — Presentation constraint (not moderation): a weapon may appear if the fact requires it, but it must not be the visual centerpiece of the scene.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} caught the arrow mid-flight" → nudges the planner to keep the catch the focal point and the weapon incidental, not glorified.
+- `avoid_gross_literalization` *(authored — verify)* — Taste constraint: a literal rendering of the fact would be gross or off-putting — the idea should be staged tastefully instead.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} sweats pure espresso" → nudges the planner toward tasteful coffee-steam staging rather than a literally dripping render.
+- `avoid_extra_faces` *(authored — verify)* — Focus constraint: background faces dilute the subject and risk identity confusion — keep other faces minimal so the subject stays the one clear face.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} won the marathon running backwards" → nudges the planner to de-emphasize background runners so the subject is the clear face.
 - `avoid_duplicate_subject` — Anti-clone constraint: image models love to render the reference person twice — this flag pins the subject to exactly one instance.
-  - *Render:* Injects: "Show exactly one instance of the subject — no duplicates or clones." Additionally triggers the compiler's single-instance SUBJECT BINDING ("Render exactly one {subject} — a single instance.") and the anti-split strict constraint ("Do not duplicate, clone, or mirror {subject} anywhere in the frame.") even when no age transform applies.
+  - *Render:* Triggers the compiler's single-instance SUBJECT BINDING ("Render exactly one {subject} — a single instance.") and the anti-split strict constraint ("Do not duplicate, clone, or mirror {subject} anywhere in the frame.") even when no age transform applies. This is a structural compiler effect; the modifier also reaches the planner as TAXONOMY context.
   - *Example:* "{NAME} raced their own shadow" → exactly one {NAME} in frame; the shadow is a shadow, not a second copy of the person.
-- `astronomical_consequence` — The fact's consequence is planetary/cosmic scale — the image must stage that scale, not shrink it to a local effect.
-  - *Render:* Injects: "Stage a dramatic astronomical or planetary-scale consequence."
-  - *Example:* "{NAME} sneezed and the moon left orbit" → the departing moon staged huge and dramatic, not a dot in the sky.
-- `celestial_object` — A specific celestial body (planet, moon, star) is a load-bearing prop in the joke and must be clearly rendered in frame.
-  - *Render:* Injects: "Include a clearly rendered celestial object (planet, moon, star, or sky body)."
-  - *Example:* "The moon waves back at {NAME}" → a clearly rendered moon in frame, not just a vague night sky.
+- `astronomical_consequence` *(authored — verify)* — The fact's consequence is planetary/cosmic scale — the image must stage that scale, not shrink it to a local effect.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "{NAME} sneezed and the moon left orbit" → nudges the planner to stage the departing moon huge and dramatic, not a dot in the sky.
+- `celestial_object` *(authored — verify)* — A specific celestial body (planet, moon, star) is a load-bearing prop in the joke and must be clearly rendered in frame.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render.
+  - *Example:* "The moon waves back at {NAME}" → nudges the planner toward a clearly rendered moon in frame, not just a vague night sky.
 - `subject_object_reversal` — The joke inverts the normal actor/acted-on relationship — the object does to the subject what the subject would normally do to it.
-  - *Render:* Injects: "Reverse the expected roles so the object acts on the subject, not the other way around."
-  - *Example:* "The dumbbells ask {NAME} for a lighter set" → roles reversed: the equipment is the one acting toward the subject.
+  - *Render:* Drives a conservative failure-mode guard in STRICT CONSTRAINTS via failureModeConstraints (keeping the reversed roles legible so the object clearly acts on the subject). The reversal idea also reaches the planner as TAXONOMY context; there is no positive prose directive.
+  - *Example:* "The dumbbells ask {NAME} for a lighter set" → the compiler guards that the equipment clearly reads as the one acting toward the subject.
 - `normal_function_rendered_unnecessary` — Redundant-mechanism jokes: the subject's impossible power accomplishes the result BEFORE an object/tool/weapon's normal mechanism is needed — the mechanism may still fire afterward, but comically redundantly. Explicitly NOT a temporal/causality inversion (the canonical example: "threw a grenade and killed 50 people, then it exploded").
-  - *Render:* Injects: "Stage the subject's own action as the overwhelming force; keep the object's normal mechanism intact, unused, delayed, or secondary so it reads as redundant — do not depict that mechanism happening before the subject's action."
-  - *Example:* "{NAME} threw a grenade and killed 50 people, then it exploded" → the throw is the devastating force; the grenade's own explosion stays visibly late and redundant.
+  - *Render:* No deterministic compiler directive — the modifier is serialized into the planner's TAXONOMY block as context, so it can shape the generated visual plan but the effect isn't guaranteed. The frontier planner, steered by the moderator's Visual concept, owns the scene; treat this as a soft hint and check the test render. (This modifier's main job is taxonomy: it marks the redundant-mechanism pattern so the fact is not misclassified as a temporal/causality inversion.)
+  - *Example:* "{NAME} threw a grenade and killed 50 people, then it exploded" → the planner should stage the throw as the devastating force and keep the grenade's own explosion visibly late and redundant.
 - `projectile_impact_power` — A thrown/launched object carries impossible force — the image needs visual evidence of that power (shockwave, trail, impact path).
-  - *Render:* Injects: "Show the thrown or launched object carrying impossible force through a shockwave, motion trail, or impact path." Additionally marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
-  - *Example:* "{NAME}'s paper airplane broke the sound barrier" → the airplane rendered with a shockwave and motion trail carrying impossible force.
+  - *Render:* The staging idea reaches the planner as TAXONOMY context (no deterministic staging directive). Its firm effect is that it marks the fact violence-relevant: under the default "allow" violence policy the compiler emits the permission line "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore." (an explicit moderator soften/suppress override still wins).
+  - *Example:* "{NAME}'s paper airplane broke the sound barrier" → the shockwave/motion-trail idea is a planner hint; the fact is also marked violence-relevant.
 - `brand_context` *(authored — verify)* — Context flag: the joke depends on a brand or company reference. Pairs with the culturalReferences brand_reference entries; brands are also on the adult-suitability incompatible list.
-  - *Render:* No fixed compiler directive — taxonomy context for the planner only. If the concern is brand MARKS appearing in the image, that is avoid_real_logos' job (which does compile); this flag just tells downstream consumers the joke leans on a brand.
-  - *Example:* "A rental company sends {NAME} thank-you flowers" → flags the brand dependency for the planner and reviewers; add avoid_real_logos if marks must not render.
+  - *Render:* No fixed compiler directive — taxonomy context for the planner only; it tells downstream consumers the joke leans on a brand. Real brand MARKS never render regardless: the always-on overlay-text exclusion bans logos and brand marks on every image.
+  - *Example:* "A rental company sends {NAME} thank-you flowers" → flags the brand dependency for the planner and reviewers; brand marks are already banned platform-wide.
 - `workplace_context` *(authored — verify)* — Context flag: the fact assumes workplace framing — bosses, HR, coworkers, office politics. Workplace context is also on the classifier's adult-incompatible list, so this doubles as a safety signal.
   - *Render:* No fixed compiler directive — the token reaches the AI prompt planner as taxonomy context only; the authored strategy and scene own the staging. Its more concrete role is taxonomy/adult-suitability context, not the compiled prompt.
   - *Example:* "HR studies {NAME}'s emails as literature" → workplace framing flagged for the planner and for adult-suitability review; nothing is compiled from it.
@@ -783,17 +774,17 @@ Editing modifiers flips test renders stale.
 
 - **Scenario:** "{NAME} as a baby negotiated their own bedtime." — render shows an adult plus a random baby.
   - **Input:** Add modifier: "baby_child_version"
-  - **Outcome:** The compiler injects: "De-age the reference subject into the baby/child the fact describes — the same person rendered at that life stage… Do not add a separate, generic baby or child, and do not keep an adult version in the frame." Plus a SUBJECT BINDING section enforcing one entity.
-- **Scenario:** A render keeps drawing readable gibberish signage.
-  - **Input:** Add modifier: "no_readable_text"
-  - **Outcome:** Injects: "Keep all surfaces free of readable text, captions, and labels."
+  - **Outcome:** The compiler emits a SUBJECT BINDING section fusing the subject with the transformed life stage as ONE entity ("the same person de-aged… no separate generic baby, no adult version left in frame"), plus anti-split strict constraints. The modifier also reaches the planner as context.
+- **Scenario:** A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.
+  - **Input:** Turn ON the Visual Strategy Override and set Supporting-text policy → forbid.
+  - **Outcome:** STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)
 - **Scenario:** You add a custom modifier "sepia_flashback".
   - **Input:** modifiers: [..., "sepia_flashback"] (amber chip)
   - **Outcome:** No fixed directive exists — the planner sees the token as context and may or may not honor it. Check the test render.
 
 **Sources**
 
-- `artifacts/api-server/src/lib/imagePrompt/modifierDirectives.ts` `modifierDirectives` — The literal modifier→directive sentences quoted in the per-value docs.
+- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptContextBlocks` — Where modifiers are serialized into the planner's TAXONOMY context block.
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
@@ -1399,16 +1390,16 @@ Moderator-set. The editor warns when mode=require has no guidance — required t
 
 **How it affects the render**
 
-Compiled into the required-priority STRICT CONSTRAINTS section per mode (see the per-value docs). If the AI planner picked concrete supportingTextElements, those render regardless of mode — the planner's scene content is the strongest signal.
+Compiled into the required-priority STRICT CONSTRAINTS section per mode (see the per-value docs). Independently, an always-on incidental-text guard keeps background signage non-readable while yielding to any intentional in-scene text, so you only need mode=forbid to fully suppress text the scene would otherwise want. If the AI planner picked concrete supportingTextElements, those render regardless of mode — the planner's scene content is the strongest signal.
 
 **Values (3)**
 
 - `allow` — In-world readable text (signs, TV titles, scoreboards, documents) is permitted but not requested.
-  - *Render:* The compiler stays SILENT about in-world text unless the planner picked explicit supportingTextElements or your guidance is set — absence of a ban is enough; unnecessary text is not encouraged. The narrow overlay-text exclusion (no captions/watermarks/logos baked in) is always emitted regardless.
-  - *Example:* allow + guidance 'a TV title reading "{NAME} Week"' → the guidance line is emitted so the title card appears.
+  - *Render:* The compiler adds no in-world-text directive of its own unless the planner picked explicit supportingTextElements or your guidance is set — unnecessary text is not encouraged. Two lines are always emitted regardless: the narrow overlay-text exclusion (no captions/watermarks/logos baked in) and an always-on incidental-text guard that steers background signage non-readable while YIELDING to any intentional in-scene text.
+  - *Example:* allow + guidance 'a TV title reading "{NAME} Week"' → the guidance line is emitted so the title card appears; the incidental-text guard yields to it.
 - `forbid` — In-world readable text should be avoided in this scene.
-  - *Render:* Emits the literal line: "Avoid readable in-scene text unless required by a higher-priority instruction." into STRICT CONSTRAINTS. Exception: if the planner selected concrete supportingTextElements, those still render (the planner's scene content is the strongest signal).
-  - *Example:* Renders keep producing gibberish signage → forbid cleans the scene of readable text.
+  - *Render:* Emits the literal line: "Avoid readable in-scene text unless required by a higher-priority instruction." into STRICT CONSTRAINTS (alongside the always-on incidental-text guard). This is the way to fully suppress in-scene text — it replaces the retired no_readable_text modifier. Exception: if the planner selected concrete supportingTextElements, those still render (the planner's scene content is the strongest signal).
+  - *Example:* A scene should have NO readable text at all → forbid emits the avoid line and cleans the scene of readable text.
 - `require` — The joke NEEDS readable in-world text (a title card, a scoreboard, a headline) — make the engine show it.
   - *Render:* Emits: "SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: {your guidance}." (or the guidance-less variant). The editor warns when require is set without guidance — the engine can't require unspecified text.
   - *Example:* "Sharks have a {NAME} Week" → require + guidance 'a TV title card reading "{NAME} Week"'.
