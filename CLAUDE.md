@@ -228,10 +228,21 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
-### Auto-watch the PRs I open
+### Watching the PRs I open (opt-in — not automatic)
 
-When I open a PR, I subscribe to its activity automatically — I do not ask
-first. While watching:
+**I do NOT auto-subscribe to every PR, and I do NOT arm background self-check-in
+loops by default.** Each watched PR that arms an `send_later` self-check-in wakes
+a *persistent* session on a timer, and every wake reloads that session's full
+accumulated context uncached (the prompt cache is long dead after the interval) —
+so a fleet of PR watchers quietly burns tokens in the background whether or not
+David is present. That cost is real and compounds across PRs, so watching is now
+**opt-in per PR**: when I open a PR I offer to watch it and only subscribe /
+arm a check-in if David says yes for *that* PR. When I do watch, I prefer
+re-verifying on turns I'm already active over arming a timer; if David does want
+an unattended timer, I use a **long** interval (multiple hours, not ~1h) and I
+tell him it's running so it doesn't become an invisible drain. Whenever a watch's
+PR merges or closes, I unsubscribe and delete any remaining self-check-in trigger
+so no loop outlives its PR. While watching:
 
 - **Never judge a webhook event from its text alone — fetch the live PR state
   first.** This is the rule I broke: a `<github-webhook-activity>` arrived that
@@ -255,8 +266,11 @@ first. While watching:
   merge-conflict transitions, and events can arrive out of order or be my own
   replies bouncing back. So whenever I re-engage a watched PR I re-check its true
   state (threads + CI + mergeability) rather than assuming the last event told the
-  whole story. If `send_later` is available I arm an ~hour-out self check-in and
-  re-arm it silently; if it isn't, I re-verify on each turn I'm active.
+  whole story. My default is to re-verify on each turn I'm active. I arm an
+  `send_later` self check-in **only when David has opted this PR into unattended
+  watching**, and then at a **long** interval (multiple hours), because each firing
+  reloads a persistent session's full context uncached — the background token
+  drain the opt-in rule above exists to prevent.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round.
