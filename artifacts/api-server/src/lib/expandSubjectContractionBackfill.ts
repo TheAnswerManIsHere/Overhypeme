@@ -25,17 +25,30 @@
  * running it twice equals running it once.
  */
 
-import { expandSubjectContractions } from "./templateGrammar";
+import { expandSubjectContractions, HAS_ONLY_FOLLOWING_WORDS } from "./templateGrammar";
 
 // The legacy {He's}/{he's} token — apostrophe INSIDE the braces, unlike the
 // {Subj}'s/{SUBJ}'s contraction (apostrophe after a closed brace) that
 // `expandSubjectContractions` already handles.
 const LEGACY_HES_TOKEN_RE = /\{(He's|he's)\}/g;
 
+/**
+ * Expands the legacy `{He's}`/`{he's}` token, applying the same
+ * `HAS_ONLY_FOLLOWING_WORDS` disambiguation as `expandSubjectContractions` so
+ * "{He's} got the keys" backfills to "{Subj} {has|have} got the keys", not
+ * the guaranteed-ungrammatical "They are got the keys".
+ */
 export function expandSubjectContractionsForBackfill(template: string): string {
   if (!template) return template;
-  const legacyExpanded = template.replace(LEGACY_HES_TOKEN_RE, (_match, token: string) =>
-    token === "He's" ? "{Subj} {is|are}" : "{SUBJ} {is|are}",
+  const legacyExpanded = template.replace(
+    LEGACY_HES_TOKEN_RE,
+    (match: string, token: string, offset: number, full: string) => {
+      const subj = token === "He's" ? "{Subj}" : "{SUBJ}";
+      const rest = full.slice(offset + match.length);
+      const nextWord = /^\s+([A-Za-z]+)/.exec(rest)?.[1]?.toLowerCase();
+      const aux = nextWord && HAS_ONLY_FOLLOWING_WORDS.has(nextWord) ? "has|have" : "is|are";
+      return `${subj} {${aux}}`;
+    },
   );
   return expandSubjectContractions(legacyExpanded);
 }

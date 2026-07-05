@@ -76,4 +76,22 @@ describe("expandSubjectContractionsForBackfill", () => {
       assert.deepEqual(validateTemplate(output), { valid: true }, `expected "${output}" to be a valid template`);
     }
   });
+
+  // Codex review finding: the legacy {He's} token needs the same has/is
+  // disambiguation as the current {Subj}'s contraction, or backfilling old
+  // rows like "{He's} got the keys" would produce "They are got the keys".
+  it("expands the legacy {He's} token to {has|have} when followed by a has-only word", () => {
+    assert.equal(
+      expandSubjectContractionsForBackfill("{He's} got the keys"),
+      "{Subj} {has|have} got the keys",
+    );
+    assert.equal(
+      expandSubjectContractionsForBackfill("{he's} been there before"),
+      "{SUBJ} {has|have} been there before",
+    );
+  });
+
+  it("still defaults the legacy token to the copula for ambiguous/unrelated words", () => {
+    assert.equal(expandSubjectContractionsForBackfill("{He's} unstoppable"), "{Subj} {is|are} unstoppable");
+  });
 });

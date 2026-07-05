@@ -190,6 +190,36 @@ describe("expandSubjectContractions", () => {
     const once = expandSubjectContractions("{Subj}'s unstoppable and {SUBJ}'s fast");
     assert.equal(expandSubjectContractions(once), once);
   });
+
+  // Codex review finding: "'s" followed by a has-only word (got/gotten/been/
+  // had) must expand to {has|have}, never the copula — "is got"/"is been"/
+  // "is had" are not grammatical English, so defaulting to {is|are} would
+  // store "They are got the keys" for they/them.
+  describe("has-only-following-word disambiguation", () => {
+    const hasCases: Array<[string, string]> = [
+      ["{Subj}'s got the keys", "{Subj} {has|have} got the keys"],
+      ["{SUBJ}'s got the keys", "{SUBJ} {has|have} got the keys"],
+      ["{Subj}'s been there before", "{Subj} {has|have} been there before"],
+      ["{Subj}'s had enough", "{Subj} {has|have} had enough"],
+      ["{Subj}'s gotten away with it", "{Subj} {has|have} gotten away with it"],
+    ];
+    for (const [input, expected] of hasCases) {
+      it(`${input} → ${expected}`, () => {
+        assert.equal(expandSubjectContractions(input), expected);
+      });
+    }
+
+    it("still defaults to the copula for ambiguous/unrelated words", () => {
+      assert.equal(expandSubjectContractions("{Subj}'s unstoppable"), "{Subj} {is|are} unstoppable");
+      // "done" is genuinely ambiguous (is done / has done it) — deliberately
+      // left on the {is|are} default rather than guessed.
+      assert.equal(expandSubjectContractions("{Subj}'s done"), "{Subj} {is|are} done");
+    });
+
+    it("is case-insensitive for the following word", () => {
+      assert.equal(expandSubjectContractions("{Subj}'s GOT the keys"), "{Subj} {has|have} GOT the keys");
+    });
+  });
 });
 
 describe("applyDeterministicGrammar — canonical sequence", () => {

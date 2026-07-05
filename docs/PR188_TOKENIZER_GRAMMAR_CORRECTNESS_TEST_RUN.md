@@ -53,7 +53,13 @@ Expect **0 fail**. The cases that must be green:
   (`… cake, and …`, `… cake; and …`, `… cake. And …`). Idempotent.
 - **`expandSubjectContractions`**: `{Subj}'s`/`{SUBJ}'s` (straight or curly
   apostrophe) → `{Subj} {is|are}`; idempotent; leaves already-expanded pairs
-  and non-contraction text alone.
+  and non-contraction text alone. **Has/is disambiguation** (post-review fix):
+  when the word immediately after the contraction is a has-only signal
+  (`got`/`gotten`/`been`/`had` — "is got"/"is been"/"is had" are not
+  grammatical English), expands to `{has|have}` instead —
+  `{Subj}'s got the keys` → `{Subj} {has|have} got the keys`, not the
+  broken `{Subj} {is|are} got the keys`. Genuinely ambiguous words (e.g.
+  `done`) still default to the copula. Case-insensitive on the following word.
 - **`applyDeterministicGrammar`**: one call collapses a `{NAME}` pair, expands a
   contraction, conjugates a missed verb, and collapses `{can|can}` — in that
   order; idempotent; no-op on already-correct text.
@@ -66,7 +72,9 @@ Expect **0 fail**. The cases that must be green:
 - **Backfill transform** (`expandSubjectContractionBackfill.test.ts`): expands
   both `{He's}`/`{he's}` (legacy token) and `{Subj}'s`/`{SUBJ}'s` (contraction),
   mixed multi-contraction rows, idempotent, transformed output passes
-  `validateTemplate`.
+  `validateTemplate`. The legacy `{He's}`/`{he's}` token gets the same has/is
+  disambiguation as the modern contraction (`{He's} got the keys` → `{Subj}
+  {has|have} got the keys`).
 
 ## 3. Renderer unit tests
 
@@ -74,7 +82,7 @@ Expect **0 fail**. The cases that must be green:
 pnpm --filter @workspace/overhype-me test -- src/__tests__/renderFact.test.ts
 ```
 
-Expect **0 fail** (85 at time of writing). Must be green:
+Expect **0 fail** (92 at time of writing). Must be green:
 
 - `{NAME_POSSESSIVE}` renders `Alice's`, always-`'s` for `James` → `James's`,
   blank → `___'s`, and in `renderFactSegments` the possessive is a single
@@ -82,6 +90,11 @@ Expect **0 fail** (85 at time of writing). Must be green:
 - **Never renders "they's"**: `{Subj}'s`/`{SUBJ}'s`/`{He's}`/`{he's}` across
   he/she/they and a custom plural set — singular keeps `He's`, plural becomes
   `They are`.
+- **Has/is disambiguation**: for a they/them (plural) viewer, `{Subj}'s got the
+  keys` renders "They **have** got the keys" (not "are") — same for
+  `been`/`had`/`gotten`, and for the legacy `{He's}`/`{he's}` token. Singular
+  viewers are unaffected (the bare contraction is valid either way). Ambiguous
+  words like `done` still render the copula ("are").
 - `tokenizeFact` emits `{Subj} {is|are}` for `He's`/`he's` (never `{Subj}'s`).
 
 ## 4. Ingress route tests (already-tokenized input is repaired before storage)

@@ -67,16 +67,35 @@ function possessiveName(resolvedName: string): string {
 }
 
 /**
- * Render a subject-pronoun + "'s" contraction. `{Subj}'s`/`{SUBJ}'s` is
- * defense-in-depth for stale/legacy stored text — the deterministic grammar
- * pass expands new writes to an explicit {is|are} pair before storage, so a
- * fresh template should never reach this path. Singular sets render the valid
- * contraction ("He's"); plural (they/them and any custom plural set) expands
- * to the copula ("They are") since "They's" is never valid English. Ambiguous
- * is/has forms default to the copula, matching the deterministic pass.
+ * Words that can only follow "has"/"have", never "is"/"are", directly after a
+ * subject-pronoun contraction — "is got"/"is been"/"is had" are not
+ * grammatical English. Must stay in sync with the identical set in
+ * `lib/api-zod/src/templateGrammar.ts` (`HAS_ONLY_FOLLOWING_WORDS`) — this is
+ * the renderer's defense-in-depth fallback for legacy/stale text that never
+ * went through that deterministic ingress pass.
  */
-function subjectContraction(subj: string, isSingular: boolean, capitalize: boolean): string {
-  const rendered = isSingular ? `${subj}'s` : `${subj} are`;
+const HAS_ONLY_FOLLOWING_WORDS = new Set(["got", "gotten", "been", "had"]);
+
+/** Whether the plain text immediately following a matched contraction/token signals "has", not "is". */
+function nextWordIsHasSignal(rest: string): boolean {
+  const nextWord = /^\s+([A-Za-z]+)/.exec(rest)?.[1]?.toLowerCase();
+  return !!nextWord && HAS_ONLY_FOLLOWING_WORDS.has(nextWord);
+}
+
+/**
+ * Render a subject-pronoun + "'s" contraction, given the plain text
+ * immediately following the match (`rest`) so the small has-only-follows set
+ * can be checked. `{Subj}'s`/`{SUBJ}'s` is defense-in-depth for stale/legacy
+ * stored text — the deterministic grammar pass expands new writes to an
+ * explicit pair before storage, so a fresh template should never reach this
+ * path. For a SINGULAR set the bare contraction ("He's") is valid English
+ * either way (is or has), so it's kept as-is. For a PLURAL set (they/them and
+ * any custom plural set) "They's" is never valid, so it must fully expand —
+ * to "They have" when `rest` signals "has" ("He's got it" → "They have got
+ * it"), otherwise to the copula "They are".
+ */
+function subjectContraction(subj: string, isSingular: boolean, capitalize: boolean, rest: string): string {
+  const rendered = isSingular ? `${subj}'s` : `${subj} ${nextWordIsHasSignal(rest) ? "have" : "are"}`;
   return capitalize ? cap(rendered) : rendered;
 }
 
@@ -194,11 +213,15 @@ export function renderFact(
     .replace(/\{NAME_POSSESSIVE\}/g, possessiveName(resolvedName))
 
     // Subject-pronoun contraction — defense-in-depth for stale/legacy text
-    // (new writes are expanded to an explicit {is|are} pair before storage).
-    // Must run BEFORE the generic {Subj}/{SUBJ} substitution below, or a
-    // plural set would fall through to the literal (never-valid) "They's".
-    .replace(/\{Subj\}['’]s\b/g, subjectContraction(p.subj, isSingular, true))
-    .replace(/\{SUBJ\}['’]s\b/g, subjectContraction(p.subj, isSingular, false))
+    // (new writes are expanded to an explicit pair before storage). Must run
+    // BEFORE the generic {Subj}/{SUBJ} substitution below, or a plural set
+    // would fall through to the literal (never-valid) "They's". Function
+    // replacers so subjectContraction() can peek at the following text to
+    // disambiguate is/has (see HAS_ONLY_FOLLOWING_WORDS).
+    .replace(/\{Subj\}['’]s\b/g, (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, true, full.slice(offset + m.length)))
+    .replace(/\{SUBJ\}['’]s\b/g, (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, false, full.slice(offset + m.length)))
 
     // Verb conjugation: {singular_form|plural_form}
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
@@ -220,8 +243,10 @@ export function renderFact(
     // Legacy tokens — kept for backward compat with old facts
     .replace(/\{Himself\}/g, cap(p.refl))
     .replace(/\{himself\}/g, p.refl)
-    .replace(/\{He's\}/g,    subjectContraction(p.subj, isSingular, true))
-    .replace(/\{he's\}/g,    subjectContraction(p.subj, isSingular, false))
+    .replace(/\{He's\}/g,    (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, true, full.slice(offset + m.length)))
+    .replace(/\{he's\}/g,    (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, false, full.slice(offset + m.length)))
     .replace(/\{Him\}/g,     cap(p.obj))
     .replace(/\{him\}/g,     p.obj)
     .replace(/\{His\}/g,     cap(p.poss))
@@ -239,10 +264,14 @@ export function tokenizeFact(text: string): string {
     .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
     .replace(/\bHimself\b/g, "{REFL}")
     .replace(/\bhimself\b/g, "{REFL}")
-    // "'s" is ambiguous (is/has) but expanding to the copula {is|are} keeps
-    // this path from ever emitting the never-valid "{Subj}'s" → "They's".
-    .replace(/\bHe's\b/g,    "{Subj} {is|are}")
-    .replace(/\bhe's\b/g,    "{SUBJ} {is|are}")
+    // "'s" is ambiguous (is/has); expanding always keeps this path from ever
+    // emitting the never-valid "{Subj}'s" → "They's". Peeks at the following
+    // word to avoid "he's got it" → "{Subj} {is|are} got it" (see
+    // HAS_ONLY_FOLLOWING_WORDS / nextWordIsHasSignal).
+    .replace(/\bHe's\b/g,    (m: string, offset: number, full: string) =>
+      `{Subj} {${nextWordIsHasSignal(full.slice(offset + m.length)) ? "has|have" : "is|are"}}`)
+    .replace(/\bhe's\b/g,    (m: string, offset: number, full: string) =>
+      `{SUBJ} {${nextWordIsHasSignal(full.slice(offset + m.length)) ? "has|have" : "is|are"}}`)
     .replace(/\bHim\b/g,     "{Obj}")
     .replace(/\bhim\b/g,     "{OBJ}")
     .replace(/\bHis\b/g,     "{Poss}")
@@ -294,8 +323,10 @@ export function renderFactSegments(
 
     // Subject-pronoun contraction — see renderFact() for rationale. Must run
     // before the generic {Subj}/{SUBJ} substitution below.
-    .replace(/\{Subj\}['’]s\b/g, subjectContraction(p.subj, isSingular, true))
-    .replace(/\{SUBJ\}['’]s\b/g, subjectContraction(p.subj, isSingular, false))
+    .replace(/\{Subj\}['’]s\b/g, (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, true, full.slice(offset + m.length)))
+    .replace(/\{SUBJ\}['’]s\b/g, (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, false, full.slice(offset + m.length)))
 
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
       isSingular ? singular : plural
@@ -312,8 +343,10 @@ export function renderFactSegments(
     .replace(/\{REFL\}/g,     p.refl)
     .replace(/\{Himself\}/g,  cap(p.refl))
     .replace(/\{himself\}/g,  p.refl)
-    .replace(/\{He's\}/g,     subjectContraction(p.subj, isSingular, true))
-    .replace(/\{he's\}/g,     subjectContraction(p.subj, isSingular, false))
+    .replace(/\{He's\}/g,     (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, true, full.slice(offset + m.length)))
+    .replace(/\{he's\}/g,     (m: string, offset: number, full: string) =>
+      subjectContraction(p.subj, isSingular, false, full.slice(offset + m.length)))
     .replace(/\{Him\}/g,      cap(p.obj))
     .replace(/\{him\}/g,      p.obj)
     .replace(/\{His\}/g,      cap(p.poss))

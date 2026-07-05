@@ -240,6 +240,37 @@ describe("renderFact — subject-pronoun contraction ({Subj}'s / {SUBJ}'s / lega
       expect(output.toLowerCase()).not.toContain("they's");
     }
   });
+
+  // Codex review finding: for a PLURAL viewer, "'s got"/"'s been"/"'s had"
+  // must render "have", not "are" — "They are got the keys" is not English.
+  // (For a SINGULAR viewer the bare contraction is always fine either way.)
+  describe("has-only-following-word disambiguation", () => {
+    it("renders 'have' (not 'are') for they/them when the contraction means has", () => {
+      expect(renderFact("{Subj}'s got the keys", "Sam", "they/them")).toBe("They have got the keys");
+      expect(renderFact("{SUBJ}'s been there before", "Sam", "they/them")).toBe("they have been there before");
+      expect(renderFact("{Subj}'s had enough", "Sam", "they/them")).toBe("They have had enough");
+      expect(renderFact("{Subj}'s gotten away with it", "Sam", "they/them")).toBe("They have gotten away with it");
+    });
+
+    it("renders the legacy {He's}/{he's} token as 'have' for they/them when it means has", () => {
+      expect(renderFact("{He's} got the keys", "Sam", "they/them")).toBe("They have got the keys");
+      expect(renderFact("{he's} been there before", "Sam", "they/them")).toBe("they have been there before");
+    });
+
+    it("still renders the copula 'are' for they/them on ambiguous/unrelated words", () => {
+      expect(renderFact("{Subj}'s unstoppable", "Sam", "they/them")).toBe("They are unstoppable");
+      // "done" is genuinely ambiguous — deliberately left on the "are" default.
+      expect(renderFact("{Subj}'s done", "Sam", "they/them")).toBe("They are done");
+    });
+
+    it("leaves singular sets unaffected (the bare contraction is valid either way)", () => {
+      expect(renderFact("{Subj}'s got the keys", "Dave", "he/him")).toBe("He's got the keys");
+    });
+
+    it("is case-insensitive for the following word", () => {
+      expect(renderFact("{Subj}'s GOT the keys", "Sam", "they/them")).toBe("They have GOT the keys");
+    });
+  });
 });
 
 describe("renderFactSegments — subject-pronoun contraction never renders 'they's'", () => {
@@ -247,6 +278,13 @@ describe("renderFactSegments — subject-pronoun contraction never renders 'they
     expect(renderFactSegments("{NAME} says {Subj}'s unstoppable", "Sam", "they/them")).toEqual([
       { text: "Sam", isName: true },
       { text: " says They are unstoppable", isName: false },
+    ]);
+  });
+
+  it("renders 'have' (not 'are') within segments when the contraction means has", () => {
+    expect(renderFactSegments("{NAME} says {Subj}'s got the keys", "Sam", "they/them")).toEqual([
+      { text: "Sam", isName: true },
+      { text: " says They have got the keys", isName: false },
     ]);
   });
 });
@@ -334,6 +372,11 @@ describe("tokenizeFact", () => {
     expect(tokenizeFact("everyone knows he's unstoppable")).toBe(
       "everyone knows {SUBJ} {is|are} unstoppable",
     );
+  });
+
+  it("expands 'He's'/'he's' to {has|have} when followed by a has-only word", () => {
+    expect(tokenizeFact("He's got the keys")).toBe("{Subj} {has|have} got the keys");
+    expect(tokenizeFact("he's been there before")).toBe("{SUBJ} {has|have} been there before");
   });
 
   it("replaces 'Him' with {Obj}", () => {

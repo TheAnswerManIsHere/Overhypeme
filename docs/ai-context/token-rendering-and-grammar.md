@@ -136,15 +136,26 @@ transform in `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`)
 
 `{Subj}'s`/`{SUBJ}'s` is valid template *syntax* (`{Subj}` is a valid token, `'s`
 is plain text) but renders the never-valid **"They's"** for they/them. `'s` is
-also ambiguous (is/has). The fix is deterministic at ingress:
-`expandSubjectContractions` rewrites it to an explicit `{Subj} {is|are}` pair —
-ambiguous is/has **defaults to the copula** — before validation/storage, so a
-stored template should never contain the bare contraction. As defense-in-depth
-for legacy/stale text, the renderer (`subjectContraction` in `render-fact.ts`)
-renders `{Subj}'s`/`{SUBJ}'s` and the legacy `{He's}`/`{he's}` tokens
-plurality-safely: singular sets keep the valid contraction (`He's`), plural sets
-expand to the copula (`They are`), never `'s`. `tokenizeFact` (the non-AI path)
-and the AI prompt both emit `{Subj} {is|are}` instead of `{Subj}'s`.
+also ambiguous (is/has) — but NOT always: a small, fixed set of following words
+can only ever mean "has" (`HAS_ONLY_FOLLOWING_WORDS` = `got`, `gotten`, `been`,
+`had`), because "is got"/"is been"/"is had" are not grammatical English. The fix
+is deterministic at ingress: `expandSubjectContractions` peeks at the word
+immediately after the contraction and rewrites to `{Subj} {has|have}` when it's
+one of those, otherwise to `{Subj} {is|are}` — genuinely ambiguous cases like
+`'s done` ("is done" [finished] vs. "has done" [completed]) deliberately default
+to the copula, since a valid-but-possibly-wrong-reading sentence beats a
+guaranteed-ungrammatical one. This runs before validation/storage, so a stored
+template should never contain the bare contraction. As defense-in-depth for
+legacy/stale text, the renderer (`subjectContraction` in `render-fact.ts`, with
+its own copy of the same word set — keep them in sync) renders `{Subj}'s`/
+`{SUBJ}'s` and the legacy `{He's}`/`{he's}` tokens plurality- and has/is-safely:
+singular sets keep the bare contraction (`He's` — valid English either way,
+no lookup needed), plural sets expand to `They have` when the following word
+signals "has", otherwise the copula (`They are`) — never a bare `'s`.
+`tokenizeFact` (the non-AI path) and the `They's` backfill
+(`expandSubjectContractionBackfill.ts`) apply the identical has/is check when
+producing a stored pair; the AI prompt is instructed to make the same call
+itself for `he's`/`she's`.
 
 ## Renderer responsibilities
 

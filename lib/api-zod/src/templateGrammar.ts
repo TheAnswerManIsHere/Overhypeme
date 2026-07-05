@@ -321,24 +321,51 @@ export function collapseNameSubjectConjugationPairs(template: string): string {
 // `{Subj}'s` / `{SUBJ}'s` is syntactically valid template text today ({Subj}
 // is a valid simple token, followed by plain "'s"), but it renders "They's"
 // for they/them — never valid English. The only safe fix is deterministic:
-// expand the contraction into an explicit {is|are} pair before storage, so
-// the renderer never has to guess whether "'s" meant "is" or "has". Ambiguous
-// is/has forms default to the copula ({is|are}) — the far more common
-// reading in casual English facts.
+// expand the contraction into an explicit pair before storage, so the
+// renderer never has to guess.
+//
+// "'s" is genuinely ambiguous in general ("he's fast" = is, "he's got it" =
+// has), but a SMALL set of following words can only ever mean "has" — "is
+// got"/"is been"/"is had" are not grammatical English. So "'s got"/"'s
+// been"/"'s had" must expand to {has|have}, never the copula (else "{Subj}'s
+// got the keys" would store as "They are got the keys" for they/them).
+// Anything else — including genuinely ambiguous cases like "'s done", which
+// can mean either "is done" [finished] or "has done" [completed] — defaults
+// to the copula {is|are}: a valid sentence, even if occasionally the
+// less-likely reading, beats guessing into a guaranteed-ungrammatical one.
 // ---------------------------------------------------------------------------
+
+/**
+ * Words that can only follow "has"/"have", never "is"/"are", directly after a
+ * subject-pronoun contraction — "is got"/"is been"/"is had" are not
+ * grammatical English. Exported so the renderer's legacy-text fallback
+ * (`render-fact.ts`) and the `They's` backfill can recognise the identical
+ * signal set; keep the three in sync.
+ */
+export const HAS_ONLY_FOLLOWING_WORDS: ReadonlySet<string> = new Set(["got", "gotten", "been", "had"]);
 
 // {Subj}'s or {SUBJ}'s, straight or curly apostrophe.
 const SUBJECT_CONTRACTION_RE = /(\{(?:SUBJ|Subj)\})['’]s\b/g;
 
 /**
- * Expand a subject-pronoun contraction into an explicit {is|are} pair:
- * "{Subj}'s unstoppable" → "{Subj} {is|are} unstoppable". Prevents the
- * never-valid "They's" render. Pure and idempotent — the output contains no
- * more {Subj}'s sequences to re-match.
+ * Expand a subject-pronoun contraction into an explicit conjugation pair:
+ * "{Subj}'s unstoppable" → "{Subj} {is|are} unstoppable", but "{Subj}'s got
+ * the keys" → "{Subj} {has|have} got the keys" (see
+ * `HAS_ONLY_FOLLOWING_WORDS`). Prevents the never-valid "They's" render. Pure
+ * and idempotent — the output contains no more bare `{Subj}'s`/`{SUBJ}'s`
+ * sequences to re-match.
  */
 export function expandSubjectContractions(template: string): string {
   if (!template) return template;
-  return template.replace(SUBJECT_CONTRACTION_RE, (_match, subj: string) => `${subj} {is|are}`);
+  return template.replace(
+    SUBJECT_CONTRACTION_RE,
+    (match: string, subj: string, offset: number, full: string) => {
+      const rest = full.slice(offset + match.length);
+      const nextWord = /^\s+([A-Za-z]+)/.exec(rest)?.[1]?.toLowerCase();
+      const aux = nextWord && HAS_ONLY_FOLLOWING_WORDS.has(nextWord) ? "has|have" : "is|are";
+      return `${subj} {${aux}}`;
+    },
+  );
 }
 
 /**
