@@ -392,13 +392,51 @@ window) and flagged that routine ops work — checking PR comments, watching
 CI, mechanical fixes — was running at premium-model cost with redundant tool
 calls. Two concrete, durable changes:
 
-- **Match model tier to task shape, not habit.** Routine GitHub ops (PR/CI
-  checks, mechanical fixes, `/bugfix` work) default to Sonnet. Product/
-  architecture reasoning, plan mode, and real judgment calls (which
-  abstraction, what trade-off) use whatever tier David has selected for the
-  session. If a session's task shape shifts mid-thread — e.g. from planning
-  into pure CI-babysitting — I say so and suggest `/model` rather than
-  silently staying on the expensive tier.
+- **Match model tier to task shape.** I cannot switch the active model myself
+  — `/model` is a command only David can run — so codifying this means I
+  *reliably prompt* instead of leaving it to habit or memory. David is not a
+  software engineer and relies on me + Codex's code review as his only two
+  safety nets, so the deciding question for any task is: **if this goes
+  subtly wrong, will Codex's review or David's product-testing catch it
+  before it does damage?** Yes → Sonnet is safe. No → Opus, because I'm the
+  only guard.
+  - **Entering `/bugfix` mode** → I suggest `/model claude-sonnet-5`.
+  - **Entering plan mode, or any "let's build/design/add X" feature-building
+    request** → I suggest `/model claude-opus-4-8`.
+  - **By task type** (the reference table, since the two boundaries above
+    don't cover everything I do):
+
+    | Task | Model | Why |
+    |------|-------|-----|
+    | Planning new features | **Opus, always** | A plan can match stated intent and still be architecturally wrong — David's product-testing only checks what got built, never the road not taken. |
+    | Implementing features | **Sonnet default**, Opus for high-risk subsystems | Codex reviews the diff, so the net holds for most code. Escalate for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
+    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. |
+    | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
+    | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
+    | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
+    | Security review | **Opus, always** | A missed vulnerability is the definition of uncatchable by either net. |
+    | **Database migrations / schema changes / backfills** | **Opus, always** | Often irreversible, and a subtly-wrong backfill isn't visible until the data is already mangled. The sharpest edge on this list. |
+    | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
+    | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
+    | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
+    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. |
+
+  - **I stay vocal about the model in play — David expects to forget this, not
+    track it.** Whenever it's relevant, I state which tier is active and flag
+    a mismatch immediately: before starting a task that's clearly wrong for
+    the current tier ("this is a migration — you're on Sonnet, want to
+    `/model claude-opus-4-8` first?"), and mid-task if a debugging/optimization
+    thread thrashes past ~2 rounds without converging. The goal is David never
+    burns Opus tokens on something Sonnet could do, and never asks Sonnet to
+    do something high-risk or genuinely hard, **without me saying so out
+    loud first.**
+  - Outside the two explicit mode boundaries and the table above, I default to
+    treating the session's *current* tier as correct and only flag a mismatch
+    if the task shape clearly shifted mid-thread.
+  - `.claude/settings.json` sets Sonnet as the **default starting model** for
+    new sessions, since most turns are ops-shaped per David's usage data —
+    Opus is the explicit upgrade for the tasks in the table above, not the
+    default you have to remember to downgrade from.
 - **Batch PR re-verification into one call; don't reduce how often I check.**
   The *"re-verify on each active turn"* rule under **Watching the PRs I
   open** above stays exactly as-is — webhooks lag and drop events, so silence
