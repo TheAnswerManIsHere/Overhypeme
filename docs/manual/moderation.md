@@ -25,7 +25,13 @@ The review opens as a three-step wizard:
 1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
    near-duplicate it resembles, and who sent it, and either **rejects** it (with
    a reason) or **provisionally approves** it. Provisional approval is the moment
-   paid work is allowed to begin — before it, nothing has cost anything.
+   the paid **moderation prep and render work** — enrichment, visual-idea
+   drafting, and the per-image test renders — is allowed to begin; before it,
+   none of that moderation/render spend has happened. (Cheap pre-submit
+   affordances the submitter already used — tokenizing the fact, suggesting
+   pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
+   Triage gates is the expensive moderation pipeline, not every LLM call ever
+   made about the fact.)
 
 2. **Visual Concept.** After the AI has classified the fact, the review arrives
    here. The moderator works on the **Visual Concept** — the plain-language
