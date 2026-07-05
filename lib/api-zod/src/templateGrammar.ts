@@ -91,8 +91,9 @@ export function validateTemplate(template: string): GrammarValidationResult {
 // renders "They keeps" for they/them. This pass is the actual guarantee: it
 // finds a present-tense 3rd-person-singular verb directly following a person
 // subject token and rewrites it to the conjugation pair. It is deliberately
-// narrow — it only fires right after {SUBJ}/{Subj}/{NAME}, so it can never
-// mis-pluralize a verb whose subject is some other noun ("Sharks have…").
+// narrow — it only fires right after {SUBJ}/{Subj}, so it can never
+// mis-pluralize a verb whose subject is a literal name ("{NAME} gives…") or
+// some other noun ("Sharks have…").
 // ---------------------------------------------------------------------------
 
 /** Irregular 3rd-person-singular → they/base form. Keys are lowercase. */
@@ -148,18 +149,35 @@ function thirdPersonToBase(word: string): string | null {
   return word.slice(0, -1);
 }
 
-// A person subject token, then whitespace, then any run of skippable adverbs
+/**
+ * Regex source for one skippable adverb between a subject token and its verb:
+ * an "…ly" word or a known bare adverb. Exported as the single source of truth
+ * because TWO passes must recognise the same adverb set to stay complementary —
+ * `autoConjugatePersonSubjectVerbs` (creates pairs after {SUBJ}/{Subj}) and
+ * `collapseNameSubjectConjugationPairs` (collapses pairs after {NAME}). If the
+ * lists drifted, "{NAME} <new adverb> {gives|give}" would survive both passes
+ * and render the plural branch after a singular name.
+ */
+export const SKIPPABLE_ADVERB_RE_SRC =
+  "[A-Za-z]+ly|always|never|often|sometimes|still|just|also|secretly|once|only|really|simply";
+
+// Zero or more skippable adverbs, each followed by whitespace.
+const ADVERB_RUN_RE_SRC = `(?:(?:${SKIPPABLE_ADVERB_RE_SRC})\\s+)*`;
+
+// A person-pronoun subject token, then whitespace, then any run of skippable adverbs
 // (an "…ly" word or a known bare adverb), then the candidate verb. The candidate
 // matcher allows a single internal apostrophe so contractions ("doesn't",
 // "isn't") are captured; it cannot match a "{...}" token or an existing
 // "{a|b}" pair (those start with "{", not a letter), which keeps the pass
 // idempotent.
-const PERSON_SUBJECT_VERB_RE =
-  /(\{(?:SUBJ|Subj|NAME)\}\s+(?:(?:[A-Za-z]+ly|always|never|often|sometimes|still|just|also|secretly|once|only|really|simply)\s+)*)([A-Za-z]+(?:['’][A-Za-z]+)?)/g;
+const PERSON_SUBJECT_VERB_RE = new RegExp(
+  `(\\{(?:SUBJ|Subj)\\}\\s+${ADVERB_RUN_RE_SRC})([A-Za-z]+(?:['’][A-Za-z]+)?)`,
+  "g",
+);
 
 /**
  * Repair missed verb conjugations: wrap a present-tense 3rd-person-singular verb
- * that directly follows a person subject token ({SUBJ}/{Subj}/{NAME}) as a
+ * that directly follows a person pronoun subject token ({SUBJ}/{Subj}) as a
  * {singular|plural} pair. Pure and idempotent — running it twice equals running
  * it once.
  */
@@ -188,4 +206,59 @@ const IDENTICAL_CONJUGATION_PAIR_RE = /\{([^|{}]+)\|\1\}/g;
 export function collapseIdenticalConjugationBranches(template: string): string {
   if (!template) return template;
   return template.replace(IDENTICAL_CONJUGATION_PAIR_RE, "$1");
+}
+
+// ---------------------------------------------------------------------------
+// Name-subject conjugation-pair collapse
+//
+// A {NAME} token renders as a literal singular name for EVERY pronoun set, so a
+// verb whose subject is {NAME} must always use its singular form — a pair there
+// is wrong by construction ("{NAME} {gives|give}" renders "David give" for
+// they/them). The LLM tokenizer intermittently emits such pairs anyway (because
+// {SUBJ} verbs DO need them), and older prompts actively required them, so this
+// pass collapses each one to its left/singular branch. It lives here — next to
+// its sibling grammar passes — so every template-writing path (tokenize route,
+// direct fact insert, review submission, retokenize/backfill scripts) shares
+// the same guarantee.
+// ---------------------------------------------------------------------------
+
+// A conjugation pair, e.g. "{gives|give}".
+const PAIR_RE_SRC = "\\{[^|{}]+\\|[^|{}]+\\}";
+// One verb unit in a coordination chain: a plain word (contractions allowed) or
+// a conjugation pair. "{...}" simple tokens like {Subj} match neither, which is
+// what stops the chain before a new subject.
+const VERB_UNIT_RE_SRC = `(?:[A-Za-z]+(?:['’][A-Za-z]+)?|${PAIR_RE_SRC})`;
+
+// {NAME}, whitespace, optional adverbs, then a chain of verb units joined by
+// coordinating conjunctions (each side may carry its own adverbs): this covers
+// both "{NAME} {runs|run} and {hides|hide}" and "{NAME} runs and {hides|hide}".
+// The chain stops at anything that is not a bare word or a pair — in particular
+// at pronoun tokens — so "{NAME} {runs|run} or {SUBJ} {hides|hide}" collapses
+// only the first pair and leaves the {SUBJ}-subject pair alone.
+const NAME_SUBJECT_CONJUGATION_CHAIN_RE = new RegExp(
+  `(\\{NAME\\}\\s+${ADVERB_RUN_RE_SRC})` +
+    `(${VERB_UNIT_RE_SRC}(?:\\s+(?:and|or|but)\\s+${ADVERB_RUN_RE_SRC}${VERB_UNIT_RE_SRC})*)`,
+  "g",
+);
+
+// Inside a matched chain: a pair with its singular branch captured.
+const CHAIN_PAIR_RE = /\{([^|{}]+)\|[^|{}]+\}/g;
+
+/**
+ * Collapse conjugation pairs whose grammatical subject is {NAME} to their
+ * singular branch: "{NAME} {gives|give} you" → "{NAME} gives you", including
+ * coordinated verbs ("{NAME} {runs|run} and {hides|hide}" → "{NAME} runs and
+ * hides"). Pairs after a different subject ({SUBJ}/{Subj} or a literal noun)
+ * are untouched. Pure and idempotent — running it twice equals running it once.
+ *
+ * Known limitation (shared with the conjugation net): coordination reaches only
+ * through bare verbs/adverbs — an object between the verbs ("{NAME} eats cake
+ * and {drinks|drink} soda") ends the chain and the later pair is left as-is.
+ */
+export function collapseNameSubjectConjugationPairs(template: string): string {
+  if (!template) return template;
+  return template.replace(
+    NAME_SUBJECT_CONJUGATION_CHAIN_RE,
+    (_match, prefix: string, chain: string) => `${prefix}${chain.replace(CHAIN_PAIR_RE, "$1")}`,
+  );
 }

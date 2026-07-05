@@ -53,15 +53,27 @@ time. Rare phonetic exceptions ("a Uma"/"an Hugo") are not special-cased.
 model `gpt-5.4-mini` (low reasoning effort), code-owned allowlist
 `{gpt-5.4-mini, gpt-5.5}` (deliberately NOT admin-editable). The LLM proposes the
 template, then **deterministic post-processing is the correctness guarantee**
-(`postProcessTokenizedTemplate`), in three passes:
+(`postProcessTokenizedTemplate`), in four passes:
 
 1. `stripUnknownTokens` — hallucinated non-tokens (`{When}`, `{The}`) get their
    braces removed rather than 422-ing.
-2. `autoConjugatePersonSubjectVerbs` — wraps person-subject verbs into pairs.
-3. `collapseIdenticalConjugationBranches` — `{can|can}` → `can`.
+2. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
+   (a name is a singular literal for every pronoun set, so a pair after `{NAME}`
+   is wrong by construction; covers coordinated verbs too).
+3. `autoConjugatePersonSubjectVerbs` — wraps pronoun-subject verbs into pairs.
+4. `collapseIdenticalConjugationBranches` — `{can|can}` → `can`.
 
-**The deterministic net, not the model, guarantees grammar.** Don't move
-correctness into the prompt.
+Each rewrite pass returns its own flag (`nameCollapsed`/`conjugated`/`collapsed`)
+and the tokenize route logs each one, so a silent prompt regression shows up in
+the logs. **The deterministic net, not the model, guarantees grammar.** Don't
+move correctness into the prompt.
+
+The name-subject collapse is also applied at the OTHER template-writing
+ingress points (direct fact insert in `facts.ts`, review submission in
+`reviews.ts`, the retokenize script), because `validateTemplate` accepts any
+well-formed pair position-independently. Stored rows created under the old
+contract are repaired by
+`artifacts/api-server/scripts/backfill-collapse-name-subject-pairs.ts`.
 
 ## Renderer responsibilities
 
@@ -78,8 +90,13 @@ tokenizer's logic. **Boundary:** tokenizer decides *which* verbs are wrapped and
 > the verb form changes across pronoun sets.**
 
 Enforced by `autoConjugatePersonSubjectVerbs()` + `PERSON_SUBJECT_VERB_RE`, which
-fires **only** immediately after `{SUBJ}`/`{Subj}`/`{NAME}` (through skippable
-adverbs) — so it can never mis-pluralize a verb whose subject is a different noun.
+fires **only** immediately after `{SUBJ}`/`{Subj}` (through skippable adverbs) —
+so it can never mis-pluralize a verb whose subject is a different noun. A verb
+whose subject is `{NAME}` is NOT wrapped: the name renders as a singular literal
+for every pronoun set, so those verbs stay plain singular text, and
+`collapseNameSubjectConjugationPairs()` collapses any pair the model emits there
+anyway. The two passes share one exported adverb pattern
+(`SKIPPABLE_ADVERB_RE_SRC`) so their reach can't drift apart.
 `thirdPersonToBase()` handles irregulars (is→are, has→have, does→do, goes→go, +
 contractions) and has guards (`NOUN_STOPLIST`, `-ss/-us/-is`, uppercase-initial
 for proper nouns).
@@ -90,6 +107,8 @@ for proper nouns).
   repairs it.
 - LLM wraps a **non-person** subject's verb ("Sharks has…") → prevented by prompt
   rule + the narrow anchor.
+- LLM wraps a verb whose subject is `{NAME}` (`{NAME} {gives|give}`) → would
+  render "David give" for they/them; collapsed to the singular branch.
 - LLM wraps a non-conjugating modal (`{can|can}`) → collapsed.
 - LLM hallucinates non-token braces → stripped.
 - Noun after `{NAME}` ending in `-s` (news, fitness, virus) → false-positive
@@ -102,6 +121,7 @@ for proper nouns).
 | `{Subj} keeps …` for they/them | "They keeps" | **"They keep"** | person is subject, form changes → wrap `{keeps|keep}` |
 | `Sharks have a {NAME} Week` | "Sharks has an Alex Week" | **"Sharks have a … Week"** | *Sharks* is the subject, not the person → leave plain |
 | `{NAME} can …` | `{can|can}` | **`can`** | modal doesn't change form → collapse |
+| `{NAME} gives …` | `{gives|give}` | **`gives`** | name is a singular literal for every pronoun set → collapse to singular |
 | `a {NAME}` where NAME="Alex" | "a Alex" | **"an Alex"** | article agreement fixed at render time |
 | `{NAME}'s …` possessive | (mis-wrap) | left plain | possessive of the name, not a verb |
 
@@ -112,8 +132,8 @@ patches the one bad sentence is a known failure pattern (see
 ## Files to inspect before grammar/token work
 
 - `lib/api-zod/src/templateGrammar.ts` — closed token set, `validateTemplate`,
-  `autoConjugatePersonSubjectVerbs`, `collapseIdenticalConjugationBranches`
-  (single source of truth).
+  `autoConjugatePersonSubjectVerbs`, `collapseIdenticalConjugationBranches`,
+  `collapseNameSubjectConjugationPairs` (single source of truth).
 - `artifacts/api-server/src/lib/factTokenizer.ts` — model policy, system prompt,
   post-processing.
 - `artifacts/overhype-me/src/lib/render-fact.ts` (+ `@/lib/pronouns`) — the
