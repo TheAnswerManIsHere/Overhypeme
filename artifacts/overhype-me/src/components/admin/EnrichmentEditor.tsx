@@ -1,4 +1,4 @@
-import { useState, useRef, type FocusEvent } from "react";
+import { useEffect, useState, useRef, type FocusEvent } from "react";
 import {
   PRIMARY_ARCHETYPES,
   SUBTYPES_BY_ARCHETYPE,
@@ -79,6 +79,8 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   culturalReferences: [],
   semanticEntities: [],
 };
+
+const TRACKED_TEXT_OVERRIDE_DEBOUNCE_MS = 600;
 
 const SELECT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
@@ -1409,12 +1411,45 @@ export function EnrichmentEditor({
   // Override mode is active only when a baseline is available (live Facts page).
   const oc = overrideContext && overrideContext.aiDerived ? overrideContext : null;
 
+  const pendingTextOverrideTimers = useRef<Partial<Record<OverridablePath, ReturnType<typeof setTimeout>>>>({});
+  const pendingTextOverrideValues = useRef<Partial<Record<OverridablePath, unknown>>>({});
+  const overrideContextRef = useRef(oc);
+  overrideContextRef.current = oc;
+
+  useEffect(() => () => {
+    const currentOverrideContext = overrideContextRef.current;
+    for (const [path, timer] of Object.entries(pendingTextOverrideTimers.current) as [OverridablePath, ReturnType<typeof setTimeout>][]) {
+      if (timer) clearTimeout(timer);
+      if (currentOverrideContext && Object.prototype.hasOwnProperty.call(pendingTextOverrideValues.current, path)) {
+        currentOverrideContext.onOverride(path, pendingTextOverrideValues.current[path]);
+      }
+    }
+    pendingTextOverrideTimers.current = {};
+    pendingTextOverrideValues.current = {};
+  }, []);
+
   /** Tracked-field write: optimistically reflect the change in the local draft
    * for instant feedback, and (in override mode) persist it through the override
-   * endpoints. In the review/approval flow it is just a normal draft edit. */
+   * endpoints. Text-heavy array editors debounce override persistence so normal
+   * typing (especially spaces) is not interrupted by server canonicalization after
+   * every keystroke. In the review/approval flow it is just a normal draft edit. */
   const setTracked = (path: OverridablePath, value: unknown, patch: Partial<FactEnrichment>) => {
     update(patch);
-    if (oc) oc.onOverride(path, value);
+    if (!oc) return;
+
+    if (path === "/semanticEntities" || path === "/culturalReferences") {
+      const existing = pendingTextOverrideTimers.current[path];
+      if (existing) clearTimeout(existing);
+      pendingTextOverrideValues.current[path] = value;
+      pendingTextOverrideTimers.current[path] = setTimeout(() => {
+        delete pendingTextOverrideTimers.current[path];
+        delete pendingTextOverrideValues.current[path];
+        oc.onOverride(path, value);
+      }, TRACKED_TEXT_OVERRIDE_DEBOUNCE_MS);
+      return;
+    }
+
+    oc.onOverride(path, value);
   };
 
   /** Render the per-field override decoration (nothing in review mode). */
