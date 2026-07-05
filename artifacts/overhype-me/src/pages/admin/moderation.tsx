@@ -559,17 +559,39 @@ function ReviewModal({
     if (variant && review.matchingFact) body.parentFactId = review.matchingFact.id;
     void runAction("provisional-approve", body);
   };
-  const onReject = () => {
+  const onReject = async () => {
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
+    // A refresh reject marks the candidate non-pending; drain any in-flight
+    // per-field override write first so a field just blurred by this click
+    // doesn't fail against the rejected candidate (the edit is moot on reject,
+    // but the failed write would surface a spurious error).
+    await enrichEditing.flushOverrides();
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
-  const onApproveProduction = (waive?: boolean) => {
+  const onApproveProduction = async (waive?: boolean) => {
+    // Land any in-flight per-field override write BEFORE promotion. A tracked
+    // field (semantic entity, or a Revert-to-AI reset that never marks the
+    // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE;
+    // promotion marks the candidate non-pending, so a write still in flight is
+    // rejected (CANDIDATE_NOT_PENDING) and the human edit is silently dropped
+    // from the promoted fact. Awaiting also lets adoptServerSlice reconcile the
+    // draft, so the unsaved-VSO gate below reads true (post-flush) state.
+    const flushed = await enrichEditing.flushOverrides();
+    if (!flushed) {
+      setError(
+        isRefreshCycle
+          ? "A field edit didn't save — resolve it (retry the field) before promoting."
+          : "A field edit didn't save — resolve it (retry the field) before approving.",
+      );
+      return;
+    }
     // Approval publishes the SAVED enrichment (staging fact for first-time
     // cycles; the candidate version for refresh cycles) — the client never
     // sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
     // force a Save/Discard first so nothing silently diverges from what the
-    // moderator sees.
-    if (enrichmentDraft.hasUncommittedChanges) {
+    // moderator sees. Read isDirty() (ref-based) so it reflects the just-flushed
+    // reconcile, not the stale value this closure captured before the await.
+    if (enrichmentDraft.isDirty()) {
       setError(
         isRefreshCycle
           ? "You have unsaved Visual Strategy Override edits — Save or Discard them before promoting (approval promotes the saved candidate)."

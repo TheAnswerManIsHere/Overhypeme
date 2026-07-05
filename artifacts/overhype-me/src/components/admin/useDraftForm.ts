@@ -72,6 +72,12 @@ export interface UseDraftFormResult<T, R = unknown> {
   draftSavedAt: number | null;
   /** value differs from the server baseline (there is unsaved work). */
   hasUncommittedChanges: boolean;
+  /** Synchronous, ref-based equivalent of `hasUncommittedChanges`. Reflects
+   *  updates applied within the current tick (e.g. an `adoptServerSlice` from a
+   *  just-awaited override write) that the memoized boolean hasn't re-rendered
+   *  for yet — so async action handlers read true post-flush state, not the
+   *  stale value captured in their closure. */
+  isDirty: () => boolean;
   committing: boolean;
   commitError: string | null;
   /** Epoch ms of the last successful server commit (for a "Saved to server" hint). */
@@ -335,6 +341,11 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     [value, baseline],
   );
 
+  const isDirty = useCallback(
+    () => stableSerialize(valueRef.current) !== stableSerialize(baselineRef.current),
+    [],
+  );
+
   return {
     value,
     setValue,
@@ -343,6 +354,7 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     draftLabel,
     draftSavedAt,
     hasUncommittedChanges,
+    isDirty,
     committing,
     commitError,
     committedAt,
