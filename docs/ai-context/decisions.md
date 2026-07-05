@@ -13,6 +13,34 @@
 
 ---
 
+### 2026-07 · Tokenizer grammar correctness batch: possessive form, "They's" retirement, coordination reach
+- **Decision:**
+  - `{NAME_POSSESSIVE}` always appends `'s` — including names already ending in
+    `s` ("James" → "James's") — matching the server canonical renderer's
+    existing `possessive()` convention, rather than a "James'" bare-apostrophe
+    style.
+  - The never-valid "They's" render is retired with BOTH a deterministic
+    ingress fix (new templates can never store the bare `{Subj}'s` contraction
+    — it's expanded to `{Subj} {is|are}` before storage) AND a one-time backfill
+    of existing stored rows, rather than renderer-safety alone.
+  - Coordinated `{Subj}`-subject verb wrapping (auto-wrapping a *later* verb in
+    "`{Subj} runs and hides`") is explicitly NOT added to the deterministic
+    net — only the immediately-adjacent verb is ever auto-wrapped. See the
+    matching
+    [known-failure-patterns.md](./known-failure-patterns.md#regex-grammar-rewrite-reaches-past-a-safe-anchor)
+    entry for why.
+- **Why:** the possessive form needed to be unambiguous and viewer-independent
+  regardless of the name's spelling; "They's" is never valid English and the
+  fix has to hold for both new writes and the existing corpus; coordinated
+  verb-wrapping by regex can't reliably distinguish a shared subject from a new
+  one once a coordinating conjunction is crossed, so "prefer no rewrite over
+  the wrong rewrite" wins over broader coverage.
+- **Reference:** PR #188; see
+  [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
+- **Revisit if:** the product wants a "James'" possessive style instead, or a
+  real parser (not regex) is ever introduced for tokenization, at which point
+  coordinated-verb wrapping could be revisited.
+
 ### 2026-07 · Visual Concept is a mandatory human gate before any render spend (three-step moderation)
 - **Decision:** Moderation gains a third gate. Enrichment success lands a review
   at a new **`concept_review`** stage (Step 2), where the human accepts/edits/

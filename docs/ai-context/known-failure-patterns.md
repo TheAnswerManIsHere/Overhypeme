@@ -114,6 +114,31 @@ must agree" rule (not just "They keeps"), with a narrow anchor so it never
 mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#regression-examples-must-stay-green).
 
+## Regex grammar rewrite reaches past a safe anchor
+
+**Looks like:** a deterministic text-rewrite rule (regex-based grammar/token
+repair) is extended to "walk into" a syntactically similar but semantically
+different region — e.g. auto-*wrapping* a verb across a coordinating
+conjunction on the assumption the subject is unchanged. **Dangerous:** regex has
+no semantic understanding; it can't tell "and hides" (same subject) from "and
+dogs bark" (a new subject) — the rewrite silently corrupts input that merely
+*looks* similar. **Avoid:** keep a rewrite that *creates* a token anchored to a
+position where the subject is unambiguous (immediately after the trigger
+token); prefer "no rewrite" over "wrong rewrite" when reach would require
+guessing. A rewrite that only *collapses* an existing token can safely reach
+further, because it can be bounded by a strict stop-set (any brace or
+clause-boundary punctuation) without needing to positively identify the new
+construct. **Overhype:** the tokenizer's conjugation net
+(`autoConjugatePersonSubjectVerbs`) stays adjacency-only — it will not walk a
+coordination chain to *wrap* a later verb, because `{Subj} runs and dogs bark`
+is indistinguishable from `{Subj} runs and hides` by regex alone; the AI prompt
+(not the deterministic net) is responsible for coordinated verbs. The
+complementary `{NAME}`-subject *collapse*
+(`collapseNameSubjectConjugationPairs`) safely reaches further because it only
+removes an existing pair, bounded by clause/brace/punctuation stops — it never
+creates a new wrap. See
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#the-core-conjugation-invariant).
+
 ## Migration/backfill blind spots
 
 **Looks like:** a schema/data change that ignores old rows, partial states,
