@@ -20,8 +20,9 @@ capitalized sentence-start variant:
 
 `validateTemplate()` rejects nested/unmatched braces and any token outside this
 set. **Caveat:** the renderer *also* still substitutes some **legacy** tokens
-(`{He}`, `{Him}`, `{His}`, `{Himself}`, …) for backward compat, but those are NOT
-in the allowed set — new tokenization/validation must use the closed set above.
+(`{He}`, `{Him}`, `{His}`, `{Himself}`, `{He's}`/`{he's}`, …) for backward compat,
+but those are NOT in the allowed set — new tokenization/validation must use the
+closed set above.
 
 ## Pronoun sets
 
@@ -42,8 +43,16 @@ reasoning.
 
 ## Name tokens
 
-`{NAME}` is the person; `{NAME_POSSESSIVE}` its possessive. The renderer also
-fixes **indefinite-article agreement at render time** (`a {NAME}` → "an Alex")
+`{NAME}` is the person; `{NAME_POSSESSIVE}` its possessive. Both the server
+canonical renderer (`renderCanonical.ts`, via `possessive()`) and the
+user-facing renderer (`render-fact.ts`, via `possessiveName()`) substitute
+`{NAME_POSSESSIVE}` by **always appending `'s`** — including for names already
+ending in `s` (`James` → `James's`, `Chris` → `Chris's`) — so the rule is
+unambiguous and viewer-independent (product decision). In the segmented
+renderer (`renderFactSegments`) `{NAME}` and `{NAME_POSSESSIVE}` use **two
+distinct placeholder sentinels** so each becomes the right text (name vs.
+possessive), both still flagged `isName: true`. The renderer also fixes
+**indefinite-article agreement at render time** (`a {NAME}` → "an Alex")
 because it depends on the viewer's actual name and can't be tokenized ahead of
 time. Rare phonetic exceptions ("a Uma"/"an Hugo") are not special-cased.
 
@@ -53,27 +62,89 @@ time. Rare phonetic exceptions ("a Uma"/"an Hugo") are not special-cased.
 model `gpt-5.4-mini` (low reasoning effort), code-owned allowlist
 `{gpt-5.4-mini, gpt-5.5}` (deliberately NOT admin-editable). The LLM proposes the
 template, then **deterministic post-processing is the correctness guarantee**
-(`postProcessTokenizedTemplate`), in four passes:
+(`postProcessTokenizedTemplate`): `stripUnknownTokens` (hallucinated non-tokens
+like `{When}`/`{The}` get their braces removed rather than 422-ing), then the
+shared **`applyDeterministicGrammar`** sequence below.
 
-1. `stripUnknownTokens` — hallucinated non-tokens (`{When}`, `{The}`) get their
-   braces removed rather than 422-ing.
-2. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
+Each rewrite pass returns its own scoped flag
+(`nameCollapsed`/`contractionExpanded`/`conjugated`/`collapsed`) and the tokenize
+route logs each one, so a silent prompt regression shows up in the logs. **The
+deterministic net, not the model, guarantees grammar.** Don't move correctness
+into the prompt.
+
+### The single deterministic sequence: `applyDeterministicGrammar`
+
+`applyDeterministicGrammar(template)` (in `templateGrammar.ts`) is the one
+canonical grammar-only cleanup, run in this exact order:
+
+1. `collapseNameSubjectConjugationPairs` — `{NAME} {gives|give}` → `{NAME} gives`
    (a name is a singular literal for every pronoun set, so a pair after `{NAME}`
-   is wrong by construction; covers coordinated verbs too).
+   is wrong by construction). Covers adjacent coordinated verbs AND a pair
+   separated from `{NAME}` by an object when it sits directly after a
+   coordinating conjunction (`{NAME} eats cake and {drinks|drink} soda` → `…
+   and drinks soda`); the object-separated reach stops at any brace or
+   clause-boundary punctuation (`. , ; : ? ! newline "`), so it can't cross a
+   different subject token or into a new clause.
+2. `expandSubjectContractions` — `{Subj}'s`/`{SUBJ}'s` → `{Subj} {is|are}` (see
+   "Retiring `They's`" below).
 3. `autoConjugatePersonSubjectVerbs` — wraps pronoun-subject verbs into pairs.
+   **Adjacency-only**: fires on the verb immediately after `{SUBJ}`/`{Subj}`
+   (through skippable adverbs). It does NOT walk a coordination chain to wrap a
+   later verb, because a regex can't tell a shared-subject verb from a new
+   lowercase noun subject — `{Subj} runs and dogs bark` correctly becomes
+   `{Subj} {runs|run} and dogs bark` (first verb wrapped, `dogs bark` left
+   alone). Coordinated `{Subj}` verbs are the AI prompt's job (it has an example
+   for them); the net doesn't retro-repair the tail.
 4. `collapseIdenticalConjugationBranches` — `{can|can}` → `can`.
 
-Each rewrite pass returns its own flag (`nameCollapsed`/`conjugated`/`collapsed`)
-and the tokenize route logs each one, so a silent prompt regression shows up in
-the logs. **The deterministic net, not the model, guarantees grammar.** Don't
-move correctness into the prompt.
+`applyDeterministicGrammar` deliberately **excludes** `stripUnknownTokens` — that
+is model-hallucination cleanup owned by the AI route; the other write routes
+should validate-and-reject unknown tokens, not silently strip them.
 
-The name-subject collapse is also applied at the OTHER template-writing
-ingress points (direct fact insert in `facts.ts`, review submission in
-`reviews.ts`, the retokenize script), because `validateTemplate` accepts any
-well-formed pair position-independently. Stored rows created under the old
-contract are repaired by
-`artifacts/api-server/scripts/backfill-collapse-name-subject-pairs.ts`.
+### Every ingress runs the same sequence
+
+Because `validateTemplate` accepts any well-formed pair position-independently,
+an already-tokenized submission (`{Subj} keeps it`, `{Subj}'s fast`) could
+otherwise validate and store unrepaired. So **every** template-writing route runs
+the full `applyDeterministicGrammar` sequence through the shared server helper
+**`normalizeFactTemplateForStorage(text)`** (in
+`artifacts/api-server/src/lib/`), which returns a discriminated union on `valid`
+and — on success — the derived storage columns (`canonicalText`,
+`splitTokenIndex`, `hasPronouns`) computed from the FINAL normalized text.
+Callers: `POST /facts`, `PATCH /admin/facts/:id`, `POST /admin/facts/:id/variants`
+(422 on invalid), and the bulk paths `POST /admin/facts/import`,
+`POST /admin/facts/import-csv`, and the API-key `POST /admin/import/facts` (which
+keep their existing response shapes and add a `failed` array — invalid rows are
+reported and skipped, valid rows written: partial success). `POST
+/facts/submit-review` uses `normalizeFactTemplateForPendingReview` (normalize +
+validate, no fact-only metadata). Normalization runs BEFORE dedupe/canonical/
+embedding so stored text and derived metadata never drift.
+
+The authoritative server-side `hasPronouns` detector for storage is
+`hasFactPronounMarkersForStorage` (same module) — it must NOT treat `{NAME}` or
+`{NAME_POSSESSIVE}` alone as pronoun-bearing. Do not import the frontend
+`hasPronouns` from `render-fact.ts` (that one is client-oriented).
+
+Stored rows created under the old contract are repaired by targeted, idempotent,
+dry-run-default backfills:
+`artifacts/api-server/scripts/backfill-collapse-name-subject-pairs.ts` (name
+pairs) and `artifacts/api-server/scripts/backfill-expand-subject-contractions.ts`
+(subject contractions — including the legacy `{He's}`/`{he's}` token; pure
+transform in `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`).
+
+## Retiring `They's`
+
+`{Subj}'s`/`{SUBJ}'s` is valid template *syntax* (`{Subj}` is a valid token, `'s`
+is plain text) but renders the never-valid **"They's"** for they/them. `'s` is
+also ambiguous (is/has). The fix is deterministic at ingress:
+`expandSubjectContractions` rewrites it to an explicit `{Subj} {is|are}` pair —
+ambiguous is/has **defaults to the copula** — before validation/storage, so a
+stored template should never contain the bare contraction. As defense-in-depth
+for legacy/stale text, the renderer (`subjectContraction` in `render-fact.ts`)
+renders `{Subj}'s`/`{SUBJ}'s` and the legacy `{He's}`/`{he's}` tokens
+plurality-safely: singular sets keep the valid contraction (`He's`), plural sets
+expand to the copula (`They are`), never `'s`. `tokenizeFact` (the non-AI path)
+and the AI prompt both emit `{Subj} {is|are}` instead of `{Subj}'s`.
 
 ## Renderer responsibilities
 
@@ -91,15 +162,21 @@ tokenizer's logic. **Boundary:** tokenizer decides *which* verbs are wrapped and
 
 Enforced by `autoConjugatePersonSubjectVerbs()` + `PERSON_SUBJECT_VERB_RE`, which
 fires **only** immediately after `{SUBJ}`/`{Subj}` (through skippable adverbs) —
-so it can never mis-pluralize a verb whose subject is a different noun. A verb
-whose subject is `{NAME}` is NOT wrapped: the name renders as a singular literal
-for every pronoun set, so those verbs stay plain singular text, and
+so it can never mis-pluralize a verb whose subject is a different noun. This is
+the **adjacency-only** rule above: the net wraps the immediate verb even inside a
+coordination (`{Subj} runs and dogs bark` → `{Subj} {runs|run} and dogs bark`)
+but never walks into the coordinated tail, because "and `<word>`" can't be
+distinguished from "and `<new subject>` `<verb>`" by regex. A verb whose subject
+is `{NAME}` is NOT wrapped: the name renders as a singular literal for every
+pronoun set, so those verbs stay plain singular text, and
 `collapseNameSubjectConjugationPairs()` collapses any pair the model emits there
-anyway. The two passes share one exported adverb pattern
+anyway (including one separated from `{NAME}` by an object — see the sequence
+above). The two passes share one exported adverb pattern
 (`SKIPPABLE_ADVERB_RE_SRC`) so their reach can't drift apart.
 `thirdPersonToBase()` handles irregulars (is→are, has→have, does→do, goes→go, +
-contractions) and has guards (`NOUN_STOPLIST`, `-ss/-us/-is`, uppercase-initial
-for proper nouns).
+contractions), the sibilant `-sses` rule (passes→pass, misses→miss, kisses→kiss),
+and has guards (`NOUN_STOPLIST`, `-ss/-us/-is`, uppercase-initial for proper
+nouns).
 
 ## Known failure modes
 
@@ -113,6 +190,10 @@ for proper nouns).
 - LLM hallucinates non-token braces → stripped.
 - Noun after `{NAME}` ending in `-s` (news, fitness, virus) → false-positive
   pluralization risk, handled by the stoplist/suffix/case guards.
+- Sibilant 3rd-person verb after `{Subj}` (passes/misses/kisses) → the `-sses`
+  rule yields the correct base (pass/miss/kiss), not `passe`/`misse`.
+- Subject-pronoun `'s` (`{Subj}'s`) → would render "They's"; expanded to
+  `{Subj} {is|are}` at ingress, rendered plurality-safe as a fallback.
 
 ## Regression examples (must stay green)
 
@@ -124,6 +205,11 @@ for proper nouns).
 | `{NAME} gives …` | `{gives|give}` | **`gives`** | name is a singular literal for every pronoun set → collapse to singular |
 | `a {NAME}` where NAME="Alex" | "a Alex" | **"an Alex"** | article agreement fixed at render time |
 | `{NAME}'s …` possessive | (mis-wrap) | left plain | possessive of the name, not a verb |
+| `{NAME_POSSESSIVE}` where NAME="James" | raw token / "James'" | **"James's"** | always append `'s`; renderer substitutes the token |
+| `{Subj} passes` for they/them | "They pass**e**" / "They passes" | **"They pass"** | sibilant `-sses` → strip `es` |
+| `{Subj}'s unstoppable` for they/them | "They's unstoppable" | **"They are unstoppable"** | expand contraction to `{is|are}` |
+| `{Subj} eats cake and {drinks|drink} soda` (subj={NAME}) | "David drink soda" | **collapse to `drinks`** | object-separated `{NAME}` pair collapse |
+| `{Subj} runs and dogs bark` | "They run and dog bark" | **"They run and dogs bark"** | adjacency-only: never wrap the coordinated tail's new subject |
 
 **Prove the general invariant, not just the reported example** — a fix that only
 patches the one bad sentence is a known failure pattern (see
@@ -133,20 +219,40 @@ patches the one bad sentence is a known failure pattern (see
 
 - `lib/api-zod/src/templateGrammar.ts` — closed token set, `validateTemplate`,
   `autoConjugatePersonSubjectVerbs`, `collapseIdenticalConjugationBranches`,
-  `collapseNameSubjectConjugationPairs` (single source of truth).
+  `collapseNameSubjectConjugationPairs`, `expandSubjectContractions`,
+  `applyDeterministicGrammar` (single source of truth).
 - `artifacts/api-server/src/lib/factTokenizer.ts` — model policy, system prompt,
-  post-processing.
+  post-processing (`postProcessTokenizedTemplate` = strip + `applyDeterministicGrammar`).
+- `artifacts/api-server/src/lib/normalizeFactTemplateForStorage.ts` — the shared
+  normalize → validate → derive contract every write route uses, plus
+  `hasFactPronounMarkersForStorage`.
 - `artifacts/overhype-me/src/lib/render-fact.ts` (+ `@/lib/pronouns`) — the
-  renderer, pronoun maps, article agreement.
+  renderer, pronoun maps, article agreement, `{NAME_POSSESSIVE}` +
+  subject-contraction fallback.
+- `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts` +
+  `artifacts/api-server/scripts/backfill-expand-subject-contractions.ts` — the
+  `They's` backfill.
 
 ## Testing expectations
 
 - `artifacts/api-server/src/__tests__/factTokenizer.test.ts` — model policy,
-  `stripUnknownTokens`, post-process flags, `{can|can}` collapse.
+  `stripUnknownTokens`, post-process flags (incl. `contractionExpanded`),
+  `{can|can}` collapse, and the parity check
+  (`postProcess(raw).template === applyDeterministicGrammar(stripUnknownTokens(raw))`).
 - `artifacts/api-server/src/__tests__/autoConjugatePersonSubjectVerbs.test.ts` —
-  positive wraps, irregulars, adverb-between, the reported failures, and negatives
-  (past tense, "Sharks have …", possessives, noun stoplist), plus idempotency
-  (running twice == once).
+  positive wraps, irregulars, sibilant `-sses`, adverb-between, coordinated-tail
+  boundary (`… and dogs bark` stays), the reported failures, and negatives
+  (past tense, "Sharks have …", possessives, noun stoplist), plus idempotency.
+- `artifacts/api-server/src/__tests__/templateGrammar.test.ts` — object-separated
+  `{NAME}` collapse (positive + punctuation/token-boundary negatives),
+  `expandSubjectContractions`, `applyDeterministicGrammar` ordering.
+- `artifacts/api-server/src/__tests__/expandSubjectContractionBackfill.test.ts` —
+  the pure backfill transform (both contraction forms, idempotency, validity).
+- `artifacts/overhype-me/src/__tests__/renderFact.test.ts` — `{NAME_POSSESSIVE}`
+  (incl. `James's`, blank, segments), and "never renders they's" across he/she/they
+  + a custom plural set.
+- Route tests (`routes.{facts,reviews,admin,import}.test.ts`) — already-tokenized
+  input is repaired before storage; invalid templates are rejected/reported.
 
 Any change to tokenizer/renderer must add cases that assert the **invariant** —
 include `They keep`, `Sharks have`, name possessives, and the pronoun sets that
