@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type FocusEvent } from "react";
+import { useState, useRef, type ChangeEvent, type FocusEvent } from "react";
 import {
   PRIMARY_ARCHETYPES,
   SUBTYPES_BY_ARCHETYPE,
@@ -79,8 +79,6 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   culturalReferences: [],
   semanticEntities: [],
 };
-
-const TRACKED_TEXT_OVERRIDE_DEBOUNCE_MS = 600;
 
 const SELECT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
@@ -480,6 +478,57 @@ function ResearchReferencePanel({
 }
 
 /**
+ * Free-text field for tracked-override editors. With `commitOnBlur` (override
+ * mode) edits buffer locally while the field is focused and commit ONCE on
+ * blur — so per-field override persistence, and the server's
+ * trim/canonicalization round-trip that would clobber the focused input, never
+ * fires mid-typing. While unfocused it always renders `value`, so external
+ * updates (override reset, server fold-back) flow through; while focused the
+ * local buffer wins. Without `commitOnBlur` (the review/approval flow, where
+ * commits are draft-only) it is a plain controlled input committing every
+ * keystroke, preserving the per-keystroke localStorage draft autosave.
+ */
+function DraftTextField({
+  value,
+  onCommit,
+  commitOnBlur,
+  multiline = false,
+  rows = 2,
+  maxLength,
+  placeholder,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  commitOnBlur: boolean;
+  multiline?: boolean;
+  rows?: number;
+  maxLength?: number;
+  placeholder?: string;
+}) {
+  // null = not editing; the committed `value` shows through.
+  const [draft, setDraft] = useState<string | null>(null);
+  const shared = {
+    value: commitOnBlur ? (draft ?? value) : value,
+    maxLength,
+    placeholder,
+    onChange: (ev: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (commitOnBlur) setDraft(ev.target.value);
+      else onCommit(ev.target.value);
+    },
+    onBlur: () => {
+      if (!commitOnBlur) return;
+      if (draft !== null && draft !== value) onCommit(draft);
+      setDraft(null);
+    },
+  };
+  return multiline ? (
+    <textarea className={`${SELECT_CLASS} resize-none`} rows={rows} {...shared} />
+  ) : (
+    <input className={SELECT_CLASS} {...shared} />
+  );
+}
+
+/**
  * Cultural references editor (Phase 2A). Admins can edit `explanation` and
  * `visualImplication` directly per the addendum; `sourcePhrase` and
  * `canonicalReference` are also editable so a manual-fill workflow can author
@@ -490,10 +539,13 @@ function CulturalReferencesEditor({
   refs,
   factText,
   onChange,
+  commitTextOnBlur,
 }: {
   refs: CulturalReference[];
   factText: string;
   onChange: (next: CulturalReference[]) => void;
+  /** Override mode: free-text edits commit on blur (see DraftTextField). */
+  commitTextOnBlur: boolean;
 }) {
   const update = (i: number, patch: Partial<CulturalReference>) => {
     const next = refs.slice();
@@ -525,10 +577,10 @@ function CulturalReferencesEditor({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
                   <div>
                     <label className={LABEL_CLASS}>Source phrase</label>
-                    <input
-                      className={SELECT_CLASS}
+                    <DraftTextField
                       value={r.sourcePhrase}
-                      onChange={(ev) => update(i, { sourcePhrase: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { sourcePhrase: v })}
                     />
                   </div>
                   <div>
@@ -543,30 +595,32 @@ function CulturalReferencesEditor({
                   </div>
                   <div className="sm:col-span-2">
                     <label className={LABEL_CLASS}>Canonical reference</label>
-                    <input
-                      className={SELECT_CLASS}
+                    <DraftTextField
                       value={r.canonicalReference}
-                      onChange={(ev) => update(i, { canonicalReference: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { canonicalReference: v })}
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <label className={LABEL_CLASS}>Explanation</label>
-                    <textarea
-                      className={`${SELECT_CLASS} resize-none`}
+                    <DraftTextField
+                      multiline
                       rows={2}
                       maxLength={800}
                       value={r.explanation}
-                      onChange={(ev) => update(i, { explanation: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { explanation: v })}
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <label className={LABEL_CLASS}>Visual implication</label>
-                    <textarea
-                      className={`${SELECT_CLASS} resize-none`}
+                    <DraftTextField
+                      multiline
                       rows={2}
                       maxLength={800}
                       value={r.visualImplication}
-                      onChange={(ev) => update(i, { visualImplication: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { visualImplication: v })}
                     />
                   </div>
                   <div className="flex items-center gap-3 sm:col-span-2">
@@ -639,9 +693,12 @@ function emptySemanticEntity(): SemanticEntity {
 function SemanticEntitiesEditor({
   entities,
   onChange,
+  commitTextOnBlur,
 }: {
   entities: SemanticEntity[];
   onChange: (next: SemanticEntity[]) => void;
+  /** Override mode: free-text edits commit on blur (see DraftTextField). */
+  commitTextOnBlur: boolean;
 }) {
   const update = (i: number, patch: Partial<SemanticEntity>) => {
     const next = entities.slice();
@@ -675,18 +732,18 @@ function SemanticEntitiesEditor({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
                   <div>
                     <label className={LABEL_CLASS}>Surface text (verbatim case)</label>
-                    <input
-                      className={SELECT_CLASS}
+                    <DraftTextField
                       value={s.surfaceText}
-                      onChange={(ev) => update(i, { surfaceText: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { surfaceText: v })}
                     />
                   </div>
                   <div>
                     <label className={LABEL_CLASS}>Normalized text</label>
-                    <input
-                      className={SELECT_CLASS}
+                    <DraftTextField
                       value={s.normalizedText}
-                      onChange={(ev) => update(i, { normalizedText: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { normalizedText: v })}
                     />
                   </div>
                   <div>
@@ -711,21 +768,22 @@ function SemanticEntitiesEditor({
                   </div>
                   <div className="sm:col-span-2">
                     <label className={LABEL_CLASS}>Visual referent</label>
-                    <input
-                      className={SELECT_CLASS}
+                    <DraftTextField
                       value={s.visualReferent}
-                      onChange={(ev) => update(i, { visualReferent: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { visualReferent: v })}
                       placeholder="e.g. the planet Earth, or: ground/dirt/soil beneath the subject"
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <label className={LABEL_CLASS}>Notes</label>
-                    <textarea
-                      className={`${SELECT_CLASS} resize-none`}
+                    <DraftTextField
+                      multiline
                       rows={2}
                       maxLength={800}
                       value={s.notes}
-                      onChange={(ev) => update(i, { notes: ev.target.value })}
+                      commitOnBlur={commitTextOnBlur}
+                      onCommit={(v) => update(i, { notes: v })}
                     />
                   </div>
                   <div className="flex items-center gap-3 sm:col-span-2 flex-wrap text-xs">
@@ -1333,25 +1391,6 @@ export function VisualStrategyOverridePanel({
   );
 }
 
-/** Uncontrolled note textarea used in override mode: edits stay local while
- * typing and commit (PUT/DELETE override) on blur — so a sticky human note is
- * persisted without firing a write on every keystroke. */
-function NoteOverrideField({
-  initial, rows, maxLength, onCommit,
-}: { initial: string; rows: number; maxLength: number; onCommit: (v: string) => void }) {
-  const [v, setV] = useState(initial);
-  return (
-    <textarea
-      className={`${SELECT_CLASS} resize-none`}
-      rows={rows}
-      maxLength={maxLength}
-      value={v}
-      onChange={(ev) => setV(ev.target.value)}
-      onBlur={() => onCommit(v)}
-    />
-  );
-}
-
 export function EnrichmentEditor({
   value,
   status,
@@ -1411,45 +1450,16 @@ export function EnrichmentEditor({
   // Override mode is active only when a baseline is available (live Facts page).
   const oc = overrideContext && overrideContext.aiDerived ? overrideContext : null;
 
-  const pendingTextOverrideTimers = useRef<Partial<Record<OverridablePath, ReturnType<typeof setTimeout>>>>({});
-  const pendingTextOverrideValues = useRef<Partial<Record<OverridablePath, unknown>>>({});
-  const overrideContextRef = useRef(oc);
-  overrideContextRef.current = oc;
-
-  useEffect(() => () => {
-    const currentOverrideContext = overrideContextRef.current;
-    for (const [path, timer] of Object.entries(pendingTextOverrideTimers.current) as [OverridablePath, ReturnType<typeof setTimeout>][]) {
-      if (timer) clearTimeout(timer);
-      if (currentOverrideContext && Object.prototype.hasOwnProperty.call(pendingTextOverrideValues.current, path)) {
-        currentOverrideContext.onOverride(path, pendingTextOverrideValues.current[path]);
-      }
-    }
-    pendingTextOverrideTimers.current = {};
-    pendingTextOverrideValues.current = {};
-  }, []);
-
   /** Tracked-field write: optimistically reflect the change in the local draft
    * for instant feedback, and (in override mode) persist it through the override
-   * endpoints. Text-heavy array editors debounce override persistence so normal
-   * typing (especially spaces) is not interrupted by server canonicalization after
-   * every keystroke. In the review/approval flow it is just a normal draft edit. */
+   * endpoints. Free-text inputs inside the array editors buffer locally and
+   * commit on blur (DraftTextField), so in override mode this fires once per
+   * completed edit — never mid-typing. Structural edits (selects, checkboxes,
+   * add/remove row) persist immediately. In the review/approval flow it is just
+   * a normal draft edit. */
   const setTracked = (path: OverridablePath, value: unknown, patch: Partial<FactEnrichment>) => {
     update(patch);
-    if (!oc) return;
-
-    if (path === "/semanticEntities" || path === "/culturalReferences") {
-      const existing = pendingTextOverrideTimers.current[path];
-      if (existing) clearTimeout(existing);
-      pendingTextOverrideValues.current[path] = value;
-      pendingTextOverrideTimers.current[path] = setTimeout(() => {
-        delete pendingTextOverrideTimers.current[path];
-        delete pendingTextOverrideValues.current[path];
-        oc.onOverride(path, value);
-      }, TRACKED_TEXT_OVERRIDE_DEBOUNCE_MS);
-      return;
-    }
-
-    oc.onOverride(path, value);
+    if (oc) oc.onOverride(path, value);
   };
 
   /** Render the per-field override decoration (nothing in review mode). */
@@ -1604,23 +1614,14 @@ export function EnrichmentEditor({
 
       <div>
         <FieldLabel docKey="adultSuitabilityNotes" />
-        {oc ? (
-          <NoteOverrideField
-            key={`asn-${e.adultSuitabilityNotes}`}
-            initial={e.adultSuitabilityNotes}
-            rows={2}
-            maxLength={500}
-            onCommit={(v) => { if (v !== e.adultSuitabilityNotes) oc.onOverride("/adultSuitabilityNotes", v); }}
-          />
-        ) : (
-          <textarea
-            className={`${SELECT_CLASS} resize-none`}
-            rows={2}
-            maxLength={500}
-            value={e.adultSuitabilityNotes}
-            onChange={(ev) => update({ adultSuitabilityNotes: ev.target.value })}
-          />
-        )}
+        <DraftTextField
+          multiline
+          rows={2}
+          maxLength={500}
+          value={e.adultSuitabilityNotes}
+          commitOnBlur={!!oc}
+          onCommit={(v) => setTracked("/adultSuitabilityNotes", v, { adultSuitabilityNotes: v })}
+        />
         {mark("/adultSuitabilityNotes")}
       </div>
 
@@ -1737,23 +1738,14 @@ export function EnrichmentEditor({
 
       <div>
         <FieldLabel docKey="adminReviewNotes" />
-        {oc ? (
-          <NoteOverrideField
-            key={`arn-${e.adminReviewNotes}`}
-            initial={e.adminReviewNotes}
-            rows={2}
-            maxLength={800}
-            onCommit={(v) => { if (v !== e.adminReviewNotes) oc.onOverride("/adminReviewNotes", v); }}
-          />
-        ) : (
-          <textarea
-            className={`${SELECT_CLASS} resize-none`}
-            rows={2}
-            maxLength={800}
-            value={e.adminReviewNotes}
-            onChange={(ev) => update({ adminReviewNotes: ev.target.value })}
-          />
-        )}
+        <DraftTextField
+          multiline
+          rows={2}
+          maxLength={800}
+          value={e.adminReviewNotes}
+          commitOnBlur={!!oc}
+          onCommit={(v) => setTracked("/adminReviewNotes", v, { adminReviewNotes: v })}
+        />
         {mark("/adminReviewNotes")}
       </div>
 
@@ -1773,6 +1765,7 @@ export function EnrichmentEditor({
           refs={e.culturalReferences}
           factText={factText ?? ""}
           onChange={(next) => setTracked("/culturalReferences", next, { culturalReferences: next })}
+          commitTextOnBlur={!!oc}
         />
         {mark("/culturalReferences")}
       </div>
@@ -1781,6 +1774,7 @@ export function EnrichmentEditor({
         <SemanticEntitiesEditor
           entities={e.semanticEntities ?? []}
           onChange={(next) => setTracked("/semanticEntities", next, { semanticEntities: next })}
+          commitTextOnBlur={!!oc}
         />
         {mark("/semanticEntities")}
       </div>
