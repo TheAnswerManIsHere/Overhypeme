@@ -317,4 +317,66 @@ describe("useFactEnrichmentEditing", () => {
     await waitFor(() => expect(result.current.overrideError).toMatch(/already promoted/));
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
   });
+
+  // ── flushOverrides: the terminal-action race guard ──────────────────────────
+  // A field blurred by the same click that fires promote/reject starts an
+  // un-awaited override write; the terminal action flushes it first so the
+  // candidate isn't marked non-pending mid-write (which drops the edit).
+
+  it("flushOverrides awaits an in-flight override write and reports success", async () => {
+    const { calls } = mockCandidateFetch(31, makeEnrichment());
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
+
+    let flushed: boolean | undefined;
+    await act(async () => {
+      // Start the write but do NOT await it — exactly what a field blur does.
+      result.current.overrideContext!.onOverride("/overhypeFit", "questionable");
+      // The terminal action then flushes before proceeding.
+      flushed = await result.current.flushOverrides();
+    });
+
+    expect(flushed).toBe(true);
+    // The write actually landed (pending cleared) against the candidate endpoint.
+    expect(result.current.overrideContext?.pending["/overhypeFit"]).toBeUndefined();
+    expect(calls.some((c) => c.method === "PUT" && c.url === "/api/admin/reviews/31/candidate-overrides")).toBe(true);
+  });
+
+  it("flushOverrides reports failure when an in-flight override write fails", async () => {
+    mockCandidateFetch(31, makeEnrichment(), {
+      failPut: { status: 409, error: "already promoted", code: "CANDIDATE_NOT_PENDING" },
+    });
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
+
+    let flushed: boolean | undefined;
+    await act(async () => {
+      result.current.overrideContext!.onOverride("/overhypeFit", "questionable");
+      flushed = await result.current.flushOverrides();
+    });
+
+    // The terminal action sees the failure and can abort instead of promoting
+    // over a dropped edit.
+    expect(flushed).toBe(false);
+    expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
+  });
+
+  it("flushOverrides resolves true immediately when nothing is in flight", async () => {
+    mockCandidateFetch(31, makeEnrichment());
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.overrideContext).toBeDefined());
+
+    let flushed: boolean | undefined;
+    await act(async () => { flushed = await result.current.flushOverrides(); });
+    expect(flushed).toBe(true);
+  });
 });

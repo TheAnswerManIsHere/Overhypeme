@@ -140,6 +140,13 @@ export interface UseFactEnrichmentEditingResult {
    *  from `{error, code}` when present) — e.g. a stale tab hitting
    *  CANDIDATE_NOT_PENDING after the refresh resolved. Null after a success. */
   overrideError: string | null;
+  /** Await every in-flight per-field override write (PUT/DELETE) and report
+   *  whether all succeeded. Terminal actions (promote / reject) call this first:
+   *  a field blurred by the same click starts an un-awaited write, and if the
+   *  action marks the candidate non-pending before it lands, the write is
+   *  rejected (CANDIDATE_NOT_PENDING) and the human edit is silently dropped.
+   *  Resolves true immediately when nothing is in flight. */
+  flushOverrides: () => Promise<boolean>;
   reloadResolved: () => Promise<void>;
 }
 
@@ -272,6 +279,10 @@ export function useFactEnrichmentEditing({
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  // In-flight override write promises (each resolves to its success boolean),
+  // tracked in a ref so a terminal action can await them synchronously after a
+  // blur — no dependency on a React re-render landing first.
+  const inFlightOverridesRef = useRef<Set<Promise<boolean>>>(new Set());
 
   const fetchResolved = useCallback(async () => {
     if (!enabledRef.current) return;
@@ -330,31 +341,50 @@ export function useFactEnrichmentEditing({
   );
 
   const writeOverride = useCallback(
-    async (path: OverridablePath, run: () => Promise<Response>) => {
-      setPending((p) => ({ ...p, [path]: "saving" }));
-      try {
-        const r = await run();
-        if (!r.ok) {
-          // Surface the server's message when it sent one — candidate-mode
-          // failures (CANDIDATE_NOT_READY, REVIEW_NOT_EDITABLE,
-          // CANDIDATE_NOT_PENDING after a stale tab) are meaningful, not noise.
-          let msg = `Save failed (${r.status}).`;
-          try {
-            const b = (await r.json()) as { error?: string; code?: string };
-            if (b?.error) msg = b.error;
-          } catch { /* keep the status-only message */ }
-          throw new Error(msg);
+    (path: OverridablePath, run: () => Promise<Response>): Promise<boolean> => {
+      const task = (async (): Promise<boolean> => {
+        setPending((p) => ({ ...p, [path]: "saving" }));
+        try {
+          const r = await run();
+          if (!r.ok) {
+            // Surface the server's message when it sent one — candidate-mode
+            // failures (CANDIDATE_NOT_READY, REVIEW_NOT_EDITABLE,
+            // CANDIDATE_NOT_PENDING after a stale tab) are meaningful, not noise.
+            let msg = `Save failed (${r.status}).`;
+            try {
+              const b = (await r.json()) as { error?: string; code?: string };
+              if (b?.error) msg = b.error;
+            } catch { /* keep the status-only message */ }
+            throw new Error(msg);
+          }
+          applyResolved((await r.json()) as ResolvedResponse);
+          setPending((p) => { const n = { ...p }; delete n[path]; return n; });
+          setOverrideError(null);
+          return true;
+        } catch (err) {
+          setPending((p) => ({ ...p, [path]: "error" }));
+          setOverrideError(err instanceof Error ? err.message : "Save failed.");
+          return false;
         }
-        applyResolved((await r.json()) as ResolvedResponse);
-        setPending((p) => { const n = { ...p }; delete n[path]; return n; });
-        setOverrideError(null);
-      } catch (err) {
-        setPending((p) => ({ ...p, [path]: "error" }));
-        setOverrideError(err instanceof Error ? err.message : "Save failed.");
-      }
+      })();
+      inFlightOverridesRef.current.add(task);
+      void task.finally(() => inFlightOverridesRef.current.delete(task));
+      return task;
     },
     [applyResolved],
   );
+
+  // Await all currently-in-flight override writes; loop so writes started while
+  // awaiting (unlikely, but possible) are also drained. Reports overall success.
+  const flushOverrides = useCallback(async (): Promise<boolean> => {
+    let ok = true;
+    while (inFlightOverridesRef.current.size > 0) {
+      const batch = Array.from(inFlightOverridesRef.current);
+      const results = await Promise.all(batch);
+      if (results.some((r) => !r)) ok = false;
+    }
+    return ok;
+  }, []);
 
   const putOverride = useCallback(
     (path: OverridablePath, value: unknown, acknowledge = false) =>
@@ -436,6 +466,7 @@ export function useFactEnrichmentEditing({
     rerunWithConfirm,
     supportsRerun: endpoints.supportsRerun,
     overrideError,
+    flushOverrides,
     reloadResolved: fetchResolved,
   };
 }
