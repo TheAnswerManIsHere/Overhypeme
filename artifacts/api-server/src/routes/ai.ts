@@ -362,11 +362,18 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     // net. The net is the real guarantee: even with the hardened prompt the
     // model intermittently leaves a person-subject verb un-conjugated
     // ("{Subj} keeps" → "They keeps"), and this wraps it as {keeps|keep}.
-    const { template, nameCollapsed, conjugated, collapsed } = postProcessTokenizedTemplate(rawTemplate);
+    const { template, nameCollapsed, contractionExpanded, conjugated, collapsed } =
+      postProcessTokenizedTemplate(rawTemplate);
     if (nameCollapsed) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] collapsed name-subject conjugation pair ({NAME} {x|y} → {NAME} x)",
+      );
+    }
+    if (contractionExpanded) {
+      logger.info(
+        { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
+        "[tokenize-fact] expanded subject contraction ({Subj}'s → {Subj} {is|are})",
       );
     }
     if (conjugated) {

@@ -145,6 +145,10 @@ function thirdPersonToBase(word: string): string | null {
   if (/[bcdfghjklmnpqrstvwxz]ies$/.test(word)) return word.slice(0, -3) + "y";
   // …(ch|sh|x|z|o)es → strip "es"  (catches → catch, pushes → push, fixes → fix)
   if (/(?:ch|sh|x|z|o)es$/.test(word)) return word.slice(0, -2);
+  // …sses → strip "es"  (passes → pass, misses → miss, kisses → kiss). Narrow on
+  // purpose: single-s "-ses" (uses, raises, poses) is ambiguous with e-final bases
+  // and correctly falls through to the default strip-"s" rule below.
+  if (/sses$/.test(word)) return word.slice(0, -2);
   // default: strip trailing "s"  (keeps → keep, runs → run, loves → love)
   return word.slice(0, -1);
 }
@@ -244,21 +248,113 @@ const NAME_SUBJECT_CONJUGATION_CHAIN_RE = new RegExp(
 // Inside a matched chain: a pair with its singular branch captured.
 const CHAIN_PAIR_RE = /\{([^|{}]+)\|[^|{}]+\}/g;
 
+// ---------------------------------------------------------------------------
+// {NAME}-subject conjugation-pair collapse — object-separated coordination
+//
+// The chain above only reaches a coordinated verb that is itself a bare word
+// or pair joined DIRECTLY to the previous unit ("{NAME} runs and
+// {hides|hide}"). It does not reach a pair separated from {NAME} by an object
+// noun phrase ("{NAME} eats cake and {drinks|drink} soda") because "cake"
+// breaks the verb-unit chain. This second, independent pass covers exactly
+// that gap: it walks from {NAME} through plain text up to a coordinating
+// conjunction and collapses a pair that sits directly after it (+ skippable
+// adverbs). It only ever collapses a pre-existing pair — it never creates
+// one — so it can never mis-target a pronoun-subject verb.
+//
+// The reach is deliberately narrow: the span between {NAME} and the
+// conjunction must not cross a brace (a different subject token intervened,
+// e.g. "{NAME} runs or {SUBJ} hides") or clause-boundary punctuation (`.`,
+// `,`, `;`, `:`, `?`, `!`, newline, or a quote) — so "{NAME} eats cake, and
+// {drinks|drink} soda" and "{NAME} eats cake. And {drinks|drink} soda" are
+// left untouched (the comma/period reads as a new clause, not unambiguously
+// the same coordinated predicate).
+// ---------------------------------------------------------------------------
+
+// A character allowed inside the plain span between {NAME} and the
+// conjunction: anything except a brace (a token — a different subject — would
+// have intervened) or clause-boundary punctuation.
+const NAME_SAFE_SPAN_CHAR_RE_SRC = `[^{}.,;:?!\\n"“”]`;
+
+const NAME_OBJECT_SEPARATED_PAIR_RE = new RegExp(
+  `(\\{NAME\\}${NAME_SAFE_SPAN_CHAR_RE_SRC}*?\\s+(?:and|or|but)\\s+${ADVERB_RUN_RE_SRC})` +
+    `(${PAIR_RE_SRC})`,
+  "g",
+);
+
+/**
+ * Collapse a {NAME}-subject conjugation pair separated from {NAME} by an
+ * object/complement, when it sits directly after a coordinating conjunction:
+ * "{NAME} eats cake and {drinks|drink} soda" → "... and drinks soda". Never
+ * creates a pair, and stops at any brace or clause-boundary punctuation (see
+ * above), so it can never reach past a different subject token or into a new
+ * clause/sentence. Pure and idempotent.
+ */
+function collapseNameObjectSeparatedConjugationPair(template: string): string {
+  if (!template) return template;
+  return template.replace(
+    NAME_OBJECT_SEPARATED_PAIR_RE,
+    (_match, prefix: string, pair: string) => `${prefix}${pair.replace(CHAIN_PAIR_RE, "$1")}`,
+  );
+}
+
 /**
  * Collapse conjugation pairs whose grammatical subject is {NAME} to their
  * singular branch: "{NAME} {gives|give} you" → "{NAME} gives you", including
  * coordinated verbs ("{NAME} {runs|run} and {hides|hide}" → "{NAME} runs and
- * hides"). Pairs after a different subject ({SUBJ}/{Subj} or a literal noun)
- * are untouched. Pure and idempotent — running it twice equals running it once.
- *
- * Known limitation (shared with the conjugation net): coordination reaches only
- * through bare verbs/adverbs — an object between the verbs ("{NAME} eats cake
- * and {drinks|drink} soda") ends the chain and the later pair is left as-is.
+ * hides") and pairs separated from {NAME} by an object ("{NAME} eats cake and
+ * {drinks|drink} soda" → "... and drinks soda"). Pairs after a different
+ * subject ({SUBJ}/{Subj} or a literal noun) are untouched. Pure and
+ * idempotent — running it twice equals running it once.
  */
 export function collapseNameSubjectConjugationPairs(template: string): string {
   if (!template) return template;
-  return template.replace(
+  const chainCollapsed = template.replace(
     NAME_SUBJECT_CONJUGATION_CHAIN_RE,
     (_match, prefix: string, chain: string) => `${prefix}${chain.replace(CHAIN_PAIR_RE, "$1")}`,
   );
+  return collapseNameObjectSeparatedConjugationPair(chainCollapsed);
+}
+
+// ---------------------------------------------------------------------------
+// Subject-pronoun contraction expansion
+//
+// `{Subj}'s` / `{SUBJ}'s` is syntactically valid template text today ({Subj}
+// is a valid simple token, followed by plain "'s"), but it renders "They's"
+// for they/them — never valid English. The only safe fix is deterministic:
+// expand the contraction into an explicit {is|are} pair before storage, so
+// the renderer never has to guess whether "'s" meant "is" or "has". Ambiguous
+// is/has forms default to the copula ({is|are}) — the far more common
+// reading in casual English facts.
+// ---------------------------------------------------------------------------
+
+// {Subj}'s or {SUBJ}'s, straight or curly apostrophe.
+const SUBJECT_CONTRACTION_RE = /(\{(?:SUBJ|Subj)\})['’]s\b/g;
+
+/**
+ * Expand a subject-pronoun contraction into an explicit {is|are} pair:
+ * "{Subj}'s unstoppable" → "{Subj} {is|are} unstoppable". Prevents the
+ * never-valid "They's" render. Pure and idempotent — the output contains no
+ * more {Subj}'s sequences to re-match.
+ */
+export function expandSubjectContractions(template: string): string {
+  if (!template) return template;
+  return template.replace(SUBJECT_CONTRACTION_RE, (_match, subj: string) => `${subj} {is|are}`);
+}
+
+/**
+ * The single canonical deterministic grammar-only cleanup sequence, run at
+ * every template-writing ingress (and inside the AI tokenizer's own
+ * post-processing, so the two paths can never drift): collapse
+ * {NAME}-subject pairs, expand subject-pronoun contractions, auto-conjugate
+ * missed person-subject verbs, then collapse identical conjugation branches.
+ * Excludes `stripUnknownTokens` — hallucinated-token cleanup is model-specific
+ * policy that write routes should not silently apply to admin/user input;
+ * they should validate and reject unknown tokens instead. Pure and
+ * idempotent.
+ */
+export function applyDeterministicGrammar(template: string): string {
+  const nameCollapsed = collapseNameSubjectConjugationPairs(template);
+  const contractionExpanded = expandSubjectContractions(nameCollapsed);
+  const conjugated = autoConjugatePersonSubjectVerbs(contractionExpanded);
+  return collapseIdenticalConjugationBranches(conjugated);
 }

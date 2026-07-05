@@ -239,4 +239,42 @@ describe("POST /admin/import/facts — write path", () => {
     assert.equal(res.body.failed.length, 1);
     assert.match(JSON.stringify(res.body.failed[0]), /letters, numbers, and underscores/);
   });
+
+  it("normalizes already-tokenized text before storage (deterministic grammar cleanup)", async () => {
+    const suffix = randomUUID();
+    const text = `${TEXT_PREFIX}${suffix} {Subj} keeps it locked in {POSS} back yard.`;
+    const res = await request(makeApp())
+      .post("/admin/import/facts")
+      .set("x-api-key", TEST_API_KEY)
+      .send([{ text, hashtags: [] }]);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.created, 1);
+
+    const [fact] = await db
+      .select()
+      .from(factsTable)
+      .where(like(factsTable.text, `%${suffix}%`));
+    assert.ok(fact, "fact should have been inserted");
+    assert.equal(fact.text, `${TEXT_PREFIX}${suffix} {Subj} {keeps|keep} it locked in {POSS} back yard.`);
+    assert.equal(fact.hasPronouns, true);
+    assert.ok(fact.canonicalText, "canonicalText should be computed");
+    assert.equal(typeof fact.splitTokenIndex, "number");
+  });
+
+  it("reports a grammar-invalid template in `failed` and does not write it", async () => {
+    const res = await request(makeApp())
+      .post("/admin/import/facts")
+      .set("x-api-key", TEST_API_KEY)
+      .send([{ text: `${TEXT_PREFIX}unknown token ${randomUUID()} {FOO}`, hashtags: [] }]);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.created, 0);
+    assert.equal(res.body.failed.length, 1);
+    assert.match(JSON.stringify(res.body.failed[0]), /Template grammar validation failed/);
+
+    const facts = await db
+      .select()
+      .from(factsTable)
+      .where(like(factsTable.text, `${TEXT_PREFIX}unknown token%`));
+    assert.equal(facts.length, 0, "invalid template must not be written");
+  });
 });

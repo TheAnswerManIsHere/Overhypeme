@@ -15,11 +15,12 @@ import {
   autoConjugatePersonSubjectVerbs,
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
+  expandSubjectContractions,
 } from "./templateGrammar";
 
 // Re-exported for callers/tests that reach the grammar passes through the
 // tokenizer module; the implementation lives in api-zod with its siblings.
-export { collapseNameSubjectConjugationPairs };
+export { collapseNameSubjectConjugationPairs, expandSubjectContractions };
 
 // Deliberately code-owned tokenizer models — NOT governed by adminEngines'
 // ALLOWED_LLM_MODELS (that list only gates the admin-editable engine row). Keep
@@ -59,14 +60,24 @@ TOKEN RULES:
    form. "When {NAME} gives..." is correct for every pronoun set; do NOT output
    "When {NAME} {gives|give}..."
    A verb whose subject is ANYTHING ELSE — a literal noun ("Sharks", "time", "the earth", "death", "people") or any noun phrase that is not the person — MUST stay plain text with NO braces, even if it is third-person singular. The person's pronouns never change another subject's number.
-8. Keep everything else exactly as written — no braces around any other word.
+   Coordinated verbs sharing the person subject each need their OWN pair: "he
+   runs and hides" → "{SUBJ} {runs|run} and {hides|hide}" (both verbs share the
+   {SUBJ} subject). But if the SECOND clause has a different subject, only the
+   first verb is a pair: "he runs and dogs bark" → "{SUBJ} {runs|run} and dogs
+   bark" ("dogs" is a new, non-person subject — never wrap "bark").
+8. NEVER output a subject pronoun token directly followed by "'s" ({Subj}'s /
+   {SUBJ}'s) — "they's" is never valid English. "he's"/"she's" is ALWAYS one of
+   two things and must be expanded to the matching pair, never left as "'s":
+   - meaning "is": {SUBJ} {is|are}  (e.g. "he's fast" → "{SUBJ} {is|are} fast")
+   - meaning "has": {SUBJ} {has|have}  (e.g. "he's got it" → "{SUBJ} {has|have} got it")
+9. Keep everything else exactly as written — no braces around any other word.
 
 IMPORTANT:
 - Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
 - Verb conjugation is NARROW: only conjugate a verb whose subject is a person pronoun token ({SUBJ}/{Subj}). Before adding a pair, ask "is the subject a {SUBJ}/{Subj} token?" — if the subject is {NAME} or a different noun, leave the verb plain.
 - When the person is the subject, "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
 - If the he/she and they forms are IDENTICAL, leave the verb plain — do NOT wrap it. Modal verbs are the common case: can, will, would, should, could, must, might, may. Output "{NAME} can fly" not "{NAME} {can|can} fly".
-- SELF-CHECK before returning: re-read every present-tense verb that directly follows {SUBJ}/{Subj}. Each one MUST be a {singular|plural} pair. A bare "-s" verb in that position (keeps, runs, is, has, does) is a bug — wrap it. Re-read every verb that follows {NAME}; each one MUST stay plain singular-name text.
+- SELF-CHECK before returning: re-read every present-tense verb that directly follows {SUBJ}/{Subj}. Each one MUST be a {singular|plural} pair. A bare "-s" verb in that position (keeps, runs, is, has, does) is a bug — wrap it. Re-read every verb that follows {NAME}; each one MUST stay plain singular-name text. Re-read every "'s" that follows {SUBJ}/{Subj} — it must be expanded to {is|are} or {has|have}, never left as "'s".
 - NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
 - Return ONLY valid JSON: {"template": "...the tokenized template..."}
 - Do NOT explain, do NOT add any other keys.
@@ -82,7 +93,16 @@ Input: "Sharks have a David Week."
 Output: {"template": "Sharks have a {NAME} Week."}
 
 Input: "Alex keeps the virus in his back yard."
-Output: {"template": "{NAME} keeps the virus in {POSS} back yard."}`;
+Output: {"template": "{NAME} keeps the virus in {POSS} back yard."}
+
+Input: "He runs and hides from tax auditors."
+Output: {"template": "{Subj} {runs|run} and {hides|hide} from tax auditors."}
+
+Input: "He runs and dogs bark."
+Output: {"template": "{Subj} {runs|run} and dogs bark."}
+
+Input: "He's unstoppable."
+Output: {"template": "{Subj} {is|are} unstoppable."}`;
 
 /**
  * Remove braces from tokens the grammar validator does not recognise.
@@ -110,34 +130,43 @@ export function stripUnknownTokens(template: string): string {
 }
 
 /**
- * Clean up a raw model-produced template into its final form, in four passes:
- *   1. strip hallucinated tokens ({When} → When),
- *   2. collapse name-subject conjugation pairs ({NAME} {gives|give} → {NAME} gives)
- *      because {NAME} is a singular literal name for every pronoun set,
- *   3. apply the deterministic pronoun-subject verb-conjugation net (the actual
- *      guarantee that "{Subj} keeps" becomes "{Subj} {keeps|keep}"),
- *   4. collapse identical conjugation branches ({can|can} → can) — modals and
- *      other non-conjugating verbs whose he/she and they forms match, which the
- *      model sometimes wraps into a useless duplicate pair.
+ * Clean up a raw model-produced template into its final form, in five passes:
+ *   1. strip hallucinated tokens ({When} → When) — model-hallucination cleanup,
+ *      kept server-owned here rather than in the shared deterministic sequence,
+ *   2-5. the shared deterministic sequence from `applyDeterministicGrammar`
+ *      (collapse {NAME}-subject pairs, expand subject-pronoun contractions,
+ *      auto-conjugate missed person-subject verbs, collapse identical
+ *      conjugation branches) — run pass-by-pass here (not via one opaque call)
+ *      so each pass can report its own flag, but in the EXACT SAME ORDER, so
+ *      this route and every other template-writing ingress can never drift.
  *
  * Returns the final template plus one scoped flag per rewrite pass so callers
  * can log each independently: `nameCollapsed` (a {NAME}-subject pair was
- * collapsed to its singular branch), `conjugated` (the net wrapped a missed
- * verb), and `collapsed` (a duplicate pair was dropped). No flag is overloaded
- * to mean "anything changed" — a raw `{can|can}` collapses with
+ * collapsed to its singular branch), `contractionExpanded` (a `{Subj}'s`/
+ * `{SUBJ}'s` was expanded to an {is|are} pair), `conjugated` (the net wrapped
+ * a missed verb), and `collapsed` (a duplicate pair was dropped). No flag is
+ * overloaded to mean "anything changed" — a raw `{can|can}` collapses with
  * `conjugated: false, collapsed: true`.
  */
 export function postProcessTokenizedTemplate(
   raw: string,
-): { template: string; nameCollapsed: boolean; conjugated: boolean; collapsed: boolean } {
+): {
+  template: string;
+  nameCollapsed: boolean;
+  contractionExpanded: boolean;
+  conjugated: boolean;
+  collapsed: boolean;
+} {
   const stripped = stripUnknownTokens(raw);
   const nameSubjectCollapsed = collapseNameSubjectConjugationPairs(stripped);
-  const conjugatedTemplate = autoConjugatePersonSubjectVerbs(nameSubjectCollapsed);
+  const contractionsExpandedTemplate = expandSubjectContractions(nameSubjectCollapsed);
+  const conjugatedTemplate = autoConjugatePersonSubjectVerbs(contractionsExpandedTemplate);
   const collapsedTemplate = collapseIdenticalConjugationBranches(conjugatedTemplate);
   return {
     template: collapsedTemplate,
     nameCollapsed: nameSubjectCollapsed !== stripped,
-    conjugated: conjugatedTemplate !== nameSubjectCollapsed,
+    contractionExpanded: contractionsExpandedTemplate !== nameSubjectCollapsed,
+    conjugated: conjugatedTemplate !== contractionsExpandedTemplate,
     collapsed: collapsedTemplate !== conjugatedTemplate,
   };
 }

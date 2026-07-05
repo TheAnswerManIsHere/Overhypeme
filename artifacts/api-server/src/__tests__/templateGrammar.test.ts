@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validateTemplate } from "../lib/templateGrammar.js";
+import {
+  validateTemplate,
+  expandSubjectContractions,
+  applyDeterministicGrammar,
+  collapseNameSubjectConjugationPairs,
+} from "../lib/templateGrammar.js";
 
 describe("validateTemplate — empty input", () => {
   it("rejects empty string", () => {
@@ -23,6 +28,7 @@ describe("validateTemplate — plain text", () => {
 describe("validateTemplate — allowed simple tokens", () => {
   const tokens = [
     "NAME",
+    "NAME_POSSESSIVE",
     "SUBJ", "Subj",
     "OBJ", "Obj",
     "POSS", "Poss",
@@ -98,5 +104,120 @@ describe("validateTemplate — error cases", () => {
     const r = validateTemplate("}}}");
     assert.equal(r.valid, false);
     assert.equal(r.error, "Unmatched closing brace");
+  });
+});
+
+describe("collapseNameSubjectConjugationPairs — object-separated coordination", () => {
+  it("collapses a pair separated from {NAME} by an object", () => {
+    assert.equal(
+      collapseNameSubjectConjugationPairs("{NAME} eats cake and {drinks|drink} soda"),
+      "{NAME} eats cake and drinks soda",
+    );
+  });
+
+  it("collapses with 'or'/'but' and a skippable adverb before the pair", () => {
+    assert.equal(
+      collapseNameSubjectConjugationPairs("{NAME} eats cake or always {drinks|drink} soda"),
+      "{NAME} eats cake or always drinks soda",
+    );
+  });
+
+  it("does not collapse when a noun sits between the conjunction and the pair", () => {
+    const input = "{NAME} eats and dogs {barks|bark}";
+    assert.equal(collapseNameSubjectConjugationPairs(input), input);
+  });
+
+  it("does not cross a different subject token", () => {
+    const input = "{NAME} eats cake or {SUBJ} {drinks|drink} soda";
+    assert.equal(collapseNameSubjectConjugationPairs(input), input);
+  });
+
+  it("does not cross clause-boundary punctuation (comma)", () => {
+    const input = "{NAME} eats cake, and {drinks|drink} soda";
+    assert.equal(collapseNameSubjectConjugationPairs(input), input);
+  });
+
+  it("does not cross clause-boundary punctuation (semicolon)", () => {
+    const input = "{NAME} eats cake; and {drinks|drink} soda";
+    assert.equal(collapseNameSubjectConjugationPairs(input), input);
+  });
+
+  it("does not cross clause-boundary punctuation (period / new sentence)", () => {
+    const input = "{NAME} eats cake. And {drinks|drink} soda";
+    assert.equal(collapseNameSubjectConjugationPairs(input), input);
+  });
+
+  it("is idempotent for object-separated collapse", () => {
+    const input = "{NAME} eats cake and {drinks|drink} soda";
+    const once = collapseNameSubjectConjugationPairs(input);
+    assert.equal(collapseNameSubjectConjugationPairs(once), once);
+  });
+});
+
+describe("expandSubjectContractions", () => {
+  it("expands {Subj}'s to {Subj} {is|are}", () => {
+    assert.equal(
+      expandSubjectContractions("{Subj}'s unstoppable"),
+      "{Subj} {is|are} unstoppable",
+    );
+  });
+
+  it("expands {SUBJ}'s to {SUBJ} {is|are}", () => {
+    assert.equal(
+      expandSubjectContractions("everyone knows {SUBJ}'s unstoppable"),
+      "everyone knows {SUBJ} {is|are} unstoppable",
+    );
+  });
+
+  it("handles a curly apostrophe", () => {
+    assert.equal(
+      expandSubjectContractions("{Subj}’s unstoppable"),
+      "{Subj} {is|are} unstoppable",
+    );
+  });
+
+  it("leaves text without a subject contraction unchanged", () => {
+    const input = "{Subj} keeps it locked in {POSS} back yard";
+    assert.equal(expandSubjectContractions(input), input);
+  });
+
+  it("leaves an already-expanded pair unchanged", () => {
+    const input = "{Subj} {is|are} unstoppable";
+    assert.equal(expandSubjectContractions(input), input);
+  });
+
+  it("is idempotent", () => {
+    const once = expandSubjectContractions("{Subj}'s unstoppable and {SUBJ}'s fast");
+    assert.equal(expandSubjectContractions(once), once);
+  });
+});
+
+describe("applyDeterministicGrammar — canonical sequence", () => {
+  it("collapses a {NAME}-subject pair, expands a contraction, and conjugates a missed verb in one call", () => {
+    const input = "{NAME} {gives|give} you the finger. {Subj}'s telling you {Subj} keeps score.";
+    const output = applyDeterministicGrammar(input);
+    assert.equal(
+      output,
+      "{NAME} gives you the finger. {Subj} {is|are} telling you {Subj} {keeps|keep} score.",
+    );
+    assert.deepEqual(validateTemplate(output), { valid: true });
+  });
+
+  it("collapses an identical conjugation branch produced after conjugation", () => {
+    assert.equal(
+      applyDeterministicGrammar("{Subj} {can|can} fly"),
+      "{Subj} can fly",
+    );
+  });
+
+  it("is idempotent", () => {
+    const input = "{NAME} {gives|give} you the finger. {Subj}'s telling you {Subj} keeps score.";
+    const once = applyDeterministicGrammar(input);
+    assert.equal(applyDeterministicGrammar(once), once);
+  });
+
+  it("is a no-op on already-correct text", () => {
+    const input = "{NAME} gives you the finger. {Subj} {is|are} telling you {Subj} {keeps|keep} score.";
+    assert.equal(applyDeterministicGrammar(input), input);
   });
 });

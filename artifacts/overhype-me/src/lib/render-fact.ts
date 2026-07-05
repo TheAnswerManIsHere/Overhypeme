@@ -57,6 +57,30 @@ function cap(s: string): string {
 }
 
 /**
+ * Possessive form of the resolved name for {NAME_POSSESSIVE}. Per the product
+ * decision we ALWAYS append "'s" — including for names already ending in "s"
+ * ("James" → "James's") — mirroring the server's canonical `possessive()`
+ * helper (renderCanonical.ts) so canonical and user-facing rendering agree.
+ */
+function possessiveName(resolvedName: string): string {
+  return `${resolvedName}'s`;
+}
+
+/**
+ * Render a subject-pronoun + "'s" contraction. `{Subj}'s`/`{SUBJ}'s` is
+ * defense-in-depth for stale/legacy stored text — the deterministic grammar
+ * pass expands new writes to an explicit {is|are} pair before storage, so a
+ * fresh template should never reach this path. Singular sets render the valid
+ * contraction ("He's"); plural (they/them and any custom plural set) expands
+ * to the copula ("They are") since "They's" is never valid English. Ambiguous
+ * is/has forms default to the copula, matching the deterministic pass.
+ */
+function subjectContraction(subj: string, isSingular: boolean, capitalize: boolean): string {
+  const rendered = isSingular ? `${subj}'s` : `${subj} are`;
+  return capitalize ? cap(rendered) : rendered;
+}
+
+/**
  * Choose "a" or "an" so the indefinite article agrees with the word that
  * follows it. English article agreement is decided by the *following* word, so
  * once {NAME} is filled in, the article in front of it has to match the actual
@@ -136,7 +160,7 @@ function resolveMap(pronounsValue: string): PronounMap {
  * Replace all tokens in a fact template.
  *
  * @param text        - Tokenized fact template
- * @param name        - Person's display name  ({NAME} token)
+ * @param name        - Person's display name  ({NAME} / {NAME_POSSESSIVE} tokens)
  * @param pronouns    - Full stored pronouns value: "he/him" | "she/her" | "they/them"
  *                      or pipe-delimited custom "subj|obj|poss|possPro|refl|s"
  *
@@ -167,6 +191,14 @@ export function renderFact(
     .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
       indefiniteArticle(art, resolvedName) + sp + resolvedName)
     .replace(/\{NAME\}/g, resolvedName)
+    .replace(/\{NAME_POSSESSIVE\}/g, possessiveName(resolvedName))
+
+    // Subject-pronoun contraction — defense-in-depth for stale/legacy text
+    // (new writes are expanded to an explicit {is|are} pair before storage).
+    // Must run BEFORE the generic {Subj}/{SUBJ} substitution below, or a
+    // plural set would fall through to the literal (never-valid) "They's".
+    .replace(/\{Subj\}['’]s\b/g, subjectContraction(p.subj, isSingular, true))
+    .replace(/\{SUBJ\}['’]s\b/g, subjectContraction(p.subj, isSingular, false))
 
     // Verb conjugation: {singular_form|plural_form}
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
@@ -188,8 +220,8 @@ export function renderFact(
     // Legacy tokens — kept for backward compat with old facts
     .replace(/\{Himself\}/g, cap(p.refl))
     .replace(/\{himself\}/g, p.refl)
-    .replace(/\{He's\}/g,    cap(p.subj) + "'s")
-    .replace(/\{he's\}/g,    p.subj + "'s")
+    .replace(/\{He's\}/g,    subjectContraction(p.subj, isSingular, true))
+    .replace(/\{he's\}/g,    subjectContraction(p.subj, isSingular, false))
     .replace(/\{Him\}/g,     cap(p.obj))
     .replace(/\{him\}/g,     p.obj)
     .replace(/\{His\}/g,     cap(p.poss))
@@ -207,8 +239,10 @@ export function tokenizeFact(text: string): string {
     .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
     .replace(/\bHimself\b/g, "{REFL}")
     .replace(/\bhimself\b/g, "{REFL}")
-    .replace(/\bHe's\b/g,    "{Subj}'s")
-    .replace(/\bhe's\b/g,    "{SUBJ}'s")
+    // "'s" is ambiguous (is/has) but expanding to the copula {is|are} keeps
+    // this path from ever emitting the never-valid "{Subj}'s" → "They's".
+    .replace(/\bHe's\b/g,    "{Subj} {is|are}")
+    .replace(/\bhe's\b/g,    "{SUBJ} {is|are}")
     .replace(/\bHim\b/g,     "{Obj}")
     .replace(/\bhim\b/g,     "{OBJ}")
     .replace(/\bHis\b/g,     "{Poss}")
@@ -243,9 +277,12 @@ export function renderFactSegments(
   const isSingular = p.plurality === "singular";
   const resolvedName = name || "___";
 
-  // NUL+SOH placeholder — survives the pronoun substitution passes intact,
-  // then we split on it to identify which text segments are the name.
+  // Distinct NUL-prefixed placeholders — survive the pronoun substitution
+  // passes intact, then we split on them to identify which text segments are
+  // the name vs. its possessive (each needs different final text, so they
+  // can't share one placeholder without losing which token produced it).
   const PLACEHOLDER = "\u0000\u0001\u0000";
+  const POSSESSIVE_PLACEHOLDER = "\u0000\u0002\u0000";
 
   const processed = text
     // Fix indefinite-article agreement against the resolved name before swapping
@@ -253,6 +290,13 @@ export function renderFactSegments(
     .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
       indefiniteArticle(art, resolvedName) + sp + PLACEHOLDER)
     .replace(/\{NAME\}/g, PLACEHOLDER)
+    .replace(/\{NAME_POSSESSIVE\}/g, POSSESSIVE_PLACEHOLDER)
+
+    // Subject-pronoun contraction — see renderFact() for rationale. Must run
+    // before the generic {Subj}/{SUBJ} substitution below.
+    .replace(/\{Subj\}['’]s\b/g, subjectContraction(p.subj, isSingular, true))
+    .replace(/\{SUBJ\}['’]s\b/g, subjectContraction(p.subj, isSingular, false))
+
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
       isSingular ? singular : plural
     )
@@ -268,8 +312,8 @@ export function renderFactSegments(
     .replace(/\{REFL\}/g,     p.refl)
     .replace(/\{Himself\}/g,  cap(p.refl))
     .replace(/\{himself\}/g,  p.refl)
-    .replace(/\{He's\}/g,     cap(p.subj) + "'s")
-    .replace(/\{he's\}/g,     p.subj + "'s")
+    .replace(/\{He's\}/g,     subjectContraction(p.subj, isSingular, true))
+    .replace(/\{he's\}/g,     subjectContraction(p.subj, isSingular, false))
     .replace(/\{Him\}/g,      cap(p.obj))
     .replace(/\{him\}/g,      p.obj)
     .replace(/\{His\}/g,      cap(p.poss))
@@ -277,11 +321,16 @@ export function renderFactSegments(
     .replace(/\{He\}/g,       cap(p.subj))
     .replace(/\{he\}/g,       p.subj);
 
-  const parts = processed.split(PLACEHOLDER);
+  const parts = processed.split(new RegExp(`(${PLACEHOLDER}|${POSSESSIVE_PLACEHOLDER})`));
   const out: { text: string; isName: boolean }[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    if (parts[i]) out.push({ text: parts[i]!, isName: false });
-    if (i < parts.length - 1) out.push({ text: resolvedName, isName: true });
+  for (const part of parts) {
+    if (part === PLACEHOLDER) {
+      out.push({ text: resolvedName, isName: true });
+    } else if (part === POSSESSIVE_PLACEHOLDER) {
+      out.push({ text: possessiveName(resolvedName), isName: true });
+    } else if (part) {
+      out.push({ text: part, isName: false });
+    }
   }
   return out;
 }

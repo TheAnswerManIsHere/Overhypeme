@@ -36,9 +36,7 @@ import {
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { renderCanonical } from "../lib/renderCanonical";
-import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
+import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -771,16 +769,21 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const updates: Record<string, unknown> = {};
   const textChanged = text !== undefined;
   if (textChanged) {
-    // {NAME}-subject pairs are wrong by construction (a name renders as a
-    // singular literal for every pronoun set) — collapse them at every
-    // fact-text ingress, this one included.
-    const newText = collapseNameSubjectConjugationPairs(String(text));
-    updates.text = newText;
-    // Editing the wording invalidates everything derived from it. Recompute the
-    // text-derived metadata so the canonical/dedupe form, caption split, and
-    // semantic-search vector don't silently go stale (mirrors the create paths).
-    updates.canonicalText = renderCanonical(newText);
-    updates.splitTokenIndex = computeSplitTokenIndex(newText);
+    // Validate before updating — malformed grammar must not silently store.
+    // Editing the wording invalidates everything derived from it, so the full
+    // deterministic cleanup + derived metadata are recomputed from the
+    // normalized text (mirrors the create paths).
+    const normalized = normalizeFactTemplateForStorage(String(text));
+    if (!normalized.valid) {
+      res.status(422).json({
+        error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
+      });
+      return;
+    }
+    updates.text = normalized.text;
+    updates.canonicalText = normalized.canonicalText;
+    updates.splitTokenIndex = normalized.splitTokenIndex;
+    updates.hasPronouns = normalized.hasPronouns;
   }
   if (upvotes !== undefined) updates.upvotes = Number(upvotes);
   if (downvotes !== undefined) updates.downvotes = Number(downvotes);
@@ -1189,8 +1192,19 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
   const { text, useCase } = req.body as Record<string, unknown>;
   if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
+  // Not a bulk path — a single invalid variant is a normal validation error.
+  const normalized = normalizeFactTemplateForStorage(text.trim());
+  if (!normalized.valid) {
+    res.status(422).json({
+      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
+    });
+    return;
+  }
   const [variant] = await db.insert(factsTable).values({
-    text: collapseNameSubjectConjugationPairs(text.trim()),
+    text: normalized.text,
+    canonicalText: normalized.canonicalText,
+    splitTokenIndex: normalized.splitTokenIndex,
+    hasPronouns: normalized.hasPronouns,
     parentId: rootId,
     useCase: useCase ? String(useCase) : null,
     isActive: true,
@@ -1232,12 +1246,29 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
     return;
   }
 
-  const inserted = await db
-    .insert(factsTable)
-    .values(texts.map((text) => ({ text: collapseNameSubjectConjugationPairs(text), isActive: true as const })))
-    .returning();
+  // Normalize + validate each row before storage. Partial success: invalid
+  // rows are reported in `failed` and skipped; valid rows are written —
+  // existing `success`/`imported`/`facts` keys are kept, `failed` is added.
+  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  const failed: { index: number; text: string; error: string }[] = [];
+  texts.forEach((text, index) => {
+    const normalized = normalizeFactTemplateForStorage(text);
+    if (!normalized.valid) {
+      failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
+      return;
+    }
+    rowsToInsert.push({
+      text: normalized.text,
+      canonicalText: normalized.canonicalText,
+      splitTokenIndex: normalized.splitTokenIndex,
+      hasPronouns: normalized.hasPronouns,
+      isActive: true,
+    });
+  });
 
-  res.json({ success: true, imported: inserted.length, facts: inserted });
+  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+
+  res.json({ success: true, imported: inserted.length, facts: inserted, failed });
 });
 
 router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: Response) => {
@@ -1257,12 +1288,29 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  const inserted = await db
-    .insert(factsTable)
-    .values(lines.map((text) => ({ text: collapseNameSubjectConjugationPairs(text), isActive: true as const })))
-    .returning();
+  // Normalize + validate each row before storage. Partial success: invalid
+  // rows are reported in `failed` and skipped; valid rows are written —
+  // existing `success`/`imported` keys are kept, `failed` is added.
+  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  const failed: { index: number; text: string; error: string }[] = [];
+  lines.forEach((text, index) => {
+    const normalized = normalizeFactTemplateForStorage(text);
+    if (!normalized.valid) {
+      failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
+      return;
+    }
+    rowsToInsert.push({
+      text: normalized.text,
+      canonicalText: normalized.canonicalText,
+      splitTokenIndex: normalized.splitTokenIndex,
+      hasPronouns: normalized.hasPronouns,
+      isActive: true,
+    });
+  });
 
-  res.json({ success: true, imported: inserted.length });
+  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+
+  res.json({ success: true, imported: inserted.length, failed });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation

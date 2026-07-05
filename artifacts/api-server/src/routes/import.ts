@@ -5,7 +5,7 @@ import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/sche
 import { eq, sql, inArray } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
 import { embedFactAsync } from "../lib/embeddings";
-import { collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
+import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 
 // Infer the transaction type directly from the db.transaction callback parameter
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -104,7 +104,13 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
     return;
   }
 
-  const validItems: { index: number; data: ImportFactItem }[] = [];
+  const validItems: {
+    index: number;
+    data: ImportFactItem;
+    canonicalText: string;
+    splitTokenIndex: number;
+    hasPronouns: boolean;
+  }[] = [];
   const failed: FailedItem[] = [];
 
   for (let i = 0; i < rawItems.length; i++) {
@@ -115,15 +121,30 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
         message: issue.message,
       }));
       failed.push({ index: i, errors });
-    } else {
-      // Collapse {NAME}-subject conjugation pairs at ingress (a name renders
-      // as a singular literal for every pronoun set). Done before the
-      // duplicate pre-check so dedupe compares the same text that is stored.
-      validItems.push({
-        index: i,
-        data: { ...parsed.data, text: collapseNameSubjectConjugationPairs(parsed.data.text) },
-      });
+      continue;
     }
+    // Run the full deterministic grammar cleanup at ingress (done before the
+    // duplicate pre-check so dedupe compares the same text that is stored),
+    // then validate — a submission that bypassed the tokenize route may still
+    // carry a {NAME}-subject pair, an unexpanded {Subj}'s contraction, or a
+    // missed person-subject verb.
+    const normalized = normalizeFactTemplateForStorage(parsed.data.text);
+    if (!normalized.valid) {
+      failed.push({
+        index: i,
+        errors: [
+          { field: "text", message: `Template grammar validation failed: ${normalized.grammarResult.error}` },
+        ],
+      });
+      continue;
+    }
+    validItems.push({
+      index: i,
+      data: { ...parsed.data, text: normalized.text },
+      canonicalText: normalized.canonicalText,
+      splitTokenIndex: normalized.splitTokenIndex,
+      hasPronouns: normalized.hasPronouns,
+    });
   }
 
   if (dryRun) {
@@ -150,11 +171,11 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
   const existingTexts = new Set(existingRows.map((r) => r.text));
 
   // Collect newly-inserted facts for post-commit embedding generation
-  const insertedFacts: Array<{ id: number; text: string }> = [];
+  const insertedFacts: Array<{ id: number; text: string; canonicalText: string }> = [];
 
   // All fact + hashtag writes are inside a single transaction for full atomicity.
   await db.transaction(async (tx) => {
-    for (const { data } of validItems) {
+    for (const { data, canonicalText, splitTokenIndex, hasPronouns } of validItems) {
       if (existingTexts.has(data.text)) {
         skipped++;
         continue;
@@ -162,7 +183,7 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
 
       const [inserted] = await tx
         .insert(factsTable)
-        .values({ text: data.text, isActive: true })
+        .values({ text: data.text, canonicalText, splitTokenIndex, hasPronouns, isActive: true })
         .returning({ id: factsTable.id });
 
       if (!inserted) {
@@ -173,7 +194,7 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
       // Track so the same text appearing multiple times in the payload is skipped
       existingTexts.add(data.text);
       created++;
-      insertedFacts.push({ id: inserted.id, text: data.text });
+      insertedFacts.push({ id: inserted.id, text: data.text, canonicalText });
 
       for (const tag of data.hashtags) {
         const hashtagId = await upsertHashtagInTx(tx, tag);
@@ -192,9 +213,11 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
     }
   });
 
-  // Fire off embedding generation for all newly-inserted facts (non-blocking)
+  // Fire off embedding generation for all newly-inserted facts (non-blocking).
+  // Embed from canonicalText so duplicate checks work against plain-English
+  // queries, same as the other create paths.
   for (const fact of insertedFacts) {
-    void embedFactAsync(fact.id, fact.text);
+    void embedFactAsync(fact.id, fact.text, fact.canonicalText);
   }
 
   res.status(201).json({ created, skipped, failed });

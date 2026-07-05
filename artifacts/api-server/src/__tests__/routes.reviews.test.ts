@@ -192,6 +192,26 @@ describe("POST /facts/submit-review", () => {
     assert.match(res.body.error, /grammar validation failed/);
   });
 
+  it("repairs an already-tokenized submission with the full deterministic grammar cleanup, not just name-collapse", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "{NAME} caught the virus. {Subj}'s keeping it locked in {POSS} back yard." });
+    assert.equal(res.status, 201);
+
+    const [row] = await db
+      .select()
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, res.body.reviewId));
+    assert.ok(row);
+    assert.equal(
+      row.submittedText,
+      "{NAME} caught the virus. {Subj} {is|are} keeping it locked in {POSS} back yard.",
+    );
+  });
+
   it("happy path: inserts a triage_pending review with NO paid prep and returns 201", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);

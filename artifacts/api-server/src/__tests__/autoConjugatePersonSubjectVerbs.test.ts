@@ -17,6 +17,16 @@ describe("autoConjugatePersonSubjectVerbs — positive (wraps person-subject ver
     ["{Subj} wasn't ready", "{Subj} {wasn't|weren't} ready"],
     // Adverb between the subject token and the verb.
     ["{Subj} secretly keeps", "{Subj} secretly {keeps|keep}"],
+    // Sibilant -sses verbs (thirdPersonToBase 'sses' rule).
+    ["{Subj} passes", "{Subj} {passes|pass}"],
+    ["{Subj} misses", "{Subj} {misses|miss}"],
+    ["{Subj} kisses", "{Subj} {kisses|kiss}"],
+    // Coordinated tail: the net is adjacency-only, so it still wraps the
+    // IMMEDIATE person-subject verb even when a later coordinated verb has a
+    // new (non-person) subject — it must not walk into that tail.
+    ["{Subj} runs and dogs bark", "{Subj} {runs|run} and dogs bark"],
+    ["{Subj} hides and alarms sound", "{Subj} {hides|hide} and alarms sound"],
+    ["{Subj} wins but robots revolt", "{Subj} {wins|win} but robots revolt"],
   ];
   for (const [input, expected] of cases) {
     it(`${input} → ${expected}`, () => {
