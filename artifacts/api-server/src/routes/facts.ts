@@ -5,7 +5,7 @@ import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
-import { validateTemplate } from "../lib/templateGrammar";
+import { validateTemplate, collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
 import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
@@ -429,7 +429,7 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
   // If text is already tokenized (sent from front-end AI step), use it as-is.
   // Otherwise apply the basic legacy regex tokenizer.
   const isAlreadyTokenized = /\{(NAME|SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(text);
-  const tokenizedText = isAlreadyTokenized ? text : (() => {
+  const rawTokenizedText = isAlreadyTokenized ? text : (() => {
     return text
       .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
       .replace(/\bHimself\b/g, "{REFL}")
@@ -441,6 +441,11 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
       .replace(/\bHe\b/g, "{Subj}")
       .replace(/\bhe\b/g, "{SUBJ}");
   })();
+  // A {NAME}-subject conjugation pair is wrong by construction (names render as
+  // a singular literal for every pronoun set), and already-tokenized input
+  // bypasses the tokenize route's post-processing — so apply the collapse here
+  // too, before validation and storage.
+  const tokenizedText = collapseNameSubjectConjugationPairs(rawTokenizedText);
 
   // Validate template grammar before storage
   const grammarResult = validateTemplate(tokenizedText);

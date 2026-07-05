@@ -13,6 +13,40 @@
 
 ---
 
+### 2026-07 · Visual Concept is a mandatory human gate before any render spend (three-step moderation)
+- **Decision:** Moderation gains a third gate. Enrichment success lands a review
+  at a new **`concept_review`** stage (Step 2), where the human accepts/edits/
+  writes the **Visual Concept** and **"approves the visual gag"** — and **no test
+  renders run until then**. Approval advances `concept_review → production_review`
+  (Step 3, "Test Renders"), which is the only stage renders fire in. Sub-decisions:
+  - **D1** — gag approval requires a **saved, enabled, non-empty**
+    `coreSceneOverride` on the cycle's effective enrichment (not just an AI
+    candidate card, not a browser-only draft; the server checks the persisted
+    value).
+  - **D2** — **no hard-cancel** of in-flight renders on a Step-3→Step-2 bounce;
+    they finish but are superseded, and re-approval **force-creates a fresh batch**.
+  - **D3** — **no back-migration**: pre-deploy `production_review` rows stay at
+    Step 3 under the existing render/enrichment gates; the new concept gate only
+    bites if an admin voluntarily bounces one back to Step 2.
+  - **Force batch is dedupe-safe** — the force render-prepare enqueue carries
+    **no dedupe key**, and the stage transition is an **atomic compare-and-set**
+    (`UPDATE … WHERE workflow_stage='concept_review' RETURNING id`); the CAS, not
+    the queue, is the double-click/concurrency guard, so two concurrent approvals
+    produce exactly one batch.
+  - **Stale-but-saved is allowed** — the *saved* concept, not the AI candidate
+    cards, is the approved artifact; a concept saved before a later Advanced-
+    Options edit still approves (only failed/pending/never-generated ideas block).
+- **Why:** With the frontier planner, the Visual Concept is now the core
+  description of how a gag works visually, not a break-glass override — so it
+  deserves a human eval on **every** fact, and renders (which cost money) should
+  not fire until that eval passes. Splitting the old bundled "visual review" step
+  makes the concept gate explicit and keeps render spend behind it.
+- **Reference:** PR #179; see [`moderation-workflow.md`](./moderation-workflow.md).
+- **Revisit if:** the Visual Concept is later split per-scenario (the gate is
+  keyed on "a saved concept exists + ideas terminal-OK", not on one concept, so a
+  split changes *what* is validated, not the stage machine), or a hard-cancel of
+  superseded renders becomes worth the complexity.
+
 ### 2026-07 · End-of-feature `/document` ceremony + human-facing Overhype.me Manual
 - **Decision:** Adopt an explicit, David-triggered `/document` ceremony that
   harvests a finished feature's durable learnings and routes each to its one

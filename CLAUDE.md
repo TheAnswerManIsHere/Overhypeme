@@ -384,3 +384,31 @@ so no loop outlives its PR. While watching:
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
+
+## Token / cost discipline
+
+David tracks cumulative plan-quota usage (not just one session's context
+window) and flagged that routine ops work — checking PR comments, watching
+CI, mechanical fixes — was running at premium-model cost with redundant tool
+calls. Two concrete, durable changes:
+
+- **Match model tier to task shape, not habit.** Routine GitHub ops (PR/CI
+  checks, mechanical fixes, `/bugfix` work) default to Sonnet. Product/
+  architecture reasoning, plan mode, and real judgment calls (which
+  abstraction, what trade-off) use whatever tier David has selected for the
+  session. If a session's task shape shifts mid-thread — e.g. from planning
+  into pure CI-babysitting — I say so and suggest `/model` rather than
+  silently staying on the expensive tier.
+- **Batch PR re-verification into one call; don't reduce how often I check.**
+  The *"re-verify on each active turn"* rule under **Watching the PRs I
+  open** above stays exactly as-is — webhooks lag and drop events, so silence
+  still isn't "all clear." What changes is mechanics: pull threads + CI
+  status + latest commits via a **single** `pull_request_read` call instead
+  of chaining separate calls, and pass `minimal_output: true` when I don't
+  need full bodies/diffs. Same verification cadence, a fraction of the
+  tool-call cost. When a re-verify finds nothing new, I say so explicitly
+  ("re-checked — no new activity since last update") so the discipline stays
+  visible instead of assumed.
+- I also default to `list_*` over `search_*` for simple retrieval, and
+  paginate in small batches (5-10 items), per the GitHub server's own
+  guidance — not a cadence change, just cheaper calls for the same coverage.

@@ -38,6 +38,7 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
+import { collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -770,7 +771,10 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const updates: Record<string, unknown> = {};
   const textChanged = text !== undefined;
   if (textChanged) {
-    const newText = String(text);
+    // {NAME}-subject pairs are wrong by construction (a name renders as a
+    // singular literal for every pronoun set) — collapse them at every
+    // fact-text ingress, this one included.
+    const newText = collapseNameSubjectConjugationPairs(String(text));
     updates.text = newText;
     // Editing the wording invalidates everything derived from it. Recompute the
     // text-derived metadata so the canonical/dedupe form, caption split, and
@@ -1186,7 +1190,7 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   const { text, useCase } = req.body as Record<string, unknown>;
   if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
   const [variant] = await db.insert(factsTable).values({
-    text: text.trim(),
+    text: collapseNameSubjectConjugationPairs(text.trim()),
     parentId: rootId,
     useCase: useCase ? String(useCase) : null,
     isActive: true,
@@ -1230,7 +1234,7 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
 
   const inserted = await db
     .insert(factsTable)
-    .values(texts.map((text) => ({ text, isActive: true as const })))
+    .values(texts.map((text) => ({ text: collapseNameSubjectConjugationPairs(text), isActive: true as const })))
     .returning();
 
   res.json({ success: true, imported: inserted.length, facts: inserted });
@@ -1255,7 +1259,7 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
 
   const inserted = await db
     .insert(factsTable)
-    .values(lines.map((text) => ({ text, isActive: true as const })))
+    .values(lines.map((text) => ({ text: collapseNameSubjectConjugationPairs(text), isActive: true as const })))
     .returning();
 
   res.json({ success: true, imported: inserted.length });

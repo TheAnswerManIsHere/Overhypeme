@@ -5,6 +5,7 @@ import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/sche
 import { eq, sql, inArray } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
 import { embedFactAsync } from "../lib/embeddings";
+import { collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
 
 // Infer the transaction type directly from the db.transaction callback parameter
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -115,7 +116,13 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
       }));
       failed.push({ index: i, errors });
     } else {
-      validItems.push({ index: i, data: parsed.data });
+      // Collapse {NAME}-subject conjugation pairs at ingress (a name renders
+      // as a singular literal for every pronoun set). Done before the
+      // duplicate pre-check so dedupe compares the same text that is stored.
+      validItems.push({
+        index: i,
+        data: { ...parsed.data, text: collapseNameSubjectConjugationPairs(parsed.data.text) },
+      });
     }
   }
 

@@ -5,7 +5,7 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-04 (around PR #166/#167).*
+> *Snapshot date: 2026-07-04 (around PR #179/#180).*
 
 ## Active area of focus
 
@@ -19,6 +19,10 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Three-step moderation (Visual Concept gate)** — split the bundled visual-review
+  step into an explicit **Visual Concept** gate (`concept_review`) before any render
+  spend, then **Test Renders** (`production_review`); renders force-fire on gag
+  approval (PR #179). See [`moderation-workflow.md`](./moderation-workflow.md).
 - **Candidate Visual Concepts** — backend + frontend 3-card picker (PRs #163, #166)
   and lowercase-token acceptance in the Visual Concept field (#167).
 - **Versioned enrichment / stale-fact refresh** — core + send-back UI + version

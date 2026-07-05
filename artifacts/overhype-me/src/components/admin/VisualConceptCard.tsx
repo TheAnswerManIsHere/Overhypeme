@@ -22,6 +22,16 @@ import {
   CORE_SCENE_MAX_CHARS,
 } from "./EnrichmentEditor";
 
+const VISUAL_CONCEPT_TOKEN_EXAMPLES: Record<(typeof OVERRIDE_TOKEN_CHIPS)[number], string> = {
+  "{NAME}": "David",
+  "{NAME_POSSESSIVE}": "David’s",
+  "{SUBJ}": "he",
+  "{OBJ}": "him",
+  "{POSS}": "his",
+  "{POSS_PRO}": "his",
+  "{REFL}": "himself",
+};
+
 export function VisualConceptCard({
   value,
   onChange,
@@ -70,10 +80,11 @@ export function VisualConceptCard({
             data-testid="visual-concept-token-chip"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => handleChip(token)}
-            className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm border border-border bg-background hover:bg-muted text-foreground"
+            className="inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded-sm border border-border bg-background hover:bg-muted text-foreground"
             disabled={disabled}
           >
-            {token}
+            <span className="font-mono">{token}</span>
+            <span className="text-muted-foreground">{VISUAL_CONCEPT_TOKEN_EXAMPLES[token]}</span>
           </button>
         ))}
       </div>

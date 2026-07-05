@@ -7,11 +7,8 @@ const conj = autoConjugatePersonSubjectVerbs;
 describe("autoConjugatePersonSubjectVerbs — positive (wraps person-subject verbs)", () => {
   const cases: Array<[string, string]> = [
     ["{Subj} keeps it", "{Subj} {keeps|keep} it"],
-    ["{NAME} has", "{NAME} {has|have}"],
     ["{Subj} is", "{Subj} {is|are}"],
     ["{SUBJ} catches", "{SUBJ} {catches|catch}"],
-    ["{NAME} flies", "{NAME} {flies|fly}"],
-    ["{NAME} pushes", "{NAME} {pushes|push}"],
     ["{Subj} fixes", "{Subj} {fixes|fix}"],
     // Contractions (apostrophe-aware matcher + irregular map).
     ["{Subj} doesn't blink", "{Subj} {doesn't|don't} blink"],
@@ -20,7 +17,6 @@ describe("autoConjugatePersonSubjectVerbs — positive (wraps person-subject ver
     ["{Subj} wasn't ready", "{Subj} {wasn't|weren't} ready"],
     // Adverb between the subject token and the verb.
     ["{Subj} secretly keeps", "{Subj} secretly {keeps|keep}"],
-    ["{NAME} always runs", "{NAME} always {runs|run}"],
   ];
   for (const [input, expected] of cases) {
     it(`${input} → ${expected}`, () => {
@@ -43,6 +39,13 @@ describe("autoConjugatePersonSubjectVerbs — negative (leaves text unchanged)",
     // Already a conjugation pair — must stay idempotent, never double-wrap.
     "{Subj} {keeps|keep}",
     // Subject is NOT the person → never our concern.
+    // {NAME} renders as a literal singular name, not a pronoun, so verbs after
+    // it must not become he/she-vs-they pairs.
+    "{NAME} has",
+    "{NAME} flies",
+    "{NAME} pushes",
+    "{NAME} always runs",
+    "{NAME} gives you the finger",
     "Sharks have a {NAME} Week.",
     "time fears {Obj}",
     // Title-case nouns/labels after {NAME} (uppercase-initial guard).
