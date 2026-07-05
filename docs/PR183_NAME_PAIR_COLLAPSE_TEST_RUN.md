@@ -102,6 +102,11 @@ Checks after apply:
   collapsed pair was the row's sole pronoun-ish token.
 - Rows with `{Subj}` pairs and rows with no pairs are byte-identical to before
   (no-op rows are never written).
+- If a changed fact had an in-flight refresh candidate
+  (`fact_enrichment_versions.status = 'candidate'`), the script printed a
+  "re-stamped fact_text_hash" line for it and the candidate's `fact_text_hash`
+  now equals the sha256 of the NEW `facts.text` — approving that refresh in
+  moderation must NOT fail with `REFRESH_STALE_TEXT`.
 
 ## 6. What's deliberately NOT shipped
 

@@ -21,6 +21,10 @@
  *     moderation staging facts need the repair before approval)
  *   - pending_reviews.submittedText → included (no derived columns there;
  *     canonical/split are computed later at staging-fact creation)
+ *   - facts with an in-flight refresh candidate → the candidate's
+ *     fact_text_hash is re-stamped to hash the new text, so the promote drift
+ *     guard (REFRESH_STALE_TEXT) doesn't strand a mid-review refresh over this
+ *     meaning-preserving grammar repair
  *
  * For each changed fact it recomputes the text-derived set the fact-creation
  * path keeps in sync (canonicalText, splitTokenIndex, hasPronouns) — collapsing
@@ -44,9 +48,10 @@ import { installStdioGuard } from "../src/lib/stdioGuard";
 installStdioGuard();
 
 import { db } from "@workspace/db";
-import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { factsTable, pendingReviewsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
+import { and, eq } from "drizzle-orm";
 import { collapseNameSubjectConjugationPairs } from "../src/lib/templateGrammar";
+import { hashFactText } from "../src/lib/enrichmentVersioning";
 import { renderCanonical } from "../src/lib/renderCanonical";
 import { computeSplitTokenIndex } from "../src/lib/splitTokenIndex";
 
@@ -101,6 +106,24 @@ async function main() {
           hasPronouns: HAS_PRONOUN_RE.test(next),
         })
         .where(eq(factsTable.id, fact.id));
+      // An in-flight refresh candidate stores hashFactText(facts.text) and the
+      // promote path 409s (REFRESH_STALE_TEXT) on mismatch. This collapse is a
+      // deterministic, meaning-preserving grammar repair — the candidate's
+      // classification is still valid — so re-stamp its hash instead of
+      // stranding the refresh mid-review.
+      const restamped = await db
+        .update(factEnrichmentVersionsTable)
+        .set({ factTextHash: hashFactText(next) })
+        .where(
+          and(
+            eq(factEnrichmentVersionsTable.factId, fact.id),
+            eq(factEnrichmentVersionsTable.status, "candidate"),
+          ),
+        )
+        .returning({ id: factEnrichmentVersionsTable.id });
+      if (restamped.length > 0) {
+        console.log(`  (re-stamped fact_text_hash on in-flight candidate #${restamped[0].id})`);
+      }
     }
   }
 
