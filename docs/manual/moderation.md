@@ -1,0 +1,122 @@
+# Moderation
+
+> How a user-submitted fact gets reviewed and either published or rejected —
+> the three human gates it passes through, and why the process is shaped to spend
+> money only on submissions a human has already vouched for.
+>
+> Deep spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md).
+> Rationale history: [`decisions.md`](../ai-context/decisions.md).
+
+## What it does
+
+Every fact a user submits lands in a review queue, not the live catalogue. A
+moderator walks it through three gates — **Triage**, **Visual Concept**, and
+**Test Renders** — and only a fact that clears all three goes live. The whole
+design exists to answer two questions cheaply and in order: *does this fact
+deserve to exist?*, then *does its joke work as a picture?*, and only then to
+spend the (real, per-image) money on rendering it.
+
+## How it works
+
+### For the moderator (three steps)
+
+The review opens as a three-step wizard:
+
+1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
+   near-duplicate it resembles, and who sent it, and either **rejects** it (with
+   a reason) or **provisionally approves** it. Provisional approval is the moment
+   paid work is allowed to begin — before it, nothing has cost anything.
+
+2. **Visual Concept.** After the AI has classified the fact, the review arrives
+   here. The moderator works on the **Visual Concept** — the plain-language
+   "describe the picture" scene that is the authoritative description of how the
+   gag works visually. They can accept one of three AI-drafted idea cards, edit
+   one, or write their own, then **"approve the visual gag."** Crucially, **no
+   test renders have run yet** — this gate is deliberately free. Approving the gag
+   is what unlocks render spend.
+
+3. **Test Renders.** On arrival, the test-render images **fire automatically**.
+   The moderator inspects the rendered memes, tweaks the concept or enrichment and
+   re-runs as needed, and finally **approves for production** (which publishes the
+   fact) or rejects it. From here they can also **send the fact back to Visual
+   Concept** if the gag itself needs rethinking.
+
+Throughout, the queue and the modal show live status at two altitudes — a
+per-fact "what's happening now" (Enriching… → Generating visual ideas… → Ready
+for concept review → Rendering… → Renders ready) and an aggregate view — so a
+moderator never has to guess whether background work is running, done, or stuck.
+
+### Underneath (plain-language machinery)
+
+A submission becomes a row in a review table with a coarse status
+(`pending/approved/rejected`) and a fine-grained **workflow stage** that drives
+the three gates. Provisional approval creates an **inactive "staging fact"** — a
+real catalogue row that isn't published yet — and all the paid prep (AI
+classification, stock-image lookup, test renders) runs against *that*, so the
+live catalogue is never touched by in-progress work. Approving for production
+simply flips the staging fact to live.
+
+Renders are **forced fresh** each time the gag is approved: the job that prepares
+them deliberately does not reuse any prior batch, so bouncing a fact back to the
+Visual Concept step and re-approving always re-renders from scratch — even if the
+concept text didn't change.
+
+## Why it works this way
+
+- **Cost-gating, in order.** Enrichment, image lookups, and renders all cost
+  money. A cheap human triage gate first means no paid work runs on spam,
+  duplicates, or low-quality submissions. → [Staged, cost-gated moderation](../ai-context/decisions.md)
+
+- **The Visual Concept earned its own gate.** It used to be one control buried in
+  a single bundled "visual review" step, and renders fired the instant
+  classification finished. But with a strong visual planner, the concept became
+  *the* description of how a gag works as a picture — so it now deserves a human
+  eval on every fact, and renders shouldn't fire until that eval passes. That's
+  why the flow was split into an explicit **Visual Concept** gate before **Test
+  Renders**. → [Visual Concept is a mandatory human gate before any render spend](../ai-context/decisions.md)
+
+- **The *saved* concept is the contract, not the AI's suggestions.** Approval
+  checks the persisted scene, never an unsaved draft or the AI candidate cards —
+  and a concept saved before a later tweak still counts (only missing/failed/
+  still-generating ideas block approval). This keeps "what the moderator approved"
+  unambiguous.
+
+- **Bounce-and-re-approve renders fresh, on purpose.** Rather than track render
+  "versions" or hard-cancel in-flight jobs, a re-approval just forces a new batch;
+  superseded renders finish but are ignored. Simpler, and it never shows a
+  moderator a stale image as if it were current. (Rejected alternative: a durable
+  render-cycle token / batch table — deferred as unnecessary.)
+
+- **Existing in-flight reviews were left where they were.** Facts already at the
+  render step when this shipped keep working under the old gates; the new concept
+  gate only applies if a moderator voluntarily sends one back. No risky
+  back-migration of live moderation state.
+
+## Boundaries & known limitations
+
+- **Renders are a Test-Renders-step concern only** — by design, the Visual
+  Concept step never shows the render grid, because its whole point is to decide
+  the gag *before* spending on images.
+- **No render history.** A bounce discards the old batch and renders fresh; there
+  is no "compare to the previous render" view.
+- **Stock images and test renders are review aids, not hard gates.** A moderator
+  can approve despite missing/stale renders, which records an auditable waiver —
+  not a silent skip. (Whether any render should become a *hard* gate is an open
+  product question.)
+- **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
+  or never-generated state blocks gag approval with a clear "regenerate" action
+  rather than a silent block — and a required step that never ran reads as "not
+  generated," never as a spinner.
+
+## Going deeper
+
+- Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — stages,
+  staging facts, rejection paths, the refresh (send-back) cycle.
+- Related: [`visual-pipeline.md`](../ai-context/visual-pipeline.md) (the Visual
+  Concept and how it becomes an image),
+  [`taxonomy-and-enrichment.md`](../ai-context/taxonomy-and-enrichment.md)
+  (classification + versioned refresh),
+  [`async-ui-status.md`](../ai-context/async-ui-status.md) (the two-altitude
+  status rule the queue follows).
+- Rationale: the moderation entries in
+  [`decisions.md`](../ai-context/decisions.md).

@@ -84,7 +84,7 @@ bar for its area, or by the deferred backfill.)*
 | Chapter | Covers | Status |
 | --- | --- | --- |
 | `content-lifecycle.md` | A fact's journey: submission → enrichment → moderation → publish | not yet written |
-| `moderation.md` | The moderation workflow: review steps, approvals, overrides, render checks | not yet written |
+| [`moderation.md`](./moderation.md) | The moderation workflow: review steps, approvals, overrides, render checks | ✅ written |
 | `visual-pipeline.md` | How a fact becomes an image: planner, Visual Concept, compiler, render modes | not yet written |
 | `taxonomy-and-enrichment.md` | Classification, hashtags, enrichment versioning, staleness | not yet written |
 | `personalization-and-grammar.md` | Tokens, pronouns, verb conjugation — how facts adapt to the reader | not yet written |

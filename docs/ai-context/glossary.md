@@ -24,9 +24,10 @@
   → [moderation-workflow](./moderation-workflow.md)
 
 - **Moderation / review** — the staged, cost-gated approval workflow for
-  submissions, living in `pending_reviews` with a `review_workflow_stage`
-  (`triage_pending → prep_pending/prep_failed → production_review →
-  production_approved/production_rejected`).
+  submissions, living in `pending_reviews` with a `review_workflow_stage`. Three
+  human gates: `triage_pending → prep_pending/prep_failed → concept_review
+  (Step 2: Visual Concept) → production_review (Step 3: Test Renders) →
+  production_approved/production_rejected`. Renders fire only at Step 3.
   → [moderation-workflow](./moderation-workflow.md)
 
 - **Enrichment** — the AI **classification** layer: durable structured taxonomy

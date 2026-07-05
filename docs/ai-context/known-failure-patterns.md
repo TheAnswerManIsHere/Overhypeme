@@ -81,6 +81,28 @@ any queued/bulk surface. **Overhype:** the async queue is `async_jobs` (`pending
 processing → done | failed`); **Taxonomy Health (`useTaxonomyHealthActions.ts`) is
 the reference implementation** — copy it, don't invent a new status channel.
 
+## Dedupe key coalesces two distinct intents
+
+**Looks like:** a "force / fresh / regenerate" async action reuses the same stable
+`dedupeKey` an idempotent path uses, so `enqueueJob` returns the *existing*
+non-terminal job instead of scheduling new work — the fresh intent silently
+attaches to (and is satisfied by) stale in-flight work. **Dangerous:** the user
+thinks they triggered a new batch/run; they got the old one's result. A stable key
+is a correctness tool for idempotency and a correctness *hazard* for "do it again."
+**Avoid:** enqueue force/regenerate work with **no dedupe key** (or a
+per-invocation one) so it can never coalesce, and move the double-click/concurrency
+guard to the **state transition** itself (an atomic compare-and-set) rather than
+relying on the queue. Separately, block a *new* cycle from starting while the prior
+job is still non-terminal, so there's no in-flight job for it to coalesce onto.
+**Overhype:** `enqueueJob` returns the existing pending/processing row for a
+matching `(queue, dedupeKey)` (`async_jobs`); "approve the visual gag" therefore
+force-enqueues `review_render_scenarios_prepare` with **no** key and guards the
+`concept_review → production_review` advance with a compare-and-set — two
+concurrent approvals yield exactly one force batch. Re-prep/regenerate is blocked
+while `visual_concept_status = "pending"` for the same reason. See
+[`moderation-workflow.md`](./moderation-workflow.md) and the PR #179 decision in
+[`decisions.md`](./decisions.md).
+
 ## One-example bug fixes
 
 **Looks like:** patching only the exact reported sentence/case instead of the
