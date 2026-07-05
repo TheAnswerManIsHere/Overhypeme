@@ -392,13 +392,23 @@ window) and flagged that routine ops work — checking PR comments, watching
 CI, mechanical fixes — was running at premium-model cost with redundant tool
 calls. Two concrete, durable changes:
 
-- **Match model tier to task shape, not habit.** Routine GitHub ops (PR/CI
-  checks, mechanical fixes, `/bugfix` work) default to Sonnet. Product/
-  architecture reasoning, plan mode, and real judgment calls (which
-  abstraction, what trade-off) use whatever tier David has selected for the
-  session. If a session's task shape shifts mid-thread — e.g. from planning
-  into pure CI-babysitting — I say so and suggest `/model` rather than
-  silently staying on the expensive tier.
+- **Match model tier to task shape, at the two mode boundaries that already
+  exist in this workflow.** I cannot switch the active model myself — `/model`
+  is a command only David can run — so codifying this means I *reliably
+  prompt* at fixed trigger points instead of leaving it to habit or memory:
+  - **Entering `/bugfix` mode** → I suggest `/model claude-sonnet-5` (routine
+    fix-and-commit work doesn't need premium reasoning).
+  - **Entering plan mode, or any "let's build/design/add X" feature-building
+    request** → I suggest `/model claude-opus-4-8` (product/architecture
+    judgment, trade-offs, plan quality benefit from the stronger tier).
+  - Outside those two boundaries (mechanical PR/CI checks, small edits), I
+    default to treating the session's *current* tier as correct and only flag
+    a mismatch if the task shape clearly shifted (e.g. pure CI-babysitting
+    inside a session that started in plan mode on Opus).
+  - `.claude/settings.json` sets Sonnet as the **default starting model** for
+    new sessions, since most turns are ops-shaped per David's usage data —
+    Opus is the explicit upgrade at the plan-mode/feature-building boundary
+    above, not the default you have to remember to downgrade from.
 - **Batch PR re-verification into one call; don't reduce how often I check.**
   The *"re-verify on each active turn"* rule under **Watching the PRs I
   open** above stays exactly as-is — webhooks lag and drop events, so silence
