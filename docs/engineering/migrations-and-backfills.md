@@ -28,6 +28,21 @@
   `migrate`, then re-clone the test schema (`run-test.sh --setup`) so tests see the
   updated shape (see the api-context memory + `docs/TESTING.md`).
 
+### Adding a value to a Postgres enum
+
+`ALTER TYPE … ADD VALUE` **cannot run inside a transaction block**, but the
+hash-based migration runner (`lib/db/src/migrate.ts`) wraps each migration file in
+one `BEGIN…COMMIT`. So don't use `ADD VALUE` — recreate the enum via a temporary
+text cast (the 0027 precedent), which also lets you place the new label anywhere in
+the order and stays idempotent (the whole file re-runs cleanly). For a column that
+is `NOT NULL` with a default + an index, the recast is: **drop the default → alter
+column `TYPE text USING …::text` → `DROP TYPE` → `CREATE TYPE` with the new label →
+alter column back to the enum → re-set the default.** The dependent index is rebuilt
+automatically by the type change. Keep the enum labels in sync with the shared
+`@workspace/api-zod` values array, and add the hand-authored migration to
+`SNAPSHOT_EXEMPT_TAGS`. **Overhype:** `0083_review_workflow_stage_concept_review.sql`
+adds `concept_review` between `prep_failed` and `production_review` this way.
+
 ## Idempotency
 
 Every migration and backfill must be **safe to run more than once**:
