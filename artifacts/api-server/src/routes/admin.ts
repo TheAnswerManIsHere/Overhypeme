@@ -686,18 +686,18 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
-  const showInactive = req.query["inactive"] === "true";
+  const visibility = String(req.query["visibility"] ?? (req.query["inactive"] === "true" ? "both" : "active"));
   const onlyOverridden = req.query["hasOverrides"] === "true";
   const onlyBaselineChanged = req.query["baselineChanged"] === "true";
   const like = `%${search}%`;
 
-  const activeFilter = showInactive ? undefined : eq(factsTable.isActive, true);
+  const activeFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
   const overridesFilter = onlyOverridden ? sql`${factsTable.enrichmentOverrides} <> '{}'::jsonb` : undefined;
   const baselineChangedFilter = onlyBaselineChanged ? eq(factsTable.enrichmentBaselineChanged, true) : undefined;
   // A root matches when its own text matches OR it has a (visible) variant whose
   // text matches — so searching by a variant's text still surfaces its parent.
   const searchFilter = search
-    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${showInactive ? sql`` : sql` AND v.is_active = true`}))`
+    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${visibility === "both" ? sql`` : visibility === "inactive" ? sql` AND v.is_active = false` : sql` AND v.is_active = true`}))`
     : undefined;
   const rootWhere = and(...[isNull(factsTable.parentId), activeFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
 
