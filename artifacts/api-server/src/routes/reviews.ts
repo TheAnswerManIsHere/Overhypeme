@@ -19,7 +19,7 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from ".
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
-import { validateTemplate, collapseNameSubjectConjugationPairs } from "../lib/templateGrammar";
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
   type FactEnrichment,
@@ -143,23 +143,22 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     return;
   }
   const { text: rawText, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
-  // Collapse {NAME}-subject conjugation pairs at ingress: names render as a
-  // singular literal for every pronoun set, and a submission that bypassed the
-  // tokenize route (API clients, stale front-ends) may still carry the pair the
-  // route would have collapsed.
-  const text = collapseNameSubjectConjugationPairs(rawText);
+  // Run the full deterministic grammar cleanup at ingress: a submission that
+  // bypassed the tokenize route (API clients, stale front-ends) may still
+  // carry a {NAME}-subject pair, an unexpanded {Subj}'s contraction, or a
+  // missed person-subject verb the route would have repaired.
+  const normalized = normalizeFactTemplateForPendingReview(rawText);
+  if (!normalized.valid) {
+    res.status(422).json({
+      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
+    });
+    return;
+  }
+  const text = normalized.text;
   // Normalize submitter tags at ingress so `pending_reviews.hashtags` always
   // holds clean values (the Zod schema only caps count; API clients can send
   // arbitrary strings). Same sanitizer used at approval, so storage never drifts.
   const hashtags = sanitizeHashtagsForPersistence(rawHashtags, { limit: 10 });
-
-  const grammarResult = validateTemplate(text);
-  if (!grammarResult.valid) {
-    res.status(422).json({
-      error: `Template grammar validation failed: ${grammarResult.error}`,
-    });
-    return;
-  }
 
   // COST GATE: a new submission is cheap human-triage only. We do NOT enqueue
   // enrichment, Pexels, embedding, or any other paid/external work here — those

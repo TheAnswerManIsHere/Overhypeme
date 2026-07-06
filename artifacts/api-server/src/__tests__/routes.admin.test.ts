@@ -29,8 +29,8 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { like } from "drizzle-orm";
+import { usersTable, factsTable } from "@workspace/db/schema";
+import { like, eq } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
@@ -38,6 +38,7 @@ import { createSession, type SessionData } from "../lib/auth.js";
 
 
 const USER_PREFIX = "troutesadmin-";
+const FACT_PREFIX = "t-routes-admin-fact-";
 
 function makeApp(): Express {
   const app = express();
@@ -72,6 +73,12 @@ async function sessionFor(userId: string, isAdmin: boolean): Promise<string> {
 
 async function cleanup(): Promise<void> {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
+  await db.delete(factsTable).where(like(factsTable.text, `${FACT_PREFIX}%`));
+}
+
+async function createTestFact(text: string): Promise<number> {
+  const [fact] = await db.insert(factsTable).values({ text, isActive: true }).returning({ id: factsTable.id });
+  return fact!.id;
 }
 
 // ── Shared test state ─────────────────────────────────────────────────────────
@@ -367,6 +374,147 @@ describe("PATCH /admin/facts/:id", () => {
       .send({ isActive: true });
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
+  });
+
+  it("normalizes text and recomputes canonicalText/splitTokenIndex/hasPronouns from the normalized text", async () => {
+    const factId = await createTestFact(`${FACT_PREFIX}${randomUUID()} original text`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${factId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: "{Subj} keeps it locked in {POSS} back yard." });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.fact.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
+
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
+    assert.ok(row);
+    assert.equal(row.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
+    assert.equal(row.hasPronouns, true);
+    assert.ok(row.canonicalText);
+    assert.equal(typeof row.splitTokenIndex, "number");
+  });
+
+  it("validates before updating — rejects grammar-invalid text with 422 and does not write it", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} original text`;
+    const factId = await createTestFact(original);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${factId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: "bad token {FOO}" });
+    assert.equal(res.status, 422);
+    assert.match(res.body.error, /grammar validation failed/);
+
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
+    assert.ok(row);
+    assert.equal(row.text, original, "text must not change on grammar-invalid update");
+  });
+});
+
+// ── POST /admin/facts/:id/variants ────────────────────────────────────────────
+
+describe("POST /admin/facts/:id/variants", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp()).post("/admin/facts/1/variants").send({ text: "hi" });
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .post("/admin/facts/1/variants")
+      .set("authorization", `Bearer ${userSid}`)
+      .send({ text: "hi" });
+    assert.equal(res.status, 403);
+  });
+
+  it("normalizes text and computes derived metadata for the variant row", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root fact`);
+    const res = await request(makeApp())
+      .post(`/admin/facts/${rootId}/variants`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: "{Subj} keeps it locked in {POSS} back yard." });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.variant.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
+    assert.equal(res.body.variant.hasPronouns, true);
+    assert.ok(res.body.variant.canonicalText);
+    assert.equal(typeof res.body.variant.splitTokenIndex, "number");
+  });
+
+  it("returns 422 for a grammar-invalid variant and does not write it (not a bulk path)", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root fact`);
+    const res = await request(makeApp())
+      .post(`/admin/facts/${rootId}/variants`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: "bad token {FOO}" });
+    assert.equal(res.status, 422);
+    assert.match(res.body.error, /grammar validation failed/);
+
+    const variants = await db.select().from(factsTable).where(eq(factsTable.parentId, rootId));
+    assert.equal(variants.length, 0, "invalid variant must not be written");
+  });
+});
+
+// ── POST /admin/facts/import ──────────────────────────────────────────────────
+
+describe("POST /admin/facts/import", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp()).post("/admin/facts/import").send({ facts: ["hi"] });
+    assert.equal(res.status, 401);
+  });
+
+  it("writes valid rows with derived metadata and reports invalid rows in `failed` (partial success)", async () => {
+    const suffix = randomUUID();
+    const rawText = `${FACT_PREFIX}${suffix} {Subj} keeps it locked in {POSS} back yard.`;
+    const expectedText = `${FACT_PREFIX}${suffix} {Subj} {keeps|keep} it locked in {POSS} back yard.`;
+    const res = await request(makeApp())
+      .post("/admin/facts/import")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ facts: [rawText, "bad token {FOO}"] });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.imported, 1);
+    assert.equal(res.body.facts.length, 1);
+    assert.equal(res.body.failed.length, 1);
+    assert.match(res.body.failed[0].error, /grammar validation failed/);
+
+    const inserted = res.body.facts[0] as Record<string, unknown>;
+    assert.equal(inserted.text, expectedText);
+    assert.ok(inserted.canonicalText);
+    assert.equal(typeof inserted.splitTokenIndex, "number");
+
+    const rows = await db.select().from(factsTable).where(like(factsTable.text, `${FACT_PREFIX}%bad token%`));
+    assert.equal(rows.length, 0, "invalid row must not be written");
+  });
+});
+
+// ── POST /admin/facts/import-csv ──────────────────────────────────────────────
+
+describe("POST /admin/facts/import-csv", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp()).post("/admin/facts/import-csv").send({ csv: "hi there" });
+    assert.equal(res.status, 401);
+  });
+
+  it("writes valid lines with derived metadata and reports invalid lines in `failed` (partial success)", async () => {
+    const rawText = `${FACT_PREFIX}${randomUUID()} {Subj} keeps it locked in {POSS} back yard.`;
+    const expectedText = rawText.replace("{Subj} keeps", "{Subj} {keeps|keep}");
+    const csv = `${rawText}\nbad token {FOO} here\n`;
+    const res = await request(makeApp())
+      .post("/admin/facts/import-csv")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ csv });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.imported, 1);
+    assert.equal(res.body.failed.length, 1);
+    assert.match(res.body.failed[0].error, /grammar validation failed/);
+
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
+    assert.ok(row, "valid line should have been inserted");
+    assert.equal(row.text, expectedText);
+    assert.ok(row.canonicalText);
+
+    const invalidRows = await db.select().from(factsTable).where(like(factsTable.text, `${FACT_PREFIX}%bad token%`));
+    assert.equal(invalidRows.length, 0, "invalid line must not be written");
   });
 });
 

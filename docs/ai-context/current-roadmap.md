@@ -29,6 +29,12 @@ priorities (moderation speed, render/enrichment quality, video). See
   history + candidate editing (PRs #160, #164).
 - **Faster moderation** — removed the slow approval preflight; instant approve,
   live "test renders" pills, reject-in-visual-review (PRs #162, #165).
+- **Tokenizer grammar correctness batch** — `{NAME_POSSESSIVE}` rendering,
+  sibilant `-sses` verb fix, `{NAME}`-subject object-separated coordination
+  reach, retiring the never-valid "They's" render (+ backfill), and a single
+  deterministic grammar pass (`applyDeterministicGrammar`) shared by every
+  fact-writing route (PR #188). See
+  [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
 - **Frontier-model visual planner + moderator-authored Visual Concept** (PR #157).
 - **Enrichment field-doc popovers** + generated `ADMIN_FIELD_REFERENCE.md` (#153),
   moderation override tracking (#155), AI-suggested hashtags on submission (#150),
