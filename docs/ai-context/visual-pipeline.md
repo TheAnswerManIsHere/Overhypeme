@@ -95,12 +95,23 @@ recorded `fallbackReason`. (Introduced by PR #157.)
 
 `compileForSubjectRenderMode()` in `compilers/nanoBanana2.ts` — the
 **deterministic Nano Banana 2 compiler**. It dispatches by render mode and
-assembles a fixed labeled contract: IMAGE-TO-IMAGE TASK · SUBJECT BINDING · CORE
-SCENE · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING AND STYLE · STRICT
-CONSTRAINTS. **The compiler OWNS** the TASK/BINDING/STRICT-CONSTRAINTS/identity/
-reference/text-policy language; planner prose that duplicates these is stripped
-(`RemovedProseReason`). Nano Banana 2 has **no negative-prompt parameter** —
-exclusions are expressed as positive scene language.
+assembles a labeled contract where **the Visual Concept (CORE SCENE) LEADS**:
+CORE SCENE · IDENTITY & REFERENCE (i2i) / RENDER TASK (t2i) · SUBJECT BINDING ·
+SUBJECT REALIZATION · ROLE DETAILS · SUBJECT DETAILS · REQUIRED VISUAL DETAILS ·
+ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING AND STYLE · STRICT
+CONSTRAINTS. Every section after CORE SCENE is either **operational** (identity/
+reference, binding, style, policy) or **strictly additive** — it earns its place
+only by contributing a concrete detail the Concept omitted; restatements are
+de-duped out (content-word contiguity against emitted text). The old REFERENCE
+INTERPRETATION section is gone: role info now flows through the additive **ROLE
+DETAILS** section (`composeAdditiveRoleDetails`), which never doubles a name
+("Alex is Alex leans…" — the retired bug). **The compiler OWNS** the identity/
+reference/binding/STRICT-CONSTRAINTS/text-policy language; planner prose that
+duplicates these is stripped (`RemovedProseReason`). The de-dupe haystack is
+seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
+Dropped role/key-element candidates are recorded in
+`diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
+parameter** — exclusions are positive scene language.
 
 ## Render policy and readable text
 
