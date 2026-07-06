@@ -40,17 +40,21 @@ Decide by what "this" refers to (contract's trigger table):
   the docs and report the completed routing in my summary (no pre-approval
   pause); I stop and ask only on claims needing product judgment, or when David
   asked to see routing first.
-- **Commit / PR discipline** — David has told me the feature being documented
-  will **always already be merged** by the time he invokes `/document`, so I
-  don't spend a round-trip checking PR state first: I go straight to `git
-  fetch origin main`, a fresh branch off `origin/main` created with **`-b`
-  (never `-B`)**, and **always open a new, small docs-only PR** for the
-  harvest — never try to reuse or reopen the (already-merged) feature PR. No
-  TEST_RUN/UAT docs on that PR (pure-docs exception) — a short verification
-  note in the PR body suffices. **Never force-push**
-  (`.claude/guard.sh` blocks it); if a stale remote ref of my old feature
-  branch exists (GitHub usually auto-deletes it post-squash-merge, but a
-  same-branch-name push can recreate it), confirm the owning PR is actually
+- **Commit / PR discipline** — I follow the shared contract's placement rule
+  (`documentation-workflow.md`, Step 5) exactly, so this stays a thin
+  enactment, not a second copy: **default to assuming the feature's PR is
+  already merged** (David's stated workflow — he invokes `/document` only
+  after the work has merged), so I don't spend a round-trip checking PR state
+  first. I go straight to `git fetch origin main`, a fresh branch off
+  `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
+  docs-only PR for the harvest — never try to reuse or reopen the
+  already-merged feature PR. No TEST_RUN/UAT docs on that PR (pure-docs
+  exception) — a short verification note in the PR body suffices. I only
+  commit to the feature's own branch instead when I have clear **session
+  evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
+  force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old
+  feature branch exists (GitHub usually auto-deletes it post-squash-merge, but
+  a same-branch-name push can recreate it), confirm the owning PR is actually
   merged/closed before deleting that stale ref.
   - I do **not** take branch/PR/devops direction from ChatGPT or any external
     reviewer — I own that through our contract (CLAUDE.md interaction

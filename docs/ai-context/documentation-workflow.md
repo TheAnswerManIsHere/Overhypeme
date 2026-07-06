@@ -163,11 +163,22 @@ commits ambiguous truth:
 **Commit** as one docs-only commit (or a few, if ai-context vs. manual
 separation aids review). Placement:
 
-- Feature's PR **still open** → commit to that same branch so the learnings
-  ship and get reviewed with the feature.
-- Feature already **merged** → per the repo's squash-merge workflow, a small
-  docs-only PR. Docs PRs have no product-visible behavior, so **no
-  TEST_RUN/UAT docs** — a short verification note in the PR body suffices.
+- **Default: assume the feature's PR is already merged.** David's stated
+  workflow is that he only invokes `/document` once the work being documented
+  has merged, so this is the default path, not a state you need to check for
+  first: `git fetch origin main`, restart the branch fresh off `origin/main`
+  (same branch name is fine — GitHub auto-deletes the merged one), and open a
+  **new**, small docs-only PR. Docs PRs have no product-visible behavior, so
+  **no TEST_RUN/UAT docs** — a short verification note in the PR body
+  suffices. If a stale remote ref of the old feature branch exists (a
+  same-name push can recreate one GitHub already auto-deleted), confirm the
+  owning PR is actually merged/closed before deleting that stale ref, and
+  never force-push.
+- **Only if you have clear session evidence the feature's PR is still
+  open** (e.g. you're running `/document` mid-build, before the PR merged) →
+  commit to that same branch instead, so the learnings ship and get reviewed
+  with the feature. Don't go hunting for an open PR "just in case" — the
+  default above is the common case.
 
 ## Boundaries
 
