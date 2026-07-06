@@ -706,14 +706,24 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const like = `%${search}%`;
 
   const activeFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
+  const visibleVariantSql =
+    visibility === "both"
+      ? sql``
+      : visibility === "inactive"
+        ? sql` AND v.is_active = false`
+        : sql` AND v.is_active = true`;
+  const rootVisibilityFilter =
+    visibility === "both"
+      ? undefined
+      : sql`(${factsTable.isActive} = ${visibility !== "inactive"} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id}${visibleVariantSql}))`;
   const overridesFilter = onlyOverridden ? sql`${factsTable.enrichmentOverrides} <> '{}'::jsonb` : undefined;
   const baselineChangedFilter = onlyBaselineChanged ? eq(factsTable.enrichmentBaselineChanged, true) : undefined;
   // A root matches when its own text matches OR it has a (visible) variant whose
   // text matches — so searching by a variant's text still surfaces its parent.
   const searchFilter = search
-    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${visibility === "both" ? sql`` : visibility === "inactive" ? sql` AND v.is_active = false` : sql` AND v.is_active = true`}))`
+    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${visibleVariantSql}))`
     : undefined;
-  const rootWhere = and(...[isNull(factsTable.parentId), activeFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
+  const rootWhere = and(...[isNull(factsTable.parentId), rootVisibilityFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
 
   const [roots, [{ total }]] = await Promise.all([
     db.select(FACT_LIST_COLUMNS)
