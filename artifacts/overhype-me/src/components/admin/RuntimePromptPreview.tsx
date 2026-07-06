@@ -745,7 +745,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
                         The priority chip (“always kept” / “high” / “medium”) is the budget-survival
                         order — how the section is kept vs compressed when content is present — not
                         whether it is mandatory. Conditional sections (e.g. SUBJECT BINDING, SUBJECT
-                        REALIZATION, REFERENCE INTERPRETATION) are simply “not used for this render”
+                        REALIZATION, ROLE DETAILS) are simply “not used for this render”
                         when the fact doesn’t trigger them.
                       </p>
                       {result.compiledPrompt.promptBreakdown.map((s, i) => {

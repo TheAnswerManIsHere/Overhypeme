@@ -2,9 +2,10 @@
  * Unit tests for the Nano Banana 2 prompt compilers.
  *
  * Pure — no DB, no LLM, no IO. The compiler ASSEMBLES the final engine prompt
- * from the structured visualPlan + runtime inputs as a fixed, labeled visual
- * contract: IMAGE-TO-IMAGE TASK · SUBJECT BINDING · CORE SCENE · SUBJECT DETAILS
- * · ENVIRONMENT · COMPOSITION · LIGHTING AND STYLE · STRICT CONSTRAINTS.
+ * from the structured visualPlan + runtime inputs as a labeled visual contract
+ * where the Visual Concept (CORE SCENE) LEADS: CORE SCENE · IDENTITY & REFERENCE
+ * / RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT
+ * · COMPOSITION · LIGHTING AND STYLE · STRICT CONSTRAINTS.
  *
  * These tests exercise: the transformation-aware preamble, the deterministic
  * SUBJECT BINDING + anti-entity-split guards (the de-aging fix), the removal of
@@ -112,13 +113,20 @@ function makeArgs(opts: {
 }
 
 describe("nanoBanana2 — labeled visual contract", () => {
-  it("leads with a labeled, transformation-aware IMAGE-TO-IMAGE TASK", () => {
+  it("leads with CORE SCENE; the transformation-aware identity clause follows it", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David deadlifts a bus.",
     }));
-    assert.match(out.imagePrompt, /^IMAGE-TO-IMAGE TASK: Image-to-image edit using the reference image/);
-    // Identity preservation is now transformation-aware (likeness, not a frozen face).
+    // The Visual Concept (CORE SCENE) now leads the prompt.
+    assert.match(out.imagePrompt, /^CORE SCENE:/);
+    // The identity clause is right after the scene (labeled IDENTITY & REFERENCE,
+    // not the old misleading "IMAGE-TO-IMAGE TASK").
+    assert.match(out.imagePrompt, /IDENTITY & REFERENCE: Image-to-image edit using the reference image/);
+    const coreAt = out.imagePrompt.indexOf("CORE SCENE:");
+    const idAt = out.imagePrompt.indexOf("IDENTITY & REFERENCE:");
+    assert.ok(coreAt >= 0 && idAt > coreAt, "identity clause must follow CORE SCENE");
+    // Identity preservation is transformation-aware (likeness, not a frozen face).
     assert.match(out.imagePrompt.toLowerCase(), /recognizable identity and likeness/);
     assert.match(out.imagePrompt.toLowerCase(), /allow apparent age, body proportions, hair, clothing, and life stage to transform/);
   });
@@ -128,7 +136,7 @@ describe("nanoBanana2 — labeled visual contract", () => {
       subjectRenderMode: "human_identity_i2i",
       prompt: "David stands in a thunderstorm holding a trophy.",
     }));
-    assert.match(out.imagePrompt, /IMAGE-TO-IMAGE TASK:/);
+    assert.match(out.imagePrompt, /IDENTITY & REFERENCE:/);
     assert.match(out.imagePrompt, /CORE SCENE:/);
     assert.match(out.imagePrompt, /STRICT CONSTRAINTS:/);
   });
@@ -334,7 +342,10 @@ describe("nanoBanana2 — preamble + identity guards", () => {
       prompt: "A protagonist lifts a mountain.",
       fallbackSubjectGender: "female",
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /no reference identity is being preserved/);
+    // t2i leads with the scene; the render-task clause is brief and has no
+    // reference-photo/identity language.
+    assert.match(out.imagePrompt.toLowerCase(), /text-to-image generation: render an original protagonist/);
+    assert.match(out.imagePrompt, /RENDER TASK:/);
     assert.match(out.imagePrompt.toLowerCase(), /female/);
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /reference image/);
     assert.equal(out.referenceImageUrl, undefined);
@@ -887,7 +898,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /REQUIRED VISUAL DETAILS: a golden trophy\./);
   });
 
-  it("role bindings feed REFERENCE INTERPRETATION (subject + secondary)", () => {
+  it("role bindings feed ROLE DETAILS (subject + secondary), bare-predicate subject bound with 'is'", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "A car scene.",
@@ -899,7 +910,8 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
         ],
       }),
     }));
-    assert.match(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+    assert.match(out.imagePrompt, /ROLE DETAILS:/);
+    // A bare-predicate subject role (no leading name) still gets the "is" binding.
     assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
     assert.match(out.imagePrompt, /mother is adult woman in the passenger seat, surprised and amused/);
   });
@@ -966,7 +978,10 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /David Franklin composited onto a tiny body/);     // SUBJECT REALIZATION
     assert.match(out.imagePrompt, /David Franklin's recognizable face/);             // REQUIRED VISUAL DETAILS
     assert.match(out.imagePrompt, /Do not a separate adult David Franklin/);         // STRICT CONSTRAINTS
-    assert.match(out.imagePrompt, /David Franklin as the driver/);                   // REFERENCE INTERPRETATION
+    assert.match(out.imagePrompt, /David Franklin as the driver/);                   // ROLE DETAILS (name-led role, as-is)
+    // Regression: a subject roleBinding that already names the subject must NOT
+    // double the name ("David Franklin is David Franklin as the driver").
+    assert.doesNotMatch(out.imagePrompt, /David Franklin is David Franklin/);
     assert.match(out.imagePrompt, /keep David Franklin's face centered/);            // COMPOSITION
     assert.match(out.imagePrompt, /a poster of David Franklin on the wall/);         // ADDITIONAL DETAILS
     assert.match(out.imagePrompt, /a TV title reading "David Franklin Week"/);       // SUPPORTING TEXT
@@ -1012,9 +1027,10 @@ describe("nanoBanana2 — prompt component breakdown", () => {
     assert.equal(byId["strategic_intent"], undefined);
     assert.equal(byId["visual_goal"], undefined);
 
-    // The task lead is required and present.
-    assert.equal(byId["image_to_image_task"]?.priority, "required");
-    assert.equal(byId["image_to_image_task"]?.status, "included");
+    // CORE SCENE leads; the identity clause (mode-aware id) is required + present.
+    assert.equal(byId["core_scene"]?.status, "included");
+    assert.equal(byId["identity_reference"]?.priority, "required");
+    assert.equal(byId["identity_reference"]?.status, "included");
     assert.equal(byId["strict_constraints"]?.priority, "required");
 
     // Concatenating the included/compressed section texts reproduces the prompt.
@@ -1075,7 +1091,7 @@ describe("nanoBanana2 — prompt component breakdown", () => {
 // ── v4 role/action hardening — broad fixture matrix (baby fact is one proving
 //    case among several; the others guard against overfitting/regressions). ──
 
-describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
+describe("nanoBanana2 — ROLE DETAILS + role binding", () => {
   it("binds the subject's role and each secondary character as a separate role (baby-drives-mom proving case)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
@@ -1093,7 +1109,7 @@ describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
         ],
       },
     }));
-    assert.match(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+    assert.match(out.imagePrompt, /ROLE DETAILS:/);
     assert.match(out.imagePrompt, /David is the newborn baby gripping the steering wheel and driving\./);
     assert.match(out.imagePrompt.toLowerCase(), /his mother is a separate adult woman seated in the front passenger seat/);
     // Role-swap is blocked + the subject must be actively driving (active frame).
@@ -1104,7 +1120,7 @@ describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
     assert.match(out.imagePrompt, /The transformed newborn infant IS David/);
   });
 
-  it("orders REFERENCE INTERPRETATION between SUBJECT BINDING and CORE SCENE", () => {
+  it("orders CORE SCENE first, then SUBJECT BINDING, then ROLE DETAILS", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "A baby drives a car.",
@@ -1115,13 +1131,15 @@ describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
       },
     }));
     const ids = (out.promptBreakdown ?? []).map((s) => s.id);
-    const binding = ids.indexOf("subject_binding");
-    const refInterp = ids.indexOf("reference_interpretation");
     const core = ids.indexOf("core_scene");
-    assert.ok(binding < refInterp && refInterp < core, ids.join(","));
+    const binding = ids.indexOf("subject_binding");
+    const roleDetails = ids.indexOf("role_details");
+    assert.ok(core < binding && binding < roleDetails, ids.join(","));
+    // CORE SCENE is the very first section.
+    assert.equal(ids[0], "core_scene", ids.join(","));
   });
 
-  it("omits REFERENCE INTERPRETATION for a solo subject on a non-active frame", () => {
+  it("omits ROLE DETAILS for a solo subject on a non-active frame", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David stands on a quiet hill at dawn.",
@@ -1131,7 +1149,7 @@ describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
         subjectTreatment: { ...makeVisualPlan().subjectTreatment, roleInScene: "protagonist" },
       },
     }));
-    assert.doesNotMatch(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+    assert.doesNotMatch(out.imagePrompt, /ROLE DETAILS:/);
   });
 
   it("multi-character authority fact: binds the referee, keeps roles, no false age-split", () => {
@@ -1361,7 +1379,13 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
   it("survives the char budget verbatim while later compressible sections give way", () => {
     const moderatorScene =
       "David rides a giant rubber duck across a packed stadium while fireworks trace a heart in the sky.";
-    const filler = Array.from({ length: 80 }, (_, i) => `an elaborate background detail number ${i} with ornate texture`);
+    // Genuinely DISTINCT filler (unique content words per entry) so the additive
+    // content-word de-dupe can't collapse it — the point here is budget pressure,
+    // not de-duplication. (Near-identical numbered filler would correctly collapse.)
+    const filler = Array.from(
+      { length: 120 },
+      (_, i) => `vivid${i} tableau${i} of glimmer${i} artifacts arranged in baroque${i} symmetry${i}`,
+    );
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "fallback",
@@ -1390,5 +1414,157 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     }));
     assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
     assert.match(String(out.engineNotes ?? ""), /Hard-truncated required content/);
+  });
+});
+
+// ── PR1: Visual Concept leads; cut the crutches (compiler redesign) ──────────
+
+describe("nanoBanana2 — CORE SCENE leads + mode-aware identity", () => {
+  it("CORE SCENE is the first emitted section in all three render modes", () => {
+    const human = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David lifts a car.",
+    }));
+    const nonhuman = compileNanoBanana2NonhumanI2I(makeArgs({
+      subjectRenderMode: "nonhuman_subject_i2i", prompt: "An orange cat lifts a car.",
+    }));
+    const t2i = compileNanoBanana2T2I(makeArgs({
+      subjectRenderMode: "t2i_fallback", prompt: "A protagonist lifts a car.", fallbackSubjectGender: "male",
+    }));
+    for (const out of [human, nonhuman, t2i]) {
+      assert.match(out.imagePrompt, /^CORE SCENE:/, out.imagePrompt.slice(0, 60));
+      assert.equal(out.promptBreakdown?.[0]?.id, "core_scene");
+    }
+  });
+
+  it("human i2i: a STRONG identity clause is the section right after CORE SCENE", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David stands in a storm.",
+    }));
+    const coreAt = out.imagePrompt.indexOf("CORE SCENE:");
+    const idAt = out.imagePrompt.indexOf("IDENTITY & REFERENCE:");
+    assert.ok(coreAt === 0 && idAt > coreAt, out.imagePrompt.slice(0, 120));
+    assert.match(out.imagePrompt.toLowerCase(), /preserve the reference person's recognizable identity and likeness/);
+    // No section sits between CORE SCENE and the identity clause.
+    const ids = (out.promptBreakdown ?? []).filter((s) => s.status === "included" || s.status === "compressed").map((s) => s.id);
+    assert.equal(ids[0], "core_scene");
+    assert.equal(ids[1], "identity_reference");
+  });
+
+  it("nonhuman i2i: identity clause after the scene keeps the non-humanize guard", () => {
+    const out = compileNanoBanana2NonhumanI2I(makeArgs({
+      subjectRenderMode: "nonhuman_subject_i2i", prompt: "An orange cat does a pushup.",
+    }));
+    assert.match(out.imagePrompt, /IDENTITY & REFERENCE:/);
+    assert.match(out.imagePrompt.toLowerCase(), /do not replace the subject with a human/);
+    const idAt = out.imagePrompt.indexOf("IDENTITY & REFERENCE:");
+    assert.ok(idAt > 0 && idAt < out.imagePrompt.indexOf("STRICT CONSTRAINTS:"));
+  });
+});
+
+describe("nanoBanana2 — no double-naming (X is X) from any role source", () => {
+  it("an AI-plan roleInScene that already names the subject is emitted as-is, never doubled", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A dim neighborhood bar at night.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        subjectTreatment: {
+          ...makeVisualPlan().subjectTreatment,
+          roleInScene: "David leans against the counter and raises a middle finger",
+        },
+        secondaryCharacters: [{ label: "a loud patron", visualRole: "stumbling backward at the end of the bar" }],
+      },
+    }));
+    assert.match(out.imagePrompt, /David leans against the counter and raises a middle finger/);
+    assert.doesNotMatch(out.imagePrompt, /David is David/);
+  });
+
+  it("a {NAME}-token-led role (moderator roleBinding) never renders 'Name is Name'", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A dim neighborhood bar.",
+      renderedSubject: { name: "Alex Franklin", pronouns: "he/him" },
+      override: {
+        version: 1,
+        enabled: true,
+        requiredVisualDetails: [],
+        forbiddenVisualDetails: [],
+        roleBindings: [{ entity: "subject", visualRole: "{NAME} raises a middle finger at a loud patron" }],
+        compositionGuidance: [],
+        styleAgnosticPromptAdditions: [],
+        negativePromptAdditions: [],
+      },
+    }));
+    assert.match(out.imagePrompt, /Alex Franklin raises a middle finger at a loud patron/);
+    assert.doesNotMatch(out.imagePrompt, /Alex Franklin is Alex Franklin/);
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+  });
+});
+
+describe("nanoBanana2 — additive de-dupe (contiguity, not scattered words)", () => {
+  it("drops a tight restatement of the scene but keeps a distinct detail that reuses scene words", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands under red warning lights beside a tall trophy shelf.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        subjectDetails: ["a red trophy in his hand", "beside a tall trophy shelf"],
+      },
+    }));
+    // Distinct detail survives (shares 'red' + 'trophy' with the scene, but is a new object).
+    assert.match(out.imagePrompt.toLowerCase(), /a red trophy in his hand/);
+    // The tight restatement of the scene's own phrase is dropped (appears once — in the scene).
+    assert.equal(countOccurrences(out.imagePrompt.toLowerCase(), "beside a tall trophy shelf"), 1, out.imagePrompt);
+  });
+
+  it("de-dupes against EMITTED text only — a non-emitted visualApproach cannot suppress a concrete detail", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands in an empty room.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        visualApproach: "lean on a glowing chandelier motif for grandeur",
+        subjectDetails: ["a glowing chandelier overhead"],
+      },
+    }));
+    // The concrete detail survives even though the (internal, non-emitted) approach mentioned a chandelier.
+    assert.match(out.imagePrompt.toLowerCase(), /a glowing chandelier overhead/);
+    // The internal reasoning itself never leaks into the prompt.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /lean on a glowing chandelier motif/);
+  });
+});
+
+describe("nanoBanana2 — key-element crutch filter + structured diagnostics", () => {
+  it("drops negative/conditional/failure-mode 'crutch' candidates, keeps concrete ones, records why", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David gives the finger in a bar.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        keyVisualElements: [
+          "a glowing jukebox in the corner",
+          "Depict a rude middle-finger gesture if shown, not a severed finger",
+          "no visible blood",
+        ],
+      },
+    }));
+    // Concrete element reaches the visible-elements list.
+    assert.match(out.imagePrompt.toLowerCase(), /a glowing jukebox in the corner/);
+    // Crutch lines never appear as visible elements.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /severed finger/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /no visible blood/);
+    // The drops are recorded, structured, with reasons.
+    const drops = out.diagnostics?.droppedCandidates ?? [];
+    assert.ok(drops.some((d) => d.source === "keyVisualElements" && d.reason === "failure-mode-commentary-not-visible-element"), JSON.stringify(drops));
+    assert.ok(drops.some((d) => d.reason === "negative-constraint-not-visible-element"), JSON.stringify(drops));
+  });
+
+  it("STRICT CONSTRAINTS policy guardrails are preserved (overlay-text + incidental-text)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David stands in a bar.",
+    }));
+    assert.match(out.imagePrompt, /STRICT CONSTRAINTS:/);
+    assert.match(out.imagePrompt.toLowerCase(), /do not bake overlay or caption text into the image/);
+    assert.match(out.imagePrompt.toLowerCase(), /keep incidental background text non-readable/);
   });
 });
