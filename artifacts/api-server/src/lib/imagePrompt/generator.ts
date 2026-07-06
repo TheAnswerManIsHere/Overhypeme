@@ -712,7 +712,7 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     "- supportingTextElements (when present) MUST have shape { content, purpose, placement } per element.",
     `- nonhumanSubjectTreatment.applicable MUST be ${input.subjectRenderMode === "nonhuman_subject_i2i" ? "true" : "false"}.`,
     `- subjectTreatment.fallbackSubjectGender MUST be ${input.subjectRenderMode === "t2i_fallback" ? `"${fallbackGender ?? "neutral"}"` : '"not_applicable"'}.`,
-    "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason; when rating is poor, recommendedFallback must NOT be \"none\".",
+    "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason. recommendedFallback is advisory only; \"none\" is valid for every rating, including poor. This field never blocks rendering.",
     materialEntities.length > 0
       ? `- semanticEntitiesUsed: MUST include an entry for each of [${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}]; each entry needs surfaceText + visualReferentUsed + effectOnVisualPlan all non-empty.`
       : "- semanticEntitiesUsed: may be an empty array (no material entities in this fact).",

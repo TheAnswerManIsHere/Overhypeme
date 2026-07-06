@@ -10,8 +10,9 @@
  *     3. Builds ImagePromptGenerationInput.
  *     4. Calls generateImagePromptPlan() → visualPlan + compiledPrompt + compatibility.
  *     5. Compiles via the matching Nano Banana 2 compiler.
- *     6. Updates the attempt row with the results.
- *     7. Enqueues `image_generation` for the same attemptId.
+ *     6. Updates the attempt row with the results. subjectFactCompatibility is
+ *        advisory only — it never blocks rendering (facts are manually curated).
+ *     7. Always enqueues `image_generation` for the same attemptId.
  *
  *   image_generation
  *     Payload: { attemptId }.
@@ -182,43 +183,17 @@ export const imagePromptGenerationHandler: JobHandler = {
       compiled.diagnostics.plannerProvenance = output.plannerProvenance;
     }
 
-    // A "poor" subject↔fact compatibility means the uploaded subject can't
-    // carry this fact — rendering anyway wastes a paid generation and produces
-    // an off-target image. Block here: persist the plan + reason, surface it via
-    // the poll route (which maps this error to status:"blocked"), and do NOT
-    // enqueue image_generation. "risky" still proceeds but the warning rides
-    // along on the poll payload.
-    const compatibility = output.visualPlan.subjectFactCompatibility;
-    const blockedPoor = compatibility.rating === "poor";
-
-    await db
-      .update(imagePromptAttemptsTable)
-      .set({
-        visualPlan: output.visualPlan,
-        compiledPrompt: compiled as unknown as Record<string, unknown>,
-        subjectFactCompatibility: compatibility,
-        archetypeStrategyVersion: output.archetypeStrategyVersion,
-        error: blockedPoor ? "subject_fact_compatibility_poor" : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(imagePromptAttemptsTable.id, p.attemptId));
-
-    if (blockedPoor) {
-      logger.info(
-        { attemptId: p.attemptId, recommendedFallback: compatibility.recommendedFallback },
-        "[imagePromptJobs] attempt blocked: subject_fact_compatibility=poor",
-      );
-      return {
-        ok: true,
-        result: { attemptId: p.attemptId, blocked: true, subjectFactCompatibility: compatibility },
-      };
-    }
-
-    // Chain into image_generation.
-    await enqueueJob({
-      queue: IMAGE_GENERATION_QUEUE,
-      payload: { attemptId: p.attemptId } satisfies ImagePromptJobPayload,
-      dedupeKey: `image_generation:attempt:${p.attemptId}`,
+    // subjectFactCompatibility is an ADVISORY signal only — persisted for admin
+    // visibility (and to drive the legacy "blocked" display for historical rows
+    // that predate this change), but it never gates whether image_generation is
+    // enqueued. David: facts are manually curated, so a "poor" rating renders
+    // (possibly imperfectly) rather than leaving the user with nothing.
+    await persistImagePromptPlanAndEnqueueGeneration({
+      attemptId: p.attemptId,
+      visualPlan: output.visualPlan,
+      compiledPrompt: compiled as unknown as Record<string, unknown>,
+      subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
+      archetypeStrategyVersion: output.archetypeStrategyVersion,
     });
 
     return {
@@ -231,6 +206,39 @@ export const imagePromptGenerationHandler: JobHandler = {
     };
   },
 };
+
+/**
+ * Narrow, worker-local success-path helper (extracted as a deterministic test
+ * seam — this is NOT a general job-persistence abstraction). Persists the
+ * planner/compiler results on the attempt row and always chains
+ * `image_generation`, regardless of `subjectFactCompatibility.rating`. The
+ * rating is advisory only; it never gates enqueue.
+ */
+export async function persistImagePromptPlanAndEnqueueGeneration(args: {
+  attemptId: number;
+  visualPlan: unknown;
+  compiledPrompt: unknown;
+  subjectFactCompatibility: unknown;
+  archetypeStrategyVersion: string;
+}): Promise<void> {
+  await db
+    .update(imagePromptAttemptsTable)
+    .set({
+      visualPlan: args.visualPlan,
+      compiledPrompt: args.compiledPrompt as Record<string, unknown>,
+      subjectFactCompatibility: args.subjectFactCompatibility,
+      archetypeStrategyVersion: args.archetypeStrategyVersion,
+      error: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(imagePromptAttemptsTable.id, args.attemptId));
+
+  await enqueueJob({
+    queue: IMAGE_GENERATION_QUEUE,
+    payload: { attemptId: args.attemptId } satisfies ImagePromptJobPayload,
+    dedupeKey: `image_generation:attempt:${args.attemptId}`,
+  });
+}
 
 // ─── image_generation handler ─────────────────────────────────────────────
 

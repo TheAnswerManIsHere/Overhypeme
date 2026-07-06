@@ -337,14 +337,13 @@ describe("validateImagePromptPlan", () => {
     assert.equal(result.ok, false);
   });
 
-  it("rejects compatibility rating=poor with recommendedFallback=none", () => {
+  it("accepts compatibility rating=poor with recommendedFallback=none (advisory only, never blocks)", () => {
     const plan = basePlan({
       compatibilityRating: "poor",
       compatibilityFallback: "none",
     });
     const result = validateImagePromptPlan(plan, baseExpectations);
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.match(result.error, /poor.*recommendedFallback/);
+    assert.equal(result.ok, true);
   });
 
   it("rejects full fact text embedded in compiledPrompt.prompt", () => {
