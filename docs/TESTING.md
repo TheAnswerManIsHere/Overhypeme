@@ -170,6 +170,12 @@ CI/sandbox) — never at `heliumdb`.
   container, with `DATABASE_URL` set to `overhype_test`. The suite's own runner
   does all DB setup (per-worker clones); CI just supplies the database.
 
+For frontend, package/workspace-script, Vite/build-config, or build-time
+environment-variable changes, reproduce the Build gate locally/sandbox-side with
+`pnpm run build` when the environment can run it. Package-local typechecks are not
+a substitute: the repo-level build also loads production Vite config for every
+workspace package.
+
 > Repository settings currently require PRs and require the `Build` and `Test`
 > checks to pass before merging to `main`. This is configured in **GitHub
 > repository settings (a ruleset), not in the workflow file** — don't go hunting

@@ -19,6 +19,9 @@
 - [ ] **Docs stay true** — if this changed product/architecture/principle truth,
       the shared docs were updated in this PR (`docs/ai-context/`, `AGENTS.md`),
       not a private copy. `pnpm run check:docs` passes.
+- [ ] **Build gate reproduced when relevant** — frontend, package config,
+      Vite/build config, or workspace-script changes were verified with
+      `pnpm run build` (or the PR explains why this was deferred to CI).
 - [ ] **General fix, not one example** — tests prove the invariant with negative
       cases, not just the reported input. (or ~~n/a~~)
 - [ ] **Ship the surface** — user/admin/tester-visible behavior ships with the UI
