@@ -76,6 +76,7 @@ function makeApp(): Express {
 }
 
 let adminId: string;
+let adminEmail: string;
 let adminSid: string;
 const insertedFactIds: number[] = [];
 
@@ -112,9 +113,10 @@ async function cleanup() {
 before(async () => {
   await cleanup();
   adminId = `${USER_PREFIX}${randomUUID()}`;
+  adminEmail = `${adminId}@test.local`;
   await db.insert(usersTable).values({
     id: adminId,
-    email: `${adminId}@test.local`,
+    email: adminEmail,
     isAdmin: true,
     membershipTier: "legendary",
     captchaVerified: true,
@@ -295,6 +297,10 @@ describe("GET /admin/facts/:id/enrichment-versions", () => {
     assert.equal(v.enrichmentReady, false, "job hasn't classified yet");
     assert.ok(!("enrichment" in v) && !("enrichmentAiDerived" in v) && !("enrichmentOverrides" in v),
       "metadata only — no jsonb blobs");
+    // Actor attribution is human-readable (email, since this test admin has no
+    // display name) — the raw admin user id must never be surfaced.
+    assert.equal(v.createdByEmail, adminEmail);
+    assert.ok(!("createdBy" in v), "raw admin id must not be surfaced");
 
     // Candidate job completes → enrichmentReady flips.
     const jobResult = await runEnrichmentForCandidateVersion(candidateVersionId, {

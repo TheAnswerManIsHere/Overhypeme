@@ -13,22 +13,23 @@ const INFO: EnrichmentVersionInfo = {
   versions: [
     {
       id: 12, versionNo: 3, status: "candidate", source: "refresh_candidate", sourceReviewId: 34,
-      note: null, createdBy: "admin-1", createdAt: "2026-07-03T01:00:00Z",
+      note: null, createdByDisplayName: "Jane Admin", createdByEmail: "jane@example.com", createdAt: "2026-07-03T01:00:00Z",
       promotedAt: null, supersededAt: null, rejectedAt: null, enrichmentReady: false,
     },
     {
       id: 11, versionNo: 2, status: "promoted", source: "refresh_candidate", sourceReviewId: 30,
-      note: null, createdBy: "admin-1", createdAt: "2026-07-02T01:00:00Z",
+      // No display name on file — falls back to email, never the raw user id.
+      note: null, createdByDisplayName: null, createdByEmail: "admin@example.com", createdAt: "2026-07-02T01:00:00Z",
       promotedAt: "2026-07-02T02:00:00Z", supersededAt: null, rejectedAt: null, enrichmentReady: true,
     },
     {
       id: 10, versionNo: 1, status: "superseded", source: "prior_active_snapshot", sourceReviewId: 30,
-      note: null, createdBy: null, createdAt: "2026-07-02T01:59:00Z",
+      note: null, createdByDisplayName: null, createdByEmail: null, createdAt: "2026-07-02T01:59:00Z",
       promotedAt: null, supersededAt: "2026-07-02T02:00:00Z", rejectedAt: null, enrichmentReady: true,
     },
     {
       id: 9, versionNo: 0, status: "rejected", source: "refresh_candidate", sourceReviewId: 28,
-      note: null, createdBy: "admin-1", createdAt: "2026-07-01T01:00:00Z",
+      note: null, createdByDisplayName: "Jane Admin", createdByEmail: "jane@example.com", createdAt: "2026-07-01T01:00:00Z",
       promotedAt: null, supersededAt: null, rejectedAt: "2026-07-01T02:00:00Z", enrichmentReady: true,
     },
   ],
@@ -50,6 +51,12 @@ describe("FactEnrichmentVersionHistory", () => {
     expect(screen.getByTestId("version-row-rejected").textContent).toMatch(/Rejected refresh from/);
     // A candidate row links to the moderation queue by review number.
     expect(screen.getByText("Review #34").getAttribute("href")).toBe("/admin/moderation");
+    // Actor attribution is always human-readable: display name, or email as a
+    // fallback — never a raw user id, and never omitted when one is known.
+    expect(screen.getByTestId("version-row-candidate").textContent).toContain("by Jane Admin");
+    expect(screen.getByTestId("version-row-promoted").textContent).toContain("by admin@example.com");
+    // No display name or email on file (e.g. a deleted user) — no actor shown at all.
+    expect(screen.getByTestId("version-row-superseded").textContent).not.toMatch(/by /);
   });
 
   it("shows the no-history empty state", () => {

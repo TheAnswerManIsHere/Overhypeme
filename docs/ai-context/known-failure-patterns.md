@@ -169,6 +169,24 @@ role/flag. **Dangerous:** trivially bypassed; privilege escalation, data exposur
 `AdminLayout` gate is convenience, not security. Auth also has real subtleties (see
 `.agents/memory/auth-bearer-cookie-fallback.md`).
 
+## Raw internal ID surfaced to a human
+
+**Looks like:** an admin/audit UI attributes an action to "by {raw-id}" instead
+of a name — a FK column or a jsonb-embedded provenance field (`createdBy`,
+`updatedBy`, `performedBy`) rendered directly instead of resolved to a display
+label. **Dangerous:** violates the hard rule that no internal ID/GUID may ever
+reach a human-visible surface (admin included) — see
+[`agent-working-rules.md`](./agent-working-rules.md#never-surface-a-raw-internal-id-anywhere-in-the-product);
+also a sign the same write path may have sibling occurrences elsewhere.
+**Avoid:** resolve to `displayName ?? email ?? (omit)` — never fall back to the
+raw id; join at read time when the id lives in a real FK column, or stamp a
+resolved label at write time when it's embedded in jsonb with no join path.
+**Overhype:** the Facts admin's Enrichment Version History panel rendered
+`factEnrichmentVersionsTable.createdBy` raw; the Enrichment Editor's "Last
+edited by" line rendered `visualPromptStrategyOverride.updatedBy` raw. Both
+fixed; pre-existing jsonb-stamped rows from before the fix may still hold a raw
+id until next edited (a backfill would be separate migration-shaped work).
+
 ## Over-engineered speculative abstractions
 
 **Looks like:** building a framework/config system/plugin layer for a need that
