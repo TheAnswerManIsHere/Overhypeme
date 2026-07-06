@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, ImageIcon, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, ImageIcon, Loader2, AlertTriangle } from "lucide-react";
+import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "./PexelsImageGallery";
 
 /**
  * Shows the Pexels stock images pulled in for the fact under review, so a
@@ -11,21 +12,11 @@ import { ChevronDown, ChevronRight, ImageIcon, Loader2, AlertTriangle, ExternalL
  * panel fills in live as the seed job runs; it stops on "ok"/"failed".
  */
 
-type Gender = "male" | "female" | "neutral";
-const GENDERS: Gender[] = ["male", "female", "neutral"];
-
-interface PexelsThumb {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-}
-
 interface PexelsResponse {
   pexelsStatus: "pending" | "ok" | "failed" | null;
   factType: "action" | "abstract" | null;
   keywords: { male: string; female: string; neutral: string } | null;
-  images: Record<Gender, PexelsThumb[]>;
+  images: Record<PexelsGender, PexelsThumb[]>;
 }
 
 const labelCls = "block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide";
@@ -34,7 +25,6 @@ export function ModerationPexelsPanel({ reviewId }: { reviewId: number }) {
   const [expanded, setExpanded] = useState(true);
   const [data, setData] = useState<PexelsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [activeGender, setActiveGender] = useState<Gender>("neutral");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -62,12 +52,9 @@ export function ModerationPexelsPanel({ reviewId }: { reviewId: number }) {
     return clear;
   }, [data?.pexelsStatus, load]);
 
-  const totals: Record<Gender, number> = {
-    male: data?.images.male.length ?? 0,
-    female: data?.images.female.length ?? 0,
-    neutral: data?.images.neutral.length ?? 0,
-  };
-  const totalCount = totals.male + totals.female + totals.neutral;
+  const images = data?.images ?? emptyPexelsImages();
+  const totals = pexelsImageTotals(images);
+  const totalCount = totals.total;
   const status = data?.pexelsStatus ?? null;
 
   return (
@@ -117,64 +104,7 @@ export function ModerationPexelsPanel({ reviewId }: { reviewId: number }) {
           )}
 
           {loaded && totalCount > 0 && (
-            <>
-              <div className="flex items-center gap-1.5" data-testid="pexels-gender-tabs">
-                {GENDERS.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => setActiveGender(g)}
-                    className={`px-2 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-sm ${
-                      activeGender === g ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {g} ({totals[g]})
-                  </button>
-                ))}
-              </div>
-
-              {data?.keywords && (
-                <p className="text-[10px] text-muted-foreground italic">
-                  Keywords ({activeGender}): {data.keywords[activeGender]}
-                </p>
-              )}
-
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-72 overflow-auto" data-testid={`pexels-grid-${activeGender}`}>
-                {(data?.images[activeGender] ?? []).map((p) => (
-                  <a
-                    key={p.id}
-                    href={p.photographer_url ?? p.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    // Fixed-height tiles (NOT aspect-square): inside a
-                    // `max-h-* overflow-auto` grid, aspect-ratio items get their
-                    // rows compressed to fit the max-height instead of scrolling,
-                    // which crushes every row into a thin strip. A definite height
-                    // makes the grid scroll normally.
-                    className="group relative block h-20 overflow-hidden rounded-sm border border-border"
-                    title={p.photographer ? `Photo by ${p.photographer}` : undefined}
-                  >
-                    <img src={p.url} alt="" loading="lazy" className="h-full w-full object-cover" />
-                    {p.photographer && (
-                      <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1 py-0.5 text-[8px] text-white opacity-0 group-hover:opacity-100">
-                        {p.photographer}
-                      </span>
-                    )}
-                  </a>
-                ))}
-              </div>
-            </>
-          )}
-
-          {loaded && (
-            <a
-              href="https://www.pexels.com"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              Photos provided by Pexels <ExternalLink className="w-2.5 h-2.5" />
-            </a>
+            <PexelsImageGallery data={{ keywords: data?.keywords ?? null, images }} />
           )}
         </div>
       )}
