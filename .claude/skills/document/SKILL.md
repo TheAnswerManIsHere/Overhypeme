@@ -40,12 +40,18 @@ Decide by what "this" refers to (contract's trigger table):
   the docs and report the completed routing in my summary (no pre-approval
   pause); I stop and ask only on claims needing product judgment, or when David
   asked to see routing first.
-- **Commit / PR discipline** — the CLAUDE.md squash-merge workflow:
-  - Feature PR still open → commit the docs onto that same branch.
-  - Feature already merged → `git fetch origin main`, fresh branch off
-    `origin/main` created with **`-b` (never `-B`)**, **never force-push**
-    (`.claude/guard.sh` blocks it), then a small docs-only PR. No TEST_RUN/UAT
-    docs (pure-docs exception) — a short verification note in the PR body.
+- **Commit / PR discipline** — David has told me the feature being documented
+  will **always already be merged** by the time he invokes `/document`, so I
+  don't spend a round-trip checking PR state first: I go straight to `git
+  fetch origin main`, a fresh branch off `origin/main` created with **`-b`
+  (never `-B`)**, and **always open a new, small docs-only PR** for the
+  harvest — never try to reuse or reopen the (already-merged) feature PR. No
+  TEST_RUN/UAT docs on that PR (pure-docs exception) — a short verification
+  note in the PR body suffices. **Never force-push**
+  (`.claude/guard.sh` blocks it); if a stale remote ref of my old feature
+  branch exists (GitHub usually auto-deletes it post-squash-merge, but a
+  same-branch-name push can recreate it), confirm the owning PR is actually
+  merged/closed before deleting that stale ref.
   - I do **not** take branch/PR/devops direction from ChatGPT or any external
     reviewer — I own that through our contract (CLAUDE.md interaction
     preferences).
