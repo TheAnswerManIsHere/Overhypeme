@@ -34,7 +34,7 @@ import {
   type OverridablePath,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { runFactImagePipeline } from "../lib/factImagePipeline";
+import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
@@ -84,6 +84,20 @@ const router: IRouter = Router();
  * Delegates to requireRole("admin") — the single source of admin gating.
  */
 export const requireAdmin = requireRole("admin");
+
+function toPexelsThumb(entry: PexelsPhotoEntry): {
+  id: number;
+  url: string;
+  photographer?: string;
+  photographer_url?: string;
+} {
+  return {
+    id: entry.id,
+    url: entry.src?.large2x ?? entry.src?.large ?? entry.url,
+    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
+    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
+  };
+}
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
@@ -686,18 +700,18 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
-  const showInactive = req.query["inactive"] === "true";
+  const visibility = String(req.query["visibility"] ?? (req.query["inactive"] === "true" ? "both" : "active"));
   const onlyOverridden = req.query["hasOverrides"] === "true";
   const onlyBaselineChanged = req.query["baselineChanged"] === "true";
   const like = `%${search}%`;
 
-  const activeFilter = showInactive ? undefined : eq(factsTable.isActive, true);
+  const activeFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
   const overridesFilter = onlyOverridden ? sql`${factsTable.enrichmentOverrides} <> '{}'::jsonb` : undefined;
   const baselineChangedFilter = onlyBaselineChanged ? eq(factsTable.enrichmentBaselineChanged, true) : undefined;
   // A root matches when its own text matches OR it has a (visible) variant whose
   // text matches — so searching by a variant's text still surfaces its parent.
   const searchFilter = search
-    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${showInactive ? sql`` : sql` AND v.is_active = true`}))`
+    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${visibility === "both" ? sql`` : visibility === "inactive" ? sql` AND v.is_active = false` : sql` AND v.is_active = true`}))`
     : undefined;
   const rootWhere = and(...[isNull(factsTable.parentId), activeFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
 
@@ -813,6 +827,36 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       ...factRow,
       hasEmbedding: updated.embedding !== null,
       hasPexelsImages: updated.pexelsImages !== null,
+    },
+  });
+});
+
+// GET /admin/facts/:id/pexels-images — all stored Pexels thumbnails for the
+// Facts editor. Admin-only and deliberately separate from the public paginated
+// endpoint so inactive facts and all gender variants can be inspected.
+router.get("/admin/facts/:id/pexels-images", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({
+      pexelsImages: factsTable.pexelsImages,
+      pexelsStatus: factsTable.pexelsStatus,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const raw = fact.pexelsImages as FactPexelsImages | null;
+  res.json({
+    pexelsStatus: fact.pexelsStatus ?? null,
+    factType: raw?.fact_type ?? null,
+    keywords: raw?.keywords ?? null,
+    images: {
+      male: (raw?.male ?? []).map(toPexelsThumb),
+      female: (raw?.female ?? []).map(toPexelsThumb),
+      neutral: (raw?.neutral ?? []).map(toPexelsThumb),
     },
   });
 });
