@@ -36,9 +36,10 @@ import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 // ageLifeStageTransform binding signal; the compiler now assembles a labeled,
 // deterministic visual contract and the abstract intent line was dropped.
 // v4: visualPlan gained `secondaryCharacters` (concrete visible roles for every
-// non-subject person/animal/crowd) so the compiler can emit a deterministic
-// REFERENCE INTERPRETATION section binding the subject's role + each secondary
-// character's role, and reusable failure-mode role/action constraints.
+// non-subject person/animal/crowd) so the compiler can emit an ADDITIVE ROLE
+// DETAILS section (originally REFERENCE INTERPRETATION) binding the subject's
+// role + each secondary character's role, and reusable failure-mode constraints.
+// (PR: the Visual Concept now leads the prompt; ROLE DETAILS is additive-only.)
 // v5: removed the modifier→prompt-prose injection channel (modifiers are now
 // planner context only); added the always-on incidental-text guard and
 // content-word key-element gap-fill; generalized age-transform SUBJECT BINDING
@@ -482,8 +483,8 @@ const culturalReferenceUsedWireSchema = z.object({
  * referee, a reacting crowd, sharks, …). `label` is a short relationship/name/
  * type; `visualRole` is the CONCRETE visible role — position, action/reaction,
  * and relationship to the subject — not a bare relationship word. The compiler
- * turns these into a deterministic REFERENCE INTERPRETATION section (positive
- * role binding) plus role-preservation constraints, so a secondary character
+ * turns these into an additive ROLE DETAILS section (emitted only for roles the
+ * Visual Concept omitted) plus role-preservation constraints, so a secondary character
  * keeps their stated role instead of taking over the subject's central action.
  * Empty array when the subject is alone or no secondary entity must appear.
  */
@@ -516,7 +517,7 @@ const visualPlanWireSchema = z.object({
   keyVisualElements: z.array(z.string()),
   subjectTreatment: subjectTreatmentWireSchema,
   // Concrete visible roles for every non-subject entity in the scene. Drives the
-  // compiler's REFERENCE INTERPRETATION binding + role-preservation constraints.
+  // compiler's additive ROLE DETAILS section + role-preservation constraints.
   // Empty array when the subject is alone.
   secondaryCharacters: z.array(secondaryCharacterWireSchema),
   subjectFactCompatibility: subjectFactCompatibilityWireSchema,
@@ -814,14 +815,10 @@ export function validateImagePromptPlan(
       };
     }
   }
-  // 12. subjectFactCompatibility coherence
-  if (vp.subjectFactCompatibility.rating === "poor" && vp.subjectFactCompatibility.recommendedFallback === "none") {
-    return {
-      ok: false,
-      error: `subjectFactCompatibility.rating is "poor" but recommendedFallback is "none"; must recommend a fallback`,
-      correctableHint: `When rating is "poor", recommendedFallback must be one of t2i_fallback / upload_human_photo / choose_different_fact.`,
-    };
-  }
+  // 12. (retired) subjectFactCompatibility coherence — a "poor" rating no longer
+  // requires a non-"none" recommendedFallback. The rating is advisory only and
+  // never blocks rendering (see imagePromptJobs.ts); "none" is valid for every
+  // rating, including poor.
   // 13. fallbackSubjectGender consistency
   if (expectations.subjectRenderMode === "t2i_fallback") {
     if (expectations.fallbackSubjectGender) {

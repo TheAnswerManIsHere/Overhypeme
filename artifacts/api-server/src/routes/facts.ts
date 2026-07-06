@@ -3,10 +3,8 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
-import { renderCanonical } from "../lib/renderCanonical";
+import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
-import { validateTemplate } from "../lib/templateGrammar";
-import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
 import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
 import { getConfigInt } from "../lib/adminConfig";
@@ -429,7 +427,7 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
   // If text is already tokenized (sent from front-end AI step), use it as-is.
   // Otherwise apply the basic legacy regex tokenizer.
   const isAlreadyTokenized = /\{(NAME|SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(text);
-  const tokenizedText = isAlreadyTokenized ? text : (() => {
+  const rawTokenizedText = isAlreadyTokenized ? text : (() => {
     return text
       .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
       .replace(/\bHimself\b/g, "{REFL}")
@@ -441,19 +439,19 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
       .replace(/\bHe\b/g, "{Subj}")
       .replace(/\bhe\b/g, "{SUBJ}");
   })();
-
-  // Validate template grammar before storage
-  const grammarResult = validateTemplate(tokenizedText);
-  if (!grammarResult.valid) {
+  // Already-tokenized input bypasses the tokenize route's post-processing, so
+  // this ingress runs the full deterministic grammar cleanup (not just the
+  // {NAME}-subject collapse) before validation and storage — the same
+  // normalize → validate → derive contract every fact-writing route shares.
+  const normalized = normalizeFactTemplateForStorage(rawTokenizedText);
+  if (!normalized.valid) {
     res.status(422).json({
-      error: `Template grammar validation failed: ${grammarResult.error}`,
+      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
     });
     return;
   }
-
-  const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|he|him|his|himself|He|Him|His|Himself|he's|He's|[^|{}]+\|[^|{}]+)\}/.test(tokenizedText);
-  const canonicalText = renderCanonical(tokenizedText);
-  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id, canonicalText, isActive: true, splitTokenIndex: computeSplitTokenIndex(tokenizedText) }).returning();
+  const { text: tokenizedText, canonicalText, splitTokenIndex, hasPronouns: hasPronounsFlag } = normalized;
+  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id, canonicalText, isActive: true, splitTokenIndex }).returning();
 
   // Generate and persist the pgvector embedding in the background (non-blocking)
   // Embed from canonicalText so duplicate checks work against plain-English queries

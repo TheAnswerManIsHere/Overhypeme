@@ -198,7 +198,7 @@ describe("buildRenderStatusPayload", () => {
       "image_ready",
     );
   });
-  it("blocked for poor subject↔fact compatibility", () => {
+  it("maps legacy subject_fact_compatibility_poor rows to blocked (back-compat display only; new attempts never write this error)", () => {
     const p = buildRenderStatusPayload({ ...(base as object), error: "subject_fact_compatibility_poor" } as never);
     assert.equal(p.status, "blocked");
     assert.equal(p.blocked, true);

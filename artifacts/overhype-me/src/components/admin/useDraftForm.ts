@@ -57,6 +57,13 @@ export interface UseDraftFormOptions<T, R = unknown> {
   schemaVersion?: number;
   /** Called after every server fetch (mount load, syncFromServer) with the raw record. */
   onServerRecord?: (record: R | null) => void;
+  /**
+   * Optional cleanup for a restored localStorage draft once the current server
+   * value is known. Use this when a surface may only edit a subset of a large
+   * object: stale restored fields outside that subset should be overlaid from
+   * the server baseline so they don't create false "unsaved changes" warnings.
+   */
+  reconcileRestoredDraft?: (serverValue: T, restoredDraft: T) => T;
 }
 
 export interface UseDraftFormResult<T, R = unknown> {
@@ -72,6 +79,12 @@ export interface UseDraftFormResult<T, R = unknown> {
   draftSavedAt: number | null;
   /** value differs from the server baseline (there is unsaved work). */
   hasUncommittedChanges: boolean;
+  /** Synchronous, ref-based equivalent of `hasUncommittedChanges`. Reflects
+   *  updates applied within the current tick (e.g. an `adoptServerSlice` from a
+   *  just-awaited override write) that the memoized boolean hasn't re-rendered
+   *  for yet — so async action handlers read true post-flush state, not the
+   *  stale value captured in their closure. */
+  isDirty: () => boolean;
   committing: boolean;
   commitError: string | null;
   /** Epoch ms of the last successful server commit (for a "Saved to server" hint). */
@@ -191,7 +204,29 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
       const serverValue = record != null ? optsRef.current.selectValue(record) : optsRef.current.emptyValue;
       setBaseline(serverValue);
       baselineRef.current = serverValue;
-      if (!draftRestored) {
+      if (draftRestored) {
+        const restoredValue = valueRef.current;
+        const reconciled =
+          optsRef.current.reconcileRestoredDraft?.(serverValue, restoredValue) ?? restoredValue;
+        const reconciledSnap = stableSerialize(reconciled);
+        if (reconciledSnap !== stableSerialize(restoredValue)) {
+          setValueState(reconciled);
+          valueRef.current = reconciled;
+          // Force the autosave effect to rewrite the normalized draft if it is
+          // still meaningfully different from the server baseline.
+          lastPersistedRef.current = null;
+        }
+        if (reconciledSnap === stableSerialize(serverValue)) {
+          try {
+            activeAdapter.clear();
+          } catch {
+            /* ignore */
+          }
+          lastPersistedRef.current = null;
+          setDraftSavedAt(null);
+          setDraftStatus("idle");
+        }
+      } else {
         setValueState(serverValue);
         valueRef.current = serverValue;
       }
@@ -335,6 +370,11 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     [value, baseline],
   );
 
+  const isDirty = useCallback(
+    () => stableSerialize(valueRef.current) !== stableSerialize(baselineRef.current),
+    [],
+  );
+
   return {
     value,
     setValue,
@@ -343,6 +383,7 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     draftLabel,
     draftSavedAt,
     hasUncommittedChanges,
+    isDirty,
     committing,
     commitError,
     committedAt,

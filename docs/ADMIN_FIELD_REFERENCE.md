@@ -969,7 +969,7 @@ Authored by moderators only — the AI never generates it. The save path stamps 
 
 **How it affects the render**
 
-Each sub-field lands in its own compiled section: subject realization → SUBJECT REALIZATION (required); required details → REQUIRED VISUAL DETAILS (required); forbidden/negative entries → 'Do not …' lines in STRICT CONSTRAINTS (required); role bindings → REFERENCE INTERPRETATION (replacing the AI's secondary characters); composition guidance → COMPOSITION; style-agnostic additions → ADDITIONAL DETAILS. Required-priority sections always survive the engine's char budget, so moderator intent is never silently dropped.
+The Visual Concept (CORE SCENE) LEADS the compiled prompt; every other section is operational or additive. Each sub-field lands in its own compiled section: subject realization → SUBJECT REALIZATION (required); required details → REQUIRED VISUAL DETAILS (required); forbidden/negative entries → 'Do not …' lines in STRICT CONSTRAINTS (required); role bindings → ROLE DETAILS (additive — only what the Concept didn't already state); composition guidance → COMPOSITION; style-agnostic additions → ADDITIONAL DETAILS. Required-priority sections always survive the engine's char budget, so moderator intent is never silently dropped.
 
 The override MERGES into the AI's plan — it never replaces it. Anything you don't specify still comes from the AI plan and the authored archetype strategy.
 
@@ -1257,7 +1257,7 @@ Moderator-authored when the AI casts roles wrongly — the classic failure being
 
 When ANY binding is present, your bindings take precedence over the AI plan's secondaryCharacters wholesale: the 'subject' entity's role becomes the subject's role-in-scene, and every other entity becomes a secondary character.
 
-They are compiled into the required-priority REFERENCE INTERPRETATION section as terse positive clauses ("<subject> is <role>. mother is <role>.") emitted BEFORE the visual prose, so the engine binds roles before the scene description begins. Negatives belong in Forbidden Visual Details, not here.
+They are compiled into the ROLE DETAILS section as ADDITIVE clauses — but the Visual Concept (CORE SCENE) now LEADS the prompt and carries the scene, so ROLE DETAILS only surfaces a role the Concept did not already state (redundant ones are dropped). A role that already names the subject is emitted as-is (never doubled to "<Name> is <Name> …"); a bare role gets a "<subject> is <role>" clause. Negatives belong in Forbidden Visual Details, not here.
 
 Rows with an empty entity or role are skipped (the editor warns).
 
@@ -1265,7 +1265,7 @@ Rows with an empty entity or role are skipped (the editor warns).
 
 - **Scenario:** "A baby drove {NAME}'s mother home." — renders keep putting the subject behind the wheel.
   - **Input:** Role Bindings: subject → "the astonished passenger", "baby" → "the tiny driver gripping the wheel"
-  - **Outcome:** "REFERENCE INTERPRETATION: {NAME} is the astonished passenger. baby is the tiny driver gripping the wheel." — replacing the AI's own casting.
+  - **Outcome:** "ROLE DETAILS: {NAME} is the astonished passenger. baby is the tiny driver gripping the wheel." (emitted only if the Visual Concept did not already cast these roles) — replacing the AI's own casting.
 
 **Sources**
 

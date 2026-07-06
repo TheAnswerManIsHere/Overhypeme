@@ -238,6 +238,9 @@ describe("engine provenance + status derivation", () => {
     assert.equal(deriveScenarioStatus({ ...base, visualPlan: { a: 1 } } as never), "rendering");
     assert.equal(deriveScenarioStatus({ ...base, generatedImageObjectPath: "/x.png" } as never), "done");
     assert.equal(deriveScenarioStatus({ ...base, error: "boom" } as never), "failed");
+    // Legacy-row compatibility only: new attempts never write this error string
+    // (subjectFactCompatibility is advisory-only and never blocks), but historical
+    // rows that already carry it must keep mapping to "blocked".
     assert.equal(deriveScenarioStatus({ ...base, error: "subject_fact_compatibility_poor" } as never), "blocked");
   });
 });

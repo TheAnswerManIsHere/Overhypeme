@@ -7,9 +7,11 @@
  * This script re-runs the model and is kept for a deeper re-pass when wanted.
  *
  * It imports the SAME prompt + tokenizer model the live route uses
- * (`factTokenizer.ts`) so the two can't drift, applies the deterministic
- * conjugation net to the model output, skips rows whose tokenized form is
- * unchanged, and recomputes the full text-derived set on the rows it does change
+ * (`factTokenizer.ts`) so the two can't drift, applies the SAME deterministic
+ * post-processing as the live route (`postProcessTokenizedTemplate`: strip
+ * hallucinated tokens, collapse {NAME}-subject pairs, conjugation net, collapse
+ * identical branches), skips rows whose tokenized form is unchanged, and
+ * recomputes the full text-derived set on the rows it does change
  * (text, canonicalText, splitTokenIndex, hasPronouns; updatedAt via $onUpdate).
  *
  * Run: pnpm --filter @workspace/api-server exec tsx scripts/retokenize-facts.ts
@@ -22,7 +24,6 @@ import OpenAI from "openai";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { autoConjugatePersonSubjectVerbs } from "../src/lib/templateGrammar";
 import { renderCanonical } from "../src/lib/renderCanonical";
 import { computeSplitTokenIndex } from "../src/lib/splitTokenIndex";
 import { chatModelTuningParams } from "../src/lib/openaiChatParams";
@@ -30,6 +31,7 @@ import {
   TOKENIZE_SYSTEM_PROMPT,
   TOKENIZER_MODEL,
   TOKENIZER_REASONING_EFFORT,
+  postProcessTokenizedTemplate,
 } from "../src/lib/factTokenizer";
 
 if (!process.env.OPENAI_API_KEY) {
@@ -62,8 +64,11 @@ async function tokenize(text: string): Promise<string> {
   const raw = completion.choices[0]?.message?.content ?? "{}";
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   const template = typeof parsed.template === "string" && parsed.template.length > 0 ? parsed.template : text;
-  // Same deterministic guarantee the live route applies.
-  return autoConjugatePersonSubjectVerbs(template);
+  // Same deterministic guarantee the live route applies — the FULL post-process
+  // (strip + name-collapse + conjugation net + identical-branch collapse), not
+  // just the conjugation net, so the script can't reintroduce e.g. a
+  // "{NAME} {gives|give}" pair the route would have collapsed.
+  return postProcessTokenizedTemplate(template).template;
 }
 
 async function main() {

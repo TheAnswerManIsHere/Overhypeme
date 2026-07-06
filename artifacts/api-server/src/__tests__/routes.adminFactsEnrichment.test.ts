@@ -61,6 +61,7 @@ const OTHER: FactEnrichment = {
 };
 
 let adminId: string;
+let adminEmail: string;
 let adminApp: Express;
 const insertedFactIds: number[] = [];
 
@@ -87,9 +88,10 @@ async function cleanup(): Promise<void> {
 before(async () => {
   await cleanup();
   adminId = `${USER_PREFIX}${randomUUID()}`;
+  adminEmail = `${adminId}@test.local`;
   await db.insert(usersTable).values({
     id: adminId,
-    email: `${adminId}@test.local`,
+    email: adminEmail,
     membershipTier: "registered",
     isAdmin: true,
   });
@@ -215,7 +217,9 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
       .send({ enrichment: { ...VALID, visualPromptStrategyOverride: override } });
     let [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
     const ov1 = (row.enrichment as FactEnrichment & { visualPromptStrategyOverride?: { updatedBy?: string; updatedAt?: string } }).visualPromptStrategyOverride!;
-    assert.equal(ov1.updatedBy, adminId);
+    // A human-readable actor label (email, since this test admin has no display
+    // name) — never the raw admin user id.
+    assert.equal(ov1.updatedBy, adminEmail);
     assert.ok(ov1.updatedAt, "updatedAt stamped");
 
     // Re-save identical override → provenance preserved (no spurious bump).

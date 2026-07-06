@@ -18,7 +18,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, imagePromptAttemptsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
   type FactEnrichment,
@@ -123,6 +123,50 @@ async function seedReview(opts: {
     })
     .returning({ id: pendingReviewsTable.id });
   return { reviewId: review!.id, stagingFactId };
+}
+
+async function seedReviewRenderAttempt(reviewId: number, factId: number): Promise<number> {
+  const [attempt] = await db
+    .insert(imagePromptAttemptsTable)
+    .values({
+      factId,
+      userId: null,
+      renderJobId: randomUUID(),
+      requestId: `test-avc-render:${reviewId}:${randomUUID()}`,
+      generationMode: "t2i",
+      subjectRenderMode: "t2i_fallback",
+      targetEngine: "nano_banana_2",
+      sourceImageAnalysis: {
+        subjectKind: "none",
+        confidence: "high",
+        hasUsableHumanFace: false,
+        hasUsableSubject: false,
+        subjectCount: 0,
+        subjectDescription: "test",
+        suggestedRenderMode: "t2i_fallback",
+        warnings: [],
+        classificationMethod: "manual_user_choice",
+        analyzerVersion: "test",
+      },
+      identityPolicy: { mode: "none" },
+      renderControls: {
+        aspectRatio: "portrait",
+        contentMode: "sfw",
+        fallbackSubjectGender: "neutral",
+        mirrorToLegacyStorage: false,
+        reviewAudit: { reviewId, adminUserId: adminId },
+      },
+      factEnrichmentSnapshot: enrichmentWithConcept("A prior concept."),
+      renderedFactText: "Alex Franklin bench-presses the Earth.",
+      archetypeStrategyVersion: "v2",
+      generatedImageObjectPath: "review-renders/test.png",
+      reviewId,
+      reviewRenderScenarioKey: "generic_t2i",
+      reviewRenderInputHash: "old-input-hash",
+      reviewRenderBatchId: `old-batch-${randomUUID()}`,
+    })
+    .returning({ id: imagePromptAttemptsTable.id });
+  return attempt!.id;
 }
 
 async function prepareJobsFor(reviewId: number): Promise<{ id: number; dedupeKey: string | null }[]> {
@@ -272,8 +316,11 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
     assert.equal(res.status, 409);
   });
 
-  it("bounces production_review → concept_review; re-approval force-creates a fresh batch", async () => {
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
+  it("bounces production_review → concept_review; re-approval clears prior renders and force-creates a fresh batch", async () => {
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
+    assert.ok(stagingFactId);
+    const priorAttemptId = await seedReviewRenderAttempt(reviewId, stagingFactId);
+
     const back = await request(makeApp()).post(`/admin/reviews/${reviewId}/back-to-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(back.status, 200);
     assert.equal(back.body.workflowStage, "concept_review");
@@ -281,6 +328,14 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
     const reApprove = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(reApprove.status, 200);
     assert.equal(reApprove.body.forceRenderBatch, true);
+    assert.equal(reApprove.body.clearedRenderAttempts, 1);
+
+    const [priorAttempt] = await db
+      .select({ reviewId: imagePromptAttemptsTable.reviewId })
+      .from(imagePromptAttemptsTable)
+      .where(eq(imagePromptAttemptsTable.id, priorAttemptId));
+    assert.equal(priorAttempt!.reviewId, null, "the superseded render is detached from the active review grid");
+
     const jobs = await prepareJobsFor(reviewId);
     assert.ok(jobs.length >= 1, "re-approval scheduled a fresh force prepare job");
     assert.ok(jobs.every((j) => j.dedupeKey === null), "all force jobs are keyless");

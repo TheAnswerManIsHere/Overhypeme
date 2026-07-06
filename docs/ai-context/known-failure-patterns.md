@@ -81,6 +81,28 @@ any queued/bulk surface. **Overhype:** the async queue is `async_jobs` (`pending
 processing → done | failed`); **Taxonomy Health (`useTaxonomyHealthActions.ts`) is
 the reference implementation** — copy it, don't invent a new status channel.
 
+## Dedupe key coalesces two distinct intents
+
+**Looks like:** a "force / fresh / regenerate" async action reuses the same stable
+`dedupeKey` an idempotent path uses, so `enqueueJob` returns the *existing*
+non-terminal job instead of scheduling new work — the fresh intent silently
+attaches to (and is satisfied by) stale in-flight work. **Dangerous:** the user
+thinks they triggered a new batch/run; they got the old one's result. A stable key
+is a correctness tool for idempotency and a correctness *hazard* for "do it again."
+**Avoid:** enqueue force/regenerate work with **no dedupe key** (or a
+per-invocation one) so it can never coalesce, and move the double-click/concurrency
+guard to the **state transition** itself (an atomic compare-and-set) rather than
+relying on the queue. Separately, block a *new* cycle from starting while the prior
+job is still non-terminal, so there's no in-flight job for it to coalesce onto.
+**Overhype:** `enqueueJob` returns the existing pending/processing row for a
+matching `(queue, dedupeKey)` (`async_jobs`); "approve the visual gag" therefore
+force-enqueues `review_render_scenarios_prepare` with **no** key and guards the
+`concept_review → production_review` advance with a compare-and-set — two
+concurrent approvals yield exactly one force batch. Re-prep/regenerate is blocked
+while `visual_concept_status = "pending"` for the same reason. See
+[`moderation-workflow.md`](./moderation-workflow.md) and the PR #179 decision in
+[`decisions.md`](./decisions.md).
+
 ## One-example bug fixes
 
 **Looks like:** patching only the exact reported sentence/case instead of the
@@ -91,6 +113,56 @@ next input. **Avoid:** fix the mechanism and add a test that asserts the
 must agree" rule (not just "They keeps"), with a narrow anchor so it never
 mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#regression-examples-must-stay-green).
+
+## Regex grammar rewrite reaches past a safe anchor
+
+**Looks like:** a deterministic text-rewrite rule (regex-based grammar/token
+repair) is extended to "walk into" a syntactically similar but semantically
+different region — e.g. auto-*wrapping* a verb across a coordinating
+conjunction on the assumption the subject is unchanged. **Dangerous:** regex has
+no semantic understanding; it can't tell "and hides" (same subject) from "and
+dogs bark" (a new subject) — the rewrite silently corrupts input that merely
+*looks* similar. **Avoid:** keep a rewrite that *creates* a token anchored to a
+position where the subject is unambiguous (immediately after the trigger
+token); prefer "no rewrite" over "wrong rewrite" when reach would require
+guessing. A rewrite that only *collapses* an existing token can safely reach
+further, because it can be bounded by a strict stop-set (any brace or
+clause-boundary punctuation) without needing to positively identify the new
+construct. **Overhype:** the tokenizer's conjugation net
+(`autoConjugatePersonSubjectVerbs`) stays adjacency-only — it will not walk a
+coordination chain to *wrap* a later verb, because `{Subj} runs and dogs bark`
+is indistinguishable from `{Subj} runs and hides` by regex alone; the AI prompt
+(not the deterministic net) is responsible for coordinated verbs. The
+complementary `{NAME}`-subject *collapse*
+(`collapseNameSubjectConjugationPairs`) safely reaches further because it only
+removes an existing pair, bounded by clause/brace/punctuation stops — it never
+creates a new wrap. See
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#the-core-conjugation-invariant).
+
+## Uniform default over a falsely-ambiguous space
+
+**Looks like:** a deterministic normalization pass treats an entire class of
+input as "ambiguous" and picks one default reading for all of it — but a
+subset of that class actually has a knowable, unambiguous answer that the
+chosen default gets wrong. **Dangerous:** the fallback *looks* safe ("the more
+common reading") and passes tests built around the reported example, but
+silently corrupts the subset it's actually wrong for — which can be common in
+casual English, not a rare edge case. **Avoid:** before picking a uniform
+default, ask "is there a narrow, high-confidence signal that resolves *part*
+of this space with certainty?" — carve that subset out with its own rule, and
+default only the genuinely irreducible remainder. **Overhype:**
+`expandSubjectContractions()` originally defaulted every `'s` contraction to
+the copula `{is|are}`, reasoning that is/has ambiguity is "the far more common
+reading" — but "'s got"/"'s been"/"'s had" can ONLY mean "has" ("is
+got"/"is been"/"is had" isn't grammatical English), so the uniform default was
+silently producing "They are got the keys" for they/them. Caught by code
+review (Codex), not by the shipped tests — they proved the chosen default
+worked for the genuinely ambiguous remainder, but never asked whether the
+assumed-ambiguous set was actually uniform. Fixed with
+`HAS_ONLY_FOLLOWING_WORDS`, a small next-word peek that resolves the
+unambiguous subset before falling back to the copula for truly ambiguous words
+(e.g. "done"). See
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#retiring-theys).
 
 ## Migration/backfill blind spots
 
@@ -121,6 +193,24 @@ role/flag. **Dangerous:** trivially bypassed; privilege escalation, data exposur
 **Overhype:** `requireAdmin`/`requireRole("admin")` guards every admin route; the
 `AdminLayout` gate is convenience, not security. Auth also has real subtleties (see
 `.agents/memory/auth-bearer-cookie-fallback.md`).
+
+## Raw internal ID surfaced to a human
+
+**Looks like:** an admin/audit UI attributes an action to "by {raw-id}" instead
+of a name — a FK column or a jsonb-embedded provenance field (`createdBy`,
+`updatedBy`, `performedBy`) rendered directly instead of resolved to a display
+label. **Dangerous:** violates the hard rule that no internal ID/GUID may ever
+reach a human-visible surface (admin included) — see
+[`agent-working-rules.md`](./agent-working-rules.md#never-surface-a-raw-internal-id-anywhere-in-the-product);
+also a sign the same write path may have sibling occurrences elsewhere.
+**Avoid:** resolve to `displayName ?? email ?? (omit)` — never fall back to the
+raw id; join at read time when the id lives in a real FK column, or stamp a
+resolved label at write time when it's embedded in jsonb with no join path.
+**Overhype:** the Facts admin's Enrichment Version History panel rendered
+`factEnrichmentVersionsTable.createdBy` raw; the Enrichment Editor's "Last
+edited by" line rendered `visualPromptStrategyOverride.updatedBy` raw. Both
+fixed; pre-existing jsonb-stamped rows from before the fix may still hold a raw
+id until next edited (a backfill would be separate migration-shaped work).
 
 ## Over-engineered speculative abstractions
 

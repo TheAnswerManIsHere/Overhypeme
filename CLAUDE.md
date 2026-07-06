@@ -61,9 +61,28 @@ forward.
 
 ### Interaction preferences
 
+- **"What do you think?" means planning mode, not building mode.** When David
+  asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
+  "does this make sense?"), the deliverable is my assessment and a
+  conversation — I do **not** start implementing, scaffolding files, or
+  committing anything, even if the same message sketches something buildable
+  ("let's build X… what do you think?"). Building starts only after David
+  explicitly says to build or approves a plan.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
+- **ChatGPT's review is advisory on product/design/correctness only — never on
+  branches, PRs, or devops in my environment.** ChatGPT reviews plans without
+  access to my execution environment, so its suggestions about *how* to ship —
+  which branch to cut, whether to split/combine PRs, force-push, rebase
+  mechanics, any git/devops choreography — carry no authority. I own those
+  decisions through our contract (the designated working branch, the
+  squash-merge / never-force-push workflow, the PR ritual), and I follow the
+  contract without deferring to ChatGPT (or any external reviewer) on them. I
+  weigh ChatGPT on the *substance* of a plan — product intent, design fit,
+  correctness, source-of-truth risks — and ignore it on environment mechanics.
+  I don't surface an external reviewer's devops opinion to David as an open
+  question when the contract already answers it.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -130,6 +149,24 @@ This lets David keep short, disposable chats without losing area context, keeps
 the durable memory in versioned files (single source of truth), and avoids the
 worst-case token pattern of returning day after day to one giant compacted
 thread. `/compact` stays an in-session relief valve, not the memory itself.
+
+### The `/document` ceremony is the explicit end-of-feature fold-in
+
+The running working-notes habit above captures learnings *during* a build; the
+**`/document` skill** is the explicit fold-in pass at the *end*, when David
+judges a feature done. It harvests the feature's durable learnings and routes
+each to its one canonical home across `docs/ai-context/`, `.agents/memory/`,
+and the human-facing [Overhype.me Manual](docs/manual/README.md). The full,
+cross-agent contract is
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+and my thin enactment is `.claude/skills/document/SKILL.md`; I don't restate
+either here.
+
+This is **distinct from "remember this"** (above), which stays what it always
+was — immediate targeted persistence of *one* item. `/document` is the
+whole-feature harvest; "remember this" is a single note. The contract's trigger
+table draws the line, and I ask one numbered question when a request's referent
+is genuinely unclear.
 
 ---
 
@@ -347,3 +384,69 @@ so no loop outlives its PR. While watching:
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
+
+## Token / cost discipline
+
+David tracks cumulative plan-quota usage (not just one session's context
+window) and flagged that routine ops work — checking PR comments, watching
+CI, mechanical fixes — was running at premium-model cost with redundant tool
+calls. Two concrete, durable changes:
+
+- **Match model tier to task shape.** I cannot switch the active model myself
+  — `/model` is a command only David can run — so codifying this means I
+  *reliably prompt* instead of leaving it to habit or memory. David is not a
+  software engineer and relies on me + Codex's code review as his only two
+  safety nets, so the deciding question for any task is: **if this goes
+  subtly wrong, will Codex's review or David's product-testing catch it
+  before it does damage?** Yes → Sonnet is safe. No → Opus, because I'm the
+  only guard.
+  - **Entering `/bugfix` mode** → I suggest `/model claude-sonnet-5`.
+  - **Entering plan mode, or any "let's build/design/add X" feature-building
+    request** → I suggest `/model claude-opus-4-8`.
+  - **By task type** (the reference table, since the two boundaries above
+    don't cover everything I do):
+
+    | Task | Model | Why |
+    |------|-------|-----|
+    | Planning new features | **Opus, always** | A plan can match stated intent and still be architecturally wrong — David's product-testing only checks what got built, never the road not taken. |
+    | Implementing features | **Sonnet default**, Opus for high-risk subsystems | Codex reviews the diff, so the net holds for most code. Escalate for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
+    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. |
+    | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
+    | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
+    | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
+    | Security review | **Opus, always** | A missed vulnerability is the definition of uncatchable by either net. |
+    | **Database migrations / schema changes / backfills** | **Opus, always** | Often irreversible, and a subtly-wrong backfill isn't visible until the data is already mangled. The sharpest edge on this list. |
+    | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
+    | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
+    | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
+    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. |
+
+  - **I stay vocal about the model in play — David expects to forget this, not
+    track it.** Whenever it's relevant, I state which tier is active and flag
+    a mismatch immediately: before starting a task that's clearly wrong for
+    the current tier ("this is a migration — you're on Sonnet, want to
+    `/model claude-opus-4-8` first?"), and mid-task if a debugging/optimization
+    thread thrashes past ~2 rounds without converging. The goal is David never
+    burns Opus tokens on something Sonnet could do, and never asks Sonnet to
+    do something high-risk or genuinely hard, **without me saying so out
+    loud first.**
+  - Outside the two explicit mode boundaries and the table above, I default to
+    treating the session's *current* tier as correct and only flag a mismatch
+    if the task shape clearly shifted mid-thread.
+  - `.claude/settings.json` sets Sonnet as the **default starting model** for
+    new sessions, since most turns are ops-shaped per David's usage data —
+    Opus is the explicit upgrade for the tasks in the table above, not the
+    default you have to remember to downgrade from.
+- **Batch PR re-verification into one call; don't reduce how often I check.**
+  The *"re-verify on each active turn"* rule under **Watching the PRs I
+  open** above stays exactly as-is — webhooks lag and drop events, so silence
+  still isn't "all clear." What changes is mechanics: pull threads + CI
+  status + latest commits via a **single** `pull_request_read` call instead
+  of chaining separate calls, and pass `minimal_output: true` when I don't
+  need full bodies/diffs. Same verification cadence, a fraction of the
+  tool-call cost. When a re-verify finds nothing new, I say so explicitly
+  ("re-checked — no new activity since last update") so the discipline stays
+  visible instead of assumed.
+- I also default to `list_*` over `search_*` for simple retrieval, and
+  paginate in small batches (5-10 items), per the GitHub server's own
+  guidance — not a cadence change, just cheaper calls for the same coverage.

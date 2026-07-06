@@ -98,6 +98,33 @@ export interface PromptWarning {
 }
 
 /**
+ * A concrete role/key-element candidate the compiler deliberately did NOT emit,
+ * with the reason. Surfaced (structured, not freeform prose) in the admin
+ * preview so a moderator can see WHY a detail they authored/expected didn't
+ * reach the engine prompt — e.g. it was already covered by the Visual Concept,
+ * or it was a negative/meta "crutch" line that belongs in STRICT CONSTRAINTS.
+ */
+export interface DroppedCandidate {
+  /** Which candidate stream it came from. */
+  source:
+    | "keyVisualElements"
+    | "culturalReferenceVisual"
+    | "semanticReferent"
+    | "subjectRole"
+    | "secondaryCharacter";
+  /** The candidate text that was dropped. */
+  value: string;
+  /** Machine-readable reason slug. */
+  reason:
+    | "already-in-core-scene"
+    | "negative-constraint-not-visible-element"
+    | "conditional-softener-not-visible-element"
+    | "failure-mode-commentary-not-visible-element"
+    | "interpretive-meta-not-visible-element"
+    | "empty-after-normalization";
+}
+
+/**
  * Non-fatal compiler diagnostics surfaced in the admin prompt preview: which
  * planner-prose clauses the compiler stripped (and why), and any soft warnings
  * (e.g. a tone split between the visual approach and the prose). Debug-only;
@@ -106,6 +133,9 @@ export interface PromptWarning {
 export interface CompiledPromptDiagnostics {
   removedPlannerProseSentences: RemovedProseSentence[];
   warnings: PromptWarning[];
+  /** Concrete role/key-element candidates dropped as redundant-with-scene or as
+   *  non-visible "crutch" lines, with reasons. Debug-only. */
+  droppedCandidates?: DroppedCandidate[];
   /** Which planner engine produced the visualPlan (copied from the
    *  generation output so it persists with the attempt + shows in preview). */
   plannerProvenance?: PlannerProvenance;

@@ -385,6 +385,7 @@ function ReviewModal({
 
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isConceptReview = stage === "concept_review";
@@ -451,6 +452,14 @@ function ReviewModal({
     const target = stageToWizardStep(stage);
     if (target) setStep(target);
   }, [stage]);
+
+  // Every step change — auto-nav, "Continue", "Back" — starts the new step at
+  // the top of the modal body. The rAF defers until after the new step's
+  // content has rendered. (Only the modal body scrolls: the admin shell is a
+  // fixed viewport, so the page behind never moves.)
+  useEffect(() => {
+    requestAnimationFrame(() => modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
+  }, [step]);
 
   const loadDetail = useCallback(async () => {
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
@@ -559,17 +568,39 @@ function ReviewModal({
     if (variant && review.matchingFact) body.parentFactId = review.matchingFact.id;
     void runAction("provisional-approve", body);
   };
-  const onReject = () => {
+  const onReject = async () => {
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
+    // A refresh reject marks the candidate non-pending; drain any in-flight
+    // per-field override write first so a field just blurred by this click
+    // doesn't fail against the rejected candidate (the edit is moot on reject,
+    // but the failed write would surface a spurious error).
+    await enrichEditing.flushOverrides();
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
-  const onApproveProduction = (waive?: boolean) => {
+  const onApproveProduction = async (waive?: boolean) => {
+    // Land any in-flight per-field override write BEFORE promotion. A tracked
+    // field (semantic entity, or a Revert-to-AI reset that never marks the
+    // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE;
+    // promotion marks the candidate non-pending, so a write still in flight is
+    // rejected (CANDIDATE_NOT_PENDING) and the human edit is silently dropped
+    // from the promoted fact. Awaiting also lets adoptServerSlice reconcile the
+    // draft, so the unsaved-VSO gate below reads true (post-flush) state.
+    const flushed = await enrichEditing.flushOverrides();
+    if (!flushed) {
+      setError(
+        isRefreshCycle
+          ? "A field edit didn't save — resolve it (retry the field) before promoting."
+          : "A field edit didn't save — resolve it (retry the field) before approving.",
+      );
+      return;
+    }
     // Approval publishes the SAVED enrichment (staging fact for first-time
     // cycles; the candidate version for refresh cycles) — the client never
     // sends a blob. An unsaved Visual Strategy draft therefore wouldn't ship;
     // force a Save/Discard first so nothing silently diverges from what the
-    // moderator sees.
-    if (enrichmentDraft.hasUncommittedChanges) {
+    // moderator sees. Read isDirty() (ref-based) so it reflects the just-flushed
+    // reconcile, not the stale value this closure captured before the await.
+    if (enrichmentDraft.isDirty()) {
       setError(
         isRefreshCycle
           ? "You have unsaved Visual Strategy Override edits — Save or Discard them before promoting (approval promotes the saved candidate)."
@@ -879,7 +910,7 @@ function ReviewModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0">×</button>
         </div>
 
-        <div className="p-6 space-y-6 overflow-y-auto">
+        <div ref={modalBodyRef} className="p-6 space-y-6 overflow-y-auto">
           {/* Step indicator — only for the non-terminal wizard. */}
           {!isResolved && <StepIndicator step={step} />}
 
@@ -1421,7 +1452,7 @@ function FactReviewsPanel() {
                       {r.workflowStage === "concept_review" && (
                         <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
-                      <PrepStepPill icon={ImageIcon} label="Images" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
+                      <PrepStepPill icon={ImageIcon} label="Stock photos" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
                       {/* Step 3: test renders in flight (re-run, or the forced batch). */}
                       {r.workflowStage === "production_review" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />

@@ -1,19 +1,23 @@
 /**
  * Nano Banana 2 prompt compilers (Phase 2).
  *
- * Strategy: the deterministic compiler ASSEMBLES the final engine prompt from
- * the structured visualPlan + runtime inputs — the LLM's free-text
- * `compiledPrompt.prompt` is one high-value input, not the source of truth.
- * The generator's rich reasoning (key visual elements, composition, supporting-
- * text policy, semantic-entity + cultural-reference resolutions, fact modifiers)
- * is turned into explicit natural-language directives and folded in, de-duped
- * against what the prose already says, then budgeted to the engine char cap.
+ * Strategy: the VISUAL CONCEPT (CORE SCENE) LEADS THE PROMPT and carries the
+ * gag; it is the authoritative scene. Every other section earns its place only
+ * by (a) operationally instructing the engine — mode + identity/reference (i2i)
+ * or the render task (t2i), subject binding, style, and the STRICT-CONSTRAINTS
+ * policy guardrails — or (b) ADDING a concrete detail the Concept genuinely
+ * omitted. Anything that merely restates the Concept is dropped: additive
+ * sections (role details, subject details, environment) de-dupe against the
+ * EMITTED text via content-word contiguity, and the key-element gap-fill drops
+ * non-visible "crutch" lines. The de-dupe haystack is seeded ONLY from emitted
+ * text (never from the internal, non-emitted visualGoal/visualApproach).
  *
- * Sections carry a priority. Required sections (mode preamble, identity guards,
- * core mechanic, semantic/cultural resolutions, supporting-text rule) always
- * survive; the prose, key-element gap-fill, composition, modifiers and style are
- * included while budget allows and compressed/dropped otherwise. Anything
- * dropped or compressed is recorded in `engineNotes` for admin visibility.
+ * Sections carry a priority. Required sections (core scene, mode/identity,
+ * subject binding, moderator required details, supporting-text/violence/anti-
+ * split constraints) always survive; additive prose, gap-fill, composition and
+ * style are included while budget allows and compressed/dropped otherwise.
+ * Dropped role/key-element candidates are recorded (structured) in
+ * `diagnostics.droppedCandidates`; budget drops in `engineNotes`.
  *
  * Output `imagePrompt` mirrors `prompt` and is what `buildEngineInput` reads.
  * For i2i variants, `referenceImageUrl` is also returned.
@@ -34,6 +38,7 @@ import type {
   RemovedProseReason,
   RemovedProseSentence,
   PromptWarning,
+  DroppedCandidate,
 } from "../types";
 import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
@@ -68,7 +73,7 @@ const HUMAN_I2I_PREAMBLE =
 const NONHUMAN_I2I_PREAMBLE =
   "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.";
 const T2I_PREAMBLE =
-  "Text-to-image generation. No reference identity is being preserved. Generate a protagonist matching fallback subject gender/profile guidance.";
+  "Text-to-image generation: render an original protagonist that fits the scene.";
 
 // ─── Text utilities ───────────────────────────────────────────────────────
 
@@ -183,27 +188,112 @@ function elementCovered(haystack: string, element: string): boolean {
   return words.length <= 3 ? present === words.length : present / words.length >= 0.8;
 }
 
-function composeKeyElementsDirective(vp: VisualPlan, haystack: string): string {
-  const candidates = [
-    ...vp.keyVisualElements,
-    ...(vp.culturalReferencesUsed ?? []).map((r) => r.visualImplicationUsed),
-    ...(vp.semanticEntitiesUsed ?? []).map((s) => s.visualReferentUsed),
-  ].map((e) => e.trim()).filter(Boolean);
+/**
+ * Stricter than `elementCovered`: treats an entry as already-conveyed only when
+ * its content words appear as a NEAR-CONTIGUOUS in-order run in the haystack —
+ * not merely scattered across unrelated phrases. This is the additive-section
+ * de-dupe: it drops a reworded restatement of the scene ("leans against the
+ * counter" when the scene says "leans against the bar counter") while KEEPING a
+ * distinct detail that happens to reuse scene words from separate places ("a red
+ * trophy" when the scene mentions "red warning lights" and "a trophy shelf"
+ * separately). The discriminator is insertion density: a restatement threads the
+ * entry's words with few gaps; a false-positive needs many insertions to line the
+ * scattered words up.
+ */
+function coveredWithContiguity(haystack: string, entry: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!norm(entry)) return true;
+  if (norm(haystack).includes(norm(entry))) return true;
+  const e = gapFillContentWords(entry);
+  if (e.length === 0) return false;
+  const h = gapFillContentWords(haystack);
+  if (e.length === 1) return h.includes(e[0]!);
+  // Greedy in-order match; record how many matched and the span they occupy.
+  let matched = 0;
+  let firstHit = -1;
+  let lastHit = -1;
+  let hi = 0;
+  for (const word of e) {
+    const at = h.indexOf(word, hi);
+    if (at >= 0) {
+      matched++;
+      if (firstHit < 0) firstHit = at;
+      lastHit = at;
+      hi = at + 1;
+    }
+  }
+  if (matched < Math.ceil(0.8 * e.length)) return false;
+  const insertions = lastHit - firstHit - (matched - 1); // gap words between matches
+  return insertions <= Math.floor(0.5 * matched);
+}
+
+/**
+ * A key-element gap-fill candidate is only worth emitting under "Ensure these
+ * elements are clearly visible" when it names a CONCRETE VISIBLE thing. Reject
+ * the crutch shapes that used to leak in: negative constraints ("not a severed
+ * finger", "no …", "avoid …"), conditional softeners ("if shown…", "when
+ * depicted…"), failure-mode commentary ("depict X, not Z"), and interpretive
+ * meta ("treat X as", "means", "represents", "symbolizes"). Safety-relevant
+ * exclusions belong in STRICT CONSTRAINTS (failure-mode constraints / moderator
+ * forbidden details), never in a visible-elements list. Returns the drop reason,
+ * or null to keep.
+ */
+function keyElementDropReason(candidate: string): DroppedCandidate["reason"] | null {
+  const s = candidate.trim().toLowerCase();
+  if (!s) return "empty-after-normalization";
+  if (/\bnot\b/.test(s) && /\b(?:a|an|the)\b/.test(s.split(/\bnot\b/)[1] ?? "")) {
+    // "…, not a severed finger" / "depict X, not Z" — a contrastive negative.
+    return "failure-mode-commentary-not-visible-element";
+  }
+  if (/^\s*(?:no|do not|don['’]?t|avoid|never|without)\b/.test(s) || /\bno\s+(?:severed|detached|visible)\b/.test(s)) {
+    return "negative-constraint-not-visible-element";
+  }
+  if (/\b(?:if shown|when shown|when depicted|if depicted|if any|where shown)\b/.test(s)) {
+    return "conditional-softener-not-visible-element";
+  }
+  if (/\b(?:treat\s+\w+\s+as|interpret|means?|represents?|symboli[sz]es?|stands? for|as a metaphor)\b/.test(s)) {
+    return "interpretive-meta-not-visible-element";
+  }
+  return null;
+}
+
+/** Result of a composer that may drop candidates: the emitted text + the drops. */
+interface DirectiveResult {
+  text: string;
+  dropped: DroppedCandidate[];
+}
+
+function composeKeyElementsDirective(vp: VisualPlan, haystack: string): DirectiveResult {
+  const candidates: Array<{ value: string; source: DroppedCandidate["source"] }> = [
+    ...vp.keyVisualElements.map((v) => ({ value: v, source: "keyVisualElements" as const })),
+    ...(vp.culturalReferencesUsed ?? []).map((r) => ({ value: r.visualImplicationUsed, source: "culturalReferenceVisual" as const })),
+    ...(vp.semanticEntitiesUsed ?? []).map((s) => ({ value: s.visualReferentUsed, source: "semanticReferent" as const })),
+  ].map((c) => ({ ...c, value: c.value.trim() })).filter((c) => c.value);
   const seen = new Set<string>();
   const missing: string[] = [];
+  const dropped: DroppedCandidate[] = [];
   // Fold each emitted element into a local haystack so two near-duplicate
   // candidates don't both surface (the first suppresses the second).
   let localHaystack = haystack;
-  for (const e of candidates) {
-    const key = e.toLowerCase();
+  for (const { value, source } of candidates) {
+    const key = value.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (elementCovered(localHaystack, e)) continue;
-    missing.push(e);
-    localHaystack = `${localHaystack} ${e}`;
+    // Crutch filter FIRST: a non-visible candidate never counts as an element.
+    const dropReason = keyElementDropReason(value);
+    if (dropReason) {
+      dropped.push({ source, value, reason: dropReason });
+      continue;
+    }
+    if (elementCovered(localHaystack, value)) {
+      dropped.push({ source, value, reason: "already-in-core-scene" });
+      continue;
+    }
+    missing.push(value);
+    localHaystack = `${localHaystack} ${value}`;
   }
-  if (!missing.length) return "";
-  return `Ensure these elements are clearly visible: ${missing.join("; ")}.`;
+  const text = missing.length ? `Ensure these elements are clearly visible: ${missing.join("; ")}.` : "";
+  return { text, dropped };
 }
 
 /** Framing + camera (each if absent) + caption-overlay negative space. */
@@ -411,47 +501,70 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
  * kept on the visual plan for the validator + admin debug, but never compiled in.
  */
 
-// ─── Reference interpretation (positive role binding) ───────────────────────
+// ─── Additive role details (post-Visual-Concept) ────────────────────────────
+
+/** True when `text` opens with `name` — matching either the rendered name OR a
+ *  leading personalization name-token ({NAME}/{Name}/{NAME_POSSESSIVE}), because
+ *  role text reaches this composer BEFORE tokens are rendered. This is what
+ *  prevents "David Franklin is David Franklin as the driver": the moderator wrote
+ *  "{NAME} as the driver", which renders to a self-contained subject clause. */
+function leadsWithName(text: string, name: string): boolean {
+  if (/^\s*\{name(_possessive)?\}/i.test(text)) return true;
+  return !!name.trim() && new RegExp(`^\\s*${escapeRegExp(name.trim())}\\b`, "i").test(text);
+}
 
 /**
- * Build the deterministic REFERENCE INTERPRETATION block: a concise, POSITIVE
- * statement of who each entity is in the scene — the subject's active role plus
- * one short clause per secondary character — so the engine binds roles before
- * the visual prose begins (and a secondary character can't drift into the
- * subject's central action). Negatives live in STRICT CONSTRAINTS, not here.
+ * Emit ADDITIVE role details — the subject's action and each secondary
+ * character's concrete role — but only when the Visual Concept (CORE SCENE)
+ * doesn't already state them, and NEVER as a doubled "X is X" clause.
  *
- * Kept terse on purpose: one short subject clause + one short clause per
- * secondary character. The subject clause is included only when it is
- * meaningful — there are secondary characters to contrast against, or the frame
- * is an active-action frame where asserting "the subject is the one doing it"
- * matters. Returns "" when there is nothing meaningful to bind.
+ * This replaces the old REFERENCE INTERPRETATION section, whose bug was that it
+ * ALWAYS prepended "${subject} is ${role}" — so when the role already led with
+ * the subject's own name (a full authored clause like "Alex Franklin leans
+ * against the bar…"), it produced "Alex Franklin is Alex Franklin leans…". The
+ * fix: a role/visualRole that already opens with the subject/label name is a
+ * self-contained clause and is emitted as-is; a bare predicate ("the newborn
+ * baby gripping the wheel") still gets the "${subject} is …" binding. Entries the
+ * scene already conveys are dropped (recorded in diagnostics) — since the Visual
+ * Concept now leads and carries the gag, this section only surfaces roles the
+ * scene omitted. Moderator roleBindings-vs-AI precedence is decided upstream in
+ * compile(); this composer is precedence-agnostic.
  */
-function composeReferenceInterpretation(opts: {
+function composeAdditiveRoleDetails(opts: {
   subjectName: string;
   roleInScene: string;
   secondaryCharacters: ReadonlyArray<{ label: string; visualRole: string }>;
   includeSubjectRole: boolean;
   haystack: string;
-}): string {
-  const subject = opts.subjectName.trim() || "the reference subject";
+}): DirectiveResult {
+  const subject = opts.subjectName.trim();
   const clauses: string[] = [];
+  const dropped: DroppedCandidate[] = [];
 
-  const role = opts.roleInScene.trim().replace(/[.!?]+$/, "");
-  if (opts.includeSubjectRole && role && !containsMeaningfulPhrase(opts.haystack, role)) {
-    clauses.push(`${subject} is ${role}`);
+  if (opts.includeSubjectRole) {
+    const role = opts.roleInScene.trim().replace(/[.!?]+$/, "");
+    if (role) {
+      if (coveredWithContiguity(opts.haystack, role)) {
+        dropped.push({ source: "subjectRole", value: role, reason: "already-in-core-scene" });
+      } else {
+        clauses.push(leadsWithName(role, subject) || !subject ? role : `${subject} is ${role}`);
+      }
+    }
   }
 
   for (const c of opts.secondaryCharacters) {
     const label = c.label.trim().replace(/[.!?]+$/, "");
     const visualRole = c.visualRole.trim().replace(/[.!?]+$/, "");
     if (!label || !visualRole) continue;
-    // Skip a secondary clause the prose already states in full.
-    if (containsMeaningfulPhrase(opts.haystack, visualRole)) continue;
-    clauses.push(`${label} is ${visualRole}`);
+    if (coveredWithContiguity(opts.haystack, visualRole)) {
+      dropped.push({ source: "secondaryCharacter", value: `${label}: ${visualRole}`, reason: "already-in-core-scene" });
+      continue;
+    }
+    clauses.push(leadsWithName(visualRole, label) ? visualRole : `${label} is ${visualRole}`);
   }
 
-  if (!clauses.length) return "";
-  return clauses.map((c) => `${c}.`).join(" ");
+  const text = clauses.length ? clauses.map((c) => `${c}.`).join(" ") : "";
+  return { text, dropped };
 }
 
 // ─── Subject binding (identity ⊗ transformed life stage) ────────────────────
@@ -638,14 +751,24 @@ function labeled(header: string, body: string): string {
 
 /**
  * Join a list of concrete visual entries into one sentence-terminated body,
- * dropping entries already named in `haystack` (so SUBJECT DETAILS / ENVIRONMENT
- * don't repeat what CORE SCENE already said). Each entry becomes its own clause.
+ * dropping entries the `haystack` already conveys (so SUBJECT DETAILS /
+ * ENVIRONMENT don't repeat what CORE SCENE already said) — using CONTENT-WORD
+ * CONTIGUITY (`coveredWithContiguity`), not bare substring, so a REWORDED
+ * restatement of the scene is dropped while a genuinely distinct detail that
+ * merely reuses scattered scene words survives. Entries are also de-duped
+ * against each other (a local haystack), so two near-identical entries don't
+ * both surface. Each kept entry becomes its own clause.
  */
 function composeListBody(entries: readonly string[], haystack: string): string {
-  const kept = entries
-    .map((e) => scrubIntentLanguage(e).trim().replace(/[.!?]+$/, ""))
-    .filter(Boolean)
-    .filter((e) => !containsMeaningfulPhrase(haystack, e));
+  const kept: string[] = [];
+  let local = haystack;
+  for (const raw of entries) {
+    const e = scrubIntentLanguage(raw).trim().replace(/[.!?]+$/, "");
+    if (!e) continue;
+    if (coveredWithContiguity(local, e)) continue;
+    kept.push(e);
+    local = `${local} ${e}`;
+  }
   if (!kept.length) return "";
   return `${kept.join("; ")}.`;
 }
@@ -826,6 +949,14 @@ interface Section {
  * included while budget allows; compressible ones are trimmed to fit before
  * being dropped. Drops/compressions are appended to `notes`.
  *
+ * BUDGET RESERVATION (matters now that CORE SCENE leads): a compressible section
+ * may not consume budget that a REQUIRED section appearing LATER in reading order
+ * will need. Without this, a huge (AI-fallback) CORE SCENE at the front would
+ * fill the budget and force the final hard-truncate to lop off the required
+ * identity/binding/STRICT-CONSTRAINTS sections that follow it — silently dropping
+ * the policy guardrails. We precompute the raw length required-and-later sections
+ * need and hold it back when fitting each compressible section.
+ *
  * Returns the assembled prompt plus a per-section `breakdown` recording how
  * each component fared (included / compressed / dropped / deduped / empty) so
  * admins can see exactly how the final prompt was computed from its parts.
@@ -847,7 +978,17 @@ function assembleSections(
       ...(s.moderatorAuthored ? { moderatorAuthored: true } : {}),
     });
 
-  for (const section of sections) {
+  // For each index, the budget required sections at a LATER index will consume
+  // (their trimmed length + a separator each). Reserved when fitting compressibles.
+  const requiredLenAfter: number[] = new Array(sections.length + 1).fill(0);
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const raw = sections[i]!.text.trim();
+    const reserve = sections[i]!.priority === "required" && raw ? raw.length + 1 : 0;
+    requiredLenAfter[i] = requiredLenAfter[i + 1] + reserve;
+  }
+
+  for (let idx = 0; idx < sections.length; idx++) {
+    const section = sections[idx]!;
     const raw = section.text.trim();
     if (!raw) {
       record(section, "empty", "", "");
@@ -859,18 +1000,24 @@ function assembleSections(
       continue;
     }
     const candidate = assembled ? `${assembled} ${deduped}` : deduped;
-    if (candidate.length <= MAX_PROMPT_CHARS) {
+    if (section.priority === "required") {
+      // Required always survives; the final truncate clamps the pathological
+      // (required alone > budget) case. This section's own length was already
+      // reserved out of earlier compressibles via requiredLenAfter.
       assembled = candidate;
       record(section, "included", deduped, raw);
       continue;
     }
-    if (section.priority === "required") {
-      assembled = candidate; // keep; final truncate will clamp if needed
+    // Optional section: it may only use budget NOT reserved for later required
+    // sections (requiredLenAfter[idx+1], since this section isn't required).
+    const reserve = requiredLenAfter[idx + 1];
+    if (candidate.length <= MAX_PROMPT_CHARS - reserve) {
+      assembled = candidate;
       record(section, "included", deduped, raw);
       continue;
     }
     if (section.compressible) {
-      const remaining = MAX_PROMPT_CHARS - assembled.length - 1;
+      const remaining = MAX_PROMPT_CHARS - reserve - assembled.length - 1;
       const fitted = fitSentences(deduped, remaining);
       if (fitted) {
         assembled = assembled ? `${assembled} ${fitted}` : fitted;
@@ -892,9 +1039,15 @@ function assembleSections(
 }
 
 interface ModeContext {
-  /** Mode preamble (required, leads the prompt). */
+  /** Operational mode/identity clause. Emitted right AFTER CORE SCENE — the
+   *  Visual Concept leads; identity/reference (i2i) or the render task (t2i)
+   *  follows it prominently. */
   preamble: string;
-  /** Extra required clauses for this mode (identity guards, fallback gender). */
+  /** Section label + id for that clause. Mode-aware because "IMAGE-TO-IMAGE
+   *  TASK" is wrong for the t2i (text-to-image) path. */
+  sectionLabel: string;
+  sectionId: string;
+  /** Extra required clauses for this mode (fallback gender). */
   requiredClauses: string[];
   withReferenceUrl: boolean;
 }
@@ -905,7 +1058,10 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   const modifierSet = new Set(input.enrichment.modifiers ?? []);
   const subjectName = args.renderedSubject?.name?.trim() ?? "";
-  const visualGoal = vp.visualGoal?.trim() ?? "";
+  // visualGoal/visualApproach are INTERNAL reasoning (never emitted). They are
+  // deliberately NOT used to seed the de-dupe haystack (that used to suppress
+  // concrete details that only appear in the reasoning); visualApproach is still
+  // read for the advisory tone-split warning.
   const visualApproach = vp.visualApproach?.trim() ?? "";
 
   // ── SUBJECT BINDING inputs: fuse reference identity with the transformed life
@@ -924,62 +1080,15 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Moderator visual-strategy override (Phase 2). null when absent/disabled.
   const ov = activeOverride(input);
 
-  // 1. IMAGE-TO-IMAGE TASK (operational lead + required mode clauses).
-  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
-  const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
-
-  // 2. SUBJECT BINDING (deterministic; positive identity↔life-stage fusion).
-  const binding = composeSubjectBinding(bindingArgs);
-
-  // Role/action inputs (v4). secondaryCharacters defaults to [] for back-compat
-  // with pre-v4 plans replayed from storage. activeActionFrame is the reliable
-  // signal that gates the strong sole-agent + active-action constraints.
-  // Moderator roleBindings (when present) take precedence over the AI's
-  // secondaryCharacters: the "subject" binding becomes the subject's role and
-  // every other entity becomes a secondary character. Otherwise use the AI plan.
-  const overrideRoleBindings = ov?.roleBindings?.filter((b) => b.entity.trim() && b.visualRole.trim()) ?? [];
-  const hasOverrideRoles = overrideRoleBindings.length > 0;
-  const overrideSubjectRole = overrideRoleBindings.find((b) => b.entity.trim().toLowerCase() === "subject")?.visualRole.trim() ?? "";
-  const overrideSecondary = overrideRoleBindings
-    .filter((b) => b.entity.trim().toLowerCase() !== "subject")
-    .map((b) => ({ label: b.entity.trim(), visualRole: b.visualRole.trim() }));
-
-  const aiSecondaryCharacters = vp.secondaryCharacters ?? [];
-  const secondaryCharacters = hasOverrideRoles ? overrideSecondary : aiSecondaryCharacters;
-  const hasSecondaryCharacters = secondaryCharacters.some((c) => c.label.trim() && c.visualRole.trim());
-  const selectedFrame = vp.archetypeApplication?.selectedFrame ?? "";
-  const activeActionFrame = isActiveActionFrame(selectedFrame);
-  const roleInScene = (hasOverrideRoles && overrideSubjectRole) || vp.subjectTreatment?.roleInScene || "";
-
-  // Running haystack so each later section only adds what earlier ones didn't
-  // already say. Seeded with task + binding + the (internal, non-emitted) goal/
-  // approach so concrete fields don't echo the abstract reasoning.
-  let haystack = [taskBody, binding, visualGoal, visualApproach].filter(Boolean).join(" ");
-
-  // 2b. REFERENCE INTERPRETATION (positive role binding). Bind the subject's
-  // active role + each secondary character's role BEFORE the visual prose, so a
-  // secondary character can't drift into the subject's central action. Seed the
-  // haystack with it so CORE SCENE doesn't repeat the bound roles. The subject
-  // clause is meaningful only when there are others to contrast against or the
-  // frame asserts the subject is the one acting.
-  const referenceInterpretation = composeReferenceInterpretation({
-    subjectName,
-    roleInScene,
-    secondaryCharacters,
-    includeSubjectRole: hasSecondaryCharacters || activeActionFrame || Boolean(overrideSubjectRole),
-    haystack,
-  });
-  haystack = [haystack, referenceInterpretation].filter(Boolean).join(" ");
-
-  // 3. CORE SCENE — the concrete scene. A moderator-authored coreSceneOverride
-  // is AUTHORITATIVE and wins over the AI plan; otherwise prefer the structured
+  // ── CORE SCENE FIRST. The Visual Concept leads the prompt AND seeds the
+  // additive de-dupe haystack. A moderator-authored coreSceneOverride is
+  // AUTHORITATIVE and wins over the AI plan; otherwise prefer the structured
   // coreScene, falling back to the LLM prose. Moderator text is token-rendered
   // BEFORE sanitation (sanitizePlannerProse drops any sentence carrying an
   // unresolved token; the shared section render at assembly time runs too late)
   // and then passes the SAME compiler-owned stripping + intent scrub — the
   // override cannot smuggle identity/reference/text-policy language. A scene
-  // left empty by sanitation falls back to the AI scene with a loud warning,
-  // never silently.
+  // left empty by sanitation falls back to the AI scene with a loud warning.
   const removedProse: RemovedProseSentence[] = [];
   const moderatorCoreWarnings: PromptWarning[] = [];
   const moderatorCoreRaw = renderIdentityTokens(ov?.coreSceneOverride?.trim() ?? "", args.renderedSubject);
@@ -1015,42 +1124,92 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     removedProse.push(...sanitized.removed);
     coreScene = scrubIntentLanguage(sanitized.text);
   }
-  haystack = `${haystack} ${coreScene}`;
 
-  // 4. SUBJECT DETAILS — subject-specific visible details, plus expression/pose
-  // and any key-element gap-fill. Modifiers are NOT re-injected as prose here:
-  // they steer the frontier planner as context, and their structural effects
-  // (age transforms → SUBJECT BINDING, duplicate-subject/failure modes →
-  // STRICT CONSTRAINTS) are emitted by their dedicated owners.
+  // The de-dupe haystack is seeded ONLY from EMITTED text — starting with the
+  // core scene — and grows as each section is actually emitted. It is NEVER
+  // seeded with the internal, non-emitted visualGoal/visualApproach reasoning:
+  // doing so used to wrongly suppress a concrete detail that appears only in that
+  // reasoning (and never in the final prompt). Additive sections dedupe against
+  // what the engine will actually read, nothing else.
+  let haystack = coreScene;
+
+  // Identity / render-task clause — emitted right AFTER the scene. Operational:
+  // mode + identity/reference (i2i) or fallback-gender (t2i). Mode-aware label.
+  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
+  const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
+  if (taskBody) haystack = `${haystack} ${taskBody}`;
+
+  // SUBJECT BINDING (deterministic identity↔life-stage fusion; when applicable).
+  const binding = composeSubjectBinding(bindingArgs);
+  if (binding) haystack = `${haystack} ${binding}`;
+
+  // Role/action inputs. secondaryCharacters defaults to [] for back-compat with
+  // pre-v4 plans replayed from storage. Moderator roleBindings (when present)
+  // take PRECEDENCE over the AI's secondaryCharacters: the "subject" row becomes
+  // the subject's role and every other entity becomes a secondary character.
+  const overrideRoleBindings = ov?.roleBindings?.filter((b) => b.entity.trim() && b.visualRole.trim()) ?? [];
+  const hasOverrideRoles = overrideRoleBindings.length > 0;
+  const overrideSubjectRole = overrideRoleBindings.find((b) => b.entity.trim().toLowerCase() === "subject")?.visualRole.trim() ?? "";
+  const overrideSecondary = overrideRoleBindings
+    .filter((b) => b.entity.trim().toLowerCase() !== "subject")
+    .map((b) => ({ label: b.entity.trim(), visualRole: b.visualRole.trim() }));
+
+  const aiSecondaryCharacters = vp.secondaryCharacters ?? [];
+  const secondaryCharacters = hasOverrideRoles ? overrideSecondary : aiSecondaryCharacters;
+  const hasSecondaryCharacters = secondaryCharacters.some((c) => c.label.trim() && c.visualRole.trim());
+  const selectedFrame = vp.archetypeApplication?.selectedFrame ?? "";
+  const activeActionFrame = isActiveActionFrame(selectedFrame);
+  const roleInScene = (hasOverrideRoles && overrideSubjectRole) || vp.subjectTreatment?.roleInScene || "";
+
+  // Moderator SUBJECT REALIZATION (authoritative) — emitted right after binding.
+  const subjectRealization = ov ? composeSubjectRealization(ov) : "";
+  if (subjectRealization) haystack = `${haystack} ${subjectRealization}`;
+
+  // ADDITIVE ROLE DETAILS — replaces the old REFERENCE INTERPRETATION. Now that
+  // the Visual Concept leads and carries the gag, this only surfaces roles the
+  // scene OMITTED, and never doubles a name ("Alex is Alex leans…"). Drops are
+  // recorded for admin diagnostics.
+  const roleDetails = composeAdditiveRoleDetails({
+    subjectName,
+    roleInScene,
+    secondaryCharacters,
+    includeSubjectRole: hasSecondaryCharacters || activeActionFrame || Boolean(overrideSubjectRole),
+    haystack,
+  });
+  if (roleDetails.text) haystack = `${haystack} ${roleDetails.text}`;
+
+  // SUBJECT DETAILS — subject-specific visible details (strictly additive), plus
+  // expression/pose and key-element gap-fill. Modifiers are NOT re-injected as
+  // prose (their structural effects have dedicated owners).
   const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
   const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
   const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody}`);
   const subjectDetails = [
     subjectListBody,
-    expressionPose && !containsMeaningfulPhrase(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
-    keyElements,
+    expressionPose && !coveredWithContiguity(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
+    keyElements.text,
   ].filter(Boolean).join(" ");
-  haystack = `${haystack} ${subjectDetails}`;
+  if (subjectDetails) haystack = `${haystack} ${subjectDetails}`;
 
-  // 5. ENVIRONMENT — setting, background, props, scale.
-  const environment = composeListBody(vp.environment ?? [], haystack);
-  haystack = `${haystack} ${environment}`;
-
-  // Moderator override sections (Phase 2). SUBJECT REALIZATION and REQUIRED
-  // VISUAL DETAILS are emitted as their own sections; composition guidance +
-  // style-agnostic additions + forbidden details fold into existing sections.
-  const subjectRealization = ov ? composeSubjectRealization(ov) : "";
+  // REQUIRED VISUAL DETAILS (moderator, authoritative).
   const requiredVisualDetails = ov ? composeOverrideList(ov.requiredVisualDetails) : "";
-  const additionalDetails = ov ? composeOverrideList(ov.styleAgnosticPromptAdditions) : "";
-  if (subjectRealization) haystack = `${haystack} ${subjectRealization}`;
   if (requiredVisualDetails) haystack = `${haystack} ${requiredVisualDetails}`;
 
-  // 6. COMPOSITION — framing + camera + caption negative space, plus moderator
+  // ENVIRONMENT — setting, background, props, scale (strictly additive).
+  const environment = composeListBody(vp.environment ?? [], haystack);
+  if (environment) haystack = `${haystack} ${environment}`;
+
+  // ADDITIONAL DETAILS (moderator style-agnostic additions).
+  const additionalDetails = ov ? composeOverrideList(ov.styleAgnosticPromptAdditions) : "";
+  if (additionalDetails) haystack = `${haystack} ${additionalDetails}`;
+
+  // COMPOSITION — framing + camera + caption negative space, plus moderator
   // composition guidance.
   const composition = [
     composeCompositionDirective(vp, haystack),
     ov ? composeOverrideList(ov.compositionGuidance) : "",
   ].filter(Boolean).join(" ");
+  if (composition) haystack = `${haystack} ${composition}`;
 
   // 7. LIGHTING AND STYLE — the plan's light/mood plus the resolved style suffix.
   // Each clause is terminated so the assembler's sentence-aware de-dupe keeps it
@@ -1085,18 +1244,11 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const overrideForbidden = ov ? composeOverrideForbidden(ov) : "";
   const strictConstraints = [supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
 
-  // The override sections sit at high/required priority so moderator intent
-  // survives the char budget. SUBJECT REALIZATION (required) goes right after
-  // SUBJECT BINDING; REQUIRED VISUAL DETAILS (required) after SUBJECT DETAILS;
-  // ADDITIONAL DETAILS (high) after ENVIRONMENT.
+  // Emitted order (CORE SCENE first — the Visual Concept leads). The override
+  // sections sit at required/high priority so moderator intent survives the char
+  // budget. A moderator-authored core scene is required + non-compressible: the
+  // joke must never be compressed out. AI-authored keeps high/compressible.
   const rawSections: Section[] = [
-    { id: "image_to_image_task", label: "IMAGE-TO-IMAGE TASK", text: labeled("IMAGE-TO-IMAGE TASK", taskBody), priority: "required" },
-    { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
-    { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
-    { id: "reference_interpretation", label: "REFERENCE INTERPRETATION", text: labeled("REFERENCE INTERPRETATION", referenceInterpretation), priority: "required" },
-    // A moderator-authored core scene is required + non-compressible: the joke
-    // must never be compressed out under the char budget. AI-authored keeps the
-    // original high/compressible behavior.
     {
       id: "core_scene",
       label: "CORE SCENE",
@@ -1105,6 +1257,10 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
       compressible: !coreSceneModeratorAuthored,
       ...(coreSceneModeratorAuthored ? { moderatorAuthored: true } : {}),
     },
+    { id: mode.sectionId, label: mode.sectionLabel, text: labeled(mode.sectionLabel, taskBody), priority: "required" },
+    { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
+    { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
+    { id: "role_details", label: "ROLE DETAILS", text: labeled("ROLE DETAILS", roleDetails.text), priority: "high", compressible: true },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
     { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
@@ -1147,11 +1303,20 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     });
   }
 
+  // Structured record of concrete role/key-element candidates the compiler chose
+  // NOT to emit (redundant-with-scene, or a non-visible "crutch" line), so admins
+  // can see WHY an expected detail didn't reach the prompt.
+  const droppedCandidates = [...roleDetails.dropped, ...keyElements.dropped];
+
   const out: CompiledImagePrompt = {
     prompt: finalPrompt,
     imagePrompt: finalPrompt,
     promptBreakdown: breakdown,
-    diagnostics: { removedPlannerProseSentences: removedProse, warnings },
+    diagnostics: {
+      removedPlannerProseSentences: removedProse,
+      warnings,
+      ...(droppedCandidates.length ? { droppedCandidates } : {}),
+    },
   };
 
   // Nano Banana 2 has no negative-prompt parameter; the validator already
@@ -1174,17 +1339,21 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 export function compileNanoBanana2HumanI2I(args: CompileArgs): CompiledImagePrompt {
   return compile(args, {
     preamble: HUMAN_I2I_PREAMBLE,
+    sectionLabel: "IDENTITY & REFERENCE",
+    sectionId: "identity_reference",
     requiredClauses: [],
     withReferenceUrl: true,
   });
 }
 
 export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImagePrompt {
-  // The preamble (added first, always) already carries the required
-  // "Do not replace the subject with a human." guard, so no extra clause is
-  // needed — and adding a paraphrase would duplicate the instruction.
+  // The preamble already carries the required "Do not replace the subject with a
+  // human." guard, so no extra clause is needed — and adding a paraphrase would
+  // duplicate the instruction.
   return compile(args, {
     preamble: NONHUMAN_I2I_PREAMBLE,
+    sectionLabel: "IDENTITY & REFERENCE",
+    sectionId: "identity_reference",
     requiredClauses: [],
     withReferenceUrl: true,
   });
@@ -1194,7 +1363,9 @@ export function compileNanoBanana2T2I(args: CompileArgs): CompiledImagePrompt {
   const gender = args.input.renderControls.fallbackSubjectGender;
   return compile(args, {
     preamble: T2I_PREAMBLE,
-    requiredClauses: gender ? [`Generate a ${gender} protagonist.`] : [],
+    sectionLabel: "RENDER TASK",
+    sectionId: "render_task",
+    requiredClauses: gender ? [`Render a ${gender} protagonist.`] : [],
     withReferenceUrl: false,
   });
 }

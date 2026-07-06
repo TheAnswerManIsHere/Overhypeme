@@ -194,6 +194,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // admin_config. No stored-enrichment strip (legacy strings are inert). No DDL.
   "0082_strip_retired_text_modifiers",
 
+  // DML-only scrub of the stale "poor compatibility requires a non-none
+  // recommendedFallback" sentence out of the image-prompt system prompt in
+  // admin_config (subjectFactCompatibility is now advisory-only and never
+  // blocks rendering). No DDL means no schema delta means no snapshot.
+  "0084_strip_stale_compatibility_fallback_rule",
+
   // Hand-authored DDL adding the moderation `review_workflow_stage` enum +
   // staging-fact pointer + production-rejection audit columns to pending_reviews.
   // Source of truth: lib/db/src/schema/reviews.ts.

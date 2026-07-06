@@ -137,6 +137,36 @@ disabling outbound sends during an incident). Post-launch we'll reintroduce stag
 rollouts deliberately. Also pre-launch: **no new external vendors** without David's
 sign-off.
 
+## Never surface a raw internal ID anywhere in the product
+
+No internal ID, GUID/UUID, session token, or other non-human-interpretable code
+may ever reach a user-, admin-, or tester-visible surface — not in rendered UI
+text, not in an error message, not in a log line a human is expected to read.
+This applies everywhere, including admin-only surfaces (admins are not exempt).
+**Avoid:** wherever a UI attributes an action to an actor (audit trails,
+version history, "last edited by," activity logs), resolve the ID to a
+human-readable label (display name, falling back to email) before it can be
+rendered — never render the raw id, and never fall back to it if no label is
+found (omit the attribution instead). Prefer resolving at read time via a join
+against `usersTable` when the id lives in a real FK column (cheap, and
+self-heals if the display name changes later, no backfill needed). When the id
+is embedded in a jsonb blob with no query-time join path (e.g. per-field
+override provenance), resolve it once at write time into a stored
+human-readable label instead of the raw id — but note this does NOT fix
+historical rows already stamped with a raw id before the fix; those need a
+deliberate backfill if closing the gap immediately matters, and a backfill is
+migration-shaped work (see
+[`known-failure-patterns.md`](./known-failure-patterns.md#migrationbackfill-blind-spots)
+and [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)),
+not a drive-by expansion of the display fix. **Overhype:** the Facts admin's
+Enrichment Version History panel rendered `factEnrichmentVersionsTable.createdBy`
+(a raw admin user id) directly; fixed by joining `usersTable` at read time. The
+Enrichment Editor's "Last edited by" line rendered
+`visualPromptStrategyOverride.updatedBy` (also a raw admin id, stamped by
+`stampOverrideProvenance`); fixed by stamping a resolved display-name/email
+label at write time instead, since that field lives in a jsonb blob with no
+read-time join path.
+
 ## Async work must show status
 
 Anything asynchronous must report per-item + aggregate status at all times — this

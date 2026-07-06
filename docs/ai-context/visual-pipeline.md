@@ -35,7 +35,21 @@ model receives.** Enrichment is an input, not the prompt (see
 
 1. **Source-image analysis** (`sourceImageAnalysis/`) picks a `subjectRenderMode`.
 2. **Frontier planner** (`generateImagePromptPlan()`) → `visualPlan` +
-   `subjectFactCompatibility` via OpenAI Structured Outputs.
+   `subjectFactCompatibility` via OpenAI Structured Outputs. `subjectFactCompatibility`
+   is **advisory only — it never blocks rendering**. Facts are manually curated, so a
+   "poor" rating still renders (possibly imperfectly) rather than leaving the user
+   with nothing; the rating is persisted for admin visibility only. (A legacy job-level
+   block existed before this was retired — see `imagePromptAttempts.ts`'s
+   `buildRenderStatusPayload` comment for the historical-row mapping it left behind.)
+   The "never blocks" instruction to the planner lives in **two** places that must
+   stay in sync: the per-request user-message contract
+   (`generator.ts`'s `buildImagePromptUserMessage()`) and the admin-configurable
+   **system** prompt default (`imagePromptConfig.ts`'s
+   `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key `fact_image_prompt_system`). The system
+   prompt is seeded into `admin_config` with `ON CONFLICT DO NOTHING` — editing the
+   TS constant does **not** reach an already-seeded row; changing that copy needs an
+   idempotent DML migration too (see `0084_strip_stale_compatibility_fallback_rule.sql`,
+   which mirrors the `0082_strip_retired_text_modifiers.sql` pattern).
 3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
    engine-specific `compiledPrompt`.
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt
@@ -81,12 +95,23 @@ recorded `fallbackReason`. (Introduced by PR #157.)
 
 `compileForSubjectRenderMode()` in `compilers/nanoBanana2.ts` — the
 **deterministic Nano Banana 2 compiler**. It dispatches by render mode and
-assembles a fixed labeled contract: IMAGE-TO-IMAGE TASK · SUBJECT BINDING · CORE
-SCENE · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING AND STYLE · STRICT
-CONSTRAINTS. **The compiler OWNS** the TASK/BINDING/STRICT-CONSTRAINTS/identity/
-reference/text-policy language; planner prose that duplicates these is stripped
-(`RemovedProseReason`). Nano Banana 2 has **no negative-prompt parameter** —
-exclusions are expressed as positive scene language.
+assembles a labeled contract where **the Visual Concept (CORE SCENE) LEADS**:
+CORE SCENE · IDENTITY & REFERENCE (i2i) / RENDER TASK (t2i) · SUBJECT BINDING ·
+SUBJECT REALIZATION · ROLE DETAILS · SUBJECT DETAILS · REQUIRED VISUAL DETAILS ·
+ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING AND STYLE · STRICT
+CONSTRAINTS. Every section after CORE SCENE is either **operational** (identity/
+reference, binding, style, policy) or **strictly additive** — it earns its place
+only by contributing a concrete detail the Concept omitted; restatements are
+de-duped out (content-word contiguity against emitted text). The old REFERENCE
+INTERPRETATION section is gone: role info now flows through the additive **ROLE
+DETAILS** section (`composeAdditiveRoleDetails`), which never doubles a name
+("Alex is Alex leans…" — the retired bug). **The compiler OWNS** the identity/
+reference/binding/STRICT-CONSTRAINTS/text-policy language; planner prose that
+duplicates these is stripped (`RemovedProseReason`). The de-dupe haystack is
+seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
+Dropped role/key-element candidates are recorded in
+`diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
+parameter** — exclusions are positive scene language.
 
 ## Render policy and readable text
 

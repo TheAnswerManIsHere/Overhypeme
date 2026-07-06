@@ -36,6 +36,18 @@ const BASELINE: FactEnrichment = {
 // The effective enrichment: visualComplexity is overridden medium → high.
 const EFFECTIVE: FactEnrichment = { ...BASELINE, visualComplexity: "high" };
 
+const SEMANTIC_ENTITY = {
+  surfaceText: "sign language",
+  normalizedText: "sign language",
+  entityKind: "abstract_concept" as const,
+  visualReferent: "hands signing",
+  capitalizationSignal: "not_relevant" as const,
+  materiallyAffectsVisualPrompt: true,
+  requiresAdminReview: false,
+  confidence: 0.96,
+  notes: "",
+};
+
 function makeOverrideContext(over: Partial<EnrichmentOverrideContext> = {}): EnrichmentOverrideContext {
   return {
     aiDerived: BASELINE,
@@ -100,6 +112,84 @@ describe("EnrichmentEditor dual mode (review hashtags + override decoration)", (
 
     expect(oc.onOverride).toHaveBeenCalledWith("/visualComplexity", "low");
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ visualComplexity: "low" }));
+  });
+
+  it("semantic entity text edits stay local while typing (spaces preserved) and commit once on blur", () => {
+    const oc = makeOverrideContext();
+    const value: FactEnrichment = { ...EFFECTIVE, semanticEntities: [SEMANTIC_ENTITY] };
+    const onChange = vi.fn();
+
+    render(
+      <EnrichmentEditor
+        value={value}
+        status="ok"
+        onChange={onChange}
+        overrideContext={oc}
+      />,
+    );
+
+    const input = screen.getByDisplayValue("hands signing") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "hands signing " } });
+
+    // Mid-typing: the edit lives only in the field's local buffer. Nothing is
+    // persisted and nothing is folded back, so the trailing space survives no
+    // matter how long the moderator pauses.
+    expect(input.value).toBe("hands signing ");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(oc.onOverride).not.toHaveBeenCalled();
+
+    // Blur commits exactly once: optimistic draft update + override write.
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      semanticEntities: [expect.objectContaining({ visualReferent: "hands signing " })],
+    }));
+    expect(oc.onOverride).toHaveBeenCalledTimes(1);
+    expect(oc.onOverride).toHaveBeenCalledWith(
+      "/semanticEntities",
+      [expect.objectContaining({ visualReferent: "hands signing " })],
+    );
+
+    // A no-op blur (no further edits) does not write again. (After commit the
+    // field shows the committed prop value again — the mock parent here never
+    // feeds the optimistic update back, so that's the original text.)
+    fireEvent.blur(screen.getByDisplayValue("hands signing"));
+    expect(oc.onOverride).toHaveBeenCalledTimes(1);
+  });
+
+  it("structural semantic-entity edits (remove row) persist immediately — no deferral window to lose", () => {
+    const oc = makeOverrideContext();
+    const value: FactEnrichment = { ...EFFECTIVE, semanticEntities: [SEMANTIC_ENTITY] };
+    const onChange = vi.fn();
+
+    render(
+      <EnrichmentEditor
+        value={value}
+        status="ok"
+        onChange={onChange}
+        overrideContext={oc}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Remove semantic entity"));
+
+    expect(oc.onOverride).toHaveBeenCalledWith("/semanticEntities", []);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ semanticEntities: [] }));
+  });
+
+  it("review mode (no override context) keeps per-keystroke draft updates for entity text fields", () => {
+    const value: FactEnrichment = { ...EFFECTIVE, semanticEntities: [SEMANTIC_ENTITY] };
+    const onChange = vi.fn();
+
+    render(<EnrichmentEditor value={value} status="ok" onChange={onChange} />);
+
+    fireEvent.change(screen.getByDisplayValue("hands signing"), {
+      target: { value: "hands signing " },
+    });
+
+    // The localStorage-backed review draft sees every keystroke, as before.
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      semanticEntities: [expect.objectContaining({ visualReferent: "hands signing " })],
+    }));
   });
 
   it("a Visual Strategy Override edit calls onChange only — never the override endpoints", () => {

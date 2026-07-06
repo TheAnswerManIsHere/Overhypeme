@@ -59,3 +59,11 @@ Admin surfaces that run work must let the operator tell **what is planned, what 
 happening, what worked, what failed, what was skipped, and what action is needed
 next** — empty / loading / running / failed / partial / retryable / skipped /
 complete / no-op are distinct states, not one spinner.
+
+A corollary that's easy to get wrong: a **required** step whose status is `null`
+does **not** automatically mean "working." Distinguish "job in flight" from "never
+ran / not generated yet" — rendering an actionable *not-generated* state as a
+spinner masks it as in-progress work and hides the action the operator needs to
+take. (Overhype: the moderation Visual-ideas prep pill renders `null` as amber
+"not generated" for a required gate, never a spinner — an old Step-3 row bounced
+back to Visual Concept before ideas existed is a real source of that `null`.)

@@ -19,7 +19,7 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from ".
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
-import { validateTemplate } from "../lib/templateGrammar";
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
   type FactEnrichment,
@@ -142,19 +142,23 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  const { text: rawText, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  // Run the full deterministic grammar cleanup at ingress: a submission that
+  // bypassed the tokenize route (API clients, stale front-ends) may still
+  // carry a {NAME}-subject pair, an unexpanded {Subj}'s contraction, or a
+  // missed person-subject verb the route would have repaired.
+  const normalized = normalizeFactTemplateForPendingReview(rawText);
+  if (!normalized.valid) {
+    res.status(422).json({
+      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
+    });
+    return;
+  }
+  const text = normalized.text;
   // Normalize submitter tags at ingress so `pending_reviews.hashtags` always
   // holds clean values (the Zod schema only caps count; API clients can send
   // arbitrary strings). Same sanitizer used at approval, so storage never drifts.
   const hashtags = sanitizeHashtagsForPersistence(rawHashtags, { limit: 10 });
-
-  const grammarResult = validateTemplate(text);
-  if (!grammarResult.valid) {
-    res.status(422).json({
-      error: `Template grammar validation failed: ${grammarResult.error}`,
-    });
-    return;
-  }
 
   // COST GATE: a new submission is cheap human-triage only. We do NOT enqueue
   // enrichment, Pexels, embedding, or any other paid/external work here — those
@@ -1041,8 +1045,16 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Post-commit — ONLY because THIS request performed the CAS: force a fresh
-  // render batch (no dedupe key, so it can't coalesce onto a stale prepare job).
+  // Post-commit — ONLY because THIS request performed the CAS: clear the prior
+  // Step-3 scenario set, then force a fresh render batch (no dedupe key, so it
+  // can't coalesce onto a stale prepare job). Clearing before enqueue means a
+  // Step-3 → Step-2 → Step-3 bounce shows the new queued/missing state rather
+  // than the superseded stale thumbnails while the async prepare job spins up.
+  const clearedRenderAttempts = await db.update(imagePromptAttemptsTable)
+    .set({ reviewId: null, updatedAt: new Date() })
+    .where(eq(imagePromptAttemptsTable.reviewId, id))
+    .returning({ id: imagePromptAttemptsTable.id });
+
   let renderPrepareJobId: number | undefined;
   try {
     const enq = await enqueueForceReviewRenderPrepare(id);
@@ -1051,22 +1063,23 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     logger.error({ err, reviewId: id }, "[moderation] failed to enqueue force render prepare (stage advance kept)");
   }
   logger.info(
-    { reviewId: id, renderPrepareJobId, force: true, adminUserId: req.user.id },
-    "[moderation] visual concept approved, force render prepare enqueued",
+    { reviewId: id, renderPrepareJobId, clearedRenderAttempts: clearedRenderAttempts.length, force: true, adminUserId: req.user.id },
+    "[moderation] visual concept approved, prior renders cleared, force render prepare enqueued",
   );
 
   res.json({
     success: true,
     workflowStage: "production_review",
     ...(renderPrepareJobId != null ? { renderPrepareJobId } : {}),
+    clearedRenderAttempts: clearedRenderAttempts.length,
     forceRenderBatch: true,
   });
 });
 
 // ─── Back to Visual Concept: Step 3 (production_review) → Step 2 (concept_review) ─
 //
-// No render deletion: in-flight jobs finish but are no longer the active set. A
-// later re-approval force-creates a fresh batch (see approve-visual-concept).
+// Re-approval clears any prior Step-3 scenario attempts before force-creating a
+// fresh batch, so in-flight jobs can finish without remaining the active grid.
 router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -1333,7 +1346,7 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   const parsed = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
   if (!parsed.ok) { res.status(400).json({ error: `Invalid enrichment: ${parsed.error}` }); return; }
   const submitted = parsed.data;
-  const adminId = req.user.id;
+  const actorLabel = req.user.displayName ?? req.user.email ?? null;
 
   try {
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
@@ -1363,7 +1376,7 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
       const stamped = stampOverrideProvenance(
         { ...aiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
         ctx.layers.effective,
-        adminId,
+        actorLabel,
       );
       const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
       const { columns } = materializeEnrichment({ aiDerived, overrides: ctx.layers.overrides, visualPromptStrategyOverride });
