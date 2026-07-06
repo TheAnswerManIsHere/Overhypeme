@@ -814,14 +814,10 @@ export function validateImagePromptPlan(
       };
     }
   }
-  // 12. subjectFactCompatibility coherence
-  if (vp.subjectFactCompatibility.rating === "poor" && vp.subjectFactCompatibility.recommendedFallback === "none") {
-    return {
-      ok: false,
-      error: `subjectFactCompatibility.rating is "poor" but recommendedFallback is "none"; must recommend a fallback`,
-      correctableHint: `When rating is "poor", recommendedFallback must be one of t2i_fallback / upload_human_photo / choose_different_fact.`,
-    };
-  }
+  // 12. (retired) subjectFactCompatibility coherence — a "poor" rating no longer
+  // requires a non-"none" recommendedFallback. The rating is advisory only and
+  // never blocks rendering (see imagePromptJobs.ts); "none" is valid for every
+  // rating, including poor.
   // 13. fallbackSubjectGender consistency
   if (expectations.subjectRenderMode === "t2i_fallback") {
     if (expectations.fallbackSubjectGender) {

@@ -35,7 +35,21 @@ model receives.** Enrichment is an input, not the prompt (see
 
 1. **Source-image analysis** (`sourceImageAnalysis/`) picks a `subjectRenderMode`.
 2. **Frontier planner** (`generateImagePromptPlan()`) → `visualPlan` +
-   `subjectFactCompatibility` via OpenAI Structured Outputs.
+   `subjectFactCompatibility` via OpenAI Structured Outputs. `subjectFactCompatibility`
+   is **advisory only — it never blocks rendering**. Facts are manually curated, so a
+   "poor" rating still renders (possibly imperfectly) rather than leaving the user
+   with nothing; the rating is persisted for admin visibility only. (A legacy job-level
+   block existed before this was retired — see `imagePromptAttempts.ts`'s
+   `buildRenderStatusPayload` comment for the historical-row mapping it left behind.)
+   The "never blocks" instruction to the planner lives in **two** places that must
+   stay in sync: the per-request user-message contract
+   (`generator.ts`'s `buildImagePromptUserMessage()`) and the admin-configurable
+   **system** prompt default (`imagePromptConfig.ts`'s
+   `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key `fact_image_prompt_system`). The system
+   prompt is seeded into `admin_config` with `ON CONFLICT DO NOTHING` — editing the
+   TS constant does **not** reach an already-seeded row; changing that copy needs an
+   idempotent DML migration too (see `0084_strip_stale_compatibility_fallback_rule.sql`,
+   which mirrors the `0082_strip_retired_text_modifiers.sql` pattern).
 3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
    engine-specific `compiledPrompt`.
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt

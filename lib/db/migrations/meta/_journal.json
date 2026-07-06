@@ -589,6 +589,13 @@
       "when": 1781600000000,
       "tag": "0083_review_workflow_stage_concept_review",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1781700000000,
+      "tag": "0084_strip_stale_compatibility_fallback_rule",
+      "breakpoints": true
     }
   ]
 }

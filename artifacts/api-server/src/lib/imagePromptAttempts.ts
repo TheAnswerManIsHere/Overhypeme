@@ -147,9 +147,12 @@ export type RenderStatus = "pending" | "prompt_ready" | "image_ready" | "failed"
  * user-facing `GET /memes/ai/renders/:renderJobId` and the admin moderation poll
  * `GET /admin/reviews/:id/renders/:renderJobId` so the two routes can't drift.
  *
- * A "poor" subject↔fact compatibility is a deliberate product block (not an
- * engine failure): the prompt job recorded the reason and skipped image
- * generation, surfaced here as its own `blocked` state.
+ * LEGACY-ROW COMPATIBILITY ONLY: a "poor" subject↔fact compatibility used to be a
+ * deliberate product block (the prompt job recorded the reason and skipped image
+ * generation). That gate was removed — subjectFactCompatibility is now advisory
+ * only and never blocks new renders — but historical attempt rows that still
+ * carry `error = "subject_fact_compatibility_poor"` from before the change
+ * continue to map here to `blocked` so old data keeps displaying correctly.
  */
 export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
   status: RenderStatus;

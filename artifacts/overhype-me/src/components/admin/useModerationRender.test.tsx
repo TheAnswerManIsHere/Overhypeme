@@ -64,7 +64,7 @@ describe("useModerationRender", () => {
     expect(fetchMock.mock.calls.length).toBe(callsAfterTerminal);
   });
 
-  it("surfaces a blocked render distinctly from failure", async () => {
+  it("surfaces a legacy blocked render distinctly from failure (back-compat payload only; new attempts never produce this)", async () => {
     vi.useFakeTimers();
     stubRenderFetch([poll("blocked", { blocked: true, blockReason: "subject_fact_compatibility_poor" })]);
     const { result } = renderHook(() => useModerationRender(5));
