@@ -116,6 +116,7 @@ function makeApp(): Express {
 }
 
 let adminId: string;
+let adminEmail: string;
 let adminSid: string;
 let plainSid: string;
 const insertedFactIds: number[] = [];
@@ -194,9 +195,10 @@ async function cleanup() {
 before(async () => {
   await cleanup();
   adminId = `${USER_PREFIX}${randomUUID()}`;
+  adminEmail = `${adminId}@test.local`;
   const plainId = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values([
-    { id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", captchaVerified: true },
+    { id: adminId, email: adminEmail, isAdmin: true, membershipTier: "legendary", captchaVerified: true },
     { id: plainId, email: `${plainId}@test.local`, isAdmin: false, membershipTier: "registered", captchaVerified: true },
   ]);
   adminSid = await createSession({
@@ -401,7 +403,9 @@ describe("candidate override writes", () => {
     const saved = candidate.enrichment as FactEnrichment;
     assert.deepEqual(saved.visualPromptStrategyOverride?.requiredVisualDetails, VSO_FIXTURE.requiredVisualDetails);
     assert.equal(typeof saved.visualPromptStrategyOverride?.updatedAt, "string", "server-owned provenance stamped");
-    assert.equal(saved.visualPromptStrategyOverride?.updatedBy, adminId);
+    // A human-readable actor label (email, since this test admin has no display
+    // name) — never the raw admin user id.
+    assert.equal(saved.visualPromptStrategyOverride?.updatedBy, adminEmail);
     assert.deepEqual(
       saved.suggestedHashtags,
       REFRESHED_AI_BASELINE.suggestedHashtags,

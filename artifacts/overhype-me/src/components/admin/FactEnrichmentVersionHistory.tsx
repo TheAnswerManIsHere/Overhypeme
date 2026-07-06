@@ -16,7 +16,8 @@ export interface EnrichmentVersionInfo {
     source: string;
     sourceReviewId: number | null;
     note: string | null;
-    createdBy: string | null;
+    createdByDisplayName: string | null;
+    createdByEmail: string | null;
     createdAt: string;
     promotedAt: string | null;
     supersededAt: string | null;
@@ -43,6 +44,11 @@ function versionLabel(v: EnrichmentVersionInfo["versions"][number]): string {
     case "superseded":
       return `Previous active (archived ${fmtDate(v.supersededAt ?? v.createdAt)})`;
   }
+}
+
+/** Human-readable actor label — never a raw user id. */
+function actorLabel(v: EnrichmentVersionInfo["versions"][number]): string | null {
+  return v.createdByDisplayName ?? v.createdByEmail ?? null;
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -118,7 +124,7 @@ export function FactEnrichmentVersionHistory({
                       Review #{v.sourceReviewId}
                     </a>
                   )}
-                  {v.createdBy && <span className="text-xs text-muted-foreground">by {v.createdBy}</span>}
+                  {actorLabel(v) && <span className="text-xs text-muted-foreground">by {actorLabel(v)}</span>}
                 </div>
               ))}
             </>

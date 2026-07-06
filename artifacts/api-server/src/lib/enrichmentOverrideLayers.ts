@@ -66,11 +66,16 @@ function stableStringify(value: unknown): string {
  * otherwise preserve the prior provenance verbatim. These fields are never set
  * by the client or the AI. Returns the enrichment unchanged when there is no
  * override. (Content comparison ignores the provenance fields themselves.)
+ *
+ * `actorLabel` is a human-readable label (display name, or email as a
+ * fallback) — NEVER the raw admin user id. This field is rendered directly in
+ * admin UI ("Last edited by …"), so it must already be interpretable; there is
+ * no read-time join to resolve it later.
  */
 export function stampOverrideProvenance(
   next: FactEnrichment,
   prior: unknown,
-  adminId: string | null,
+  actorLabel: string | null,
 ): FactEnrichment {
   const ov = (next as { visualPromptStrategyOverride?: Record<string, unknown> }).visualPromptStrategyOverride;
   if (!ov) return next;
@@ -83,7 +88,7 @@ export function stampOverrideProvenance(
   };
   const changed = stripProvenance(ov) !== stripProvenance(priorOv);
   const provenance = changed
-    ? { updatedBy: adminId ?? undefined, updatedAt: new Date().toISOString() }
+    ? { updatedBy: actorLabel ?? undefined, updatedAt: new Date().toISOString() }
     : { updatedBy: priorOv?.["updatedBy"] as string | undefined, updatedAt: priorOv?.["updatedAt"] as string | undefined };
   return {
     ...next,

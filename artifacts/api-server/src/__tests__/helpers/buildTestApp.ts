@@ -56,12 +56,15 @@ export function buildTestApp(
 
   if (auth.kind === "authenticated") {
     const { userId } = auth;
-    let cachedUser: { id: string; isRealAdmin: boolean; realUserRole: ReturnType<typeof deriveUserRole> } | null | undefined;
+    let cachedUser:
+      | { id: string; email: string | null; displayName: string | null; isRealAdmin: boolean; realUserRole: ReturnType<typeof deriveUserRole> }
+      | null
+      | undefined;
 
     app.use(async (req: Request, _res: Response, next: NextFunction) => {
       if (cachedUser === undefined) {
         const [dbUser] = await db
-          .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
+          .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, isAdmin: usersTable.isAdmin })
           .from(usersTable)
           .where(eq(usersTable.id, userId))
           .limit(1);
@@ -69,6 +72,8 @@ export function buildTestApp(
         cachedUser = dbUser
           ? {
               id:           dbUser.id,
+              email:        dbUser.email,
+              displayName:  dbUser.displayName,
               isRealAdmin:  !!dbUser.isAdmin,
               realUserRole: deriveUserRole(undefined, !!dbUser.isAdmin),
             }

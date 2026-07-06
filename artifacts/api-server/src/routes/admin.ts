@@ -1040,11 +1040,12 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   if (!baseline) { res.status(409).json({ error: "Fact has no enrichment baseline yet" }); return; }
   const newAiDerived = { ...baseline, suggestedHashtags: submitted.suggestedHashtags } as FactEnrichment;
 
-  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+  const actor = (req as AuthenticatedRequest).user;
+  const actorLabel = actor?.displayName ?? actor?.email ?? null;
   const stamped = stampOverrideProvenance(
     { ...newAiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
     state.effective ?? null,
-    adminId,
+    actorLabel,
   );
   const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
 
@@ -1146,6 +1147,7 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
     .limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
+  const createdByUsers = alias(usersTable, "created_by_users");
   const rows = await db
     .select({
       id: factEnrichmentVersionsTable.id,
@@ -1154,7 +1156,8 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
       source: factEnrichmentVersionsTable.source,
       sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
       note: factEnrichmentVersionsTable.note,
-      createdBy: factEnrichmentVersionsTable.createdBy,
+      createdByDisplayName: createdByUsers.displayName,
+      createdByEmail: createdByUsers.email,
       createdAt: factEnrichmentVersionsTable.createdAt,
       promotedAt: factEnrichmentVersionsTable.promotedAt,
       supersededAt: factEnrichmentVersionsTable.supersededAt,
@@ -1162,6 +1165,7 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
       enrichmentReady: sql<boolean>`(${factEnrichmentVersionsTable.enrichment} IS NOT NULL)`,
     })
     .from(factEnrichmentVersionsTable)
+    .leftJoin(createdByUsers, eq(factEnrichmentVersionsTable.createdBy, createdByUsers.id))
     .where(eq(factEnrichmentVersionsTable.factId, id))
     .orderBy(desc(factEnrichmentVersionsTable.createdAt));
 

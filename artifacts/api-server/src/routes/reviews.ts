@@ -1346,7 +1346,7 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   const parsed = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
   if (!parsed.ok) { res.status(400).json({ error: `Invalid enrichment: ${parsed.error}` }); return; }
   const submitted = parsed.data;
-  const adminId = req.user.id;
+  const actorLabel = req.user.displayName ?? req.user.email ?? null;
 
   try {
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
@@ -1376,7 +1376,7 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
       const stamped = stampOverrideProvenance(
         { ...aiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
         ctx.layers.effective,
-        adminId,
+        actorLabel,
       );
       const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
       const { columns } = materializeEnrichment({ aiDerived, overrides: ctx.layers.overrides, visualPromptStrategyOverride });
