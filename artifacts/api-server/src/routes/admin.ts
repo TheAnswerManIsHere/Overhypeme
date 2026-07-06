@@ -34,7 +34,7 @@ import {
   type OverridablePath,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { runFactImagePipeline } from "../lib/factImagePipeline";
+import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
@@ -84,6 +84,20 @@ const router: IRouter = Router();
  * Delegates to requireRole("admin") — the single source of admin gating.
  */
 export const requireAdmin = requireRole("admin");
+
+function toPexelsThumb(entry: PexelsPhotoEntry): {
+  id: number;
+  url: string;
+  photographer?: string;
+  photographer_url?: string;
+} {
+  return {
+    id: entry.id,
+    url: entry.src?.large2x ?? entry.src?.large ?? entry.url,
+    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
+    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
+  };
+}
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
@@ -813,6 +827,36 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       ...factRow,
       hasEmbedding: updated.embedding !== null,
       hasPexelsImages: updated.pexelsImages !== null,
+    },
+  });
+});
+
+// GET /admin/facts/:id/pexels-images — all stored Pexels thumbnails for the
+// Facts editor. Admin-only and deliberately separate from the public paginated
+// endpoint so inactive facts and all gender variants can be inspected.
+router.get("/admin/facts/:id/pexels-images", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({
+      pexelsImages: factsTable.pexelsImages,
+      pexelsStatus: factsTable.pexelsStatus,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const raw = fact.pexelsImages as FactPexelsImages | null;
+  res.json({
+    pexelsStatus: fact.pexelsStatus ?? null,
+    factType: raw?.fact_type ?? null,
+    keywords: raw?.keywords ?? null,
+    images: {
+      male: (raw?.male ?? []).map(toPexelsThumb),
+      female: (raw?.female ?? []).map(toPexelsThumb),
+      neutral: (raw?.neutral ?? []).map(toPexelsThumb),
     },
   });
 });
