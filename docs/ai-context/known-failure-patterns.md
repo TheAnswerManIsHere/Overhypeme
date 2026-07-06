@@ -139,6 +139,31 @@ removes an existing pair, bounded by clause/brace/punctuation stops — it never
 creates a new wrap. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#the-core-conjugation-invariant).
 
+## Uniform default over a falsely-ambiguous space
+
+**Looks like:** a deterministic normalization pass treats an entire class of
+input as "ambiguous" and picks one default reading for all of it — but a
+subset of that class actually has a knowable, unambiguous answer that the
+chosen default gets wrong. **Dangerous:** the fallback *looks* safe ("the more
+common reading") and passes tests built around the reported example, but
+silently corrupts the subset it's actually wrong for — which can be common in
+casual English, not a rare edge case. **Avoid:** before picking a uniform
+default, ask "is there a narrow, high-confidence signal that resolves *part*
+of this space with certainty?" — carve that subset out with its own rule, and
+default only the genuinely irreducible remainder. **Overhype:**
+`expandSubjectContractions()` originally defaulted every `'s` contraction to
+the copula `{is|are}`, reasoning that is/has ambiguity is "the far more common
+reading" — but "'s got"/"'s been"/"'s had" can ONLY mean "has" ("is
+got"/"is been"/"is had" isn't grammatical English), so the uniform default was
+silently producing "They are got the keys" for they/them. Caught by code
+review (Codex), not by the shipped tests — they proved the chosen default
+worked for the genuinely ambiguous remainder, but never asked whether the
+assumed-ambiguous set was actually uniform. Fixed with
+`HAS_ONLY_FOLLOWING_WORDS`, a small next-word peek that resolves the
+unambiguous subset before falling back to the copula for truly ambiguous words
+(e.g. "done"). See
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#retiring-theys).
+
 ## Migration/backfill blind spots
 
 **Looks like:** a schema/data change that ignores old rows, partial states,

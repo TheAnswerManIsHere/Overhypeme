@@ -40,12 +40,22 @@ Decide by what "this" refers to (contract's trigger table):
   the docs and report the completed routing in my summary (no pre-approval
   pause); I stop and ask only on claims needing product judgment, or when David
   asked to see routing first.
-- **Commit / PR discipline** — the CLAUDE.md squash-merge workflow:
-  - Feature PR still open → commit the docs onto that same branch.
-  - Feature already merged → `git fetch origin main`, fresh branch off
-    `origin/main` created with **`-b` (never `-B`)**, **never force-push**
-    (`.claude/guard.sh` blocks it), then a small docs-only PR. No TEST_RUN/UAT
-    docs (pure-docs exception) — a short verification note in the PR body.
+- **Commit / PR discipline** — I follow the shared contract's placement rule
+  (`documentation-workflow.md`, Step 5) exactly, so this stays a thin
+  enactment, not a second copy: **default to assuming the feature's PR is
+  already merged** (David's stated workflow — he invokes `/document` only
+  after the work has merged), so I don't spend a round-trip checking PR state
+  first. I go straight to `git fetch origin main`, a fresh branch off
+  `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
+  docs-only PR for the harvest — never try to reuse or reopen the
+  already-merged feature PR. No TEST_RUN/UAT docs on that PR (pure-docs
+  exception) — a short verification note in the PR body suffices. I only
+  commit to the feature's own branch instead when I have clear **session
+  evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
+  force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old
+  feature branch exists (GitHub usually auto-deletes it post-squash-merge, but
+  a same-branch-name push can recreate it), confirm the owning PR is actually
+  merged/closed before deleting that stale ref.
   - I do **not** take branch/PR/devops direction from ChatGPT or any external
     reviewer — I own that through our contract (CLAUDE.md interaction
     preferences).
