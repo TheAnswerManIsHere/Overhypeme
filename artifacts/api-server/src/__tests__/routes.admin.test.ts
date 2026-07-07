@@ -76,8 +76,15 @@ async function cleanup(): Promise<void> {
   await db.delete(factsTable).where(like(factsTable.text, `${FACT_PREFIX}%`));
 }
 
-async function createTestFact(text: string): Promise<number> {
-  const [fact] = await db.insert(factsTable).values({ text, isActive: true }).returning({ id: factsTable.id });
+async function createTestFact(
+  text: string,
+  opts: { parentId?: number; isActive?: boolean } = {},
+): Promise<number> {
+  const [fact] = await db.insert(factsTable).values({
+    text,
+    parentId: opts.parentId,
+    isActive: opts.isActive ?? true,
+  }).returning({ id: factsTable.id });
   return fact!.id;
 }
 
@@ -219,6 +226,26 @@ describe("GET /admin/facts", () => {
     for (const key of ["id", "text", "isActive", "upvotes", "downvotes", "createdAt"]) {
       assert.ok(key in fact, `fact should have field "${key}"`);
     }
+  });
+
+  it("includes active roots that have inactive variants in the inactive view", async () => {
+    const suffix = randomUUID();
+    const rootText = `${FACT_PREFIX}inactive-variant-root-${suffix}`;
+    const variantText = `${FACT_PREFIX}inactive-variant-child-${suffix}`;
+    const rootId = await createTestFact(rootText, { isActive: true });
+    const variantId = await createTestFact(variantText, { parentId: rootId, isActive: false });
+
+    const res = await request(makeApp())
+      .get("/admin/facts")
+      .query({ visibility: "inactive", search: variantText, limit: "100" })
+      .set("authorization", `Bearer ${adminSid}`);
+
+    assert.equal(res.status, 200);
+    const root = (res.body.facts as Array<{ id: number; variants: Array<{ id: number; isActive: boolean }> }>)
+      .find((fact) => fact.id === rootId);
+    assert.ok(root, "active root should be returned as the container for its inactive variant");
+    assert.deepEqual(root.variants.map((variant) => variant.id), [variantId]);
+    assert.ok(root.variants.every((variant) => variant.isActive === false));
   });
 });
 

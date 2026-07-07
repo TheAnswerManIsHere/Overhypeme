@@ -196,9 +196,13 @@ export async function seedFactPexelsImagesOnce(factId: number, factText: string)
  *
  * Moderation prep uses the durable `fact_pexels` queue instead (factPexelsJobs.ts)
  * — that path survives a process restart and surfaces per-fact status; this one
- * is best-effort and in-process.
+ * is best-effort and in-process. Mirrors that queue's status contract so UI
+ * polling on `pexelsStatus` works the same way for both: "pending" the moment
+ * work starts, "ok" on success (set by seedFactPexelsImagesOnce), "failed" once
+ * every retry is exhausted.
  */
 export async function runFactImagePipeline(factId: number, factText: string): Promise<void> {
+  await db.update(factsTable).set({ pexelsStatus: "pending" }).where(eq(factsTable.id, factId));
   try {
     await withRetry(() => seedFactPexelsImagesOnce(factId, factText), `fact ${factId}`);
   } catch (err) {
@@ -207,5 +211,6 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
       tags: { pipeline: "factImagePipeline" },
       extra: { factId, factText: factText.slice(0, 200) },
     });
+    await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId));
   }
 }
