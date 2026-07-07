@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { createSession, updateSession, getSessionId, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
@@ -32,6 +32,31 @@ const FORGOT_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 
 const RESEND_VERIFICATION_MAX = 3;
 const RESEND_VERIFICATION_WINDOW_MS = 60 * 60 * 1000;
+
+// App-level login/register throttles — defense-in-depth behind Cloudflare's edge
+// rate limiting. Login is limited per-IP (single-source brute force) AND
+// per-email (distributed credential stuffing / a targeted account); register is
+// limited per-IP (signup spam). Thresholds are deliberately generous so a
+// fumbling legitimate user is not locked out while automated abuse is bounded.
+const LOGIN_IP_MAX = 10;
+const LOGIN_IP_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_EMAIL_MAX = 30;
+const LOGIN_EMAIL_WINDOW_MS = 15 * 60 * 1000;
+const REGISTER_IP_MAX = 10;
+const REGISTER_IP_WINDOW_MS = 60 * 60 * 1000;
+// Generic throttle copy — never reveals whether an account exists.
+const GENERIC_THROTTLE_MESSAGE = "Too many attempts. Please try again in a few minutes.";
+
+// Best-effort client IP for app-level rate limiting. Mirrors the existing
+// forgot-password extraction; the edge (Cloudflare) is the authoritative
+// per-IP control, this is a second layer at the origin.
+function getRequestIp(req: Request): string {
+  return (
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown"
+  );
+}
 
 async function sendVerificationEmail(userId: string, email: string, pendingEmail?: string): Promise<void> {
   const rawToken = crypto.randomBytes(32).toString("hex");
@@ -64,6 +89,15 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
+  const registerIpLimit = await checkSharedRateLimit(
+    { endpoint: "auth.register", ip: getRequestIp(req) },
+    { limit: REGISTER_IP_MAX, windowMs: REGISTER_IP_WINDOW_MS },
+  );
+  if (!registerIpLimit.allowed) {
+    res.status(429).json({ error: GENERIC_THROTTLE_MESSAGE });
+    return;
+  }
+
   const { password, email, displayName, pronouns, firstName, lastName } = req.body as {
     password?: string;
     email?: string;
@@ -191,6 +225,15 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/local-login", async (req: Request, res: Response) => {
+  const loginIpLimit = await checkSharedRateLimit(
+    { endpoint: "auth.local-login", ip: getRequestIp(req) },
+    { limit: LOGIN_IP_MAX, windowMs: LOGIN_IP_WINDOW_MS },
+  );
+  if (!loginIpLimit.allowed) {
+    res.status(429).json({ error: GENERIC_THROTTLE_MESSAGE });
+    return;
+  }
+
   const { email, password } = req.body as {
     email?: string;
     password?: string;
@@ -206,10 +249,23 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     return;
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Per-account throttle (distributed stuffing / a targeted account). Keyed by
+  // email, so it is independent of the per-IP limit above.
+  const loginEmailLimit = await checkSharedRateLimit(
+    { endpoint: "auth.local-login", recipientEmail: normalizedEmail },
+    { limit: LOGIN_EMAIL_MAX, windowMs: LOGIN_EMAIL_WINDOW_MS },
+  );
+  if (!loginEmailLimit.allowed) {
+    res.status(429).json({ error: GENERIC_THROTTLE_MESSAGE });
+    return;
+  }
+
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(and(eq(usersTable.email, email.trim().toLowerCase()), eq(usersTable.isActive, true)))
+    .where(and(eq(usersTable.email, normalizedEmail), eq(usersTable.isActive, true)))
     .limit(1);
 
   if (!user) {
@@ -373,21 +429,19 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     .set({ usedAt: new Date() })
     .where(eq(passwordResetTokensTable.id, resetToken.id));
 
-  // Invalidate all existing sessions for this user
-  const userSessions = await db
-    .select({ sid: sessionsTable.sid, sess: sessionsTable.sess })
-    .from(sessionsTable);
-
-  const userSessionIds = userSessions
-    .filter((s) => {
-      const sess = s.sess as { user?: { id?: string } };
-      return sess?.user?.id === resetToken.userId;
-    })
-    .map((s) => s.sid);
-
-  for (const sid of userSessionIds) {
-    await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
-  }
+  // Invalidate all existing sessions for this user in a single DB-side delete.
+  // Match the indexed `userId` column (the common case) and, for defense in
+  // depth, legacy rows written before that column was populated (their user id
+  // lives only in the jsonb `sess.user.id`). This replaces the previous pattern
+  // of pulling the entire sessions table into app memory and filtering there.
+  await db
+    .delete(sessionsTable)
+    .where(
+      or(
+        eq(sessionsTable.userId, resetToken.userId),
+        sql`${sessionsTable.sess} -> 'user' ->> 'id' = ${resetToken.userId}`,
+      ),
+    );
 
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
 });

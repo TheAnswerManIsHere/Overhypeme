@@ -38,8 +38,20 @@ const USER_PREFIX = "t_routes_la_";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
+let _testIpCounter = 0;
 function makeApp(): Express {
   const app = express();
+  // local-login / register / forgot-password are per-IP rate limited. Every
+  // supertest request otherwise shares 127.0.0.1, which would exhaust the
+  // bucket across the file. Give each request a distinct client IP unless the
+  // test set one explicitly (forgot-password tests set their own X-Forwarded-For).
+  app.use((req, _res, next) => {
+    if (!req.headers["x-forwarded-for"]) {
+      _testIpCounter += 1;
+      req.headers["x-forwarded-for"] = `172.16.${(_testIpCounter >> 8) & 255}.${_testIpCounter & 255}`;
+    }
+    next();
+  });
   app.use(express.json());
   app.use(authMiddleware);
   app.use(localAuthRouter);
@@ -81,6 +93,12 @@ async function cleanupRateLimitCounters() {
   await db
     .delete(rateLimitCountersTable)
     .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.resend-verification|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.local-login|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.register|%'`);
 }
 
 async function cleanupOutbox() {
