@@ -8,19 +8,28 @@
  *  provisional approve (creates inactive staging fact; starts enrichment + Pexels)
  *         ▼
  *   prep_pending ──enrichment terminal abandon──> prep_failed ──retry──> prep_pending
- *         │                                              └────reject────> triage_rejected
+ *         │
  *  enrichment success (enqueues Visual-Idea candidates; NO renders yet)
  *         ▼
- *   concept_review ──reject──> production_rejected        ← Step 2: Visual Concept gate
+ *   concept_review                                        ← Step 2: Visual Concept gate
  *         │                ↑ back-to-visual-concept
  *  approve the visual gag (saved non-empty coreScene + ideas terminal-OK)
  *   → force-enqueues the default render batch (auto-fire)
  *         ▼
- *   production_review ──reject──> production_rejected      ← Step 3: Test Renders gate
+ *   production_review                                     ← Step 3: Test Renders gate
  *         │
  *  production approve (flips staging fact active, embeds, notifies user)
  *         ▼
  *   production_approved
+ *
+ * A first-time submission can only be rejected during triage (Step 1) — once
+ * it clears triage, there is no reject path: a failed prep, a Visual Concept
+ * that isn't working, or a render that isn't ready all just leave the
+ * candidate parked (pending / prep_failed) until an admin resolves the
+ * underlying issue. The one exception is a REFRESH cycle (re-enrichment of an
+ * already-live fact): its "reject" means "don't promote this refresh," never
+ * touches the live fact, and is allowed at any stage since a refresh always
+ * starts past triage (see `canReject` below).
  *
  * Step 2 = Visual Concept gate (a saved concept + generated Visual Ideas gate the
  * gag approval; Visual Ideas are a blocking prep artifact, not best-effort).
@@ -124,15 +133,17 @@ export function canEditRefreshCandidate(stage: ReviewWorkflowStage): boolean {
   return stage === "concept_review" || stage === "production_review";
 }
 
-/** Reject a staged candidate after prep work has begun. */
-export function canRejectAfterPrep(stage: ReviewWorkflowStage, status: string): boolean {
-  return (
-    status === "pending" &&
-    (stage === "prep_pending" ||
-      stage === "prep_failed" ||
-      stage === "concept_review" ||
-      stage === "production_review")
-  );
+/**
+ * Reject a candidate. A first-time submission may only be rejected during
+ * triage (Step 1) — once triage passes, a stuck candidate (failed prep, a
+ * Visual Concept or render that isn't working) stays pending until an admin
+ * resolves it; it is never rejected again. A refresh cycle is the one
+ * exception: rejecting it means "don't promote this refresh" (the live fact
+ * is left untouched), which is safe at any stage since a refresh always
+ * starts past triage.
+ */
+export function canReject(stage: ReviewWorkflowStage, status: string, isRefreshCycle: boolean): boolean {
+  return status === "pending" && (isRefreshCycle || stage === "triage_pending");
 }
 
 /**

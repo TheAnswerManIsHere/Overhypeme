@@ -351,12 +351,19 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *    "Approve for Production" (existing render gate) or "Back to Visual Concept".
  *
  * Stage mapping:
- *  - triage_pending     → Step 1 only (provisional approve / variant / reject).
+ *  - triage_pending     → Step 1 only (provisional approve / variant / reject —
+ *    the ONLY stage a first-time submission can be rejected from).
  *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
- *  - prep_failed         → Step 1 + retry prep / reject.
- *  - concept_review      → Step 2 default (approve the visual gag / send back / reject).
+ *  - prep_failed         → Step 1 + retry prep. Stays pending until it succeeds.
+ *  - concept_review      → Step 2 default (approve the visual gag / send back).
  *  - production_review   → Step 3 default (approve for production / back to concept).
  *  - resolved            → read-only summary + link to the live fact.
+ *
+ * Once triage passes, a first-time candidate is never rejected again — a
+ * failed prep, an unfinished Visual Concept, or a render that isn't ready
+ * just leaves it pending until an admin resolves it. A refresh cycle (an
+ * already-live fact) is the one exception: its "reject" ("don't promote
+ * this refresh") is available from any of these stages via `canRejectNow`.
  */
 function ReviewModal({
   review,
@@ -702,6 +709,11 @@ function ReviewModal({
   const canSaveConceptAndContinue = conceptDirty && draftHasConcept;
   // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
   const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
+  // A first-time submission can only be rejected during triage (Step 1) —
+  // once triage passes, a stuck candidate stays pending until an admin
+  // resolves it. A refresh cycle's "reject" ("don't promote") is always
+  // available since it never touches the live fact.
+  const canRejectNow = stage === "triage_pending" || isRefreshCycle;
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -938,7 +950,10 @@ function ReviewModal({
               )}
               {stage === "prep_failed" && (
                 <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Enrichment failed after retries. Retry prep, or reject.
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {canRejectNow
+                    ? "Enrichment failed after retries. Retry prep, or reject."
+                    : "Enrichment failed after retries. Retry prep — this stays pending until it succeeds."}
                 </p>
               )}
               {isConceptReview && (
@@ -997,13 +1012,17 @@ function ReviewModal({
               {ideasPending && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.
+                  {canRejectNow
+                    ? "Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep."
+                    : "Visual ideas are still generating. Wait for them to finish, then retry, edit, or send back to prep — this stays pending until it's resolved."}
                 </p>
               )}
               {ideasFailed && (
                 <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep.
+                  {canRejectNow
+                    ? "Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep."
+                    : "Visual-ideas generation failed. Regenerate them (above), or send back to prep — this stays pending until it's resolved."}
                 </p>
               )}
               {visualConceptStatus == null && (
@@ -1058,8 +1077,8 @@ function ReviewModal({
             <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
-          {/* ── Decision inputs (Triage step only) ── */}
-          {!isResolved && step === "triage" && DecisionInputs}
+          {/* ── Decision inputs (Triage step only, and only where reject is available) ── */}
+          {!isResolved && step === "triage" && canRejectNow && DecisionInputs}
 
           {/* ── Resolved: stored reason / note ── */}
           {isResolved && (review.reason || review.adminNote) && (
@@ -1134,10 +1153,12 @@ function ReviewModal({
 
             {!isResolved && step === "triage" && stage === "prep_pending" && (
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
               </div>
             )}
@@ -1148,10 +1169,12 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   <RefreshCw className="w-4 h-4" /> Retry Prep
                 </Button>
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel}
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
@@ -1163,18 +1186,23 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   {isConceptReview ? "Continue to Visual Concept" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel}
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders) or reject. */}
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or —
+                for a refresh cycle only — decline to promote it. A first-time
+                candidate that's stuck here stays pending until an admin fixes
+                the Visual Concept; it is never rejected past triage. */}
             {!isResolved && step === "concept" && isConceptReview && (
               <div className="space-y-3">
-                {DecisionInputs}
+                {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
@@ -1196,10 +1224,12 @@ function ReviewModal({
                       <Wand2 className="w-4 h-4" /> Approve the Visual Gag
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
-                  </Button>
+                  {canRejectNow && (
+                    <Button variant="outline" onClick={onReject} isLoading={loading}
+                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
                 {!conceptDirty && !canApproveGag && (
@@ -1228,10 +1258,11 @@ function ReviewModal({
                     </p>
                   </div>
                 )}
-                {/* Rejection Reason + note live here too, right above the buttons,
-                    so a fact can be rejected from Test Renders without hunting for
-                    the field — and regardless of render staleness. */}
-                {DecisionInputs}
+                {/* Rejection Reason + note live here too, right above the buttons —
+                    but only for a refresh cycle ("don't promote"). A first-time
+                    candidate stuck on a bad render stays pending until an admin
+                    fixes it; it is never rejected past triage. */}
+                {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
                     className="gap-2" data-testid="back-to-visual-concept">
@@ -1251,10 +1282,12 @@ function ReviewModal({
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
-                  </Button>
+                  {canRejectNow && (
+                    <Button variant="outline" onClick={onReject} isLoading={loading}
+                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
                 {!canApproveProduction && (

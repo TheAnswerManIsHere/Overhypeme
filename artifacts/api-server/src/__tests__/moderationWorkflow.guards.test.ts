@@ -5,7 +5,9 @@
  *  - concept_review counts as an unresolved submission stage,
  *  - canApproveVisualConcept gates concept_review only,
  *  - canProductionApprove stays production_review-only,
- *  - canRejectAfterPrep + canProvisionallyApprove include concept_review,
+ *  - canReject: a first-time submission is triage_pending-only; a refresh
+ *    cycle (isRefreshCycle=true) is allowed at any pending stage,
+ *  - canProvisionallyApprove includes concept_review,
  *  - canEditRefreshCandidate spans concept_review + production_review.
  */
 
@@ -20,7 +22,7 @@ import {
   canProvisionallyApprove,
   canApproveVisualConcept,
   canProductionApprove,
-  canRejectAfterPrep,
+  canReject,
   canEditRefreshCandidate,
 } from "@workspace/api-zod";
 
@@ -49,9 +51,18 @@ describe("moderationWorkflow — concept_review stage", () => {
     assert.equal(canProductionApprove("concept_review", "pending"), false);
   });
 
-  it("canRejectAfterPrep: true at concept_review", () => {
-    assert.equal(canRejectAfterPrep("concept_review", "pending"), true);
-    assert.equal(canRejectAfterPrep("concept_review", "rejected"), false);
+  it("canReject: a first-time submission (isRefreshCycle=false) can't reject past triage", () => {
+    assert.equal(canReject("triage_pending", "pending", false), true);
+    assert.equal(canReject("prep_pending", "pending", false), false);
+    assert.equal(canReject("prep_failed", "pending", false), false);
+    assert.equal(canReject("concept_review", "pending", false), false);
+    assert.equal(canReject("production_review", "pending", false), false);
+  });
+
+  it("canReject: a refresh cycle (isRefreshCycle=true) can reject ('don't promote') at any pending stage", () => {
+    assert.equal(canReject("concept_review", "pending", true), true);
+    assert.equal(canReject("production_review", "pending", true), true);
+    assert.equal(canReject("concept_review", "rejected", true), false);
   });
 
   it("canProvisionallyApprove: re-prep allowed from concept_review", () => {

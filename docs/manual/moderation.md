@@ -44,8 +44,15 @@ The review opens as a three-step wizard:
 3. **Test Renders.** On arrival, the test-render images **fire automatically**.
    The moderator inspects the rendered memes, tweaks the concept or enrichment and
    re-runs as needed, and finally **approves for production** (which publishes the
-   fact) or rejects it. From here they can also **send the fact back to Visual
-   Concept** if the gag itself needs rethinking.
+   fact). From here they can also **send the fact back to Visual Concept** if
+   the gag itself needs rethinking.
+
+**Rejection only happens at Triage.** Once a submission clears that first
+pass, it can no longer be rejected — a failed prep, an unfinished Visual
+Concept, or a render that isn't working just leaves the fact **pending**. It's
+on the moderator/admin to fix the underlying issue (retry prep, rework the
+concept, fix the render); the fact only ever moves forward to production once
+that's done, never sideways into rejected.
 
 Throughout, the queue and the modal show live status at two altitudes — a
 per-fact "what's happening now" (Enriching… → Generating visual ideas… → Ready

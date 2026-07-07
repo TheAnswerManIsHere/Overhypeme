@@ -28,6 +28,7 @@ import {
   canProvisionallyApprove,
   canApproveVisualConcept,
   canProductionApprove,
+  canReject,
   RENDER_SCENARIO_KEYS,
   renderScenarioKeySchema,
   visualRenderWaiverRequestSchema,
@@ -907,22 +908,29 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
-  // Stage-aware: rejecting a candidate that already began prep is a
-  // production rejection (audited; its staging fact is left inactive so it
-  // never reaches users, and any in-flight prep job becomes a no-op via the
-  // stale-job guard). Rejecting before prep is a plain triage rejection.
-  const prepStarted = review.workflowStage === "prep_pending"
-    || review.workflowStage === "prep_failed"
-    || review.workflowStage === "concept_review"
-    || review.workflowStage === "production_review";
-  const targetStage: ReviewWorkflowStage = prepStarted ? "production_rejected" : "triage_rejected";
-
   // REFRESH cycle: "don't promote this refresh," NOT "unpublish the fact." The
   // candidate is RETAINED as rejected history (never hard-deleted, and it no
   // longer blocks a future send-back — the one-candidate index covers
   // status='candidate' only). The live fact's enrichment, projections, Pexels,
   // memes, and isActive are all left exactly as they were.
   const isRefreshCycle = review.candidateVersionId != null;
+
+  // A first-time submission can only be rejected during triage (Step 1). Once
+  // it clears triage, a stuck candidate (failed prep, a render that isn't
+  // working, a Visual Concept that needs work) stays pending until an admin
+  // resolves the underlying issue — never rejected again.
+  if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status, isRefreshCycle)) {
+    res.status(409).json({
+      error: `Cannot reject from stage ${review.workflowStage} — once triage passes, a stuck candidate stays pending until an admin resolves it.`,
+    });
+    return;
+  }
+
+  // Rejecting a refresh candidate is always audited as a production rejection
+  // (its staging fact is left inactive so it never reaches users, and any
+  // in-flight prep job becomes a no-op via the stale-job guard); a first-time
+  // triage reject is a plain triage rejection.
+  const targetStage: ReviewWorkflowStage = isRefreshCycle ? "production_rejected" : "triage_rejected";
 
   await db.transaction(async (tx) => {
     await tx.update(pendingReviewsTable).set({
@@ -932,7 +940,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
       adminNote,
       reason: rejectionReason,
       reviewedAt: new Date(),
-      ...(prepStarted
+      ...(isRefreshCycle
         ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }
         : {}),
     }).where(eq(pendingReviewsTable.id, id));

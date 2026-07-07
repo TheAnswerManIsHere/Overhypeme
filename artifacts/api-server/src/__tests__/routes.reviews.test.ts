@@ -28,6 +28,7 @@ import {
   pendingReviewsTable,
   activityFeedTable,
   asyncJobsTable,
+  factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -1090,8 +1091,8 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
   });
 });
 
-describe("reject after prep → production_rejected", () => {
-  it("audits a production rejection and leaves the staging fact inactive", async () => {
+describe("reject past triage — first-time submission is blocked, refresh cycle still allowed", () => {
+  it("409s a first-time submission's reject once triage has passed (stays pending, untouched)", async () => {
     const submitterId = await createTestUser();
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
@@ -1107,15 +1108,50 @@ describe("reject after prep → production_rejected", () => {
       .post(`/admin/reviews/${review.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
       .send({ rejectionReason: "lame", adminNote: "not strong enough" });
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 409);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_review", "stage is untouched — stays pending until an admin resolves it");
+    assert.equal(r.status, "pending");
+    assert.equal(r.productionRejectedById, null);
+    assert.equal(r.productionRejectedAt, null);
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(fact.isActive, false, "staging fact is untouched (was never active)");
+  });
+
+  it("still allows a refresh cycle's 'don't promote' reject from production_review, audited as production_rejected", async () => {
+    // submittedById is set here purely so the shared cleanup() helper (which
+    // scopes by submittedById) sweeps this fixture up — real refresh cycles
+    // carry submittedById=null, which the route guards separately (the
+    // submitter-notification block is already gated on !isRefreshCycle).
+    const ownerId = await createTestUser();
+    const [liveFact] = await db.insert(factsTable).values({
+      text: "{NAME} does a thing", submittedById: ownerId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [candidate] = await db.insert(factEnrichmentVersionsTable).values({
+      factId: liveFact.id, versionNo: 2, status: "candidate", source: "refresh_candidate",
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} does a thing", submittedById: ownerId, status: "pending",
+      workflowStage: "production_review", stagingFactId: liveFact.id, candidateVersionId: candidate.id,
+      enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ rejectionReason: "lame", adminNote: "not strong enough" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
     assert.equal(r.workflowStage, "production_rejected");
     assert.equal(r.status, "rejected");
     assert.equal(r.productionRejectedById, adminId);
     assert.ok(r.productionRejectedAt);
-    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-    assert.equal(fact.isActive, false, "rejected staging fact stays inactive");
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, liveFact.id));
+    assert.equal(fact.isActive, true, "the live fact is left completely untouched by a refresh reject");
   });
 
   it("a triage-stage reject stays triage_rejected", async () => {
