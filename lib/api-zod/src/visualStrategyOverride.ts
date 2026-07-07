@@ -46,8 +46,8 @@ export const VISUAL_STRATEGY_OVERRIDE_VERSION = 1 as const;
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
 const roleBindingSchema = z.object({
-  entity: z.string(), // "subject" or a relationship/name/type label ("mother", "crowd/victims")
-  visualRole: z.string(),
+  entity: z.string().max(60), // "subject" or a relationship/name/type label ("mother", "crowd/victims")
+  visualRole: z.string().max(300),
 });
 
 const subjectRealizationOverrideSchema = z.object({

@@ -200,6 +200,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // blocks rendering). No DDL means no schema delta means no snapshot.
   "0084_strip_stale_compatibility_fallback_rule",
 
+  // DML-only update of the seeded image-prompt system prompt in admin_config
+  // to the "Visual Concept leads" section-order wording (PR192 follow-up).
+  // No DDL means no schema delta means no snapshot.
+  "0085_visual_concept_leads_system_prompt",
+
   // Hand-authored DDL adding the moderation `review_workflow_stage` enum +
   // staging-fact pointer + production-rejection audit columns to pending_reviews.
   // Source of truth: lib/db/src/schema/reviews.ts.
