@@ -938,7 +938,7 @@ interface Section {
   text: string;
   priority: Priority;
   compressible?: boolean;
-  /** Content authored by a human moderator (visual-concept core scene). */
+  /** Content authored by a human moderator (core scene, role bindings). */
   moderatorAuthored?: boolean;
 }
 
@@ -1248,6 +1248,11 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // sections sit at required/high priority so moderator intent survives the char
   // budget. A moderator-authored core scene is required + non-compressible: the
   // joke must never be compressed out. AI-authored keeps high/compressible.
+  // Same rule for ROLE DETAILS: when a moderator supplies roleBindings, this
+  // section is the only compiled place those bindings reach the engine (unless
+  // the core scene already restates them), so it must survive the char budget
+  // like any other moderator override — required + non-compressible. Purely
+  // AI-authored role details keep high/compressible.
   const rawSections: Section[] = [
     {
       id: "core_scene",
@@ -1260,7 +1265,14 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     { id: mode.sectionId, label: mode.sectionLabel, text: labeled(mode.sectionLabel, taskBody), priority: "required" },
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
     { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
-    { id: "role_details", label: "ROLE DETAILS", text: labeled("ROLE DETAILS", roleDetails.text), priority: "high", compressible: true },
+    {
+      id: "role_details",
+      label: "ROLE DETAILS",
+      text: labeled("ROLE DETAILS", roleDetails.text),
+      priority: hasOverrideRoles ? "required" : "high",
+      compressible: !hasOverrideRoles,
+      ...(hasOverrideRoles ? { moderatorAuthored: true } : {}),
+    },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
     { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
