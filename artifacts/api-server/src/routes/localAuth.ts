@@ -756,6 +756,20 @@ async function handleDevAdminLogin(req: Request, res: Response) {
   }
 }
 
+// ⚠️ SECURITY TODO — MUST HARDEN BEFORE PUBLIC LAUNCH ⚠️
+// This endpoint grants a full bootstrap-admin session to ANY caller with no
+// credential (unauthenticated privilege escalation). It is INTENTIONALLY left
+// open during pre-launch development per an explicit product decision
+// (David, 2026-07-07) — it is currently the primary way to reach the admin
+// panel. Before the app is publicly live this route MUST be gated fail-closed.
+//
+// A complete hardening (env-gated single source of truth + never-in-production
+// guard, session rotation instead of in-place mutation, removal of the
+// CORS/origin exemption in app.ts, sanitized returnTo, gated client trigger,
+// and a supertest regression) was implemented and then reverted to keep this
+// convenience open for now. Re-apply it before launch:
+//     git show b6eb5dc   # the full fix; `git revert` its revert to restore
+// Tracked as the pre-launch item of the security-hardening pass (C1).
 router.get("/auth/dev-admin-login", handleDevAdminLogin);
 router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
