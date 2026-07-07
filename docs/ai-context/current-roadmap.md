@@ -5,9 +5,9 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-04 (around PR #179/#180); stale-fact-refresh arc
-> section updated 2026-07-07 (through PR #205) — the rest of this snapshot is
-> not re-audited, read `git log` for the live picture.*
+> *Snapshot date: 2026-07-07 (through PR #208) — the visual-enrichment cleanup
+> (PR #189, #192/#198, #206) and the stale-fact-refresh arc (through PR #205)
+> are both reflected below; read `git log` for anything more recent.*
 
 ## Active area of focus
 
@@ -21,6 +21,21 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Auto-tokenize admin Visual-Concept authoring** — moderators write plain
+  English in the Visual Strategy Override; Save auto-tokenizes (reusing the
+  fact-submission tokenizer) and shows the result before persisting; a role
+  binding's `entity` is a plain label, never a token, enforced client-side and
+  by a schema backstop (PR #206). See
+  [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md) and
+  [`visual-pipeline.md`](./visual-pipeline.md#visual-strategy-override-authoring-auto-tokenize-on-save).
+- **Visual Concept leads the compiled prompt** — the compiler now leads every
+  render mode with the moderator's Visual Concept (CORE SCENE); the old
+  `REFERENCE INTERPRETATION` section (which could double a subject's name) is
+  retired, replaced by the additive `ROLE DETAILS` section (PR #192, #198).
+  See [`visual-pipeline.md`](./visual-pipeline.md#prompt-compiler).
+- **`subjectFactCompatibility` never blocks rendering** — a "poor"
+  subject/fact-compatibility rating stays advisory-only in every render mode;
+  it no longer hard-blocks a generation (PR #189).
 - **Three-step moderation (Visual Concept gate)** — split the bundled visual-review
   step into an explicit **Visual Concept** gate (`concept_review`) before any render
   spend, then **Test Renders** (`production_review`); renders force-fire on gag

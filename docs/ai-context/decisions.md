@@ -13,6 +13,60 @@
 
 ---
 
+### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
+- **Decision:** Moderators author the Visual Strategy Override's rendered
+  fields (Visual Concept, required/forbidden details, role visual roles,
+  policy guidance) in **plain English** — naming the subject naturally, not
+  hand-typed personalization tokens. Clicking **Save** runs every changed
+  field through the same tokenizer core fact submission uses and **shows the
+  tokenized result in the field** before it persists (shown-and-correctable,
+  not a silent swap). A one-click model was chosen over a two-click
+  review-then-confirm pause. A role binding's `entity` field is the one
+  exception: it is a plain "subject"/role label, never tokenized — typing the
+  subject's own name there auto-normalizes to `"subject"`, and a typed token
+  is rejected as an error (client-side and via a hard schema backstop).
+- **Why:** hand-typing tokens (possessive/reflexive/conjugation pairs) was
+  error-prone and was the direct cause of the double-naming bug the compiler
+  redesign (below) had to clean up; reusing the existing fact-submission
+  tokenizer avoids a second, divergent tokenization implementation; showing
+  (not hiding) the result keeps the moderator in control, mirroring the
+  product's existing write→preview→confirm pattern for fact submission. The
+  one-click model was David's explicit call over a review-pause UX.
+- **Reference:** PR #206; see
+  [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206)
+  and
+  [`visual-pipeline.md`](./visual-pipeline.md#visual-strategy-override-authoring-auto-tokenize-on-save).
+- **Revisit if:** a second *named* character in authored prose becomes a
+  frequent real-world problem — today it's mitigated only by an authoring rule
+  + tooltips (name only the subject, use roles for everyone else), not a hard
+  server-side block; a scene-aware tokenizer prompt is the deferred fix if
+  that mitigation proves insufficient.
+
+### 2026-07 · Visual Concept leads the compiled prompt; REFERENCE INTERPRETATION retired
+- **Decision:** The compiled image prompt now leads with the moderator-authored
+  **CORE SCENE** (Visual Concept), immediately followed by an identity/reference
+  clause (i2i) or a short task line (t2i); every other section is either
+  operational (identity, style, policy) or **strictly additive** — it earns its
+  place only by contributing a concrete detail the Concept didn't already
+  state, de-duped by content-word contiguity against the emitted text (not a
+  bare substring check). The old `REFERENCE INTERPRETATION` section — which
+  could structurally double a subject's name ("Alex is Alex leans against the
+  bar…") when a role binding already named the subject — is retired entirely,
+  replaced by the additive `ROLE DETAILS` section
+  (`composeAdditiveRoleDetails`), which never doubles a name.
+- **Why:** image engines weight earlier prompt text more heavily, so burying
+  the authoritative scene behind reference/identity boilerplate worked against
+  the very thing meant to drive the render; the retired compose function's
+  `"${subject} is ${role}"` template had no guard against the role already
+  naming the subject, which is exactly the shape a moderator's role binding
+  produces once role labels get token-canonicalized.
+- **Reference:** PR #192, #198; see
+  [`visual-pipeline.md`](./visual-pipeline.md#prompt-compiler).
+- **Revisit if:** render quality regresses because `ROLE DETAILS` drops
+  something genuinely needed — dropped candidates are recorded in
+  `diagnostics.droppedCandidates` with a reason, so this is debuggable rather
+  than a guess.
+
 ### 2026-07 · Processing signatures + engine revision; bulk send-back is initiation, never completion
 - **Decision:**
   - Staleness gets a second, orthogonal dimension alongside the existing
