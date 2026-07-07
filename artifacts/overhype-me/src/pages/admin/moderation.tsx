@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
+import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -428,7 +429,17 @@ function ReviewModal({
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
-  const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
+  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride } = enrichEditing;
+
+  // Subject-name hint for tokenizeAndSaveVisualOverride: the moderator's active
+  // render-diagnostics preview name (if set) folded in ahead of the shared
+  // defaults, so the tokenizer preferentially recognizes whatever name is
+  // actually being tested right now.
+  const [previewSubjectName, setPreviewSubjectName] = useState("");
+  const subjectNames = useMemo(
+    () => [previewSubjectName.trim(), ...DEFAULT_SUBJECT_EXAMPLE_NAMES].filter((n) => n.length > 0),
+    [previewSubjectName],
+  );
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
   // Seeded from the submitter's tags, or the AI suggestions when the submitter
@@ -666,14 +677,14 @@ function ReviewModal({
 
   // Save the dirty Visual Concept draft first, then approve the gag — but ONLY if
   // the save succeeded. The server gates on the PERSISTED coreSceneOverride, so we
-  // must never advance on a browser-only draft.
+  // must never advance on a browser-only draft. Tokenizes on the same click.
   const onSaveConceptAndApprove = useCallback(async (): Promise<void> => {
     if (enrichmentDraft.hasUncommittedChanges) {
-      const ok = await enrichmentDraft.save();
-      if (!ok) return; // save() surfaces its own error; don't advance
+      const ok = await tokenizeAndSaveVisualOverride(subjectNames);
+      if (!ok) return; // blocked (tokenize error) or save() surfaced its own error
     }
     await onApproveVisualConcept();
-  }, [enrichmentDraft, onApproveVisualConcept]);
+  }, [enrichmentDraft, tokenizeAndSaveVisualOverride, subjectNames, onApproveVisualConcept]);
 
   const onBackToVisualConcept = useCallback(async (): Promise<void> => {
     setLoading(true); setError("");
@@ -842,21 +853,28 @@ function ReviewModal({
         <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
           <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            {enrichmentDraft.committing
+            {vsoTokenizing
+              ? "Tokenizing and saving…"
+              : enrichmentDraft.committing
               ? "Saving to server…"
               : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your Visual Concept / render inputs.`}
           </p>
           <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
-              onClick={() => void enrichmentDraft.save()}
-              disabled={enrichmentDraft.committing}
+              onClick={() => void tokenizeAndSaveVisualOverride(subjectNames)}
+              disabled={enrichmentDraft.committing || vsoTokenizing}
               className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
               data-testid="enrichment-save"
             >
               Save
             </button>
-            <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80">
+            <button
+              type="button"
+              onClick={enrichmentDraft.discard}
+              disabled={vsoTokenizing}
+              className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
+            >
               Discard
             </button>
           </div>
@@ -872,6 +890,12 @@ function ReviewModal({
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
+        </div>
+      )}
+      {vsoTokenizeErrors[""] && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{vsoTokenizeErrors[""]}</p>
         </div>
       )}
     </>
@@ -891,7 +915,7 @@ function ReviewModal({
         status={enrichEditing.enrichmentStatus}
         factText={review.submittedText}
         onChange={(next) => enrichmentDraft.setValue(next)}
-        onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
+        onSave={enrichmentDraft.hasUncommittedChanges ? () => void tokenizeAndSaveVisualOverride(subjectNames) : undefined}
         // Deliberately NO onRerun at Step 2/3 (refresh AND first-time): the
         // generic job guard skips review-backed facts outside prep, so the button
         // could only strand the status on "classifying…". Re-classification lives
@@ -901,6 +925,8 @@ function ReviewModal({
         rerunBusy={jobs.rerunBusy}
         hideHashtags
         overrideContext={enrichEditing.overrideContext}
+        vsoTokenizing={vsoTokenizing}
+        vsoTokenizeErrors={vsoTokenizeErrors}
       />
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -915,7 +941,11 @@ function ReviewModal({
         </div>
       )}
       {stagingFactId > 0 && (
-        <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
+        <RuntimePromptPreview
+          factId={stagingFactId}
+          reviewIdForRender={review.id}
+          onPreviewNameChange={setPreviewSubjectName}
+        />
       )}
     </CollapsibleSection>
   );
@@ -1010,7 +1040,8 @@ function ReviewModal({
                   panel inside Advanced Options. */}
               <VisualConceptCard
                 value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
                 onChange={(next) => {
                   if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
                 }}
@@ -1020,7 +1051,7 @@ function ReviewModal({
                   fills the concept field above (draft only; still Save). */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
                 onPick={onPickConcept}
                 onGenerate={onGenerateConcepts}
               />
@@ -1221,20 +1252,20 @@ function ReviewModal({
               <div className="space-y-3">
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading || vsoTokenizing} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
                   </Button>
                   {conceptDirty ? (
-                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing}
-                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing}
+                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing || vsoTokenizing}
+                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing || vsoTokenizing}
                       title={canSaveConceptAndContinue ? undefined : "Write or pick a Visual Concept first"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                       data-testid="save-concept-and-continue">
-                      <ChevronRight className="w-4 h-4" /> Save Visual Concept &amp; Continue
+                      <ChevronRight className="w-4 h-4" /> {vsoTokenizing ? "Tokenizing and saving…" : "Save Visual Concept & Continue"}
                     </Button>
                   ) : (
                     <Button onClick={() => void onApproveVisualConcept()} isLoading={loading}
-                      disabled={!canApproveGag || loading}
+                      disabled={!canApproveGag || loading || vsoTokenizing}
                       title={canApproveGag ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-visual-gag">
@@ -1242,12 +1273,12 @@ function ReviewModal({
                     </Button>
                   )}
                   {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading}
+                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                       <XCircle className="w-4 h-4" /> {rejectLabel}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
                 </div>
                 {!conceptDirty && !canApproveGag && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
@@ -1281,31 +1312,31 @@ function ReviewModal({
                     fixes it; it is never rejected past triage. */}
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
+                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading || vsoTokenizing}
                     className="gap-2" data-testid="back-to-visual-concept">
                     <ChevronLeft className="w-4 h-4" /> Back to Visual Concept
                   </Button>
                   {renderProblems ? (
-                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
+                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-anyway-waive">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Anyway" : "Approve Anyway"} (Waive {renderProblems.length})
                     </Button>
                   ) : (
-                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
+                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
                     </Button>
                   )}
                   {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading}
+                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                       <XCircle className="w-4 h-4" /> {rejectLabel}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
                 </div>
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">

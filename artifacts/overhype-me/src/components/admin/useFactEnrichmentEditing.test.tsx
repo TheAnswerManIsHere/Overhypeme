@@ -94,6 +94,74 @@ function renderEditing(initial: UseFactEnrichmentEditingOptions) {
   });
 }
 
+interface TokenizeResultEntry {
+  path: string;
+  value: string;
+  changed: boolean;
+  usedLlm: boolean;
+  error?: string;
+  errorKind?: string;
+}
+type TokenizeHandler = (body: {
+  entries: { path: string; value: string; kind: string }[];
+  subjectContext?: { names: string[] };
+}) => { results: TokenizeResultEntry[] };
+
+const echoTokenizeHandler: TokenizeHandler = (body) => ({
+  results: body.entries.map((e) => ({ path: e.path, value: e.value, changed: false, usedLlm: false })),
+});
+
+/** Like `mockFetch`, but also serves POST /api/ai/tokenize-enrichment via the
+ *  given handler (defaults to an echo — no change, no error, no LLM). */
+function mockFetchWithTokenize(
+  enrichmentByFact: Record<number, FactEnrichment>,
+  tokenizeHandler: TokenizeHandler = echoTokenizeHandler,
+) {
+  const calls: Call[] = [];
+  const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+    const u = String(url);
+    const method = opts?.method ?? "GET";
+    const body = opts?.body ? JSON.parse(String(opts.body)) : undefined;
+    calls.push({ url: u, method, body });
+    const json = (b: unknown) =>
+      new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+
+    if (u === "/api/ai/tokenize-enrichment" && method === "POST") {
+      return json(tokenizeHandler(body));
+    }
+
+    const factIdMatch = u.match(/\/api\/admin\/facts\/(\d+)/);
+    const reviewIdMatch = u.match(/\/api\/admin\/reviews\/(\d+)/);
+    if (reviewIdMatch) {
+      const reviewId = Number(reviewIdMatch[1]);
+      const enrichment = enrichmentByFact[reviewId];
+      if (!enrichment) return new Response("{}", { status: 404 });
+      if (u.endsWith("/candidate-enrichment-resolved")) {
+        return json({
+          aiDerived: enrichment, overrides: {}, effective: enrichment,
+          overrideSummary: EMPTY_SUMMARY, enrichmentStatus: "ok", factId: 42, candidateVersionId: 9,
+        });
+      }
+      if (u.endsWith("/candidate-enrichment") && method === "PATCH") {
+        return json({ success: true, enrichment: (body as { enrichment: FactEnrichment }).enrichment });
+      }
+      return json({});
+    }
+    const factId = factIdMatch ? Number(factIdMatch[1]) : 0;
+    const enrichment = enrichmentByFact[factId];
+    if (!enrichment) return new Response("{}", { status: 404 });
+    if (u.endsWith("/enrichment-resolved")) {
+      return json({ aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_SUMMARY });
+    }
+    if (u.endsWith("/enrichment") && method === "PATCH") {
+      return json({ enrichment: (body as { enrichment: FactEnrichment }).enrichment });
+    }
+    return json({ id: factId, enrichment, enrichmentStatus: "ok" });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { calls };
+}
+
 describe("useFactEnrichmentEditing", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => vi.unstubAllGlobals());
@@ -378,5 +446,293 @@ describe("useFactEnrichmentEditing", () => {
     let flushed: boolean | undefined;
     await act(async () => { flushed = await result.current.flushOverrides(); });
     expect(flushed).toBe(true);
+  });
+
+  // ── tokenizeAndSaveVisualOverride: auto-tokenize on Save ────────────────────
+
+  it("diffs against the server baseline and sends only the changed non-empty VSO entries", async () => {
+    const baselineVso = { ...VSO, requiredVisualDetails: ["a baseline detail"] };
+    const { calls } = mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: baselineVso }) });
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: {
+          ...baselineVso,
+          requiredVisualDetails: ["a baseline detail", "a brand new detail"],
+        },
+      })),
+    );
+
+    await act(async () => { await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+
+    const tokenizeCall = calls.find((c) => c.url === "/api/ai/tokenize-enrichment");
+    expect(tokenizeCall).toBeDefined();
+    const entries = (tokenizeCall!.body as { entries: { path: string }[] }).entries;
+    expect(entries.map((e) => e.path)).toEqual(["requiredVisualDetails[1]"]);
+  });
+
+  it("no changed entries: persists the whole enrichment without hitting the tokenize route", async () => {
+    const { calls } = mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) });
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+    expect(calls.some((c) => c.url === "/api/ai/tokenize-enrichment")).toBe(false);
+    expect(calls.some((c) => c.method === "PATCH" && c.url === "/api/admin/facts/7/enrichment")).toBe(true);
+  });
+
+  it("candidate target: tokenizeAndSaveVisualOverride hits the batch route then the candidate PATCH", async () => {
+    const { calls } = mockFetchWithTokenize({ 31: makeEnrichment() });
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: VSO })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+    expect(calls.some((c) => c.url === "/api/ai/tokenize-enrichment")).toBe(true);
+    expect(calls.some((c) => c.method === "PATCH" && c.url === "/api/admin/reviews/31/candidate-enrichment")).toBe(true);
+  });
+
+  it("REGRESSION (same-click Save): PATCH body contains the tokenized value, not stale plain English", async () => {
+    const tokenizeHandler: TokenizeHandler = (body) => ({
+      results: body.entries.map((e) => ({
+        path: e.path,
+        value: e.value.replace(/David/g, "{NAME}"),
+        changed: true,
+        usedLlm: true,
+      })),
+    });
+    const { calls } = mockFetchWithTokenize(
+      { 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) },
+      tokenizeHandler,
+    );
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "David leans against the bar." },
+      })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+
+    const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/admin/facts/7/enrichment");
+    expect(patch).toBeDefined();
+    const sentVso = (patch!.body as { enrichment: FactEnrichment }).enrichment.visualPromptStrategyOverride;
+    expect(sentVso?.coreSceneOverride).toBe("{NAME} leans against the bar.");
+  });
+
+  it("hashtag-only dirty draft still persists through tokenizeAndSaveVisualOverride", async () => {
+    const { calls } = mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), suggestedHashtags: ["new-tag"] })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+    const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/admin/facts/7/enrichment");
+    expect((patch!.body as { enrichment: FactEnrichment }).enrichment.suggestedHashtags).toEqual(["new-tag"]);
+  });
+
+  it("mixed hashtag + VSO dirty draft persists both", async () => {
+    const tokenizeHandler: TokenizeHandler = (body) => ({
+      results: body.entries.map((e) => ({ path: e.path, value: e.value.replace(/David/g, "{NAME}"), changed: true, usedLlm: true })),
+    });
+    const { calls } = mockFetchWithTokenize(
+      { 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) },
+      tokenizeHandler,
+    );
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        suggestedHashtags: ["new-tag"],
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "David leans against the bar." },
+      })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+    const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/admin/facts/7/enrichment");
+    const sent = (patch!.body as { enrichment: FactEnrichment }).enrichment;
+    expect(sent.suggestedHashtags).toEqual(["new-tag"]);
+    expect(sent.visualPromptStrategyOverride?.coreSceneOverride).toBe("{NAME} leans against the bar.");
+  });
+
+  it("an error blocks the PATCH, sets vsoTokenizeErrors, and leaves the draft dirty (blocks terminal actions)", async () => {
+    const tokenizeHandler: TokenizeHandler = (body) => ({
+      results: body.entries.map((e) => ({
+        path: e.path,
+        value: e.value,
+        changed: false,
+        usedLlm: false,
+        error: "unbalanced token",
+        errorKind: "grammar",
+      })),
+    });
+    const { calls } = mockFetchWithTokenize(
+      { 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) },
+      tokenizeHandler,
+    );
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "a broken scene" },
+      })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(false);
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(result.current.vsoTokenizeErrors["coreSceneOverride"]).toBe("unbalanced token");
+    // Tokenized-but-blocked state is still dirty — terminal actions stay blocked.
+    expect(result.current.draft.hasUncommittedChanges).toBe(true);
+  });
+
+  it("clears a field's tokenize error once its value changes again", async () => {
+    const tokenizeHandler: TokenizeHandler = (body) => ({
+      results: body.entries.map((e) => ({
+        path: e.path, value: e.value, changed: false, usedLlm: false, error: "bad", errorKind: "grammar",
+      })),
+    });
+    mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) }, tokenizeHandler);
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "a broken scene" },
+      })),
+    );
+    await act(async () => { await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(result.current.vsoTokenizeErrors["coreSceneOverride"]).toBe("bad");
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "an edited scene" },
+      })),
+    );
+    expect(result.current.vsoTokenizeErrors["coreSceneOverride"]).toBeUndefined();
+  });
+
+  it("a stale tokenize response from a since-abandoned target cannot mutate the now-active target", async () => {
+    let resolveTokenize!: (value: Response) => void;
+    const calls: Call[] = [];
+    const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+      const u = String(url);
+      const method = opts?.method ?? "GET";
+      const body = opts?.body ? JSON.parse(String(opts.body)) : undefined;
+      calls.push({ url: u, method, body });
+      const json = (b: unknown) =>
+        new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u === "/api/ai/tokenize-enrichment" && method === "POST") {
+        return new Promise<Response>((resolve) => { resolveTokenize = resolve; });
+      }
+      const idMatch = u.match(/\/api\/admin\/facts\/(\d+)/);
+      const factId = idMatch ? Number(idMatch[1]) : 0;
+      const byFact: Record<number, FactEnrichment> = {
+        7: makeEnrichment({ visualPromptStrategyOverride: VSO }),
+        8: makeEnrichment({ suggestedHashtags: ["fact-b"] }),
+      };
+      const enrichment = byFact[factId];
+      if (!enrichment) return new Response("{}", { status: 404 });
+      if (u.endsWith("/enrichment-resolved")) {
+        return json({ aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_SUMMARY });
+      }
+      if (u.endsWith("/enrichment") && method === "PATCH") {
+        return json({ enrichment: (body as { enrichment: FactEnrichment }).enrichment });
+      }
+      return json({ id: factId, enrichment, enrichmentStatus: "ok" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment?.visualPromptStrategyOverride).toBeDefined());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: "David leans against the bar." },
+      })),
+    );
+
+    let savePromise!: Promise<boolean>;
+    act(() => { savePromise = result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    await waitFor(() => expect(result.current.vsoTokenizing).toBe(true));
+
+    // Navigate away to fact 8 WHILE the tokenize call is still in flight.
+    rerender({ target: { kind: "fact", factId: 8 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment?.suggestedHashtags).toEqual(["fact-b"]));
+
+    // Now the stale response for fact 7 lands.
+    await act(async () => {
+      resolveTokenize(
+        new Response(
+          JSON.stringify({ results: [{ path: "coreSceneOverride", value: "{NAME} leans against the bar.", changed: true, usedLlm: true }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      await savePromise;
+    });
+
+    // Fact 8's draft must be untouched by fact 7's stale tokenize result.
+    expect(result.current.enrichment?.suggestedHashtags).toEqual(["fact-b"]);
+    expect(result.current.enrichment?.visualPromptStrategyOverride).toBeUndefined();
+    expect(result.current.vsoTokenizing).toBe(false);
+    expect(calls.some((c) => c.method === "PATCH" && c.url === "/api/admin/facts/8/enrichment")).toBe(false);
   });
 });

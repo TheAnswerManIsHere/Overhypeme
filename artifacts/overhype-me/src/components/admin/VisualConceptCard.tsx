@@ -36,10 +36,15 @@ export function VisualConceptCard({
   value,
   onChange,
   disabled,
+  tokenizeError,
 }: {
   value: VisualPromptStrategyOverride | undefined;
   onChange: (next: VisualPromptStrategyOverride) => void;
   disabled?: boolean;
+  /** `vsoTokenizeErrors["coreSceneOverride"]` from useFactEnrichmentEditing —
+   *  shown beside the existing token-validation warning after a blocked
+   *  tokenize-and-save attempt. */
+  tokenizeError?: string;
 }) {
   const ov = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const text = ov.coreSceneOverride ?? "";
@@ -104,7 +109,12 @@ export function VisualConceptCard({
       />
 
       <div className="flex items-start justify-between gap-2">
-        {tokenErr ? (
+        {tokenizeError ? (
+          <p className="text-xs text-destructive flex items-start gap-1">
+            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+            {tokenizeError}
+          </p>
+        ) : tokenErr ? (
           <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1">
             <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
             Invalid token: {tokenErr}. Use {"{NAME}"}, {"{NAME_POSSESSIVE}"}, and pronoun tokens only.
