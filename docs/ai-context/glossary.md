@@ -87,9 +87,25 @@
   repair-projections. Also the reference implementation for async status.
   → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md), [async-ui-status](./async-ui-status.md)
 
-- **Processing signature** — intended stamp of the engine/prompt/code revision an
-  enrichment was generated under (for staleness). **Currently a TODO** — columns
-  exist, nothing computes one yet.
+- **Processing signature** — stamp of the engine/prompt/code revision an
+  enrichment was generated under: `{engineRevision, taxonomyVersion,
+  classificationVersion, imagePromptGenerationVersion, visualStrategyVersion}`.
+  A fact whose stamp differs from the current one is **stale for reprocess**.
+  Live since PR3 (#168).
+  → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
+- **Engine revision** — the manual, admin-bumped integer inside a Processing
+  signature (`admin_config.engine_revision`). Doesn't move on its own; an admin
+  bumps it via "Mark major update" (atomic, audited) after an engine/LLM swap
+  that no code-version constant would otherwise capture.
+  → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
+- **Stale for reprocess** — a Taxonomy Health dimension (PR3): a valid,
+  enriched fact whose Processing signature is absent or behind current. Distinct
+  from **stale enrichment version** (the older `classificationPromptVersion`
+  lens) — they overlap heavily on legacy data but clear differently: only
+  send-back → promote clears stale-for-reprocess; a direct re-enrich never
+  stamps a signature.
   → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 
 - **Meme / video meme** — the rendered artifact (`memes` table): a fact rendered to
