@@ -393,6 +393,14 @@ describe("factTokenizer — isAlreadyTokenizedNoPlainName", () => {
   it("is word-boundary bounded (does not false-positive on a substring)", () => {
     assert.equal(isAlreadyTokenizedNoPlainName("{NAME} loves Davidson's diner.", ["David"]), true);
   });
+
+  it("REGRESSION (Codex): false for a MIXED template — {NAME} chip-inserted but a plain pronoun left untouched", () => {
+    // Without the pronoun check, this would report "already tokenized" and
+    // skip the only pass that could ever convert "his" — hardcoding the
+    // pronoun forever instead of resolving it per-render.
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} holds his trophy.", ["David Franklin"]), false);
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} and her friend celebrate.", []), false);
+  });
 });
 
 describe("factTokenizer — hasNoLikelySubjectReference", () => {

@@ -225,15 +225,19 @@ function containsSubjectPronoun(text: string): boolean {
 
 /**
  * True iff `text` is already a valid template (contains `{`, passes
- * `validateTemplate`) AND no subject-name word appears in plain text outside
- * any brace span. Callers use this to skip the LLM call entirely and run only
- * the deterministic grammar net — safe because there is nothing left for the
- * model to tokenize.
+ * `validateTemplate`) AND no subject-name word OR subject pronoun appears in
+ * plain text outside any brace span. Callers use this to skip the LLM call
+ * entirely and run only the deterministic grammar net — safe because there is
+ * nothing left for the model to tokenize. The pronoun check matters for a
+ * MIXED template (e.g. a moderator chip-inserted `{NAME}` but left "his"
+ * plain): without it, this would report "already tokenized" and skip the only
+ * pass that would ever convert that pronoun, hardcoding it forever.
  */
 export function isAlreadyTokenizedNoPlainName(text: string, subjectNames: string[] = []): boolean {
   if (!text.includes("{")) return false;
   if (!validateTemplate(text).valid) return false;
-  return !containsPlainSubjectNameWord(text, subjectNames);
+  if (containsPlainSubjectNameWord(text, subjectNames)) return false;
+  return !containsSubjectPronoun(text);
 }
 
 /**
