@@ -138,28 +138,38 @@ function AdminFactPexelsGallery({ factId, refreshNonce }: { factId: number; refr
   const [expanded, setExpanded] = useState(false);
   const [data, setData] = useState<FactPexelsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/pexels-images`, { credentials: "include" });
+      if (!res.ok) return;
+      const next = (await res.json()) as FactPexelsResponse;
+      setData(next);
+      setLoaded(true);
+    } catch {
+      setLoaded(true);
+    }
+  }, [factId]);
+
+  useEffect(() => { setLoaded(false); void load(); }, [load, refreshNonce]);
+
+  // While the image pipeline is running (pexelsStatus "pending"), poll at ~1s
+  // with no timeout so the gallery fills in live instead of relying on a
+  // fixed-delay guess at when the background job finishes.
   useEffect(() => {
-    let cancelled = false;
-    setLoaded(false);
-    fetch(`/api/admin/facts/${factId}/pexels-images`, { credentials: "include" })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        return (await res.json()) as FactPexelsResponse;
-      })
-      .then((next) => {
-        if (cancelled) return;
-        setData(next);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => { cancelled = true; };
-  }, [factId, refreshNonce]);
+    const clear = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+    if (data?.pexelsStatus === "pending") {
+      if (!timerRef.current) timerRef.current = setInterval(() => { void load(); }, 1000);
+    } else {
+      clear();
+    }
+    return clear;
+  }, [data?.pexelsStatus, load]);
 
   const images = data?.images ?? emptyPexelsImages();
   const totals = pexelsImageTotals(images);
+  const status = data?.pexelsStatus ?? null;
 
   return (
     <div className="rounded-sm border border-border bg-muted/20">
@@ -171,7 +181,8 @@ function AdminFactPexelsGallery({ factId, refreshNonce }: { factId: number; refr
         <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
           <ImageIcon className="w-3.5 h-3.5" /> Pexels thumbnails
           <span className="font-normal normal-case text-[10px] text-muted-foreground">
-            {!loaded ? "loading…" : `${totals.total} total · male ${totals.male} · female ${totals.female} · neutral ${totals.neutral}`}
+            {status === "pending" && <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> seeding…</span>}
+            {status !== "pending" && (!loaded ? "loading…" : `${totals.total} total · male ${totals.male} · female ${totals.female} · neutral ${totals.neutral}`)}
           </span>
         </span>
         {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
@@ -184,7 +195,12 @@ function AdminFactPexelsGallery({ factId, refreshNonce }: { factId: number; refr
               <Loader2 className="w-3 h-3 animate-spin" /> Loading Pexels images…
             </p>
           )}
-          {loaded && totals.total === 0 && (
+          {loaded && status === "pending" && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Seeding stock images — this view updates live; no refresh needed.
+            </p>
+          )}
+          {loaded && status !== "pending" && totals.total === 0 && (
             <p className="text-[11px] text-muted-foreground italic">
               No Pexels images are currently stored for this fact.
             </p>
@@ -633,14 +649,14 @@ export default function AdminFacts() {
         setPipelineResult({ type: "info", message: data.message ?? "Skipped — images already exist." });
       } else {
         setPipelineResult({ type: "success", message: data.message ?? "Pipeline started." });
-        // Refresh the fact in the list to show updated hasPexelsImages status after a delay
-        setTimeout(() => {
-          setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
-          if (selectedFact?.id === factId) {
-            setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
-            setPexelsGalleryRefreshNonce((n) => n + 1);
-          }
-        }, 5000);
+        // The gallery itself polls while the pipeline is "pending" (see
+        // AdminFactPexelsGallery), so just kick off its first fetch now rather
+        // than guessing a fixed delay for when the background job finishes.
+        setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
+        if (selectedFact?.id === factId) {
+          setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
+          setPexelsGalleryRefreshNonce((n) => n + 1);
+        }
       }
     } catch (err) {
       setPipelineResult({ type: "error", message: err instanceof Error ? err.message : "Pipeline failed" });
