@@ -24,10 +24,18 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // only — the shared source-of-truth docs that MUST stay accurate. CLAUDE.md is
 // deliberately path-check-exempt: it cites historical/transient example
 // filenames (e.g. a *_TEST_RUN.md that David deletes after Replit runs it),
-// which is expected, not a bug.
+// which is expected, not a bug. .claude/skills is link-check-only for the same
+// reason: third-party/vendored skills (see
+// .claude/skills/VENDORED_SKILLS_NOTICE.md) describe generic auditing
+// heuristics with illustrative example paths (e.g. citing `.github/SECURITY.md`
+// as something to check for in whatever repo the skill is later run against)
+// that were never meant to resolve inside this repo specifically. Their
+// internal cross-references (SKILL.md → references/*.md) still must resolve,
+// so they keep the LINK check.
 const LIBRARY_DIRS = ["docs/ai-context", "docs/engineering"];
 const LIBRARY_EXTRA = ["AGENTS.md", ".agents/PLANS.md"];
 const LINK_ONLY_EXTRA = ["CLAUDE.md"];
+const LINK_ONLY_DIRS = [".claude/skills"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function walk(dir) {
@@ -47,28 +55,64 @@ function pathExists(relPath) {
   return existsSync(join(ROOT, clean));
 }
 
-// ── Collect target files ──────────────────────────────────────────────────────
-const libraryFiles = [
-  ...LIBRARY_DIRS.flatMap(walk),
-  ...LIBRARY_EXTRA,
-  ...walk(".claude/skills"),
-].filter((f) => existsSync(join(ROOT, f)));
+// Blanks out fenced code blocks (```…``` / ~~~…~~~, any nesting depth) so
+// illustrative markdown inside an example — a skill teaching other skills how
+// to structure their own reference links, e.g. — never reads as a real,
+// checkable link. Matches CommonMark's fence-closing rule (same character,
+// length >= opener) so a nested shorter fence doesn't prematurely close the
+// outer one.
+function stripFencedBlocks(text) {
+  const FENCE_LINE_RE = /^\s{0,3}(`{3,}|~{3,})/;
+  let fenceChar = null;
+  let fenceLen = 0;
+  return text
+    .split("\n")
+    .map((line) => {
+      const m = line.match(FENCE_LINE_RE);
+      if (m) {
+        const [marker] = m;
+        const char = marker.trim()[0];
+        const len = marker.trim().length;
+        if (fenceChar === null) {
+          fenceChar = char;
+          fenceLen = len;
+          return "";
+        }
+        if (char === fenceChar && len >= fenceLen) {
+          fenceChar = null;
+          fenceLen = 0;
+          return "";
+        }
+      }
+      return fenceChar !== null ? "" : line;
+    })
+    .join("\n");
+}
 
-const linkFiles = [...libraryFiles, ...LINK_ONLY_EXTRA].filter((f) =>
-  existsSync(join(ROOT, f)),
+// ── Collect target files ──────────────────────────────────────────────────────
+const libraryFiles = [...LIBRARY_DIRS.flatMap(walk), ...LIBRARY_EXTRA].filter(
+  (f) => existsSync(join(ROOT, f)),
 );
+
+const linkFiles = [
+  ...libraryFiles,
+  ...LINK_ONLY_EXTRA,
+  ...LINK_ONLY_DIRS.flatMap(walk),
+].filter((f) => existsSync(join(ROOT, f)));
 
 const errors = [];
 
 // ── 1. LINK CHECK ─────────────────────────────────────────────────────────────
 // Matches `](target)` where target is not an http(s) link or a pure anchor.
+// Skips `{template}` placeholders — e.g. Claude Code's `{baseDir}` skill-
+// authoring convention, substituted at runtime and never a literal repo path.
 const LINK_RE = /\]\((?!https?:\/\/|#|mailto:)([^)]+)\)/g;
 for (const file of linkFiles) {
-  const text = readFileSync(join(ROOT, file), "utf8");
+  const text = stripFencedBlocks(readFileSync(join(ROOT, file), "utf8"));
   const fileDir = dirname(join(ROOT, file));
   for (const m of text.matchAll(LINK_RE)) {
     const target = m[1].split("#")[0].trim();
-    if (!target) continue;
+    if (!target || target.startsWith("{")) continue;
     const abs = resolve(fileDir, target);
     if (!existsSync(abs.replace(/\/$/, ""))) {
       errors.push(`${file}: broken link → ${m[1]}`);
