@@ -23,10 +23,15 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
-import aiRouter, { suggestHashtagsForText, __setSuggestHashtagsForTest } from "../routes/ai.js";
+import aiRouter, {
+  suggestHashtagsForText,
+  __setSuggestHashtagsForTest,
+  __setTokenizeCoreForTest,
+} from "../routes/ai.js";
 import type { callUtilityLLM } from "../lib/utilityLLM.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import type { TokenizeCoreResult } from "../lib/factTokenizer.js";
 
 
 const USER_PREFIX = "t_routes_ai_";
@@ -39,12 +44,13 @@ function makeApp(): Express {
   return app;
 }
 
-async function createTestUser(): Promise<string> {
+async function createTestUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({
     id,
     email: `${id}@test.local`,
     captchaVerified: true,
+    isAdmin: !!opts.isAdmin,
   });
   return id;
 }
@@ -235,5 +241,233 @@ describe("POST /ai/suggest-hashtags — route", () => {
       .send({ text: "this person drinks unreasonable amounts of coffee" });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { hashtags: [] });
+  });
+});
+
+// Fake tokenizer core — never touches OpenAI. Mirrors the model-injectable
+// seam pattern used for suggestHashtagsForText above. `opts` is passed through
+// so tests can assert on what the route computed (e.g. skipLlm).
+function fakeTokenizeCore(
+  fn: (text: string, opts?: { skipLlm?: boolean }) => Partial<TokenizeCoreResult>,
+): typeof __setTokenizeCoreForTest extends (f: infer F) => void ? F : never {
+  return (async (text: string, opts?: { skipLlm?: boolean }) => {
+    const partial = fn(text, opts);
+    return {
+      rawTemplate: partial.rawTemplate ?? text,
+      template: partial.template ?? text,
+      passes: partial.passes ?? {
+        nameCollapsed: false,
+        contractionExpanded: false,
+        conjugated: false,
+        collapsed: false,
+      },
+      usedLlm: partial.usedLlm ?? !opts?.skipLlm,
+      grammarError: partial.grammarError,
+    };
+  }) as never;
+}
+
+describe("POST /ai/tokenize-enrichment — admin batch tokenize", () => {
+  afterEach(() => { __setTokenizeCoreForTest(null); });
+
+  const validEntries = [
+    { path: "coreSceneOverride", value: "David leans against the bar counter.", kind: "prose" },
+    { path: "roleBindings[0].entity", value: "David Franklin", kind: "entity" },
+  ];
+
+  it("returns 401 when no session is presented", async () => {
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .send({ entries: validEntries });
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 403 for a non-admin authenticated user", async () => {
+    const userId = await createTestUser({ isAdmin: false });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: validEntries });
+    assert.equal(res.status, 403);
+  });
+
+  it("does not require a captcha token for an admin", async () => {
+    __setTokenizeCoreForTest(fakeTokenizeCore((text) => ({ template: text, usedLlm: false })));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "coreSceneOverride", value: "David leans against the bar.", kind: "prose" }] });
+    assert.equal(res.status, 200);
+  });
+
+  it("returns 400 before any LLM call on an oversized entries array (Zod max(80))", async () => {
+    const tokenizeCore = fakeTokenizeCore(() => ({}));
+    __setTokenizeCoreForTest(tokenizeCore);
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const entries = Array.from({ length: 81 }, (_, i) => ({
+      path: `requiredVisualDetails[${i}]`,
+      value: "x",
+      kind: "prose",
+    }));
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries });
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 400 before any LLM call on an unknown path", async () => {
+    let called = false;
+    __setTokenizeCoreForTest(fakeTokenizeCore(() => { called = true; return {}; }));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "notARealField", value: "hello", kind: "prose" }] });
+    assert.equal(res.status, 400);
+    assert.equal(called, false);
+  });
+
+  it("returns 400 before any LLM call on a path/kind mismatch (entity path sent as prose)", async () => {
+    let called = false;
+    __setTokenizeCoreForTest(fakeTokenizeCore(() => { called = true; return {}; }));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "roleBindings[0].entity", value: "David Franklin", kind: "prose" }] });
+    assert.equal(res.status, 400);
+    assert.equal(called, false);
+  });
+
+  it("passes through an empty/whitespace value without calling the tokenizer", async () => {
+    let called = false;
+    __setTokenizeCoreForTest(fakeTokenizeCore(() => { called = true; return {}; }));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "coreSceneOverride", value: "   ", kind: "prose" }] });
+    assert.equal(res.status, 200);
+    assert.equal(called, false);
+    assert.deepEqual(res.body.results, [
+      { path: "coreSceneOverride", value: "   ", changed: false, usedLlm: false },
+    ]);
+  });
+
+  it("tokenizes a prose entry via the fake core and reports usedLlm/changed", async () => {
+    __setTokenizeCoreForTest(
+      fakeTokenizeCore((text) => ({ template: text.replace("David", "{NAME}"), usedLlm: true })),
+    );
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({
+        entries: [{ path: "coreSceneOverride", value: "David leans against the bar.", kind: "prose" }],
+        subjectContext: { names: ["David Franklin"] },
+      });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.results, [
+      { path: "coreSceneOverride", value: "{NAME} leans against the bar.", changed: true, usedLlm: true },
+    ]);
+  });
+
+  it("computes skipLlm:true for an already-tokenized entry with no plain subject name", async () => {
+    let called = false;
+    __setTokenizeCoreForTest(
+      fakeTokenizeCore((text, opts) => { called = true; return { template: text, usedLlm: !opts?.skipLlm }; }),
+    );
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({
+        entries: [{ path: "coreSceneOverride", value: "{NAME} leans against the bar.", kind: "prose" }],
+        subjectContext: { names: ["David Franklin"] },
+      });
+    assert.equal(res.status, 200);
+    // The route still calls the core (skipLlm is an option, not a bypass of
+    // the call site) — but it must compute skipLlm:true so the core's own
+    // usedLlm comes back false.
+    assert.equal(called, true);
+    assert.equal(res.body.results[0].usedLlm, false);
+  });
+
+  it("rejects a personalization token in an entity entry with errorKind:'entity', no LLM call", async () => {
+    let called = false;
+    __setTokenizeCoreForTest(fakeTokenizeCore(() => { called = true; return {}; }));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "roleBindings[0].entity", value: "{NAME}", kind: "entity" }] });
+    assert.equal(res.status, 200);
+    assert.equal(called, false);
+    assert.equal(res.body.results[0].errorKind, "entity");
+  });
+
+  it("collapses a typed subject name in an entity entry to 'subject'", async () => {
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({
+        entries: [{ path: "roleBindings[0].entity", value: "David Franklin", kind: "entity" }],
+        subjectContext: { names: ["David Franklin"] },
+      });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.results[0], {
+      path: "roleBindings[0].entity",
+      value: "subject",
+      changed: true,
+      usedLlm: false,
+    });
+  });
+
+  it("surfaces a grammar error via errorKind:'grammar' without failing the whole batch", async () => {
+    __setTokenizeCoreForTest(
+      fakeTokenizeCore((text) => ({ template: text, grammarError: "unbalanced token" })),
+    );
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries: [{ path: "coreSceneOverride", value: "David does a thing.", kind: "prose" }] });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.results[0].errorKind, "grammar");
+    assert.equal(res.body.results[0].error, "unbalanced token");
+  });
+
+  it("preserves result order across multiple entries", async () => {
+    __setTokenizeCoreForTest(fakeTokenizeCore((text) => ({ template: `[${text}]`, usedLlm: true })));
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId);
+    const entries = Array.from({ length: 8 }, (_, i) => ({
+      path: `requiredVisualDetails[${i}]`,
+      value: `detail-${i}`,
+      kind: "prose",
+    }));
+    const res = await request(makeApp())
+      .post("/ai/tokenize-enrichment")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ entries });
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.body.results.map((r: { value: string }) => r.value),
+      entries.map((e) => `[${e.value}]`),
+    );
   });
 });

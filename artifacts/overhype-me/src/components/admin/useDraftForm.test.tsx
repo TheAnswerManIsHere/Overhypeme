@@ -182,4 +182,172 @@ describe("useDraftForm", () => {
     expect(result.current.committedAt).not.toBeNull();
     expect(window.localStorage.getItem("k::mark")).toBeNull();
   });
+
+  it("REGRESSION: setValue(next) then save() in the same tick would persist the OLD value — saveValue(next) does not", async () => {
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::staleref",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Prove the stale-ref hazard exists: setValue schedules a re-render but
+    // does not synchronously flow into a same-tick save() of `valueRef.current`
+    // read via the OLD closure — saveValue sidesteps this by taking the value
+    // directly as an argument instead of relying on render timing.
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.saveValue({ text: "tokenized", n: 42 });
+    });
+    expect(ok).toBe(true);
+    expect(commit).toHaveBeenCalledWith({ text: "tokenized", n: 42 });
+    expect(result.current.value).toEqual({ text: "tokenized", n: 42 });
+    expect(result.current.hasUncommittedChanges).toBe(false);
+  });
+
+  it("saveValue(next) adopts `next` into value/baseline atomically with the commit attempt", async () => {
+    let resolveCommit!: () => void;
+    const commit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCommit = resolve;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::savevalue-atomic",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let savePromise!: Promise<boolean>;
+    act(() => {
+      savePromise = result.current.saveValue({ text: "tokenized", n: 9 });
+    });
+    // Value shows the new value WHILE the commit is still in flight.
+    expect(result.current.value).toEqual({ text: "tokenized", n: 9 });
+    expect(result.current.committing).toBe(true);
+
+    await act(async () => {
+      resolveCommit();
+      await savePromise;
+    });
+    expect(result.current.hasUncommittedChanges).toBe(false);
+  });
+
+  it("saveValue(next) reconciles baseline/value from the server's canonical return value", async () => {
+    const canonical: V = { text: "CANONICAL", n: 100 };
+    const commit = vi.fn(async () => canonical);
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::savevalue-canonical",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.saveValue({ text: "submitted", n: 5 });
+    });
+    expect(result.current.value).toEqual(canonical);
+    expect(result.current.hasUncommittedChanges).toBe(false);
+  });
+
+  it("save() also reconciles from the server's canonical return value", async () => {
+    const canonical: V = { text: "CANONICAL", n: 100 };
+    const commit = vi.fn(async () => canonical);
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::save-canonical",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setValue({ text: "submitted", n: 5 }));
+
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(result.current.value).toEqual(canonical);
+    expect(result.current.hasUncommittedChanges).toBe(false);
+  });
+
+  it("saveValue(next) keeps `next` visible (not reverted) when the commit fails", async () => {
+    const commit = vi.fn(async () => {
+      throw new Error("server exploded");
+    });
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::savevalue-err",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.saveValue({ text: "tokenized", n: 9 });
+    });
+    expect(ok).toBe(false);
+    expect(result.current.commitError).toBe("server exploded");
+    expect(result.current.value).toEqual({ text: "tokenized", n: 9 });
+    expect(result.current.hasUncommittedChanges).toBe(true);
+  });
+
+  it("setValue updates valueRef synchronously (not only on next render) — functional and non-functional forms", async () => {
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() =>
+      useDraftForm<V, Rec>({
+        storageKey: "k::syncref",
+        emptyValue: { text: "", n: 0 },
+        debounceMs: 20,
+        fetchServer: async () => rec("a", 1),
+        selectValue: sel,
+        commit,
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Non-functional form, then an immediate save() in the same act() batch —
+    // if valueRef weren't updated synchronously by setValue, save() would
+    // commit the OLD value here.
+    let ok: boolean | undefined;
+    await act(async () => {
+      result.current.setValue({ text: "non-functional", n: 1 });
+      ok = await result.current.save();
+    });
+    expect(ok).toBe(true);
+    expect(commit).toHaveBeenCalledWith({ text: "non-functional", n: 1 });
+
+    commit.mockClear();
+    await act(async () => {
+      result.current.setValue((prev) => ({ ...prev, text: "functional" }));
+      ok = await result.current.save();
+    });
+    expect(ok).toBe(true);
+    expect(commit).toHaveBeenCalledWith({ text: "functional", n: 1 });
+  });
 });

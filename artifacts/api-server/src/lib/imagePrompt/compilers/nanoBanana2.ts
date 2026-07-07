@@ -45,6 +45,16 @@ import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonic
 
 const MAX_PROMPT_CHARS = 4000;
 
+// ROLE DETAILS becomes required + non-compressible whenever moderator
+// roleBindings are present (so a casting correction can't be silently
+// compressed away — see composeAdditiveRoleDetails). Per-field schema caps
+// (visualStrategyOverride.ts) bound a SINGLE role, but up to 20 roles can
+// still combine into more raw text than the engine budget can safely spend
+// on one required section. This caps the section's OWN contribution so it
+// can never itself push STRICT CONSTRAINTS (violence/text-policy/anti-split
+// guardrails, emitted last) off the end of the final hard-truncate.
+const ROLE_DETAILS_MAX_CHARS = 1000;
+
 interface CompileArgs {
   visualPlan: VisualPlan;
   compiledPrompt: CompiledPrompt;
@@ -938,7 +948,7 @@ interface Section {
   text: string;
   priority: Priority;
   compressible?: boolean;
-  /** Content authored by a human moderator (visual-concept core scene). */
+  /** Content authored by a human moderator (core scene, role bindings). */
   moderatorAuthored?: boolean;
 }
 
@@ -1169,13 +1179,25 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // the Visual Concept leads and carries the gag, this only surfaces roles the
   // scene OMITTED, and never doubles a name ("Alex is Alex leans…"). Drops are
   // recorded for admin diagnostics.
-  const roleDetails = composeAdditiveRoleDetails({
+  const roleDetailsRaw = composeAdditiveRoleDetails({
     subjectName,
     roleInScene,
     secondaryCharacters,
     includeSubjectRole: hasSecondaryCharacters || activeActionFrame || Boolean(overrideSubjectRole),
     haystack,
   });
+  // When moderator roleBindings make this section required + non-compressible
+  // (below), cap its own contribution — up to 20 bindings can combine into
+  // more text than the section-level schema caps alone would suggest (see
+  // ROLE_DETAILS_MAX_CHARS). Purely AI-authored role details stay
+  // high/compressible, so the normal budget fit already protects them.
+  const roleDetailsText = hasOverrideRoles
+    ? fitSentences(roleDetailsRaw.text, ROLE_DETAILS_MAX_CHARS)
+    : roleDetailsRaw.text;
+  if (roleDetailsText.length < roleDetailsRaw.text.length) {
+    notes.push("Capped role_details to its safety budget (moderator roleBindings).");
+  }
+  const roleDetails = { text: roleDetailsText, dropped: roleDetailsRaw.dropped };
   if (roleDetails.text) haystack = `${haystack} ${roleDetails.text}`;
 
   // SUBJECT DETAILS — subject-specific visible details (strictly additive), plus
@@ -1248,6 +1270,11 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // sections sit at required/high priority so moderator intent survives the char
   // budget. A moderator-authored core scene is required + non-compressible: the
   // joke must never be compressed out. AI-authored keeps high/compressible.
+  // Same rule for ROLE DETAILS: when a moderator supplies roleBindings, this
+  // section is the only compiled place those bindings reach the engine (unless
+  // the core scene already restates them), so it must survive the char budget
+  // like any other moderator override — required + non-compressible. Purely
+  // AI-authored role details keep high/compressible.
   const rawSections: Section[] = [
     {
       id: "core_scene",
@@ -1260,7 +1287,14 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     { id: mode.sectionId, label: mode.sectionLabel, text: labeled(mode.sectionLabel, taskBody), priority: "required" },
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
     { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
-    { id: "role_details", label: "ROLE DETAILS", text: labeled("ROLE DETAILS", roleDetails.text), priority: "high", compressible: true },
+    {
+      id: "role_details",
+      label: "ROLE DETAILS",
+      text: labeled("ROLE DETAILS", roleDetails.text),
+      priority: hasOverrideRoles ? "required" : "high",
+      compressible: !hasOverrideRoles,
+      ...(hasOverrideRoles ? { moderatorAuthored: true } : {}),
+    },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
     { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },

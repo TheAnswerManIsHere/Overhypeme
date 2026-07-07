@@ -140,12 +140,75 @@ describe("VisualStrategyOverridePanel — token chips", () => {
     expect(ev.defaultPrevented).toBe(true);
   });
 
-  it("canonicalizes name-token aliases typed into roleBindings.entity", () => {
+  it("PR2: entity is left plain (not canonicalized) and is not a chip target — typed text passes through untouched", () => {
     const seen = renderPanel(enabledOverride({ roleBindings: [{ entity: "", visualRole: "" }] }));
-    const entity = screen.getByPlaceholderText(/entity \(subject, mother/i) as HTMLInputElement;
+    const entity = screen.getByPlaceholderText(/subject or role label/i) as HTMLInputElement;
+    expect(entity.dataset.tokenInsertTarget).toBeUndefined();
     act(() => {
       fireEvent.change(entity, { target: { value: "{name_possessive} mother" } });
     });
-    expect(seen.at(-1)?.roleBindings[0].entity).toBe("{NAME_POSSESSIVE} mother");
+    // Deliberately NOT canonicalized — a typed token is left as-is here; Save's
+    // normalizeRoleEntity/the schema backstop are what react to it, not this field.
+    expect(seen.at(-1)?.roleBindings[0].entity).toBe("{name_possessive} mother");
+  });
+
+  it("PR2: roleBindings.visualRole is still a chip target and still canonicalizes tokens", () => {
+    const seen = renderPanel(enabledOverride({ roleBindings: [{ entity: "", visualRole: "" }] }));
+    const targets = screen.getAllByDisplayValue("");
+    const visualRole = targets.find(
+      (el) => el.tagName === "INPUT" && (el as HTMLInputElement).placeholder === "concrete visible role",
+    ) as HTMLInputElement;
+    expect(visualRole.dataset.tokenInsertTarget).toBe("true");
+    act(() => {
+      fireEvent.change(visualRole, { target: { value: "{name_possessive} mother" } });
+    });
+    expect(seen.at(-1)?.roleBindings[0].visualRole).toBe("{NAME_POSSESSIVE} mother");
+  });
+
+  it("PR2: disabled=true disables every input, chip, and button in the panel", () => {
+    render(
+      <VisualStrategyOverridePanel
+        value={enabledOverride({ roleBindings: [{ entity: "mother", visualRole: "role" }] })}
+        onChange={() => {}}
+        disabled
+      />,
+    );
+    const core = screen.getByTestId("vso-core-scene") as HTMLTextAreaElement;
+    expect(core.disabled).toBe(true);
+    for (const chip of screen.getAllByTestId("vso-token-chip")) {
+      expect((chip as HTMLButtonElement).disabled).toBe(true);
+    }
+    for (const input of screen.getAllByDisplayValue(/mother|role/)) {
+      expect((input as HTMLInputElement).disabled).toBe(true);
+    }
+  });
+
+  it("PR2: fieldErrors surfaces a tokenize error beside the coreSceneOverride field and a roleBindings.entity row", () => {
+    render(
+      <VisualStrategyOverridePanel
+        value={enabledOverride({
+          coreSceneOverride: "a broken scene",
+          roleBindings: [{ entity: "{NAME}", visualRole: "role" }],
+        })}
+        onChange={() => {}}
+        fieldErrors={{
+          coreSceneOverride: "unbalanced token",
+          "roleBindings[0].entity": "personalization tokens are not allowed here",
+        }}
+      />,
+    );
+    expect(screen.getByText("unbalanced token")).toBeTruthy();
+    expect(screen.getByText("personalization tokens are not allowed here")).toBeTruthy();
+  });
+
+  it("PR2: a whole-batch (general) tokenize error renders as a panel-level warning", () => {
+    render(
+      <VisualStrategyOverridePanel
+        value={enabledOverride()}
+        onChange={() => {}}
+        fieldErrors={{ "": "Network error — could not tokenize." }}
+      />,
+    );
+    expect(screen.getByText("Network error — could not tokenize.")).toBeTruthy();
   });
 });

@@ -318,18 +318,25 @@ exception.)
 ### Watching the PRs I open (opt-in — not automatic)
 
 **I do NOT auto-subscribe to every PR, and I do NOT arm background self-check-in
-loops by default.** Each watched PR that arms an `send_later` self-check-in wakes
-a *persistent* session on a timer, and every wake reloads that session's full
-accumulated context uncached (the prompt cache is long dead after the interval) —
-so a fleet of PR watchers quietly burns tokens in the background whether or not
-David is present. That cost is real and compounds across PRs, so watching is now
-**opt-in per PR**: when I open a PR I offer to watch it and only subscribe /
-arm a check-in if David says yes for *that* PR. When I do watch, I prefer
-re-verifying on turns I'm already active over arming a timer; if David does want
-an unattended timer, I use a **long** interval (multiple hours, not ~1h) and I
-tell him it's running so it doesn't become an invisible drain. Whenever a watch's
-PR merges or closes, I unsubscribe and delete any remaining self-check-in trigger
-so no loop outlives its PR. While watching:
+loops, ever, by default.** Each watched PR that arms an `send_later` self-check-in
+wakes a *persistent* session on a timer, and every wake reloads that session's
+full accumulated context uncached (the prompt cache is long dead after the
+interval) — so a fleet of PR watchers quietly burns tokens in the background
+whether or not David is present. That cost is real and compounds across PRs, so
+*subscribing* (receiving webhook events for comments/CI) is **opt-in per PR**:
+when I open a PR I offer to watch it and only subscribe if David says yes for
+*that* PR.
+
+**David has told me directly (2026-07-07): no background check-ins, period — he
+checks PR status manually and pings me if he needs me.** This overrides the
+"long interval if David wants a timer" allowance that used to live here: I do
+**not** arm a `send_later` self-check-in for PR watching, do not offer to arm
+one, and do not ask whether he wants one — the default is off, standing, across
+all PRs, not a per-PR ask. I still re-verify true PR state (threads + CI +
+mergeability) whenever I'm reactively woken by a real webhook event or by David
+directly, per the rules below — I just never schedule my own wake-up for it.
+Whenever a watched PR merges or closes, I unsubscribe (no timer to clean up,
+since none was armed). While watching:
 
 - **Never judge a webhook event from its text alone — fetch the live PR state
   first.** This is the rule I broke: a `<github-webhook-activity>` arrived that
@@ -348,16 +355,16 @@ so no loop outlives its PR. While watching:
   already-handled, I confirm it from the live thread (resolved? a real fix commit
   referenced and present on the branch?) — never from the comment's author or
   footer.
-- **Webhooks lag and are incomplete — poll proactively, don't treat silence as
-  "all clear."** They do **not** deliver CI *success*, new pushes, or
+- **Webhooks lag and are incomplete — don't treat silence, or an event's own
+  text, as "all clear."** They do **not** deliver CI *success*, new pushes, or
   merge-conflict transitions, and events can arrive out of order or be my own
-  replies bouncing back. So whenever I re-engage a watched PR I re-check its true
-  state (threads + CI + mergeability) rather than assuming the last event told the
-  whole story. My default is to re-verify on each turn I'm active. I arm an
-  `send_later` self check-in **only when David has opted this PR into unattended
-  watching**, and then at a **long** interval (multiple hours), because each firing
-  reloads a persistent session's full context uncached — the background token
-  drain the opt-in rule above exists to prevent.
+  replies bouncing back. So whenever I'm re-engaged on a watched PR — by a real
+  webhook event or by David — I re-check its true state (threads + CI +
+  mergeability) rather than assuming the last event told the whole story. I do
+  **not** schedule my own wake-up (`send_later`) to go check in the absence of
+  being re-engaged: per David's standing instruction above, he checks PR status
+  manually and pings me if he needs me, so there is nothing for me to
+  proactively poll for.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round.

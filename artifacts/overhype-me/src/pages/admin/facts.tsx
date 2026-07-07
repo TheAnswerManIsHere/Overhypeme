@@ -3,12 +3,14 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
+import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "@/components/admin/PexelsImageGallery";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm } from "@/components/admin/useDraftForm";
 import {
@@ -67,6 +69,8 @@ interface FactsResponse {
 }
 
 type ImportMode = "json" | "csv" | "lines";
+type FactsTab = "facts" | "utilities";
+type FactVisibilityFilter = "active" | "inactive" | "both";
 
 type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "hasPexelsImages" | "splitTokenIndex">;
 
@@ -123,6 +127,94 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
   );
 }
 
+
+interface FactPexelsResponse {
+  pexelsStatus: "pending" | "ok" | "failed" | null;
+  factType: "action" | "abstract" | null;
+  keywords: Record<PexelsGender, string> | null;
+  images: Record<PexelsGender, PexelsThumb[]>;
+}
+
+function AdminFactPexelsGallery({ factId, refreshNonce }: { factId: number; refreshNonce: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const [data, setData] = useState<FactPexelsResponse | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/pexels-images`, { credentials: "include" });
+      if (!res.ok) return;
+      const next = (await res.json()) as FactPexelsResponse;
+      setData(next);
+      setLoaded(true);
+    } catch {
+      setLoaded(true);
+    }
+  }, [factId]);
+
+  useEffect(() => { setLoaded(false); void load(); }, [load, refreshNonce]);
+
+  // While the image pipeline is running (pexelsStatus "pending"), poll at ~1s
+  // with no timeout so the gallery fills in live instead of relying on a
+  // fixed-delay guess at when the background job finishes.
+  useEffect(() => {
+    const clear = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+    if (data?.pexelsStatus === "pending") {
+      if (!timerRef.current) timerRef.current = setInterval(() => { void load(); }, 1000);
+    } else {
+      clear();
+    }
+    return clear;
+  }, [data?.pexelsStatus, load]);
+
+  const images = data?.images ?? emptyPexelsImages();
+  const totals = pexelsImageTotals(images);
+  const status = data?.pexelsStatus ?? null;
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 p-3 text-left"
+      >
+        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <ImageIcon className="w-3.5 h-3.5" /> Pexels thumbnails
+          <span className="font-normal normal-case text-[10px] text-muted-foreground">
+            {status === "pending" && <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> seeding…</span>}
+            {status !== "pending" && (!loaded ? "loading…" : `${totals.total} total · male ${totals.male} · female ${totals.female} · neutral ${totals.neutral}`)}
+          </span>
+        </span>
+        {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2">
+          {!loaded && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading Pexels images…
+            </p>
+          )}
+          {loaded && status === "pending" && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Seeding stock images — this view updates live; no refresh needed.
+            </p>
+          )}
+          {loaded && status !== "pending" && totals.total === 0 && (
+            <p className="text-[11px] text-muted-foreground italic">
+              No Pexels images are currently stored for this fact.
+            </p>
+          )}
+          {loaded && totals.total > 0 && (
+            <PexelsImageGallery data={{ keywords: data?.keywords ?? null, images }} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Uses the
  * SAME universal autosave helper (`useFormDraft`) as every other form, plus the
@@ -152,15 +244,17 @@ function FactEnrichmentPanel({
   // re-run wiring) lives in the shared useFactEnrichmentEditing hook — the same
   // engine the moderation ReviewModal mounts, so the two screens stay in
   // lockstep by construction.
-  const { enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError } =
-    useFactEnrichmentEditing({
+  const {
+    enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError,
+    vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride,
+  } = useFactEnrichmentEditing({
       target: { kind: "fact", factId: fact.id },
       enabled: true,
       initialStatus: fact.enrichmentStatus ?? null,
       onSaved,
     });
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled || vsoTokenizing;
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -191,7 +285,9 @@ function FactEnrichmentPanel({
             </h3>
             <div className="flex items-center gap-3 shrink-0">
               <div className="text-xs text-muted-foreground">
-                {draft.committing ? (
+                {vsoTokenizing ? (
+                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Tokenizing and saving…</span>
+                ) : draft.committing ? (
                   <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
                 ) : draft.commitError ? (
                   <span className="text-destructive">{draft.commitError}</span>
@@ -205,7 +301,8 @@ function FactEnrichmentPanel({
                 <button
                   type="button"
                   onClick={draft.discard}
-                  className="text-xs text-primary underline hover:opacity-80"
+                  disabled={vsoTokenizing}
+                  className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
                 >
                   Discard changes
                 </button>
@@ -223,11 +320,17 @@ function FactEnrichmentPanel({
             status={enrichmentStatus}
             factText={fact.text}
             onChange={(next) => { if (!disabled) draft.setValue(next); }}
-            onSave={!disabled && draft.hasUncommittedChanges ? () => void draft.save() : undefined}
+            onSave={
+              !disabled && draft.hasUncommittedChanges
+                ? () => void tokenizeAndSaveVisualOverride([...DEFAULT_SUBJECT_EXAMPLE_NAMES])
+                : undefined
+            }
             onRerun={disabled ? undefined : rerunWithConfirm}
             busy={busy}
             rerunBusy={jobs.rerunBusy}
             overrideContext={disabled ? undefined : overrideContext}
+            vsoTokenizing={vsoTokenizing}
+            vsoTokenizeErrors={vsoTokenizeErrors}
           />
           {overrideError && !disabled && (
             <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -240,7 +343,7 @@ function FactEnrichmentPanel({
               variant="outline"
               size="sm"
               onClick={draft.discard}
-              disabled={!draft.hasUncommittedChanges || draft.committing}
+              disabled={!draft.hasUncommittedChanges || draft.committing || vsoTokenizing}
             >
               Discard changes
             </Button>
@@ -366,7 +469,8 @@ export default function AdminFacts() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
+  const [activeTab, setActiveTab] = useState<FactsTab>("facts");
+  const [visibilityFilter, setVisibilityFilter] = useState<FactVisibilityFilter>("active");
   const [onlyOverridden, setOnlyOverridden] = useState(false);
   const [onlyBaselineChanged, setOnlyBaselineChanged] = useState(false);
 
@@ -400,6 +504,7 @@ export default function AdminFacts() {
   // Image pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<{ type: "success" | "info" | "error"; message: string } | null>(null);
+  const [pexelsGalleryRefreshNonce, setPexelsGalleryRefreshNonce] = useState(0);
 
   const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
   const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -466,7 +571,7 @@ export default function AdminFacts() {
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, visibilityFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -474,7 +579,7 @@ export default function AdminFacts() {
       page: String(page),
       limit: String(LIMIT),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
-      ...(showInactive ? { inactive: "true" } : {}),
+      ...(visibilityFilter !== "active" ? { visibility: visibilityFilter } : {}),
       ...(onlyOverridden ? { hasOverrides: "true" } : {}),
       ...(onlyBaselineChanged ? { baselineChanged: "true" } : {}),
     });
@@ -496,7 +601,7 @@ export default function AdminFacts() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, showInactive, onlyOverridden, onlyBaselineChanged, refreshNonce]);
+  }, [page, debouncedSearch, visibilityFilter, onlyOverridden, onlyBaselineChanged, refreshNonce]);
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
@@ -556,13 +661,14 @@ export default function AdminFacts() {
         setPipelineResult({ type: "info", message: data.message ?? "Skipped — images already exist." });
       } else {
         setPipelineResult({ type: "success", message: data.message ?? "Pipeline started." });
-        // Refresh the fact in the list to show updated hasPexelsImages status after a delay
-        setTimeout(() => {
-          setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
-          if (selectedFact?.id === factId) {
-            setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
-          }
-        }, 5000);
+        // The gallery itself polls while the pipeline is "pending" (see
+        // AdminFactPexelsGallery), so just kick off its first fetch now rather
+        // than guessing a fixed delay for when the background job finishes.
+        setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
+        if (selectedFact?.id === factId) {
+          setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
+          setPexelsGalleryRefreshNonce((n) => n + 1);
+        }
       }
     } catch (err) {
       setPipelineResult({ type: "error", message: err instanceof Error ? err.message : "Pipeline failed" });
@@ -843,7 +949,26 @@ export default function AdminFacts() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:items-start">
+      <div className="mb-4 flex gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("facts")}
+          className={`px-4 py-2 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${activeTab === "facts" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Facts
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("utilities")}
+          className={`px-4 py-2 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${activeTab === "utilities" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Utilities
+        </button>
+      </div>
+
+      {activeTab === "facts" ? (
+      <div className={`grid grid-cols-1 gap-6 xl:items-start ${selectedFact ? "xl:grid-cols-2" : ""}`}>
+
         {/* Left — fact list */}
         <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col xl:h-[calc(100dvh-7rem)]">
           <div className="p-4 border-b border-border flex items-center gap-3">
@@ -856,18 +981,19 @@ export default function AdminFacts() {
                 className="pl-9"
               />
             </div>
-            <button
-              onClick={() => { setShowInactive((v) => !v); setPage(1); }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
-                showInactive
-                  ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-              }`}
-              title={showInactive ? "Hide inactive facts" : "Show inactive facts"}
-            >
-              {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              {showInactive ? "All" : "Active"}
-            </button>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground shrink-0">
+              <span>Show</span>
+              <select
+                value={visibilityFilter}
+                onChange={(e) => setVisibilityFilter(e.target.value as FactVisibilityFilter)}
+                className="h-9 rounded-sm border border-border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:border-primary"
+                aria-label="Show facts"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="both">Both</option>
+              </select>
+            </label>
             <button
               onClick={() => { setOnlyOverridden((v) => !v); setPage(1); }}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
@@ -1304,6 +1430,7 @@ export default function AdminFacts() {
                       ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."
                       : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
                   </p>
+                  <AdminFactPexelsGallery factId={selectedFact.id} refreshNonce={pexelsGalleryRefreshNonce} />
                 </div>
               </div>
             )}
@@ -1423,9 +1550,10 @@ export default function AdminFacts() {
 
             </div>{/* end scrollable body */}
           </div>
-        ) : (
-          /* Bulk import (default right panel) */
-          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
+        ) : null}
+      </div>
+      ) : (
+          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:min-h-[calc(100dvh-7rem)]">
             <div className="flex items-center justify-between">
               <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Bulk Import</h2>
               <label className="cursor-pointer">
@@ -1473,7 +1601,7 @@ export default function AdminFacts() {
                   ? `["{Name} can sneeze with their eyes open.", "{Name} counted to infinity — twice."]`
                   : "{Name} can sneeze with their eyes open.\n{Name} counted to infinity — twice."
               }
-              className="flex-1 font-mono text-xs resize-none min-h-[220px]"
+              className="font-mono text-xs resize-y min-h-[320px]"
             />
 
             {importResult && (
@@ -1517,8 +1645,7 @@ export default function AdminFacts() {
               </Button>
             </div>
           </div>
-        )}
-      </div>
+      )}
     </AdminLayout>
   );
 }

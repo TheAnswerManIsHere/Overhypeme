@@ -46,8 +46,8 @@ export const VISUAL_STRATEGY_OVERRIDE_VERSION = 1 as const;
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
 const roleBindingSchema = z.object({
-  entity: z.string(), // "subject" or a relationship/name/type label ("mother", "crowd/victims")
-  visualRole: z.string(),
+  entity: z.string().max(60), // "subject" or a relationship/name/type label ("mother", "crowd/victims")
+  visualRole: z.string().max(300),
 });
 
 const subjectRealizationOverrideSchema = z.object({
@@ -104,18 +104,193 @@ export type VisualStrategyRoleBinding = z.infer<typeof roleBindingSchema>;
 
 // ─── Token handling ─────────────────────────────────────────────────────────
 
+/**
+ * A single rendered-text field of the override, addressed by a stable string
+ * path. `kind: "entity"` is the one field (`roleBindings[i].entity`) that
+ * holds a plain "subject"/role label rather than free prose — every other
+ * rendered field is `"prose"`. This is the ONE source of which VSO fields are
+ * tokenized/rendered; `firstOverrideTokenError`, the admin batch tokenize
+ * route, and the frontend save flow all consume it so the field list can
+ * never drift between them.
+ */
+export type VisualStrategyRenderedTextKind = "prose" | "entity";
+
+export interface VisualStrategyRenderedTextEntry {
+  path: string;
+  value: string;
+  kind: VisualStrategyRenderedTextKind;
+}
+
 /** Fields whose text is RENDERED into the engine prompt (so tokens matter).
  *  `moderatorIntent` / `notesForModerator` are admin-only and never emitted. */
-function collectRenderedTexts(ov: VisualPromptStrategyOverride): string[] {
-  const out: string[] = [];
-  if (ov.coreSceneOverride) out.push(ov.coreSceneOverride);
-  if (ov.subjectRealizationOverride?.description) out.push(ov.subjectRealizationOverride.description);
-  out.push(...ov.requiredVisualDetails, ...ov.forbiddenVisualDetails, ...ov.compositionGuidance);
-  out.push(...ov.styleAgnosticPromptAdditions, ...ov.negativePromptAdditions);
-  for (const rb of ov.roleBindings) out.push(rb.entity, rb.visualRole);
-  if (ov.supportingTextPolicyOverride?.guidance) out.push(ov.supportingTextPolicyOverride.guidance);
-  if (ov.violencePolicyOverride?.guidance) out.push(ov.violencePolicyOverride.guidance);
+export function collectRenderedTextEntries(
+  ov: VisualPromptStrategyOverride,
+): VisualStrategyRenderedTextEntry[] {
+  const out: VisualStrategyRenderedTextEntry[] = [];
+  if (ov.coreSceneOverride) {
+    out.push({ path: "coreSceneOverride", value: ov.coreSceneOverride, kind: "prose" });
+  }
+  if (ov.subjectRealizationOverride?.description) {
+    out.push({
+      path: "subjectRealizationOverride.description",
+      value: ov.subjectRealizationOverride.description,
+      kind: "prose",
+    });
+  }
+  ov.requiredVisualDetails.forEach((value, i) =>
+    out.push({ path: `requiredVisualDetails[${i}]`, value, kind: "prose" }),
+  );
+  ov.forbiddenVisualDetails.forEach((value, i) =>
+    out.push({ path: `forbiddenVisualDetails[${i}]`, value, kind: "prose" }),
+  );
+  ov.roleBindings.forEach((rb, i) => {
+    out.push({ path: `roleBindings[${i}].entity`, value: rb.entity, kind: "entity" });
+    out.push({ path: `roleBindings[${i}].visualRole`, value: rb.visualRole, kind: "prose" });
+  });
+  ov.compositionGuidance.forEach((value, i) =>
+    out.push({ path: `compositionGuidance[${i}]`, value, kind: "prose" }),
+  );
+  ov.styleAgnosticPromptAdditions.forEach((value, i) =>
+    out.push({ path: `styleAgnosticPromptAdditions[${i}]`, value, kind: "prose" }),
+  );
+  ov.negativePromptAdditions.forEach((value, i) =>
+    out.push({ path: `negativePromptAdditions[${i}]`, value, kind: "prose" }),
+  );
+  if (ov.supportingTextPolicyOverride?.guidance) {
+    out.push({
+      path: "supportingTextPolicyOverride.guidance",
+      value: ov.supportingTextPolicyOverride.guidance,
+      kind: "prose",
+    });
+  }
+  if (ov.violencePolicyOverride?.guidance) {
+    out.push({
+      path: "violencePolicyOverride.guidance",
+      value: ov.violencePolicyOverride.guidance,
+      kind: "prose",
+    });
+  }
   return out;
+}
+
+const RENDERED_TEXT_PATH_RE =
+  /^(coreSceneOverride|subjectRealizationOverride\.description|requiredVisualDetails\[\d+\]|forbiddenVisualDetails\[\d+\]|roleBindings\[\d+\]\.(entity|visualRole)|compositionGuidance\[\d+\]|styleAgnosticPromptAdditions\[\d+\]|negativePromptAdditions\[\d+\]|supportingTextPolicyOverride\.guidance|violencePolicyOverride\.guidance)$/;
+
+/** True iff `path` is one of the addressable rendered-text paths above — the
+ *  admin batch tokenize route uses this to reject an unknown/forged path
+ *  before doing any LLM work. */
+export function isVisualStrategyRenderedTextPath(path: string): boolean {
+  return RENDERED_TEXT_PATH_RE.test(path);
+}
+
+const ROLE_ENTITY_PATH_RE = /^roleBindings\[\d+\]\.entity$/;
+
+/** Pure path → kind map (the route receives `{path, value, kind}` entries,
+ *  not a whole override, so it needs this to catch a client "kind lie" —
+ *  e.g. an entity path submitted as `kind: "prose"`). Returns null for a path
+ *  that isn't a rendered-text path at all. */
+export function getVisualStrategyRenderedTextKind(
+  path: string,
+): VisualStrategyRenderedTextKind | null {
+  if (!isVisualStrategyRenderedTextPath(path)) return null;
+  return ROLE_ENTITY_PATH_RE.test(path) ? "entity" : "prose";
+}
+
+const INDEXED_ARRAY_FIELD_RE =
+  /^(requiredVisualDetails|forbiddenVisualDetails|compositionGuidance|styleAgnosticPromptAdditions|negativePromptAdditions)\[(\d+)\]$/;
+const ROLE_BINDING_FIELD_RE = /^roleBindings\[(\d+)\]\.(entity|visualRole)$/;
+
+type IndexedArrayField =
+  | "requiredVisualDetails"
+  | "forbiddenVisualDetails"
+  | "compositionGuidance"
+  | "styleAgnosticPromptAdditions"
+  | "negativePromptAdditions";
+
+/**
+ * Pure writeback for one rendered-text path — used by the frontend to fold
+ * tokenize-route results back into the override. **Index-tolerant but
+ * mutation-safe**: a valid-shaped path whose target isn't currently present
+ * (an out-of-range array index, or a parent object that's absent, e.g.
+ * `subjectRealizationOverride.description` when `subjectRealizationOverride`
+ * is unset) is a no-op that returns `ov` unchanged — it never creates a
+ * surprising array element or object. Only a path that resolves to an
+ * existing field gets updated.
+ */
+export function setRenderedTextAtPath(
+  ov: VisualPromptStrategyOverride,
+  path: string,
+  value: string,
+): VisualPromptStrategyOverride {
+  if (path === "coreSceneOverride") {
+    return ov.coreSceneOverride == null ? ov : { ...ov, coreSceneOverride: value };
+  }
+  if (path === "subjectRealizationOverride.description") {
+    return ov.subjectRealizationOverride == null
+      ? ov
+      : { ...ov, subjectRealizationOverride: { ...ov.subjectRealizationOverride, description: value } };
+  }
+  if (path === "supportingTextPolicyOverride.guidance") {
+    return ov.supportingTextPolicyOverride == null
+      ? ov
+      : { ...ov, supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride, guidance: value } };
+  }
+  if (path === "violencePolicyOverride.guidance") {
+    return ov.violencePolicyOverride == null
+      ? ov
+      : { ...ov, violencePolicyOverride: { ...ov.violencePolicyOverride, guidance: value } };
+  }
+  const roleMatch = ROLE_BINDING_FIELD_RE.exec(path);
+  if (roleMatch) {
+    const index = Number(roleMatch[1]);
+    const field = roleMatch[2] as "entity" | "visualRole";
+    if (index < 0 || index >= ov.roleBindings.length) return ov;
+    const roleBindings = ov.roleBindings.slice();
+    roleBindings[index] = { ...roleBindings[index], [field]: value };
+    return { ...ov, roleBindings };
+  }
+  const arrayMatch = INDEXED_ARRAY_FIELD_RE.exec(path);
+  if (arrayMatch) {
+    const field = arrayMatch[1] as IndexedArrayField;
+    const index = Number(arrayMatch[2]);
+    const arr = ov[field];
+    if (index < 0 || index >= arr.length) return ov;
+    const next = arr.slice();
+    next[index] = value;
+    return { ...ov, [field]: next };
+  }
+  return ov;
+}
+
+/**
+ * Save-time normalization for a role binding's `entity` field: a `{…}`
+ * personalization token is context-free invalid (`error`); a typed value that
+ * IS the subject — `"subject"` case-insensitively, or a match against a
+ * client-supplied subject name — collapses to the canonical `"subject"`;
+ * anything else (a role label like `"mother"`) is left as-is. Facts store
+ * *templates*, so the server has no canonical display name of its own —
+ * `subjectNames` is client-supplied context (the moderator's preview name +
+ * defaults), which is safe here because the token-rejection half of this
+ * check is context-free; names only ever collapse a typed name to the benign
+ * `"subject"` label, never introduce or validate a token.
+ */
+export function normalizeRoleEntity(
+  entity: string,
+  subjectNames: string[] = [],
+): { value: string; error?: string } {
+  const trimmed = entity.trim();
+  if (trimmed.includes("{")) {
+    return {
+      value: entity,
+      error:
+        "personalization tokens are not allowed here — use \"subject\" or a plain role label instead",
+    };
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "subject" || subjectNames.some((name) => name.trim().toLowerCase() === lower)) {
+    return { value: "subject" };
+  }
+  return { value: entity };
 }
 
 /** Canonicalize personalization-token case so a hand-typed token behaves like
@@ -167,8 +342,8 @@ export function canonicalizeOverrideTokens(
  *  Empty/whitespace strings are skipped (mid-edit rows). Assumes name-case
  *  variants were already canonicalized. */
 export function firstOverrideTokenError(ov: VisualPromptStrategyOverride): string | null {
-  for (const text of collectRenderedTexts(ov)) {
-    const t = text.trim();
+  for (const { value } of collectRenderedTextEntries(ov)) {
+    const t = value.trim();
     if (!t || !t.includes("{")) continue;
     const res = validateTemplate(t);
     if (!res.valid) return res.error ?? "invalid token";
@@ -186,6 +361,24 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
         message: `visual strategy override has an invalid personalization token: ${err}. Use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens only.`,
       });
     }
+    // Defense-in-depth backstop (bypassed tokenize route / stale client /
+    // manual PATCH): a role `entity` is a "subject"/role LABEL, never a
+    // personalization token — `normalizeRoleEntity` is the save-time helper
+    // that keeps a typed token out in the first place, but this is the hard
+    // server-side invariant. Message is deliberately machine-recognizable
+    // (`roleBindings[i].entity: personalization tokens are not allowed…`) so
+    // the frontend's narrow Save-disable exception can match ONLY this exact
+    // issue and nothing else.
+    ov.roleBindings.forEach((rb, i) => {
+      if (rb.entity.includes("{")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["roleBindings", i, "entity"],
+          message:
+            "personalization tokens are not allowed here — use \"subject\" or a plain role label instead",
+        });
+      }
+    });
   });
 
 /**
@@ -199,7 +392,7 @@ export function hasRenderableVisualStrategyOverrideContent(
 ): boolean {
   if (ov.supportingTextPolicyOverride || ov.violencePolicyOverride) return true;
   if (ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan") return true;
-  return collectRenderedTexts(ov).some((t) => t.trim().length > 0);
+  return collectRenderedTextEntries(ov).some(({ value }) => value.trim().length > 0);
 }
 
 /** A disabled-but-present override scaffold (all lists empty). */

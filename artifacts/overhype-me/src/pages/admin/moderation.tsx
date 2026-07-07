@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
+import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,8 @@ interface Review {
   /**
    * Non-null ⇒ this is a REFRESH cycle of a live fact (versioned enrichment):
    * Step 2 reviews/edits the candidate version, approval promotes it, and
-   * rejection keeps the live fact exactly as-is. Null for first-time submissions.
+   * declining leaves the live fact exactly as-is — this is never a fact
+   * rejection. Null for first-time submissions.
    */
   candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
@@ -351,12 +353,19 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *    "Approve for Production" (existing render gate) or "Back to Visual Concept".
  *
  * Stage mapping:
- *  - triage_pending     → Step 1 only (provisional approve / variant / reject).
+ *  - triage_pending     → Step 1 only (provisional approve / variant / reject —
+ *    the ONLY stage a first-time submission can be rejected from).
  *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
- *  - prep_failed         → Step 1 + retry prep / reject.
- *  - concept_review      → Step 2 default (approve the visual gag / send back / reject).
+ *  - prep_failed         → Step 1 + retry prep. Stays pending until it succeeds.
+ *  - concept_review      → Step 2 default (approve the visual gag / send back).
  *  - production_review   → Step 3 default (approve for production / back to concept).
  *  - resolved            → read-only summary + link to the live fact.
+ *
+ * Once triage passes, a first-time candidate is never rejected again — a
+ * failed prep, an unfinished Visual Concept, or a render that isn't ready
+ * just leaves it pending until an admin resolves it. A refresh cycle (an
+ * already-live fact) is the one exception: its "reject" ("don't promote
+ * this refresh") is available from any of these stages via `canRejectNow`.
  */
 function ReviewModal({
   review,
@@ -394,8 +403,9 @@ function ReviewModal({
   const isEditableStep = isConceptReview || isProductionReview;
   const isResolved = review.status !== "pending";
   // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
-  // live fact's enrichment is frozen), approval promotes it, rejection keeps
-  // the live fact untouched. Set at review creation — never flips mid-mount.
+  // live fact's enrichment is frozen), approval promotes it, declining keeps
+  // the live fact untouched — never a rejection of the fact itself, since it
+  // already cleared triage. Set at review creation — never flips mid-mount.
   const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
   const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
@@ -419,7 +429,17 @@ function ReviewModal({
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
-  const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
+  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride } = enrichEditing;
+
+  // Subject-name hint for tokenizeAndSaveVisualOverride: the moderator's active
+  // render-diagnostics preview name (if set) folded in ahead of the shared
+  // defaults, so the tokenizer preferentially recognizes whatever name is
+  // actually being tested right now.
+  const [previewSubjectName, setPreviewSubjectName] = useState("");
+  const subjectNames = useMemo(
+    () => [previewSubjectName.trim(), ...DEFAULT_SUBJECT_EXAMPLE_NAMES].filter((n) => n.length > 0),
+    [previewSubjectName],
+  );
 
   // Moderator-curated FINAL discovery tags — what actually ships on approval.
   // Seeded from the submitter's tags, or the AI suggestions when the submitter
@@ -569,13 +589,17 @@ function ReviewModal({
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
-    if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
+    // Rejection reason (duplicate/spam/offensive/lame) judges whether the
+    // FACT belongs in the database — required for a first-time triage
+    // reject, but meaningless for a refresh cycle's "don't promote" decline
+    // (that fact already cleared triage; the live fact is never rejected).
+    if (!isRefreshCycle && !reason) { setError("Please select a rejection reason before rejecting."); return; }
     // A refresh reject marks the candidate non-pending; drain any in-flight
     // per-field override write first so a field just blurred by this click
     // doesn't fail against the rejected candidate (the edit is moot on reject,
     // but the failed write would surface a spurious error).
     await enrichEditing.flushOverrides();
-    void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
+    void runAction("reject", { rejectionReason: isRefreshCycle ? undefined : reason, adminNote: note || undefined });
   };
   const onApproveProduction = async (waive?: boolean) => {
     // Land any in-flight per-field override write BEFORE promotion. A tracked
@@ -653,14 +677,14 @@ function ReviewModal({
 
   // Save the dirty Visual Concept draft first, then approve the gag — but ONLY if
   // the save succeeded. The server gates on the PERSISTED coreSceneOverride, so we
-  // must never advance on a browser-only draft.
+  // must never advance on a browser-only draft. Tokenizes on the same click.
   const onSaveConceptAndApprove = useCallback(async (): Promise<void> => {
     if (enrichmentDraft.hasUncommittedChanges) {
-      const ok = await enrichmentDraft.save();
-      if (!ok) return; // save() surfaces its own error; don't advance
+      const ok = await tokenizeAndSaveVisualOverride(subjectNames);
+      if (!ok) return; // blocked (tokenize error) or save() surfaced its own error
     }
     await onApproveVisualConcept();
-  }, [enrichmentDraft, onApproveVisualConcept]);
+  }, [enrichmentDraft, tokenizeAndSaveVisualOverride, subjectNames, onApproveVisualConcept]);
 
   const onBackToVisualConcept = useCallback(async (): Promise<void> => {
     setLoading(true); setError("");
@@ -702,6 +726,11 @@ function ReviewModal({
   const canSaveConceptAndContinue = conceptDirty && draftHasConcept;
   // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
   const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
+  // A first-time submission can only be rejected during triage (Step 1) —
+  // once triage passes, a stuck candidate stays pending until an admin
+  // resolves it. A refresh cycle's "reject" ("don't promote") is always
+  // available since it never touches the live fact.
+  const canRejectNow = stage === "triage_pending" || isRefreshCycle;
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -760,26 +789,37 @@ function ReviewModal({
     <div className="space-y-4">
       {isRefreshCycle && (
         <p className="text-xs text-muted-foreground" data-testid="refresh-reject-hint">
-          This rejects the refresh candidate only. The live fact stays published and unchanged.
+          This declines the refresh candidate only — it is never a rejection of the fact itself. The live fact stays
+          published and completely unchanged; it just doesn't pick up this update.
         </p>
+      )}
+      {/* Rejection Reason judges whether the FACT belongs in the database
+          (duplicate/spam/offensive/lame) — it never applies to a refresh
+          decline, since that fact already cleared triage. */}
+      {!isRefreshCycle && (
+        <div>
+          <label className="block text-sm font-semibold text-foreground mb-2">
+            Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+          </label>
+          <select
+            value={reason}
+            onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
+            className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">— Select a reason —</option>
+            {REJECTION_REASONS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
       )}
       <div>
         <label className="block text-sm font-semibold text-foreground mb-2">
-          Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+          Admin Note{" "}
+          <span className="text-muted-foreground font-normal">
+            {isRefreshCycle ? "(optional, internal — explains why this update wasn't promoted)" : "(optional, sent to user)"}
+          </span>
         </label>
-        <select
-          value={reason}
-          onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
-          className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          <option value="">— Select a reason —</option>
-          {REJECTION_REASONS.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -813,21 +853,28 @@ function ReviewModal({
         <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
           <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            {enrichmentDraft.committing
+            {vsoTokenizing
+              ? "Tokenizing and saving…"
+              : enrichmentDraft.committing
               ? "Saving to server…"
               : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your Visual Concept / render inputs.`}
           </p>
           <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
-              onClick={() => void enrichmentDraft.save()}
-              disabled={enrichmentDraft.committing}
+              onClick={() => void tokenizeAndSaveVisualOverride(subjectNames)}
+              disabled={enrichmentDraft.committing || vsoTokenizing}
               className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
               data-testid="enrichment-save"
             >
               Save
             </button>
-            <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80">
+            <button
+              type="button"
+              onClick={enrichmentDraft.discard}
+              disabled={vsoTokenizing}
+              className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
+            >
               Discard
             </button>
           </div>
@@ -843,6 +890,12 @@ function ReviewModal({
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
+        </div>
+      )}
+      {vsoTokenizeErrors[""] && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{vsoTokenizeErrors[""]}</p>
         </div>
       )}
     </>
@@ -862,16 +915,18 @@ function ReviewModal({
         status={enrichEditing.enrichmentStatus}
         factText={review.submittedText}
         onChange={(next) => enrichmentDraft.setValue(next)}
-        onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
+        onSave={enrichmentDraft.hasUncommittedChanges ? () => void tokenizeAndSaveVisualOverride(subjectNames) : undefined}
         // Deliberately NO onRerun at Step 2/3 (refresh AND first-time): the
         // generic job guard skips review-backed facts outside prep, so the button
         // could only strand the status on "classifying…". Re-classification lives
         // on the Facts page (live facts) and Retry Prep (prep_failed); refresh
-        // cycles are re-classified by rejecting + re-sending.
+        // cycles are re-classified by declining + re-sending.
         busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
         rerunBusy={jobs.rerunBusy}
         hideHashtags
         overrideContext={enrichEditing.overrideContext}
+        vsoTokenizing={vsoTokenizing}
+        vsoTokenizeErrors={vsoTokenizeErrors}
       />
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -886,7 +941,11 @@ function ReviewModal({
         </div>
       )}
       {stagingFactId > 0 && (
-        <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
+        <RuntimePromptPreview
+          factId={stagingFactId}
+          reviewIdForRender={review.id}
+          onPreviewNameChange={setPreviewSubjectName}
+        />
       )}
     </CollapsibleSection>
   );
@@ -938,7 +997,10 @@ function ReviewModal({
               )}
               {stage === "prep_failed" && (
                 <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Enrichment failed after retries. Retry prep, or reject.
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {canRejectNow
+                    ? "Enrichment failed after retries. Retry prep, or reject."
+                    : "Enrichment failed after retries. Retry prep — this stays pending until it succeeds."}
                 </p>
               )}
               {isConceptReview && (
@@ -962,8 +1024,8 @@ function ReviewModal({
               {isRefreshCycle && (
                 <p className="text-xs text-muted-foreground" data-testid="refresh-step2-hint">
                   Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Approving the
-                  visual gag applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing
-                  memes, images, and hashtags are never changed.
+                  visual gag applies it to future renders only; declining keeps the live fact exactly as it is — this
+                  is never a rejection of the fact. Existing memes, images, and hashtags are never changed.
                 </p>
               )}
 
@@ -978,7 +1040,8 @@ function ReviewModal({
                   panel inside Advanced Options. */}
               <VisualConceptCard
                 value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
                 onChange={(next) => {
                   if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
                 }}
@@ -988,7 +1051,7 @@ function ReviewModal({
                   fills the concept field above (draft only; still Save). */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
-                disabled={!enrichment || loading || enrichmentDraft.committing}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
                 onPick={onPickConcept}
                 onGenerate={onGenerateConcepts}
               />
@@ -997,13 +1060,17 @@ function ReviewModal({
               {ideasPending && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-pending-note">
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep.
+                  {canRejectNow
+                    ? "Visual ideas are still generating. Wait for them to finish, then retry, edit, reject, or send back to prep."
+                    : "Visual ideas are still generating. Wait for them to finish, then retry, edit, or send back to prep — this stays pending until it's resolved."}
                 </p>
               )}
               {ideasFailed && (
                 <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="ideas-failed-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep.
+                  {canRejectNow
+                    ? "Visual-ideas generation failed. Regenerate them (above), or reject / send back to prep."
+                    : "Visual-ideas generation failed. Regenerate them (above), or send back to prep — this stays pending until it's resolved."}
                 </p>
               )}
               {visualConceptStatus == null && (
@@ -1033,8 +1100,8 @@ function ReviewModal({
               {isRefreshCycle && (
                 <p className="text-xs text-muted-foreground" data-testid="refresh-step3-hint">
                   Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Promoting
-                  applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing memes,
-                  images, and hashtags are never changed.
+                  applies it to future renders only; declining keeps the live fact exactly as it is — this is never a
+                  rejection of the fact. Existing memes, images, and hashtags are never changed.
                 </p>
               )}
 
@@ -1058,8 +1125,8 @@ function ReviewModal({
             <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
-          {/* ── Decision inputs (Triage step only) ── */}
-          {!isResolved && step === "triage" && DecisionInputs}
+          {/* ── Decision inputs (Triage step only, and only where reject is available) ── */}
+          {!isResolved && step === "triage" && canRejectNow && DecisionInputs}
 
           {/* ── Resolved: stored reason / note ── */}
           {isResolved && (review.reason || review.adminNote) && (
@@ -1134,10 +1201,12 @@ function ReviewModal({
 
             {!isResolved && step === "triage" && stage === "prep_pending" && (
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel} (cancels prep)
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Close</Button>
               </div>
             )}
@@ -1148,10 +1217,12 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   <RefreshCw className="w-4 h-4" /> Retry Prep
                 </Button>
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel}
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
@@ -1163,44 +1234,51 @@ function ReviewModal({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   {isConceptReview ? "Continue to Visual Concept" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" onClick={onReject} isLoading={loading}
-                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                  <XCircle className="w-4 h-4" /> {rejectLabel}
-                </Button>
+                {canRejectNow && (
+                  <Button variant="outline" onClick={onReject} isLoading={loading}
+                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                    <XCircle className="w-4 h-4" /> {rejectLabel}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders) or reject. */}
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or —
+                for a refresh cycle only — decline to promote it. A first-time
+                candidate that's stuck here stays pending until an admin fixes
+                the Visual Concept; it is never rejected past triage. */}
             {!isResolved && step === "concept" && isConceptReview && (
               <div className="space-y-3">
-                {DecisionInputs}
+                {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading || vsoTokenizing} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
                   </Button>
                   {conceptDirty ? (
-                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing}
-                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing}
+                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing || vsoTokenizing}
+                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing || vsoTokenizing}
                       title={canSaveConceptAndContinue ? undefined : "Write or pick a Visual Concept first"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                       data-testid="save-concept-and-continue">
-                      <ChevronRight className="w-4 h-4" /> Save Visual Concept &amp; Continue
+                      <ChevronRight className="w-4 h-4" /> {vsoTokenizing ? "Tokenizing and saving…" : "Save Visual Concept & Continue"}
                     </Button>
                   ) : (
                     <Button onClick={() => void onApproveVisualConcept()} isLoading={loading}
-                      disabled={!canApproveGag || loading}
+                      disabled={!canApproveGag || loading || vsoTokenizing}
                       title={canApproveGag ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-visual-gag">
                       <Wand2 className="w-4 h-4" /> Approve the Visual Gag
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
-                  </Button>
-                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                  {canRejectNow && (
+                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
+                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
                 </div>
                 {!conceptDirty && !canApproveGag && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
@@ -1228,34 +1306,37 @@ function ReviewModal({
                     </p>
                   </div>
                 )}
-                {/* Rejection Reason + note live here too, right above the buttons,
-                    so a fact can be rejected from Test Renders without hunting for
-                    the field — and regardless of render staleness. */}
-                {DecisionInputs}
+                {/* Rejection Reason + note live here too, right above the buttons —
+                    but only for a refresh cycle ("don't promote"). A first-time
+                    candidate stuck on a bad render stays pending until an admin
+                    fixes it; it is never rejected past triage. */}
+                {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
+                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading || vsoTokenizing}
                     className="gap-2" data-testid="back-to-visual-concept">
                     <ChevronLeft className="w-4 h-4" /> Back to Visual Concept
                   </Button>
                   {renderProblems ? (
-                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
+                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-anyway-waive">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Anyway" : "Approve Anyway"} (Waive {renderProblems.length})
                     </Button>
                   ) : (
-                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
+                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onReject} isLoading={loading}
-                    className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
-                    <XCircle className="w-4 h-4" /> {rejectLabel}
-                  </Button>
-                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                  {canRejectNow && (
+                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
+                      className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                      <XCircle className="w-4 h-4" /> {rejectLabel}
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
                 </div>
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">

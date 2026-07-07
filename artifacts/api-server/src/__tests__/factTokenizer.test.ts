@@ -8,7 +8,11 @@ import {
   TOKENIZER_ALLOWED_MODELS,
   collapseNameSubjectConjugationPairs,
   TOKENIZE_SYSTEM_PROMPT,
+  tokenizePlainTextToTemplate,
+  isAlreadyTokenizedNoPlainName,
+  hasNoLikelySubjectReference,
 } from "../lib/factTokenizer.js";
+import type { callUtilityLLM } from "../lib/utilityLLM.js";
 import {
   validateTemplate,
   collapseIdenticalConjugationBranches,
@@ -268,5 +272,163 @@ describe("templateGrammar — collapseIdenticalConjugationBranches", () => {
     assert.equal(collapseIdenticalConjugationBranches(once), once);
     assert.equal(collapseIdenticalConjugationBranches(""), "");
     assert.equal(collapseIdenticalConjugationBranches("plain text only"), "plain text only");
+  });
+});
+
+function modelReturning(content: string): typeof callUtilityLLM {
+  return (async () => ({ choices: [{ message: { content } }] })) as unknown as typeof callUtilityLLM;
+}
+
+describe("factTokenizer — tokenizePlainTextToTemplate (core)", () => {
+  it("parses the model's template, runs the deterministic net, and validates it", async () => {
+    const result = await tokenizePlainTextToTemplate("David laughs and keeps going.", {
+      callModel: modelReturning(JSON.stringify({ template: "{NAME} laughs and {SUBJ} keeps going." })),
+    });
+    assert.equal(result.rawTemplate, "{NAME} laughs and {SUBJ} keeps going.");
+    assert.equal(result.template, "{NAME} laughs and {SUBJ} {keeps|keep} going.");
+    assert.equal(result.passes.conjugated, true);
+    assert.equal(result.usedLlm, true);
+    assert.equal(result.grammarError, undefined);
+  });
+
+  it("falls back to the raw input when the model returns malformed JSON", async () => {
+    const result = await tokenizePlainTextToTemplate("plain text", {
+      callModel: modelReturning("not json"),
+    });
+    assert.equal(result.rawTemplate, "plain text");
+    assert.equal(result.template, "plain text");
+  });
+
+  it("skipLlm:true never calls the model — deterministic net only", async () => {
+    let called = false;
+    const callModel = (async () => { called = true; return { choices: [{ message: { content: "{}" } }] }; }) as unknown as typeof callUtilityLLM;
+    const result = await tokenizePlainTextToTemplate("{Subj}'s unstoppable", { skipLlm: true, callModel });
+    assert.equal(called, false);
+    assert.equal(result.usedLlm, false);
+    assert.equal(result.template, "{Subj} {is|are} unstoppable");
+  });
+
+  it("returns grammarError (not throw) on an invalid template, still returning the template", async () => {
+    const result = await tokenizePlainTextToTemplate("x", {
+      callModel: modelReturning(JSON.stringify({ template: "{NAME unmatched brace text" })),
+    });
+    assert.ok(result.grammarError);
+    assert.match(result.grammarError!, /Unmatched opening brace/);
+    assert.equal(result.template, "{NAME unmatched brace text");
+  });
+
+  it("is idempotent when re-run in skipLlm mode on already-tokenized text", async () => {
+    const first = await tokenizePlainTextToTemplate("David keeps it in his back yard.", {
+      callModel: modelReturning(JSON.stringify({ template: "{NAME} keeps it in {POSS} back yard." })),
+    });
+    const second = await tokenizePlainTextToTemplate(first.template, { skipLlm: true });
+    assert.equal(second.template, first.template);
+  });
+
+  it("purpose:visual_strategy with subjectNames prepends a JSON-encoded names hint to the user message, never raw-interpolated", async () => {
+    let capturedUserMessage = "";
+    const callModel = (async (req: { messages: { role: string; content: string }[] }) => {
+      capturedUserMessage = req.messages.find((m) => m.role === "user")?.content ?? "";
+      return { choices: [{ message: { content: JSON.stringify({ template: "x" }) } }] };
+    }) as unknown as typeof callUtilityLLM;
+    await tokenizePlainTextToTemplate("David and his \"friend\" Alex pose together.", {
+      purpose: "visual_strategy",
+      subjectNames: ["David Franklin", 'Weird "Name'],
+      callModel,
+    });
+    assert.match(capturedUserMessage, /personalized subject may be referred to/);
+    assert.equal(
+      capturedUserMessage.includes(JSON.stringify(["David Franklin", 'Weird "Name'])),
+      true,
+    );
+  });
+
+  it("caps the names hint at 10 subject names", async () => {
+    let capturedUserMessage = "";
+    const callModel = (async (req: { messages: { role: string; content: string }[] }) => {
+      capturedUserMessage = req.messages.find((m) => m.role === "user")?.content ?? "";
+      return { choices: [{ message: { content: JSON.stringify({ template: "x" }) } }] };
+    }) as unknown as typeof callUtilityLLM;
+    const names = Array.from({ length: 15 }, (_, i) => `Name${i}`);
+    await tokenizePlainTextToTemplate("text", { purpose: "visual_strategy", subjectNames: names, callModel });
+    assert.equal(capturedUserMessage.includes(JSON.stringify(names.slice(0, 10))), true);
+  });
+
+  it("omits the names hint when purpose is not visual_strategy (fact behavior unchanged)", async () => {
+    let capturedUserMessage = "";
+    const callModel = (async (req: { messages: { role: string; content: string }[] }) => {
+      capturedUserMessage = req.messages.find((m) => m.role === "user")?.content ?? "";
+      return { choices: [{ message: { content: JSON.stringify({ template: "x" }) } }] };
+    }) as unknown as typeof callUtilityLLM;
+    await tokenizePlainTextToTemplate("David laughs.", { subjectNames: ["David"], callModel });
+    assert.equal(capturedUserMessage, 'Convert this fact to a template:\n\n"David laughs."');
+  });
+});
+
+describe("factTokenizer — isAlreadyTokenizedNoPlainName", () => {
+  it("true for a valid template with no plain subject-name occurrence", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} raises {POSS} fist.", ["David Franklin"]), true);
+  });
+
+  it("false when there are no braces at all", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("David raises his fist.", ["David Franklin"]), false);
+  });
+
+  it("false when the template is grammatically invalid", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{BOGUS} raises a fist.", ["David Franklin"]), false);
+  });
+
+  it("false when a plain subject-name word still appears outside any brace span", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} and David pose together.", ["David Franklin"]), false);
+  });
+
+  it("does not treat {NAME} as a plain occurrence of a subject literally named 'Name'", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} raises {POSS} fist.", ["Name Framework"]), true);
+  });
+
+  it("ignores subject-name words under 3 chars (boundary)", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} and Al pose together.", ["Al Franklin"]), true);
+  });
+
+  it("is word-boundary bounded (does not false-positive on a substring)", () => {
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} loves Davidson's diner.", ["David"]), true);
+  });
+
+  it("REGRESSION (Codex): false for a MIXED template — {NAME} chip-inserted but a plain pronoun left untouched", () => {
+    // Without the pronoun check, this would report "already tokenized" and
+    // skip the only pass that could ever convert "his" — hardcoding the
+    // pronoun forever instead of resolving it per-render.
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} holds his trophy.", ["David Franklin"]), false);
+    assert.equal(isAlreadyTokenizedNoPlainName("{NAME} and her friend celebrate.", []), false);
+  });
+});
+
+describe("factTokenizer — hasNoLikelySubjectReference", () => {
+  it("true for an art-direction fragment with no braces, name, or pronoun", () => {
+    assert.equal(hasNoLikelySubjectReference("wide-angle lens, warm golden-hour lighting", ["David Franklin"]), true);
+  });
+
+  it("false when braces are present", () => {
+    assert.equal(hasNoLikelySubjectReference("{NAME} in warm lighting", ["David Franklin"]), false);
+  });
+
+  it("false when a plain subject-name word is present", () => {
+    assert.equal(hasNoLikelySubjectReference("David in warm lighting", ["David Franklin"]), false);
+  });
+
+  it("false when a subject pronoun is present (he/him/his/she/her/they/them/their/reflexives)", () => {
+    for (const text of [
+      "he stands in warm light", "watching him from afar", "his silhouette in the doorway",
+      "she leans against the wall", "watching her from afar", "her silhouette in the doorway",
+      "they stand together", "watching them from afar", "their shadows merge",
+      "he catches himself in the mirror", "she catches herself in the mirror",
+    ]) {
+      assert.equal(hasNoLikelySubjectReference(text, []), false, `expected false for: "${text}"`);
+    }
+  });
+
+  it("does not treat a pronoun word inside a brace span as a plain pronoun", () => {
+    assert.equal(hasNoLikelySubjectReference("{NAME} stands near a hershey bar", []), false); // braces present → false regardless
+    assert.equal(hasNoLikelySubjectReference("a hershey bar on the counter", []), true); // "her" is not a whole word here
   });
 });

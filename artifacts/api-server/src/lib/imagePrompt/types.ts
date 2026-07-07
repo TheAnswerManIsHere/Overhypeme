@@ -69,7 +69,8 @@ export interface PromptSection {
   /** The full resolved section text before de-dupe/budget trimming. */
   rawText: string;
   /** True when the section's content was authored by a human moderator
-   *  (e.g. the visual-concept core scene) rather than the planner LLM. */
+   *  (e.g. the visual-concept core scene, or moderator roleBindings) rather
+   *  than the planner LLM. */
   moderatorAuthored?: boolean;
 }
 

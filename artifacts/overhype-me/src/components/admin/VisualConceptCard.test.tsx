@@ -118,4 +118,25 @@ describe("VisualConceptCard", () => {
     render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "starring {BOGUS}" }} />);
     expect(screen.getByTestId("visual-concept-card").textContent).toMatch(/Invalid token/i);
   });
+
+  it("shows a tokenize error (from vsoTokenizeErrors) ahead of the token-validation warning", () => {
+    render(
+      <VisualConceptCard
+        value={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "starring {BOGUS}" }}
+        onChange={() => {}}
+        tokenizeError="unbalanced token"
+      />,
+    );
+    const text = screen.getByTestId("visual-concept-card").textContent ?? "";
+    expect(text).toContain("unbalanced token");
+    expect(text).not.toMatch(/Invalid token/i);
+  });
+
+  it("disables the textarea and chips when disabled=true", () => {
+    render(<VisualConceptCard value={EMPTY_VISUAL_STRATEGY_OVERRIDE} onChange={() => {}} disabled />);
+    expect((screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement).disabled).toBe(true);
+    for (const chip of screen.getAllByTestId("visual-concept-token-chip")) {
+      expect((chip as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
 });
