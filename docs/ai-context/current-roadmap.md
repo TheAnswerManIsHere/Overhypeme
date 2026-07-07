@@ -5,7 +5,9 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-04 (around PR #179/#180).*
+> *Snapshot date: 2026-07-04 (around PR #179/#180); stale-fact-refresh arc
+> section updated 2026-07-07 (through PR #205) — the rest of this snapshot is
+> not re-audited, read `git log` for the live picture.*
 
 ## Active area of focus
 
@@ -25,8 +27,12 @@ priorities (moderation speed, render/enrichment quality, video). See
   approval (PR #179). See [`moderation-workflow.md`](./moderation-workflow.md).
 - **Candidate Visual Concepts** — backend + frontend 3-card picker (PRs #163, #166)
   and lowercase-token acceptance in the Visual Concept field (#167).
-- **Versioned enrichment / stale-fact refresh** — core + send-back UI + version
-  history + candidate editing (PRs #160, #164).
+- **Versioned enrichment / stale-fact refresh — full arc shipped.** Core +
+  send-back UI + version history + candidate editing (PRs #160, #164); manual
+  ProcessingSignature/engine-revision staleness tracking + Taxonomy Health
+  lens (PR #168); bulk send-back — fan the single-fact primitive out via the
+  async queue, initiation only, never auto-promotes (PR #205). See
+  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).
 - **Faster moderation** — removed the slow approval preflight; instant approve,
   live "test renders" pills, reject-in-visual-review (PRs #162, #165).
 - **Tokenizer grammar correctness batch** — `{NAME_POSSESSIVE}` rendering,
@@ -52,9 +58,6 @@ priorities (moderation speed, render/enrichment quality, video). See
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
   handling.
 - **Video meme pipeline** — maturity + user-facing status/experience.
-- **Processing signatures (PR3)** — close the `signature: null // TODO(PR3-signature)`
-  gap so staleness reflects engine/prompt/code revision. **Needs David confirmation**
-  on scope/timing.
 
 ## Explicitly deferred work
 
@@ -65,14 +68,17 @@ priorities (moderation speed, render/enrichment quality, video). See
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
 - **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
   (`docs/manual/README.md`) and the `/document` ceremony that grows it
-  incrementally are in place; writing the initial set of chapters for
-  already-built areas (content lifecycle, moderation, visual pipeline,
-  taxonomy/enrichment, personalization/grammar, admin console, background work)
-  is a separate deferred pass. **Needs David confirmation** on timing (he plans
-  to kick it off when usage resets).
+  incrementally are in place; writing the initial set of chapters for the
+  remaining already-built areas (content lifecycle, visual pipeline,
+  personalization/grammar, admin console, background work — moderation and
+  taxonomy/enrichment are now written) is a separate deferred pass. **Needs
+  David confirmation** on timing (he plans to kick it off when usage resets).
 
 ## Open product questions
 
 - Should any render scenario become a **hard** approval gate (today all waivable)?
-- Signature stamping (PR3) scope and what a signature should capture.
+- Should any subset of a refresh (e.g. one where only non-render-affecting
+  inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
+  send-back only initiates; see the PR #168/#205 entry in
+  [`decisions.md`](./decisions.md).
 - *(Add here when a real product decision is pending — don't guess.)*

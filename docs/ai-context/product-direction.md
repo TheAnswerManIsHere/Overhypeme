@@ -103,7 +103,5 @@ before proposing to reverse one.)*
 *(None blocking as of this writing. Add here when a direction is genuinely
 ambiguous rather than guessing. Candidates an agent might surface:)*
 
-- Processing signatures (PR3) — is closing the TODO in scope soon, and what should
-  a signature capture? **Needs David confirmation.**
 - Whether any render scenario should become a **hard** approval gate (today all are
   waivable). **Needs David confirmation.**
