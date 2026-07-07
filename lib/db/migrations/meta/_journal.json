@@ -596,6 +596,13 @@
       "when": 1781700000000,
       "tag": "0084_strip_stale_compatibility_fallback_rule",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1781800000000,
+      "tag": "0085_visual_concept_leads_system_prompt",
+      "breakpoints": true
     }
   ]
 }

@@ -45,7 +45,11 @@ import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 // content-word key-element gap-fill; generalized age-transform SUBJECT BINDING
 // to non-human/t2i renders. Compiled output changes for identical inputs, so
 // existing test renders correctly flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v5";
+// v6: CORE SCENE now leads the compiled prompt in every render mode; ROLE
+// DETAILS replaces REFERENCE INTERPRETATION and never doubles a name; additive
+// de-dupe upgraded from substring to content-word contiguity. Compiled output
+// changes for identical inputs, so existing test renders correctly flag stale.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v6";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
