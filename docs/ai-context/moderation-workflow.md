@@ -30,15 +30,24 @@ triage_pending ──reject──> triage_rejected
 prep_pending ──prep abandon──> prep_failed ──retry──> prep_pending
       │ prep ok (enqueues Visual-Idea candidates; NO renders yet)
       ▼
-concept_review ──reject──> production_rejected        ← Step 2: Visual Concept gate
+concept_review                                        ← Step 2: Visual Concept gate
       │  approve the visual gag        ↑ back to visual concept
       │  (saved coreScene + ideas OK → force-enqueue the default render batch)
       ▼
-production_review ──reject──> production_rejected      ← Step 3: Test Renders gate
+production_review                                     ← Step 3: Test Renders gate
       │ production approve
       ▼
 production_approved   (fact is now live)
 ```
+
+**Rejection only happens at `triage_pending`.** Once a first-time submission
+clears triage, there is no reject path — a failed prep, an unfinished Visual
+Concept, or a render that isn't ready just leaves the candidate parked
+(`prep_failed` / pending `concept_review` / pending `production_review`) until
+an admin resolves the underlying issue (retry prep, fix the concept, fix the
+render). It is the admin's job to get it unstuck, not to reject it. The one
+exception is a **refresh cycle** (re-reviewing an already-live fact) — see
+below.
 
 Stages group in the UI as **Needs first pass → Prep → Visual Concept →
 Test Renders → Resolved**. The wizard shows three steps: **Triage → Visual
@@ -74,7 +83,8 @@ point.**
 (AI classification/taxonomy — see
 [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)), **Pexels** image
 lookup, and render-scenario preparation. On terminal failure the review moves to
-`prep_failed` (retryable, or reject).
+`prep_failed` — retryable only; a first-time submission is never rejected here,
+it stays pending until the retry succeeds.
 
 ## Visual Concept review ("Step 2", `concept_review`)
 
@@ -85,8 +95,9 @@ description of how the gag works (see [`visual-pipeline.md`](./visual-pipeline.m
 - accepts an AI-drafted Visual-Idea candidate, edits it, or writes a new concept,
 - tunes the enrichment via the embedded **Enrichment Editor** (Advanced Options),
 - inspects the **Runtime Compiled Prompt** preview,
-- then **approves the visual gag** (advances to Step 3, force-firing renders),
-  sends it back to prep, or rejects.
+- then **approves the visual gag** (advances to Step 3, force-firing renders)
+  or sends it back to prep. (A first-time submission is never rejected here —
+  see **Rejection paths** below.)
 
 **Visual Ideas are a blocking prep artifact here**, not best-effort: the gag
 gate requires a saved, non-empty `visualPromptStrategyOverride.coreSceneOverride`
@@ -103,9 +114,11 @@ tweaking. The moderator:
 
 - inspects the **test-render** meme grid and the **Runtime Compiled Prompt**,
 - tweaks enrichment/concept and re-runs renders as needed,
-- then **production-approves** (existing render/waiver gate) or rejects — or
-  **sends the fact back to Visual Concept** (Step 3 → Step 2), which supersedes
-  the in-flight renders; re-approval force-creates a fresh batch.
+- then **production-approves** (existing render/waiver gate), or **sends the
+  fact back to Visual Concept** (Step 3 → Step 2), which supersedes the
+  in-flight renders; re-approval force-creates a fresh batch. (A first-time
+  submission is never rejected here — a render that isn't working is the
+  admin's job to fix, per **Rejection paths** below.)
 
 ## Pexels and test renders
 
@@ -133,17 +146,23 @@ candidate as rejected history (never hard-deleted). See
 
 ## Rejection paths
 
-- `triage_rejected` — rejected at first pass (no paid work spent).
-- `prep_failed` → reject — abandoned during prep.
-- `production_rejected` — rejected after prep; audit columns capture the
-  reject-after-spend so the cost is visible.
+- `triage_rejected` — rejected at first pass (no paid work spent). **This is
+  the only rejection path for a first-time submission.** Once triage passes,
+  `canReject` (`lib/api-zod/src/moderationWorkflow.ts`) refuses every other
+  stage — the route 409s and the UI hides the Reject button — so a stuck
+  candidate (`prep_failed`, an unresolved Visual Concept, a render that isn't
+  ready) stays pending until an admin resolves it.
+- `production_rejected` via a **refresh cycle's** "don't promote this
+  refresh" — the one exception, since a refresh (re-reviewing an
+  already-live fact) starts past triage by design and its "reject" never
+  touches the live fact (see **Final production approval** above).
 
 ## Retry and failure states
 
-`prep_failed` is retryable (re-enqueues prep) or rejectable. Underlying prep jobs
-have their own `attempts`/`maxAttempts` in `async_jobs`; the backend's retry logic
-is what ultimately fails a crash-looping job — the UI just reflects
-`done`/`failed`.
+`prep_failed` is retryable only (re-enqueues prep) — never rejectable for a
+first-time submission. Underlying prep jobs have their own
+`attempts`/`maxAttempts` in `async_jobs`; the backend's retry logic is what
+ultimately fails a crash-looping job — the UI just reflects `done`/`failed`.
 
 ## Admin UX expectations
 
