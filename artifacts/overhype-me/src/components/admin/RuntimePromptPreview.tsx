@@ -232,15 +232,22 @@ function loadPersisted(factId: number | null, reviewId: number | null, reviewIdF
   }
 }
 
-type RuntimePromptPreviewProps =
+type RuntimePromptPreviewProps = (
   // Fact path (also used by the moderation modal: factId = stagingFactId).
   // `reviewIdForRender` only scopes the persisted controls to a review so the
   // moderation diagnostics state never collides with the fact-editor preview;
   // it no longer enables any render action (the scenario grid owns rendering).
   | { factId: number; reviewId?: undefined; reviewIdForRender?: number }
-  | { reviewId: number; factId?: undefined; reviewIdForRender?: undefined };
+  | { reviewId: number; factId?: undefined; reviewIdForRender?: undefined }
+) & {
+  /** Fires whenever the moderator's preview name changes — lets a caller (the
+   *  moderation modal) fold it into `tokenizeAndSaveVisualOverride`'s
+   *  `subjectNames` hint without lifting this component's whole persisted
+   *  control state. */
+  onPreviewNameChange?: (name: string) => void;
+};
 
-export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: RuntimePromptPreviewProps) {
+export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPreviewNameChange }: RuntimePromptPreviewProps) {
   const isReviewMode = reviewId !== undefined;
   // Moderation diagnostics default to t2i (review facts have no source image).
   const defaultMode: SubjectRenderMode = reviewIdForRender !== undefined ? "t2i_fallback" : "human_identity_i2i";
@@ -303,6 +310,12 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     skipNextSaveRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factId, reviewId, reviewIdForRender]);
+
+  const onPreviewNameChangeRef = useRef(onPreviewNameChange);
+  onPreviewNameChangeRef.current = onPreviewNameChange;
+  useEffect(() => {
+    onPreviewNameChangeRef.current?.(previewName);
+  }, [previewName]);
 
   // In moderation diagnostics, keep the t2i fallback gender synced to the sample
   // pronouns until the moderator manually overrides it. Fixes the common case

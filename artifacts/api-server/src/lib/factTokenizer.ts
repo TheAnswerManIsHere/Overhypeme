@@ -16,7 +16,9 @@ import {
   collapseIdenticalConjugationBranches,
   collapseNameSubjectConjugationPairs,
   expandSubjectContractions,
+  validateTemplate,
 } from "./templateGrammar";
+import { callUtilityLLM } from "./utilityLLM";
 
 // Re-exported for callers/tests that reach the grammar passes through the
 // tokenizer module; the implementation lives in api-zod with its siblings.
@@ -168,5 +170,173 @@ export function postProcessTokenizedTemplate(
     contractionExpanded: contractionsExpandedTemplate !== nameSubjectCollapsed,
     conjugated: conjugatedTemplate !== contractionsExpandedTemplate,
     collapsed: collapsedTemplate !== conjugatedTemplate,
+  };
+}
+
+/**
+ * Mask every `{…}` brace span (replacing it with a single space) before doing
+ * plain-text word matching, so a token like `{NAME}` or `{NAME_POSSESSIVE}`
+ * is never mistaken for a literal plain-text occurrence of a subject who
+ * happens to be named "Name", and a name inside a conjugation pair's
+ * alternatives can't match either.
+ */
+function maskBraceSpans(text: string): string {
+  return text.replace(/\{[^{}]*\}/g, " ");
+}
+
+function escapeForRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Individual words (>=3 chars) drawn from every subject name, deduped. */
+function subjectNameWords(subjectNames: string[]): string[] {
+  const words = new Set<string>();
+  for (const name of subjectNames) {
+    for (const word of name.split(/\s+/)) {
+      const trimmed = word.trim();
+      if (trimmed.length >= 3) words.add(trimmed);
+    }
+  }
+  return [...words];
+}
+
+function containsPlainSubjectNameWord(text: string, subjectNames: string[]): boolean {
+  const masked = maskBraceSpans(text);
+  return subjectNameWords(subjectNames).some((word) =>
+    new RegExp(`\\b${escapeForRegex(word)}\\b`, "i").test(masked),
+  );
+}
+
+// Deliberately small: pronouns that can refer to the personalized subject.
+// This is a conservative optimization heuristic, not a grammar guarantee —
+// missing a pronoun here only costs an extra (harmless) LLM call.
+const SUBJECT_PRONOUN_WHITELIST = [
+  "he", "him", "his", "she", "her", "hers",
+  "they", "them", "their", "theirs",
+  "himself", "herself", "themself", "themselves",
+];
+
+function containsSubjectPronoun(text: string): boolean {
+  const masked = maskBraceSpans(text);
+  return SUBJECT_PRONOUN_WHITELIST.some((pronoun) =>
+    new RegExp(`\\b${pronoun}\\b`, "i").test(masked),
+  );
+}
+
+/**
+ * True iff `text` is already a valid template (contains `{`, passes
+ * `validateTemplate`) AND no subject-name word appears in plain text outside
+ * any brace span. Callers use this to skip the LLM call entirely and run only
+ * the deterministic grammar net — safe because there is nothing left for the
+ * model to tokenize.
+ */
+export function isAlreadyTokenizedNoPlainName(text: string, subjectNames: string[] = []): boolean {
+  if (!text.includes("{")) return false;
+  if (!validateTemplate(text).valid) return false;
+  return !containsPlainSubjectNameWord(text, subjectNames);
+}
+
+/**
+ * True iff `text` has no braces, no plain subject-name word, and no subject
+ * pronoun — i.e. it reads as an art-direction fragment ("wide-angle, warm
+ * lighting") with nothing personalizable in it. A conservative optimization:
+ * missing a real subject reference only costs an extra LLM call, never a
+ * wrong template.
+ */
+export function hasNoLikelySubjectReference(text: string, subjectNames: string[] = []): boolean {
+  if (text.includes("{")) return false;
+  if (containsPlainSubjectNameWord(text, subjectNames)) return false;
+  return !containsSubjectPronoun(text);
+}
+
+export interface TokenizeCoreResult {
+  rawTemplate: string;
+  template: string;
+  passes: {
+    nameCollapsed: boolean;
+    contractionExpanded: boolean;
+    conjugated: boolean;
+    collapsed: boolean;
+  };
+  usedLlm: boolean;
+  /** Returned, NOT thrown — callers decide how to surface a grammar failure. */
+  grammarError?: string;
+}
+
+export interface TokenizeCoreOptions {
+  /** Skip the LLM call and run only the deterministic grammar net. */
+  skipLlm?: boolean;
+  /** Names that identify the personalized subject, for `visual_strategy` prose. */
+  subjectNames?: string[];
+  /**
+   * `"visual_strategy"` prepends a subject-names hint to the user message so
+   * the model only tokenizes the personalized subject in prose that may also
+   * name other (non-personalized) characters or roles. Omit/`"fact"` for the
+   * original fact-submission behavior (byte-for-byte unchanged).
+   */
+  purpose?: "fact" | "visual_strategy";
+  /** Injectable model seam for tests — mirrors `suggestHashtagsForText`. */
+  callModel?: typeof callUtilityLLM;
+}
+
+/**
+ * The single tokenization core shared by fact submission and admin
+ * Visual-Concept authoring: propose a template via the tokenizer model (unless
+ * `skipLlm`), then run it through the deterministic grammar net
+ * (`postProcessTokenizedTemplate`) and validate the result. Never throws for a
+ * grammar failure — that comes back as `grammarError` for the caller to
+ * surface however fits its response shape.
+ */
+export async function tokenizePlainTextToTemplate(
+  text: string,
+  opts: TokenizeCoreOptions = {},
+): Promise<TokenizeCoreResult> {
+  const callModel = opts.callModel ?? callUtilityLLM;
+  let rawTemplate = text;
+  const usedLlm = !opts.skipLlm;
+
+  if (usedLlm) {
+    let userMessage = `Convert this fact to a template:\n\n"${text}"`;
+    if (opts.purpose === "visual_strategy" && opts.subjectNames && opts.subjectNames.length > 0) {
+      const namesJson = JSON.stringify(opts.subjectNames.slice(0, 10));
+      userMessage =
+        `The personalized subject may be referred to by these names: ${namesJson}. ` +
+        `Only replace those names and their pronouns with personalization tokens; leave other ` +
+        `role labels or character names as plain text.\n\n${userMessage}`;
+    }
+
+    const completion = await callModel({
+      model: TOKENIZER_MODEL,
+      reasoningEffort: TOKENIZER_REASONING_EFFORT,
+      maxTokens: 1024,
+      temperature: 0,
+      responseFormat: { type: "json_object" },
+      messages: [
+        { role: "system", content: TOKENIZE_SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.template === "string" && parsed.template.length > 0) {
+        rawTemplate = parsed.template;
+      }
+    } catch {
+      rawTemplate = text;
+    }
+  }
+
+  const { template, nameCollapsed, contractionExpanded, conjugated, collapsed } =
+    postProcessTokenizedTemplate(rawTemplate);
+  const grammarResult = validateTemplate(template);
+
+  return {
+    rawTemplate,
+    template,
+    passes: { nameCollapsed, contractionExpanded, conjugated, collapsed },
+    usedLlm,
+    grammarError: grammarResult.valid ? undefined : grammarResult.error,
   };
 }

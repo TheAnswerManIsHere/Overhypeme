@@ -9,24 +9,43 @@ import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
 import { sanitizeHashtagsForPersistence } from "../lib/hashtags";
 import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
-import { validateTemplate } from "../lib/templateGrammar";
 import {
-  TOKENIZE_SYSTEM_PROMPT,
-  TOKENIZER_MODEL,
-  TOKENIZER_REASONING_EFFORT,
-  postProcessTokenizedTemplate,
+  tokenizePlainTextToTemplate,
+  isAlreadyTokenizedNoPlainName,
+  hasNoLikelySubjectReference,
 } from "../lib/factTokenizer";
 import { renderCanonical } from "../lib/renderCanonical";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 import { logger } from "../lib/logger";
+import { requireRole } from "../middlewares/tierMiddleware";
+import {
+  isVisualStrategyRenderedTextPath,
+  getVisualStrategyRenderedTextKind,
+  normalizeRoleEntity,
+} from "@workspace/api-zod";
 
 const router: IRouter = Router();
 const requireRateLimit = createRateLimiter();
+
+// Local, not imported from routes/admin.ts, to avoid a routes→routes import cycle.
+const requireAdmin = requireRole("admin");
 
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
 const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000), captchaToken: z.string().optional() });
 const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
 const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(2000) });
+const TokenizeEnrichmentBody = z.object({
+  entries: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(120),
+        value: z.string().max(2000),
+        kind: z.enum(["prose", "entity"]),
+      }),
+    )
+    .max(80),
+  subjectContext: z.object({ names: z.array(z.string().trim().min(1).max(100)).max(10) }).optional(),
+});
 
 // Dedicated limiter so the suggestion affordance is throttled independently of
 // the global AI limiter (it fires once per Preview, not per keystroke).
@@ -328,73 +347,47 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   }
 
   try {
-    const completion = await callUtilityLLM({
-      // Tokenization is a narrow structural transform — use the dedicated
-      // tokenizer model (a reasoning mini), not the global utility engine, so
-      // other utility calls are unaffected. The deterministic net below is the
-      // real correctness guarantee; the model just improves first-pass quality.
-      model: TOKENIZER_MODEL,
-      reasoningEffort: TOKENIZER_REASONING_EFFORT,
-      maxTokens: 1024,
-      // Deterministic structural transform — no creative sampling. (Ignored for
-      // reasoning models, which reject an explicit temperature.)
-      temperature: 0,
-      responseFormat: { type: "json_object" },
-      messages: [
-        { role: "system", content: TOKENIZE_SYSTEM_PROMPT },
-        { role: "user",   content: `Convert this fact to a template:\n\n"${text}"` },
-      ],
-    });
+    // Tokenization is a narrow structural transform — use the dedicated
+    // tokenizer model (a reasoning mini), not the global utility engine, so
+    // other utility calls are unaffected. The deterministic net inside the
+    // core is the real correctness guarantee; the model just improves
+    // first-pass quality.
+    const { rawTemplate, template, passes, grammarError } = await tokenizePlainTextToTemplate(text);
 
-    const raw = completion.choices[0]?.message?.content ?? "{}";
-    let rawTemplate = text;
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof parsed.template === "string" && parsed.template.length > 0) {
-        rawTemplate = parsed.template;
-      }
-    } catch {
-      rawTemplate = text;
-    }
-
-    // Post-process: strip any word the model hallucinated as a token (rule 8 —
-    // keep non-tokens as plain text), then apply the deterministic conjugation
-    // net. The net is the real guarantee: even with the hardened prompt the
-    // model intermittently leaves a person-subject verb un-conjugated
-    // ("{Subj} keeps" → "They keeps"), and this wraps it as {keeps|keep}.
-    const { template, nameCollapsed, contractionExpanded, conjugated, collapsed } =
-      postProcessTokenizedTemplate(rawTemplate);
-    if (nameCollapsed) {
+    // Post-process logging: the deterministic net is the real guarantee —
+    // even with the hardened prompt the model intermittently leaves a
+    // person-subject verb un-conjugated ("{Subj} keeps" → "They keeps"), and
+    // the net wraps it as {keeps|keep}.
+    if (passes.nameCollapsed) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] collapsed name-subject conjugation pair ({NAME} {x|y} → {NAME} x)",
       );
     }
-    if (contractionExpanded) {
+    if (passes.contractionExpanded) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] expanded subject contraction ({Subj}'s → {Subj} {is|are})",
       );
     }
-    if (conjugated) {
+    if (passes.conjugated) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] auto-conjugated person-subject verb",
       );
     }
-    if (collapsed) {
+    if (passes.collapsed) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] collapsed identical conjugation branch ({x|x} → x)",
       );
     }
 
-    const grammarResult = validateTemplate(template);
-    if (!grammarResult.valid) {
+    if (grammarError) {
       res.status(422).json({
-        error: `AI produced a template with invalid grammar: ${grammarResult.error}. Please review and correct the template manually.`,
+        error: `AI produced a template with invalid grammar: ${grammarError}. Please review and correct the template manually.`,
         template,
-        grammarError: grammarResult.error,
+        grammarError,
       });
       return;
     }
@@ -474,5 +467,133 @@ router.post("/ai/suggest-hashtags", requireAuth, requireSuggestHashtagsRateLimit
     res.json({ hashtags: [] });
   }
 });
+
+// Test seam: lets route-level tests force success/failure without a live model.
+// Mirrors `__setSuggestHashtagsForTest` above. Always reset in an afterEach.
+let tokenizeCoreImpl: typeof tokenizePlainTextToTemplate = tokenizePlainTextToTemplate;
+export function __setTokenizeCoreForTest(fn: typeof tokenizePlainTextToTemplate | null): void {
+  tokenizeCoreImpl = fn ?? tokenizePlainTextToTemplate;
+}
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving result order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
+interface TokenizeEnrichmentResultEntry {
+  path: string;
+  value: string;
+  changed: boolean;
+  usedLlm: boolean;
+  error?: string;
+  errorKind?: "grammar" | "entity" | "path";
+}
+
+// POST /ai/tokenize-enrichment → { results: TokenizeEnrichmentResultEntry[] }
+// Admin-only batch tokenize for Visual-Concept authoring: admins write plain
+// English in each VSO field and this converts every changed field to a
+// personalization-token template in one call, reusing the same tokenizer core
+// as fact submission. No captcha — this is an authenticated admin tool, not a
+// public-facing affordance. Every path/kind is validated BEFORE any LLM call
+// so a malformed or lying batch never spends a model call.
+router.post(
+  "/ai/tokenize-enrichment",
+  requireAdmin,
+  requireRateLimit,
+  async (req: Request, res: Response) => {
+    const bodyParsed = TokenizeEnrichmentBody.safeParse(req.body);
+    if (!bodyParsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const { entries, subjectContext } = bodyParsed.data;
+    const subjectNames = subjectContext?.names ?? [];
+
+    for (const entry of entries) {
+      if (!isVisualStrategyRenderedTextPath(entry.path)) {
+        res.status(400).json({ error: `Unknown or invalid path: ${entry.path}` });
+        return;
+      }
+      // Client kind lie: e.g. an entity path submitted as kind:"prose" would
+      // wrongly run the LLM prose-tokenizer over a plain role label.
+      if (getVisualStrategyRenderedTextKind(entry.path) !== entry.kind) {
+        res.status(400).json({ error: `kind mismatch for path: ${entry.path}` });
+        return;
+      }
+    }
+
+    let usedLlmCount = 0;
+    let skippedCount = 0;
+    let grammarErrorCount = 0;
+
+    const results = await mapWithConcurrency(entries, 4, async (entry): Promise<TokenizeEnrichmentResultEntry> => {
+      if (!entry.value.trim()) {
+        return { path: entry.path, value: entry.value, changed: false, usedLlm: false };
+      }
+
+      if (entry.kind === "entity") {
+        const { value, error } = normalizeRoleEntity(entry.value, subjectNames);
+        if (error) {
+          return {
+            path: entry.path,
+            value: entry.value,
+            changed: false,
+            usedLlm: false,
+            error,
+            errorKind: "entity",
+          };
+        }
+        return { path: entry.path, value, changed: value !== entry.value, usedLlm: false };
+      }
+
+      const skipLlm =
+        isAlreadyTokenizedNoPlainName(entry.value, subjectNames) ||
+        hasNoLikelySubjectReference(entry.value, subjectNames);
+      if (skipLlm) skippedCount++;
+
+      const core = await tokenizeCoreImpl(entry.value, { skipLlm, subjectNames, purpose: "visual_strategy" });
+      if (core.usedLlm) usedLlmCount++;
+      if (core.grammarError) {
+        grammarErrorCount++;
+        return {
+          path: entry.path,
+          value: core.template,
+          changed: core.template !== entry.value,
+          usedLlm: core.usedLlm,
+          error: core.grammarError,
+          errorKind: "grammar",
+        };
+      }
+      return {
+        path: entry.path,
+        value: core.template,
+        changed: core.template !== entry.value,
+        usedLlm: core.usedLlm,
+      };
+    });
+
+    // Count-only logging — never the field text itself.
+    logger.info(
+      { entries: entries.length, usedLlm: usedLlmCount, skipped: skippedCount, grammarErrors: grammarErrorCount },
+      "[tokenize-enrichment] batch complete",
+    );
+
+    res.json({ results });
+  },
+);
 
 export default router;

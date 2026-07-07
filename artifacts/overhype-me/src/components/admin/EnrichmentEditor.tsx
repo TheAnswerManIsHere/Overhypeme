@@ -80,6 +80,27 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
 };
 
+/**
+ * True ONLY for the exact, path-specific `visualPromptStrategyOverride`
+ * schema issue that rejects a personalization token in a role binding's
+ * `entity` field (see `visualStrategyOverrideSchema`'s superRefine) — the one
+ * validity error `tokenizeAndSaveVisualOverride` can fix by itself (it blocks
+ * persistence and red-borders that row on its own if the token survives
+ * tokenizing). Deliberately narrow: does NOT match unknown/malformed tokens in
+ * prose fields, VSO length/cap/enum errors, or any non-VSO enrichment
+ * failure — those must still hard-disable Save. Never broaden this to a
+ * `startsWith("visualPromptStrategyOverride:")` catch-all.
+ */
+export function isFixableRoleEntityTokenIssue(error: string): boolean {
+  return /^visualPromptStrategyOverride\.roleBindings\.\d+\.entity: personalization tokens are not allowed/.test(error);
+}
+
+/** Sentinel `fieldErrors` key for a whole-batch tokenize failure (network/HTTP
+ *  error) not attributable to any one field. Mirrors
+ *  `VSO_TOKENIZE_GENERAL_ERROR_KEY` in useFactEnrichmentEditing.ts (kept as a
+ *  literal, not an import, to avoid a cycle between the two files). */
+const VSO_GENERAL_TOKENIZE_ERROR_KEY = "";
+
 const SELECT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
 // Label styling now lives in FieldInfo (shared with FieldLabel); this alias
@@ -1067,48 +1088,73 @@ export function insertTokenIntoTextControl(
   return true;
 }
 
+/** A tokenize-error line, styled like the other field-level warnings. */
+function FieldTokenizeError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p className="text-xs text-destructive flex items-center gap-1.5 mt-1">
+      <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {message}
+    </p>
+  );
+}
+
 function StringListEditor({
   docKey,
   items,
   placeholder,
   onChange,
+  /** Path prefix (e.g. "requiredVisualDetails") matching
+   *  `collectRenderedTextEntries`' `${pathPrefix}[i]` paths, used to look up
+   *  this item's tokenize error in `fieldErrors`. */
+  pathPrefix,
+  fieldErrors,
+  disabled = false,
 }: {
   docKey: FieldDocKey;
   items: string[];
   placeholder?: string;
   onChange: (next: string[]) => void;
+  pathPrefix?: string;
+  fieldErrors?: Record<string, string>;
+  disabled?: boolean;
 }) {
   return (
     <div>
       <FieldLabel docKey={docKey} />
       <div className="space-y-1.5">
         {items.map((item, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              className={SELECT_CLASS}
-              data-token-insert-target="true"
-              value={item}
-              placeholder={placeholder}
-              onChange={(ev) => {
-                const next = items.slice();
-                next[i] = canonicalizeNameToken(ev.target.value);
-                onChange(next);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((_, idx) => idx !== i))}
-              className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground"
-              aria-label="Remove"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+          <div key={i}>
+            <div className="flex gap-2">
+              <input
+                className={SELECT_CLASS}
+                data-token-insert-target="true"
+                value={item}
+                placeholder={placeholder}
+                disabled={disabled}
+                onChange={(ev) => {
+                  const next = items.slice();
+                  next[i] = canonicalizeNameToken(ev.target.value);
+                  onChange(next);
+                }}
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+                className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground disabled:opacity-50"
+                aria-label="Remove"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            {pathPrefix && <FieldTokenizeError message={fieldErrors?.[`${pathPrefix}[${i}]`]} />}
           </div>
         ))}
         <button
           type="button"
+          disabled={disabled}
           onClick={() => onChange([...items, ""])}
-          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground"
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"
         >
           <Plus className="w-3 h-3" /> Add
         </button>
@@ -1162,9 +1208,18 @@ export function withCoreSceneOverride(
 export function VisualStrategyOverridePanel({
   value,
   onChange,
+  disabled = false,
+  fieldErrors,
 }: {
   value: VisualPromptStrategyOverride | undefined;
   onChange: (next: VisualPromptStrategyOverride | undefined) => void;
+  /** Disables every input/chip/button while a tokenize-and-save round trip is
+   *  in flight, so no edit can race the batch tokenize request. */
+  disabled?: boolean;
+  /** Path → tokenize error for the current draft (from
+   *  `useFactEnrichmentEditing`'s `vsoTokenizeErrors`), shown as a first-class
+   *  red-bordered field error beside the existing token-validation warnings. */
+  fieldErrors?: Record<string, string>;
 }) {
   const ov: VisualPromptStrategyOverride = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const set = (patch: Partial<VisualPromptStrategyOverride>) => onChange({ ...ov, ...patch });
@@ -1231,8 +1286,9 @@ export function VisualStrategyOverridePanel({
         </div>
         <button
           type="button"
+          disabled={disabled}
           onClick={() => onChange(value ? { ...ov, enabled: !ov.enabled } : { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true })}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ov.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${ov.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
           aria-label="Toggle override"
         >
           <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${ov.enabled ? "translate-x-6" : "translate-x-1"}`} />
@@ -1250,6 +1306,9 @@ export function VisualStrategyOverridePanel({
               ))}
             </div>
           )}
+          {fieldErrors?.[VSO_GENERAL_TOKENIZE_ERROR_KEY] && (
+            <FieldTokenizeError message={fieldErrors[VSO_GENERAL_TOKENIZE_ERROR_KEY]} />
+          )}
 
           {/* Token legend — click a chip to insert at the caret of the
               token-capable field you last focused (onMouseDown.preventDefault
@@ -1261,9 +1320,10 @@ export function VisualStrategyOverridePanel({
                 key={token}
                 type="button"
                 data-testid="vso-token-chip"
+                disabled={disabled}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => handleChip(token)}
-                className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm border border-border bg-background hover:bg-muted text-foreground"
+                className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm border border-border bg-background hover:bg-muted text-foreground disabled:opacity-50"
               >
                 {token}
               </button>
@@ -1279,12 +1339,14 @@ export function VisualStrategyOverridePanel({
               data-token-insert-target="true"
               data-testid="vso-core-scene"
               maxLength={CORE_SCENE_MAX_CHARS}
+              disabled={disabled}
               value={ov.coreSceneOverride ?? ""}
               onChange={(ev) => set({ coreSceneOverride: canonicalizeNameToken(ev.target.value) })}
             />
             <p className="text-[10px] text-muted-foreground text-right">
               {(ov.coreSceneOverride ?? "").length}/{CORE_SCENE_MAX_CHARS}
             </p>
+            <FieldTokenizeError message={fieldErrors?.["coreSceneOverride"]} />
           </div>
 
           <div>
@@ -1292,6 +1354,7 @@ export function VisualStrategyOverridePanel({
             <textarea
               className={`${SELECT_CLASS} resize-none`}
               rows={2}
+              disabled={disabled}
               value={ov.moderatorIntent ?? ""}
               onChange={(ev) => set({ moderatorIntent: ev.target.value })}
             />
@@ -1302,6 +1365,7 @@ export function VisualStrategyOverridePanel({
               <FieldLabel docKey="vso.subjectRealization" />
               <select
                 className={SELECT_CLASS}
+                disabled={disabled}
                 value={ov.subjectRealizationOverride?.mode ?? "use_ai_plan"}
                 onChange={(ev) => {
                   const mode = ev.target.value as SubjectRealizationMode;
@@ -1319,73 +1383,86 @@ export function VisualStrategyOverridePanel({
                 className={`${SELECT_CLASS} resize-none`}
                 data-token-insert-target="true"
                 rows={2}
+                disabled={disabled}
                 value={ov.subjectRealizationOverride.description}
                 onChange={(ev) => set({ subjectRealizationOverride: { mode: ov.subjectRealizationOverride!.mode, description: canonicalizeNameToken(ev.target.value) } })}
               />
+              <FieldTokenizeError message={fieldErrors?.["subjectRealizationOverride.description"]} />
             </div>
           )}
 
-          <StringListEditor docKey="vso.requiredVisualDetails" items={ov.requiredVisualDetails} placeholder="e.g. {NAME}'s recognizable face on a newborn body" onChange={(next) => set({ requiredVisualDetails: next })} />
-          <StringListEditor docKey="vso.forbiddenVisualDetails" items={ov.forbiddenVisualDetails} placeholder="e.g. a separate adult version of the subject" onChange={(next) => set({ forbiddenVisualDetails: next })} />
+          <StringListEditor docKey="vso.requiredVisualDetails" items={ov.requiredVisualDetails} placeholder="e.g. {NAME}'s recognizable face on a newborn body" onChange={(next) => set({ requiredVisualDetails: next })} pathPrefix="requiredVisualDetails" fieldErrors={fieldErrors} disabled={disabled} />
+          <StringListEditor docKey="vso.forbiddenVisualDetails" items={ov.forbiddenVisualDetails} placeholder="e.g. a separate adult version of the subject" onChange={(next) => set({ forbiddenVisualDetails: next })} pathPrefix="forbiddenVisualDetails" fieldErrors={fieldErrors} disabled={disabled} />
 
           <div>
             <FieldLabel docKey="vso.roleBindings" />
             <div className="space-y-1.5">
               {ov.roleBindings.map((b, i) => (
-                <div key={i} className="flex gap-2 items-start">
-                  <div className="max-w-[8rem]">
-                    <input
-                      className={SELECT_CLASS}
-                      data-token-insert-target="true"
-                      value={b.entity}
-                      placeholder="entity (subject, mother…)"
-                      maxLength={ROLE_ENTITY_MAX_CHARS}
-                      onChange={(ev) => {
-                        const next = ov.roleBindings.slice(); next[i] = { ...b, entity: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
-                      }}
-                    />
+                <div key={i}>
+                  <div className="flex gap-2 items-start">
+                    <div className="max-w-[8rem]">
+                      <input
+                        className={SELECT_CLASS}
+                        value={b.entity}
+                        placeholder="subject or role label"
+                        maxLength={ROLE_ENTITY_MAX_CHARS}
+                        disabled={disabled}
+                        onChange={(ev) => {
+                          // Deliberately NOT a chip target and NOT canonicalized —
+                          // entity is a plain "subject"/role label; a typed
+                          // personalization token is an error Save surfaces
+                          // (tokenizeAndSaveVisualOverride → normalizeRoleEntity),
+                          // not something to silently rewrite here.
+                          const next = ov.roleBindings.slice(); next[i] = { ...b, entity: ev.target.value }; set({ roleBindings: next });
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        className={SELECT_CLASS}
+                        data-token-insert-target="true"
+                        value={b.visualRole}
+                        placeholder="concrete visible role"
+                        maxLength={ROLE_VISUAL_ROLE_MAX_CHARS}
+                        disabled={disabled}
+                        onChange={(ev) => {
+                          const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
+                        }}
+                      />
+                      <p className="text-[10px] text-muted-foreground text-right">
+                        {b.visualRole.length}/{ROLE_VISUAL_ROLE_MAX_CHARS}
+                      </p>
+                    </div>
+                    <button type="button" disabled={disabled} onClick={() => set({ roleBindings: ov.roleBindings.filter((_, idx) => idx !== i) })} className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground disabled:opacity-50" aria-label="Remove"><Trash2 className="w-4 h-4" /></button>
                   </div>
-                  <div className="flex-1">
-                    <input
-                      className={SELECT_CLASS}
-                      data-token-insert-target="true"
-                      value={b.visualRole}
-                      placeholder="concrete visible role"
-                      maxLength={ROLE_VISUAL_ROLE_MAX_CHARS}
-                      onChange={(ev) => {
-                        const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
-                      }}
-                    />
-                    <p className="text-[10px] text-muted-foreground text-right">
-                      {b.visualRole.length}/{ROLE_VISUAL_ROLE_MAX_CHARS}
-                    </p>
-                  </div>
-                  <button type="button" onClick={() => set({ roleBindings: ov.roleBindings.filter((_, idx) => idx !== i) })} className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground" aria-label="Remove"><Trash2 className="w-4 h-4" /></button>
+                  <FieldTokenizeError message={fieldErrors?.[`roleBindings[${i}].entity`]} />
+                  <FieldTokenizeError message={fieldErrors?.[`roleBindings[${i}].visualRole`]} />
                 </div>
               ))}
-              <button type="button" onClick={() => set({ roleBindings: [...ov.roleBindings, { entity: "", visualRole: "" } as VisualStrategyRoleBinding] })} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground"><Plus className="w-3 h-3" /> Add role</button>
+              <button type="button" disabled={disabled} onClick={() => set({ roleBindings: [...ov.roleBindings, { entity: "", visualRole: "" } as VisualStrategyRoleBinding] })} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"><Plus className="w-3 h-3" /> Add role</button>
             </div>
           </div>
 
-          <StringListEditor docKey="vso.compositionGuidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} />
-          <StringListEditor docKey="vso.styleAgnosticPromptAdditions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} />
-          <StringListEditor docKey="vso.negativePromptAdditions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} />
+          <StringListEditor docKey="vso.compositionGuidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} pathPrefix="compositionGuidance" fieldErrors={fieldErrors} disabled={disabled} />
+          <StringListEditor docKey="vso.styleAgnosticPromptAdditions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} pathPrefix="styleAgnosticPromptAdditions" fieldErrors={fieldErrors} disabled={disabled} />
+          <StringListEditor docKey="vso.negativePromptAdditions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} pathPrefix="negativePromptAdditions" fieldErrors={fieldErrors} disabled={disabled} />
 
           {/* Supporting-text policy override */}
           <div className="rounded-sm border border-border p-2 space-y-2">
             <div className="flex items-center gap-1">
               <label className="text-xs font-semibold inline-flex items-center gap-1.5">
-                <input type="checkbox" checked={!!ov.supportingTextPolicyOverride} onChange={(ev) => set({ supportingTextPolicyOverride: ev.target.checked ? { mode: "allow" } : undefined })} />
+                <input type="checkbox" disabled={disabled} checked={!!ov.supportingTextPolicyOverride} onChange={(ev) => set({ supportingTextPolicyOverride: ev.target.checked ? { mode: "allow" } : undefined })} />
                 Override supporting-text policy
               </label>
               <FieldInfo docKey="vso.supportingTextPolicy" />
             </div>
             {ov.supportingTextPolicyOverride && (
               <div className="space-y-2">
-                <select className={SELECT_CLASS} value={ov.supportingTextPolicyOverride.mode} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, mode: ev.target.value as (typeof SUPPORTING_TEXT_MODE_VALUES)[number] } })}>
+                <select className={SELECT_CLASS} disabled={disabled} value={ov.supportingTextPolicyOverride.mode} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, mode: ev.target.value as (typeof SUPPORTING_TEXT_MODE_VALUES)[number] } })}>
                   {SUPPORTING_TEXT_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <input className={SELECT_CLASS} data-token-insert-target="true" placeholder='guidance (e.g. a TV title reading "{NAME} Week")' value={ov.supportingTextPolicyOverride.guidance ?? ""} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <input className={SELECT_CLASS} data-token-insert-target="true" disabled={disabled} placeholder='guidance (e.g. a TV title reading "{NAME} Week")' value={ov.supportingTextPolicyOverride.guidance ?? ""} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <FieldTokenizeError message={fieldErrors?.["supportingTextPolicyOverride.guidance"]} />
               </div>
             )}
           </div>
@@ -1394,7 +1471,7 @@ export function VisualStrategyOverridePanel({
           <div className="rounded-sm border border-border p-2 space-y-2">
             <div className="flex items-center gap-1">
               <label className="text-xs font-semibold inline-flex items-center gap-1.5">
-                <input type="checkbox" checked={!!ov.violencePolicyOverride} onChange={(ev) => set({ violencePolicyOverride: ev.target.checked ? { mode: "allow", intensity: "strong" } : undefined })} />
+                <input type="checkbox" disabled={disabled} checked={!!ov.violencePolicyOverride} onChange={(ev) => set({ violencePolicyOverride: ev.target.checked ? { mode: "allow", intensity: "strong" } : undefined })} />
                 Override violence policy
               </label>
               <FieldInfo docKey="vso.violencePolicy" />
@@ -1402,14 +1479,15 @@ export function VisualStrategyOverridePanel({
             {ov.violencePolicyOverride && (
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
-                  <select className={SELECT_CLASS} value={ov.violencePolicyOverride.mode} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, mode: ev.target.value as (typeof VIOLENCE_MODE_VALUES)[number] } })}>
+                  <select className={SELECT_CLASS} disabled={disabled} value={ov.violencePolicyOverride.mode} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, mode: ev.target.value as (typeof VIOLENCE_MODE_VALUES)[number] } })}>
                     {VIOLENCE_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
-                  <select className={SELECT_CLASS} value={ov.violencePolicyOverride.intensity} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, intensity: ev.target.value as (typeof VIOLENCE_INTENSITY_VALUES)[number] } })}>
+                  <select className={SELECT_CLASS} disabled={disabled} value={ov.violencePolicyOverride.intensity} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, intensity: ev.target.value as (typeof VIOLENCE_INTENSITY_VALUES)[number] } })}>
                     {VIOLENCE_INTENSITY_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
-                <input className={SELECT_CLASS} data-token-insert-target="true" placeholder="guidance (e.g. visible bodies, non-gratuitous)" value={ov.violencePolicyOverride.guidance ?? ""} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <input className={SELECT_CLASS} data-token-insert-target="true" disabled={disabled} placeholder="guidance (e.g. visible bodies, non-gratuitous)" value={ov.violencePolicyOverride.guidance ?? ""} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <FieldTokenizeError message={fieldErrors?.["violencePolicyOverride.guidance"]} />
               </div>
             )}
           </div>
@@ -1436,6 +1514,8 @@ export function EnrichmentEditor({
   onFinalHashtagsChange,
   hideHashtags = false,
   overrideContext,
+  vsoTokenizing = false,
+  vsoTokenizeErrors,
 }: {
   value: FactEnrichment | null;
   status: string | null;
@@ -1459,6 +1539,12 @@ export function EnrichmentEditor({
    * redundant hashtag control. */
   hideHashtags?: boolean;
   overrideContext?: EnrichmentOverrideContext;
+  /** True while a Visual-Concept-authoring batch tokenize round trip is in
+   *  flight — disables the Visual Strategy Override panel on top of `busy`. */
+  vsoTokenizing?: boolean;
+  /** Path → tokenize error for the current draft (from
+   *  `useFactEnrichmentEditing`'s `vsoTokenizeErrors`). */
+  vsoTokenizeErrors?: Record<string, string>;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
@@ -1537,6 +1623,18 @@ export function EnrichmentEditor({
   };
 
   const validity = validateEnrichment(e);
+  // The schema's role-entity token backstop (`roleBindings[i].entity` carrying
+  // a `{…}` token) is the ONE validity error that Save can fix by itself — it
+  // routes through tokenizeAndSaveVisualOverride, which blocks persistence and
+  // red-borders that row on its own if the token is still there after
+  // tokenizing. Save must NOT hard-disable on it, or the "click Save → shown
+  // as blocked" flow could never run. Every other error (unknown/malformed
+  // tokens in prose, VSO caps/enums, any non-VSO enrichment failure) still
+  // disables Save — this filter is intentionally narrow, matching only this
+  // exact schema issue, never a broad `visualPromptStrategyOverride:` prefix.
+  const nonFixableValidityErrors = validity.ok
+    ? []
+    : validity.error.split("; ").filter((err) => !isFixableRoleEntityTokenIssue(err));
   const subtypeOptions = SUBTYPES_BY_ARCHETYPE[e.primaryArchetype] as readonly string[];
 
   return (
@@ -1786,6 +1884,8 @@ export function EnrichmentEditor({
         <VisualStrategyOverridePanel
           value={e.visualPromptStrategyOverride}
           onChange={(next) => update({ visualPromptStrategyOverride: next })}
+          disabled={busy || vsoTokenizing}
+          fieldErrors={vsoTokenizeErrors}
         />
       </div>
 
@@ -1820,9 +1920,9 @@ export function EnrichmentEditor({
         requires those required test renders to be fresh and successful (or explicitly waived) — that is the renderability gate.
       </div>
 
-      {!validity.ok && validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).length > 0 && (
+      {nonFixableValidityErrors.filter((err) => !err.startsWith("suggestedHashtags:")).length > 0 && (
         <p className="text-xs text-destructive flex items-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).join("; ")}
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {nonFixableValidityErrors.filter((err) => !err.startsWith("suggestedHashtags:")).join("; ")}
         </p>
       )}
 
@@ -1830,10 +1930,10 @@ export function EnrichmentEditor({
         <button
           type="button"
           onClick={onSave}
-          disabled={busy || !validity.ok}
+          disabled={busy || vsoTokenizing || nonFixableValidityErrors.length > 0}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"
         >
-          <Save className="w-3.5 h-3.5" /> Save enrichment
+          <Save className="w-3.5 h-3.5" /> {vsoTokenizing ? "Tokenizing and saving…" : "Save enrichment"}
         </button>
       )}
     </div>

@@ -46,9 +46,12 @@ export interface UseDraftFormOptions<T, R = unknown> {
   /**
    * Commit the current value to the server. Resolves on success; throws (with a
    * user-facing message) on failure. Omit for forms whose commit happens
-   * externally (e.g. the moderation decision buttons).
+   * externally (e.g. the moderation decision buttons). May optionally resolve
+   * the server's canonical value (e.g. after canonicalization/provenance
+   * stamping) — when it does, that becomes the new baseline/value instead of
+   * the submitted one, so `hasUncommittedChanges` reflects true server state.
    */
-  commit?: (value: T) => Promise<void>;
+  commit?: (value: T) => Promise<void | T>;
   /** Validate a restored localStorage draft's shape; invalid drafts are discarded. */
   isValidDraft?: (value: unknown) => value is T;
   /** Debounce before writing a draft to localStorage. Default 800ms. */
@@ -91,6 +94,16 @@ export interface UseDraftFormResult<T, R = unknown> {
   committedAt: number | null;
   /** Commit to the server (Save button). No-op + false when no `commit` provided. */
   save: () => Promise<boolean>;
+  /**
+   * Commit a SUPPLIED value directly — for flows that must transform the value
+   * (e.g. tokenize) and persist the transformed result in the same action,
+   * without a stale-ref race against `setValue`+`save()` (which reads
+   * `valueRef.current`, only refreshed on render). Adopts `next` into
+   * value/baseline atomically with the commit attempt: the field shows the
+   * supplied value immediately, and the PATCH body is that same value — not
+   * whatever `value` happened to be from the last render.
+   */
+  saveValue: (next: T) => Promise<boolean>;
   /** Revert the form to the server baseline and clear the local draft. */
   discard: () => void;
   /**
@@ -294,29 +307,64 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
   }, [draftStatus, draftSavedAt]);
 
   const setValue = useCallback((next: T | ((prev: T) => T)) => {
-    setValueState((prev) => (typeof next === "function" ? (next as (p: T) => T)(prev) : next));
+    // Resolve against `valueRef.current` (kept current every render) and write
+    // the ref BEFORE calling setValueState — not inside a functional updater,
+    // whose callback React does not necessarily invoke synchronously. This is
+    // what makes the ref safe to read immediately after `setValue` in the same
+    // tick (e.g. `setValue(next); save()` back to back) rather than only after
+    // the next render commits.
+    const resolved = typeof next === "function" ? (next as (p: T) => T)(valueRef.current) : next;
+    valueRef.current = resolved;
+    setValueState(resolved);
   }, []);
 
-  const save = useCallback(async (): Promise<boolean> => {
-    const commit = optsRef.current.commit;
-    if (!commit) return false;
-    setCommitting(true);
-    setCommitError(null);
-    try {
-      const toSave = valueRef.current;
-      await commit(toSave);
-      setBaseline(toSave);
-      baselineRef.current = toSave;
-      clearDraft();
-      setCommittedAt(Date.now());
-      return true;
-    } catch (e) {
-      setCommitError(e instanceof Error ? e.message : "Save failed");
-      return false;
-    } finally {
-      setCommitting(false);
-    }
-  }, [clearDraft]);
+  // Shared commit path for `save()` and `saveValue(next)`. `adoptImmediately`
+  // sets value/ref to `next` BEFORE awaiting the commit — used by `saveValue`
+  // so a transform-then-persist flow (e.g. tokenize-then-save) shows the new
+  // value atomically with the persist attempt, not only after it resolves.
+  // Either way, if `commit` resolves the server's canonical value, THAT
+  // becomes the final baseline/value — never just the submitted one blindly.
+  const commitValue = useCallback(
+    async (next: T, opts: { adoptImmediately: boolean }): Promise<boolean> => {
+      const commit = optsRef.current.commit;
+      if (!commit) return false;
+      if (opts.adoptImmediately) {
+        setValueState(next);
+        valueRef.current = next;
+      }
+      setCommitting(true);
+      setCommitError(null);
+      try {
+        const serverValue = await commit(next);
+        const finalValue = serverValue !== undefined ? serverValue : next;
+        setBaseline(finalValue);
+        baselineRef.current = finalValue;
+        if (finalValue !== next) {
+          setValueState(finalValue);
+          valueRef.current = finalValue;
+        }
+        clearDraft();
+        setCommittedAt(Date.now());
+        return true;
+      } catch (e) {
+        setCommitError(e instanceof Error ? e.message : "Save failed");
+        return false;
+      } finally {
+        setCommitting(false);
+      }
+    },
+    [clearDraft],
+  );
+
+  const save = useCallback(
+    () => commitValue(valueRef.current, { adoptImmediately: false }),
+    [commitValue],
+  );
+
+  const saveValue = useCallback(
+    (next: T) => commitValue(next, { adoptImmediately: true }),
+    [commitValue],
+  );
 
   const discard = useCallback(() => {
     const b = baselineRef.current;
@@ -388,6 +436,7 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     commitError,
     committedAt,
     save,
+    saveValue,
     discard,
     markCommitted,
     adoptServerSlice,

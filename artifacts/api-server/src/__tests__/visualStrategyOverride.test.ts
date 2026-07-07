@@ -13,6 +13,12 @@ import {
   hasRenderableVisualStrategyOverrideContent,
   resolveRenderPolicy,
   DEFAULT_RENDER_POLICY,
+  collectRenderedTextEntries,
+  isVisualStrategyRenderedTextPath,
+  getVisualStrategyRenderedTextKind,
+  setRenderedTextAtPath,
+  normalizeRoleEntity,
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 
@@ -85,7 +91,7 @@ describe("visualPromptStrategyOverrideSchema", () => {
       makeOverride({
         requiredVisualDetails: ["{NAME_POSSESSIVE} face on a TV"],
         subjectRealizationOverride: { mode: "normal_human", description: "{NAME_POSSESSIVE} likeness" },
-        roleBindings: [{ entity: "{NAME_POSSESSIVE} dog", visualRole: "loyal companion" }],
+        roleBindings: [{ entity: "dog", visualRole: "{NAME_POSSESSIVE} loyal companion" }],
         supportingTextPolicyOverride: { mode: "require", guidance: 'a title reading "{NAME_POSSESSIVE} Week"' },
       }),
     );
@@ -131,13 +137,27 @@ describe("visualPromptStrategyOverrideSchema", () => {
     assert.equal(res.success, false);
   });
 
-  it("canonicalizes name-token aliases in roleBindings.entity (rendered + validated field)", () => {
+  it("canonicalizes name-token aliases in roleBindings.visualRole (rendered + validated field)", () => {
     const res = visualPromptStrategyOverrideSchema.safeParse(
-      makeOverride({ roleBindings: [{ entity: "{name_possessive} mother", visualRole: "{name} as a baby" }] }),
+      makeOverride({ roleBindings: [{ entity: "mother", visualRole: "{name} as a baby" }] }),
     );
     assert.equal(res.success, true);
     if (res.success) {
-      assert.deepEqual(res.data.roleBindings, [{ entity: "{NAME_POSSESSIVE} mother", visualRole: "{NAME} as a baby" }]);
+      assert.deepEqual(res.data.roleBindings, [{ entity: "mother", visualRole: "{NAME} as a baby" }]);
+    }
+  });
+
+  it("rejects a personalization token in roleBindings.entity with a path-specific, machine-recognizable issue", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ roleBindings: [{ entity: "{name_possessive} mother", visualRole: "the mother" }] }),
+    );
+    assert.equal(res.success, false);
+    if (!res.success) {
+      const issue = res.error.issues.find(
+        (i) => i.path.join(".") === "roleBindings.0.entity",
+      );
+      assert.ok(issue, "expected a roleBindings.0.entity issue");
+      assert.match(issue!.message, /personalization tokens are not allowed/);
     }
   });
 });
@@ -228,5 +248,175 @@ describe("resolveRenderPolicy", () => {
     const policy = resolveRenderPolicy({ visualPromptStrategyOverride: ov });
     assert.equal(policy.supportingText.mode, "forbid");
     assert.deepEqual(policy.violence, DEFAULT_RENDER_POLICY.violence);
+  });
+});
+
+function fullOverride(): VisualPromptStrategyOverride {
+  return {
+    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+    coreSceneOverride: "core scene",
+    subjectRealizationOverride: { mode: "normal_human", description: "realization desc" },
+    requiredVisualDetails: ["req0", "req1"],
+    forbiddenVisualDetails: ["forbid0"],
+    roleBindings: [{ entity: "mother", visualRole: "role0" }, { entity: "subject", visualRole: "role1" }],
+    compositionGuidance: ["comp0"],
+    styleAgnosticPromptAdditions: ["style0"],
+    negativePromptAdditions: ["neg0"],
+    supportingTextPolicyOverride: { mode: "require", guidance: "support guidance" },
+    violencePolicyOverride: { mode: "allow", intensity: "mild", guidance: "violence guidance" },
+  };
+}
+
+describe("collectRenderedTextEntries", () => {
+  it("collects every rendered-text path with the right kind, in a stable order", () => {
+    const entries = collectRenderedTextEntries(fullOverride());
+    assert.deepEqual(
+      entries.map((e) => [e.path, e.kind]),
+      [
+        ["coreSceneOverride", "prose"],
+        ["subjectRealizationOverride.description", "prose"],
+        ["requiredVisualDetails[0]", "prose"],
+        ["requiredVisualDetails[1]", "prose"],
+        ["forbiddenVisualDetails[0]", "prose"],
+        ["roleBindings[0].entity", "entity"],
+        ["roleBindings[0].visualRole", "prose"],
+        ["roleBindings[1].entity", "entity"],
+        ["roleBindings[1].visualRole", "prose"],
+        ["compositionGuidance[0]", "prose"],
+        ["styleAgnosticPromptAdditions[0]", "prose"],
+        ["negativePromptAdditions[0]", "prose"],
+        ["supportingTextPolicyOverride.guidance", "prose"],
+        ["violencePolicyOverride.guidance", "prose"],
+      ],
+    );
+    const entry = entries.find((e) => e.path === "roleBindings[1].entity");
+    assert.equal(entry?.value, "subject");
+  });
+
+  it("omits absent optional fields entirely", () => {
+    const entries = collectRenderedTextEntries(EMPTY_VISUAL_STRATEGY_OVERRIDE);
+    assert.deepEqual(entries, []);
+  });
+
+  it("never emits moderatorIntent or notesForModerator (admin-only)", () => {
+    const ov: VisualPromptStrategyOverride = {
+      ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+      moderatorIntent: "secret admin note",
+      notesForModerator: "another secret note",
+    };
+    const entries = collectRenderedTextEntries(ov);
+    assert.deepEqual(entries, []);
+  });
+});
+
+describe("isVisualStrategyRenderedTextPath / getVisualStrategyRenderedTextKind", () => {
+  it("accepts every path collectRenderedTextEntries can produce", () => {
+    for (const { path, kind } of collectRenderedTextEntries(fullOverride())) {
+      assert.equal(isVisualStrategyRenderedTextPath(path), true, path);
+      assert.equal(getVisualStrategyRenderedTextKind(path), kind, path);
+    }
+  });
+
+  it("rejects an unknown or forged path", () => {
+    for (const bad of ["moderatorIntent", "notesForModerator", "roleBindings[0].nickname", "__proto__", ""]) {
+      assert.equal(isVisualStrategyRenderedTextPath(bad), false, bad);
+      assert.equal(getVisualStrategyRenderedTextKind(bad), null, bad);
+    }
+  });
+
+  it("maps roleBindings[i].entity to 'entity' and everything else to 'prose'", () => {
+    assert.equal(getVisualStrategyRenderedTextKind("roleBindings[3].entity"), "entity");
+    assert.equal(getVisualStrategyRenderedTextKind("roleBindings[3].visualRole"), "prose");
+    assert.equal(getVisualStrategyRenderedTextKind("coreSceneOverride"), "prose");
+  });
+});
+
+describe("setRenderedTextAtPath", () => {
+  it("updates only the target path, leaving every other field untouched", () => {
+    const ov = fullOverride();
+    const next = setRenderedTextAtPath(ov, "requiredVisualDetails[1]", "updated req1");
+    assert.equal(next.requiredVisualDetails[1], "updated req1");
+    assert.equal(next.requiredVisualDetails[0], "req0");
+    assert.equal(next.coreSceneOverride, ov.coreSceneOverride);
+    assert.notEqual(next, ov); // new object
+  });
+
+  it("updates a role-binding entity/visualRole independently", () => {
+    const ov = fullOverride();
+    const next = setRenderedTextAtPath(ov, "roleBindings[0].entity", "subject");
+    assert.equal(next.roleBindings[0].entity, "subject");
+    assert.equal(next.roleBindings[0].visualRole, "role0");
+    assert.equal(next.roleBindings[1].entity, "subject");
+  });
+
+  it("updates the optional single-field paths when present", () => {
+    const ov = fullOverride();
+    assert.equal(setRenderedTextAtPath(ov, "coreSceneOverride", "new scene").coreSceneOverride, "new scene");
+    assert.equal(
+      setRenderedTextAtPath(ov, "subjectRealizationOverride.description", "new desc")
+        .subjectRealizationOverride?.description,
+      "new desc",
+    );
+    assert.equal(
+      setRenderedTextAtPath(ov, "supportingTextPolicyOverride.guidance", "new guidance")
+        .supportingTextPolicyOverride?.guidance,
+      "new guidance",
+    );
+    assert.equal(
+      setRenderedTextAtPath(ov, "violencePolicyOverride.guidance", "new guidance")
+        .violencePolicyOverride?.guidance,
+      "new guidance",
+    );
+  });
+
+  it("is a no-op (returns ov unchanged) on an out-of-range array index", () => {
+    const ov = fullOverride();
+    const next = setRenderedTextAtPath(ov, "requiredVisualDetails[99]", "ghost");
+    assert.equal(next, ov);
+  });
+
+  it("is a no-op on a role-binding index that isn't present", () => {
+    const ov = fullOverride();
+    const next = setRenderedTextAtPath(ov, "roleBindings[5].entity", "ghost");
+    assert.equal(next, ov);
+  });
+
+  it("is a no-op on a single-field path whose parent object is absent", () => {
+    const ov = EMPTY_VISUAL_STRATEGY_OVERRIDE;
+    assert.equal(setRenderedTextAtPath(ov, "coreSceneOverride", "x"), ov);
+    assert.equal(setRenderedTextAtPath(ov, "subjectRealizationOverride.description", "x"), ov);
+    assert.equal(setRenderedTextAtPath(ov, "supportingTextPolicyOverride.guidance", "x"), ov);
+    assert.equal(setRenderedTextAtPath(ov, "violencePolicyOverride.guidance", "x"), ov);
+  });
+
+  it("is a no-op on an unrecognized path", () => {
+    const ov = fullOverride();
+    assert.equal(setRenderedTextAtPath(ov, "notAField", "x"), ov);
+  });
+});
+
+describe("normalizeRoleEntity", () => {
+  it("passes through a plain role label unchanged", () => {
+    assert.deepEqual(normalizeRoleEntity("mother", ["David Franklin"]), { value: "mother" });
+  });
+
+  it("collapses 'subject' case-insensitively to the canonical lowercase form", () => {
+    assert.deepEqual(normalizeRoleEntity("SUBJECT", []), { value: "subject" });
+    assert.deepEqual(normalizeRoleEntity("Subject", []), { value: "subject" });
+  });
+
+  it("collapses a typed subject name (case/whitespace-insensitive) to 'subject'", () => {
+    assert.deepEqual(normalizeRoleEntity("Alex Franklin", ["Alex Franklin"]), { value: "subject" });
+    assert.deepEqual(normalizeRoleEntity("  alex franklin  ", ["Alex Franklin"]), { value: "subject" });
+  });
+
+  it("rejects a personalization token with a context-free error", () => {
+    const result = normalizeRoleEntity("{NAME}", ["Alex Franklin"]);
+    assert.equal(result.value, "{NAME}");
+    assert.match(result.error!, /personalization tokens are not allowed/);
+  });
+
+  it("does not collapse a name that isn't in subjectNames", () => {
+    assert.deepEqual(normalizeRoleEntity("Alex Franklin", ["David Franklin"]), { value: "Alex Franklin" });
   });
 });

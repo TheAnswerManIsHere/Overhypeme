@@ -959,7 +959,7 @@ A per-fact, style-agnostic override object a human moderator edits to correct or
 
 The enabled toggle is the master switch: when OFF, the ENTIRE override is ignored by the compiler (every sub-field, both policies) — the object is kept but has zero render effect. When ON, each populated sub-field merges into its own compiled section.
 
-Token system: rendered text fields accept the personalization tokens ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, and the other pronoun tokens — the editor's chip bar inserts them). On save, name-token case/possessive variants are canonicalized ({name}/{Name} → {NAME}) and any UNKNOWN token is rejected with a clear message; the compiler resolves tokens per render, so one override serves every subject the fact is personalized to. Never type a real name.
+Write plain English — don't hand-type tokens. Each rendered-text field just needs the subject's name written naturally ("David laughs", not "{NAME} laughs"); on Save the system auto-tokenizes every changed field through the same tokenizer fact submission uses, and shows you the tokenized result right there so you can verify it and correct it before it persists. Chips ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, and the other pronoun tokens) remain in the toolbar as an expert escape hatch, but authoring no longer requires them. Name ONLY the main subject in your prose; refer to every other character by role ("the mother", "a bystander") — the tokenizer only replaces the subject's name and pronouns, so a second named character would be left literal.
 
 The violence policy override here is the ONLY thing that can suppress violent depiction — the auto-sanitizing modifiers were retired, and the planner is told the render policy 'is the ONLY layer that may suppress; do not self-censor beyond it'.
 
@@ -983,9 +983,9 @@ The whole override object is in the render-input hash, so ANY edit (including ad
 - **Scenario:** You disable the toggle after a one-off experiment.
   - **Input:** enabled: false (fields left populated)
   - **Outcome:** The compiler ignores the entire override — renders behave as if it didn't exist, but your authored fields are preserved for later.
-- **Scenario:** You write a detail with a hardcoded name.
+- **Scenario:** You write a Required Visual Detail naming the subject in plain English.
   - **Input:** Required Visual Details: ["David's face on the statue"]
-  - **Outcome:** Wrong — use "{NAME}'s face on the statue". Tokens resolve per render; a real name would leak into every other user's render.
+  - **Outcome:** Click Save — the system tokenizes it to "{NAME_POSSESSIVE} face on the statue" and shows you the result. Tokens resolve per render; a plain name persisted as-is would leak into every other user's render, which is exactly what auto-tokenize prevents.
 
 **Sources**
 
@@ -996,7 +996,7 @@ The whole override object is in the render-input hash, so ANY edit (including ad
 
 ### Visual Concept (Core Scene)
 
-*Describe the picture you want in plain language — it becomes the authoritative CORE SCENE, winning over the AI plan's scene.*
+*Describe the picture in plain English, naming only the subject — on Save the system tokenizes it and shows you the result.*
 
 - **Effect:** Render-affecting — feeds the prompt pipeline
 - **Staleness:** Editing re-flags render scenarios as stale.
@@ -1006,7 +1006,7 @@ The whole override object is in the render-input hash, so ANY edit (including ad
 
 The moderator-authored scene: 2–4 plain-language sentences describing exactly what the image shows (subject, action, setting, objects, composition). When non-empty, it is AUTHORITATIVE — the planner LLM is directed to realize exactly this scene (not invent its own), and the compiler emits it as the CORE SCENE section at required priority, never compressed under the char budget.
 
-Token-capable: use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens — never a real name. Capped at 1500 characters: it is a scene brief, not a full prompt.
+Write it in plain English, naming the subject naturally ("David leans against the bar"). On Save the system tokenizes it (the same tokenizer fact submission uses) and shows the tokenized result in the field so you can verify it before it persists — the field is still editable afterward. Name ONLY the main subject; refer to any other character by role ("the bartender", "a passerby"), never by name, since the tokenizer won't recognize a second name as personalizable. Capped at 1500 characters: it is a scene brief, not a full prompt.
 
 Also surfaced as the prominent 'Visual concept — describe the picture' card in moderation visual review; both surfaces edit this same field. Typing a non-empty concept auto-enables the override.
 
@@ -1025,11 +1025,14 @@ The planner LLM also receives it as a hard directive, so subjectDetails/environm
 **Examples**
 
 - **Scenario:** The AI keeps missing the scale gag in a participation-trophy fact.
-  - **Input:** Visual concept: "{NAME} triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory."
-  - **Outcome:** CORE SCENE is exactly that sentence (token-rendered per render), the planner fleshes out supporting detail around it, and it survives the char budget uncompressed.
+  - **Input:** Visual concept: "David triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory."
+  - **Outcome:** Click Save — the field shows "{NAME} triumphantly holds a participation trophy the size of a grain of rice, photographed like a championship victory." CORE SCENE is exactly that sentence (token-resolved per render), the planner fleshes out supporting detail around it, and it survives the char budget uncompressed.
 - **Scenario:** You write engine instructions instead of a scene.
   - **Input:** Visual concept: "Preserve the uploaded face and do not show readable text."
   - **Outcome:** Both clauses are compiler-owned and stripped; the diagnostics warn that the concept emptied out and the AI scene was used instead. Rewrite as visible scene description.
+- **Scenario:** Your prose names a second character ("David and Alex raced go-karts").
+  - **Input:** Visual concept: "David and Alex raced go-karts around the office."
+  - **Outcome:** Tokenizes to "{NAME} and Alex raced go-karts around the office." — only David becomes {NAME}; Alex stays a literal name in the compiled prompt. Rewrite as "David raced a coworker around go-karts in the office" to avoid a hardcoded second name.
 
 **Sources**
 
@@ -1239,7 +1242,7 @@ Normalized entries join the required-priority STRICT CONSTRAINTS section (after 
 
 ### Scene Role Assignments
 
-*Who is who in the scene — your bindings REPLACE the AI's secondary-character casting.*
+*Who is who in the scene — your bindings REPLACE the AI's secondary-character casting. Entity is a label ("subject" or a role); Visual Role is plain English that gets tokenized on Save.*
 
 - **Effect:** Render-affecting — feeds the prompt pipeline
 - **Staleness:** Editing re-flags render scenarios as stale.
@@ -1247,7 +1250,7 @@ Normalized entries join the required-priority STRICT CONSTRAINTS section (after 
 
 **What it is**
 
-A list (max 20) of entity → visual-role pairs. The entity is 'subject' or a relationship/name/type label ('mother', 'crowd/victims'); the visual role is what that entity concretely is/does in the frame. Both sides are token-aware.
+A list (max 20) of entity → visual-role pairs. The entity is a plain label — "subject" or a relationship/type label ("mother", "crowd/victims") — never a personalization token: typing the subject's own name auto-normalizes to "subject" on Save, and a stray {NAME}/{SUBJ}-style token typed here is rejected as an error (both client-side and as a hard server-side rule) since this field identifies WHO, not prose to render. The visual role is what that entity concretely is/does in the frame, written in plain English — it IS token-capable and gets auto-tokenized on Save just like the Visual Concept.
 
 **How the AI sets it**
 
@@ -1263,9 +1266,12 @@ Rows with an empty entity or role are skipped (the editor warns).
 
 **Examples**
 
-- **Scenario:** "A baby drove {NAME}'s mother home." — renders keep putting the subject behind the wheel.
-  - **Input:** Role Bindings: subject → "the astonished passenger", "baby" → "the tiny driver gripping the wheel"
-  - **Outcome:** "ROLE DETAILS: {NAME} is the astonished passenger. baby is the tiny driver gripping the wheel." (emitted only if the Visual Concept did not already cast these roles) — replacing the AI's own casting.
+- **Scenario:** "A baby drove David's mother home." — renders keep putting the subject behind the wheel.
+  - **Input:** Role Bindings: "David" (entity) → "the astonished passenger" (visual role), "baby" → "the tiny driver gripping the wheel"
+  - **Outcome:** Click Save: the entity "David" normalizes to "subject" (it matched the subject's name); the visual role tokenizes to "the astonished passenger" (no name in it, nothing changes) and "the tiny driver gripping the wheel" for baby. Result: "ROLE DETAILS: {NAME} is the astonished passenger. baby is the tiny driver gripping the wheel." (emitted only if the Visual Concept did not already cast these roles) — replacing the AI's own casting.
+- **Scenario:** You accidentally type a token directly into the entity field.
+  - **Input:** entity: "{NAME}"
+  - **Outcome:** Save blocks with a clear error on that row (red-bordered) — entity is a label like "subject" or "mother", never a token. Type the plain name or role instead; a real subject name there auto-collapses to "subject".
 
 **Sources**
 
