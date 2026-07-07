@@ -387,9 +387,14 @@ const ReviewDecisionBody = z.object({
   adminNote: z.string().max(500).optional(),
   hashtags: z.array(z.string()).max(50).optional(),
 });
+// rejectionReason is required for a first-time triage reject (it judges
+// whether the FACT belongs in the database) but never applies to a refresh
+// cycle's "don't promote" decline — that fact already cleared triage long
+// ago, so "duplicate/spam/offensive/lame" would misdescribe it. Optional
+// here; required conditionally at the route once isRefreshCycle is known.
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
-  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]),
+  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
 });
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),
@@ -908,11 +913,15 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
-  // REFRESH cycle: "don't promote this refresh," NOT "unpublish the fact." The
-  // candidate is RETAINED as rejected history (never hard-deleted, and it no
-  // longer blocks a future send-back — the one-candidate index covers
-  // status='candidate' only). The live fact's enrichment, projections, Pexels,
-  // memes, and isActive are all left exactly as they were.
+  // REFRESH cycle: a fact can NEVER be rejected here — rejection means "not
+  // worthy of being in the database," and a refresh candidate is only a
+  // proposed update to a fact that already cleared that bar. "Reject" on a
+  // refresh means "don't promote this update": the candidate enrichment
+  // version is discarded (retained as rejected history, never hard-deleted,
+  // and it no longer blocks a future send-back — the one-candidate index
+  // covers status='candidate' only), and the LIVE fact — active flag,
+  // enrichment, projections, Pexels, memes — is left exactly as it was. It
+  // simply doesn't get updated until a future refresh is promoted.
   const isRefreshCycle = review.candidateVersionId != null;
 
   // A first-time submission can only be rejected during triage (Step 1). Once
@@ -926,10 +935,18 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     return;
   }
 
-  // Rejecting a refresh candidate is always audited as a production rejection
-  // (its staging fact is left inactive so it never reaches users, and any
-  // in-flight prep job becomes a no-op via the stale-job guard); a first-time
-  // triage reject is a plain triage rejection.
+  // rejectionReason judges fact-worthiness (duplicate/spam/offensive/lame) —
+  // required for a first-time triage reject, meaningless for a refresh
+  // decline (that fact already passed triage), so it's never required or
+  // persisted there.
+  if (!isRefreshCycle && !rejectionReason) {
+    res.status(400).json({ error: "Rejection reason is required. Must be one of: duplicate, spam, offensive, lame." });
+    return;
+  }
+
+  // A refresh decline is audited as `production_rejected` on the REVIEW
+  // (the candidate update), never as anything touching the fact itself; a
+  // first-time triage reject is a plain triage rejection.
   const targetStage: ReviewWorkflowStage = isRefreshCycle ? "production_rejected" : "triage_rejected";
 
   await db.transaction(async (tx) => {
@@ -938,7 +955,8 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
       workflowStage: targetStage,
       reviewedById: req.user.id,
       adminNote,
-      reason: rejectionReason,
+      // Never store a fact-worthiness reason against a refresh decline.
+      reason: isRefreshCycle ? null : rejectionReason,
       reviewedAt: new Date(),
       ...(isRefreshCycle
         ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }

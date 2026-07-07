@@ -89,7 +89,8 @@ interface Review {
   /**
    * Non-null ⇒ this is a REFRESH cycle of a live fact (versioned enrichment):
    * Step 2 reviews/edits the candidate version, approval promotes it, and
-   * rejection keeps the live fact exactly as-is. Null for first-time submissions.
+   * declining leaves the live fact exactly as-is — this is never a fact
+   * rejection. Null for first-time submissions.
    */
   candidateVersionId: number | null;
   /** True while a test render (auto-batch or manual re-run) is queued/rendering. */
@@ -401,8 +402,9 @@ function ReviewModal({
   const isEditableStep = isConceptReview || isProductionReview;
   const isResolved = review.status !== "pending";
   // A refresh cycle of a LIVE fact: Step 2 edits the CANDIDATE version (the
-  // live fact's enrichment is frozen), approval promotes it, rejection keeps
-  // the live fact untouched. Set at review creation — never flips mid-mount.
+  // live fact's enrichment is frozen), approval promotes it, declining keeps
+  // the live fact untouched — never a rejection of the fact itself, since it
+  // already cleared triage. Set at review creation — never flips mid-mount.
   const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
   const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
@@ -576,13 +578,17 @@ function ReviewModal({
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
-    if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
+    // Rejection reason (duplicate/spam/offensive/lame) judges whether the
+    // FACT belongs in the database — required for a first-time triage
+    // reject, but meaningless for a refresh cycle's "don't promote" decline
+    // (that fact already cleared triage; the live fact is never rejected).
+    if (!isRefreshCycle && !reason) { setError("Please select a rejection reason before rejecting."); return; }
     // A refresh reject marks the candidate non-pending; drain any in-flight
     // per-field override write first so a field just blurred by this click
     // doesn't fail against the rejected candidate (the edit is moot on reject,
     // but the failed write would surface a spurious error).
     await enrichEditing.flushOverrides();
-    void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
+    void runAction("reject", { rejectionReason: isRefreshCycle ? undefined : reason, adminNote: note || undefined });
   };
   const onApproveProduction = async (waive?: boolean) => {
     // Land any in-flight per-field override write BEFORE promotion. A tracked
@@ -772,26 +778,37 @@ function ReviewModal({
     <div className="space-y-4">
       {isRefreshCycle && (
         <p className="text-xs text-muted-foreground" data-testid="refresh-reject-hint">
-          This rejects the refresh candidate only. The live fact stays published and unchanged.
+          This declines the refresh candidate only — it is never a rejection of the fact itself. The live fact stays
+          published and completely unchanged; it just doesn't pick up this update.
         </p>
+      )}
+      {/* Rejection Reason judges whether the FACT belongs in the database
+          (duplicate/spam/offensive/lame) — it never applies to a refresh
+          decline, since that fact already cleared triage. */}
+      {!isRefreshCycle && (
+        <div>
+          <label className="block text-sm font-semibold text-foreground mb-2">
+            Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+          </label>
+          <select
+            value={reason}
+            onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
+            className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">— Select a reason —</option>
+            {REJECTION_REASONS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
       )}
       <div>
         <label className="block text-sm font-semibold text-foreground mb-2">
-          Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+          Admin Note{" "}
+          <span className="text-muted-foreground font-normal">
+            {isRefreshCycle ? "(optional, internal — explains why this update wasn't promoted)" : "(optional, sent to user)"}
+          </span>
         </label>
-        <select
-          value={reason}
-          onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
-          className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          <option value="">— Select a reason —</option>
-          {REJECTION_REASONS.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -879,7 +896,7 @@ function ReviewModal({
         // generic job guard skips review-backed facts outside prep, so the button
         // could only strand the status on "classifying…". Re-classification lives
         // on the Facts page (live facts) and Retry Prep (prep_failed); refresh
-        // cycles are re-classified by rejecting + re-sending.
+        // cycles are re-classified by declining + re-sending.
         busy={loading || jobs.loading || jobs.rerunBusy || enrichmentDraft.committing}
         rerunBusy={jobs.rerunBusy}
         hideHashtags
@@ -977,8 +994,8 @@ function ReviewModal({
               {isRefreshCycle && (
                 <p className="text-xs text-muted-foreground" data-testid="refresh-step2-hint">
                   Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Approving the
-                  visual gag applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing
-                  memes, images, and hashtags are never changed.
+                  visual gag applies it to future renders only; declining keeps the live fact exactly as it is — this
+                  is never a rejection of the fact. Existing memes, images, and hashtags are never changed.
                 </p>
               )}
 
@@ -1052,8 +1069,8 @@ function ReviewModal({
               {isRefreshCycle && (
                 <p className="text-xs text-muted-foreground" data-testid="refresh-step3-hint">
                   Refresh review: you're editing and approving the <strong>candidate</strong> enrichment. Promoting
-                  applies it to future renders only; rejecting keeps the live fact exactly as it is. Existing memes,
-                  images, and hashtags are never changed.
+                  applies it to future renders only; declining keeps the live fact exactly as it is — this is never a
+                  rejection of the fact. Existing memes, images, and hashtags are never changed.
                 </p>
               )}
 

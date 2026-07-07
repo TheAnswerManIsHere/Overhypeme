@@ -1119,7 +1119,7 @@ describe("reject past triage — first-time submission is blocked, refresh cycle
     assert.equal(fact.isActive, false, "staging fact is untouched (was never active)");
   });
 
-  it("still allows a refresh cycle's 'don't promote' reject from production_review, audited as production_rejected", async () => {
+  it("still allows a refresh cycle's 'don't promote' decline from production_review (no rejectionReason needed) — never a fact rejection", async () => {
     // submittedById is set here purely so the shared cleanup() helper (which
     // scopes by submittedById) sweeps this fixture up — real refresh cycles
     // carry submittedById=null, which the route guards separately (the
@@ -1139,19 +1139,47 @@ describe("reject past triage — first-time submission is blocked, refresh cycle
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
+    // No rejectionReason sent at all — fact-worthiness categories
+    // (duplicate/spam/offensive/lame) don't apply to declining a refresh.
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ rejectionReason: "lame", adminNote: "not strong enough" });
+      .send({ adminNote: "not strong enough" });
     assert.equal(res.status, 200, JSON.stringify(res.body));
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
     assert.equal(r.workflowStage, "production_rejected");
     assert.equal(r.status, "rejected");
+    assert.equal(r.reason, null, "no fact-worthiness reason is ever stored against a refresh decline");
     assert.equal(r.productionRejectedById, adminId);
     assert.ok(r.productionRejectedAt);
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, liveFact.id));
     assert.equal(fact.isActive, true, "the live fact is left completely untouched by a refresh reject");
+  });
+
+  it("ignores a rejectionReason if one IS sent for a refresh decline — never persisted as fact-worthiness", async () => {
+    const ownerId = await createTestUser();
+    const [liveFact] = await db.insert(factsTable).values({
+      text: "{NAME} does another thing", submittedById: ownerId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [candidate] = await db.insert(factEnrichmentVersionsTable).values({
+      factId: liveFact.id, versionNo: 2, status: "candidate", source: "refresh_candidate",
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} does another thing", submittedById: ownerId, status: "pending",
+      workflowStage: "concept_review", stagingFactId: liveFact.id, candidateVersionId: candidate.id,
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ rejectionReason: "spam" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.reason, null, "a sent rejectionReason is ignored/dropped for a refresh decline");
   });
 
   it("a triage-stage reject stays triage_rejected", async () => {
