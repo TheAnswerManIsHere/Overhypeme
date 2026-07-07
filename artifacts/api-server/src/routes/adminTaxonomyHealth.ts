@@ -133,16 +133,36 @@ async function loadAllApprovedFactsForHealth(): Promise<FactRowSelect[]> {
  * candidate — so the stale-list send-back button starts disabled for them.
  * Batched against the returned page slice only.
  */
-async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<number>> {
+/**
+ * Bounds a single `inArray(...)` query's parameter list. The bulk send-back
+ * picker can pass EVERY stale-for-reprocess fact id here — which, per the
+ * Stale-for-reprocess card's own "day one" behavior, can be nearly the whole
+ * corpus (and grows again after each "Mark major update" bump) — so an
+ * unchunked query risks exceeding practical bind/query-size limits or timing
+ * out. Chunking keeps each round-trip small regardless of corpus size.
+ */
+export const GUARD_QUERY_CHUNK_SIZE = 500;
+
+export function chunkIds(ids: number[], size: number): number[][] {
+  const out: number[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
+export async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<number>> {
   if (factIds.length === 0) return new Set();
-  const rows = await db
-    .select({ factId: factEnrichmentVersionsTable.factId })
-    .from(factEnrichmentVersionsTable)
-    .where(and(
-      inArray(factEnrichmentVersionsTable.factId, factIds),
-      eq(factEnrichmentVersionsTable.status, "candidate"),
-    ));
-  return new Set(rows.map((r) => r.factId));
+  const results = await Promise.all(
+    chunkIds(factIds, GUARD_QUERY_CHUNK_SIZE).map((batch) =>
+      db
+        .select({ factId: factEnrichmentVersionsTable.factId })
+        .from(factEnrichmentVersionsTable)
+        .where(and(
+          inArray(factEnrichmentVersionsTable.factId, batch),
+          eq(factEnrichmentVersionsTable.status, "candidate"),
+        )),
+    ),
+  );
+  return new Set(results.flat().map((r) => r.factId));
 }
 
 /**
@@ -151,13 +171,17 @@ async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<number>>
  * `loadAllApprovedFactsForHealth()` doesn't carry variant data, so the bulk
  * send-back picker needs its own query to pre-skip them.
  */
-async function factsWithActiveVariants(factIds: number[]): Promise<Set<number>> {
+export async function factsWithActiveVariants(factIds: number[]): Promise<Set<number>> {
   if (factIds.length === 0) return new Set();
-  const rows = await db
-    .select({ parentId: factsTable.parentId })
-    .from(factsTable)
-    .where(and(inArray(factsTable.parentId, factIds), eq(factsTable.isActive, true)));
-  return new Set(rows.map((r) => r.parentId).filter((id): id is number => id != null));
+  const results = await Promise.all(
+    chunkIds(factIds, GUARD_QUERY_CHUNK_SIZE).map((batch) =>
+      db
+        .select({ parentId: factsTable.parentId })
+        .from(factsTable)
+        .where(and(inArray(factsTable.parentId, batch), eq(factsTable.isActive, true))),
+    ),
+  );
+  return new Set(results.flat().map((r) => r.parentId).filter((id): id is number => id != null));
 }
 
 // ─── GET /admin/taxonomy-health/summary ──────────────────────────────────
