@@ -351,6 +351,7 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
 export const TAXONOMY_HEALTH_ACTION_VALUES = [
   "re_enrich",
   "repair_projections",
+  "send_back_to_review",
 ] as const;
 export type TaxonomyHealthAction = (typeof TAXONOMY_HEALTH_ACTION_VALUES)[number];
 
@@ -359,6 +360,10 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "not_applicable",
   "already_current",
   "missing_required_data",
+  // Bulk send-back guard skips (mirror SendBackToReviewError codes 1:1).
+  "already_in_review",
+  "has_active_variants",
+  "not_active",
 ] as const;
 export type TaxonomyHealthSkipReason =
   (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];
@@ -404,6 +409,12 @@ export interface TaxonomyHealthActionResponse {
   jobs: QueuedJobDescriptor[];
   outcomes: ActionOutcome[];
   summary: TaxonomyHealthActionSummary;
+  /** Bulk send-back only: corpus-wide stale count at request time. */
+  totalStale?: number;
+  /** Bulk send-back only: corpus-wide eligible-to-send stale facts not enqueued by this request. */
+  eligibleRemaining?: number;
+  /** Bulk send-back only: the server-enforced per-request enqueue cap. */
+  batchLimit?: number;
 }
 
 // ─── Job-status polling (poll by concrete async_jobs.id) ───────────────────
@@ -418,6 +429,13 @@ export interface JobStatusEntry {
   /** Concise diagnostic (no stack traces). */
   error: string | null;
   updatedAt: string | null;
+  /**
+   * Set only when a `done` job's stored result is a sanitized, enum-validated
+   * `{ skipped: true, reason }` — lets the UI render a terminal handler-level
+   * skip (e.g. a race-condition guard) as "Skipped", never a bare "Done".
+   */
+  skipped?: boolean;
+  skipReason?: TaxonomyHealthSkipReason;
 }
 
 export interface JobStatusResponse {

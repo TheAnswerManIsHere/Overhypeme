@@ -40,6 +40,8 @@ import {
   type AsyncJobStatusValue,
   type JobStatusEntry,
   type JobStatusResponse,
+  type TaxonomyHealthSkipReason,
+  TAXONOMY_HEALTH_SKIP_REASON_VALUES,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
 import { evaluateFactTaxonomyHealth, isEnrichmentAdminEdited } from "../lib/taxonomyHealth";
@@ -49,6 +51,7 @@ import { repairFactEnrichmentProjection } from "../lib/taxonomyHealth/projection
 import { validateEnrichment } from "@workspace/api-zod";
 import { enqueueJob } from "../lib/asyncJobs";
 import { FACT_ENRICHMENT_BACKFILL_QUEUE } from "../lib/factEnrichmentBackfillJob";
+import { FACT_SEND_BACK_QUEUE, sendBackGuardToSkip } from "../lib/factSendBackJob";
 import { PROJECTION_REPAIR_QUEUE } from "../lib/projectionRepairJob";
 import { logger } from "../lib/logger";
 
@@ -140,6 +143,21 @@ async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<number>>
       eq(factEnrichmentVersionsTable.status, "candidate"),
     ));
   return new Set(rows.map((r) => r.factId));
+}
+
+/**
+ * Which of the given fact ids are roots with an active child variant —
+ * `sendFactBackToReview` rejects those (`HAS_ACTIVE_VARIANTS`), and
+ * `loadAllApprovedFactsForHealth()` doesn't carry variant data, so the bulk
+ * send-back picker needs its own query to pre-skip them.
+ */
+async function factsWithActiveVariants(factIds: number[]): Promise<Set<number>> {
+  if (factIds.length === 0) return new Set();
+  const rows = await db
+    .select({ parentId: factsTable.parentId })
+    .from(factsTable)
+    .where(and(inArray(factsTable.parentId, factIds), eq(factsTable.isActive, true)));
+  return new Set(rows.map((r) => r.parentId).filter((id): id is number => id != null));
 }
 
 // ─── GET /admin/taxonomy-health/summary ──────────────────────────────────
@@ -435,6 +453,87 @@ router.post(
   },
 );
 
+// ─── POST /admin/taxonomy-health/actions/bulk-send-back ──────────────────
+//
+// Bulk-initiation half of the stale-fact refresh feature (PR4): fans
+// `sendFactBackToReview` out across many stale facts via the async-jobs
+// queue. This ONLY initiates refresh cycles — every fact still clears both
+// human gates (Visual Concept, then Test Renders) before it can promote.
+// Nothing here auto-promotes. Server-enforced cap; see `pickSendBackTargets`.
+
+export const BULK_SEND_BACK_BATCH_LIMIT = 50;
+
+const bulkSendBackBodySchema = z
+  .object({
+    scope: z.enum(["all_stale", "selected"]),
+    factIds: z.array(z.number().int().positive()).optional(),
+  })
+  .refine((body) => body.scope !== "selected" || (body.factIds != null && body.factIds.length > 0), {
+    message: "selected scope requires a non-empty factIds array",
+  });
+
+router.post(
+  "/admin/taxonomy-health/actions/bulk-send-back",
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const parsed = bulkSendBackBodySchema.safeParse(req.body && typeof req.body === "object" ? req.body : {});
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0]?.message ?? "invalid body" });
+      return;
+    }
+    const { scope, factIds } = parsed.data;
+    const adminId = req.user!.id;
+    try {
+      const targets = await pickSendBackTargets(scope, factIds, BULK_SEND_BACK_BATCH_LIMIT);
+      const jobs: QueuedJobDescriptor[] = [];
+      const outcomes: ActionOutcome[] = [];
+      let failed = 0;
+      for (const factId of targets.toEnqueue) {
+        try {
+          const r = await enqueueJob({
+            queue: FACT_SEND_BACK_QUEUE,
+            payload: { factId, adminId },
+            dedupeKey: `fact_send_back:${factId}`,
+          });
+          jobs.push({
+            factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
+            action: "send_back_to_review", status: r.status, deduped: !r.inserted,
+          });
+        } catch (err) {
+          logger.warn({ err, factId }, "[bulk-send-back] enqueue failed");
+          failed++;
+          outcomes.push({ factId, action: "send_back_to_review", status: "failed", error: "Could not queue the send-back job." });
+        }
+      }
+      for (const skip of targets.skipOutcomes) {
+        outcomes.push({
+          factId: skip.factId, action: "send_back_to_review", status: "skipped",
+          reason: skip.reason, message: skip.message,
+        });
+      }
+      const response: TaxonomyHealthActionResponse = {
+        mode: deriveActionMode(jobs, outcomes),
+        jobs,
+        outcomes,
+        summary: {
+          requested: targets.toEnqueue.length + targets.skipOutcomes.length,
+          queued: jobs.length,
+          done: 0,
+          failed,
+          skipped: targets.skipOutcomes.length,
+        },
+        totalStale: targets.totalStale,
+        eligibleRemaining: targets.eligibleRemaining,
+        batchLimit: BULK_SEND_BACK_BATCH_LIMIT,
+      };
+      res.json(response);
+    } catch (err) {
+      logger.error({ err }, "[adminTaxonomyHealth/bulk-send-back] failed");
+      res.status(500).json({ error: "bulk_send_back_failed" });
+    }
+  },
+);
+
 // ─── POST /admin/taxonomy-health/actions/mark-major-update ───────────────
 //
 // Bumps the manual `engine_revision` marker by one and records an audit row.
@@ -540,6 +639,21 @@ function conciseJobError(raw: string | null): string | null {
   return oneLine.length > 300 ? `${oneLine.slice(0, 297)}…` : oneLine;
 }
 
+/**
+ * Sanitized extraction of a terminal handler-level skip from `async_jobs.result`.
+ * Only a `{ skipped: true, reason: <known TaxonomyHealthSkipReason> }` shape is
+ * ever surfaced — this never echoes arbitrary job-result JSON to the client, and
+ * an unrecognized reason is dropped rather than passed through.
+ */
+function parseJobSkipResult(result: unknown): TaxonomyHealthSkipReason | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as { skipped?: unknown; reason?: unknown };
+  if (r.skipped !== true) return null;
+  return (TAXONOMY_HEALTH_SKIP_REASON_VALUES as readonly string[]).includes(r.reason as string)
+    ? (r.reason as TaxonomyHealthSkipReason)
+    : null;
+}
+
 router.post(
   "/admin/taxonomy-health/job-status",
   requireAdmin,
@@ -567,19 +681,28 @@ router.post(
           maxAttempts: asyncJobsTable.maxAttempts,
           lastError: asyncJobsTable.lastError,
           updatedAt: asyncJobsTable.updatedAt,
+          result: asyncJobsTable.result,
         })
         .from(asyncJobsTable)
         .where(inArray(asyncJobsTable.id, ids));
-      const jobs: JobStatusEntry[] = rows.map((r) => ({
-        jobId: r.id,
-        queue: r.queue,
-        dedupeKey: r.dedupeKey,
-        status: r.status as AsyncJobStatusValue,
-        attempts: r.attempts,
-        maxAttempts: r.maxAttempts,
-        error: conciseJobError(r.lastError),
-        updatedAt: r.updatedAt ? r.updatedAt.toISOString() : null,
-      }));
+      const jobs: JobStatusEntry[] = rows.map((r) => {
+        // Only a `done` job's result can carry a terminal handler-level skip
+        // (e.g. a race-condition guard caught inside the handler, not by the
+        // target picker) — surface it so the UI never renders it as a plain
+        // "Done". See `parseJobSkipResult` for the sanitization contract.
+        const skipReason = r.status === "done" ? parseJobSkipResult(r.result) : null;
+        return {
+          jobId: r.id,
+          queue: r.queue,
+          dedupeKey: r.dedupeKey,
+          status: r.status as AsyncJobStatusValue,
+          attempts: r.attempts,
+          maxAttempts: r.maxAttempts,
+          error: conciseJobError(r.lastError),
+          updatedAt: r.updatedAt ? r.updatedAt.toISOString() : null,
+          ...(skipReason ? { skipped: true, skipReason } : {}),
+        };
+      });
       res.json({ jobs } satisfies JobStatusResponse);
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/job-status] failed");
@@ -645,6 +768,99 @@ async function pickEnrichmentTargets(
     toEnqueue.push(row.id);
   }
   return { toEnqueue, skippedAdminEdited };
+}
+
+interface SendBackTargetPick {
+  toEnqueue: number[];
+  skipOutcomes: Array<{ factId: number; reason: TaxonomyHealthSkipReason; message: string }>;
+  /** Corpus-wide stale-for-reprocess count at request time. */
+  totalStale: number;
+  /** Corpus-wide eligible-to-send stale facts NOT enqueued by this request. */
+  eligibleRemaining: number;
+}
+
+/**
+ * Resolves bulk send-back targets. There is no stored stale-fact set — it's
+ * recomputed here the same way the summary/list endpoints do (same evaluator,
+ * same current signature), so this can never target a fact the UI doesn't
+ * also consider stale.
+ *
+ * `all_stale`: bounded fan-out — sort stale ids ascending and collect up to
+ * `batchLimit` ELIGIBLE targets. Ineligible rows (already in review / active
+ * variants) are silently excluded, NOT emitted as skip outcomes — the response
+ * stays bounded regardless of backlog size, and those rows already show their
+ * own state (e.g. "Refresh in review") from their row data.
+ *
+ * `selected`: the admin deliberately chose these facts, so every ineligible id
+ * gets an explicit, reasoned skip outcome. An id beyond the batch cap (once
+ * eligible ids are counted) is silently excluded from THIS request, same as
+ * the all_stale overflow case — that's a capacity limit, not an ineligibility
+ * reason, so no skip outcome is emitted for it.
+ */
+async function pickSendBackTargets(
+  scope: "all_stale" | "selected",
+  factIds: number[] | undefined,
+  batchLimit: number,
+): Promise<SendBackTargetPick> {
+  const currentSignature = await currentProcessingSignatureFromConfig();
+  const allFacts = await loadAllApprovedFactsForHealth();
+  const staleIds = allFacts
+    .filter((row) => evaluateFactTaxonomyHealth(toHealthInput(row, currentSignature)).reviewFlags.staleForReprocess)
+    .map((row) => row.id)
+    .sort((a, b) => a - b);
+  const totalStale = staleIds.length;
+
+  const inFlight = await factsWithInFlightRefresh(staleIds);
+  const withVariants = await factsWithActiveVariants(staleIds);
+  const eligibleStaleIds = staleIds.filter((id) => !inFlight.has(id) && !withVariants.has(id));
+
+  if (scope === "all_stale") {
+    const toEnqueue = eligibleStaleIds.slice(0, batchLimit);
+    return { toEnqueue, skipOutcomes: [], totalStale, eligibleRemaining: eligibleStaleIds.length - toEnqueue.length };
+  }
+
+  // scope === "selected" — classify every id explicitly.
+  const dedupedIds = Array.from(new Set(factIds ?? []));
+  const staleIdSet = new Set(staleIds);
+  const selectedRows =
+    dedupedIds.length > 0
+      ? await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, dedupedIds))
+      : [];
+  const activeById = new Map(selectedRows.map((r) => [r.id, r.isActive]));
+
+  const toEnqueue: number[] = [];
+  const skipOutcomes: SendBackTargetPick["skipOutcomes"] = [];
+  for (const id of dedupedIds) {
+    if (!activeById.has(id)) {
+      skipOutcomes.push({ factId: id, reason: "not_applicable", message: "Fact not found." });
+      continue;
+    }
+    if (activeById.get(id) === false) {
+      skipOutcomes.push({ factId: id, reason: "not_active", message: sendBackGuardToSkip("NOT_ACTIVE")!.message });
+      continue;
+    }
+    if (!staleIdSet.has(id)) {
+      skipOutcomes.push({ factId: id, reason: "not_applicable", message: "This fact is not stale for reprocess." });
+      continue;
+    }
+    if (inFlight.has(id)) {
+      skipOutcomes.push({
+        factId: id, reason: "already_in_review",
+        message: sendBackGuardToSkip("REFRESH_ALREADY_IN_PROGRESS")!.message,
+      });
+      continue;
+    }
+    if (withVariants.has(id)) {
+      skipOutcomes.push({
+        factId: id, reason: "has_active_variants",
+        message: sendBackGuardToSkip("HAS_ACTIVE_VARIANTS")!.message,
+      });
+      continue;
+    }
+    if (toEnqueue.length < batchLimit) toEnqueue.push(id);
+    // else: batch-cap overflow — silently excluded from this request (see doc comment above).
+  }
+  return { toEnqueue, skipOutcomes, totalStale, eligibleRemaining: eligibleStaleIds.length - toEnqueue.length };
 }
 
 async function pickProjectionRepairTargets(

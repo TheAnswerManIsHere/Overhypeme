@@ -1,8 +1,10 @@
 /**
- * Send an ACTIVE fact back into moderation at Step 2 ("Production review") for a
- * versioned enrichment refresh — the core primitive of the stale-fact refresh
- * feature. Shared by the admin endpoint, the Taxonomy Health row action, and the
- * bulk re-process job (none of them HTTP-call each other).
+ * Send an ACTIVE fact back into moderation for a versioned enrichment refresh —
+ * the core primitive of the stale-fact refresh feature. The cycle starts at
+ * `prep_pending` and, once candidate enrichment classifies, advances to Step 2
+ * ("Visual Concept" / `concept_review`) with the Visual Concept carried forward
+ * from the live fact. Shared by the admin endpoint, the Taxonomy Health row
+ * action, and the bulk send-back job (none of them HTTP-call each other).
  *
  * What it does (one transaction, then one enqueue):
  *  - creates a `candidate` row in `fact_enrichment_versions`, seeding the manual

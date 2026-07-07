@@ -26,7 +26,19 @@ import type {
   ActionOutcome,
   AsyncJobStatusValue,
   JobStatusResponse,
+  TaxonomyHealthSkipReason,
 } from "@workspace/api-zod";
+
+/** Human copy for a terminal handler-level (job-based) skip — see `JobView.skipReason`. */
+const SKIP_REASON_MESSAGE: Record<TaxonomyHealthSkipReason, string> = {
+  admin_edited: "Admin-edited enrichment is protected by default.",
+  not_applicable: "Not applicable to this fact.",
+  already_current: "Already current.",
+  missing_required_data: "Missing required data.",
+  already_in_review: "Refresh already in review.",
+  has_active_variants: "This fact has active variants; refresh those individually.",
+  not_active: "Only active facts can be sent back.",
+};
 
 // Near-real-time: re-poll every ~1s so each row + the summary update within a
 // second of the backend changing.
@@ -54,6 +66,14 @@ interface JobView {
   jobId: number;
   status: AsyncJobStatusValue | "still_running";
   error: string | null;
+  /**
+   * Set only when a terminal `done` job's stored result was a sanitized
+   * `{ skipped: true, reason }` — a race-condition guard caught inside the
+   * handler (as opposed to a picker pre-skip, which arrives as an `outcome`).
+   * Lets the UI render this as "Skipped", never a bare "Done".
+   */
+  skipped?: boolean;
+  skipReason?: TaxonomyHealthSkipReason;
 }
 
 export interface OperationState {
@@ -64,6 +84,10 @@ export interface OperationState {
   posting: boolean;
   startedAt: number;
   finishedAt?: number;
+  /** Bulk send-back only: corpus-wide counts from the action response. */
+  totalStale?: number;
+  eligibleRemaining?: number;
+  batchLimit?: number;
 }
 
 export interface OpCounts {
@@ -107,10 +131,14 @@ function deriveState(op: OperationState | undefined): UiOpState {
   const failed =
     op.jobs.filter((j) => j.status === "failed").length +
     op.outcomes.filter((o) => o.status === "failed").length;
+  // A terminal `done` job whose result was a handler-level skip counts as
+  // skipped, never done — see `JobView.skipped`.
   const done =
-    op.jobs.filter((j) => j.status === "done").length +
+    op.jobs.filter((j) => j.status === "done" && !j.skipped).length +
     op.outcomes.filter((o) => o.status === "done").length;
-  const skipped = op.outcomes.filter((o) => o.status === "skipped").length;
+  const skipped =
+    op.jobs.filter((j) => j.status === "done" && j.skipped).length +
+    op.outcomes.filter((o) => o.status === "skipped").length;
   if (still > 0) return "still_running";
   if (failed > 0) return "failed";
   if (done > 0) return "done";
@@ -128,7 +156,7 @@ function deriveFactState(
     switch (job.status) {
       case "pending": return "queued";
       case "processing": return "processing";
-      case "done": return "done";
+      case "done": return job.skipped ? "skipped" : "done";
       case "failed": return "failed";
       case "still_running": return "still_running";
     }
@@ -147,12 +175,14 @@ function countsOf(op: OperationState | undefined): OpCounts | null {
   const running = op.jobs.filter((j) => j.status === "pending" || j.status === "processing").length;
   const stillRunning = op.jobs.filter((j) => j.status === "still_running").length;
   const done =
-    op.jobs.filter((j) => j.status === "done").length +
+    op.jobs.filter((j) => j.status === "done" && !j.skipped).length +
     op.outcomes.filter((o) => o.status === "done").length;
   const failed =
     op.jobs.filter((j) => j.status === "failed").length +
     op.outcomes.filter((o) => o.status === "failed").length;
-  const skipped = op.outcomes.filter((o) => o.status === "skipped").length;
+  const skipped =
+    op.jobs.filter((j) => j.status === "done" && j.skipped).length +
+    op.outcomes.filter((o) => o.status === "skipped").length;
   return {
     requested: op.jobs.length + op.outcomes.length,
     queued: op.jobs.length,
@@ -256,7 +286,9 @@ export function useTaxonomyHealthActions(
       setOps((prev) =>
         mapJobs(prev, (j) => {
           const fresh = byId.get(j.jobId);
-          return fresh ? { ...j, status: fresh.status, error: fresh.error } : j;
+          return fresh
+            ? { ...j, status: fresh.status, error: fresh.error, skipped: fresh.skipped, skipReason: fresh.skipReason }
+            : j;
         }),
       );
       finalizeCompletedOps((jobId) => byId.get(jobId)?.status);
@@ -341,6 +373,9 @@ export function useTaxonomyHealthActions(
             posting: false,
             startedAt: prev[scope]?.startedAt ?? startedAt,
             finishedAt: jobs.length === 0 ? Date.now() : undefined,
+            totalStale: data.totalStale,
+            eligibleRemaining: data.eligibleRemaining,
+            batchLimit: data.batchLimit,
           },
         }));
         // Inline-only (no queued jobs) is terminal right away — refresh now.
@@ -385,7 +420,22 @@ export function useTaxonomyHealthActions(
     (factId: number) => {
       const found = factOp(factId);
       if (!found) return { state: "unknown" as UiOpState, outcome: null };
-      return { state: deriveFactState(found.op, found.job, found.outcome), outcome: found.outcome };
+      const state = deriveFactState(found.op, found.job, found.outcome);
+      // A handler-level (job-based) skip has no picker `outcome` — synthesize
+      // one so `ActionIndicator` (outcome-driven) can render its reason exactly
+      // like a picker pre-skip would.
+      if (state === "skipped" && !found.outcome && found.job?.skipReason) {
+        const reason = found.job.skipReason;
+        const synthesized: ActionOutcome = {
+          factId,
+          action: found.op.action,
+          status: "skipped",
+          reason,
+          message: SKIP_REASON_MESSAGE[reason],
+        };
+        return { state, outcome: synthesized };
+      }
+      return { state, outcome: found.outcome };
     },
     [factOp],
   );
