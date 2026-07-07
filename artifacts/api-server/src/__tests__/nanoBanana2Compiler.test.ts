@@ -943,6 +943,34 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.equal(roleDetails?.moderatorAuthored, true);
   });
 
+  it("caps ROLE DETAILS' own contribution when many moderator roleBindings would otherwise overflow it, keeping STRICT CONSTRAINTS intact", () => {
+    // Up to 20 roleBindings are allowed (schema cap); each visualRole can be up
+    // to 300 chars (schema cap). Distinct content words per entry so additive
+    // de-dupe can't collapse them — the point is the section's own char cap,
+    // not de-duplication.
+    const roleBindings = Array.from({ length: 18 }, (_, i) => ({
+      entity: `character${i}`,
+      visualRole: `a distinctive figure${i} wearing ornate${i} regalia${i} and gesturing dramatically${i} toward the impossible${i} scene while onlookers${i} gasp in astonishment${i} at the display${i}`,
+    }));
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A crowded scene.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({ roleBindings }),
+    }));
+    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
+    assert.equal(roleDetails?.priority, "required");
+    assert.equal(roleDetails?.status, "included");
+    assert.ok((roleDetails?.text.length ?? 0) <= 1000, `role details length ${roleDetails?.text.length}`);
+    assert.match(String(out.engineNotes ?? ""), /Capped role_details/);
+    // The safety property this cap protects: STRICT CONSTRAINTS (violence /
+    // text-policy / anti-split guardrails) still lands even though ROLE
+    // DETAILS is also required + non-compressible.
+    const strict = out.promptBreakdown?.find((s) => s.id === "strict_constraints");
+    assert.equal(strict?.status, "included");
+  });
+
   it("purely AI-authored role details stay high + compressible (no moderatorAuthored flag)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",

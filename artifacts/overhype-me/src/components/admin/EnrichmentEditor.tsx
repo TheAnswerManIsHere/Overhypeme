@@ -1120,6 +1120,17 @@ function StringListEditor({
 /** Max chars for the moderator-authored core scene (mirrors the zod cap). */
 export const CORE_SCENE_MAX_CHARS = 1500;
 
+/** Max chars for a roleBindings entity label (mirrors the zod cap). */
+export const ROLE_ENTITY_MAX_CHARS = 60;
+
+/**
+ * Max chars for a roleBindings visualRole (mirrors the zod cap). Up to 20
+ * roles can combine, so the compiler additionally caps ROLE DETAILS' own
+ * contribution (ROLE_DETAILS_MAX_CHARS in nanoBanana2.ts) so a full set of
+ * near-max roles can never itself push STRICT CONSTRAINTS off the prompt.
+ */
+export const ROLE_VISUAL_ROLE_MAX_CHARS = 300;
+
 /**
  * Apply a moderator-typed visual concept (core scene) to the override blob.
  * Canonicalizes name tokens and AUTO-ENABLES the override when the scene is
@@ -1321,13 +1332,34 @@ export function VisualStrategyOverridePanel({
             <FieldLabel docKey="vso.roleBindings" />
             <div className="space-y-1.5">
               {ov.roleBindings.map((b, i) => (
-                <div key={i} className="flex gap-2">
-                  <input className={`${SELECT_CLASS} max-w-[8rem]`} data-token-insert-target="true" value={b.entity} placeholder="entity (subject, mother…)" onChange={(ev) => {
-                    const next = ov.roleBindings.slice(); next[i] = { ...b, entity: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
-                  }} />
-                  <input className={SELECT_CLASS} data-token-insert-target="true" value={b.visualRole} placeholder="concrete visible role" onChange={(ev) => {
-                    const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
-                  }} />
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="max-w-[8rem]">
+                    <input
+                      className={SELECT_CLASS}
+                      data-token-insert-target="true"
+                      value={b.entity}
+                      placeholder="entity (subject, mother…)"
+                      maxLength={ROLE_ENTITY_MAX_CHARS}
+                      onChange={(ev) => {
+                        const next = ov.roleBindings.slice(); next[i] = { ...b, entity: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      className={SELECT_CLASS}
+                      data-token-insert-target="true"
+                      value={b.visualRole}
+                      placeholder="concrete visible role"
+                      maxLength={ROLE_VISUAL_ROLE_MAX_CHARS}
+                      onChange={(ev) => {
+                        const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
+                      }}
+                    />
+                    <p className="text-[10px] text-muted-foreground text-right">
+                      {b.visualRole.length}/{ROLE_VISUAL_ROLE_MAX_CHARS}
+                    </p>
+                  </div>
                   <button type="button" onClick={() => set({ roleBindings: ov.roleBindings.filter((_, idx) => idx !== i) })} className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground" aria-label="Remove"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
