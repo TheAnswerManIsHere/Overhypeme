@@ -25,6 +25,7 @@ const RETRY_DELAY_MS = 400;
 
 beforeEach(() => {
   capturedFactory = null;
+  sessionStorage.clear();
   vi.useFakeTimers();
 });
 
@@ -72,6 +73,44 @@ describe("lazyWithRetry", () => {
 
     const result = await wrapped;
     expect(result).toEqual({ default: Component });
+  });
+
+  it("rejects (instead of reloading again) when the reload flag is already set — prevents infinite loop", async () => {
+    sessionStorage.setItem("lazy-retry:reloaded", "1");
+
+    const reload = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { ...originalLocation, reload },
+    });
+
+    try {
+      const err = new Error("second failure after reload");
+      const factory = vi
+        .fn<() => Promise<{ default: React.ComponentType<object> }>>()
+        .mockRejectedValueOnce(new Error("first failure after reload"))
+        .mockRejectedValueOnce(err);
+
+      lazyWithRetry(factory);
+      const wrapped = capturedFactory!();
+
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(reload).not.toHaveBeenCalled();
+      await expect(wrapped).rejects.toThrow("second failure after reload");
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("calls window.location.reload and never settles when both attempts fail (no Sentry noise)", async () => {
