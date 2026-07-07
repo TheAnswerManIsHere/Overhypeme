@@ -139,23 +139,32 @@ Production approval:
 5. sets stage `production_approved`, status `approved`.
 
 **Refresh cycle:** re-reviewing an already-live fact uses a *candidate*
-enrichment version (`candidateVersionId`). The live fact stays published; approval
-promotes the candidate, rejection leaves the live fact untouched and keeps the
-candidate as rejected history (never hard-deleted). See
+enrichment version (`candidateVersionId`). The live fact stays published no
+matter what happens to the review — approval promotes the candidate onto it;
+declining just discards the candidate (retained as rejected history, never
+hard-deleted) and the fact keeps its current taxonomy/enrichment until a
+future refresh is promoted. See
 [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#versioning-model).
 
 ## Rejection paths
 
+**A fact can only ever be rejected at `triage_pending`.** Rejection means "not
+worthy of being in the database" — it is a first-time-submission-only concept.
+
 - `triage_rejected` — rejected at first pass (no paid work spent). **This is
-  the only rejection path for a first-time submission.** Once triage passes,
-  `canReject` (`lib/api-zod/src/moderationWorkflow.ts`) refuses every other
-  stage — the route 409s and the UI hides the Reject button — so a stuck
-  candidate (`prep_failed`, an unresolved Visual Concept, a render that isn't
-  ready) stays pending until an admin resolves it.
-- `production_rejected` via a **refresh cycle's** "don't promote this
-  refresh" — the one exception, since a refresh (re-reviewing an
-  already-live fact) starts past triage by design and its "reject" never
-  touches the live fact (see **Final production approval** above).
+  the only rejection path, period.** Once triage passes, `canReject`
+  (`lib/api-zod/src/moderationWorkflow.ts`) refuses every other stage for a
+  first-time submission — the route 409s and the UI hides the Reject button —
+  so a stuck candidate (`prep_failed`, an unresolved Visual Concept, a render
+  that isn't ready) stays pending until an admin resolves it.
+- `production_rejected` — reachable **only** via a **refresh cycle's** decline
+  ("don't promote this update"), which is a *distinct concept from rejection*:
+  a refresh candidate is a proposed update to a fact that already cleared
+  triage, so it is never judged for database-worthiness again. Declining one
+  never sets a `rejectionReason` (duplicate/spam/offensive/lame — those judge
+  the fact, not the update) and never touches the live fact; it just doesn't
+  get promoted. A refresh always starts past triage by design, so this is the
+  only way `production_rejected` is reached.
 
 ## Retry and failure states
 

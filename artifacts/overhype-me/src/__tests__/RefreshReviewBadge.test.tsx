@@ -9,6 +9,6 @@ describe("RefreshReviewBadge", () => {
     render(<RefreshReviewBadge />);
     const badge = screen.getByTestId("refresh-review-badge");
     expect(badge.textContent).toContain("Refresh review");
-    expect(badge.getAttribute("title")).toMatch(/rejecting keeps the live fact exactly as it is/i);
+    expect(badge.getAttribute("title")).toMatch(/declining keeps the live fact exactly as it is/i);
   });
 });

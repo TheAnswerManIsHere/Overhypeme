@@ -195,7 +195,7 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
   },
   prep_failed: {
     label: "Prep failed",
-    hint: "Enrichment failed after retries — retry or reject.",
+    hint: "Enrichment failed after retries — retry prep to continue.",
     group: "prep",
   },
   concept_review: {
@@ -209,8 +209,11 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
     group: "production_review",
   },
   production_rejected: {
-    label: "Rejected (after prep)",
-    hint: "Rejected during production review; staging fact deactivated.",
+    // Only reachable via a refresh cycle's "don't promote" decline — a
+    // first-time submission can never reach this stage (see `canReject`).
+    // The live fact is NOT touched by this: it stays exactly as published.
+    label: "Refresh Not Promoted",
+    hint: "This refresh candidate was declined — the live fact is unaffected and stays published as-is.",
     group: "resolved",
   },
   production_approved: {

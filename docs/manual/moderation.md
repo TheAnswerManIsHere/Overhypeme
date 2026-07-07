@@ -54,6 +54,15 @@ on the moderator/admin to fix the underlying issue (retry prep, rework the
 concept, fix the render); the fact only ever moves forward to production once
 that's done, never sideways into rejected.
 
+**A "refresh" (re-processing an already-live fact with updated taxonomy or
+enrichment) is a separate case, and it is never a fact rejection.** The fact
+already exists and stays published in the database no matter what happens to
+the refresh — declining just means the proposed update isn't promoted; the
+fact keeps its current, unchanged production content until a future refresh
+succeeds. There's no "reason" picker for this (duplicate/spam/offensive
+questions don't apply to a fact that's already live) — just an optional note
+explaining why.
+
 Throughout, the queue and the modal show live status at two altitudes — a
 per-fact "what's happening now" (Enriching… → Generating visual ideas… → Ready
 for concept review → Rendering… → Renders ready) and an aggregate view — so a
