@@ -3,9 +3,10 @@ import { lazy } from "react";
 /**
  * Like React.lazy(), but automatically retries a failed dynamic import once
  * after a short delay. If the retry also fails, the page is force-reloaded —
- * but only once per page load. A sessionStorage flag prevents the reload from
- * looping when the Vite dev server is still restarting or a deploy left truly
- * missing chunks.
+ * but at most once every RELOAD_COOLDOWN_MS milliseconds. A sessionStorage
+ * timestamp prevents rapid reload loops when the Vite dev server is unstable
+ * or a deploy left truly missing chunks, while still allowing recovery after
+ * the server has stabilised (e.g. after an HMR reconnect a few seconds later).
  *
  * This handles two real-world failure modes:
  *  1. Dev server restart — the Vite dev server restarted mid-navigation and
@@ -16,7 +17,8 @@ import { lazy } from "react";
  *     the current HTML and resolves everything.
  */
 
-const RELOAD_FLAG = "lazy-retry:reloaded";
+const RELOAD_FLAG = "lazy-retry:reloaded-at";
+const RELOAD_COOLDOWN_MS = 10_000;
 
 export function lazyWithRetry<T extends React.ComponentType<object>>(
   factory: () => Promise<{ default: T }>,
@@ -29,14 +31,21 @@ export function lazyWithRetry<T extends React.ComponentType<object>>(
             factory()
               .then(resolve)
               .catch((err) => {
-                // Only reload once per page load. If we already reloaded and
-                // chunks are still missing, propagate the error so the Sentry
-                // ErrorBoundary can show the fallback UI instead of looping.
-                if (sessionStorage.getItem(RELOAD_FLAG)) {
+                const storedAt = sessionStorage.getItem(RELOAD_FLAG);
+                const lastReloadAge = storedAt
+                  ? Date.now() - Number(storedAt)
+                  : Infinity;
+
+                if (lastReloadAge < RELOAD_COOLDOWN_MS) {
+                  // Reloaded very recently and still failing — propagate so
+                  // the Sentry ErrorBoundary shows the fallback instead of
+                  // looping. The server likely needs more time; the user can
+                  // manually retry via the "Reload Page" button.
                   reject(err);
                   return;
                 }
-                sessionStorage.setItem(RELOAD_FLAG, "1");
+
+                sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
                 window.location.reload();
                 // Leave the promise unsettled — the page is being replaced.
               });
