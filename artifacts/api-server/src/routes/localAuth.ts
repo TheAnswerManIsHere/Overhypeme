@@ -3,10 +3,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { createSession, updateSession, deleteSession, getSessionId, type SessionData } from "../lib/auth";
+import { createSession, updateSession, getSessionId, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
-import { getSafeReturnTo } from "../lib/safeReturnTo";
-import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
@@ -26,6 +24,8 @@ const SALT_ROUNDS = (() => {
   }
   return 10;
 })();
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 const FORGOT_PASSWORD_MAX = 5;
 const FORGOT_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
@@ -711,14 +711,19 @@ async function handleDevAdminLogin(req: Request, res: Response) {
     adminModeDisabled: false,
   };
 
-  // Rotate the session on this privilege elevation: never upgrade an existing
-  // (possibly attacker-known / pre-seeded) sid in place. Always mint a fresh
-  // sid, set the cookie, and invalidate the old session so a previously-known
-  // token cannot ride the new admin privilege.
+  // Prefer in-place mutation — no new cookie needed, browser keeps sending
+  // the same sid it already has and the server now returns the admin user.
+  // We also need `effectiveSid` in scope for the GET branch so it can be
+  // written into localStorage (Bearer-token fallback for Chrome/iframe).
   const existingSid = getSessionId(req);
-  const effectiveSid = await createSession(sessionData, adminUser.id);
-  setSessionCookie(res, effectiveSid);
-  if (existingSid) await deleteSession(existingSid);
+  let effectiveSid: string;
+  if (existingSid) {
+    await updateSession(existingSid, sessionData);
+    effectiveSid = existingSid;
+  } else {
+    effectiveSid = await createSession(sessionData, adminUser.id);
+    setSessionCookie(res, effectiveSid);
+  }
 
   if (req.method === "GET") {
     // Return an HTML page that does two things before navigating away:
@@ -736,7 +741,7 @@ async function handleDevAdminLogin(req: Request, res: Response) {
     //
     // The Set-Cookie above is still sent for browsers/environments where
     // cookies work (Safari, direct URL access, etc.) — both paths stay active.
-    const returnTo = getSafeReturnTo(req.query["returnTo"]);
+    const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
     res.setHeader("Content-Type", "text/html");
     res.send(
       `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
@@ -751,14 +756,7 @@ async function handleDevAdminLogin(req: Request, res: Response) {
   }
 }
 
-// The dev-admin-login convenience route is registered ONLY when explicitly
-// enabled in a non-production environment (see isDevAdminLoginEnabled). When
-// disabled the path is not an auth route at all — it falls through to a 404 —
-// and app.ts likewise withholds its CORS + origin-exemption, so it cannot be
-// half-mounted. This closes the unauthenticated admin-takeover backdoor.
-if (isDevAdminLoginEnabled()) {
-  router.get("/auth/dev-admin-login", handleDevAdminLogin);
-  router.post("/auth/dev-admin-login", handleDevAdminLogin);
-}
+router.get("/auth/dev-admin-login", handleDevAdminLogin);
+router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
 export default router;

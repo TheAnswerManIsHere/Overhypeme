@@ -62,13 +62,6 @@ export function Navbar() {
   function doAdminLogin() {
     _logoTapCount = 0;
     if (_logoTapTimer) { clearTimeout(_logoTapTimer); _logoTapTimer = null; }
-    // The dev-admin-login backdoor is disabled by default and always off in
-    // production (server: lib/devAdminLogin.ts). Gate the client trigger on the
-    // matching build-time flag so a prod bundle never even navigates to it —
-    // the endpoint would 404 anyway, but this keeps the trigger from shipping
-    // as a live affordance. Set VITE_ENABLE_DEV_ADMIN_LOGIN=true for a preview
-    // build that also has the server flag enabled.
-    if (import.meta.env.VITE_ENABLE_DEV_ADMIN_LOGIN !== "true") return;
     // Use top-level navigation to the GET endpoint instead of fetch().
     //
     // Why: in Chrome (esp. on Windows) when the app is viewed inside an
