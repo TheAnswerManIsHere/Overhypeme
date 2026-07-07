@@ -86,7 +86,7 @@ bar for its area, or by the deferred backfill.)*
 | `content-lifecycle.md` | A fact's journey: submission → enrichment → moderation → publish | not yet written |
 | [`moderation.md`](./moderation.md) | The moderation workflow: review steps, approvals, overrides, render checks | ✅ written |
 | `visual-pipeline.md` | How a fact becomes an image: planner, Visual Concept, compiler, render modes | not yet written |
-| `taxonomy-and-enrichment.md` | Classification, hashtags, enrichment versioning, staleness | not yet written |
+| [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | Classification, hashtags, enrichment versioning, staleness | ✅ written |
 | `personalization-and-grammar.md` | Tokens, pronouns, verb conjugation — how facts adapt to the reader | not yet written |
 | `admin-console.md` | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | not yet written |
 | `background-work.md` | Async jobs and how their status is surfaced (two altitudes) | not yet written |

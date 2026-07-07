@@ -67,6 +67,44 @@
   `diagnostics.droppedCandidates` with a reason, so this is debuggable rather
   than a guess.
 
+### 2026-07 · Processing signatures + engine revision; bulk send-back is initiation, never completion
+- **Decision:**
+  - Staleness gets a second, orthogonal dimension alongside the existing
+    `classificationPromptVersion` check: a `ProcessingSignature` (engine
+    revision + 4 code-version constants) stamped on `facts.lastProcessedSignature`
+    at classify time. Engine/model IDs are deliberately **excluded** — a config
+    toggle would otherwise flip corpus-wide staleness — so an LLM/engine swap
+    registers only via a manual, admin-audited **`engineRevision` bump**
+    ("Mark major update"), not automatically.
+  - **First-time approvals stamp fresh; direct live re-enrich never stamps.**
+    A newly-approved fact is never stale-for-reprocess on day one, but an
+    already-live fact only becomes fresh by going through the versioned
+    refresh (send-back → promote) — a direct re-enrich writes `facts.*`
+    straight and can't clear the flag.
+  - **Bulk "reprocess" (PR4) is bulk *initiation*, never bulk *completion*.**
+    It fans the existing single-fact send-back primitive out across many stale
+    facts via the async-jobs queue — every fact still has to clear **both**
+    human moderation gates (Visual Concept, then Test Renders) before it can
+    promote. Nothing auto-promotes.
+- **Why:** David's initial instinct was that "bulk reprocessing" shouldn't
+  exist at all, since the (concurrently rebuilt) three-step moderation process
+  requires a human in the loop — and that instinct is correct for bulk
+  *completion*. The resolving reframe: a refresh's Visual Concept is *carried
+  forward* from the live fact (not rebuilt from scratch) via the send-back
+  primitive's seeded override layers, so initiating many refreshes at once
+  doesn't bypass or weaken the human gates — it just fills the moderation queue
+  faster than clicking the single-fact button hundreds of times. Excluding
+  engine/model IDs from the signature (vs. stamping them automatically) avoids
+  every config toggle silently invalidating the whole corpus; the manual bump
+  keeps that invalidation an explicit, audited admin act.
+- **Reference:** PR #168 (ProcessingSignature + Taxonomy Health lens), PR #205
+  (bulk send-back); see
+  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
+  [`async-ui-status.md`](./async-ui-status.md).
+- **Revisit if:** the product ever wants auto-promotion of a subset of
+  refreshes (e.g. when only non-render-affecting inputs moved) — that would be
+  a deliberate, separate decision, not an incremental extension of PR4.
+
 ### 2026-07 · Tokenizer grammar correctness batch: possessive form, "They's" retirement, coordination reach
 - **Decision:**
   - `{NAME_POSSESSIVE}` always appends `'s` — including names already ending in
