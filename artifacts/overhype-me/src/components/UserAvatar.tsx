@@ -13,6 +13,7 @@ interface UserAvatarProps {
   as?: "button" | "div";
   ariaLabel?: string;
   className?: string;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
 }
 
 const sizeClasses: Record<UserAvatarSize, string> = {
@@ -37,7 +38,7 @@ const initialTextClasses: Record<UserAvatarSize, string> = {
 };
 
 export const UserAvatar = forwardRef<HTMLElement, UserAvatarProps>(function UserAvatar(
-  { avatarUrl, fallbackInitial, isLegendary = false, size = "md", as = "div", ariaLabel, className = "" },
+  { avatarUrl, fallbackInitial, isLegendary = false, size = "md", as = "div", ariaLabel, className = "", onClick },
   ref,
 ) {
   const sizeClass = sizeClasses[size];
@@ -86,6 +87,7 @@ export const UserAvatar = forwardRef<HTMLElement, UserAvatarProps>(function User
         type="button"
         aria-label={ariaLabel ?? "Open account menu"}
         className={sharedClass}
+        onClick={onClick}
       >
         {inner}
       </button>
