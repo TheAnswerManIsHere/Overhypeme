@@ -12,19 +12,26 @@ import { WebhookHandlers } from "./lib/webhookHandlers";
 import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
 import { SESSION_COOKIE } from "./lib/auth";
+import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
-const ORIGIN_EXEMPT_PATHS = new Set([
+const ORIGIN_EXEMPT_PATHS = new Set<string>([
   "/api/stripe/webhook",
-  "/api/auth/dev-admin-login",
   // Apple Sign In uses response_mode=form_post: Apple's servers POST the
   // authorization code from appleid.apple.com, which is not in our allowed
   // origins list. CSRF protection for this route is provided by Apple's own
   // `state` parameter (PKCE), so origin-checking here is redundant and wrong.
   "/api/callback/apple",
 ]);
+// Only exempt dev-admin-login from origin/CSRF checks when the route itself is
+// enabled (non-production + ENABLE_DEV_ADMIN_LOGIN). When disabled the path is
+// not a route, so it must carry no special exemption — single source of truth
+// in lib/devAdminLogin.ts.
+if (isDevAdminLoginEnabled()) {
+  ORIGIN_EXEMPT_PATHS.add("/api/auth/dev-admin-login");
+}
 
 function isOriginExempt(req: Request): boolean {
   return ORIGIN_EXEMPT_PATHS.has(req.path);
@@ -141,8 +148,12 @@ app.post(
 
 // Dev admin login needs permissive CORS so the POST fetch works from any
 // preview context (Replit canvas iframes, direct mobile browser, etc.).
-// Registered before the global cors() so it handles preflights too.
-app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
+// Registered before the global cors() so it handles preflights too — but ONLY
+// when the route is enabled. In production (and by default) this permissive
+// CORS is never mounted, so the disabled path gets no credentialed wildcard.
+if (isDevAdminLoginEnabled()) {
+  app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
+}
 
 const allowedOrigins = parseAllowedOrigins();
 app.use(cors({

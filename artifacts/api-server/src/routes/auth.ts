@@ -18,6 +18,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName } from "../lib/validators/personalName";
 
@@ -127,19 +128,6 @@ function setSessionCookie(res: Response, sid: string) {
     path: "/",
     maxAge: SESSION_TTL,
   });
-}
-
-function getSafeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
-  }
-  try {
-    const url = new URL(value, "http://localhost");
-    if (url.hostname !== "localhost") return "/";
-    return url.pathname + url.search + url.hash;
-  } catch {
-    return "/";
-  }
 }
 
 type OAuthProvider = "google" | "apple";
