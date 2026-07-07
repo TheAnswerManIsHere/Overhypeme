@@ -18,6 +18,21 @@ pnpm run typecheck:libs
 pnpm typecheck          # repo-level; prefer this for general typechecking
 ```
 
+## Build gate parity
+
+GitHub's required **Build** check runs the repo-level build:
+
+```sh
+pnpm run build
+```
+
+That command is broader than package-local typechecks: after typechecking it
+recursively runs each workspace package's build script, including Vite production
+config loading. Run it before PRs that touch frontend code, package/workspace
+scripts, Vite/build config, or any environment-variable handling used during
+build. Do not replace it with `tsc`-only checks for those changes — typecheck can
+pass while a production build fails.
+
 ## Test commands
 
 **Frontend-only changes** (safe sequence):
