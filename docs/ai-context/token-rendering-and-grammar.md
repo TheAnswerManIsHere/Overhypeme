@@ -72,6 +72,39 @@ route logs each one, so a silent prompt regression shows up in the logs. **The
 deterministic net, not the model, guarantees grammar.** Don't move correctness
 into the prompt.
 
+### Shared core: fact submission AND admin Visual-Concept authoring (PR #206)
+
+`tokenizePlainTextToTemplate()` is the **one** exported core both ingresses
+call — extracted verbatim from what used to be `/ai/tokenize-fact`'s inline
+logic. `/ai/tokenize-fact` (public, captcha-gated, fact submission) is now a
+thin wrapper around it; the admin-only batch route `POST
+/ai/tokenize-enrichment` (`requireAdmin`, no captcha, path/kind-validated
+before any LLM call, bounded concurrency) calls the same core to auto-tokenize
+a moderator's plain-English **Visual Strategy Override** fields on Save — see
+[`visual-pipeline.md`](./visual-pipeline.md#visual-strategy-override-authoring-auto-tokenize-on-save)
+for the authoring-side behavior. One core means the tokenizer prompt, the
+deterministic net, and the grammar guarantee can never drift between the two
+call sites.
+
+For the admin route, `opts.purpose: "visual_strategy"` + `opts.subjectNames`
+prepends a JSON-encoded (never raw-interpolated) hint to the user message —
+*"The personalized subject may be referred to by these names: […]. Only
+replace those names and their pronouns…"* — since VSO prose may also name
+non-personalized secondary characters (a fact template never does). This is a
+soft disambiguation hint, not a hard guarantee: a second *named* character can
+still be left literal (mitigated by the authoring rule below, not enforced).
+
+Two cost-skip predicates (`isAlreadyTokenizedNoPlainName`,
+`hasNoLikelySubjectReference`) let the admin batch route run the deterministic
+net only, skipping the LLM call, when nothing personalizable is left to find.
+**Both mask every `{…}` brace span before matching** so a token like `{NAME}`
+is never mistaken for a plain occurrence of a subject literally named "Name."
+**Both must check every personalization signal, not just the most obvious
+one** — see the "cost-skip heuristic" entry in
+[`known-failure-patterns.md`](./known-failure-patterns.md) for the real bug
+this produced (a plain-name check alone let a mixed, partially-tokenized field
+with a leftover plain pronoun skip re-tokenization forever).
+
 ### The single deterministic sequence: `applyDeterministicGrammar`
 
 `applyDeterministicGrammar(template)` (in `templateGrammar.ts`) is the one
@@ -205,6 +238,12 @@ nouns).
   rule yields the correct base (pass/miss/kiss), not `passe`/`misse`.
 - Subject-pronoun `'s` (`{Subj}'s`) → would render "They's"; expanded to
   `{Subj} {is|are}` at ingress, rendered plurality-safe as a fallback.
+- A skip-LLM heuristic checks only "is there a plain subject name left" and not
+  "is there a plain subject pronoun left" → a mixed/partially-tokenized field
+  (chip-inserted `{NAME}` but a bare "his"/"her"/"their" left over) reports
+  "nothing left to do" and permanently skips the only pass that would fix the
+  pronoun. See `isAlreadyTokenizedNoPlainName` above and
+  [`known-failure-patterns.md`](./known-failure-patterns.md).
 
 ## Regression examples (must stay green)
 
@@ -233,7 +272,11 @@ patches the one bad sentence is a known failure pattern (see
   `collapseNameSubjectConjugationPairs`, `expandSubjectContractions`,
   `applyDeterministicGrammar` (single source of truth).
 - `artifacts/api-server/src/lib/factTokenizer.ts` — model policy, system prompt,
-  post-processing (`postProcessTokenizedTemplate` = strip + `applyDeterministicGrammar`).
+  post-processing (`postProcessTokenizedTemplate` = strip + `applyDeterministicGrammar`),
+  the shared `tokenizePlainTextToTemplate()` core, and the cost-skip predicates
+  `isAlreadyTokenizedNoPlainName` / `hasNoLikelySubjectReference`.
+- `artifacts/api-server/src/routes/ai.ts` — `/ai/tokenize-fact` (thin wrapper)
+  and the admin-only batch route `/ai/tokenize-enrichment`.
 - `artifacts/api-server/src/lib/normalizeFactTemplateForStorage.ts` — the shared
   normalize → validate → derive contract every write route uses, plus
   `hasFactPronounMarkersForStorage`.
