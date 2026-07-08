@@ -1602,7 +1602,7 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || typeof email !== "string") { res.status(400).json({ error: "email is required" }); return; }
   if (!password || typeof password !== "string") { res.status(400).json({ error: "password is required" }); return; }
-  if (password.length < 6) { res.status(400).json({ error: "password must be at least 6 characters" }); return; }
+  if (password.length < 8) { res.status(400).json({ error: "password must be at least 8 characters" }); return; }
   if (password.length > 128) { res.status(400).json({ error: "password must be at most 128 characters" }); return; }
   const [user] = await db.select({ id: usersTable.id, email: usersTable.email })
     .from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase())).limit(1);

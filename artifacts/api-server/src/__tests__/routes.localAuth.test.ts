@@ -5,7 +5,7 @@
  * email-verification, set-password, and unlink-provider.
  *
  * The forgot-password and resend-verification rate limiters are DB-backed
- * (rate_limit_counters). Forgot-password tests vary the X-Forwarded-For
+ * (rate_limit_counters). Forgot-password tests vary the CF-Connecting-IP
  * header so each gets its own bucket. The before() hook clears any stale
  * rate-limit rows so back-to-back validation runs start from a clean state.
  */
@@ -38,8 +38,21 @@ const USER_PREFIX = "t_routes_la_";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
+let _testIpCounter = 0;
 function makeApp(): Express {
   const app = express();
+  // local-login / register / forgot-password are per-IP rate limited via
+  // ipFromRequest(), which trusts CF-Connecting-IP. Every supertest request
+  // otherwise shares one socket IP, which would exhaust the bucket across the
+  // file. Give each request a distinct CF-Connecting-IP unless the test set one
+  // explicitly (forgot-password tests set their own).
+  app.use((req, _res, next) => {
+    if (!req.headers["cf-connecting-ip"]) {
+      _testIpCounter += 1;
+      req.headers["cf-connecting-ip"] = `172.16.${(_testIpCounter >> 8) & 255}.${_testIpCounter & 255}`;
+    }
+    next();
+  });
   app.use(express.json());
   app.use(authMiddleware);
   app.use(localAuthRouter);
@@ -81,6 +94,12 @@ async function cleanupRateLimitCounters() {
   await db
     .delete(rateLimitCountersTable)
     .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.resend-verification|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.local-login|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.register|%'`);
 }
 
 async function cleanupOutbox() {
@@ -308,7 +327,7 @@ describe("POST /auth/forgot-password", () => {
   it("returns the generic 200 reply when email is missing", async () => {
     const res = await request(makeApp())
       .post("/auth/forgot-password")
-      .set("X-Forwarded-For", ipFor("missing"))
+      .set("CF-Connecting-IP", ipFor("missing"))
       .send({});
     assert.equal(res.status, 200);
     assert.match(res.body.message, /If an account/);
@@ -317,7 +336,7 @@ describe("POST /auth/forgot-password", () => {
   it("returns the generic 200 reply when no user matches", async () => {
     const res = await request(makeApp())
       .post("/auth/forgot-password")
-      .set("X-Forwarded-For", ipFor("none"))
+      .set("CF-Connecting-IP", ipFor("none"))
       .send({ email: uniqueEmail() });
     assert.equal(res.status, 200);
   });
@@ -326,7 +345,7 @@ describe("POST /auth/forgot-password", () => {
     const { email, id } = await createUserWithPassword();
     const res = await request(makeApp())
       .post("/auth/forgot-password")
-      .set("X-Forwarded-For", ipFor("happy"))
+      .set("CF-Connecting-IP", ipFor("happy"))
       .send({ email });
     assert.equal(res.status, 200);
     const tokens = await db
