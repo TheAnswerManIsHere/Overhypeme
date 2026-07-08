@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "generate:field-docs": "tsx scripts/generate-admin-field-reference.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:smoke": "playwright test routeLoadSmoke"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
