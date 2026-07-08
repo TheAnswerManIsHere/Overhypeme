@@ -36,7 +36,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const PREFIX = "tsec_la_";
 
-// Plain app with NO auto-IP injection — these tests control X-Forwarded-For
+// Plain app with NO auto-IP injection — these tests control CF-Connecting-IP
 // explicitly to exercise the per-IP vs per-email limiter behaviour.
 function plainApp(): Express {
   const app = express();
@@ -66,7 +66,7 @@ describe("C4: login/register throttling", () => {
     for (let i = 0; i < 13; i++) {
       const res = await request(app)
         .post("/auth/local-login")
-        .set("X-Forwarded-For", ip)
+        .set("CF-Connecting-IP", ip)
         .send({ email: `${PREFIX}ip${i}@nope.test`, password: "long-enough-pw" });
       if (res.status === 429) { throttled = true; break; }
     }
@@ -80,7 +80,7 @@ describe("C4: login/register throttling", () => {
     for (let i = 0; i < 34; i++) {
       const res = await request(app)
         .post("/auth/local-login")
-        .set("X-Forwarded-For", `198.51.100.${i}`) // distinct IP each time
+        .set("CF-Connecting-IP", `198.51.100.${i}`) // distinct IP each time
         .send({ email, password: "long-enough-pw" });
       if (res.status === 429) { throttled = true; break; }
     }
@@ -94,7 +94,7 @@ describe("C4: login/register throttling", () => {
     for (let i = 0; i < 13; i++) {
       const res = await request(app)
         .post("/auth/register")
-        .set("X-Forwarded-For", ip)
+        .set("CF-Connecting-IP", ip)
         .send({ email: `${PREFIX}reg${i}@nope.test`, password: "long-enough-pw", displayName: "Pat", firstName: "Pat", lastName: "Doe" });
       if (res.status === 429) { throttled = true; break; }
     }

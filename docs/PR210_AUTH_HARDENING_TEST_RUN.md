@@ -46,7 +46,7 @@ to manage (do not add DATABASE_URL here).
     (jsonb-only, `userId = NULL`) session,
   - admin set-password rejects a 7-char password, accepts 8.
 - **`routes.localAuth.test.ts`** — all existing tests still pass. Note the
-  `makeApp` helper now injects a distinct `X-Forwarded-For` per request so the
+  `makeApp` helper now injects a distinct `CF-Connecting-IP` per request so the
   new per-IP limiter doesn't exhaust the shared `127.0.0.1` bucket across the
   file. If these fail with unexpected 429s, that IP-injection middleware is the
   first thing to check.

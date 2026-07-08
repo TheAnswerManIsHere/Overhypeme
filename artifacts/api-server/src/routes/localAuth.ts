@@ -8,6 +8,7 @@ import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { ipFromRequest } from "../lib/transientRenderLog";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 
@@ -47,17 +48,6 @@ const REGISTER_IP_WINDOW_MS = 60 * 60 * 1000;
 // Generic throttle copy — never reveals whether an account exists.
 const GENERIC_THROTTLE_MESSAGE = "Too many attempts. Please try again in a few minutes.";
 
-// Best-effort client IP for app-level rate limiting. Mirrors the existing
-// forgot-password extraction; the edge (Cloudflare) is the authoritative
-// per-IP control, this is a second layer at the origin.
-function getRequestIp(req: Request): string {
-  return (
-    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
-    req.socket.remoteAddress ||
-    "unknown"
-  );
-}
-
 async function sendVerificationEmail(userId: string, email: string, pendingEmail?: string): Promise<void> {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
@@ -90,7 +80,7 @@ function setSessionCookie(res: Response, sid: string) {
 
 router.post("/auth/register", async (req: Request, res: Response) => {
   const registerIpLimit = await checkSharedRateLimit(
-    { endpoint: "auth.register", ip: getRequestIp(req) },
+    { endpoint: "auth.register", ip: ipFromRequest(req)},
     { limit: REGISTER_IP_MAX, windowMs: REGISTER_IP_WINDOW_MS },
   );
   if (!registerIpLimit.allowed) {
@@ -226,7 +216,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
 router.post("/auth/local-login", async (req: Request, res: Response) => {
   const loginIpLimit = await checkSharedRateLimit(
-    { endpoint: "auth.local-login", ip: getRequestIp(req) },
+    { endpoint: "auth.local-login", ip: ipFromRequest(req)},
     { limit: LOGIN_IP_MAX, windowMs: LOGIN_IP_WINDOW_MS },
   );
   if (!loginIpLimit.allowed) {
@@ -321,7 +311,7 @@ const GENERIC_RESET_MESSAGE = "If an account with that email exists and has a lo
 
 router.post("/auth/forgot-password", async (req: Request, res: Response) => {
   const { email } = req.body as { email?: string };
-  const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+  const ip = ipFromRequest(req);
 
   const forgotLimit = await checkSharedRateLimit(
     { endpoint: "auth.forgot-password", ip },
