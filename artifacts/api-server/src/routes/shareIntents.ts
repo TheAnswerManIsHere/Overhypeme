@@ -23,6 +23,7 @@ import { memesTable, shareIntentsTable, SHARE_INTENT_PLATFORMS } from "@workspac
 import type { ShareIntentPlatform } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { canViewMeme } from "../lib/memeVisibility";
 
 const router: IRouter = Router();
 
@@ -51,7 +52,7 @@ router.post("/share-intents", async (req: Request, res: Response) => {
   const platform = body.platform;
 
   const [meme] = await db
-    .select({ id: memesTable.id, deletedAt: memesTable.deletedAt })
+    .select({ id: memesTable.id, deletedAt: memesTable.deletedAt, isPublic: memesTable.isPublic, createdById: memesTable.createdById })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
@@ -65,6 +66,12 @@ router.post("/share-intents", async (req: Request, res: Response) => {
     // it explicitly rather than silently logging an intent against a meme
     // the user can no longer share.
     res.status(410).json({ error: "This meme has been removed by its creator." });
+    return;
+  }
+  // Private (owner-only) memes: don't confirm existence or log an intent for a
+  // non-owner — 404, indistinguishable from a missing meme.
+  if (!canViewMeme(meme, req)) {
+    res.status(404).json({ error: "Meme not found" });
     return;
   }
 

@@ -39,6 +39,7 @@ import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
+import { canViewMeme } from "../lib/memeVisibility";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
 import { buildZazzleUrl } from "../lib/zazzle";
@@ -364,6 +365,11 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
   if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
+  // Owner-only enforcement for private memes — 404 (not 403) so existence isn't
+  // disclosed to a non-owner. See lib/memeVisibility.ts.
+  if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
+  // A private meme visible to its owner must never be cached publicly.
+  if (!meme.isPublic) setNoStore(res);
 
   // Use frozen text if available (stored at creation time), otherwise fall back
   // to dynamic rendering for memes created before this column was added.
@@ -602,6 +608,10 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
+  // Owner-only enforcement — 404 to non-owners so existence isn't disclosed.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
+  // Private meme images must be no-store (never publicly/edge cacheable).
+  const memeIsPrivate = !meme.isPublic;
 
   // ── Legacy path: memes stored before recipe-based rendering ─────
   if (!meme.imageSource) {
@@ -621,8 +631,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
         const response = await objectStorageService.downloadObject(objectFile, 86400);
         res.status(response.status);
         response.headers.forEach((value, key) => res.setHeader(key, value));
-        setPublicCache(res, CACHE.MEME_IMAGE, etag);
-        setPublicCors(res);
+        if (memeIsPrivate) {
+          setNoStore(res);
+        } else {
+          setPublicCache(res, CACHE.MEME_IMAGE, etag);
+          setPublicCors(res);
+        }
         if (response.body) {
           Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
         } else {
@@ -698,9 +712,13 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${createdAtMs}-${bytesHash}"`;
     if (checkConditional(req, res, etag)) return;
 
-    setPublicCors(res);
     res.setHeader("Content-Type", "image/jpeg");
-    setPublicCache(res, CACHE.MEME_IMAGE, etag);
+    if (memeIsPrivate) {
+      setNoStore(res);
+    } else {
+      setPublicCors(res);
+      setPublicCache(res, CACHE.MEME_IMAGE, etag);
+    }
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
 
@@ -728,6 +746,9 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
+  // A private meme must not be exportable to a public Zazzle URL by anyone but
+  // its owner/admin — 404 to everyone else so existence isn't disclosed.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
 
   try {
     let imageBuffer: Buffer;
@@ -836,6 +857,8 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
+  // Private memes: only the owner/admin may mint a public Zazzle URL.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
 
   // Record the affiliate click before doing the (potentially-slow) image
   // export. We deliberately don't log on `?preview=true` — admin debug

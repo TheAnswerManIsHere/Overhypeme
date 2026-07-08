@@ -20,6 +20,7 @@ import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
 import { and, eq } from "drizzle-orm";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { canViewMeme } from "../lib/memeVisibility";
 
 const router: IRouter = Router();
 
@@ -178,6 +179,27 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     res.status(410).send(renderOgShell({
       title: `Removed · ${SITE_NAME}`,
       description: "This meme has been removed by its creator.",
+      imageUrl: `${baseUrl}${DEFAULT_OG_IMAGE_PATH}`,
+      imageWidth: 1200,
+      imageHeight: 630,
+      imageAlt: SITE_NAME,
+      canonicalUrl,
+      redirectTo: "/",
+      noRedirect,
+    }));
+    return;
+  }
+
+  // Private (owner-only) memes must never render a rich public preview. OG
+  // requests come from unauthenticated crawlers, so a private meme is not
+  // viewable here — return the generic not-found card, and override the public
+  // cache header set above with no-store so a later visibility change isn't
+  // masked by a stale edge cache and the worker can't publicly cache it.
+  if (!canViewMeme(meme, req)) {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(404).send(renderOgShell({
+      title: `Not found · ${SITE_NAME}`,
+      description: SITE_TAGLINE,
       imageUrl: `${baseUrl}${DEFAULT_OG_IMAGE_PATH}`,
       imageWidth: 1200,
       imageHeight: 630,
