@@ -21,6 +21,7 @@ import {
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
@@ -561,12 +562,9 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid storagePath" }); return;
   }
 
-  // Verify ownership
-  const ownership = await db.execute<{ count: string }>(sql`
-    SELECT COUNT(*)::text AS count FROM user_ai_images
-    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} AND image_type = 'reference'
-  `);
-  if (parseInt(ownership.rows[0]?.count ?? "0", 10) === 0) {
+  // Verify ownership — shared with the video generator so both authorize AI
+  // reference images identically (see lib/objectAccess.ts).
+  if (!(await userOwnsAiReferenceImage(req.user.id, storagePath))) {
     res.status(403).json({ error: "Image not found or not owned by you" }); return;
   }
 
