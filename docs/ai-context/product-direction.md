@@ -53,8 +53,6 @@ quality.
   surface facts processed under old prompt/taxonomy assumptions; the stale-fact
   refresh runs on a candidate while the live fact stays published.
 - **Moderator-curated final hashtags are what ship** (not raw AI suggestions).
-- Known gap: **processing signatures are a TODO** — the plumbing exists but nothing
-  stamps a signature yet.
 - See [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).
 
 ## Admin UX direction
@@ -103,7 +101,5 @@ before proposing to reverse one.)*
 *(None blocking as of this writing. Add here when a direction is genuinely
 ambiguous rather than guessing. Candidates an agent might surface:)*
 
-- Processing signatures (PR3) — is closing the TODO in scope soon, and what should
-  a signature capture? **Needs David confirmation.**
 - Whether any render scenario should become a **hard** approval gate (today all are
   waivable). **Needs David confirmation.**
