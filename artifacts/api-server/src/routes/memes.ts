@@ -364,10 +364,11 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
-  if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
-  // Owner-only enforcement for private memes — 404 (not 403) so existence isn't
-  // disclosed to a non-owner. See lib/memeVisibility.ts.
+  // Owner-only enforcement for private memes — 404 (not 403), and BEFORE the
+  // deletedAt 410 below, so a non-owner cannot distinguish a private meme
+  // (live or deleted) from one that never existed. See lib/memeVisibility.ts.
   if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
+  if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
   // A private meme visible to its owner must never be cached publicly.
   if (!meme.isPublic) setNoStore(res);
 
@@ -607,9 +608,10 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
-  if (meme.deletedAt) { res.status(410).end(); return; }
-  // Owner-only enforcement — 404 to non-owners so existence isn't disclosed.
+  // Owner-only enforcement, BEFORE the deletedAt 410, so a non-owner can't
+  // distinguish a private meme (live or deleted) from a nonexistent one.
   if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
   // Private meme images must be no-store (never publicly/edge cacheable).
   const memeIsPrivate = !meme.isPublic;
 
@@ -745,10 +747,10 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
-  if (meme.deletedAt) { res.status(410).end(); return; }
-  // A private meme must not be exportable to a public Zazzle URL by anyone but
-  // its owner/admin — 404 to everyone else so existence isn't disclosed.
+  // Owner/admin only, BEFORE deletedAt, so a non-owner can't distinguish a
+  // private meme (live or deleted) from a nonexistent one.
   if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
 
   try {
     let imageBuffer: Buffer;
@@ -856,9 +858,11 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
-  if (meme.deletedAt) { res.status(410).end(); return; }
-  // Private memes: only the owner/admin may mint a public Zazzle URL.
+  // Private memes: only the owner/admin may mint a public Zazzle URL — and the
+  // check runs BEFORE deletedAt so a non-owner can't distinguish a deleted
+  // private meme from a nonexistent one.
   if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
 
   // Record the affiliate click before doing the (potentially-slow) image
   // export. We deliberately don't log on `?preview=true` — admin debug

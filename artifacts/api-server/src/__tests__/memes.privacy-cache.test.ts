@@ -63,6 +63,7 @@ let adminId: string;
 let factId: number;
 const PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const PUB_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
+const DEL_PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 
 async function cleanup() {
   await db.delete(memesTable).where(like(memesTable.permalinkSlug, `${SLUG_PREFIX}%`));
@@ -95,6 +96,7 @@ before(async () => {
   await db.insert(memesTable).values([
     { ...base, permalinkSlug: PRIV_SLUG, imageUrl: `/api/memes/${PRIV_SLUG}/image`, isPublic: false },
     { ...base, permalinkSlug: PUB_SLUG, imageUrl: `/api/memes/${PUB_SLUG}/image`, isPublic: true },
+    { ...base, permalinkSlug: DEL_PRIV_SLUG, imageUrl: `/api/memes/${DEL_PRIV_SLUG}/image`, isPublic: false, deletedAt: new Date() },
   ]);
 });
 after(cleanup);
@@ -129,5 +131,17 @@ describe("GET /memes/:slug — private-meme owner-only enforcement", () => {
     const res = await get(PUB_SLUG, { kind: "unauthenticated" });
     assert.equal(res.status, 200);
     assert.equal(res.body.isPublic, true);
+  });
+
+  // A private meme that is ALSO soft-deleted must be indistinguishable from a
+  // never-existing slug for non-owners: 404, not the 410 "removed" status.
+  it("a deleted private meme gives a non-owner 404, not 410", async () => {
+    assert.equal((await get(DEL_PRIV_SLUG, { kind: "authenticated", userId: otherId })).status, 404);
+    assert.equal((await get(DEL_PRIV_SLUG, { kind: "unauthenticated" })).status, 404);
+  });
+
+  it("a deleted private meme still returns 410 to its owner", async () => {
+    const res = await get(DEL_PRIV_SLUG, { kind: "authenticated", userId: ownerId });
+    assert.equal(res.status, 410);
   });
 });

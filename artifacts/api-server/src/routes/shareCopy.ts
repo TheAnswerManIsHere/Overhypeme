@@ -131,13 +131,14 @@ async function resolveMeme(slug: string, req: Request): Promise<ResolvedMeme> {
   if (!meme) {
     return { status: "not_found", creatorName: "", factText: "", permalink };
   }
-  if (meme.deletedAt) {
-    return { status: "deleted", creatorName: "", factText: "", permalink };
-  }
-  // Private (owner-only) memes: a non-owner gets share copy for nothing —
-  // report not_found so the private meme's existence and content stay hidden.
+  // Private (owner-only) memes: a non-owner gets nothing — report not_found so
+  // the private meme's existence and content stay hidden. BEFORE the deletedAt
+  // branch so a deleted private meme is also indistinguishable from missing.
   if (!canViewMeme(meme, req)) {
     return { status: "not_found", creatorName: "", factText: "", permalink };
+  }
+  if (meme.deletedAt) {
+    return { status: "deleted", creatorName: "", factText: "", permalink };
   }
 
   let creatorName = "";

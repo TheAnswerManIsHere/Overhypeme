@@ -173,12 +173,17 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     return;
   }
 
-  if (meme.deletedAt) {
-    // Don't leak any of the deleted meme's content (text, image URL, creator
-    // name) — generic card only.
-    res.status(410).send(renderOgShell({
-      title: `Removed · ${SITE_NAME}`,
-      description: "This meme has been removed by its creator.",
+  // Private (owner-only) memes must never render a rich public preview. OG
+  // requests come from unauthenticated crawlers, so a private meme is not
+  // viewable here. This runs BEFORE the deletedAt branch so a non-viewer gets
+  // the SAME generic not-found card whether the private meme is live or
+  // deleted (no existence disclosure). no-store so a later visibility change
+  // isn't masked by a stale edge cache and the worker can't publicly cache it.
+  if (!canViewMeme(meme, req)) {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(404).send(renderOgShell({
+      title: `Not found · ${SITE_NAME}`,
+      description: SITE_TAGLINE,
       imageUrl: `${baseUrl}${DEFAULT_OG_IMAGE_PATH}`,
       imageWidth: 1200,
       imageHeight: 630,
@@ -190,16 +195,12 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     return;
   }
 
-  // Private (owner-only) memes must never render a rich public preview. OG
-  // requests come from unauthenticated crawlers, so a private meme is not
-  // viewable here — return the generic not-found card, and override the public
-  // cache header set above with no-store so a later visibility change isn't
-  // masked by a stale edge cache and the worker can't publicly cache it.
-  if (!canViewMeme(meme, req)) {
-    res.setHeader("Cache-Control", "no-store");
-    res.status(404).send(renderOgShell({
-      title: `Not found · ${SITE_NAME}`,
-      description: SITE_TAGLINE,
+  if (meme.deletedAt) {
+    // Don't leak any of the deleted meme's content (text, image URL, creator
+    // name) — generic card only.
+    res.status(410).send(renderOgShell({
+      title: `Removed · ${SITE_NAME}`,
+      description: "This meme has been removed by its creator.",
       imageUrl: `${baseUrl}${DEFAULT_OG_IMAGE_PATH}`,
       imageWidth: 1200,
       imageHeight: 630,

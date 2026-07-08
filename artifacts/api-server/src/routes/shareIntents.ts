@@ -61,17 +61,18 @@ router.post("/share-intents", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Meme not found" });
     return;
   }
+  // Private (owner-only) memes: don't confirm existence or log an intent for a
+  // non-owner — 404, indistinguishable from a missing meme. BEFORE the
+  // deletedAt branch so a deleted private meme doesn't leak via a 410 either.
+  if (!canViewMeme(meme, req)) {
+    res.status(404).json({ error: "Meme not found" });
+    return;
+  }
   if (meme.deletedAt) {
     // The client may race a soft-delete between modal-open and click. Surface
     // it explicitly rather than silently logging an intent against a meme
     // the user can no longer share.
     res.status(410).json({ error: "This meme has been removed by its creator." });
-    return;
-  }
-  // Private (owner-only) memes: don't confirm existence or log an intent for a
-  // non-owner — 404, indistinguishable from a missing meme.
-  if (!canViewMeme(meme, req)) {
-    res.status(404).json({ error: "Meme not found" });
     return;
   }
 
