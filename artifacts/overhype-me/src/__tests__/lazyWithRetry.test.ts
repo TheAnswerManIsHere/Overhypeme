@@ -25,6 +25,7 @@ const RETRY_DELAY_MS = 400;
 
 beforeEach(() => {
   capturedFactory = null;
+  sessionStorage.clear();
   vi.useFakeTimers();
 });
 
@@ -72,6 +73,48 @@ describe("lazyWithRetry", () => {
 
     const result = await wrapped;
     expect(result).toEqual({ default: Component });
+  });
+
+  it("rejects (instead of reloading again) when reloaded very recently — prevents infinite loop", async () => {
+    // Simulate a reload that just happened (within the 10s cooldown window).
+    sessionStorage.setItem("lazy-retry:reloaded-at", String(Date.now()));
+
+    const reload = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { ...originalLocation, reload },
+    });
+
+    try {
+      const factory = vi
+        .fn<() => Promise<{ default: React.ComponentType<object> }>>()
+        .mockRejectedValueOnce(new Error("first failure after reload"))
+        .mockRejectedValueOnce(new Error("second failure after reload"));
+
+      lazyWithRetry(factory);
+      const wrapped = capturedFactory!();
+
+      // Attach the rejection handler BEFORE advancing timers so the rejection
+      // is never "unhandled" from Vitest's perspective.
+      const rejection = expect(wrapped).rejects.toThrow("second failure after reload");
+
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(reload).not.toHaveBeenCalled();
+      await rejection;
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("calls window.location.reload and never settles when both attempts fail (no Sentry noise)", async () => {

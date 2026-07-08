@@ -159,10 +159,58 @@ describe("POST /route-stats", () => {
   });
 
   it("accepts every route key in the documented allowlist", async () => {
-    const keys = ["home","search","facts","submit","profile","activity","meme","video","pricing"];
+    const keys = ["home","search","facts","submit","profile","onboard","activity","meme","video","pricing","login"];
     for (const k of keys) {
       const res = await request(makeApp()).post("/route-stats").send({ route: k });
       assert.equal(res.status, 204, `expected 204 for ${k}`);
     }
+  });
+
+  it("accepts a session-flush { counts } payload and applies each delta", async () => {
+    const res = await request(makeApp())
+      .post("/route-stats")
+      .send({ counts: { home: 3, search: 1 } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { accepted: 2 });
+
+    const [home] = await db
+      .select()
+      .from(routeStatsTable)
+      .where(eq(routeStatsTable.routeKey, "home"));
+    assert.equal(home.visitCount, 3);
+
+    const [search] = await db
+      .select()
+      .from(routeStatsTable)
+      .where(eq(routeStatsTable.routeKey, "search"));
+    assert.equal(search.visitCount, 1);
+
+    const events = await db.select().from(routeStatEventsTable);
+    assert.equal(events.length, 2);
+  });
+
+  it("silently skips unknown keys and invalid deltas in a { counts } payload", async () => {
+    const res = await request(makeApp())
+      .post("/route-stats")
+      .send({ counts: { "secret-admin-page": 5, home: -2, search: "garbage", profile: 200_000, facts: 2 } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { accepted: 1 });
+
+    const [facts] = await db
+      .select()
+      .from(routeStatsTable)
+      .where(eq(routeStatsTable.routeKey, "facts"));
+    assert.equal(facts.visitCount, 2);
+
+    const rows = await db.select().from(routeStatsTable);
+    assert.equal(rows.length, 1);
+  });
+
+  it("returns { accepted: 0 } when a { counts } payload has no valid entries", async () => {
+    const res = await request(makeApp())
+      .post("/route-stats")
+      .send({ counts: { nonsense: 1 } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { accepted: 0 });
   });
 });

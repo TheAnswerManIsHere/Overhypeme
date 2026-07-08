@@ -6,3 +6,8 @@ uri = "file://attached_assets/generated_images/og_default_bg.png"
 type = "image"
 title = "generated_image"
 
+[[outputs]]
+id = "CUfu8tFb74c8br2MWP7t-"
+uri = "file://HANDOFF.md"
+type = "text"
+title = "Updated Handoff — Overhype Me"

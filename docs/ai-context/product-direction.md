@@ -53,8 +53,6 @@ quality.
   surface facts processed under old prompt/taxonomy assumptions; the stale-fact
   refresh runs on a candidate while the live fact stays published.
 - **Moderator-curated final hashtags are what ship** (not raw AI suggestions).
-- Known gap: **processing signatures are a TODO** — the plumbing exists but nothing
-  stamps a signature yet.
 - See [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).
 
 ## Admin UX direction

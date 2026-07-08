@@ -140,9 +140,7 @@ export function Navbar() {
               <Search className="w-5 h-5" />
             </button>
             {isAuthenticated && !authLoading ? (
-              <button onClick={() => setLocation("/profile")} aria-label="Go to profile">
-                <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-              </button>
+              <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />
             ) : !isColdMobile ? (
               <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground" aria-label="Sign in">
                 <User className="w-4 h-4" />
@@ -214,9 +212,7 @@ export function Navbar() {
                 are inside the avatar dropdown; Submit lives on /library). */}
             <div className="flex items-center gap-3">
               {!authLoading && (isAuthenticated ? (
-                <button onClick={() => setLocation("/profile")} aria-label="Go to profile">
-                  <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-                </button>
+                <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
                   <LogIn className="w-4 h-4" /> SIGN IN

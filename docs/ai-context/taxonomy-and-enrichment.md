@@ -72,7 +72,7 @@ override's captured `overriddenFrom` baseline is only refreshed on an explicit
 `fact_enrichment_versions` statuses: **`candidate | promoted | superseded |
 rejected`.** At most **one in-flight `candidate` per fact** (partial unique
 index). The stale-fact **"send back to review"** primitive
-(`sendFactBackToReview` in `sendBackToReview.ts`) is shared by three callers —
+(`sendBackToReview` in `sendBackToReview.ts`) is shared by three callers —
 the Facts-editor endpoint, the Taxonomy Health single-row action, and the bulk
 send-back job (PR4, below) — none of which call each other: in one transaction
 it creates a `candidate` seeded from the fact's active enrichment (including the

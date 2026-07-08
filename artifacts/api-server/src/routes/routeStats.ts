@@ -8,12 +8,13 @@ const router: IRouter = Router();
 
 const VALID_ROUTE_KEYS = new Set([
   "home", "search", "facts", "submit", "profile",
-  "activity", "meme", "video", "pricing",
+  "onboard", "activity", "meme", "video", "pricing", "login",
 ]);
 
-const PostRouteStatBody = z.object({
-  route: z.string(),
-});
+const PostRouteStatBody = z.union([
+  z.object({ route: z.string() }),
+  z.object({ counts: z.record(z.string(), z.unknown()) }),
+]);
 
 router.get("/route-stats", async (req, res) => {
   try {
@@ -42,27 +43,59 @@ router.post("/route-stats", async (req, res) => {
     res.status(400).json({ error: "Invalid body" });
     return;
   }
-  const { route } = parsed.data;
-  if (!VALID_ROUTE_KEYS.has(route)) {
-    res.status(400).json({ error: "Unknown route key" });
-    return;
+
+  // Normalize both accepted payload shapes into { routeKey, delta } entries:
+  //   { route: "home" }                  — single visit increment
+  //   { counts: { home: 3, search: 1 } } — session flush of accumulated counts
+  const entries: { routeKey: string; delta: number }[] = [];
+  if ("route" in parsed.data) {
+    const { route } = parsed.data;
+    if (!VALID_ROUTE_KEYS.has(route)) {
+      res.status(400).json({ error: "Unknown route key" });
+      return;
+    }
+    entries.push({ routeKey: route, delta: 1 });
+  } else {
+    for (const [key, val] of Object.entries(parsed.data.counts)) {
+      if (!VALID_ROUTE_KEYS.has(key)) continue;
+      const delta = typeof val === "number" ? Math.floor(val) : parseInt(String(val), 10);
+      if (isNaN(delta) || delta <= 0 || delta > 100_000) continue;
+      entries.push({ routeKey: key, delta });
+    }
+    if (entries.length === 0) {
+      res.json({ accepted: 0 });
+      return;
+    }
   }
+
   try {
-    await db
-      .insert(routeStatsTable)
-      .values({ routeKey: route, visitCount: 1 })
-      .onConflictDoUpdate({
-        target: routeStatsTable.routeKey,
-        set: {
-          visitCount: sql`${routeStatsTable.visitCount} + 1`,
-          updatedAt: sql`now()`,
-        },
-      });
-    await db.insert(routeStatEventsTable).values({ routeKey: route, delta: 1 });
+    await Promise.all(
+      entries.map(({ routeKey, delta }) =>
+        db
+          .insert(routeStatsTable)
+          .values({ routeKey, visitCount: delta })
+          .onConflictDoUpdate({
+            target: routeStatsTable.routeKey,
+            set: {
+              visitCount: sql`${routeStatsTable.visitCount} + ${delta}`,
+              updatedAt: sql`now()`,
+            },
+          }),
+      ),
+    );
+    await db.insert(routeStatEventsTable).values(
+      entries.map(({ routeKey, delta }) => ({ routeKey, delta })),
+    );
   } catch {
     // Best-effort — never let a counting failure surface as an error
   }
-  res.status(204).end();
+  // Contract: single-visit `{route}` posts respond 204 (fire-and-forget);
+  // session-flush `{counts}` posts respond with how many keys were accepted.
+  if ("route" in parsed.data) {
+    res.status(204).end();
+  } else {
+    res.json({ accepted: entries.length });
+  }
 });
 
 export default router;

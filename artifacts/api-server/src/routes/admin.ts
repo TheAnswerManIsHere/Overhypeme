@@ -2554,66 +2554,6 @@ router.get("/admin/sentry-status", requireAdmin, (_req: Request, res: Response) 
   res.json({ dsnConfigured, environment, release });
 });
 
-// ---------------------------------------------------------------------------
-// Route-visit stats — aggregate localStorage visit counts server-side
-// ---------------------------------------------------------------------------
-
-const VALID_ROUTE_KEYS = new Set([
-  "home", "search", "facts", "submit", "profile",
-  "onboard", "activity", "meme", "video", "pricing", "login",
-]);
-
-/**
- * POST /route-stats
- * Accepts a map of { routeKey: incrementAmount } from the client and adds
- * those counts into the shared server-side aggregates.  No auth required —
- * counts are low-sensitivity traffic data.  Input is strictly validated to
- * prevent injection of arbitrary keys or absurd counts.
- */
-router.post("/route-stats", async (req: Request, res: Response) => {
-  const body = req.body as Record<string, unknown>;
-  const counts = body["counts"];
-
-  if (!counts || typeof counts !== "object" || Array.isArray(counts)) {
-    res.status(400).json({ error: "counts must be an object" });
-    return;
-  }
-
-  const entries: { routeKey: string; delta: number }[] = [];
-  for (const [key, val] of Object.entries(counts as Record<string, unknown>)) {
-    if (!VALID_ROUTE_KEYS.has(key)) continue;
-    const delta = typeof val === "number" ? Math.floor(val) : parseInt(String(val), 10);
-    if (isNaN(delta) || delta <= 0 || delta > 100_000) continue;
-    entries.push({ routeKey: key, delta });
-  }
-
-  if (entries.length === 0) {
-    res.json({ accepted: 0 });
-    return;
-  }
-
-  await Promise.all(
-    entries.map(({ routeKey, delta }) =>
-      db
-        .insert(routeStatsTable)
-        .values({ routeKey, visitCount: delta })
-        .onConflictDoUpdate({
-          target: routeStatsTable.routeKey,
-          set: {
-            visitCount: sql`${routeStatsTable.visitCount} + ${delta}`,
-            updatedAt: sql`now()`,
-          },
-        }),
-    ),
-  );
-
-  await db.insert(routeStatEventsTable).values(
-    entries.map(({ routeKey, delta }) => ({ routeKey, delta })),
-  );
-
-  res.json({ accepted: entries.length });
-});
-
 /**
  * GET /admin/route-stats
  * Returns route visit stats sorted by visit count descending.

@@ -216,10 +216,12 @@ export function AccountMenuAvatarTrigger({
   avatarUrl,
   fallbackInitial,
   size = "md",
+  onClick,
 }: {
   avatarUrl: string | null;
   fallbackInitial?: string;
   size?: UserAvatarSize;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
 }) {
   const { role } = useAuth();
   const isLegendary = role === "legendary" || role === "admin";
@@ -231,6 +233,7 @@ export function AccountMenuAvatarTrigger({
       isLegendary={isLegendary}
       size={size}
       ariaLabel="Open account menu"
+      onClick={onClick}
     />
   );
 }

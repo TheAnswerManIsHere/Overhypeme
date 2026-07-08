@@ -24,6 +24,13 @@ const ORIGIN_EXEMPT_PATHS = new Set([
   // origins list. CSRF protection for this route is provided by Apple's own
   // `state` parameter (PKCE), so origin-checking here is redundant and wrong.
   "/api/callback/apple",
+  // Route-stats is a pure analytics endpoint that records which pages were
+  // visited. It accepts only a fixed allowlist of route keys, carries no
+  // auth-sensitive mutation, and is intentionally open to unauthenticated
+  // callers. CSRF-protecting it provides no security benefit and causes a
+  // race condition: the POST fires on page load before the CSRF cookie issued
+  // by a concurrent GET has been received back by the browser.
+  "/api/route-stats",
 ]);
 
 function isOriginExempt(req: Request): boolean {
