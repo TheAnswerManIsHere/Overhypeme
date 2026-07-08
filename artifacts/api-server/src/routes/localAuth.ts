@@ -817,12 +817,17 @@ async function handleDevAdminLogin(req: Request, res: Response) {
 // (David, 2026-07-07) — it is currently the primary way to reach the admin
 // panel. Before the app is publicly live this route MUST be gated fail-closed.
 //
-// A complete hardening (env-gated single source of truth + never-in-production
-// guard, session rotation instead of in-place mutation, removal of the
-// CORS/origin exemption in app.ts, sanitized returnTo, gated client trigger,
-// and a supertest regression) was implemented and then reverted to keep this
-// convenience open for now. Re-apply it before launch:
-//     git show b6eb5dc   # the full fix; `git revert` its revert to restore
+// Before launch, gate this route fail-closed. The known-good hardening:
+//   1. A single source-of-truth helper (e.g. isDevAdminLoginEnabled()) that is
+//      OFF by default, opt-in via an env flag for non-prod previews, and can
+//      NEVER return true when NODE_ENV==="production".
+//   2. Register these routes — and the matching CORS + ORIGIN_EXEMPT_PATHS
+//      entries in app.ts, and the wordmark trigger in Navbar.tsx — only when
+//      that helper is enabled, so the path 404s (no CORS, no session) when off.
+//   3. In the handler, mint a FRESH session (delete the old sid) instead of
+//      mutating the caller's sid in place, and sanitize `returnTo` to a
+//      same-origin path (the getSafeReturnTo helper in routes/auth.ts).
+//   4. Add a supertest regression asserting the route is inert by default.
 // Tracked as the pre-launch item of the security-hardening pass (C1).
 router.get("/auth/dev-admin-login", handleDevAdminLogin);
 router.post("/auth/dev-admin-login", handleDevAdminLogin);
