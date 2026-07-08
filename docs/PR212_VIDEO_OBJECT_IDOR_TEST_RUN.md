@@ -39,12 +39,14 @@ pnpm --filter @workspace/api-server test
 
 ## Expected results
 
-- **`videos.security.test.ts` (new)** — 5 tests pass:
-  - ACL grants read → allowed,
-  - legacy upload **owner** allowed when ACL denies, and the ACL is healed,
-  - a **different** authenticated user → **denied** (IDOR closed),
-  - unauthenticated caller → denied,
-  - non-`/objects/uploads/` path → denied (fallback is uploads-scoped).
+- **`videos.security.test.ts` (new)** — 9 tests pass. Object-ACL path
+  (`userCanReadObject`): ACL grants → allowed; legacy upload **owner** allowed
+  when ACL denies (+ ACL healed); a **different** user → **denied**;
+  unauthenticated → denied; non-`/objects/uploads/` path → denied. AI-reference
+  path (`userOwnsAiReferenceImage`, for `/memes/ai-user/image?storagePath=`):
+  the `user_ai_images` **owner** allowed; a **different** user → **denied**
+  (these objects carry a *public* ACL, so ownership — not the ACL — is the gate);
+  wrong path / non-`reference` `image_type` → denied.
 - **`routes.storage.test.ts`** — the object-serving ACL path (now backed by the
   shared helper) still passes; if it fails, the extraction in `objectAccess.ts`
   diverged from the original inline logic — compare against

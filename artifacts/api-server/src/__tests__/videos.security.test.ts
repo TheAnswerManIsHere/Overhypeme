@@ -20,10 +20,10 @@ import { randomUUID } from "node:crypto";
 
 import type { Request } from "express";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { sql, like } from "drizzle-orm";
+import { usersTable, factsTable, userAiImagesTable } from "@workspace/db/schema";
+import { sql, like, eq } from "drizzle-orm";
 
-import { userCanReadObject } from "../lib/objectAccess.js";
+import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
 import type { ObjectStorageService } from "../lib/objectStorage.js";
 
 const PREFIX = "tsec_vid_";
@@ -45,10 +45,14 @@ function reqAs(userId?: string): Request {
 
 let ownerId: string;
 let otherId: string;
+let factId: number;
+const AI_REF_PATH = `/objects/ai-user/${PREFIX}ref.png`;
 
 async function cleanup() {
   await db.execute(sql`DELETE FROM upload_image_metadata WHERE object_path LIKE ${`/objects/uploads/${PREFIX}%`}`);
+  // user_ai_images rows cascade when their user or fact is deleted.
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
+  await db.delete(factsTable).where(like(factsTable.text, `${PREFIX}%`));
 }
 
 before(async () => {
@@ -63,6 +67,17 @@ before(async () => {
     INSERT INTO upload_image_metadata (object_path, width, height, file_size_bytes, user_id)
     VALUES (${OWNED_PATH}, 100, 100, 1234, ${ownerId})
   `);
+
+  const [fact] = await db
+    .insert(factsTable)
+    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true })
+    .returning({ id: factsTable.id });
+  factId = fact.id;
+  // The owner's AI *reference* image, plus a *generic* row that must NOT match.
+  await db.insert(userAiImagesTable).values([
+    { userId: ownerId, factId, gender: "female", storagePath: AI_REF_PATH, imageType: "reference" },
+    { userId: ownerId, factId, gender: "female", storagePath: `/objects/ai-user/${PREFIX}generic.png`, imageType: "generic" },
+  ]);
 });
 after(cleanup);
 
@@ -95,5 +110,26 @@ describe("C2: private-object read authorization", () => {
     // a different prefix when the ACL denies.
     const ok = await userCanReadObject(stubSvc(false), DUMMY_FILE, `/objects/ai-backgrounds/${PREFIX}x.jpg`, reqAs(ownerId));
     assert.equal(ok, false);
+  });
+});
+
+describe("C2 (P1 follow-up): AI reference-image ownership", () => {
+  // AI reference images carry a PUBLIC object ACL, so the ACL check grants
+  // everyone — the real gate is user_ai_images ownership. The video generator
+  // and GET /memes/ai-user/image share this decision.
+  it("allows the owner of the user_ai_images reference row", async () => {
+    assert.equal(await userOwnsAiReferenceImage(ownerId, AI_REF_PATH), true);
+  });
+
+  it("DENIES a different user (public object ACL is not sufficient)", async () => {
+    assert.equal(await userOwnsAiReferenceImage(otherId, AI_REF_PATH), false);
+  });
+
+  it("denies the owner for a path they have no reference row for", async () => {
+    assert.equal(await userOwnsAiReferenceImage(ownerId, `/objects/ai-user/${PREFIX}nope.png`), false);
+  });
+
+  it("does not match a non-reference (generic) image_type row", async () => {
+    assert.equal(await userOwnsAiReferenceImage(ownerId, `/objects/ai-user/${PREFIX}generic.png`), false);
   });
 });

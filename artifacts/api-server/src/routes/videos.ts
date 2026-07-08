@@ -10,7 +10,8 @@ import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
-import { userCanReadObject } from "../lib/objectAccess.js";
+import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
+import type { File } from "@google-cloud/storage";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
 import { logger } from "../lib/logger.js";
 import { requireAdmin } from "./admin.js";
@@ -106,29 +107,38 @@ function resolveImageUrl(raw: string | undefined, req: Request): string | undefi
 const _objectStorage = new ObjectStorageService();
 
 /**
- * Extracts the /objects/... storage path from any of our private storage URLs:
+ * A caller-supplied image URL pointing at one of our private storage objects.
+ * The two forms authorize DIFFERENTLY, so we tag which one it is:
  *
- *   1. /memes/ai-user/image?storagePath=...  (AI reference images)
- *   2. /api/storage/objects/{subPath}         (uploads, ai-backgrounds, etc.)
- *
- * Returns the canonical /objects/{subPath} path, or null if the URL is not
- * one of our private storage URLs.
+ *   - "ai-reference": /memes/ai-user/image?storagePath=...  → ownership of the
+ *     `user_ai_images` row. These objects carry a PUBLIC object ACL, so the ACL
+ *     check is NOT sufficient (it would grant everyone).
+ *   - "object": /api/storage/objects/{subPath}  → the object ACL (+ legacy
+ *     upload-owner fallback), i.e. userCanReadObject.
  */
-function extractObjectsPath(imageUrl: string): string | null {
+type PrivateObjectRef =
+  | { kind: "ai-reference"; storagePath: string }
+  | { kind: "object"; objectsPath: string };
+
+function extractPrivateObjectRef(imageUrl: string): PrivateObjectRef | null {
   try {
     const u = new URL(imageUrl);
 
-    // Pattern 1: AI reference image query-param style
+    // Form 1: AI reference image query-param style.
     if (u.pathname.includes("/memes/ai-user/image")) {
-      return u.searchParams.get("storagePath");
+      const storagePath = u.searchParams.get("storagePath");
+      if (storagePath && storagePath.startsWith("/objects/")) {
+        return { kind: "ai-reference", storagePath };
+      }
+      return null;
     }
 
-    // Pattern 2: /api/storage/objects/{subPath}
+    // Form 2: /api/storage/objects/{subPath}.
     const OBJECTS_PREFIX = "/api/storage/objects/";
     const idx = u.pathname.indexOf(OBJECTS_PREFIX);
     if (idx !== -1) {
       const subPath = u.pathname.slice(idx + OBJECTS_PREFIX.length);
-      if (subPath) return `/objects/${subPath}`;
+      if (subPath) return { kind: "object", objectsPath: `/objects/${subPath}` };
     }
 
     return null;
@@ -147,43 +157,12 @@ class ObjectAccessForbiddenError extends Error {
   }
 }
 
-/**
- * If `imageUrl` points to one of our private storage objects (uploaded images,
- * AI backgrounds, reference images), downloads it from GCS and re-uploads it
- * to fal.ai's transient CDN so the video model can access it publicly.
- *
- * SECURITY: the caller MUST be authorized to READ the object — the same ACL
- * check `GET /storage/objects` enforces (see lib/objectAccess.ts). Without it,
- * any authenticated (Legendary) user could pass another user's `storagePath`
- * and have the server fetch + re-host their private image (IDOR). Throws
- * `ObjectAccessForbiddenError` when the caller can't read it; callers translate
- * that to 403 and must not use the original URL.
- *
- * Returns the fal.ai CDN URL on success, or null if `imageUrl` is not one of
- * our private storage objects (caller uses the original URL unchanged).
- */
-async function uploadPrivateImageToFalCdn(imageUrl: string, req: Request): Promise<string | null> {
-  const objectsPath = extractObjectsPath(imageUrl);
-  if (!objectsPath) return null;
-
-  const normalized = _objectStorage.normalizeObjectEntityPath(objectsPath);
-
-  let file;
+/** Download an authorized object from GCS and re-host it on fal's transient
+ * CDN so the video model can fetch it. Returns null on a transient fetch/upload
+ * failure (caller falls back to the original URL). */
+async function rehostObjectToFal(objectFile: File): Promise<string | null> {
   try {
-    file = await _objectStorage.getObjectEntityFile(normalized);
-  } catch {
-    // Not a resolvable private object — not ours to serve; passthrough.
-    return null;
-  }
-
-  // Authorize the READ BEFORE fetching or re-hosting any bytes.
-  const canRead = await userCanReadObject(_objectStorage, file, normalized, req);
-  if (!canRead) {
-    throw new ObjectAccessForbiddenError();
-  }
-
-  try {
-    const response = await _objectStorage.downloadObject(file, 60);
+    const response = await _objectStorage.downloadObject(objectFile, 60);
     const contentType = response.headers.get("content-type") ?? "image/jpeg";
     const buf = Buffer.from(await response.arrayBuffer());
     const blob = new Blob([buf], { type: contentType });
@@ -195,6 +174,58 @@ async function uploadPrivateImageToFalCdn(imageUrl: string, req: Request): Promi
     logger.warn({ err }, "[videos/generate] Failed to re-host private image to fal CDN");
     return null;
   }
+}
+
+/**
+ * If `imageUrl` points to one of our private storage objects, authorize the
+ * caller's READ using the SAME policy that object's serving route enforces,
+ * then download it and re-host it on fal's public CDN for the video model.
+ *
+ * SECURITY: without this, any authenticated (Legendary) user could pass another
+ * user's storagePath and have the server fetch + re-host their private image
+ * (IDOR). The two URL forms authorize differently — AI reference images by
+ * `user_ai_images` ownership (they carry a public object ACL, so the ACL alone
+ * grants everyone), storage objects by the object ACL (+ upload-owner fallback).
+ * Throws `ObjectAccessForbiddenError` when the caller isn't allowed; the route
+ * translates that to 403 and must NOT use the original URL.
+ *
+ * Returns the fal CDN URL on success, or null if `imageUrl` is not one of our
+ * private storage objects (caller uses the original URL unchanged).
+ */
+async function uploadPrivateImageToFalCdn(imageUrl: string, req: Request): Promise<string | null> {
+  const ref = extractPrivateObjectRef(imageUrl);
+  if (!ref) return null;
+
+  if (ref.kind === "ai-reference") {
+    // Mirror GET /memes/ai-user/image: authorize by user_ai_images ownership
+    // (the object ACL is public and would grant everyone).
+    const userId = req.user?.id;
+    if (!userId || !(await userOwnsAiReferenceImage(userId, ref.storagePath))) {
+      throw new ObjectAccessForbiddenError();
+    }
+    let file;
+    try {
+      file = await _objectStorage.getObjectEntityFile(
+        _objectStorage.normalizeObjectEntityPath(ref.storagePath),
+      );
+    } catch {
+      return null;
+    }
+    return rehostObjectToFal(file);
+  }
+
+  // ref.kind === "object": mirror GET /storage/objects (ACL + upload fallback).
+  const normalized = _objectStorage.normalizeObjectEntityPath(ref.objectsPath);
+  let file;
+  try {
+    file = await _objectStorage.getObjectEntityFile(normalized);
+  } catch {
+    return null;
+  }
+  if (!(await userCanReadObject(_objectStorage, file, normalized, req))) {
+    throw new ObjectAccessForbiddenError();
+  }
+  return rehostObjectToFal(file);
 }
 
 router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {

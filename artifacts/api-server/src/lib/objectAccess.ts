@@ -1,7 +1,8 @@
 import type { Request } from "express";
 import type { File } from "@google-cloud/storage";
 import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { userAiImagesTable } from "@workspace/db/schema";
+import { sql, and, eq } from "drizzle-orm";
 import type { ObjectStorageService } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 
@@ -57,4 +58,30 @@ export async function userCanReadObject(
   }
 
   return false;
+}
+
+/**
+ * Ownership check for a user's AI **reference** image, keyed on the
+ * `user_ai_images` table — the authorization the `GET /memes/ai-user/image`
+ * serving route enforces.
+ *
+ * This is a SEPARATE decision from `userCanReadObject`: reference images are
+ * stored with a *public* object ACL, so `canAccessObjectEntity` would grant
+ * everyone read. The real gate is ownership of the `user_ai_images` row. Any
+ * path that serves or re-hosts an AI reference image (the serving route and the
+ * video generator) MUST use this, not the object ACL.
+ */
+export async function userOwnsAiReferenceImage(userId: string, storagePath: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: userAiImagesTable.id })
+    .from(userAiImagesTable)
+    .where(
+      and(
+        eq(userAiImagesTable.userId, userId),
+        eq(userAiImagesTable.storagePath, storagePath),
+        eq(userAiImagesTable.imageType, "reference"),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
