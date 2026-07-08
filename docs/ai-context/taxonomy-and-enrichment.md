@@ -71,41 +71,112 @@ override's captured `overriddenFrom` baseline is only refreshed on an explicit
 
 `fact_enrichment_versions` statuses: **`candidate | promoted | superseded |
 rejected`.** At most **one in-flight `candidate` per fact** (partial unique
-index). The stale-fact **"send back to review"** flow
-(`sendBackToReview.ts`): in one transaction it creates a `candidate` seeded from
-the fact's active enrichment, opens a **new `pending_reviews` cycle at
+index). The stale-fact **"send back to review"** primitive
+(`sendBackToReview` in `sendBackToReview.ts`) is shared by three callers —
+the Facts-editor endpoint, the Taxonomy Health single-row action, and the bulk
+send-back job (PR4, below) — none of which call each other: in one transaction
+it creates a `candidate` seeded from the fact's active enrichment (including the
+Visual Concept / visual override layer — a refresh does **not** require
+rebuilding it from scratch), opens a **new `pending_reviews` cycle at
 `prep_pending`** (the original approval review is never mutated), flips only
 `facts.enrichment_status = "pending"` (the fact stays `isActive` and the public
-feed keeps reading `facts.enrichment`), and enqueues the candidate enrichment job.
-Classification into a candidate writes the **version row, never `facts.*`**.
-**Promote** archives the prior active as a `superseded` row, rematerializes the
-candidate into `facts.*`, and marks it `promoted`; **reject** retains the
-candidate as `rejected` history (never hard-deleted). Guards include
+feed keeps reading `facts.enrichment`), and enqueues the candidate enrichment
+job. That job classifies into the version row and advances the review to
+**Step 2 (`concept_review`)** — never `facts.*`. **Promote** archives the prior
+active as a `superseded` row, rematerializes the candidate into `facts.*`
+(including the signature — see above), and marks it `promoted`; **reject**
+retains the candidate as `rejected` history (never hard-deleted). Guards:
 `REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`, `HAS_ACTIVE_VARIANTS`.
+
+**A refresh is initiation, not completion.** Sending a fact back only starts
+the cycle — it still has to clear **both** human gates (Visual Concept at Step
+2, Test Renders at Step 3; see [`moderation-workflow.md`](./moderation-workflow.md))
+before it can promote. Nothing in this subsystem, including the bulk action
+below, auto-promotes a refreshed fact.
+
+### Bulk send-back (PR4, #205)
+
+`POST /admin/taxonomy-health/actions/bulk-send-back` fans the same primitive
+out across many stale facts via the `fact_send_back` async-jobs queue
+(`factSendBackJob.ts`), reusing the `backfill-enrichment` bulk-action pattern.
+Two scopes: `all_stale` (server picks up to a **50-per-request cap**,
+`BULK_SEND_BACK_BATCH_LIMIT`, from the corpus-wide stale set) and `selected`
+(an explicit admin-chosen id list). `all_stale` **silently excludes** ineligible
+facts (already in review / active variants) to keep the response bounded
+regardless of corpus size — `selected` gives each chosen fact an explicit,
+reasoned skip outcome instead, since the admin picked it deliberately.
+
+A guard rejection (`NOT_ACTIVE` / `HAS_ACTIVE_VARIANTS` / already in review) is a
+**terminal skip, not a retry** — that's what makes re-running a batch
+idempotent. `REFRESH_ALREADY_IN_PROGRESS` gets extra handling: the primitive
+commits the candidate/review, then enqueues candidate enrichment in a
+**separate step after commit** — if that enqueue ever fails, the handler
+defensively re-enqueues it before retiring as a clean skip, so a bulk retry
+can't mask a stranded refresh (see the guard-query and job-skip-visibility
+notes below).
 
 ## Processing signatures
 
-`lastProcessedSignature` on `facts` (and `signature` on the version row) are meant
-to record the engine/prompt/code revision an enrichment was generated under, so a
-fact processed under old assumptions reads as stale. **Current state: NOT
-implemented — a TODO.** There are live `signature: null // TODO(PR3-signature)`
-sites in `sendBackToReview.ts` and `enrichmentJobs.ts`, and no
-`currentProcessingSignature()` function exists yet. (`enrichmentVersioning.ts` does
-*not* stamp `null` — at promote it copies the candidate's signature through, e.g.
-`lastProcessedSignature: candidate.signature`, which is always null until PR3.) The
-columns and the copy-at-promote path exist; nothing computes a signature. **If you
-work here, this is the gap to close — don't assume signatures are live.**
+**Live since PR3 (#168).** `lastProcessedSignature` on `facts` (and `signature`
+on the version row) records the engine/prompt/code revision an enrichment was
+generated under, so a fact processed under old assumptions reads as stale.
 
-## Staleness tracking
+- `ProcessingSignature` (`lib/api-zod/src/processingSignature.ts`, pure, no DB)
+  = `{ engineRevision, taxonomyVersion, classificationVersion,
+  imagePromptGenerationVersion, visualStrategyVersion }`. The four `*Version`
+  fields are the same code-version constants used elsewhere;
+  `currentProcessingSignature(engineRevision)` composes them.
+  `computeProcessingSignatureStaleness(stored, current)` returns `{ stale,
+  reason }` with `reason` = `never_processed` (absent/invalid) |
+  `engine_revision` (manual marker moved) | `code_version` (any code constant
+  moved).
+- `engineRevision` is a **manual admin int**, not derived from anything — it
+  only moves via the admin "Mark major update" action (atomic, advisory-locked
+  bump + `engine_revision_bumps` audit row) for engine/LLM swaps that no code
+  constant captures. Engine/model IDs are deliberately **excluded** from the
+  signature — a config toggle would otherwise flip corpus-wide staleness.
+  `currentProcessingSignatureFromConfig()` (api-server) reads it via
+  `getConfigIntRaw` (bypasses the admin debug overlay — staleness must reflect
+  a real, audited bump, never a debug value).
+- **Stamping rules** (who gets a fresh signature, and when):
+  - A refresh **candidate** captures the signature immediately **before** the
+    classify call and writes it onto the `fact_enrichment_versions.signature`
+    column at classify time; **promote** copies that value through to
+    `facts.last_processed_signature` (permissive — the candidate's classify-time
+    signature, not a fresh one at promote time).
+  - A **first-time approval** (`first_time_staging` mode) stamps
+    `facts.last_processed_signature` fresh at production-approve — a newly
+    approved fact is never stale-for-reprocess on day one.
+  - **Direct live re-enrich never stamps.** It's refresh-first by design: the
+    only way an already-live fact's signature moves is send-back → promote.
+  - **Legacy facts** (approved before PR3) carry a `null` signature forever
+    until refreshed — the intended "never processed under the versioned
+    pipeline" signal, not a bug.
 
-- Version constants: `TAXONOMY_VERSION` and `CLASSIFICATION_PROMPT_VERSION`
-  (currently `"v5"`) live in `lib/api-zod/src/taxonomy.ts`; `VISUAL_STRATEGY_VERSION`
-  lives in `lib/api-zod/src/visualPromptStrategies.ts` (re-surfaced through the
-  taxonomy-health helpers, not defined in `taxonomy.ts`).
-- Per fact, `enrichment.classificationPromptVersion` is stamped at classify time;
-  when it differs from the current constant the fact is flagged **stale**.
-- `VISUAL_STRATEGY_VERSION` is surfaced for visibility but **not gated on** today
-  (not stored per fact).
+## Staleness tracking — two orthogonal dimensions
+
+- **`stale_enrichment_version`** — the older, narrower lens: per fact,
+  `enrichment.classificationPromptVersion` is stamped at classify time; when it
+  differs from the current `CLASSIFICATION_PROMPT_VERSION` constant
+  (`lib/api-zod/src/taxonomy.ts`, currently `"v5"`) the fact is flagged stale.
+  `VISUAL_STRATEGY_VERSION` (`lib/api-zod/src/visualPromptStrategies.ts`) is
+  surfaced for visibility but not separately gated on.
+- **`stale_for_reprocess`** (PR3) — the `ProcessingSignature`-based lens
+  described above. Computed **only for valid, enriched facts** (missing/invalid
+  enrichment gets its own error-severity card instead) and only when the
+  evaluator is given `currentSignature` — `info` severity, so it never flips a
+  fact's overall status to "needs attention" on its own (the dedicated card is
+  the surface; folding it into the overall rollup would swamp real signals,
+  since on a legacy corpus nearly every valid fact starts out
+  stale-for-reprocess).
+- **They overlap heavily but are not the same thing.** A legacy fact is
+  typically both (never processed under any version constant, versioned or
+  signed). The remediation differs: `stale_enrichment_version` can be cleared
+  by a **direct bulk re-enrich** (writes `facts.*` straight, no stamp);
+  `stale_for_reprocess` can **only** be cleared by send-back → promote (a
+  direct re-enrich never stamps a signature). The bulk "Re-enrich stale facts"
+  action therefore **excludes** any fact that's also `stale_for_reprocess` —
+  see `pickEnrichmentTargets` in `adminTaxonomyHealth.ts`.
 
 ## Taxonomy Health dashboard
 
@@ -113,20 +184,30 @@ work here, this is the gap to close — don't assume signatures are live.**
 (no DB/LLM/IO) that emits typed issues + recommended actions. It checks: missing/
 invalid enrichment, **low confidence** (`taxonomyConfidence < 0.75`),
 questionable/reject fit, adult `requires_review`, cultural refs needing research,
-semantic entities needing review, capitalization hints, **stale version**, and
+semantic entities needing review, capitalization hints, **stale version**,
+**stale for reprocess** (PR3, valid-enriched facts only — see above), and
 **projection mismatch** (stored `primaryArchetype/subtype/overhypeFit/
 adultSuitability` columns vs what `buildFactEnrichmentColumns()` derives).
 
-Two remediation actions, with safety semantics:
+Three remediation actions, with safety semantics:
 
 - **Re-enrich** — re-runs the classifier. **Costs model calls**; skips
-  admin-edited rows (see below).
+  admin-edited rows (see below); excludes anything also `stale_for_reprocess`.
 - **Repair projections** — `projectionRepair.ts` rewrites only the four derived
   columns from the stored JSON; **never touches the JSONB blob**. Safe/instant,
   fine in bulk.
+- **Send back to review** — the only remediation offered for
+  `stale_for_reprocess` rows (single-row or bulk, PR4 above). Refresh-first:
+  initiates a moderated refresh cycle rather than writing `facts.*` directly.
 
 This panel is also the **reference implementation for async status** — copy its
-per-item + aggregate polling pattern.
+per-item + aggregate polling pattern (see
+[`async-ui-status.md`](./async-ui-status.md)). PR4 strengthened that reference
+implementation: a **handler-level** skip (a race-condition guard caught inside
+a job, as opposed to a picker pre-skip) now surfaces through `job-status` as
+sanitized `{skipped, reason}` metadata so it renders "Skipped", never a bare
+"Done" — any future job handler that can complete with a skip result should
+follow the same pattern, not just picker-level exclusion.
 
 ## Re-enrichment safety
 
@@ -149,20 +230,33 @@ must preserve that.
   drift detection and override survival.
 - Treating `fact_enrichment_versions` as active lineage — it's an archive;
   `facts.*` is active truth.
-- Assuming processing signatures work — they're a TODO (see above).
 - Writing `facts.*` from a candidate classification path — candidates write the
   version row only, until promote.
+- Assuming a direct/bulk re-enrich clears `stale_for_reprocess` — it never
+  stamps a signature; only send-back → promote does.
+- Passing an unbounded fact-id array into a DB guard query (e.g.
+  `factsWithInFlightRefresh`/`factsWithActiveVariants` in
+  `adminTaxonomyHealth.ts`) — the evaluator loads **all active facts** into JS
+  memory, so a bulk action's candidate set can be corpus-sized (thousands after
+  a "Mark major update" bump); chunk `inArray(...)` queries. See the matching
+  [known-failure-patterns.md](./known-failure-patterns.md#unbounded-id-list-into-a-db-guard-query)
+  entry.
 
 ## Files to inspect before enrichment work
 
-- `lib/db/src/schema/facts.ts`, `lib/db/src/schema/factEnrichmentVersions.ts`
+- `lib/db/src/schema/facts.ts`, `lib/db/src/schema/factEnrichmentVersions.ts`,
+  `lib/db/src/schema/engineRevisionBumps.ts`
 - `lib/api-zod/src/enrichmentOverrides.ts`, `lib/api-zod/src/taxonomy.ts`,
-  `lib/api-zod/src/taxonomyHealth.ts`
+  `lib/api-zod/src/taxonomyHealth.ts`, `lib/api-zod/src/processingSignature.ts`
 - `artifacts/api-server/src/lib/factEnrichment.ts`,
   `enrichmentOverrideLayers.ts`, `enrichmentVersioning.ts`,
   `sendBackToReview.ts`, `enrichmentJobs.ts`, `factEnrichmentBackfillJob.ts`,
-  `factEnrichmentConfig.ts`
+  `factSendBackJob.ts`, `factEnrichmentConfig.ts`, `processingSignature.ts`
 - `artifacts/api-server/src/lib/taxonomyHealth/{index.ts,projectionRepair.ts}`
+- `artifacts/api-server/src/routes/adminTaxonomyHealth.ts`
 - Tests: `enrichmentOverridesResolver.test.ts`,
   `enrichmentVersioning.refresh.test.ts`, `taxonomyHealth.evaluate.test.ts`,
-  `factEnrichmentRepair.test.ts`, `projectionRepair.test.ts`
+  `factEnrichmentRepair.test.ts`, `projectionRepair.test.ts`,
+  `routes.sendBackToReview.test.ts`, `factSendBackJob.test.ts`,
+  `routes.adminTaxonomyHealth.bulkSendBack.test.ts`,
+  `adminTaxonomyHealth.guardQueryChunking.test.ts`

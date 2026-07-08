@@ -73,6 +73,47 @@ The authoritative human-authored scene (above). A moderator authors it directly,
 or **picks a candidate** (next section) which becomes the `coreSceneOverride` via
 the same cap/token rules — "no new write surface."
 
+## Visual Strategy Override authoring (auto-tokenize on Save)
+
+Moderators author `coreSceneOverride` and the rest of `visualPromptStrategyOverride`
+in **plain English** — naming the subject naturally ("David leans against the
+bar"), not hand-typed `{NAME}`/pronoun tokens. Clicking **Save** runs every
+changed rendered-text field through the shared tokenizer core (see
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206))
+and **shows the tokenized result in the field** before it persists — not a
+silent swap, mirroring the fact-submission write→preview→confirm pattern. This
+is the ONE save path (`tokenizeAndSaveVisualOverride` in
+`useFactEnrichmentEditing.ts`) every VSO surface calls — the Visual Concept
+card, the full override panel, and the Facts-page save all route through it,
+and it always persists the *whole* current enrichment so a concurrent hashtag
+edit is never dropped.
+
+**Authoring rule (load-bearing):** name ONLY the main subject; refer to every
+other character by role, never by name ("the bartender", not a second real
+name). The tokenizer only recognizes the personalized subject, so a second
+named character is left literal in the compiled prompt — this rule is what
+keeps tokenization reliable, and it's also what keeps `roleBindings` (below)
+from double-naming the subject on the compiler side.
+
+**A role binding's `entity` is a plain label, never a token.** `roleBindings[i]`
+has two fields with different rules: `visualRole` is prose — token-capable,
+auto-tokenized on Save like any other field. `entity` identifies WHO the role
+belongs to ("subject" or a relationship/type label like "mother") — it is
+**never** tokenized; typing the subject's own name there auto-normalizes to
+the literal string `"subject"` (`normalizeRoleEntity`), and a `{…}` token typed
+there is rejected as an error, enforced **both** client-side (Save blocks and
+red-borders that row) **and** by a hard schema `superRefine` backstop in
+`visualPromptStrategyOverrideSchema` (defense-in-depth for a bypassed route or
+a manual PATCH). This is why `entity` is no longer a token-chip target in the
+editor and no longer canonicalizes a typed token — it's a label field, not
+rendered prose.
+
+**Any field the tokenizer can't cleanly resolve blocks persistence** and
+surfaces a field-specific red-bordered error (`vsoTokenizeErrors`) instead of
+silently saving something wrong; both the Visual Concept card and the override
+panel disable entirely while a batch tokenize round trip is in flight
+(`vsoTokenizing`), so no edit can race it.
+
 ## Candidate Visual Concepts
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
@@ -189,6 +230,10 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
 
 ## Things NOT to reintroduce
 
+- Requiring moderators to hand-type personalization tokens to author the
+  Visual Strategy Override — retired by PR #206. Authoring is plain English;
+  Save auto-tokenizes and shows the result. Token chips remain only as a
+  manual fallback, not a requirement.
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
@@ -205,9 +250,16 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
   `imagePrompt/preview.ts` (parity), `imagePrompt/types.ts`,
   `imagePrompt/resolveRenderReviewInput.ts`, `imagePromptJobs.ts` (production),
   `imagePromptConfig.ts`, `imagePromptAttempts.ts`.
-- `lib/api-zod/src/imagePromptGeneration.ts`, `visualStrategyOverride.ts`,
+- `lib/api-zod/src/imagePromptGeneration.ts`, `visualStrategyOverride.ts`
+  (override schema + the path-aware `collectRenderedTextEntries` /
+  `setRenderedTextAtPath` / `normalizeRoleEntity` authoring helpers),
   `visualConcepts.ts`, `visualPromptStrategies.ts` (11 authored strategies),
   `renderPolicyEnums.ts`.
+- Authoring: `artifacts/api-server/src/routes/ai.ts` (`/ai/tokenize-enrichment`),
+  `useFactEnrichmentEditing.ts` (`tokenizeAndSaveVisualOverride`),
+  `useDraftForm.ts` (`saveValue`), `EnrichmentEditor.tsx`
+  (`VisualStrategyOverridePanel`, `isFixableRoleEntityTokenIssue`),
+  `VisualConceptCard.tsx`, `subjectExampleNames.ts`.
 - `engines/openai-visual-planner.ts`, `engines/nano-banana-2*.ts`, `catalogue.ts`;
   `sourceImageAnalysis/`; `factRenderScenarios.ts` (render-input hash).
 - `.agents/memory/image-prompt-preview-parity.md`, `docs/ADMIN_FIELD_REFERENCE.md`.

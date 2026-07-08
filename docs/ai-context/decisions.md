@@ -13,6 +13,98 @@
 
 ---
 
+### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
+- **Decision:** Moderators author the Visual Strategy Override's rendered
+  fields (Visual Concept, required/forbidden details, role visual roles,
+  policy guidance) in **plain English** — naming the subject naturally, not
+  hand-typed personalization tokens. Clicking **Save** runs every changed
+  field through the same tokenizer core fact submission uses and **shows the
+  tokenized result in the field** before it persists (shown-and-correctable,
+  not a silent swap). A one-click model was chosen over a two-click
+  review-then-confirm pause. A role binding's `entity` field is the one
+  exception: it is a plain "subject"/role label, never tokenized — typing the
+  subject's own name there auto-normalizes to `"subject"`, and a typed token
+  is rejected as an error (client-side and via a hard schema backstop).
+- **Why:** hand-typing tokens (possessive/reflexive/conjugation pairs) was
+  error-prone and was the direct cause of the double-naming bug the compiler
+  redesign (below) had to clean up; reusing the existing fact-submission
+  tokenizer avoids a second, divergent tokenization implementation; showing
+  (not hiding) the result keeps the moderator in control, mirroring the
+  product's existing write→preview→confirm pattern for fact submission. The
+  one-click model was David's explicit call over a review-pause UX.
+- **Reference:** PR #206; see
+  [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206)
+  and
+  [`visual-pipeline.md`](./visual-pipeline.md#visual-strategy-override-authoring-auto-tokenize-on-save).
+- **Revisit if:** a second *named* character in authored prose becomes a
+  frequent real-world problem — today it's mitigated only by an authoring rule
+  + tooltips (name only the subject, use roles for everyone else), not a hard
+  server-side block; a scene-aware tokenizer prompt is the deferred fix if
+  that mitigation proves insufficient.
+
+### 2026-07 · Visual Concept leads the compiled prompt; REFERENCE INTERPRETATION retired
+- **Decision:** The compiled image prompt now leads with the moderator-authored
+  **CORE SCENE** (Visual Concept), immediately followed by an identity/reference
+  clause (i2i) or a short task line (t2i); every other section is either
+  operational (identity, style, policy) or **strictly additive** — it earns its
+  place only by contributing a concrete detail the Concept didn't already
+  state, de-duped by content-word contiguity against the emitted text (not a
+  bare substring check). The old `REFERENCE INTERPRETATION` section — which
+  could structurally double a subject's name ("Alex is Alex leans against the
+  bar…") when a role binding already named the subject — is retired entirely,
+  replaced by the additive `ROLE DETAILS` section
+  (`composeAdditiveRoleDetails`), which never doubles a name.
+- **Why:** image engines weight earlier prompt text more heavily, so burying
+  the authoritative scene behind reference/identity boilerplate worked against
+  the very thing meant to drive the render; the retired compose function's
+  `"${subject} is ${role}"` template had no guard against the role already
+  naming the subject, which is exactly the shape a moderator's role binding
+  produces once role labels get token-canonicalized.
+- **Reference:** PR #192, #198; see
+  [`visual-pipeline.md`](./visual-pipeline.md#prompt-compiler).
+- **Revisit if:** render quality regresses because `ROLE DETAILS` drops
+  something genuinely needed — dropped candidates are recorded in
+  `diagnostics.droppedCandidates` with a reason, so this is debuggable rather
+  than a guess.
+
+### 2026-07 · Processing signatures + engine revision; bulk send-back is initiation, never completion
+- **Decision:**
+  - Staleness gets a second, orthogonal dimension alongside the existing
+    `classificationPromptVersion` check: a `ProcessingSignature` (engine
+    revision + 4 code-version constants) stamped on `facts.lastProcessedSignature`
+    at classify time. Engine/model IDs are deliberately **excluded** — a config
+    toggle would otherwise flip corpus-wide staleness — so an LLM/engine swap
+    registers only via a manual, admin-audited **`engineRevision` bump**
+    ("Mark major update"), not automatically.
+  - **First-time approvals stamp fresh; direct live re-enrich never stamps.**
+    A newly-approved fact is never stale-for-reprocess on day one, but an
+    already-live fact only becomes fresh by going through the versioned
+    refresh (send-back → promote) — a direct re-enrich writes `facts.*`
+    straight and can't clear the flag.
+  - **Bulk "reprocess" (PR4) is bulk *initiation*, never bulk *completion*.**
+    It fans the existing single-fact send-back primitive out across many stale
+    facts via the async-jobs queue — every fact still has to clear **both**
+    human moderation gates (Visual Concept, then Test Renders) before it can
+    promote. Nothing auto-promotes.
+- **Why:** David's initial instinct was that "bulk reprocessing" shouldn't
+  exist at all, since the (concurrently rebuilt) three-step moderation process
+  requires a human in the loop — and that instinct is correct for bulk
+  *completion*. The resolving reframe: a refresh's Visual Concept is *carried
+  forward* from the live fact (not rebuilt from scratch) via the send-back
+  primitive's seeded override layers, so initiating many refreshes at once
+  doesn't bypass or weaken the human gates — it just fills the moderation queue
+  faster than clicking the single-fact button hundreds of times. Excluding
+  engine/model IDs from the signature (vs. stamping them automatically) avoids
+  every config toggle silently invalidating the whole corpus; the manual bump
+  keeps that invalidation an explicit, audited admin act.
+- **Reference:** PR #168 (ProcessingSignature + Taxonomy Health lens), PR #205
+  (bulk send-back); see
+  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
+  [`async-ui-status.md`](./async-ui-status.md).
+- **Revisit if:** the product ever wants auto-promotion of a subset of
+  refreshes (e.g. when only non-render-affecting inputs moved) — that would be
+  a deliberate, separate decision, not an incremental extension of PR4.
+
 ### 2026-07 · Tokenizer grammar correctness batch: possessive form, "They's" retirement, coordination reach
 - **Decision:**
   - `{NAME_POSSESSIVE}` always appends `'s` — including names already ending in

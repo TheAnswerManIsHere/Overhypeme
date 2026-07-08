@@ -81,6 +81,51 @@ any queued/bulk surface. **Overhype:** the async queue is `async_jobs` (`pending
 processing → done | failed`); **Taxonomy Health (`useTaxonomyHealthActions.ts`) is
 the reference implementation** — copy it, don't invent a new status channel.
 
+**A second, subtler version: a `done` job whose HANDLER-level result was
+actually a skip.** A bulk-action picker can pre-skip an obviously ineligible
+target before enqueueing (visible today via `outcomes`), but a job's own
+handler can *also* discover mid-run that the work doesn't apply (e.g. a race —
+the target became ineligible between pick and run) and complete successfully
+with a skip result. If the job-status contract only reports `pending |
+processing | done | failed`, that terminal skip renders as a plain "Done" —
+exactly the "skipped collapsed into a checkmark" bug this whole doc's rule
+forbids, just one layer deeper than the obvious case. **Avoid:** if a job
+handler can return `{ok:true, result:{skipped:true, reason}}`, the job-status
+endpoint must surface that (sanitized — validate the reason against a known
+enum, never echo the raw result blob) and the polling hook must render it as
+`skipped`, not `done`. **Overhype:** `factSendBackJob.ts`'s
+`REFRESH_ALREADY_IN_PROGRESS` recovery path is exactly this case; PR #205
+extended `JobStatusEntry`/`useTaxonomyHealthActions` with `{skipped,
+skipReason}` to close the gap — for both the new send-back queue and any
+future job handler that skips mid-run.
+
+## Unbounded id list into a DB guard query
+
+**Looks like:** a bulk/fan-out action recomputes its target set by loading
+**all** matching rows into JS memory (the established pattern here — the
+evaluator/picker architecture can't push its logic into SQL), then passes that
+**entire** id list into a follow-up `inArray(...)` guard query (e.g. "which of
+these are already in-flight / have an active variant") **before** applying the
+action's own batch cap. **Dangerous:** the guard query's size is bounded only
+by how much of the corpus currently matches — which can be the *whole active
+table* (e.g. right after a corpus-wide invalidation), risking a query past
+practical bind/parameter limits or a timeout, silently failing the endpoint
+and enqueuing nothing even though the action only needed a small, capped
+batch. Easy to miss because it works fine in dev/testing with a handful of
+rows. **Avoid:** chunk any `inArray(...)` call whose input size scales with
+corpus size (not with the request's own bound), and prefer resolving only as
+many eligible targets as the cap needs rather than classifying the entire
+candidate set up front, when the two aren't in tension (see the cap-vs-exact-
+remaining-count trade-off noted below). **Overhype:**
+`factsWithInFlightRefresh`/`factsWithActiveVariants` in
+`adminTaxonomyHealth.ts` chunk their guard queries at 500 ids/query
+(`GUARD_QUERY_CHUNK_SIZE`) rather than passing the full stale-for-reprocess id
+set (which the Stale-for-reprocess card's own docs note can be "nearly the
+whole corpus," especially after a "Mark major update" bump) in one call —
+caught by Codex review on PR #205, not by the original tests (which only
+exercised small id sets). See
+[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#known-failure-modes).
+
 ## Dedupe key coalesces two distinct intents
 
 **Looks like:** a "force / fresh / regenerate" async action reuses the same stable
@@ -211,6 +256,29 @@ resolved label at write time when it's embedded in jsonb with no join path.
 edited by" line rendered `visualPromptStrategyOverride.updatedBy` raw. Both
 fixed; pre-existing jsonb-stamped rows from before the fix may still hold a raw
 id until next edited (a backfill would be separate migration-shaped work).
+
+## Cost-skip heuristic checks one signal, misses a co-equal one
+
+**Looks like:** an optimization heuristic that skips an expensive step when
+"nothing is left to do" checks for ONE signal of remaining work (e.g. a plain
+subject name) but not a co-equal signal that would ALSO require the same step
+(e.g. a plain subject pronoun). **Dangerous:** a mixed/partially-resolved
+input — some parts already correct, one signal class still plain — passes the
+"nothing left to do" check and permanently skips the only pass that would fix
+it, silently hardcoding the miss instead of surfacing it. **Avoid:** when a
+completion/skip heuristic checks for "is there personalizable/actionable
+content remaining," enumerate every distinct signal class it would need to
+act on and require ALL of them absent — not just the one that's cheapest or
+most obvious to check. **Overhype:** the Visual-Concept-authoring batch
+tokenize route's `isAlreadyTokenizedNoPlainName` skip predicate checked only
+for a plain subject *name* — a moderator field partially tokenized via chips
+(`"{NAME} holds his trophy"`) had no plain name left, so it reported "already
+tokenized" and skipped the LLM call that would have converted "his,"
+hardcoding the pronoun instead of resolving it per-render. Caught by a Codex
+review before merge (PR #206); fixed by also requiring no plain subject
+pronoun, mirroring the check the sibling `hasNoLikelySubjectReference`
+predicate already had. See
+[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206).
 
 ## Over-engineered speculative abstractions
 

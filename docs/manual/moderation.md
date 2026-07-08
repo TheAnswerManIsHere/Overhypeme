@@ -41,6 +41,12 @@ The review opens as a three-step wizard:
    test renders have run yet** — this gate is deliberately free. Approving the gag
    is what unlocks render spend.
 
+   Writing the concept (and the rest of the Visual Strategy Override, in
+   Advanced Options) is plain-English authoring — naming the subject naturally
+   is enough. Clicking Save auto-tokenizes it and shows the moderator the
+   personalized version before it persists, so the same scene works correctly
+   no matter who the fact ends up rendered for.
+
 3. **Test Renders.** On arrival, the test-render images **fire automatically**.
    The moderator inspects the rendered memes, tweaks the concept or enrichment and
    re-runs as needed, and finally **approves for production** (which publishes the
