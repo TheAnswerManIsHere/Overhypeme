@@ -10,6 +10,7 @@ import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
+import { userCanReadObject } from "../lib/objectAccess.js";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
 import { logger } from "../lib/logger.js";
 import { requireAdmin } from "./admin.js";
@@ -136,29 +137,62 @@ function extractObjectsPath(imageUrl: string): string | null {
   }
 }
 
+/** Thrown when the caller is not authorized to read the requested private
+ * object. The route translates this to a 403 — it must NOT fall back to using
+ * the original private URL. */
+class ObjectAccessForbiddenError extends Error {
+  constructor() {
+    super("Forbidden");
+    this.name = "ObjectAccessForbiddenError";
+  }
+}
+
 /**
  * If `imageUrl` points to one of our private storage objects (uploaded images,
  * AI backgrounds, reference images), downloads it from GCS and re-uploads it
  * to fal.ai's transient CDN so the video model can access it publicly.
  *
- * Returns the fal.ai CDN URL on success, or null if the URL is not a private
- * storage URL (caller should use the original URL unchanged).
+ * SECURITY: the caller MUST be authorized to READ the object — the same ACL
+ * check `GET /storage/objects` enforces (see lib/objectAccess.ts). Without it,
+ * any authenticated (Legendary) user could pass another user's `storagePath`
+ * and have the server fetch + re-host their private image (IDOR). Throws
+ * `ObjectAccessForbiddenError` when the caller can't read it; callers translate
+ * that to 403 and must not use the original URL.
+ *
+ * Returns the fal.ai CDN URL on success, or null if `imageUrl` is not one of
+ * our private storage objects (caller uses the original URL unchanged).
  */
-async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | null> {
+async function uploadPrivateImageToFalCdn(imageUrl: string, req: Request): Promise<string | null> {
   const objectsPath = extractObjectsPath(imageUrl);
   if (!objectsPath) return null;
+
+  const normalized = _objectStorage.normalizeObjectEntityPath(objectsPath);
+
+  let file;
   try {
-    const normalized = _objectStorage.normalizeObjectEntityPath(objectsPath);
-    const file = await _objectStorage.getObjectEntityFile(normalized);
+    file = await _objectStorage.getObjectEntityFile(normalized);
+  } catch {
+    // Not a resolvable private object — not ours to serve; passthrough.
+    return null;
+  }
+
+  // Authorize the READ BEFORE fetching or re-hosting any bytes.
+  const canRead = await userCanReadObject(_objectStorage, file, normalized, req);
+  if (!canRead) {
+    throw new ObjectAccessForbiddenError();
+  }
+
+  try {
     const response = await _objectStorage.downloadObject(file, 60);
     const contentType = response.headers.get("content-type") ?? "image/jpeg";
     const buf = Buffer.from(await response.arrayBuffer());
     const blob = new Blob([buf], { type: contentType });
     const cdnUrl = await fal.storage.upload(blob, { lifecycle: { expiresIn: "1h" } });
-    logger.info({ objectsPath, cdnUrl }, "[videos/generate] Uploaded private image to fal CDN");
+    // Do not log the private object path or the transient CDN URL.
+    logger.info("[videos/generate] Re-hosted an authorized private image to fal CDN");
     return cdnUrl;
   } catch (err) {
-    logger.warn({ err, objectsPath }, "[videos/generate] Failed to upload private image to fal CDN");
+    logger.warn({ err }, "[videos/generate] Failed to re-host private image to fal CDN");
     return null;
   }
 }
@@ -386,8 +420,16 @@ router.post("/videos/generate", async (req, res) => {
   let imageUrl = resolveImageUrl(parsed.data.imageUrl, req);
 
   if (imageUrl) {
-    const cdnUrl = await uploadPrivateImageToFalCdn(imageUrl);
-    if (cdnUrl) imageUrl = cdnUrl;
+    try {
+      const cdnUrl = await uploadPrivateImageToFalCdn(imageUrl, req);
+      if (cdnUrl) imageUrl = cdnUrl;
+    } catch (err) {
+      if (err instanceof ObjectAccessForbiddenError) {
+        res.status(403).json({ error: "You don't have access to that image." });
+        return;
+      }
+      throw err;
+    }
   }
 
   if (!imageUrl && parsed.data.imageBase64) {
