@@ -142,7 +142,21 @@ export default defineConfig({
     // without also bundling the CJS caller. react and react-dom/client are
     // pure CJS with no subpath complications — pre-bundle them directly.
     noDiscovery: true,
-    include: ["react", "react-dom", "react-dom/client"],
+    include: [
+      // CJS-only runtimes — must be pre-bundled so esbuild can convert to ESM.
+      "react",
+      "react-dom",
+      "react-dom/client",
+      // Heavy deps used on admin/moderation pages. Pre-bundling these means
+      // esbuild processes them ONCE at dev-server startup rather than spawning
+      // a fresh goroutine burst for every on-demand transform when the page
+      // loads. recharts pulls in a forest of d3-* sub-packages; collapsing
+      // them here avoids dozens of concurrent transform requests that push
+      // esbuild past the container's OS thread limit (GOMAXPROCS=2 helps too,
+      // but pre-bundling is the more targeted fix).
+      "recharts",
+      "lucide-react",
+    ],
   },
   server: {
     port,
