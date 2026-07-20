@@ -12,6 +12,7 @@ import { WebhookHandlers } from "./lib/webhookHandlers";
 import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
 import { SESSION_COOKIE } from "./lib/auth";
+import { securityHeaders } from "./lib/securityHeaders";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
@@ -66,6 +67,13 @@ const app: Express = express();
 // Trust the Replit / cloud proxy — required so req.secure is true and
 // SameSite=None; Secure cookies are correctly accepted by Express.
 app.set("trust proxy", 1);
+
+// Application security headers (C5). Mounted first so EVERY response — including
+// the Stripe webhook, /api/config, and error responses — carries the baseline
+// headers. CSP is Report-Only and the frame/HSTS policy is env-aware; see
+// lib/securityHeaders.ts for the full rationale.
+app.disable("x-powered-by");
+app.use(...securityHeaders());
 
 // pino-http calls `logger.info()` on response finish. If the pino-pretty
 // transport worker has exited, that write would throw synchronously and kill
