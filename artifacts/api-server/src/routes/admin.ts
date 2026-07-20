@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
@@ -1281,13 +1282,23 @@ router.delete("/admin/facts/variants/:variantId", requireAdmin, async (req: Requ
   res.json({ success: true });
 });
 
-router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
-  const { facts } = req.body as { facts?: unknown };
+// Bound the batch so a single call can't insert an unbounded number of rows
+// (or hold a huge payload in memory). 1000 rows / 2000 chars each is generous
+// for a bulk import; split larger imports across calls.
+export const FactsImportBody = z.object({
+  facts: z.array(z.union([
+    z.string().max(2000),
+    z.object({ text: z.string().max(2000) }).passthrough(),
+  ])).min(1).max(1000),
+});
 
-  if (!Array.isArray(facts) || facts.length === 0) {
-    res.status(400).json({ error: "facts must be a non-empty array of strings" });
+router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
+  const parsed = FactsImportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
+  const { facts } = parsed.data;
 
   const texts: string[] = [];
   for (const item of facts) {
@@ -1329,13 +1340,17 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
   res.json({ success: true, imported: inserted.length, facts: inserted, failed });
 });
 
-router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: Response) => {
-  const { csv } = req.body as { csv?: string };
+// Cap the raw CSV size (≤2 MB) so an unbounded string can't exhaust memory.
+export const ImportCsvBody = z.object({ csv: z.string().min(1).max(2_000_000) });
+const IMPORT_CSV_MAX_ROWS = 2000;
 
-  if (!csv || typeof csv !== "string") {
-    res.status(400).json({ error: "csv string is required" });
+router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: Response) => {
+  const parsed = ImportCsvBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
+  const { csv } = parsed.data;
 
   const lines = csv.split("\n")
     .map((l) => l.replace(/^["']|["']$/g, "").trim())
@@ -1343,6 +1358,11 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
 
   if (lines.length === 0) {
     res.status(400).json({ error: "No valid lines found in CSV" });
+    return;
+  }
+  // Reject (don't silently truncate) an over-large batch so the caller knows to split.
+  if (lines.length > IMPORT_CSV_MAX_ROWS) {
+    res.status(400).json({ error: `Too many rows (${lines.length}); import at most ${IMPORT_CSV_MAX_ROWS} per call` });
     return;
   }
 
@@ -1598,14 +1618,19 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
 }
 
 // POST /admin/users/set-password — reset a user's password by email (API key auth)
+// Reachable with only the static ADMIN_API_KEY (no admin session), so validate
+// tightly: a well-formed, length-bounded email and the same 8–128 password rule.
+export const SetPasswordBody = z.object({
+  email: z.string().trim().toLowerCase().email().max(320),
+  password: z.string().min(8).max(128),
+});
+
 router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Request, res: Response) => {
-  const { email, password } = req.body as { email?: string; password?: string };
-  if (!email || typeof email !== "string") { res.status(400).json({ error: "email is required" }); return; }
-  if (!password || typeof password !== "string") { res.status(400).json({ error: "password is required" }); return; }
-  if (password.length < 8) { res.status(400).json({ error: "password must be at least 8 characters" }); return; }
-  if (password.length > 128) { res.status(400).json({ error: "password must be at most 128 characters" }); return; }
+  const parsed = SetPasswordBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
+  const { email, password } = parsed.data;
   const [user] = await db.select({ id: usersTable.id, email: usersTable.email })
-    .from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase())).limit(1);
+    .from(usersTable).where(eq(usersTable.email, email)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const passwordHash = await bcrypt.hash(password, 12);
   await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
@@ -2097,11 +2122,21 @@ router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: 
   res.json(updated);
 });
 
+// The `:id` is interpolated into a storage object key
+// (`video_style_previews/${id}.gif`), so it MUST be constrained to a safe
+// slug — otherwise `id=../../foo` escapes the prefix and writes an arbitrary
+// object (path traversal). Match the same shape motion-preset ids are created
+// with. base64 is capped so a giant payload can't blow up memory.
+export const MotionPresetIdParam = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
+export const PreviewGifBody = z.object({ base64: z.string().trim().min(1).max(7_000_000) }); // ~5 MB decoded
+
 router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const id = String(req.params["id"]);
-  const body = req.body as Record<string, unknown>;
-  const base64 = String(body.base64 ?? "").trim();
-  if (!base64) { res.status(400).json({ error: "base64 GIF data required" }); return; }
+  const idParsed = MotionPresetIdParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "Invalid style id" }); return; }
+  const id = idParsed.data;
+  const bodyParsed = PreviewGifBody.safeParse(req.body);
+  if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
+  const base64 = bodyParsed.data.base64;
 
   const buf = Buffer.from(base64, "base64");
   const subPath = `video_style_previews/${id}.gif`;
