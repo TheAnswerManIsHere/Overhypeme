@@ -738,7 +738,12 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
     {
       lane: "render",
       intervalMs: intervalEnv("ASYNC_JOBS_RENDER_INTERVAL_MS", DEFAULT_RENDER_INTERVAL_MS),
-      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_RENDER_MAX_CONCURRENCY", 3)),
+      // Falls back to the legacy ASYNC_JOBS_MAX_CONCURRENCY (not a bare literal):
+      // that knob's own doc comment says it exists to bound LLM-planner/fal
+      // fan-out, i.e. exactly this lane's queues. A deploy that already tuned it
+      // down for a provider rate limit must keep that cap after this upgrade,
+      // not silently jump to a fresh independent default.
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_RENDER_MAX_CONCURRENCY", ASYNC_JOBS_MAX_CONCURRENCY)),
       maintenance: false,
     },
     {
