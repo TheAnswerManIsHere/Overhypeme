@@ -24,11 +24,15 @@
  *  - **HSTS is production-only** (dev/preview may be plain HTTP), with a
  *    conservative max-age and NO `includeSubDomains`/`preload` yet — those are a
  *    deliberate follow-up once every *.overhype.me subdomain is confirmed HTTPS.
- *  - **CORP is `cross-origin` on public assets.** The meme-image / OG / template
- *    endpoints already advertise `Access-Control-Allow-Origin: *` for hotlinking
- *    and social unfurls; helmet's default `same-origin` would contradict that.
- *    Everything else keeps `same-origin` (private object routes must not become
- *    cross-origin embeddable).
+ *  - **CORP is decided by actual visibility, not by path.** helmet's default
+ *    `same-origin` is the safe baseline set here; the `cross-origin` relaxation
+ *    is applied by `setPublicCors()` (lib/cacheHeaders.ts) — which routes call
+ *    ONLY after a response is confirmed public. This avoids the trap where a
+ *    path pattern like `/api/memes/:slug/image` matches BOTH a public meme and a
+ *    private/owner-only one (or the owner-gated `/api/memes/ai-user/image`): a
+ *    private response never calls `setPublicCors`, so it correctly stays
+ *    `same-origin` (non-embeddable), and a genuinely public object gets
+ *    `cross-origin` even though its path isn't in any allowlist here.
  *  - **COOP is disabled.** OAuth popup flows post back to a same-origin callback;
  *    a `Cross-Origin-Opener-Policy` could sever `window.opener` and is low value
  *    on a JSON/redirect surface. COEP stays off (helmet default) — requiring it
@@ -42,21 +46,12 @@ function isProductionEnv(): boolean {
   return process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
 }
 
-// Public, cross-origin-embeddable asset paths (crawler images + OG shells +
-// template images). Kept in sync with app.ts's PUBLIC_ASSET_PATH_PATTERNS.
-const PUBLIC_ASSET_PATTERNS: RegExp[] = [
-  /^\/api\/og\//,
-  /^\/api\/memes\/[^/]+\/image$/,
-  /^\/api\/memes\/templates\//,
-];
 // The OG shells are the only HTML documents this server emits; they carry an
 // <img> (same-origin render or a legacy R2/Cloudinary/GCS CDN URL) and NO
 // <script>/<style>, so images are the only subresource the CSP must permit.
+// (CORP for the images those shells reference is set on the image responses
+// themselves via setPublicCors, not here.)
 const OG_SHELL_PATTERN = /^\/api\/og\//;
-
-function isPublicAssetPath(path: string): boolean {
-  return PUBLIC_ASSET_PATTERNS.some((re) => re.test(path));
-}
 
 /** Build the route-class CSP string once per boot (env is fixed for the process). */
 function buildCsp(kind: "json" | "og", isProduction: boolean): string {
@@ -105,10 +100,9 @@ export function securityHeaders(): RequestHandler[] {
   });
 
   const perRoute: RequestHandler = (req: Request, res, next) => {
-    if (isPublicAssetPath(req.path)) {
-      // Public, hotlinkable assets (already ACAO:*). Allow cross-origin embeds.
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    }
+    // CORP is intentionally NOT set here — it's decided by visibility in
+    // setPublicCors() (see file header). helmet's `same-origin` default stands
+    // for everything until a route confirms the response is public.
     // Report-Only first — flip the header name to enforce after UAT.
     res.setHeader(
       "Content-Security-Policy-Report-Only",

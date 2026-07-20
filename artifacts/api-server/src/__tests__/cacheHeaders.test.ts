@@ -142,4 +142,12 @@ describe("setPublicCors", () => {
     assert.equal(res.headers["Access-Control-Allow-Origin"], "*");
     assert.equal(res.headers["Vary"], "Origin");
   });
+
+  it("relaxes CORP to cross-origin (only public responses reach this helper)", () => {
+    // This is the visibility-classified place the cross-origin CORP is set —
+    // private responses call setNoStore instead and keep helmet's same-origin.
+    const res = makeRes();
+    setPublicCors(res as unknown as Response);
+    assert.equal(res.headers["Cross-Origin-Resource-Policy"], "cross-origin");
+  });
 });

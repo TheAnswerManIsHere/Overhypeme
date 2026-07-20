@@ -112,18 +112,23 @@ describe("securityHeaders — Replit dev preview env", () => {
   });
 });
 
-describe("securityHeaders — CORP by route class", () => {
-  it("public assets (OG, meme image, template) are cross-origin embeddable", async () => {
-    for (const path of ["/api/og/m/abc", "/api/memes/abc/image", "/api/memes/templates/classic"]) {
+describe("securityHeaders — CORP baseline", () => {
+  // CORP is decided by VISIBILITY, not path: the middleware sets only helmet's
+  // safe `same-origin` default; the `cross-origin` relaxation for genuinely
+  // public responses is applied by setPublicCors() in the routes (covered in
+  // cacheHeaders.test.ts). This prevents a path like /api/memes/:slug/image —
+  // which also matches the owner-gated /api/memes/ai-user/image and private
+  // memes — from wrongly marking owner-only bytes cross-origin embeddable.
+  it("leaves same-origin on every path (incl. image-shaped paths)", async () => {
+    for (const path of [
+      "/api/foo",
+      "/api/og/m/abc",
+      "/api/memes/abc/image",       // could be a PRIVATE meme — must not be pre-marked cross-origin
+      "/api/memes/templates/classic",
+      "/api/storage/objects/secret",
+    ]) {
       const res = await request(makeApp("prod")).get(path);
-      assert.equal(res.headers["cross-origin-resource-policy"], "cross-origin", `expected cross-origin for ${path}`);
-    }
-  });
-
-  it("JSON + private object routes stay same-origin (not embeddable)", async () => {
-    for (const path of ["/api/foo", "/api/storage/objects/secret"]) {
-      const res = await request(makeApp("prod")).get(path);
-      assert.equal(res.headers["cross-origin-resource-policy"], "same-origin", `expected same-origin for ${path}`);
+      assert.equal(res.headers["cross-origin-resource-policy"], "same-origin", `expected same-origin baseline for ${path}`);
     }
   });
 });

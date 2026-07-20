@@ -37,11 +37,14 @@ check the response headers:
 curl -sI https://<your-host>/api/config
 
 # OG shell — expect Content-Security-Policy-Report-Only to include
-# `img-src 'self' https: data:` and Cross-Origin-Resource-Policy: cross-origin.
+# `img-src 'self' https: data:`. (CORP is same-origin here; the shell isn't an
+# embedded subresource — the image it references carries its own CORP.)
 curl -sI https://<your-host>/api/og/m/<any-slug>
 
-# Public meme image — expect Cross-Origin-Resource-Policy: cross-origin,
-# X-Content-Type-Options: nosniff, and the existing Cache-Control intact.
+# Public meme image — expect Cross-Origin-Resource-Policy: cross-origin (set by
+# setPublicCors once the meme is confirmed public), X-Content-Type-Options:
+# nosniff, and the existing Cache-Control intact. A PRIVATE meme's image instead
+# stays same-origin + no-store.
 curl -sI https://<your-host>/api/memes/<any-public-slug>/image
 ```
 
@@ -56,9 +59,13 @@ What to confirm:
 - **Replit dev preview** (env has `REPLIT_DEV_DOMAIN`, not a deploy): **NO**
   `Strict-Transport-Security`, **NO** `X-Frame-Options` — so the Replit webview
   iframe still loads the app. Verify the preview canvas still renders.
-- **CORP:** `cross-origin` on `/api/og/*`, `/api/memes/*/image`,
-  `/api/memes/templates/*`; `same-origin` on other JSON and on
-  `/api/storage/objects/*` (private objects must stay non-embeddable).
+- **CORP is visibility-classified, not path-based.** `cross-origin` appears on
+  responses confirmed public (a **public** meme's `/api/memes/:slug/image`,
+  template images, AI backgrounds, and public-ACL `/api/storage/objects/*` —
+  everything that goes through `setPublicCors`). It stays `same-origin` on a
+  **private** meme's image, the owner-gated `/api/memes/ai-user/image`, private
+  objects, and JSON. Quick check: a public meme image →
+  `Cross-Origin-Resource-Policy: cross-origin`; a JSON route → `same-origin`.
 - **No regressions:** `no-store` routes (auth/admin/checkout) still send
   `Cache-Control: no-store`; public images still send their existing
   `Cache-Control` + `Access-Control-Allow-Origin: *`; social unfurls (paste a
