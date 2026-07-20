@@ -367,8 +367,10 @@ export const imageGenerationHandler: JobHandler = {
 };
 
 export function registerImagePromptHandlers(): void {
-  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler);
-  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler);
+  // `render` lane: single-item, moderator-watched renders (LLM planner + fal
+  // image gen). Isolated so a "test render" never waits behind a bulk backfill.
+  registerJobHandler(IMAGE_PROMPT_QUEUE, imagePromptGenerationHandler, { lane: "render" });
+  registerJobHandler(IMAGE_GENERATION_QUEUE, imageGenerationHandler, { lane: "render" });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

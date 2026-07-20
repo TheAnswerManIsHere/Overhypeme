@@ -120,5 +120,7 @@ export async function recoverInFlightRefresh(factId: number, err: SendBackToRevi
 }
 
 export function registerFactSendBackHandler(): void {
-  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler);
+  // `fast` lane: pure-DB admin action (no model/image wait) — must stay
+  // near-instant regardless of bulk/render backlog.
+  registerJobHandler(FACT_SEND_BACK_QUEUE, factSendBackHandler, { lane: "fast" });
 }

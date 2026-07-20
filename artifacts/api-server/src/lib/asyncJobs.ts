@@ -19,7 +19,7 @@
  * "fal_video" queue) - handlers may stash the third-party request id there.
  */
 
-import { eq, and, or, lte, lt, asc, desc, sql } from "drizzle-orm";
+import { eq, and, or, lte, lt, asc, desc, sql, inArray } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
 import { asyncJobsTable, type AsyncJobRow, type AsyncJobStatus } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
@@ -42,9 +42,46 @@ export interface JobHandler {
 
 const HANDLERS = new Map<string, JobHandler>();
 
-/** Register the handler for a given queue. Idempotent (replaces). */
-export function registerJobHandler(queue: string, handler: JobHandler): void {
+/**
+ * Scheduling lane a queue runs in. Each lane is drained by its own independent
+ * worker loop (own timer, own re-entrancy guard, own concurrency bound), so a
+ * busy lane can never block another lane's progress:
+ *   • `fast`   — short, DB-oriented admin actions with no model/image wait.
+ *   • `render` — single-item, moderator-watched external-API renders.
+ *   • `bulk`   — background/batch work nobody's watching a spinner for (default).
+ */
+export type JobLane = "fast" | "render" | "bulk";
+
+/** Per-queue lane assignment. Kept in lockstep with HANDLERS (same replace/reset). */
+const LANE_OF_QUEUE = new Map<string, JobLane>();
+
+/** Options for `registerJobHandler`. */
+export interface RegisterJobHandlerOptions {
+  /** Scheduling lane. Omit to default to `bulk`. */
+  lane?: JobLane;
+}
+
+/**
+ * Register the handler for a given queue. Idempotent — replaces BOTH the handler
+ * and its lane assignment, so re-registering with a different lane reclassifies
+ * the queue. An unannotated registration lands the queue in `bulk`.
+ */
+export function registerJobHandler(
+  queue: string,
+  handler: JobHandler,
+  opts?: RegisterJobHandlerOptions,
+): void {
   HANDLERS.set(queue, handler);
+  LANE_OF_QUEUE.set(queue, opts?.lane ?? "bulk");
+}
+
+/** Queues currently registered to a given lane. Resolved fresh at each call. */
+export function queuesForLane(lane: JobLane): string[] {
+  const out: string[] = [];
+  for (const [queue, assigned] of LANE_OF_QUEUE) {
+    if (assigned === lane) out.push(queue);
+  }
+  return out;
 }
 
 export function getRegisteredQueues(): string[] {
@@ -74,6 +111,22 @@ async function getRetryConfig(queue: string): Promise<{ maxAttempts: number; ret
   return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
 }
 
+// ─── Logging helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Log message prefix carrying lane attribution. Renders `[asyncJobs]` when no
+ * lane is in context (e.g. a legacy/direct `asyncJobsTick(db)` call) so we never
+ * emit `[asyncJobs:undefined]`, and `[asyncJobs:<lane>]` when one is.
+ */
+function lanePrefix(lane: JobLane | undefined): string {
+  return lane ? `[asyncJobs:${lane}]` : "[asyncJobs]";
+}
+
+/** `{ lane }` structured field, omitted entirely when no lane is in context. */
+function laneField(lane: JobLane | undefined): { lane?: JobLane } {
+  return lane ? { lane } : {};
+}
+
 function isEmailDeliveryConfigured(): boolean {
   const isProd = process.env.NODE_ENV === "production";
   return !!(isProd
@@ -81,7 +134,11 @@ function isEmailDeliveryConfigured(): boolean {
     : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY));
 }
 
-async function deferEmailWhileDeliveryDisabled(row: AsyncJobRow, tx: unknown): Promise<boolean> {
+async function deferEmailWhileDeliveryDisabled(
+  row: AsyncJobRow,
+  tx: unknown,
+  lane?: JobLane,
+): Promise<boolean> {
   if (row.queue !== "email" || isEmailDeliveryConfigured()) return false;
   const typedTx = tx as Pick<typeof defaultDb, "update">;
   await typedTx
@@ -93,7 +150,7 @@ async function deferEmailWhileDeliveryDisabled(row: AsyncJobRow, tx: unknown): P
       updatedAt: new Date(),
     })
     .where(eq(asyncJobsTable.id, row.id));
-  logger.info({ id: row.id }, "[asyncJobs] email delivery not configured — leaving job pending");
+  logger.info({ ...laneField(lane), id: row.id }, `${lanePrefix(lane)} email delivery not configured — leaving job pending`);
   return true;
 }
 
@@ -234,17 +291,36 @@ export async function enqueueJob(
 type DbWithTransaction = Pick<typeof defaultDb, "transaction" | "delete">;
 
 /**
- * Max jobs a single tick processes CONCURRENTLY (phase 2). Bounds fan-out of
- * external calls (LLM planner / fal / email) so a batch can't stampede a
- * provider or exhaust the ~10-connection pool. Tunable per-deploy; default 4 is
- * enough to run a moderation review's 3–4 scenario renders in parallel instead
- * of back-to-back. Raising it trades provider cost/rate-limit headroom for
- * drain speed.
+ * Parse a positive integer from env, falling back (with a warning) on a value
+ * that is non-finite, ≤ 0, or absent. The old `Number(env) || fallback` pattern
+ * silently accepted a negative as truthy — a negative-delay `setInterval` hot
+ * loop for the interval knobs — so guard it here.
  */
-const ASYNC_JOBS_MAX_CONCURRENCY = Math.max(
-  1,
-  Number(process.env["ASYNC_JOBS_MAX_CONCURRENCY"]) || 4,
-);
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    logger.warn({ env: name, value: raw, fallback }, "[asyncJobs] invalid env value — using fallback");
+    return fallback;
+  }
+  return Math.floor(n);
+}
+
+/** Never poll faster than this — defends against a zero/below-floor misconfig hot loop. */
+const MIN_INTERVAL_MS = 500;
+const intervalEnv = (name: string, fallback: number): number =>
+  Math.max(MIN_INTERVAL_MS, positiveIntEnv(name, fallback));
+
+/**
+ * Max jobs a lane's tick processes CONCURRENTLY (phase 2). Bounds fan-out of
+ * external calls (LLM planner / fal / email) so a batch can't stampede a
+ * provider or exhaust the ~10-connection pool. Each lane sets its own; this is
+ * the `bulk`-lane default (down from 4 — the "4" was justified by render's
+ * scenario-parallelism need, which now lives in the `render` lane). Raising a
+ * lane's bound trades provider cost/rate-limit headroom for drain speed.
+ */
+const ASYNC_JOBS_MAX_CONCURRENCY = Math.max(1, positiveIntEnv("ASYNC_JOBS_MAX_CONCURRENCY", 3));
 
 /** Run `fn` over `items` with at most `limit` in flight at once. */
 async function mapWithConcurrency<T>(
@@ -270,7 +346,11 @@ async function mapWithConcurrency<T>(
  * (a single tx/connection can't) and so one job's finalize never blocks or
  * rolls back another's.
  */
-async function processClaimedJob(dbInstance: DbWithTransaction, row: AsyncJobRow): Promise<void> {
+async function processClaimedJob(
+  dbInstance: DbWithTransaction,
+  row: AsyncJobRow,
+  lane?: JobLane,
+): Promise<void> {
   const handler = HANDLERS.get(row.queue);
   if (!handler) return; // filtered at claim time; defensive.
 
@@ -328,32 +408,54 @@ async function processClaimedJob(dbInstance: DbWithTransaction, row: AsyncJobRow
     });
   } catch (finalizeErr) {
     logger.error(
-      { err: finalizeErr, queue: row.queue, id: row.id },
-      "[asyncJobs] finalize failed — row left in processing for stuck-row recovery",
+      { ...laneField(lane), err: finalizeErr, queue: row.queue, id: row.id },
+      `${lanePrefix(lane)} finalize failed — row left in processing for stuck-row recovery`,
     );
     return;
   }
 
   if (abandoned) {
-    logger.error({ queue: row.queue, id: row.id, error: outcomeError }, "[asyncJobs] job abandoned after max retries");
+    logger.error(
+      { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
+      `${lanePrefix(lane)} job abandoned after max retries`,
+    );
     if (handler.onAbandon) {
       try {
         await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcomeError });
       } catch (hookErr) {
-        logger.error({ err: hookErr, queue: row.queue, id: row.id }, "[asyncJobs] onAbandon hook threw");
+        logger.error(
+          { ...laneField(lane), err: hookErr, queue: row.queue, id: row.id },
+          `${lanePrefix(lane)} onAbandon hook threw`,
+        );
       }
     }
   }
 }
 
 /**
+/** Per-tick controls. All optional so `asyncJobsTick(db)` keeps its legacy behavior. */
+export interface AsyncJobsTickOptions {
+  /**
+   * Restrict the claim to these queues (a lane's queue set). Omit to claim across
+   * ALL queues (legacy behavior). An empty array matches no rows.
+   */
+  queues?: readonly string[];
+  /** Concurrency bound for this tick's batch. Omit to use the bulk-lane default. */
+  maxConcurrency?: number;
+  /** Lane context, for log attribution only. */
+  lane?: JobLane;
+}
+
+/**
  * Process one tick in two phases:
- *   1. CLAIM (short transaction): grab up to 10 due rows with FOR UPDATE SKIP
- *      LOCKED, skip unhandled/delivery-deferred ones, and flip the rest to
- *      `processing`. Committing here releases the row locks immediately so the
- *      slow handler work below never holds them.
+ *   1. CLAIM (short transaction): grab up to 10 due rows (optionally filtered to
+ *      a lane's queues) with FOR UPDATE SKIP LOCKED, skip unhandled/
+ *      delivery-deferred ones, and flip the rest to `processing`. Committing here
+ *      releases the row locks immediately so the slow handler work below never
+ *      holds them.
  *   2. PROCESS (concurrent, bounded): run the claimed handlers up to
- *      ASYNC_JOBS_MAX_CONCURRENCY at a time, each finalizing its own outcome.
+ *      `options.maxConcurrency` (default `ASYNC_JOBS_MAX_CONCURRENCY`) at a time,
+ *      each finalizing its own outcome.
  *
  * Claimed rows sit in `processing` across phase 2; a crash leaves them there and
  * `recoverStuckProcessing` (boot, 5-min cutoff) returns them to `pending`.
@@ -362,7 +464,10 @@ async function processClaimedJob(dbInstance: DbWithTransaction, row: AsyncJobRow
 export async function asyncJobsTick(
   dbInstance: DbWithTransaction,
   now: Date = new Date(),
+  options?: AsyncJobsTickOptions,
 ): Promise<void> {
+  const lane = options?.lane;
+  const queues = options?.queues;
   const claimed = await dbInstance.transaction(async (tx) => {
     const rows = (await tx
       .select()
@@ -370,6 +475,10 @@ export async function asyncJobsTick(
       .where(and(
         eq(asyncJobsTable.status, "pending"),
         lte(asyncJobsTable.nextAttemptAt, now),
+        // `and()` drops an undefined arg, so an omitted `queues` == no filter
+        // (legacy behavior). `inArray(col, [])` compiles to `false` — an empty
+        // lane safely matches nothing.
+        queues ? inArray(asyncJobsTable.queue, queues) : undefined,
       ))
       .orderBy(asc(asyncJobsTable.nextAttemptAt), asc(asyncJobsTable.id))
       .limit(10)
@@ -378,10 +487,10 @@ export async function asyncJobsTick(
     const toProcess: AsyncJobRow[] = [];
     for (const row of rows) {
       if (!HANDLERS.get(row.queue)) {
-        logger.warn({ queue: row.queue, id: row.id }, "[asyncJobs] no handler registered for queue — skipping");
+        logger.warn({ ...laneField(lane), queue: row.queue, id: row.id }, `${lanePrefix(lane)} no handler registered for queue — skipping`);
         continue;
       }
-      if (await deferEmailWhileDeliveryDisabled(row, tx)) {
+      if (await deferEmailWhileDeliveryDisabled(row, tx, lane)) {
         continue;
       }
       await tx
@@ -393,8 +502,9 @@ export async function asyncJobsTick(
     return toProcess;
   });
 
-  await mapWithConcurrency(claimed, ASYNC_JOBS_MAX_CONCURRENCY, (row) =>
-    processClaimedJob(dbInstance, row),
+  const maxConcurrency = options?.maxConcurrency ?? ASYNC_JOBS_MAX_CONCURRENCY;
+  await mapWithConcurrency(claimed, maxConcurrency, (row) =>
+    processClaimedJob(dbInstance, row, lane),
   );
 }
 
@@ -482,6 +592,17 @@ export async function purgeTerminalJobs(
  * `ASYNC_JOBS_MAX_CONCURRENCY` at a time; raise those, not this, to drain a
  * backlog faster (and only after weighing external-API cost / rate limits).
  */
+/**
+ * Per-lane default poll cadences (ms). Latency knobs, NOT throughput ones —
+ * throughput is bounded by the 10-rows/tick claim batch processed up to the
+ * lane's concurrency at a time. `fast` polls tighter because its jobs are cheap
+ * and tighter polling is what directly cuts perceived "Queued…" latency;
+ * `render`/`bulk` keep the historical 5s (isolation, not raw speed, is their fix).
+ * Override per-deploy via the `ASYNC_JOBS_*_INTERVAL_MS` env vars (bulk keeps the
+ * legacy `ASYNC_JOBS_WORKER_INTERVAL_MS` name).
+ */
+const DEFAULT_FAST_INTERVAL_MS = 2_000;
+const DEFAULT_RENDER_INTERVAL_MS = 5_000;
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
@@ -501,72 +622,160 @@ const RECOVER_INTERVAL_MS = 60_000;
  */
 const RECOVER_STUCK_CUTOFF_MIN = 10;
 
-export function runAsyncJobsWorker(
-  intervalMs = Number(process.env["ASYNC_JOBS_WORKER_INTERVAL_MS"]) || DEFAULT_WORKER_INTERVAL_MS,
-): NodeJS.Timeout {
-  if (HANDLERS.size === 0) {
-    logger.warn("[asyncJobs] no handlers registered — worker still started for future registrations");
-  }
+/** Static scheduling config for one lane's runner. Queues are resolved per-tick. */
+export interface LaneConfig {
+  lane: JobLane;
+  intervalMs: number;
+  maxConcurrency: number;
+  /** When true (bulk only), this runner also owns periodic recovery + purge. */
+  maintenance: boolean;
+}
 
-  recoverStuckProcessing(defaultDb).catch((err) => {
-    logger.error({ err }, "[asyncJobs] startup recovery failed");
-  });
+/** Injectable seams for `createLaneRunner`, so tests drive it without real timers. */
+export interface LaneRunnerDeps {
+  /** Override the whole tick body (tests inject a controlled promise). */
+  runTick?: (config: LaneConfig) => Promise<void>;
+  /** Override the scheduler (tests pass a no-op so only the returned `tick` runs). */
+  schedule?: (fn: () => void, intervalMs: number) => NodeJS.Timeout;
+}
 
-  // Re-entrancy guard: a tick can take longer than `intervalMs` (a batch of
-  // slow LLM/image jobs, processed up to ASYNC_JOBS_MAX_CONCURRENCY at a time).
-  // Without this, setInterval would fire overlapping ticks and re-claim rows /
-  // multiply concurrent external calls beyond the intended bound. With it, the
-  // cadence is effectively "interval AFTER the previous tick finishes" —
-  // responsive when idle, self-throttling under load.
+const realSchedule = (fn: () => void, intervalMs: number): NodeJS.Timeout => {
+  const handle = setInterval(fn, intervalMs);
+  handle.unref();
+  return handle;
+};
+
+/**
+ * Build one lane's independent, re-entrant, self-scheduling runner. Each runner
+ * owns a CLOSURE-LOCAL `ticking` boolean — this is the core of the fix: a slow
+ * tick in one lane can no longer suppress another lane's timer, because they no
+ * longer share the guard (or the loop). Returns the runner's `tick` (for tests
+ * to drive by hand) alongside its timer `handle`.
+ *
+ * Queues are resolved via `queuesForLane(config.lane)` on EVERY tick, never
+ * captured once, so a later (re-)registration is picked up by the running worker.
+ */
+export function createLaneRunner(
+  config: LaneConfig,
+  deps: LaneRunnerDeps = {},
+): { tick: () => Promise<void>; handle: NodeJS.Timeout } {
+  const schedule = deps.schedule ?? realSchedule;
   let ticking = false;
   let lastPurgeAt = 0;
   let lastRecoverAt = Date.now();
-  const tick = async () => {
+
+  const defaultBody = async (): Promise<void> => {
+    try {
+      await asyncJobsTick(defaultDb, new Date(), {
+        queues: queuesForLane(config.lane),
+        maxConcurrency: config.maxConcurrency,
+        lane: config.lane,
+      });
+    } catch (err) {
+      logger.error({ lane: config.lane, err }, `[asyncJobs:${config.lane}] worker tick failed`);
+    }
+    if (!config.maintenance) return;
+    // Backstop (bulk runner only): requeue rows stranded in `processing` and
+    // purge terminal rows. Both operate table-wide/all-queues, so one runner
+    // owning them is correct — no per-lane duplication.
+    if (Date.now() - lastRecoverAt >= RECOVER_INTERVAL_MS) {
+      lastRecoverAt = Date.now();
+      try {
+        await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+      } catch (err) {
+        logger.error({ lane: config.lane, err }, `[asyncJobs:${config.lane}] periodic stuck-row recovery failed`);
+      }
+    }
+    if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
+      lastPurgeAt = Date.now();
+      for (const queue of HANDLERS.keys()) {
+        try {
+          await purgeTerminalJobs(defaultDb, queue);
+        } catch (err) {
+          logger.error({ lane: config.lane, err, queue }, `[asyncJobs:${config.lane}] retention purge failed`);
+        }
+      }
+    }
+  };
+
+  const body = deps.runTick ?? defaultBody;
+
+  const tick = async (): Promise<void> => {
     if (ticking) return;
     ticking = true;
     try {
-      try {
-        await asyncJobsTick(defaultDb);
-      } catch (err) {
-        logger.error({ err }, "[asyncJobs] worker tick failed");
-      }
-      // Backstop: requeue rows stranded in `processing` (crash mid-run, or a
-      // finalize that failed after the handler returned) so a healthy
-      // long-running worker eventually retries them, not only on the next boot.
-      if (Date.now() - lastRecoverAt >= RECOVER_INTERVAL_MS) {
-        lastRecoverAt = Date.now();
-        try {
-          await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
-        } catch (err) {
-          logger.error({ err }, "[asyncJobs] periodic stuck-row recovery failed");
-        }
-      }
-      if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
-        lastPurgeAt = Date.now();
-        for (const queue of HANDLERS.keys()) {
-          try {
-            await purgeTerminalJobs(defaultDb, queue);
-          } catch (err) {
-            logger.error({ err, queue }, "[asyncJobs] retention purge failed");
-          }
-        }
-      }
+      await body(config);
     } finally {
       ticking = false;
     }
   };
 
-  const handle = setInterval(() => void tick(), intervalMs);
-  handle.unref();
-  // Run an initial tick immediately so newly-enqueued jobs don't wait the
-  // first interval.
+  const handle = schedule(() => void tick(), config.intervalMs);
+  // Fire an immediate tick so newly-enqueued jobs don't wait the first interval.
   void tick();
-  return handle;
+  return { tick, handle };
+}
+
+/**
+ * Start the durable async-jobs background worker as 3 independent lanes (fast /
+ * render / bulk). Should be called once on server startup AFTER all handlers are
+ * registered. Interval override is via env vars only (the old `intervalMs`
+ * positional arg is gone — a single interval no longer maps to 3 lanes).
+ * Returns the 3 lane timer handles (unused by the production caller).
+ */
+export function runAsyncJobsWorker(): NodeJS.Timeout[] {
+  if (HANDLERS.size === 0) {
+    logger.warn("[asyncJobs] no handlers registered — worker still started for future registrations");
+  }
+
+  const laneConfigs: LaneConfig[] = [
+    {
+      lane: "fast",
+      intervalMs: intervalEnv("ASYNC_JOBS_FAST_INTERVAL_MS", DEFAULT_FAST_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_FAST_MAX_CONCURRENCY", 2)),
+      maintenance: false,
+    },
+    {
+      lane: "render",
+      intervalMs: intervalEnv("ASYNC_JOBS_RENDER_INTERVAL_MS", DEFAULT_RENDER_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_RENDER_MAX_CONCURRENCY", 3)),
+      maintenance: false,
+    },
+    {
+      lane: "bulk",
+      intervalMs: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
+      maxConcurrency: ASYNC_JOBS_MAX_CONCURRENCY,
+      maintenance: true,
+    },
+  ];
+
+  // Startup recovery once (the bulk runner also sweeps periodically thereafter).
+  recoverStuckProcessing(defaultDb).catch((err) => {
+    logger.error({ err }, "[asyncJobs] startup recovery failed");
+  });
+
+  // Structured startup classification: makes the effective lane of every
+  // registered queue visible at boot (a queue that forgot its lane option shows
+  // up under `bulk` here).
+  logger.info(
+    {
+      lanes: Object.fromEntries(
+        laneConfigs.map((c) => [
+          c.lane,
+          { queues: queuesForLane(c.lane), intervalMs: c.intervalMs, maxConcurrency: c.maxConcurrency },
+        ]),
+      ),
+    },
+    "[asyncJobs] worker lanes started",
+  );
+
+  return laneConfigs.map((config) => createLaneRunner(config).handle);
 }
 
 // ─── Reset for tests ────────────────────────────────────────────────────────
 
-/** Reset the handler registry — exported for unit tests. */
+/** Reset the handler + lane registries — exported for unit tests. */
 export function __resetHandlersForTest(): void {
   HANDLERS.clear();
+  LANE_OF_QUEUE.clear();
 }
