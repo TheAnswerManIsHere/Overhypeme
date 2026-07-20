@@ -1,0 +1,34 @@
+# Dependabot — automated dependency-update PRs (finding: supply-chain hygiene).
+# Surfaces known-vulnerability upgrades for the npm/pnpm workspace and the
+# GitHub Actions used in CI. Grouped so routine minor/patch bumps arrive as a
+# small number of PRs rather than one-per-package noise; majors come solo so
+# they get individual review.
+version: 2
+updates:
+  # npm (pnpm workspace) — scans the root package.json + pnpm-lock.yaml, which
+  # covers the artifacts/* and lib/* workspace packages.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    # Security-critical, in the payment/webhook path — flag major bumps for
+    # individual review rather than auto-grouping.
+    ignore: []
+
+  # GitHub Actions used by the workflows in .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
