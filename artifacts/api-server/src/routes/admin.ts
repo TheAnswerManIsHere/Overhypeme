@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
@@ -1618,19 +1619,23 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
 }
 
 // POST /admin/users/set-password — reset a user's password by email (API key auth)
-// Reachable with only the static ADMIN_API_KEY (no admin session), so validate
-// tightly: a well-formed, length-bounded email and the same 8–128 password rule.
-export const SetPasswordBody = z.object({
-  email: z.string().trim().toLowerCase().email().max(320),
-  password: z.string().min(8).max(128),
-});
-
 router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Request, res: Response) => {
-  const parsed = SetPasswordBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
-  const { email, password } = parsed.data;
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || typeof email !== "string") { res.status(400).json({ error: "email is required" }); return; }
+  const normalizedEmail = email.trim().toLowerCase();
+  // Reachable with only the static ADMIN_API_KEY (no admin session), so require
+  // a well-formed, length-bounded email in addition to the password rules.
+  if (!z.string().email().max(320).safeParse(normalizedEmail).success) {
+    res.status(400).json({ error: "a valid email is required" });
+    return;
+  }
+  if (!password || typeof password !== "string") { res.status(400).json({ error: "password is required" }); return; }
+  // Keep these explicit, message-specific checks (the C7 regression asserts the
+  // "at least 8" wording) rather than folding them into a generic zod 400.
+  if (password.length < 8) { res.status(400).json({ error: "password must be at least 8 characters" }); return; }
+  if (password.length > 128) { res.status(400).json({ error: "password must be at most 128 characters" }); return; }
   const [user] = await db.select({ id: usersTable.id, email: usersTable.email })
-    .from(usersTable).where(eq(usersTable.email, email)).limit(1);
+    .from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const passwordHash = await bcrypt.hash(password, 12);
   await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
@@ -2122,24 +2127,31 @@ router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: 
   res.json(updated);
 });
 
-// The `:id` is interpolated into a storage object key
-// (`video_style_previews/${id}.gif`), so it MUST be constrained to a safe
-// slug — otherwise `id=../../foo` escapes the prefix and writes an arbitrary
-// object (path traversal). Match the same shape motion-preset ids are created
-// with. base64 is capped so a giant payload can't blow up memory.
-export const MotionPresetIdParam = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
 export const PreviewGifBody = z.object({ base64: z.string().trim().min(1).max(7_000_000) }); // ~5 MB decoded
 
+// The `:id` is the motion-preset PK and gets interpolated into a storage object
+// key, so it MUST NOT be able to escape the prefix (`id=../../x` → path
+// traversal). Rather than REJECT non-slug ids — which would orphan a legacy
+// style whose id isn't a strict slug (`My.Style`, `foo bar`), leaving it unable
+// to ever receive a preview — derive a deterministic, traversal-safe key:
+// unsafe chars are replaced and a short hash of the REAL id keeps distinct ids
+// from colliding. The DB row is still matched on the real id and the resolved
+// path is persisted, so retrieval/delete are unaffected.
+export function safeStylePreviewKey(id: string): string {
+  const slug = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "style";
+  const hash = createHash("sha256").update(id).digest("hex").slice(0, 8);
+  return `video_style_previews/${slug}-${hash}.gif`;
+}
+
 router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const idParsed = MotionPresetIdParam.safeParse(req.params["id"]);
-  if (!idParsed.success) { res.status(400).json({ error: "Invalid style id" }); return; }
-  const id = idParsed.data;
+  const id = String(req.params["id"] ?? "");
+  if (!id) { res.status(400).json({ error: "style id required" }); return; }
   const bodyParsed = PreviewGifBody.safeParse(req.body);
   if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
   const base64 = bodyParsed.data.base64;
 
   const buf = Buffer.from(base64, "base64");
-  const subPath = `video_style_previews/${id}.gif`;
+  const subPath = safeStylePreviewKey(id);
   const storedPath = await _styleStorage.uploadObjectBuffer({
     subPath,
     buffer: buf,

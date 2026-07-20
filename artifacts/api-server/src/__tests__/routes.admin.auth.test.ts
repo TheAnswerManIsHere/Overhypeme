@@ -206,10 +206,9 @@ describe("requireAdminOrApiKey via x-api-key header", () => {
   });
 
   it("admits an unauthenticated request bearing a valid api key", async () => {
-    // POST /admin/users/set-password validates the body next and returns 400
-    // for the missing email/password — that 400 (not 401/403) confirms the
-    // api-key branch passed the auth gate. The body is now zod-validated, so
-    // the response is the structured { error: "Invalid input", details } shape.
+    // POST /admin/users/set-password validates body next and returns 400
+    // for missing email — that 400 (not 401/403) confirms the api-key
+    // branch passed the auth gate.
     const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
     const res = await request(app)
       .post("/api/admin/users/set-password")
@@ -218,8 +217,7 @@ describe("requireAdminOrApiKey via x-api-key header", () => {
     assert.notEqual(res.status, 401, "valid api key should not return 401");
     assert.notEqual(res.status, 403, "valid api key should not return 403");
     assert.equal(res.status, 400);
-    assert.equal(res.body.error, "Invalid input");
-    assert.ok(res.body.details?.fieldErrors?.email, "email should be flagged by the validator");
+    assert.match(String(res.body.error ?? ""), /email/i);
   });
 
   it("rejects an unauthenticated request bearing a wrong api key with 401", async () => {
