@@ -18,7 +18,7 @@ import {
 import { eq } from "drizzle-orm";
 import {
   type ProductResolver,
-  paymentIntentIsMembershipTagged,
+  checkoutLineItemsGrantMembership,
   subscriptionGrantsMembership,
 } from "./membershipPricing";
 
@@ -283,10 +283,15 @@ export async function handleConfirmRequest(opts: {
 }): Promise<ConfirmResult> {
   const { userId, userStripeCustomerId, sessionId, stripe, deps, linkCustomerId, retrieveProduct } = opts;
 
-  // Expand the subscription's price→product so the membership gate below can
-  // read the tag without a second round-trip in the common case.
+  // Expand the subscription's AND the one-time line items' price→product so the
+  // membership gate below can read the tag without a second round-trip in the
+  // common case.
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
-    expand: ["subscription.items.data.price.product", "payment_intent"],
+    expand: [
+      "subscription.items.data.price.product",
+      "line_items.data.price.product",
+      "payment_intent",
+    ],
   }) as CheckoutSession;
 
   const sessionUserId = session.metadata?.userId;
@@ -328,10 +333,10 @@ export async function handleConfirmRequest(opts: {
       }
       const pi = session.payment_intent as Stripe.PaymentIntent | null;
       if (!pi) return { httpStatus: 400, error: "Payment intent not found" };
-      // Membership allowlist: one-time payments grant Legendary only when our
-      // checkout stamped the membership tag (which it does only for verified
-      // membership products). An untagged payment is some other purchase.
-      if (!paymentIntentIsMembershipTagged(pi.metadata)) {
+      // Membership allowlist: verify the ACTUAL purchased product via the
+      // session's line items — not the mutable PI metadata stamp, which legacy
+      // pre-allowlist Checkout Sessions also carry on non-membership prices.
+      if (!(await checkoutLineItemsGrantMembership(session.line_items?.data, { retrieveProduct }))) {
         return { httpStatus: 400, error: "This payment is not for a membership plan" };
       }
       const result = await grantLegendaryViaOneTimePayment(userId, customerId, pi, deps);

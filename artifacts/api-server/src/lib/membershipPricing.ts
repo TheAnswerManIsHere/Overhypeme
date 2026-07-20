@@ -33,20 +33,6 @@ export function productGrantsMembership(product: MaybeProduct): boolean {
   return (product as Stripe.Product).metadata?.[MEMBERSHIP_PRODUCT_METADATA_KEY] === "true";
 }
 
-/**
- * One-time ("Legendary for Life") payments don't carry the price on the
- * PaymentIntent, so they rely on the membership tag our checkout stamps onto
- * the PI — and checkout only stamps it AFTER verifying the product is a
- * membership product (see routes/stripe.ts). This predicate is that trust
- * check, shared by both the confirm endpoint and the webhook so the rule can't
- * drift between them.
- */
-export function paymentIntentIsMembershipTagged(
-  metadata: Stripe.Metadata | Record<string, string> | null | undefined,
-): boolean {
-  return metadata?.["membership"] === "true" || metadata?.["plan"] === "lifetime";
-}
-
 /** Resolves a Stripe product by id — injectable so callers/tests avoid live calls. */
 export interface ProductResolver {
   retrieveProduct(id: string): Promise<Stripe.Product | Stripe.DeletedProduct>;
@@ -68,20 +54,53 @@ export async function priceGrantsMembership(
 }
 
 /**
+ * Shared: does ANY price in the list resolve to a tagged membership product?
+ * Each price's product is resolved on demand (the common case is a single item
+ * whose product is already expanded, so no extra Stripe call is made).
+ */
+async function anyPriceGrantsMembership(
+  prices: Array<Stripe.Price | null | undefined>,
+  resolver: ProductResolver,
+): Promise<boolean> {
+  for (const price of prices) {
+    if (!price) continue;
+    if (await priceGrantsMembership(price, resolver)) return true;
+  }
+  return false;
+}
+
+/**
  * A subscription grants membership iff ANY of its line-item prices resolves to
- * a tagged membership product. Each price's product is resolved on demand (the
- * common case is a single item whose product is already expanded, so no extra
- * Stripe call is made).
+ * a tagged membership product.
  */
 export async function subscriptionGrantsMembership(
   sub: Stripe.Subscription,
   resolver: ProductResolver,
 ): Promise<boolean> {
-  const items = sub.items?.data ?? [];
-  for (const item of items) {
-    const price = item.price as Stripe.Price | undefined;
-    if (!price) continue;
-    if (await priceGrantsMembership(price, resolver)) return true;
-  }
-  return false;
+  return anyPriceGrantsMembership(
+    (sub.items?.data ?? []).map((item) => item.price as Stripe.Price | undefined),
+    resolver,
+  );
+}
+
+/**
+ * A one-time Checkout Session grants membership iff ANY of its line items
+ * resolves to a tagged membership product.
+ *
+ * This is the AUTHORITATIVE one-time check — it reads the actual purchased
+ * product, NOT any metadata stamp on the PaymentIntent. Legacy Checkout
+ * Sessions created before the allowlist existed carry `membership=true` on
+ * non-membership one-time prices, so trusting that stamp would let a pre-staged
+ * session mint Legendary after deploy. Verifying the line item's product closes
+ * that window. Expand `line_items.data.price.product` (or list line items with
+ * that expand) before calling so the product is resolvable.
+ */
+export async function checkoutLineItemsGrantMembership(
+  lineItems: Array<Stripe.LineItem | null | undefined> | undefined,
+  resolver: ProductResolver,
+): Promise<boolean> {
+  return anyPriceGrantsMembership(
+    (lineItems ?? []).map((item) => item?.price as Stripe.Price | undefined),
+    resolver,
+  );
 }

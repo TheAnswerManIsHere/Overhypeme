@@ -21,9 +21,9 @@ import type Stripe from "stripe";
 
 import {
   productGrantsMembership,
-  paymentIntentIsMembershipTagged,
   priceGrantsMembership,
   subscriptionGrantsMembership,
+  checkoutLineItemsGrantMembership,
   MEMBERSHIP_PRODUCT_METADATA_KEY,
 } from "../lib/membershipPricing.js";
 
@@ -42,6 +42,8 @@ const subWithItems = (prices: unknown[]) =>
     id: "sub_x",
     items: { object: "list", data: prices.map((price) => ({ price })), has_more: false, url: "" },
   }) as unknown as Stripe.Subscription;
+const lineItemsWith = (prices: unknown[]) =>
+  prices.map((price) => ({ price }) as unknown as Stripe.LineItem);
 
 // A resolver that maps a fixed id→product; throws on any unexpected id so a
 // test can't silently pass by resolving something it didn't intend.
@@ -79,19 +81,27 @@ describe("productGrantsMembership (pure, fail-closed)", () => {
   });
 });
 
-describe("paymentIntentIsMembershipTagged (one-time verified stamp)", () => {
-  it("membership:'true' → true", () => {
-    assert.equal(paymentIntentIsMembershipTagged({ membership: "true" }), true);
+describe("checkoutLineItemsGrantMembership (one-time — actual purchased product)", () => {
+  const noResolve = { retrieveProduct: async () => { throw new Error("should not resolve"); } };
+  it("a membership line item → true", async () => {
+    assert.equal(await checkoutLineItemsGrantMembership(lineItemsWith([priceWith(membershipProduct())]), noResolve), true);
   });
-  it("plan:'lifetime' → true", () => {
-    assert.equal(paymentIntentIsMembershipTagged({ plan: "lifetime" }), true);
+  it("a non-membership line item → false (mutable PI stamp is irrelevant)", async () => {
+    assert.equal(await checkoutLineItemsGrantMembership(lineItemsWith([priceWith(plainProduct())]), noResolve), false);
   });
-  it("untagged / unrelated metadata → false", () => {
-    assert.equal(paymentIntentIsMembershipTagged({ userId: "u1" }), false);
-    assert.equal(paymentIntentIsMembershipTagged({ membership: "false" }), false);
-    assert.equal(paymentIntentIsMembershipTagged({}), false);
-    assert.equal(paymentIntentIsMembershipTagged(null), false);
-    assert.equal(paymentIntentIsMembershipTagged(undefined), false);
+  it("mixed line items (one membership) → true", async () => {
+    assert.equal(
+      await checkoutLineItemsGrantMembership(lineItemsWith([priceWith(plainProduct("p")), priceWith(membershipProduct("m"))]), noResolve),
+      true,
+    );
+  });
+  it("no / undefined line items → false (fail closed)", async () => {
+    assert.equal(await checkoutLineItemsGrantMembership([], noResolve), false);
+    assert.equal(await checkoutLineItemsGrantMembership(undefined, noResolve), false);
+  });
+  it("bare-id line-item product is resolved, untagged → false", async () => {
+    const r = resolverFor({ prod_p: plainProduct("prod_p") });
+    assert.equal(await checkoutLineItemsGrantMembership(lineItemsWith([priceWith("prod_p")]), r), false);
   });
 });
 

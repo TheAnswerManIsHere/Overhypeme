@@ -176,13 +176,20 @@ function makePaymentSession(overrides: Partial<CheckoutSession> = {}): CheckoutS
     metadata: { userId: "user-1" },
     customer: "cus_1",
     subscription: null,
+    // The confirm grant reads the ACTUAL purchased product from line items, not
+    // the PI metadata stamp. The stamp is deliberately left set to a value a
+    // legacy tampered session would also have, to prove the decision ignores it.
+    line_items: {
+      object: "list",
+      data: [{ price: { id: "price_lifetime", product: MEMBERSHIP_PRODUCT } } as unknown as Stripe.LineItem],
+      has_more: false,
+      url: "",
+    },
     payment_intent: {
       id: "pi_test_1",
       status: "succeeded",
       amount: 29900,
       currency: "usd",
-      // Our checkout stamps this tag only for verified membership products, so
-      // the confirm one-time grant trusts it.
       metadata: { membership: "true", plan: "lifetime" },
     } as unknown as Stripe.PaymentIntent,
     ...overrides,
@@ -406,16 +413,25 @@ describe("handleConfirmRequest", () => {
     assert.equal(calls.setTier.length, 0, "must NOT grant Legendary for a non-membership subscription");
   });
 
-  it("returns 400 for a one-time payment NOT tagged as membership (no grant)", async () => {
+  it("returns 400 for a one-time payment whose product is NOT membership (no grant)", async () => {
     const { deps, calls } = makeFakeDeps();
+    // A render-credits / merch purchase: the line-item product is not tagged.
+    // Note the PI still carries membership=true (as a LEGACY tampered session
+    // would) — the grant must ignore the stamp and read the real product.
     const session = makePaymentSession({
       metadata: { userId: "user-1" },
+      line_items: {
+        object: "list",
+        data: [{ price: { id: "price_rc", product: NON_MEMBERSHIP_PRODUCT } } as unknown as Stripe.LineItem],
+        has_more: false,
+        url: "",
+      } as unknown as CheckoutSession["line_items"],
       payment_intent: {
         id: "pi_render_credits",
         status: "succeeded",
         amount: 500,
         currency: "usd",
-        metadata: {}, // untagged — a render-credits / merch purchase
+        metadata: { membership: "true", plan: "lifetime" }, // legacy tampered stamp
       } as unknown as Stripe.PaymentIntent,
     });
 
