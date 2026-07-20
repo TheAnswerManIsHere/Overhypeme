@@ -16,6 +16,11 @@ import {
   membershipHistoryTable,
 } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import {
+  type ProductResolver,
+  checkoutLineItemsGrantMembership,
+  subscriptionGrantsMembership,
+} from "./membershipPricing";
 
 // ── Dependency interface ─────────────────────────────────────────────────────
 
@@ -273,11 +278,20 @@ export async function handleConfirmRequest(opts: {
   stripe: CheckoutSessionRetriever;
   deps: GrantDeps;
   linkCustomerId: (userId: string, customerId: string) => Promise<void>;
+  /** Resolves a price's product to enforce the membership allowlist. */
+  retrieveProduct: ProductResolver["retrieveProduct"];
 }): Promise<ConfirmResult> {
-  const { userId, userStripeCustomerId, sessionId, stripe, deps, linkCustomerId } = opts;
+  const { userId, userStripeCustomerId, sessionId, stripe, deps, linkCustomerId, retrieveProduct } = opts;
 
+  // Expand the subscription's AND the one-time line items' price→product so the
+  // membership gate below can read the tag without a second round-trip in the
+  // common case.
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
-    expand: ["subscription", "payment_intent"],
+    expand: [
+      "subscription.items.data.price.product",
+      "line_items.data.price.product",
+      "payment_intent",
+    ],
   }) as CheckoutSession;
 
   const sessionUserId = session.metadata?.userId;
@@ -304,6 +318,12 @@ export async function handleConfirmRequest(opts: {
     if (session.mode === "subscription") {
       const sub = session.subscription as (Stripe.Subscription & { current_period_end?: number }) | null;
       if (!sub) return { httpStatus: 400, error: "Subscription not found on session" };
+      // Membership allowlist: only a subscription to a membership-tagged
+      // product grants Legendary. A non-membership plan reaching confirm is not
+      // a valid membership purchase — reject rather than upgrade.
+      if (!(await subscriptionGrantsMembership(sub, { retrieveProduct }))) {
+        return { httpStatus: 400, error: "This checkout is not for a membership plan" };
+      }
       const result = await grantLegendaryViaSubscription(userId, customerId, sub, deps);
       return { tier: "legendary", source: "confirm", result };
 
@@ -313,6 +333,12 @@ export async function handleConfirmRequest(opts: {
       }
       const pi = session.payment_intent as Stripe.PaymentIntent | null;
       if (!pi) return { httpStatus: 400, error: "Payment intent not found" };
+      // Membership allowlist: verify the ACTUAL purchased product via the
+      // session's line items — not the mutable PI metadata stamp, which legacy
+      // pre-allowlist Checkout Sessions also carry on non-membership prices.
+      if (!(await checkoutLineItemsGrantMembership(session.line_items?.data, { retrieveProduct }))) {
+        return { httpStatus: 400, error: "This payment is not for a membership plan" };
+      }
       const result = await grantLegendaryViaOneTimePayment(userId, customerId, pi, deps);
       return { tier: "legendary", source: "confirm", result };
 

@@ -12,6 +12,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
+import { checkoutLineItemsGrantMembership, subscriptionGrantsMembership } from "./membershipPricing";
 import { notifyAdminsOfDispute, notifyAdminsOfFraudWarning } from "./adminNotify";
 import { notifyUserAccessRevoked } from "./userNotify";
 import {
@@ -166,14 +167,26 @@ async function upsertSubscription(
 }
 
 async function handleSubscriptionActivated(
-  _stripe: Stripe,
+  stripe: Stripe,
   customerId: string,
   sub: Stripe.Subscription,
 ) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) { logger.warn({ customerId }, "No user found for Stripe customer"); return; }
 
-  // Any active subscription payment from a registered user qualifies for Legendary.
+  // Positive membership allowlist: only a subscription whose product is tagged
+  // `overhype_membership=true` grants Legendary. A non-membership subscription
+  // (e.g. a future render-credits plan) is a NO-OP here — not an error — so the
+  // webhook still acks 200 and Stripe doesn't retry. This is the authoritative
+  // gate: checkout is not the only path that reaches this handler.
+  const isMembership = await subscriptionGrantsMembership(sub, {
+    retrieveProduct: (id) => stripe.products.retrieve(id),
+  });
+  if (!isMembership) {
+    logger.info({ userId: user.id, subscriptionId: sub.id }, "Subscription is not a membership plan — skipping Legendary grant");
+    return;
+  }
+
   await grantLegendaryViaSubscription(
     user.id,
     customerId,
@@ -183,9 +196,22 @@ async function handleSubscriptionActivated(
   logger.info({ userId: user.id }, "User upgraded to legendary via webhook");
 }
 
-async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subscription) {
+async function handleSubscriptionCancelled(stripe: Stripe, customerId: string, sub: Stripe.Subscription) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
+
+  // Symmetric with the activation gate: only a MEMBERSHIP subscription affects
+  // the tier. Canceling a non-membership subscription (e.g. a future
+  // render-credits/add-on plan) must NOT downgrade a user whose membership is
+  // still active — so a non-membership cancel is a no-op here (no tier change,
+  // no sub-row write, since it never granted anything).
+  const isMembership = await subscriptionGrantsMembership(sub, {
+    retrieveProduct: (id) => stripe.products.retrieve(id),
+  });
+  if (!isMembership) {
+    logger.info({ userId: user.id, subscriptionId: sub.id }, "Non-membership subscription cancelled — no tier change");
+    return;
+  }
 
   // Update app-level subscription record
   await upsertSubscription(user.id, customerId, sub, "cancelled");
@@ -236,23 +262,37 @@ async function handleInvoicePaid(
 }
 
 async function handleOneTimePayment(
-  _stripe: Stripe,
+  stripe: Stripe,
   customerId: string,
+  sessionId: string,
   paymentIntentId: string,
   amount: number,
   currency: string,
-  metadata: Record<string, string>,
 ) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
 
-  // Validate: must be tagged as membership purchase (fail-closed).
-  // Checkout sessions tag PI with metadata: { membership: "true", plan: "lifetime" }
-  const isTaggedMembership =
-    metadata?.membership === "true" || metadata?.plan === "lifetime";
+  // Membership allowlist (fail-closed): verify the ACTUAL purchased product via
+  // the Checkout Session's line items — NOT any PI metadata stamp. Legacy
+  // pre-allowlist sessions stamped `membership=true` on non-membership one-time
+  // prices, so a pre-staged session could otherwise mint Legendary after
+  // deploy; reading the real line-item product closes that window. Shared with
+  // the confirm endpoint via checkoutLineItemsGrantMembership so the two
+  // one-time grant paths can't drift. A non-membership purchase is a NO-OP here
+  // (not an error), so the webhook still acks 200.
+  let isMembership = false;
+  try {
+    const lineItems = await stripe.checkout.sessions.listLineItems(sessionId, { expand: ["data.price.product"] });
+    isMembership = await checkoutLineItemsGrantMembership(lineItems.data, {
+      retrieveProduct: (id) => stripe.products.retrieve(id),
+    });
+  } catch (err) {
+    logger.warn({ err, sessionId, paymentIntentId, userId: user.id }, "One-time payment: could not verify line items — skipping grant (fail closed)");
+    return;
+  }
 
-  if (!isTaggedMembership) {
-    logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not tagged as membership — skipping Legendary for Life grant");
+  if (!isMembership) {
+    logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not for a membership product — skipping Legendary for Life grant");
     return;
   }
 
@@ -577,6 +617,7 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       // When a checkout completes with a subscription, the embedded subscription object
       // carries the membership grant. We process it as a subscription activation.
       const session = event.data.object as unknown as {
+        id: string;
         customer: string | null;
         mode?: string;
         subscription?: string | { id: string; status?: string; items?: Stripe.Subscription["items"]; cancel_at_period_end?: boolean } | null;
@@ -617,10 +658,11 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
           await handleSubscriptionActivated(stripe, customerId, sub);
         }
       } else if (session.mode === "payment" && session.payment_intent) {
-        // One-time payment checkout (lifetime)
+        // One-time payment checkout (lifetime). Membership is verified from the
+        // session's line items inside the handler — not the PI metadata.
         const piId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent;
         const pi = await stripe.paymentIntents.retrieve(piId as string);
-        await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
+        await handleOneTimePayment(stripe, customerId, session.id, pi.id, pi.amount, pi.currency);
       }
       break;
     }
@@ -631,14 +673,14 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       if (sub.status === "active" || sub.status === "trialing") {
         await handleSubscriptionActivated(stripe, customerId, sub);
       } else if (sub.status === "canceled") {
-        await handleSubscriptionCancelled(customerId, sub);
+        await handleSubscriptionCancelled(stripe, customerId, sub);
       }
       break;
     }
     case "customer.subscription.deleted": {
       const sub = event.data.object as Stripe.Subscription;
       const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-      await handleSubscriptionCancelled(customerId, sub);
+      await handleSubscriptionCancelled(stripe, customerId, sub);
       break;
     }
     case "invoice.paid": {

@@ -15,6 +15,7 @@ import {
 } from "../lib/membershipGrant";
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
+import { priceGrantsMembership } from "../lib/membershipPricing";
 
 const router: IRouter = Router();
 
@@ -114,12 +115,29 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       customerId = customer.id;
     }
 
-    // Validate + resolve price — confirm it exists and is active in Stripe
-    const priceObj = await stripe.prices.retrieve(priceId);
+    // Validate + resolve price — confirm it exists and is active in Stripe.
+    // Expand the product so we can read its membership tag without a 2nd call.
+    const priceObj = await stripe.prices.retrieve(priceId, { expand: ["product"] });
     const isOneTime = priceObj.type === "one_time";
 
     if (!priceObj.active) {
       res.status(400).json({ error: "Invalid price: price is not active" });
+      return;
+    }
+
+    // Positive membership allowlist (source of truth: the product's
+    // `overhype_membership=true` tag). Only membership prices may be checked
+    // out here — this endpoint exists solely to purchase Legendary. Reject any
+    // other active price (render credits, merch, a cheaper SKU, a $0 price)
+    // BEFORE creating the Checkout Session or writing the ledger, so a
+    // non-membership purchase can never mint Legendary via price tampering.
+    // (Future non-membership purchases get their own flow; the grant layer in
+    // membershipGrant/webhookHandlers stays the authoritative gate regardless.)
+    const isMembershipPrice = await priceGrantsMembership(priceObj, {
+      retrieveProduct: (id) => stripe.products.retrieve(id),
+    });
+    if (!isMembershipPrice) {
+      res.status(400).json({ error: "Invalid price: not a membership plan" });
       return;
     }
 
@@ -293,6 +311,7 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
       stripe,
       deps: makeGrantDeps(),
       linkCustomerId: (uid, cid) => stripeStorage.updateUserStripeCustomerId(uid, cid),
+      retrieveProduct: (id) => stripe.products.retrieve(id),
     });
 
     if ("httpStatus" in result) {
@@ -491,9 +510,16 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
     const stripe = await getUncachableStripeClient();
 
     // Validate target price exists and is active
-    const priceObj = await stripe.prices.retrieve(targetPriceId);
+    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
     if (!priceObj.active) {
       res.status(400).json({ error: "Invalid price: price is not active" });
+      return;
+    }
+    // Membership allowlist: you can only switch onto another membership price —
+    // never a non-membership plan (which would keep Legendary while paying for
+    // something else).
+    if (!(await priceGrantsMembership(priceObj, { retrieveProduct: (id) => stripe.products.retrieve(id) }))) {
+      res.status(400).json({ error: "Invalid price: not a membership plan" });
       return;
     }
 
@@ -562,9 +588,15 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
     const stripe = await getUncachableStripeClient();
 
     // Validate target price exists and is active
-    const priceObj = await stripe.prices.retrieve(targetPriceId);
+    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
     if (!priceObj.active) {
       res.status(400).json({ error: "Invalid price: price is not active" });
+      return;
+    }
+    // Membership allowlist: only switch onto another membership price (see
+    // switch-preview) — never a non-membership plan.
+    if (!(await priceGrantsMembership(priceObj, { retrieveProduct: (id) => stripe.products.retrieve(id) }))) {
+      res.status(400).json({ error: "Invalid price: not a membership plan" });
       return;
     }
 
