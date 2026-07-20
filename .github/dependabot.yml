@@ -5,10 +5,18 @@
 # they get individual review.
 version: 2
 updates:
-  # npm (pnpm workspace) — scans the root package.json + pnpm-lock.yaml, which
-  # covers the artifacts/* and lib/* workspace packages.
+  # npm (pnpm workspace). `directory` is a SINGLE manifest dir, so the root
+  # entry alone would miss every workspace package.json (where most prod deps —
+  # @sentry/node, openai, helmet, wrangler, drizzle, … — actually live). Use
+  # `directories` globs mirroring pnpm-workspace.yaml so every manifest is
+  # covered. https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#directories-or-directory
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/artifacts/*"
+      - "/cloudflare/*"
+      - "/lib/*"
+      - "/scripts"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
