@@ -12,6 +12,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
+import { paymentIntentIsMembershipTagged, subscriptionGrantsMembership } from "./membershipPricing";
 import { notifyAdminsOfDispute, notifyAdminsOfFraudWarning } from "./adminNotify";
 import { notifyUserAccessRevoked } from "./userNotify";
 import {
@@ -166,14 +167,26 @@ async function upsertSubscription(
 }
 
 async function handleSubscriptionActivated(
-  _stripe: Stripe,
+  stripe: Stripe,
   customerId: string,
   sub: Stripe.Subscription,
 ) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) { logger.warn({ customerId }, "No user found for Stripe customer"); return; }
 
-  // Any active subscription payment from a registered user qualifies for Legendary.
+  // Positive membership allowlist: only a subscription whose product is tagged
+  // `overhype_membership=true` grants Legendary. A non-membership subscription
+  // (e.g. a future render-credits plan) is a NO-OP here — not an error — so the
+  // webhook still acks 200 and Stripe doesn't retry. This is the authoritative
+  // gate: checkout is not the only path that reaches this handler.
+  const isMembership = await subscriptionGrantsMembership(sub, {
+    retrieveProduct: (id) => stripe.products.retrieve(id),
+  });
+  if (!isMembership) {
+    logger.info({ userId: user.id, subscriptionId: sub.id }, "Subscription is not a membership plan — skipping Legendary grant");
+    return;
+  }
+
   await grantLegendaryViaSubscription(
     user.id,
     customerId,
@@ -246,10 +259,12 @@ async function handleOneTimePayment(
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
 
-  // Validate: must be tagged as membership purchase (fail-closed).
-  // Checkout sessions tag PI with metadata: { membership: "true", plan: "lifetime" }
-  const isTaggedMembership =
-    metadata?.membership === "true" || metadata?.plan === "lifetime";
+  // Validate: must be tagged as membership purchase (fail-closed). Our checkout
+  // stamps this tag ONLY after verifying the product is a membership product
+  // (routes/stripe.ts), so the tag is a trustworthy assertion here. Shared with
+  // the confirm endpoint via paymentIntentIsMembershipTagged so the rule can't
+  // drift between the two grant paths.
+  const isTaggedMembership = paymentIntentIsMembershipTagged(metadata);
 
   if (!isTaggedMembership) {
     logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not tagged as membership — skipping Legendary for Life grant");
