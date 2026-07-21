@@ -88,7 +88,9 @@ const T2I_PREAMBLE =
 // The compiler-owned RENDER STYLE default when no visual style is selected
 // (styleId absent or "none"). Medium-only, no lighting instruction — so it can
 // never override a scene's deliberate lighting (David's decision, plan §11.4).
-const DEFAULT_PHOTOREALISTIC_STYLE =
+// Exported so the shared style resolver (styleResolution.ts) freezes the SAME
+// line into a snapshot rather than redefining it.
+export const DEFAULT_PHOTOREALISTIC_STYLE =
   "Photorealistic rendering: true-to-life materials and textures, realistic optical detail, and the clarity of a high-quality photograph.";
 
 // ─── Text utilities ───────────────────────────────────────────────────────
