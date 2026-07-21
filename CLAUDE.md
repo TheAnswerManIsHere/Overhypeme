@@ -230,25 +230,47 @@ follow-up work on the same branch looks like it conflicts / re-includes
 the merged changes. The fix is mine to apply *proactively*, not after
 David reports a conflict:
 
-**Before pushing follow-up work or opening any new PR, ALWAYS:**
+### This environment's git constraints (learned the hard way — work WITH them)
 
-1. `git fetch origin main`.
-2. Rebase the branch onto `origin/main`, keeping ONLY the not-yet-merged
-   commits: `git rebase --onto origin/main <last-merged-commit>`. (When in
-   doubt, `git diff origin/main HEAD --stat` shows the true delta — that,
-   and nothing else, is what the new PR should contain.)
-3. Re-run typecheck + the touched tests on the rebased state.
-4. Publish the rewritten branch. **NEVER force-push** — `.claude/guard.sh`
-   hard-blocks any `git push --force` / `--force-with-lease` and the attempt
-   just fails. Instead:
-   - After a squash-merge, GitHub auto-deletes the merged feature branch, so
-     the remote ref is usually gone. Run `git fetch --prune origin`, then a
-     plain `git push -u origin <branch>` recreates it fresh (no force needed).
-   - If the remote branch still exists and has diverged (a stale ref whose PR
-     is already merged/closed), delete it first with
-     `git push origin --delete <branch>`, then plain-push. Confirm the PR is
-     merged/closed before deleting.
-   - Only ever do this to MY feature branch, never `main`.
+`.claude/guard.sh` and the git proxy impose hard limits. I verified all of these;
+do not relitigate them mid-task:
+
+- **`git push --force` / `--force-with-lease` → BLOCKED** by the guard.
+- **`git reset --hard` → BLOCKED** by the guard.
+- **`git push origin --delete <branch>` → does NOT work** (the proxy hangs /
+  "remote end hung up"). I cannot delete a remote branch.
+- **`git checkout -B <branch> <ref>` → WORKS** (moves the branch ref without a
+  `--hard` reset; the guard allows it). This is my reset primitive.
+
+**The governing rule: NEVER rewrite history that is already pushed.** Because I
+can't force-push, can't delete the remote branch, and can't hard-reset, a
+rebased/amended already-pushed branch becomes **unpublishable** — plain push is
+(correctly) rejected as non-fast-forward and I have no way to reconcile it. A
+clean rebase wastes effort at best and strands the branch at worst. GitHub's
+squash-merge already 3-way-merges my branch against current `main` at merge time,
+so **rebasing "to sit on top of main" is unnecessary** and I stop doing it.
+
+**Before the FIRST push of a fresh branch** (nothing on the remote yet): it's
+fine to base it cleanly on main — `git fetch origin main` then
+`git checkout -B <branch> origin/main`, apply my work, push. (This is also how I
+**restart a branch after its PR squash-merged**: `git checkout -B <branch>
+origin/main` gives a fresh base with no merged history to fight — the sanctioned
+no-force reset.)
+
+**For follow-up work on an ALREADY-pushed branch:**
+
+1. Just add new commits on top and `git push -u origin <branch>` (fast-forward —
+   works). Do **not** rebase/amend the pushed commits.
+2. If I genuinely need current `main`'s changes in the branch, **merge, don't
+   rebase**: `git fetch origin main && git merge origin/main` (a merge commit is
+   fine — the squash collapses it). Then push.
+3. If local has accidentally diverged from the remote (e.g. an errant rebase I
+   can't publish), realign to the remote and continue: `git checkout -B <branch>
+   origin/<branch>` (content is preserved — the remote already has the work),
+   then add new commits and plain-push.
+
+Only ever do this to MY feature branch, never `main`. When in doubt,
+`git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
 **Whenever I finish a unit of work, before ending my turn:**
 

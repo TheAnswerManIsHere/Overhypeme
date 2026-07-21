@@ -59,6 +59,29 @@ references / semantic entities are deliberately NOT re-emitted as "Interpret X
 means Y" lines in `nanoBanana2.ts`; modifier directives are conservatively de-duped
 against the assembled prompt.
 
+## Manual `api-zod/src/index.ts` export silently reverted by codegen
+
+**Looks like:** you add a new module under `lib/api-zod/src/` and add
+`export * from "./yourModule"` to `lib/api-zod/src/index.ts`; typecheck and your
+targeted tests pass, so you move on. Then a later step that runs codegen (the
+full test suite's setup, `pnpm --filter @workspace/api-spec run codegen`, a
+merge, a build) **regenerates `index.ts`** and your export line vanishes.
+**Dangerous:** `@workspace/api-zod` resolves to `./src/index.ts` (see its
+`package.json` `exports`), so the moment the export is gone **every consumer
+breaks at runtime** with `does not provide an export named '…'` — and it looks
+like a broad, mysterious cascade (dozens of unrelated suites failing at load,
+including ones that pass in isolation), not an export problem. Earlier green runs
+were on a stale build that still had the export. **Root cause:** codegen OWNS
+`api-zod/src/index.ts` — it rewrites the file from the allowlist in
+[`lib/api-spec/patch-generated.mjs`](../../lib/api-spec/patch-generated.mjs)
+(`apiZodIndexLines`). A hand-edit to `index.ts` is not a source of truth; the
+allowlist is. **The real fix:** add the new module to the `apiZodIndexLines`
+array in `patch-generated.mjs`, then run codegen and confirm the export survives
+(`git diff --exit-code lib/api-zod/src/index.ts` is clean after codegen).
+`git checkout lib/api-zod/src/index.ts` restores the committed (correct) version
+if a codegen run clobbers your working tree mid-session. Do **not** try to "just
+re-add it to index.ts" — it will be reverted again.
+
 ## Stale historical docs treated as current truth
 
 **Looks like:** implementing from an old note (or training-data memory) that no
