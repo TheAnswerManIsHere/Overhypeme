@@ -21,6 +21,21 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Security review + remediation (findings C1–C10)** — a full security pass and
+  fix arc: auth hardening (login/register rate limits, password-reset session
+  invalidation, min-8 password — #210), video/object IDOR (#212), private memes
+  made owner-only + uncacheable (#213), Stripe membership price allowlist enforced
+  at the grant layer (#214), application security headers (#215), removal of a
+  committed prod DB dump + gitignore + Dependabot (#217), admin input validation
+  incl. a path-traversal fix (#218), and the dev-admin-login backdoor hardened
+  fail-closed (#221). The durable posture lives in
+  [`security-model.md`](./security-model.md).
+- **Async-jobs worker split into fast/render/bulk lanes** — fixed head-of-line
+  blocking where a pure-DB admin action or a moderator-watched test render
+  could queue for 30s+ behind unrelated slow/bulk work; each lane now has its
+  own timer, re-entrancy guard, and concurrency bound (PR #216). See
+  [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
+  and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Auto-tokenize admin Visual-Concept authoring** — moderators write plain
   English in the Visual Strategy Override; Save auto-tokenizes (reusing the
   fact-submission tokenizer) and shows the result before persisting; a role
@@ -66,6 +81,15 @@ priorities (moderation speed, render/enrichment quality, video). See
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
 
+## Pre-launch hardening (must-do before go-live)
+
+- **Scope/rotate `ADMIN_API_KEY`.** A single static key grants 9 admin routes
+  (incl. `set-password` and the bulk backfill launchers) without a session;
+  decide whether to scope, rotate, or replace it.
+- *(The dev-admin-login backdoor, C1 — the review's highest-severity finding —
+  is now hardened fail-closed, PR #221. See
+  [`security-model.md`](./security-model.md#dev-admin-login-backdoor-c1).)*
+
 ## Near-term planned slices
 
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
@@ -76,11 +100,25 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+- **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
+  (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
+  unraised — the three lanes' combined handler concurrency (8) fits under it,
+  but only with thin headroom shared with concurrent HTTP traffic. Raise it
+  only if pool-acquisition wait time or provider rate-limit errors actually
+  show up under load; it's an infra/cost decision, not a code change to make
+  proactively. See [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 - Broad public-growth surfaces and free→Legendary conversion optimization.
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."
 - A multi-role admin permission model.
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
+- **Security follow-ups (lower-risk, from the C5/C9 review):** flip CSP from
+  Report-Only to enforcing after UAT confirms zero violations; HSTS
+  `includeSubDomains`/`preload` once all `*.overhype.me` subdomains are HTTPS;
+  the admin field-length validation tidying; `confirm`/`limit` gates on the
+  API-key backfill launchers (needs the `ADMIN_API_KEY` decision first); the
+  git-history purge of the removed prod dump (destructive, rotation is the real
+  mitigation). See [`security-model.md`](./security-model.md#deliberately-out-of-scope--deferred).
 - **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
   (`docs/manual/README.md`) and the `/document` ceremony that grows it
   incrementally are in place; writing the initial set of chapters for the

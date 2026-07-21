@@ -31,7 +31,7 @@ import type {
   SubjectRenderMode,
   VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES } from "@workspace/api-zod";
+import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES, detectOwnedLanguage } from "@workspace/api-zod";
 import type {
   CompiledImagePrompt,
   PromptSection,
@@ -84,6 +84,12 @@ const NONHUMAN_I2I_PREAMBLE =
   "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.";
 const T2I_PREAMBLE =
   "Text-to-image generation: render an original protagonist that fits the scene.";
+
+// The compiler-owned RENDER STYLE default when no visual style is selected
+// (styleId absent or "none"). Medium-only, no lighting instruction — so it can
+// never override a scene's deliberate lighting (David's decision, plan §11.4).
+const DEFAULT_PHOTOREALISTIC_STYLE =
+  "Photorealistic rendering: true-to-life materials and textures, realistic optical detail, and the clarity of a high-quality photograph.";
 
 // ─── Text utilities ───────────────────────────────────────────────────────
 
@@ -299,7 +305,9 @@ function composeKeyElementsDirective(vp: VisualPlan, haystack: string): Directiv
       dropped.push({ source, value, reason: "already-in-core-scene" });
       continue;
     }
-    missing.push(value);
+    // Strip trailing sentence punctuation so joining with "; " and the section's
+    // own terminal "." can't produce a doubled terminator ("…props..").
+    missing.push(value.replace(/[.!?]+$/, ""));
     localHaystack = `${localHaystack} ${value}`;
   }
   const text = missing.length ? `Ensure these elements are clearly visible: ${missing.join("; ")}.` : "";
@@ -361,13 +369,26 @@ function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["su
   const pol = vp.supportingTextPolicy;
   const guidance = policy.guidance?.trim() ?? "";
 
-  // Planner picked concrete in-world strings for this render → render them
+  // Planner picked concrete in-world elements for this render → render them
   // (regardless of mode; the planner's scene content is the strongest signal).
+  // Route by kind: LITERAL glyph strings are quoted as exact readable text;
+  // VISUAL GRAPHICS are emitted UNQUOTED as "depict as a visual, not written
+  // words" so a description ("a flatline trace") is never baked in as the
+  // literal words. This is the fix for quoting descriptions as glyphs.
   if (pol.allowSupportingText && pol.supportingTextElements.length > 0) {
-    const items = pol.supportingTextElements
-      .map((e) => `"${e.content.trim()}"${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
-      .join("; ");
-    lines.push(`Render this in-scene text clearly: ${items}.`);
+    const fmt = (e: (typeof pol.supportingTextElements)[number]) =>
+      `${e.content.trim()}${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`;
+    const literals = pol.supportingTextElements.filter((e) => e.kind === "literal_text" && e.content.trim());
+    const graphics = pol.supportingTextElements.filter((e) => e.kind === "visual_graphic" && e.content.trim());
+    if (literals.length > 0) {
+      const items = literals
+        .map((e) => `"${e.content.trim()}"${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
+        .join("; ");
+      lines.push(`Render this in-scene text clearly: ${items}.`);
+    }
+    if (graphics.length > 0) {
+      lines.push(`Depict these as visuals, not as written words: ${graphics.map(fmt).join("; ")}.`);
+    }
     lines.push(INCIDENTAL_TEXT_GUARD);
     return lines.join(" ");
   }
@@ -570,7 +591,12 @@ function composeAdditiveRoleDetails(opts: {
       dropped.push({ source: "secondaryCharacter", value: `${label}: ${visualRole}`, reason: "already-in-core-scene" });
       continue;
     }
-    clauses.push(leadsWithName(visualRole, label) ? visualRole : `${label} is ${visualRole}`);
+    // Label-colon form ("king cobra: Large venomous snake…") rather than
+    // "<label> is <visualRole>": the latter mangled casing ("king cobra is Large
+    // venomous snake") and could produce ungrammatical joins with proper-noun /
+    // initialism labels ("NASA astronaut", "Dr. Smith"). A visualRole that
+    // already opens with the label stays a self-contained clause (no doubling).
+    clauses.push(leadsWithName(visualRole, label) ? visualRole : `${label}: ${visualRole}`);
   }
 
   const text = clauses.length ? clauses.map((c) => `${c}.`).join(" ") : "";
@@ -1106,26 +1132,21 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   let coreScene = "";
   let coreSceneModeratorAuthored = false;
   if (moderatorCoreRaw) {
-    const moderatorSanitized = sanitizePlannerProse(moderatorCoreRaw);
-    removedProse.push(...moderatorSanitized.removed);
-    const moderatorCore = scrubIntentLanguage(moderatorSanitized.text);
-    if (moderatorCore.trim()) {
-      coreScene = moderatorCore;
-      coreSceneModeratorAuthored = true;
-      if (moderatorSanitized.removed.length > 0) {
-        moderatorCoreWarnings.push({
-          code: "moderator_core_scene_stripped",
-          severity: "warning",
-          message:
-            "Some Visual concept text was stripped because the compiler owns identity/reference/text-policy instructions. Rewrite this field as visible scene description only.",
-        });
-      }
-    } else {
+    // VERBATIM: the moderator Concept is the AUTHORITATIVE scene. It reaches the
+    // engine token-rendered but otherwise UNMODIFIED — it is NOT run through
+    // sanitizePlannerProse / scrubIntentLanguage (those apply only to AI-authored
+    // prose, below). Compiler-owned language is DETECTED and warned about
+    // (non-mutating), never silently stripped: a human authored this on purpose,
+    // and the fix belongs at authoring time, not a surprise rewrite at compile.
+    // A non-empty Concept therefore never falls back to AI content.
+    coreScene = moderatorCoreRaw;
+    coreSceneModeratorAuthored = true;
+    const owned = detectOwnedLanguage(moderatorCoreRaw);
+    if (owned) {
       moderatorCoreWarnings.push({
-        code: "moderator_core_scene_empty_after_sanitize",
+        code: "moderator_core_scene_owned_language",
         severity: "warning",
-        message:
-          "The Visual concept became empty after stripping compiler-owned instructions, so the AI scene was used instead.",
+        message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
       });
     }
   }
@@ -1233,14 +1254,17 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   ].filter(Boolean).join(" ");
   if (composition) haystack = `${haystack} ${composition}`;
 
-  // 7. LIGHTING AND STYLE — the plan's light/mood plus the resolved style suffix.
-  // Each clause is terminated so the assembler's sentence-aware de-dupe keeps it
-  // (an unpunctuated trailing fragment would be silently dropped).
-  const lightingParts = [
-    scrubIntentLanguage(vp.lightingAndStyle ?? ""),
-    input.stylePrompt?.trim() ?? "",
-  ].map((s) => s.trim().replace(/[.!?]+$/, "")).filter(Boolean);
-  const lightingAndStyle = lightingParts.length ? `${lightingParts.join(". ")}.` : "";
+  // 7. LIGHTING — physical light/mood/palette ONLY (medium-neutral). The selected
+  // visual style is emitted separately as RENDER STYLE (single channel), so a
+  // style can never overlap or fight the scene's own lighting. Terminated so the
+  // assembler's sentence-aware de-dupe keeps it.
+  const lightingCore = scrubIntentLanguage(vp.lightingAndStyle ?? "").trim().replace(/[.!?]+$/, "");
+  const lighting = lightingCore ? `${lightingCore}.` : "";
+
+  // 7b. RENDER STYLE — the compiler-owned SINGLE style channel: the resolved
+  // style suffix (input.stylePrompt), or the photorealistic default when no
+  // style is selected. Required so a chosen style always survives the budget.
+  const renderStyle = input.stylePrompt?.trim() || DEFAULT_PHOTOREALISTIC_STYLE;
 
   // 8. STRICT CONSTRAINTS — supporting-text rule, violence policy, and the
   // negative anti-entity-split guards. Cultural references AND semantic entities
@@ -1300,7 +1324,8 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
     { id: "additional_details", label: "ADDITIONAL DETAILS", text: labeled("ADDITIONAL DETAILS", additionalDetails), priority: "high", compressible: true },
     { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
-    { id: "lighting_and_style", label: "LIGHTING AND STYLE", text: labeled("LIGHTING AND STYLE", lightingAndStyle), priority: "medium", compressible: true },
+    { id: "lighting", label: "LIGHTING", text: labeled("LIGHTING", lighting), priority: "medium", compressible: true },
+    { id: "render_style", label: "RENDER STYLE", text: labeled("RENDER STYLE", renderStyle), priority: "required" },
     { id: "strict_constraints", label: "STRICT CONSTRAINTS", text: labeled("STRICT CONSTRAINTS", strictConstraints), priority: "required" },
   ];
 

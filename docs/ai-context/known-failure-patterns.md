@@ -59,6 +59,29 @@ references / semantic entities are deliberately NOT re-emitted as "Interpret X
 means Y" lines in `nanoBanana2.ts`; modifier directives are conservatively de-duped
 against the assembled prompt.
 
+## Manual `api-zod/src/index.ts` export silently reverted by codegen
+
+**Looks like:** you add a new module under `lib/api-zod/src/` and add
+`export * from "./yourModule"` to `lib/api-zod/src/index.ts`; typecheck and your
+targeted tests pass, so you move on. Then a later step that runs codegen (the
+full test suite's setup, `pnpm --filter @workspace/api-spec run codegen`, a
+merge, a build) **regenerates `index.ts`** and your export line vanishes.
+**Dangerous:** `@workspace/api-zod` resolves to `./src/index.ts` (see its
+`package.json` `exports`), so the moment the export is gone **every consumer
+breaks at runtime** with `does not provide an export named '…'` — and it looks
+like a broad, mysterious cascade (dozens of unrelated suites failing at load,
+including ones that pass in isolation), not an export problem. Earlier green runs
+were on a stale build that still had the export. **Root cause:** codegen OWNS
+`api-zod/src/index.ts` — it rewrites the file from the allowlist in
+[`lib/api-spec/patch-generated.mjs`](../../lib/api-spec/patch-generated.mjs)
+(`apiZodIndexLines`). A hand-edit to `index.ts` is not a source of truth; the
+allowlist is. **The real fix:** add the new module to the `apiZodIndexLines`
+array in `patch-generated.mjs`, then run codegen and confirm the export survives
+(`git diff --exit-code lib/api-zod/src/index.ts` is clean after codegen).
+`git checkout lib/api-zod/src/index.ts` restores the committed (correct) version
+if a codegen run clobbers your working tree mid-session. Do **not** try to "just
+re-add it to index.ts" — it will be reverted again.
+
 ## Stale historical docs treated as current truth
 
 **Looks like:** implementing from an old note (or training-data memory) that no
@@ -327,3 +350,68 @@ the **smallest coherent change** that satisfies the approved plan; defer
 speculative generality. **Overhype:** pre-launch priorities are stability + content
 quality — new external vendors and new abstractions need a strong reason and
 David's sign-off (see [`product-direction.md`](./product-direction.md)).
+
+## Security classification by URL path instead of resolved authorization
+
+**Looks like:** deciding a security posture (is this cacheable? cross-origin
+embeddable? public?) from a route's path *shape* — an allowlist of URL patterns —
+rather than from the ownership/visibility resolved for that specific response.
+**Dangerous:** one path serves both public and private responses, so a pattern
+match is wrong for half of them. `/api/memes/:slug/image` matches a public meme,
+a **private** meme, AND the owner-gated `/api/memes/ai-user/image`; marking it
+`cross-origin` by path leaks owner-only bytes (defeating CORP). The same shape
+also produces path-traversal when a path param is interpolated into a storage
+key (`video_style_previews/${id}.gif` with `id=../../x`). **Avoid:** classify at
+the point visibility is *known* — one shared choke point that runs after the ACL
+resolves — and derive any storage key from a sanitized/hashed form, never the raw
+input. **Overhype:** cross-origin CORP is set in `setPublicCors()`
+(`cacheHeaders.ts`), called *only* on confirmed-public responses; private
+responses call `setNoStore` and stay `same-origin`. The style preview key goes
+through `safeStylePreviewKey()`. See
+[`security-model.md`](./security-model.md#http-security-headers-c5) (C5/C9).
+
+## Trusting self-set mutable metadata as a security assertion across a deploy
+
+**Looks like:** an app writes a flag onto an object it controls (a Stripe PI's
+`membership=true` metadata, a signed cookie claim, a DB column) and later reads
+that flag back as *proof* of a security property. **Dangerous:** the flag was set
+by an *older* version of the code with weaker rules, and in-flight objects
+(pre-existing checkout sessions, cached tokens) carry it — so the new gate that
+trusts the flag can be satisfied by a pre-staged object the old code stamped
+wrongly. **Avoid:** verify the underlying fact from an authoritative,
+non-self-set source at read time (the actual purchased product from the Checkout
+Session line items), not the flag you wrote. **Overhype:** the one-time
+membership grant reads `session.line_items[].price.product` and ignores the
+`membership=true` PI stamp our own checkout set, closing the window where a
+legacy pre-allowlist session mints Legendary after deploy. See
+[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6) (C6).
+
+## Head-of-line blocking in a shared background worker
+
+**Looks like:** one dispatch loop (one claim query, one concurrency pool, one
+re-entrancy/"is it my turn" guard) processing several kinds of work that have
+very different costs — some cheap and interactive, some slow and external.
+**Dangerous:** a cheap, interactive action silently inherits the latency of
+whatever expensive work happens to be queued or already running ahead of it —
+looks like a hang or a broken feature, not a scheduling artifact, so it's hard
+to diagnose from the symptom alone. A single shared re-entrancy guard makes it
+worse: the *next* dispatch cycle can't even start until the *current* one's
+entire batch — including any slow job in it — finishes. **Avoid:** when a
+shared dispatcher serves work with meaningfully different latency profiles
+(interactive vs. external-API vs. bulk-background), give each class its own
+independent scheduling lane — own timer, own **closure-local** (never shared)
+re-entrancy guard, own claim filter, own concurrency bound — so one lane can
+never suppress another's progress. Don't just add more concurrency to the one
+shared pool; that doesn't fix FIFO ordering starving a fast job behind older
+slow ones. **Overhype:** the `async_jobs` worker (`asyncJobs.ts`) originally
+drained all 9 queues through one loop; a pure-DB admin action (Taxonomy Health
+"Send back to review," no model call) or a moderator-watched test render could
+sit in "Queued…" for 30s+ behind unrelated LLM/image-gen or bulk-backfill work.
+Fixed in PR #216 by splitting into `fast` / `render` / `bulk` lanes — see
+[`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
+and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+
+A related engineering gotcha surfaced while fixing this — defaulting a new
+lane-specific config knob to a fresh literal instead of the old shared knob's
+resolved value — is in
+[`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).

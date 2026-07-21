@@ -62,6 +62,12 @@ export function Navbar() {
   function doAdminLogin() {
     _logoTapCount = 0;
     if (_logoTapTimer) { clearTimeout(_logoTapTimer); _logoTapTimer = null; }
+    // The dev-admin-login backdoor is gated fail-closed on the server (C1) and
+    // is only reachable in a non-production preview. Don't attempt the
+    // navigation in a production build — the endpoint 404s there, and we don't
+    // want to surface that it exists. `import.meta.env.DEV` is true under the
+    // Vite dev server (the Replit preview) and false in the built artifact.
+    if (!import.meta.env.DEV) return;
     // Use top-level navigation to the GET endpoint instead of fetch().
     //
     // Why: in Chrome (esp. on Windows) when the app is viewed inside an

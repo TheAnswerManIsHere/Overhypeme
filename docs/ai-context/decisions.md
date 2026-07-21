@@ -13,6 +13,109 @@
 
 ---
 
+### 2026-07 · dev-admin-login backdoor hardened fail-closed
+- **Decision:** `GET/POST /api/auth/dev-admin-login` — which mints a
+  bootstrap-admin session for any caller — is gated fail-closed by
+  `isDevAdminLoginEnabled()`: OFF by default, opt-in only via
+  `ENABLE_DEV_ADMIN_LOGIN=true` for a **non-production** preview, and NEVER
+  enabled in production even if the flag is set. When disabled the handler 404s
+  (no session, no cookie), and `app.ts` withholds the permissive CORS +
+  origin-exemption; the UI trigger no-ops outside a dev build. The enabled path
+  rotates the session (fresh sid, delete old — closes fixation) and sanitizes
+  `returnTo`. Supersedes the earlier pre-launch decision to leave it open (that
+  deferral is now closed).
+- **Why:** it was the single highest-severity finding — unauthenticated
+  privilege escalation — and must be inert on any live deployment. The flag
+  preserves David's Replit-preview admin shortcut (set it in that env) while
+  guaranteeing production can never enable it.
+- **Reference:** finding C1, PR #221;
+  [`security-model.md`](./security-model.md#dev-admin-login-backdoor-c1),
+  `devAdminLogin.ts`.
+- **Revisit if:** the preview admin workflow needs a different mechanism, or the
+  flag's env-var contract changes.
+
+### 2026-07 · Membership is granted only for Stripe products tagged `overhype_membership=true`
+- **Decision:** "Does paying for this grant Legendary?" is decided by a
+  positive allowlist keyed on the Stripe **product** metadata tag
+  `overhype_membership=true`, enforced at the **grant layer** (checkout,
+  subscription switch, the synchronous confirm endpoint, AND the webhook —
+  grant *and* cancellation), not just at checkout. One-time grants verify the
+  actual purchased product from the Checkout Session line items, never the
+  mutable `membership=true` PI metadata stamp.
+- **Why:** checkout previously accepted any active price and granted Legendary
+  for any succeeded payment, never checking *which* product — a price/tier
+  tampering hole that goes live the moment a non-membership product exists.
+  David confirmed non-membership purchases are coming (render credits), so a
+  product-metadata allowlist keeps the "is this membership?" decision next to
+  the product in Stripe (no env/config to drift), and the grant layer is the
+  authoritative gate because the webhook — not checkout — is what actually flips
+  the tier.
+- **Reference:** finding C6, PR #214;
+  [`security-model.md`](./security-model.md#payment-trust--membership-grants-c6),
+  `artifacts/api-server/src/lib/membershipPricing.ts`.
+- **Revisit if:** membership products ever need per-mode (test/live) isolation
+  beyond what the product tag gives, or a non-Stripe entitlement source appears.
+
+### 2026-07 · `isPublic=false` on a meme means owner-only/secret
+- **Decision:** A meme with `isPublic === false` is visible **only** to its
+  creator or an admin — not "unlisted but link-shareable." Every non-owner
+  (logged-in or not) gets a **404** (not 403), private responses are
+  `no-store` and excluded from the Cloudflare public cache and OG preview, and
+  the visibility gate runs *before* the soft-delete 410 so a deleted private
+  meme is indistinguishable from a missing one.
+- **Why:** David's explicit product call during the review — "private" is
+  secret, so slug unguessability is not authorization. 404-over-403 avoids
+  confirming a private meme exists.
+- **Reference:** finding C3, PR #213;
+  [`security-model.md`](./security-model.md#authorization--objects-media-and-memes),
+  `artifacts/api-server/src/lib/memeVisibility.ts`.
+- **Revisit if:** an "unlisted, link-shareable" tier is ever wanted as a
+  *distinct* third state (it would be a new value, not a reinterpretation of
+  `isPublic=false`).
+
+### 2026-07 · Split the async-jobs worker into fast/render/bulk lanes
+- **Decision:** The single async-jobs worker (`runAsyncJobsWorker`) that
+  dispatched all queues through one FIFO claim query, one concurrency pool, and
+  one shared re-entrancy guard is now **three independent lanes**, each with
+  its own timer, its own closure-local re-entrancy guard, its own queue filter,
+  and its own concurrency bound:
+  - **`fast`** (`fact_send_back`, `projection_repair`) — pure-DB admin actions,
+    2s poll / concurrency 2.
+  - **`render`** (`image_prompt_generation`, `image_generation`) — single-item,
+    moderator-watched renders, 5s poll / concurrency 3.
+  - **`bulk`** (everything else: `enrichment`, `fact_enrichment_backfill`,
+    `fact_pexels`, `fact_visual_concepts`, `email`,
+    `review_render_scenarios_prepare` — the default for an unannotated queue)
+    — 5s poll / concurrency 3 (down from the old shared default of 4).
+
+  `registerJobHandler(queue, handler, { lane })` assigns a queue's lane
+  (defaults to `bulk`); `asyncJobsTick` takes an options object
+  (`{ queues?, maxConcurrency?, lane? }`) so a lane can filter its own claim and
+  set its own concurrency, with `undefined` reproducing the exact legacy
+  all-queues query. A queue's lane governs ONLY scheduling — retry/backoff,
+  dedupe, and claim ordering (`nextAttemptAt, id`) are unchanged.
+- **Why:** the shared worker caused real head-of-line blocking: a
+  pure-DB admin action (Taxonomy Health "Send back to review," no model call)
+  could sit in "Queued…" for 30s+ behind slow LLM/image-gen jobs claimed in the
+  same batch or an unfinished prior tick, and a moderator-watched "test render"
+  could wait behind an unrelated bulk backfill batch. David reported both
+  symptoms directly. A 2-lane split (fast vs. everything else) was considered
+  and rejected in favor of 3, specifically so moderator-watched renders also
+  get isolation from bulk background batches, not just from the pure-DB
+  actions. See the new "Head-of-line blocking in a shared background worker"
+  pattern in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#head-of-line-blocking-in-a-shared-background-worker).
+- **Reference:** PR #216; see
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+- **Revisit if:** pool-acquisition wait time or provider rate-limit errors
+  appear under simultaneous fast+render+bulk+HTTP load — the three lanes' combined
+  handler concurrency (2+3+3=8) was deliberately kept under the DB pool's
+  default `max` of 10, but raising that `max` was explicitly left out of scope
+  and may become necessary. Also revisit if a future queue needs its own
+  distinct lane rather than defaulting into `bulk`.
+
+---
+
 ### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
 - **Decision:** Moderators author the Visual Strategy Override's rendered
   fields (Visual Concept, required/forbidden details, role visual roles,

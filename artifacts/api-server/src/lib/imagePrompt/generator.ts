@@ -203,6 +203,14 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
     .filter(isMaterialCulturalReference)
     .map(culturalReferenceKey)
     .filter(Boolean);
+  // An enabled, non-empty moderator core-scene override is the authoritative
+  // scene: the compiler emits it verbatim, so the planner's additive delta
+  // collections may legally be empty (no invented filler). Mirrors the
+  // compiler's `activeOverride` + coreSceneOverride precedence.
+  const override = input.enrichment.visualPromptStrategyOverride;
+  const hasAuthoritativeCoreScene = Boolean(
+    override?.enabled && (override.coreSceneOverride?.trim() ?? "") !== "",
+  );
   return {
     archetype: input.enrichment.primaryArchetype,
     subtype: input.enrichment.subtype as FactSubtype,
@@ -215,6 +223,7 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
     fallbackSubjectGender: input.renderControls.fallbackSubjectGender ?? null,
     materialSemanticEntities,
     materialCulturalReferences,
+    hasAuthoritativeCoreScene,
   };
 }
 
@@ -245,7 +254,6 @@ export interface ImagePromptContextOpts {
   includeSubjectRenderMode: boolean;
   includeIdentityPolicy: boolean;
   includeRenderControls: boolean;
-  includeStyleIntegration: boolean;
   includeTargetEngine: boolean;
   /**
    * Emit the "populate visualPlan.semanticEntitiesUsed / visualPlan.
@@ -272,7 +280,6 @@ export const PLANNER_CONTEXT_OPTS: ImagePromptContextOpts = {
   includeSubjectRenderMode: true,
   includeIdentityPolicy: true,
   includeRenderControls: true,
-  includeStyleIntegration: true,
   includeTargetEngine: true,
   includeVisualPlanEchoDirectives: true,
   includeModeratorCoreScene: "authoritative",
@@ -297,7 +304,6 @@ export const CANDIDATE_CONTEXT_OPTS: Omit<ImagePromptContextOpts, "includeModera
   includeSubjectRenderMode: false,
   includeIdentityPolicy: false,
   includeRenderControls: false,
-  includeStyleIntegration: false,
   includeTargetEngine: false,
   includeVisualPlanEchoDirectives: false,
 };
@@ -628,13 +634,10 @@ export function buildImagePromptContextBlocks(
     );
   }
 
-  if (opts.includeStyleIntegration) {
-    lines.push(
-      "STYLE INTEGRATION (weave naturally):",
-      input.stylePrompt || "(no style suffix configured)",
-      "",
-    );
-  }
+  // The selected visual style is NOT given to the planner: it is compiler-owned
+  // and emitted as its own RENDER STYLE section (single-channel). The planner
+  // describes physical light/mood/palette only; naming a rendering medium here
+  // fails validation.
 
   if (opts.includeTargetEngine && input.targetEngine) {
     lines.push(
@@ -693,23 +696,23 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     ...buildImagePromptContextBlocks(input, PLANNER_CONTEXT_OPTS),
     "OUTPUT CONTRACT:",
     "- Echo input targetEngine, generationMode, archetype, subtype, subjectRenderMode verbatim.",
-    "- The engine prompt is a labeled contract assembled by the compiler, and the VISUAL CONCEPT (CORE SCENE) LEADS it: CORE SCENE · IDENTITY/RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING AND STYLE · STRICT CONSTRAINTS. The compiler owns identity/reference + BINDING + STRICT CONSTRAINTS; you fill the concrete visual fields (coreScene carries the scene).",
+    "- The engine prompt is a labeled contract assembled by the compiler, and the VISUAL CONCEPT (CORE SCENE) LEADS it: CORE SCENE · IDENTITY/RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING · RENDER STYLE · STRICT CONSTRAINTS. The compiler owns identity/reference + BINDING + STRICT CONSTRAINTS; you fill the concrete visual fields (coreScene carries the scene).",
     "- visualGoal / visualApproach: INTERNAL reasoning only (NOT sent to the image model). ONE short clause each — payoff and staging logic. Do NOT pack scene detail here.",
     "- coreScene: REQUIRED, non-empty. ONE tight paragraph of what is literally happening (subject + action + key objects). Concrete visuals only.",
-    "- subjectDetails: REQUIRED, ≥1 concrete entry — pose, expression, apparent age/body presentation, wardrobe, distinctive features. For an age transform, visibly describe the transformed life stage (proportions, skin, hair).",
+    "- subjectDetails: ADDITIVE deltas — pose, expression, apparent age/body presentation, wardrobe, distinctive features the core scene does NOT already state. May be EMPTY when a moderator-authored Concept already covers the subject; otherwise (AI-authored scene) supply ≥1. For an age transform, visibly describe the transformed life stage (proportions, skin, hair).",
     "- subjectTreatment.roleInScene: a CONCRETE visible role/action — what the subject visibly is and does in the image (\"the newborn baby gripping the steering wheel and driving\"), NOT an abstract label (\"protagonist\", \"the hero\").",
     "- secondaryCharacters: list each non-subject person, animal, crowd, or entity that must appear, as { label, visualRole }. label = short relationship/name/type (\"mother\", \"referee\", \"crowd\", \"sharks\"). visualRole = the CONCRETE visible role — position, action/reaction, and relationship to the subject — NOT a bare relationship word: write \"adult woman seated in the front passenger seat, looking surprised at the baby driver\", not \"his mother\". Empty array when the subject is alone or no secondary entity must appear.",
     "- Central action / role relationship: when the taxonomy/frame indicates the subject is the sole active agent, the subject performs the central action and secondary characters do NOT take over that role. For co-action, crowd-reaction, role-reversal, causal, or symbolic scenes, preserve the intended role relationship instead of forcing sole-agent behavior. The hospital-baby example is only a diagnostic — apply the same role/action reasoning to ALL multi-character, active-action, role-reversal, crowd, nonhuman, and subject-as-object facts; do not overfit to babies, cars, mothers, or hospitals.",
-    "- environment: REQUIRED, ≥1 concrete entry — setting, background, props, scale.",
-    "- lightingAndStyle: light, mood, palette, aesthetic. The resolved stylePrompt is appended by the compiler — do not repeat it verbatim.",
+    "- environment: ADDITIVE deltas — setting, background, props, scale the core scene omits. May be EMPTY when a moderator-authored Concept already covers the setting; otherwise supply ≥1.",
+    "- lightingAndStyle: physical light, mood, and scene palette ONLY. Do NOT name a rendering medium or artistic style (\"anime\", \"oil painting\", \"photorealistic rendering\", \"cel-shaded\", …) — the selected style is compiler-owned and emitted as its own RENDER STYLE section.",
     "- ageLifeStageTransform: { applies, targetState }. applies=true with a concrete targetState noun (\"a baby/infant\", \"a school-age child\", \"an elderly man\") when the fact implies a life stage other than the reference person's current one; otherwise applies=false and targetState=\"\". The reference person IS the transformed subject — one entity, never an adult plus a separate baby/child.",
     "- DESCRIBE THE PICTURE, NOT THE JOKE: coreScene/subjectDetails/environment/lightingAndStyle must map to visible pixels. Do NOT write authorial-intent commentary (\"showcasing the absurdity\", \"emphasizing the humor\", \"creating a humorous contrast\", \"comedic effect\", \"the absurdity of the situation\"). Show the humor through concrete visuals.",
     "- Tone: when a scene is both serious and funny, state the hierarchy explicitly (e.g. \"serious cinematic staging; the humor comes from the visual contrast\") rather than mixing competing tone words like \"grounded\" and \"playful\" without relating them.",
-    "- keyVisualElements: 3-12 entries; concrete visible elements only (no abstract joke explanation, no policy language). Gap-fill safety net — the compiler injects any not already covered by the concrete fields.",
+    "- keyVisualElements: up to 12; concrete visible elements only (no abstract joke explanation, no policy language). ADDITIVE gap-fill — the compiler injects any not already covered by the concrete fields; may be EMPTY when a moderator-authored Concept is complete, otherwise supply ≥3.",
     "- compiledPrompt.prompt OWNERSHIP: legacy CORE-SCENE fallback (the compiler prefers coreScene). Write ONLY the concrete scene. The compiler injects identity, reference-image, de-aging/binding, token, and text-policy language itself, so do NOT author any of these — they are stripped before the engine sees them: (a) face/identity/likeness preservation or de-aging (\"preserve the … face\", \"recognizable face\", \"same person\", \"de-age\", \"do not replace … with a human\"); (b) mentions of the uploaded/reference/source image or i2i/t2i; (c) NAME/SUBJ-style identity template tokens or \"interpret these terms\" clauses; (d) readable-text/logo/watermark policy. Describe what SHOULD be in the frame; the compiler owns the rest.",
     "- supportingTextPolicy.forbiddenTextTypes MUST include all 7 mandatory entries (full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs).",
     "- If allowSupportingText is false, supportingTextElements MUST be an empty array.",
-    "- supportingTextElements (when present) MUST have shape { content, purpose, placement } per element.",
+    "- supportingTextElements (when present) MUST have shape { content, kind, purpose, placement } per element. kind=\"literal_text\" when content is an exact glyph string to render as readable in-scene text (\"COBRA\", \"GAME OVER\", \"E=mc²\", \"999\"); kind=\"visual_graphic\" when content DESCRIBES a visual (a flatline trace, five crossed-off days) — the compiler renders those unquoted instead of baking the words in.",
     `- nonhumanSubjectTreatment.applicable MUST be ${input.subjectRenderMode === "nonhuman_subject_i2i" ? "true" : "false"}.`,
     `- subjectTreatment.fallbackSubjectGender MUST be ${input.subjectRenderMode === "t2i_fallback" ? `"${fallbackGender ?? "neutral"}"` : '"not_applicable"'}.`,
     "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason. recommendedFallback is advisory only; \"none\" is valid for every rating, including poor. This field never blocks rendering.",

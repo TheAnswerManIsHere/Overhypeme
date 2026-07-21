@@ -37,6 +37,35 @@ declaring complete; if you can't write it against the UI, the feature isn't buil
 infra/refactor/perf/security changes with no visible behavior ship as code + a
 written verification note ("run X, observe Y").
 
+## Pre-launch: no legacy burden — bias to clean, bold changes
+
+The product is **pre-launch**: there are no real users and no precious
+production data yet, so **almost nothing we change can harm anyone.** David's
+standing guidance (2026-07-21): **be brave.** Concretely, this lowers the bar on
+*defensive* work whose only purpose is protecting existing users/data:
+
+- **Prefer clean, direct changes over backward-compat scaffolding.** Retiring a
+  field, changing a schema, making a new field required, or reshaping stored
+  JSON does **not** need permissive-read/compat-reader layers, old-row
+  replayability, or "normalize the legacy shape" machinery. Migrate or reset the
+  data cleanly instead.
+- **Destructive migrations are fine** when they're simpler — drop/rewrite/reseed
+  rather than guard-every-column. Don't preserve admin-customized rows,
+  historical enrichment blobs, or old stored plans just in case; there's nothing
+  real to lose.
+- **This is NOT license to skip correctness.** The thing being built must
+  actually work and be tested — David's UAT still checks real behavior, and the
+  bot reviewers still check the diff. Boldness applies to *migration/compat
+  paranoia*, not to test coverage, the budget/limits math, security, or getting
+  the feature right.
+- **Still distinguish legacy-data compat (drop it) from in-flight/runtime
+  correctness (keep it).** Freezing render inputs to avoid a mid-job race, or a
+  terminal-vs-retryable failure contract, protects *live* jobs, not historical
+  rows — that stays. It's *historical-data preservation* that we can shed.
+
+Revisit this at launch: once real users/data exist, the usual migration
+discipline (`docs/engineering/migrations-and-backfills.md`) reapplies in full.
+
 ## Ask vs. decide
 
 - **Decide silently:** naming, file layout, code structure, test approach,

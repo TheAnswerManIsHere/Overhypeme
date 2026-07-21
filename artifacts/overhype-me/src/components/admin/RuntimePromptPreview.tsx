@@ -132,7 +132,6 @@ const VISUAL_PLAN_KEYS = [
   "semanticEntitiesUsed",
   "culturalReferencesUsed",
   "subjectFactCompatibility",
-  "styleIntegration",
   "debugNotes",
 ];
 

@@ -13,13 +13,13 @@ import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
 import { SESSION_COOKIE } from "./lib/auth";
 import { securityHeaders } from "./lib/securityHeaders";
+import { isDevAdminLoginEnabled } from "./lib/devAdminLogin";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
 const ORIGIN_EXEMPT_PATHS = new Set([
   "/api/stripe/webhook",
-  "/api/auth/dev-admin-login",
   // Apple Sign In uses response_mode=form_post: Apple's servers POST the
   // authorization code from appleid.apple.com, which is not in our allowed
   // origins list. CSRF protection for this route is provided by Apple's own
@@ -33,6 +33,12 @@ const ORIGIN_EXEMPT_PATHS = new Set([
   // by a concurrent GET has been received back by the browser.
   "/api/route-stats",
 ]);
+// dev-admin-login is origin-exempt ONLY while the backdoor is enabled (a
+// non-production preview). When disabled it is subject to the normal
+// origin/CSRF checks, and the handler 404s anyway. Fail-closed (C1).
+if (isDevAdminLoginEnabled()) {
+  ORIGIN_EXEMPT_PATHS.add("/api/auth/dev-admin-login");
+}
 
 function isOriginExempt(req: Request): boolean {
   return ORIGIN_EXEMPT_PATHS.has(req.path);
@@ -156,8 +162,12 @@ app.post(
 
 // Dev admin login needs permissive CORS so the POST fetch works from any
 // preview context (Replit canvas iframes, direct mobile browser, etc.).
-// Registered before the global cors() so it handles preflights too.
-app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
+// Registered before the global cors() so it handles preflights too. Mounted
+// ONLY while the backdoor is enabled (a non-production preview) — when disabled
+// the path falls through to the global origin-allowlist CORS. Fail-closed (C1).
+if (isDevAdminLoginEnabled()) {
+  app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
+}
 
 const allowedOrigins = parseAllowedOrigins();
 app.use(cors({
