@@ -23,9 +23,12 @@ consumed **deterministically** in two places:
    CORE SCENE (AUTHORITATIVE — hard directive)".
 2. As the **compiler CORE SCENE section** — `nanoBanana2.ts` uses the moderator
    core over the AI plan's `coreScene`, marked `moderatorAuthored / required /
-   non-compressible`. (It still passes compiler-owned sanitization; if it's empty
-   after sanitize it falls back to the AI scene with a **loud warning**, never
-   silently.)
+   non-compressible`. Since PR #222 it is **VERBATIM**: token-rendered but
+   otherwise unmodified — NOT run through `sanitizePlannerProse` /
+   `scrubIntentLanguage` (those apply only to the AI-scene path). Compiler-owned
+   language is **detected and warned** (`moderator_core_scene_owned_language`,
+   non-mutating), never stripped, and a non-empty Concept **never** falls back to
+   the AI scene. (Only an empty/whitespace Concept uses the AI scene.)
 
 **The render-time plan + compiler are the single source of truth for what the
 model receives.** Enrichment is an input, not the prompt (see
@@ -139,8 +142,14 @@ recorded `fallbackReason`. (Introduced by PR #157.)
 assembles a labeled contract where **the Visual Concept (CORE SCENE) LEADS**:
 CORE SCENE · IDENTITY & REFERENCE (i2i) / RENDER TASK (t2i) · SUBJECT BINDING ·
 SUBJECT REALIZATION · ROLE DETAILS · SUBJECT DETAILS · REQUIRED VISUAL DETAILS ·
-ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING AND STYLE · STRICT
-CONSTRAINTS. Every section after CORE SCENE is either **operational** (identity/
+ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING · RENDER STYLE · STRICT
+CONSTRAINTS. **Style is single-channel (PR #222):** `LIGHTING` carries physical
+light/mood/palette only, and the selected visual style is emitted as its own
+required **RENDER STYLE** section (the resolved `stylePrompt`, or a medium-only
+photorealistic default when none) — never folded into lighting. Supporting-text
+elements carry a `kind` (`literal_text` → quoted glyphs; `visual_graphic` →
+unquoted "depict as visuals, not written words"), so a description is never baked
+in as literal text. Every section after CORE SCENE is either **operational** (identity/
 reference, binding, style, policy) or **strictly additive** — it earns its place
 only by contributing a concrete detail the Concept omitted; restatements are
 de-duped out (content-word contiguity against emitted text). The old REFERENCE
