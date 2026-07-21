@@ -4,11 +4,11 @@
  * When the key is absent, emails are logged to stdout (development fallback).
  *
  * Production mode: sendEmail() enqueues a row in the shared `async_jobs`
- * table (queue "email") and returns immediately. The shared async-jobs worker
- * (runAsyncJobsWorker, started in index.ts) polls every 30 seconds, claims
- * pending rows, dispatches by queue to the registered handler (this file
- * registers `"email"` → emailJobHandler), and applies the standard retry +
- * abandon flow. The handler retains all the email-specific behaviors that
+ * table (queue "email") and returns immediately. The email queue is processed by
+ * the async-jobs worker's `bulk` lane (runAsyncJobsWorker, started in index.ts),
+ * whose default poll interval is 5 seconds; it claims pending rows, dispatches by
+ * queue to the registered handler (this file registers `"email"` →
+ * emailJobHandler), and applies the standard retry + abandon flow. The handler retains all the email-specific behaviors that
  * existed before: Resend-401 process-wide disable, abandoned-email admin
  * alert, retention exclusion for the alert thread itself.
  *

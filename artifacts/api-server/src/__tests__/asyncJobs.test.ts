@@ -9,10 +9,25 @@ import { eq, inArray, like } from "drizzle-orm";
 import {
   __resetHandlersForTest,
   asyncJobsTick,
+  createLaneRunner,
   enqueueJob,
+  queuesForLane,
   registerJobHandler,
+  type JobHandler,
 } from "../lib/asyncJobs.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
+
+/** A deferred promise, for holding a handler open at a controlled point. */
+function makeDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Yield a macrotask so pending immediate ticks settle to their first await/return. */
+const tickFlush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+const okHandler: JobHandler = { async run() { return { ok: true }; } };
 
 const QUEUE_PREFIX = "test_async_jobs_";
 
@@ -182,5 +197,143 @@ describe("asyncJobs worker", () => {
     assert.equal(after.maxAttempts, 0, "0 sentinel should mean queue config, not a hard-coded override");
     assert.equal(after.attempts, 2);
     assert.equal(after.status, "failed");
+  });
+
+  // ─── Lane split ───────────────────────────────────────────────────────────
+
+  it("assigns lanes (default bulk), replaces on re-register, clears on reset", async () => {
+    const qFast = `${QUEUE_PREFIX}${randomUUID()}`;
+    const qRender = `${QUEUE_PREFIX}${randomUUID()}`;
+    const qBulk = `${QUEUE_PREFIX}${randomUUID()}`;
+
+    registerJobHandler(qFast, okHandler, { lane: "fast" });
+    registerJobHandler(qRender, okHandler, { lane: "render" });
+    registerJobHandler(qBulk, okHandler); // unannotated → bulk
+
+    assert.ok(queuesForLane("fast").includes(qFast));
+    assert.ok(queuesForLane("render").includes(qRender));
+    assert.ok(queuesForLane("bulk").includes(qBulk));
+    assert.ok(!queuesForLane("bulk").includes(qFast));
+
+    // Re-registering with no lane reclassifies it to bulk (replace semantics).
+    registerJobHandler(qFast, okHandler);
+    assert.ok(!queuesForLane("fast").includes(qFast));
+    assert.ok(queuesForLane("bulk").includes(qFast));
+
+    // Reset clears the lane registry too (test isolation).
+    __resetHandlersForTest();
+    assert.deepEqual(queuesForLane("fast"), []);
+    assert.deepEqual(queuesForLane("render"), []);
+    assert.deepEqual(queuesForLane("bulk"), []);
+  });
+
+  it("claims only the lane's queues, in nextAttemptAt/id order; empty lane claims nothing", async () => {
+    const qA = `${QUEUE_PREFIX}${randomUUID()}`;
+    const qB = `${QUEUE_PREFIX}${randomUUID()}`;
+    const ranA: number[] = [];
+    registerJobHandler(qA, {
+      async run(payload) { ranA.push((payload as { n: number }).n); return { ok: true }; },
+    }, { lane: "fast" });
+    registerJobHandler(qB, okHandler, { lane: "bulk" });
+
+    // Two due qA jobs (distinct nextAttemptAt) + one due qB job.
+    const [a1] = await db.insert(asyncJobsTable).values({
+      queue: qA, payload: { n: 1 }, status: "pending", nextAttemptAt: new Date(Date.now() - 2000),
+    }).returning();
+    const [a2] = await db.insert(asyncJobsTable).values({
+      queue: qA, payload: { n: 2 }, status: "pending", nextAttemptAt: new Date(Date.now() - 1000),
+    }).returning();
+    const [b1] = await db.insert(asyncJobsTable).values({
+      queue: qB, payload: {}, status: "pending", nextAttemptAt: new Date(Date.now() - 1000),
+    }).returning();
+    jobIds.push(a1!.id, a2!.id, b1!.id);
+
+    // An empty queue set matches nothing — b1 stays pending, no throw.
+    await asyncJobsTick(db, new Date(), { queues: [], maxConcurrency: 1 });
+    assert.equal((await getJob(b1!.id)).status, "pending");
+
+    // Restrict to qA (concurrency 1 so claim order is observable).
+    await asyncJobsTick(db, new Date(), { queues: [qA], maxConcurrency: 1 });
+
+    assert.deepEqual(ranA, [1, 2], "claimed in nextAttemptAt asc order");
+    assert.equal((await getJob(a1!.id)).status, "done");
+    assert.equal((await getJob(a2!.id)).status, "done");
+    assert.equal((await getJob(b1!.id)).status, "pending", "other lane's job untouched");
+  });
+
+  it("honors per-call maxConcurrency", async () => {
+    const q = `${QUEUE_PREFIX}${randomUUID()}`;
+    let inFlight = 0;
+    let maxSeen = 0;
+    registerJobHandler(q, {
+      async run() {
+        inFlight++;
+        maxSeen = Math.max(maxSeen, inFlight);
+        await sleep(25);
+        inFlight--;
+        return { ok: true };
+      },
+    }, { lane: "bulk" });
+
+    const enqueue = async (count: number): Promise<void> => {
+      for (let i = 0; i < count; i++) {
+        const [row] = await db.insert(asyncJobsTable).values({
+          queue: q, payload: { i }, status: "pending", nextAttemptAt: new Date(Date.now() - 1000),
+        }).returning();
+        jobIds.push(row!.id);
+      }
+    };
+
+    await enqueue(3);
+    await asyncJobsTick(db, new Date(), { queues: [q], maxConcurrency: 1 });
+    assert.equal(maxSeen, 1, "maxConcurrency:1 never runs two handlers at once");
+
+    maxSeen = 0;
+    await enqueue(3);
+    await asyncJobsTick(db, new Date(), { queues: [q], maxConcurrency: 3 });
+    assert.ok(maxSeen > 1, "a higher bound permits overlap");
+  });
+
+  it("runs lanes independently — a blocked bulk lane never suppresses the fast lane", async () => {
+    const bulkGate = makeDeferred();
+    let bulkStarts = 0;
+    let fastRuns = 0;
+    // No-op scheduler: only the returned `tick` runs, no real interval fires.
+    const noopSchedule = (): NodeJS.Timeout => {
+      const h = setTimeout(() => {}, 1_000_000);
+      h.unref();
+      return h;
+    };
+
+    const bulkRunner = createLaneRunner(
+      { lane: "bulk", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
+      { schedule: noopSchedule, runTick: async () => { bulkStarts++; await bulkGate.promise; } },
+    );
+    const fastRunner = createLaneRunner(
+      { lane: "fast", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
+      { schedule: noopSchedule, runTick: async () => { fastRuns++; } },
+    );
+
+    // Let both immediate ticks settle: bulk parks on its gate, fast completes.
+    await tickFlush();
+    assert.equal(bulkStarts, 1, "bulk tick is in flight (parked on the gate)");
+    assert.ok(fastRuns >= 1, "fast lane completed while bulk is blocked");
+
+    // A second bulk tick is suppressed while the first is still in flight.
+    await bulkRunner.tick();
+    assert.equal(bulkStarts, 1, "re-entrant bulk tick suppressed by bulk's own guard");
+
+    // Fast re-entrancy is governed only by fast's own closure — it ticks again.
+    await fastRunner.tick();
+    assert.ok(fastRuns >= 2, "fast lane ticks again independently of bulk");
+
+    // Release bulk and confirm it resumes (guard reset in finally).
+    bulkGate.resolve();
+    await tickFlush();
+    await bulkRunner.tick();
+    assert.equal(bulkStarts, 2, "bulk resumes once unblocked");
+
+    clearTimeout(bulkRunner.handle);
+    clearTimeout(fastRunner.handle);
   });
 });
