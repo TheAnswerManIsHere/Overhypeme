@@ -1344,17 +1344,17 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   // Derive the requesting user's gender from their pronouns so we only generate
   // for their gender slot instead of all three simultaneously.
   // he/* → male, she/* → female, anything else → neutral.
+  // The requester's gender slot (he/* → male, she/* → female, else neutral) is
+  // still derived from their pronouns for `fallbackSubjectGender`. The rendered
+  // protagonist identity itself is no longer read here — it is resolved+frozen
+  // as a prompt-identity snapshot below (see prepareImagePromptAttemptInputs).
   let userGender: "male" | "female" | "neutral" = "neutral";
-  let protagonistName = "Alex";
-  let protagonistPronouns: string | null = null;
   if (req.user?.id) {
     const [userRow] = await db
-      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+      .select({ pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(eq(usersTable.id, req.user.id))
       .limit(1);
-    if (userRow?.displayName) protagonistName = userRow.displayName;
-    protagonistPronouns = userRow?.pronouns ?? null;
     const pronounSubj = (userRow?.pronouns ?? "they/them").toLowerCase().trim().split("/")[0] ?? "they";
     if (pronounSubj === "he") userGender = "male";
     else if (pronounSubj === "she") userGender = "female";
@@ -1475,15 +1475,33 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
       return;
     }
-    const renderedFactText = renderPersonalized(fact.text, protagonistName, protagonistPronouns);
-    if (hasUnresolvedFactTokens_v2(renderedFactText)) {
-      res.status(422).json({ error: "fact_template_unresolved" });
-      return;
-    }
-
     const analysis = noImageAnalysis_v2();
     // No source image → resolves to t2i_fallback.
     const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, undefined);
+    const generationMode = generationModeFromSubjectRenderMode_v2(subjectRenderMode);
+
+    // Resolve + FREEZE the reproducible inputs ONCE — the prompt-identity
+    // snapshot (prompt-reduced name), the fact text rendered FROM that same
+    // identity, and the resolved style snapshot — so an edit to the requester's
+    // profile or the selected style between enqueue and render can't diverge
+    // this queued render. This is the SAME contract the reference (generate-v2)
+    // path uses; both user-facing meme entry points now freeze identically.
+    const prepared = await prepareImagePromptAttemptInputs_v2({
+      factTemplate: fact.text,
+      identity: { kind: "user", userId: req.user?.id ?? null },
+      styleId: normalizeStyleId(rawStyleId),
+      generationMode,
+    });
+    if (!prepared.ok) {
+      if (prepared.error === "style_invalid") {
+        res.status(400).json({ error: "style_invalid", styleId: prepared.styleId, reason: prepared.reason });
+      } else {
+        res.status(422).json({ error: "fact_template_unresolved" });
+      }
+      return;
+    }
+    const { promptIdentity, renderedFactText, resolvedRenderStyle } = prepared.prepared;
+
     const identityPolicy = _defaultIdentityPolicyForRenderMode_v2(subjectRenderMode);
     const renderControls = {
       aspectRatio: parseAspectRatio(body["aspectRatio"]),
@@ -1494,6 +1512,10 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       fallbackSubjectGender: isAbstractScope ? ("neutral" as const) : userGender,
       styleId: normalizeStyleId(rawStyleId),
       referenceImageUrl: null,
+      // Frozen reproducibility snapshots — the worker consumes these instead of
+      // re-resolving live (see resolveAttemptIdentity / resolveStylePrompt).
+      promptIdentity,
+      resolvedRenderStyle,
     };
 
     const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
