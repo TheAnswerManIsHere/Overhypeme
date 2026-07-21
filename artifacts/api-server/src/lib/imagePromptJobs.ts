@@ -34,7 +34,6 @@ import {
   db,
   factsTable,
   usersTable,
-  lookStylesTable,
   imagePromptAttemptsTable,
   userAiImagesTable,
   uploadImageMetadataTable,
@@ -57,6 +56,8 @@ import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generat
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
+import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
+import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { loadEngine, buildEngineInput } from "./engineInterpreter";
 import { fal, ensureFalConfigured } from "./falClient";
 import { ObjectStorageService } from "./objectStorage";
@@ -385,28 +386,37 @@ async function loadAttempt(attemptId: number): Promise<ImagePromptAttempt | null
 }
 
 /**
- * Resolve the identity (display name + pronouns) for an attempt.
+ * Resolve the identity (name + pronouns) for an attempt.
  *
  * Order of preference:
- *  1. A `reviewRenderSubject` frozen on the attempt's renderControls — set by an
- *     admin moderation render so the compiler's final token gate resolves the
- *     SAME sampled subject the prompt preview used (a moderation attempt is
- *     intentionally `userId:null`, which would otherwise fall through to "Alex"
- *     and silently diverge from the preview for identity-tokened overrides).
- *  2. The attempt's user (display name + pronouns).
- *  3. The canonical "Alex / they-them" fallback (anonymous/admin render).
+ *  1. A frozen `promptIdentity` snapshot on the attempt's renderControls — set
+ *     at attempt-construction time (the prompt-reproducibility fix). This is
+ *     the SAME identity that rendered the attempt's frozen `renderedFactText`,
+ *     so a profile edit between enqueue and worker-run can't diverge the token
+ *     gate from the fact text. The name here is already prompt-reduced.
+ *  2. A legacy `reviewRenderSubject` (older moderation attempts, pre-snapshot).
+ *  3. The attempt's user (display name + pronouns) — legacy user attempts.
+ *  4. The canonical "Alex / they-them" fallback (anonymous/admin render).
  *
  * Used both to render legacy fact templates and as the compiler's final token gate.
  */
 async function resolveAttemptIdentity(
   attempt: ImagePromptAttempt,
 ): Promise<{ name: string; pronouns: string | null }> {
-  const reviewSubject = (attempt.renderControls as RenderControls & {
+  const rc = attempt.renderControls as RenderControls & {
+    promptIdentity?: unknown;
     reviewRenderSubject?: { name: string; pronouns: string | null };
-  }).reviewRenderSubject;
+  };
+  // 1. Frozen prompt-identity snapshot (new attempts).
+  if (isValidPromptIdentitySnapshot(rc.promptIdentity)) {
+    return { name: rc.promptIdentity.name, pronouns: rc.promptIdentity.pronouns };
+  }
+  // 2. Legacy moderation reviewRenderSubject.
+  const reviewSubject = rc.reviewRenderSubject;
   if (reviewSubject && typeof reviewSubject.name === "string" && reviewSubject.name.trim()) {
     return { name: reviewSubject.name, pronouns: reviewSubject.pronouns ?? null };
   }
+  // 3-4. Legacy live user, else canonical fallback.
   let name = "Alex";
   let pronouns: string | null = null;
   if (attempt.userId) {
@@ -467,25 +477,28 @@ async function resolveStylePrompt(
   renderControls: RenderControls,
   generationMode: GenerationMode,
 ): Promise<string> {
-  // The wizard passes lookStyleId via renderControls? Actually it lives in
-  // renderControls extension or comes via the job payload separately. We
-  // stored it on the attempt row via identityPolicy/renderControls JSONB? No
-  // — the attempt row has render_controls jsonb, but lookStyleId conceptually
-  // lives outside render_controls. We store nothing about it on the attempt
-  // today; the resolved stylePrompt string is what matters and we recompute
-  // it here from a renderControls.styleId field that the route layer attaches.
-  const styleId = (renderControls as RenderControls & { styleId?: string | null }).styleId;
+  const rc = renderControls as RenderControls & {
+    resolvedRenderStyle?: unknown;
+    styleId?: string | null;
+  };
+  // 1. Frozen style snapshot (new attempts) — the render is reproducible: a
+  // style edited/deactivated between enqueue and now can't change this render.
+  // The compiler supplies its own photorealistic default when stylePrompt is
+  // empty, so a "default" snapshot's prompt need not be threaded here — but a
+  // frozen snapshot always carries the resolved prompt, so use it directly.
+  if (isValidRenderStyleSnapshot(rc.resolvedRenderStyle)) {
+    return rc.resolvedRenderStyle.selection === "default" ? "" : rc.resolvedRenderStyle.prompt;
+  }
+  // 2. Legacy attempts (no frozen snapshot): resolve live from styleId. An
+  // invalid/inactive/missing style resolves to "" here (today's behavior) —
+  // the terminal-failure path for a legacy invalid style is a follow-up.
+  const styleId = rc.styleId;
   if (!styleId) return "";
-  const [row] = await db
-    .select({
-      promptSuffix: lookStylesTable.promptSuffix,
-      promptSuffixReference: lookStylesTable.promptSuffixReference,
-    })
-    .from(lookStylesTable)
-    .where(eq(lookStylesTable.id, styleId))
-    .limit(1);
-  if (!row) return "";
-  return generationMode === "i2i" ? row.promptSuffixReference : row.promptSuffix;
+  const resolved = await resolveRenderStyle(styleId, generationMode);
+  if (resolved.selection === "selected") return resolved.prompt;
+  // default → "" (compiler adds its own photorealistic default); invalid → ""
+  // (legacy compatibility; unchanged from prior behavior).
+  return "";
 }
 
 function extractReferenceImageUrl(attempt: ImagePromptAttempt): string | null {

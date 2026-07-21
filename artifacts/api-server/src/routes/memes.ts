@@ -1650,6 +1650,7 @@ import {
 } from "@workspace/db";
 import { enqueueJob as enqueueJob_v2 } from "../lib/asyncJobs";
 import { buildAndEnqueueImagePromptAttempt, parseAspectRatio, normalizeStyleId, buildRenderStatusPayload } from "../lib/imagePromptAttempts";
+import { prepareImagePromptAttemptInputs as prepareImagePromptAttemptInputs_v2 } from "../lib/imagePrompt/prepareAttemptInputs";
 
 const PUBLIC_OBJECT_PREFIX_v2 = "/objects/";
 
@@ -1800,27 +1801,30 @@ router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: Authe
       return;
     }
 
-    // Freeze the RENDERED (token-resolved) fact text for this requester so the
-    // generator never sees a {NAME}/{SUBJ} template and the render is reproducible.
-    let protagonistName = "Alex";
-    let protagonistPronouns: string | null = null;
-    if (req.user?.id) {
-      const [u] = await db
-        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-        .from(usersTable)
-        .where(eq(usersTable.id, req.user.id))
-        .limit(1);
-      if (u?.displayName) protagonistName = u.displayName;
-      protagonistPronouns = u?.pronouns ?? null;
-    }
-    const renderedFactText = renderPersonalized(factRow.text, protagonistName, protagonistPronouns);
-    if (hasUnresolvedFactTokens_v2(renderedFactText)) {
-      res.status(422).json({
-        error: "fact_template_unresolved",
-        details: "rendered fact text still contains unresolved template tokens",
-      });
+    // Resolve + FREEZE the reproducible inputs ONCE: the prompt-identity
+    // snapshot (prompt-reduced name), the fact text rendered FROM that same
+    // identity (so the token gate can never diverge from the frozen fact text),
+    // and the resolved style snapshot (so a style edited/deactivated between
+    // enqueue and render can't change this render). A profile edit after this
+    // point no longer affects the queued render.
+    const prepared = await prepareImagePromptAttemptInputs_v2({
+      factTemplate: factRow.text,
+      identity: { kind: "user", userId: req.user?.id ?? null },
+      styleId: body.lookStyleId ?? null,
+      generationMode,
+    });
+    if (!prepared.ok) {
+      if (prepared.error === "style_invalid") {
+        res.status(400).json({ error: "style_invalid", styleId: prepared.styleId, reason: prepared.reason });
+      } else {
+        res.status(422).json({
+          error: "fact_template_unresolved",
+          details: "rendered fact text still contains unresolved template tokens",
+        });
+      }
       return;
     }
+    const { promptIdentity, renderedFactText, resolvedRenderStyle } = prepared.prepared;
 
     const identityPolicy = {
       ..._defaultIdentityPolicyForRenderMode_v2(subjectRenderMode),
@@ -1834,6 +1838,10 @@ router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: Authe
       fallbackSubjectGender: body.renderControls?.fallbackSubjectGender,
       styleId: body.lookStyleId ?? null,
       referenceImageUrl: body.uploadedObjectPath ? resolvePublicUrlForUpload_v2(body.uploadedObjectPath) : null,
+      // Frozen reproducibility snapshots — the worker consumes these instead of
+      // re-resolving live (see resolveAttemptIdentity / resolveStylePrompt).
+      promptIdentity,
+      resolvedRenderStyle,
     };
 
     const renderJobId = crypto.randomUUID();
