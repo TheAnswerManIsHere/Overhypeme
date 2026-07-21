@@ -123,6 +123,13 @@
   polled by a worker. Enqueue is not completion.
   → [architecture-map](./architecture-map.md), [async-ui-status](./async-ui-status.md)
 
+- **Lane (async-jobs)** — one of three independent scheduling groups (`fast` /
+  `render` / `bulk`) the async-jobs worker splits queues into, each with its own
+  poll timer, re-entrancy guard, and concurrency bound, so slow work in one lane
+  can never delay another's. Set per-queue via `registerJobHandler(queue,
+  handler, { lane })`; defaults to `bulk`.
+  → [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).

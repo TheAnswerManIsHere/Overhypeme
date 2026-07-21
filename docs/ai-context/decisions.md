@@ -13,6 +13,49 @@
 
 ---
 
+### 2026-07 · Split the async-jobs worker into fast/render/bulk lanes
+- **Decision:** The single async-jobs worker (`runAsyncJobsWorker`) that
+  dispatched all queues through one FIFO claim query, one concurrency pool, and
+  one shared re-entrancy guard is now **three independent lanes**, each with
+  its own timer, its own closure-local re-entrancy guard, its own queue filter,
+  and its own concurrency bound:
+  - **`fast`** (`fact_send_back`, `projection_repair`) — pure-DB admin actions,
+    2s poll / concurrency 2.
+  - **`render`** (`image_prompt_generation`, `image_generation`) — single-item,
+    moderator-watched renders, 5s poll / concurrency 3.
+  - **`bulk`** (everything else: `enrichment`, `fact_enrichment_backfill`,
+    `fact_pexels`, `fact_visual_concepts`, `email`,
+    `review_render_scenarios_prepare` — the default for an unannotated queue)
+    — 5s poll / concurrency 3 (down from the old shared default of 4).
+
+  `registerJobHandler(queue, handler, { lane })` assigns a queue's lane
+  (defaults to `bulk`); `asyncJobsTick` takes an options object
+  (`{ queues?, maxConcurrency?, lane? }`) so a lane can filter its own claim and
+  set its own concurrency, with `undefined` reproducing the exact legacy
+  all-queues query. A queue's lane governs ONLY scheduling — retry/backoff,
+  dedupe, and claim ordering (`nextAttemptAt, id`) are unchanged.
+- **Why:** the shared worker caused real head-of-line blocking: a
+  pure-DB admin action (Taxonomy Health "Send back to review," no model call)
+  could sit in "Queued…" for 30s+ behind slow LLM/image-gen jobs claimed in the
+  same batch or an unfinished prior tick, and a moderator-watched "test render"
+  could wait behind an unrelated bulk backfill batch. David reported both
+  symptoms directly. A 2-lane split (fast vs. everything else) was considered
+  and rejected in favor of 3, specifically so moderator-watched renders also
+  get isolation from bulk background batches, not just from the pure-DB
+  actions. See the new "Head-of-line blocking in a shared background worker"
+  pattern in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#head-of-line-blocking-in-a-shared-background-worker).
+- **Reference:** PR #216; see
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+- **Revisit if:** pool-acquisition wait time or provider rate-limit errors
+  appear under simultaneous fast+render+bulk+HTTP load — the three lanes' combined
+  handler concurrency (2+3+3=8) was deliberately kept under the DB pool's
+  default `max` of 10, but raising that `max` was explicitly left out of scope
+  and may become necessary. Also revisit if a future queue needs its own
+  distinct lane rather than defaulting into `bulk`.
+
+---
+
 ### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
 - **Decision:** Moderators author the Visual Strategy Override's rendered
   fields (Visual Concept, required/forbidden details, role visual roles,
