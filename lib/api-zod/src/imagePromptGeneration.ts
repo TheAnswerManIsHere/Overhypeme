@@ -586,6 +586,16 @@ export interface PlanExpectations {
    * visualPlan.culturalReferencesUsed[].sourcePhrase (canonical fallback).
    */
   materialCulturalReferences?: string[];
+  /**
+   * True when an enabled, non-empty moderator core-scene override is the
+   * authoritative scene (the compiler emits it verbatim and ignores the AI
+   * `coreScene`). Under this mode the planner's additive delta collections
+   * (`subjectDetails`, `environment`, `keyVisualElements`) may legally be EMPTY
+   * — a complete human Concept needs no invented filler. The upper bound on
+   * `keyVisualElements` and every other rule still apply. Defaults to false
+   * (the AI-scene minimums stay in force), so existing callers are unchanged.
+   */
+  hasAuthoritativeCoreScene?: boolean;
 }
 
 export type ImagePromptValidationResult =
@@ -670,8 +680,17 @@ export function validateImagePromptPlan(
       correctableHint: `Set subjectTreatment.subjectRenderMode to exactly "${expectations.subjectRenderMode}".`,
     };
   }
-  // 5. keyVisualElements bounds
-  if (vp.keyVisualElements.length < 3 || vp.keyVisualElements.length > 12) {
+  // 5. keyVisualElements bounds. The UPPER bound always applies; the lower bound
+  // (≥3) is relaxed under an authoritative moderator Concept, where the scene is
+  // complete and additive elements may legitimately be zero.
+  if (vp.keyVisualElements.length > 12) {
+    return {
+      ok: false,
+      error: `keyVisualElements.length is ${vp.keyVisualElements.length}; must be at most 12`,
+      correctableHint: `Return at most 12 keyVisualElements.`,
+    };
+  }
+  if (!expectations.hasAuthoritativeCoreScene && vp.keyVisualElements.length < 3) {
     return {
       ok: false,
       error: `keyVisualElements.length is ${vp.keyVisualElements.length}; must be in [3, 12]`,
@@ -930,8 +949,11 @@ export function validateImagePromptPlan(
       correctableHint: `Write coreScene as one tight paragraph describing what is literally happening in the frame (subject + action + key objects). Concrete visuals only — no authorial intent.`,
     };
   }
+  // subjectDetails / environment minimums are relaxed under an authoritative
+  // moderator Concept (the compiler emits the human scene verbatim; these
+  // additive fields exist only for details the scene omits, and may be empty).
   const subjectDetailsNonEmpty = vp.subjectDetails.filter((s) => s.trim());
-  if (subjectDetailsNonEmpty.length < 1) {
+  if (!expectations.hasAuthoritativeCoreScene && subjectDetailsNonEmpty.length < 1) {
     return {
       ok: false,
       error: `visualPlan.subjectDetails must contain at least one concrete entry`,
@@ -939,7 +961,7 @@ export function validateImagePromptPlan(
     };
   }
   const environmentNonEmpty = vp.environment.filter((s) => s.trim());
-  if (environmentNonEmpty.length < 1) {
+  if (!expectations.hasAuthoritativeCoreScene && environmentNonEmpty.length < 1) {
     return {
       ok: false,
       error: `visualPlan.environment must contain at least one concrete entry`,

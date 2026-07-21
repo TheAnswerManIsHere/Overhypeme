@@ -182,6 +182,37 @@ describe("validateImagePromptPlan", () => {
     assert.equal(result.ok, false);
   });
 
+  // Conditional validator (PR-A §7): under an authoritative moderator Concept
+  // the additive delta collections may legally be empty — a complete human
+  // scene needs no invented filler.
+  it("allows empty subjectDetails/environment/keyVisualElements under an authoritative Concept", () => {
+    const plan = basePlan({ keyVisualElements: [] });
+    plan.visualPlan.subjectDetails = [];
+    plan.visualPlan.environment = [];
+    const result = validateImagePromptPlan(plan, {
+      ...baseExpectations,
+      hasAuthoritativeCoreScene: true,
+    });
+    assert.equal(result.ok, true);
+  });
+
+  it("still rejects those same empty deltas WITHOUT an authoritative Concept", () => {
+    const plan = basePlan({ keyVisualElements: [] });
+    plan.visualPlan.subjectDetails = [];
+    plan.visualPlan.environment = [];
+    const result = validateImagePromptPlan(plan, baseExpectations);
+    assert.equal(result.ok, false);
+  });
+
+  it("still enforces the keyVisualElements UPPER bound even under an authoritative Concept", () => {
+    const plan = basePlan({ keyVisualElements: new Array(13).fill("x") });
+    const result = validateImagePromptPlan(plan, {
+      ...baseExpectations,
+      hasAuthoritativeCoreScene: true,
+    });
+    assert.equal(result.ok, false);
+  });
+
   it("rejects missing mandatory forbiddenTextTypes entry", () => {
     const plan = basePlan();
     plan.visualPlan.supportingTextPolicy.forbiddenTextTypes = ["watermarks", "real logos"]; // missing the rest

@@ -203,6 +203,14 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
     .filter(isMaterialCulturalReference)
     .map(culturalReferenceKey)
     .filter(Boolean);
+  // An enabled, non-empty moderator core-scene override is the authoritative
+  // scene: the compiler emits it verbatim, so the planner's additive delta
+  // collections may legally be empty (no invented filler). Mirrors the
+  // compiler's `activeOverride` + coreSceneOverride precedence.
+  const override = input.enrichment.visualPromptStrategyOverride;
+  const hasAuthoritativeCoreScene = Boolean(
+    override?.enabled && (override.coreSceneOverride?.trim() ?? "") !== "",
+  );
   return {
     archetype: input.enrichment.primaryArchetype,
     subtype: input.enrichment.subtype as FactSubtype,
@@ -215,6 +223,7 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
     fallbackSubjectGender: input.renderControls.fallbackSubjectGender ?? null,
     materialSemanticEntities,
     materialCulturalReferences,
+    hasAuthoritativeCoreScene,
   };
 }
 
