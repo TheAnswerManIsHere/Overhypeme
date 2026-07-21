@@ -22,6 +22,8 @@ import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rat
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
+  validateVisualStrategyOverrideForSave,
+  type VisualPromptStrategyOverride,
   type FactEnrichment,
   type ReviewWorkflowStage,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
@@ -1372,6 +1374,19 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   const parsed = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
   if (!parsed.ok) { res.status(400).json({ error: `Invalid enrichment: ${parsed.error}` }); return; }
   const submitted = parsed.data;
+
+  // §10 rendered-text budget gate (same as the fact enrichment PATCH): a new
+  // save whose Concept + additions would overflow the engine prompt is rejected
+  // here, not silently dropped at compile.
+  const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
+  if (submittedVso?.enabled) {
+    const budget = validateVisualStrategyOverrideForSave(submittedVso);
+    if (!budget.ok) {
+      res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
+      return;
+    }
+  }
+
   const actorLabel = req.user.displayName ?? req.user.email ?? null;
 
   try {

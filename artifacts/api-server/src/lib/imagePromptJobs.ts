@@ -216,6 +216,20 @@ export const imagePromptGenerationHandler: JobHandler = {
       );
     }
 
+    // §10.5 fail-loud budget gate: the compiler no longer silently truncates
+    // required content, so if required content alone overflowed the engine
+    // budget (only reachable by legacy over-budget content — save validation
+    // prevents it for new saves), fail terminal instead of shipping a prompt
+    // whose policy guardrails were cut.
+    const overflow = compiled.diagnostics?.requiredBudgetOverflow;
+    if (overflow) {
+      return recordTerminalAttemptFailure(
+        p.attemptId,
+        "required_budget_overflow",
+        `compiled prompt exceeds the engine budget by ${overflow.overBy} characters (${overflow.totalLength}/${overflow.budget}); shorten the moderator Concept/additions`,
+      );
+    }
+
     // Persist which planner engine produced this plan alongside the compiled
     // prompt so attempts (and the admin preview) can attribute render quality.
     if (output.plannerProvenance && compiled.diagnostics) {

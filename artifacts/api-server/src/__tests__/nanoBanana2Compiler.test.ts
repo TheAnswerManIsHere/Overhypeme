@@ -1505,7 +1505,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     assert.match(String(out.engineNotes ?? ""), /budget/i);
   });
 
-  it("still records the hard-truncation note when required content alone overflows", () => {
+  it("signals required_budget_overflow instead of silently truncating required content (§10.5)", () => {
     const hugeRequired = Array.from({ length: 120 }, (_, i) => `a mandatory prop number ${i} rendered in full detail`);
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
@@ -1516,8 +1516,15 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
         requiredVisualDetails: hugeRequired,
       }),
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
-    assert.match(String(out.engineNotes ?? ""), /Hard-truncated required content/);
+    // The compiler NO LONGER truncates required content (which used to drop the
+    // policy guardrails off the end) — it exceeds the budget and flags overflow
+    // so the worker fails loud + terminal instead.
+    assert.ok(out.imagePrompt.length > 4000, `expected overflow, got length ${out.imagePrompt.length}`);
+    const overflow = out.diagnostics?.requiredBudgetOverflow;
+    assert.ok(overflow, "requiredBudgetOverflow diagnostic must be set");
+    assert.ok(overflow!.overBy > 0);
+    assert.equal(overflow!.budget, 4000);
+    assert.match(String(out.engineNotes ?? ""), /exceeds the engine prompt budget/);
   });
 });
 

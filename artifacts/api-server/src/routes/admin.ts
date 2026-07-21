@@ -25,6 +25,7 @@ import {
 import { enqueueJob } from "../lib/asyncJobs";
 import {
   validateEnrichment,
+  validateVisualStrategyOverrideForSave,
   computeBaselineChangedPaths,
   overrideValuesEqual,
   isOverridablePath,
@@ -34,6 +35,7 @@ import {
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
+  type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
@@ -1063,6 +1065,19 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
   if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
   const submitted = result.data;
+
+  // §10 rendered-text budget: reject a NEW save whose moderator Concept +
+  // additions would (worst-case, once names/pronouns are filled in) overflow the
+  // engine prompt budget — before it can silently drop policy guardrails at
+  // compile. Legacy stored content stays readable; this gates saves only.
+  const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
+  if (submittedVso?.enabled) {
+    const budget = validateVisualStrategyOverrideForSave(submittedVso);
+    if (!budget.ok) {
+      res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
+      return;
+    }
+  }
 
   const state = await loadFactOverrideState(db, id);
   if (!state) { res.status(404).json({ error: "Fact not found" }); return; }

@@ -1002,7 +1002,7 @@ interface Section {
 function assembleSections(
   sections: Section[],
   notes: string[],
-): { prompt: string; breakdown: PromptSection[] } {
+): { prompt: string; breakdown: PromptSection[]; overflowBy: number } {
   let assembled = "";
   const breakdown: PromptSection[] = [];
   const record = (s: Section, status: PromptSection["status"], text: string, rawText: string) =>
@@ -1068,12 +1068,17 @@ function assembleSections(
     record(section, "dropped", "", raw);
   }
 
-  let prompt = assembled.trim();
-  if (prompt.length > MAX_PROMPT_CHARS) {
-    notes.push("Hard-truncated required content to the engine prompt budget.");
-    prompt = fitSentences(prompt, MAX_PROMPT_CHARS);
+  const prompt = assembled.trim();
+  // §10.5: do NOT silently hard-truncate required content (that used to lop the
+  // STRICT CONSTRAINTS policy guardrails off the end). If required content alone
+  // overflows the budget — impossible for save-validated content (§10.1–10.3),
+  // reachable only by legacy over-budget rows — surface it so the caller fails
+  // loud + terminal rather than shipping a guardrail-truncated prompt.
+  const overflowBy = Math.max(0, prompt.length - MAX_PROMPT_CHARS);
+  if (overflowBy > 0) {
+    notes.push(`Required content exceeds the engine prompt budget by ${overflowBy} characters.`);
   }
-  return { prompt, breakdown };
+  return { prompt, breakdown, overflowBy };
 }
 
 interface ModeContext {
@@ -1337,7 +1342,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // a raw template token.
   const sections = rawSections.map((s) => ({ ...s, text: renderIdentityTokens(s.text, args.renderedSubject) }));
 
-  const { prompt: finalPrompt, breakdown } = assembleSections(sections, notes);
+  const { prompt: finalPrompt, breakdown, overflowBy } = assembleSections(sections, notes);
 
   const warnings = [
     ...moderatorCoreWarnings,
@@ -1377,6 +1382,9 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
       removedPlannerProseSentences: removedProse,
       warnings,
       ...(droppedCandidates.length ? { droppedCandidates } : {}),
+      ...(overflowBy > 0
+        ? { requiredBudgetOverflow: { overBy: overflowBy, totalLength: finalPrompt.length, budget: MAX_PROMPT_CHARS } }
+        : {}),
     },
   };
 
