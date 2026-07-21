@@ -5,19 +5,22 @@
  * This canonical form is used as the basis for pgvector embeddings so that
  * duplicate checks between plain-English submissions and stored templates
  * work without token-syntax noise.
+ *
+ * Token resolution + substitution are owned by the shared
+ * `@workspace/api-zod` module (`resolvedIdentityForms.ts`) — this file is a
+ * thin, byte-identical-output wrapper so budget projection and rendering can
+ * never drift on pronoun-form derivation.
  */
+
+import {
+  resolveIdentityForms,
+  renderTemplateWithIdentityForms,
+  possessive as possessiveShared,
+} from "@workspace/api-zod";
 
 export const CANONICAL_NAME = "Alex";
 
-/**
- * Possessive form of a personalized name. Per the product decision we ALWAYS
- * append "'s" — including for names already ending in "s" (Chris → Chris's,
- * James → James's) — so the rule is unambiguous and viewer-independent. Empty
- * input yields empty output (nothing to make possessive).
- */
-export function possessive(name: string): string {
-  return name ? `${name}'s` : "";
-}
+export const possessive = possessiveShared;
 
 /**
  * Canonical placeholder names the renderer injects for the personalized subject.
@@ -29,45 +32,7 @@ export function possessive(name: string): string {
  */
 export const CANONICAL_SUBJECT_NAMES: readonly string[] = [CANONICAL_NAME];
 
-const TOKEN_MAP: Record<string, string> = {
-  NAME: CANONICAL_NAME,
-  NAME_POSSESSIVE: possessive(CANONICAL_NAME),
-  SUBJ: "they",
-  Subj: "They",
-  OBJ: "them",
-  Obj: "Them",
-  POSS: "their",
-  Poss: "Their",
-  POSS_PRO: "theirs",
-  Poss_Pro: "Theirs",
-  REFL: "themselves",
-  Refl: "Themselves",
-};
-
-// Matches a standalone indefinite article ("a"/"an", any case) immediately
-// before a {NAME} token, capturing the whitespace between them.
-const ARTICLE_BEFORE_NAME_RE = /\b([Aa]n?)(\s+)\{NAME\}/g;
-
-/**
- * Choose "a" or "an" so the indefinite article agrees with the word that
- * follows it. English article agreement is decided by the *following* word, so
- * once {NAME} is filled in, the article in front of it has to match the actual
- * name: "a {NAME}" renders "an Alex" but "a David". Because the name varies per
- * viewer, this can only be resolved at render time — the stored template keeps a
- * plain "a"/"an". The original article's capitalization is preserved so a
- * sentence-initial "A {NAME}" becomes "An Alex".
- *
- * Agreement is decided purely from the first letter (vowel a/e/i/o/u → "an").
- * This is correct for the overwhelming majority of names; rare phonetic
- * exceptions ("a Uma", "an Hugo") are not special-cased.
- */
-function indefiniteArticle(original: string, nextWord: string): string {
-  const article = /^[aeiou]/i.test(nextWord) ? "an" : "a";
-  if (/^[A-Z]/.test(original)) {
-    return article.charAt(0).toUpperCase() + article.slice(1);
-  }
-  return article;
-}
+const CANONICAL_FORMS = resolveIdentityForms(CANONICAL_NAME, "they/them");
 
 /**
  * Renders a template to canonical plain English.
@@ -81,52 +46,7 @@ function indefiniteArticle(original: string, nextWord: string): string {
  * - {singular|plural} → plural form (right side)
  */
 export function renderCanonical(template: string): string {
-  return template
-    // Fix indefinite-article agreement ("a {NAME}" → "an Alex") before the
-    // token substitution fills {NAME} with the canonical name.
-    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
-      indefiniteArticle(art, CANONICAL_NAME) + sp + "{NAME}")
-    .replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
-      if (inner in TOKEN_MAP) {
-        return TOKEN_MAP[inner];
-      }
-      if (inner.includes("|")) {
-        const parts = inner.split("|");
-        return parts[parts.length - 1];
-      }
-      return _match;
-    });
-}
-
-/**
- * Parses a "subj/obj" pronoun string (e.g. "he/him", "she/her", "they/them")
- * into a full pronoun map for token substitution.
- */
-function parsePronounMap(name: string, pronouns: string | null | undefined): Record<string, string> {
-  const lower = (pronouns ?? "they/them").toLowerCase().trim();
-  const [subj = "they", obj = "them"] = lower.split("/");
-
-  let poss: string;
-  let possPro: string;
-  let refl: string;
-
-  if (subj === "he") {
-    poss = "his"; possPro = "his"; refl = "himself";
-  } else if (subj === "she") {
-    poss = "her"; possPro = "hers"; refl = "herself";
-  } else {
-    poss = "their"; possPro = "theirs"; refl = "themselves";
-  }
-
-  return {
-    NAME: name,
-    NAME_POSSESSIVE: possessive(name),
-    SUBJ: subj,   Subj: subj.charAt(0).toUpperCase() + subj.slice(1),
-    OBJ: obj,     Obj: obj.charAt(0).toUpperCase() + obj.slice(1),
-    POSS: poss,   Poss: poss.charAt(0).toUpperCase() + poss.slice(1),
-    POSS_PRO: possPro,  Poss_Pro: possPro.charAt(0).toUpperCase() + possPro.slice(1),
-    REFL: refl,   Refl: refl.charAt(0).toUpperCase() + refl.slice(1),
-  };
+  return renderTemplateWithIdentityForms(template, CANONICAL_FORMS);
 }
 
 /**
@@ -206,26 +126,10 @@ export function stripSubjectNameSemanticEntities<
 }
 
 /**
- * Renders a tokenized fact template personalized to a specific person.
- * Uses singular verb form for {singular|plural} when the subject is he/she.
+ * Renders a tokenized fact template personalized to a specific person. Uses
+ * the singular {singular|plural} branch unless the subject pronoun is
+ * literally "they" (so he/she AND any neopronoun subject render singular).
  */
 export function renderPersonalized(template: string, name: string, pronouns: string | null | undefined): string {
-  const map = parsePronounMap(name, pronouns);
-  const useSingular = !["they"].includes((pronouns ?? "they/them").toLowerCase().split("/")[0] ?? "they");
-
-  return template
-    // Fix indefinite-article agreement against the personalized name ("a {NAME}"
-    // → "an Alex" / "a David") before the token substitution fills {NAME}.
-    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
-      indefiniteArticle(art, name) + sp + "{NAME}")
-    .replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
-      if (inner in map) {
-        return map[inner];
-      }
-      if (inner.includes("|")) {
-        const parts = inner.split("|");
-        return useSingular ? (parts[0] ?? _match) : (parts[parts.length - 1] ?? _match);
-      }
-      return _match;
-    });
+  return renderTemplateWithIdentityForms(template, resolveIdentityForms(name, pronouns));
 }

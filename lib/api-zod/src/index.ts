@@ -5,6 +5,7 @@ export type { AuthUserUserRole } from "./generated/types/authUserUserRole";
 export * from "./brandTokens";
 export * from "./memeAspectRatios";
 export * from "./templateGrammar";
+export * from "./resolvedIdentityForms";
 export * from "./promptIdentityBudget";
 export * from "./promptContentDetectors";
 export * from "./taxonomy";
