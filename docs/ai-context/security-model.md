@@ -1,30 +1,37 @@
 # Security model
 
 > Agent-facing operational spec for Overhype.me's security posture — the auth,
-> authorization, payment-trust, header, and secrets boundaries, and the one
-> deliberately-open hole that must close before launch. Read this before
+> authorization, payment-trust, header, and secrets boundaries. Read this before
 > touching auth, object/media serving, Stripe/membership grants, the Express
 > middleware stack, or anything that decides who can see or do what.
 >
 > Established by the security review + remediation slice (findings C1–C10,
-> PRs #210, #212, #213, #214, #215, #217, #218). Rationale history for the
+> PRs #210, #212, #213, #214, #215, #217, #218, #221). Rationale history for the
 > settled calls lives in [`decisions.md`](./decisions.md); the generalizing
 > traps live in [`known-failure-patterns.md`](./known-failure-patterns.md).
 
-## ⚠️ Pre-launch gate — the dev-admin-login backdoor (C1)
+## dev-admin-login backdoor (C1)
 
-`POST /api/auth/dev-admin-login` (`artifacts/api-server/src/routes/localAuth.ts`)
-mints or upgrades the caller's session to the **bootstrap admin** for *any*
-caller. It is CSRF/origin-exempt (in `ORIGIN_EXEMPT_PATHS`), fronted by a
-permissive `cors({ origin: true })`, and writes the sid to `localStorage` as a
-Bearer token. **This is left open on purpose while David is pre-launch and
-testing** — it is the single highest-severity item in the whole review, and it
-**must be hardened before go-live**: gate it behind a fail-closed flag
-(`ENABLE_DEV_ADMIN_LOGIN` + a prod-host/`NODE_ENV` guard, default disabled) that
-`app.ts`, `localAuth.ts`, and the UI trigger all read, so that when disabled the
-route is not registered, not origin-exempt, and emits no cookie/Bearer. Tracked
-as a pre-launch item in [`current-roadmap.md`](./current-roadmap.md). Do **not**
-quietly remove this warning until that hardening ships.
+`GET/POST /api/auth/dev-admin-login` (`artifacts/api-server/src/routes/localAuth.ts`)
+mints a **bootstrap-admin** session for *any* caller — the review's
+highest-severity finding (unauthenticated privilege escalation). It is now
+**hardened fail-closed** (PR #221) via one source-of-truth predicate,
+`isDevAdminLoginEnabled()` (`devAdminLogin.ts`):
+
+- OFF by default; opt-in only via `ENABLE_DEV_ADMIN_LOGIN=true` for a
+  **non-production** preview; and **NEVER** enabled in production even if the
+  flag is set (`REPLIT_DEPLOYMENT==="1" || NODE_ENV==="production"` wins).
+- When disabled, `handleDevAdminLogin` returns 404 with no session/cookie (the
+  authoritative request-time guard); `app.ts` also withholds the permissive
+  CORS + the `ORIGIN_EXEMPT_PATHS` entry; and the Navbar triple-tap trigger
+  no-ops outside a dev build (`import.meta.env.DEV`).
+- The enabled path **rotates** the session (fresh sid, delete old — closes
+  fixation) and sanitizes `returnTo` via `safeReturnTo.ts`.
+
+The local dev entrypoint (`artifacts/api-server/scripts/dev-run.sh`) sets the flag, so the Replit
+preview and the Playwright e2e admin flows keep working; production
+(`pnpm start`, `REPLIT_DEPLOYMENT=1`) can never enable it. See the decision in
+[`decisions.md`](./decisions.md).
 
 ## Authentication & sessions
 
@@ -171,6 +178,7 @@ are deferred follow-ups (the latter would break existing API-key automation).
 
 Enumerated so a later reader knows what this review did *not* do: a full auth
 rewrite, live pentest, Cloudflare WAF/dashboard actions, CSP *enforcement*
-(report-only first), HSTS preload/subdomains, the C1 hardening (pre-launch), the
-`ADMIN_API_KEY` scoping, the git-history purge, and the admin field-bounding
-follow-up. See the roadmap for the live list.
+(report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping, the
+git-history purge, and the admin field-bounding follow-up. See the roadmap for
+the live list. (The C1 dev-admin-login hardening — deferred when this doc was
+first written — shipped in PR #221.)

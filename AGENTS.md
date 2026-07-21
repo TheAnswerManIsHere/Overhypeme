@@ -49,7 +49,8 @@ For **auth, authorization, object/media serving, Stripe/membership grants,
 HTTP headers, or secrets** work, also read:
 
 - [`docs/ai-context/security-model.md`](docs/ai-context/security-model.md) —
-  the security posture, and the **pre-launch dev-admin-login gate (C1)**
+  the security posture (auth, object/meme authz, membership grant trust,
+  headers, secrets, the dev-admin-login gate)
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [testing-guide](docs/engineering/testing-guide.md),

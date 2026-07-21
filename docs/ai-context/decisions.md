@@ -13,23 +13,26 @@
 
 ---
 
-### 2026-07 · dev-admin-login backdoor stays open pre-launch, hardened before go-live
-- **Decision:** The `POST /api/auth/dev-admin-login` route (which mints/upgrades
-  any caller's session to the bootstrap admin — CSRF/origin-exempt, permissive
-  CORS, writes the sid to `localStorage`) is **deliberately left open** while
-  David is pre-launch and testing, and **must be hardened before go-live** behind
-  a fail-closed flag (`ENABLE_DEV_ADMIN_LOGIN` + prod-host/`NODE_ENV` guard,
-  default disabled) so that when disabled the route isn't registered, isn't
-  origin-exempt, and emits no cookie/Bearer.
-- **Why:** it's the fastest way for David to get an admin session across preview
-  contexts (Replit canvas, mobile) during pre-launch; the security cost is
-  acceptable *only* while there's nothing real to protect. This is a **deferral**,
-  not a decision to keep it — the review flagged it as the single
-  highest-severity finding (C1).
-- **Reference:** finding C1; [`security-model.md`](./security-model.md#-pre-launch-gate--the-dev-admin-login-backdoor-c1);
-  pre-launch item in [`current-roadmap.md`](./current-roadmap.md).
-- **Revisit if:** launch approaches (this becomes a hard gate), or any real user
-  data lands in the environment before then.
+### 2026-07 · dev-admin-login backdoor hardened fail-closed
+- **Decision:** `GET/POST /api/auth/dev-admin-login` — which mints a
+  bootstrap-admin session for any caller — is gated fail-closed by
+  `isDevAdminLoginEnabled()`: OFF by default, opt-in only via
+  `ENABLE_DEV_ADMIN_LOGIN=true` for a **non-production** preview, and NEVER
+  enabled in production even if the flag is set. When disabled the handler 404s
+  (no session, no cookie), and `app.ts` withholds the permissive CORS +
+  origin-exemption; the UI trigger no-ops outside a dev build. The enabled path
+  rotates the session (fresh sid, delete old — closes fixation) and sanitizes
+  `returnTo`. Supersedes the earlier pre-launch decision to leave it open (that
+  deferral is now closed).
+- **Why:** it was the single highest-severity finding — unauthenticated
+  privilege escalation — and must be inert on any live deployment. The flag
+  preserves David's Replit-preview admin shortcut (set it in that env) while
+  guaranteeing production can never enable it.
+- **Reference:** finding C1, PR #221;
+  [`security-model.md`](./security-model.md#dev-admin-login-backdoor-c1),
+  `devAdminLogin.ts`.
+- **Revisit if:** the preview admin workflow needs a different mechanism, or the
+  flag's env-var contract changes.
 
 ### 2026-07 · Membership is granted only for Stripe products tagged `overhype_membership=true`
 - **Decision:** "Does paying for this grant Legendary?" is decided by a
@@ -69,6 +72,49 @@
 - **Revisit if:** an "unlisted, link-shareable" tier is ever wanted as a
   *distinct* third state (it would be a new value, not a reinterpretation of
   `isPublic=false`).
+
+### 2026-07 · Split the async-jobs worker into fast/render/bulk lanes
+- **Decision:** The single async-jobs worker (`runAsyncJobsWorker`) that
+  dispatched all queues through one FIFO claim query, one concurrency pool, and
+  one shared re-entrancy guard is now **three independent lanes**, each with
+  its own timer, its own closure-local re-entrancy guard, its own queue filter,
+  and its own concurrency bound:
+  - **`fast`** (`fact_send_back`, `projection_repair`) — pure-DB admin actions,
+    2s poll / concurrency 2.
+  - **`render`** (`image_prompt_generation`, `image_generation`) — single-item,
+    moderator-watched renders, 5s poll / concurrency 3.
+  - **`bulk`** (everything else: `enrichment`, `fact_enrichment_backfill`,
+    `fact_pexels`, `fact_visual_concepts`, `email`,
+    `review_render_scenarios_prepare` — the default for an unannotated queue)
+    — 5s poll / concurrency 3 (down from the old shared default of 4).
+
+  `registerJobHandler(queue, handler, { lane })` assigns a queue's lane
+  (defaults to `bulk`); `asyncJobsTick` takes an options object
+  (`{ queues?, maxConcurrency?, lane? }`) so a lane can filter its own claim and
+  set its own concurrency, with `undefined` reproducing the exact legacy
+  all-queues query. A queue's lane governs ONLY scheduling — retry/backoff,
+  dedupe, and claim ordering (`nextAttemptAt, id`) are unchanged.
+- **Why:** the shared worker caused real head-of-line blocking: a
+  pure-DB admin action (Taxonomy Health "Send back to review," no model call)
+  could sit in "Queued…" for 30s+ behind slow LLM/image-gen jobs claimed in the
+  same batch or an unfinished prior tick, and a moderator-watched "test render"
+  could wait behind an unrelated bulk backfill batch. David reported both
+  symptoms directly. A 2-lane split (fast vs. everything else) was considered
+  and rejected in favor of 3, specifically so moderator-watched renders also
+  get isolation from bulk background batches, not just from the pure-DB
+  actions. See the new "Head-of-line blocking in a shared background worker"
+  pattern in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#head-of-line-blocking-in-a-shared-background-worker).
+- **Reference:** PR #216; see
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+- **Revisit if:** pool-acquisition wait time or provider rate-limit errors
+  appear under simultaneous fast+render+bulk+HTTP load — the three lanes' combined
+  handler concurrency (2+3+3=8) was deliberately kept under the DB pool's
+  default `max` of 10, but raising that `max` was explicitly left out of scope
+  and may become necessary. Also revisit if a future queue needs its own
+  distinct lane rather than defaulting into `bulk`.
+
+---
 
 ### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
 - **Decision:** Moderators author the Visual Strategy Override's rendered

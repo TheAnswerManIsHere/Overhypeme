@@ -26,10 +26,16 @@ priorities (moderation speed, render/enrichment quality, video). See
   invalidation, min-8 password — #210), video/object IDOR (#212), private memes
   made owner-only + uncacheable (#213), Stripe membership price allowlist enforced
   at the grant layer (#214), application security headers (#215), removal of a
-  committed prod DB dump + gitignore + Dependabot (#217), and admin input
-  validation incl. a path-traversal fix (#218). The durable posture lives in
-  [`security-model.md`](./security-model.md); the one **deliberately-open** item
-  (the dev-admin-login backdoor, C1) is a pre-launch gate below.
+  committed prod DB dump + gitignore + Dependabot (#217), admin input validation
+  incl. a path-traversal fix (#218), and the dev-admin-login backdoor hardened
+  fail-closed (#221). The durable posture lives in
+  [`security-model.md`](./security-model.md).
+- **Async-jobs worker split into fast/render/bulk lanes** — fixed head-of-line
+  blocking where a pure-DB admin action or a moderator-watched test render
+  could queue for 30s+ behind unrelated slow/bulk work; each lane now has its
+  own timer, re-entrancy guard, and concurrency bound (PR #216). See
+  [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
+  and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Auto-tokenize admin Visual-Concept authoring** — moderators write plain
   English in the Visual Strategy Override; Save auto-tokenizes (reusing the
   fact-submission tokenizer) and shows the result before persisting; a role
@@ -77,16 +83,12 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Pre-launch hardening (must-do before go-live)
 
-- **⚠️ Harden the dev-admin-login backdoor (C1).** `POST
-  /api/auth/dev-admin-login` mints a bootstrap-admin session for any caller and
-  is **deliberately left open** during pre-launch testing — the single
-  highest-severity finding from the security review. Before launch, gate it
-  behind a fail-closed flag (default disabled in prod) so the route is inert.
-  See [`security-model.md`](./security-model.md#-pre-launch-gate--the-dev-admin-login-backdoor-c1)
-  and [`decisions.md`](./decisions.md).
 - **Scope/rotate `ADMIN_API_KEY`.** A single static key grants 9 admin routes
   (incl. `set-password` and the bulk backfill launchers) without a session;
   decide whether to scope, rotate, or replace it.
+- *(The dev-admin-login backdoor, C1 — the review's highest-severity finding —
+  is now hardened fail-closed, PR #221. See
+  [`security-model.md`](./security-model.md#dev-admin-login-backdoor-c1).)*
 
 ## Near-term planned slices
 
@@ -98,6 +100,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+- **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
+  (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
+  unraised — the three lanes' combined handler concurrency (8) fits under it,
+  but only with thin headroom shared with concurrent HTTP traffic. Raise it
+  only if pool-acquisition wait time or provider rate-limit errors actually
+  show up under load; it's an infra/cost decision, not a code change to make
+  proactively. See [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 - Broad public-growth surfaces and free→Legendary conversion optimization.
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."
