@@ -1,6 +1,6 @@
 /**
  * The §10.4 / §21 budget PROOF: the moderator authoring reserves declared in
- * api-zod (`promptBudget.ts`) must actually fit inside the engine's 4000-char
+ * api-zod (`promptBudget.ts`) must actually fit inside the engine's 6000-char
  * ceiling once the compiler's REAL fixed-required overhead is measured.
  *
  * If a compiler wording change grows a required section past the reserved
@@ -34,7 +34,7 @@ describe("measureRequiredPromptBudget — the §21 proof", () => {
     );
   });
 
-  it("reserves + margin exactly account for the 4000-char engine budget", () => {
+  it("reserves + margin exactly account for the 6000-char engine budget", () => {
     const sum =
       FIXED_REQUIRED_RESERVE_BUDGET + CORE_SCENE_RENDERED_MAX + MODERATOR_ADDITIONS_RENDERED_MAX + PROMPT_OUTER_MARGIN;
     assert.ok(sum <= PROMPT_TOTAL_BUDGET, `reserves ${sum} exceed total budget ${PROMPT_TOTAL_BUDGET}`);
@@ -65,9 +65,9 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
   });
 
   it("rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap", () => {
-    // 70 repeated {NAME} tokens: raw ~490 (well under the raw cap) but each
-    // renders to 20 chars → ~1400 rendered (> the rendered cap).
-    const tokenHeavy = "{NAME} ".repeat(70).trim();
+    // 110 repeated {NAME} tokens: raw ~770 (well under the raw cap) but each
+    // renders to up to 20 chars → ~2300+ rendered (> the rendered cap).
+    const tokenHeavy = "{NAME} ".repeat(110).trim();
     assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
     const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: tokenHeavy });
     assert.equal(r.ok, false);

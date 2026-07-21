@@ -43,7 +43,11 @@ import type {
 import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 
-const MAX_PROMPT_CHARS = 4000;
+// Mirrors PROMPT_TOTAL_BUDGET (api-zod promptBudget.ts) — an editorial forcing
+// function against bloated/redundant authoring, NOT an engine capacity
+// constraint (NB2's context window is ~131K tokens). Raised from 4000 to 6000
+// (David, 2026-07-21) to give the moderator authoring pools real headroom.
+const MAX_PROMPT_CHARS = 6000;
 
 // ROLE DETAILS becomes required + non-compressible whenever moderator
 // roleBindings are present (so a casting correction can't be silently

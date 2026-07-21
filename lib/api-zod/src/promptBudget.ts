@@ -1,11 +1,11 @@
 /**
  * Rendered-text prompt budget (rev-7 plan §10) — the save-time contract that
- * guarantees moderator-authored content can never overflow the engine's 4000-char
+ * guarantees moderator-authored content can never overflow the engine's 6000-char
  * prompt at compile.
  *
  * The budget is enforced on RENDERED text (after token expansion), split into:
  *
- *   PROMPT_TOTAL_BUDGET (4000, = the compiler's MAX_PROMPT_CHARS)
+ *   PROMPT_TOTAL_BUDGET (6000, = the compiler's MAX_PROMPT_CHARS)
  *     = FIXED_REQUIRED_RESERVE_BUDGET   (compiler-owned fixed sections, MEASURED)
  *     + CORE_SCENE_RENDERED_MAX          (the moderator Concept reserve)
  *     + MODERATOR_ADDITIONS_RENDERED_MAX (all OTHER moderator content, aggregate)
@@ -36,8 +36,14 @@ import { collectRenderedTextEntries, type VisualPromptStrategyOverride } from ".
 /** Bump when any reserve below changes, so budget fixtures/tests re-derive. */
 export const PROMPT_BUDGET_VERSION = 1 as const;
 
-/** The engine's hard prompt ceiling (mirrors the compiler's MAX_PROMPT_CHARS). */
-export const PROMPT_TOTAL_BUDGET = 4000;
+/**
+ * The engine's hard prompt ceiling (mirrors the compiler's MAX_PROMPT_CHARS).
+ * Raised from the original 4000 (David, 2026-07-21): NB2's actual context
+ * window is ~131K tokens (4000 chars is <1% of it) — the ceiling is an editorial
+ * forcing function against bloated/redundant authoring, not an engine capacity
+ * constraint, so it should have real headroom rather than zero slack.
+ */
+export const PROMPT_TOTAL_BUDGET = 6000;
 
 /**
  * The compiler-owned fixed required overhead reserved out of the budget.
@@ -49,7 +55,7 @@ export const PROMPT_TOTAL_BUDGET = 4000;
 export const FIXED_REQUIRED_RESERVE_BUDGET = 1750;
 
 /** Outer safety margin (plan §10.4 requires ≥ 100). */
-export const PROMPT_OUTER_MARGIN = 200;
+export const PROMPT_OUTER_MARGIN = 750;
 
 /**
  * The rendered-length reserve for the moderator CORE SCENE (Concept). A save is
@@ -57,7 +63,7 @@ export const PROMPT_OUTER_MARGIN = 200;
  * its raw length is under `CORE_SCENE_RAW_MAX` (100 repeated {NAME} tokens
  * render far longer than 100 chars). §21-gated.
  */
-export const CORE_SCENE_RENDERED_MAX = 1250;
+export const CORE_SCENE_RENDERED_MAX = 2000;
 
 /**
  * The aggregate rendered-length reserve for ALL OTHER moderator content
@@ -65,10 +71,15 @@ export const CORE_SCENE_RENDERED_MAX = 1250;
  * compositionGuidance, styleAgnosticPromptAdditions, negativePromptAdditions,
  * both policy guidances, forbiddenVisualDetails). §21-gated.
  */
-export const MODERATOR_ADDITIONS_RENDERED_MAX = 800;
+export const MODERATOR_ADDITIONS_RENDERED_MAX = 1500;
 
-/** Raw (pre-render) storage cap for the moderator Concept (lowered from 1500). */
-export const CORE_SCENE_RAW_MAX = 1200;
+/**
+ * Raw (pre-render) storage cap for the moderator Concept. Matches the VSO
+ * schema's `coreSceneOverride` cap (1500, `visualStrategyOverride.ts`) — with
+ * the roomier rendered budget above, a new save is never stricter than legacy
+ * content (David, 2026-07-21: restored from the original plan's 1200).
+ */
+export const CORE_SCENE_RAW_MAX = 1500;
 
 // Compile-time guard: the reserves + margin must fit the total budget. This is a
 // literal arithmetic check on the constants above (the LIVE-compiler proof lives

@@ -30,7 +30,7 @@ spinning or silently producing a degraded image.
 ## What you can see change
 
 - **Over-long Visual Concept → a clear save error.** Paste a very long Visual
-  Concept (more than ~1200 characters), or one stuffed with many `{NAME}` tokens,
+  Concept (more than ~1500 characters), or one stuffed with many `{NAME}` tokens,
   and Save. You get a specific rejection explaining it's over the prompt budget
   (raw length, or "expands to up to N characters once names are filled in"),
   instead of it saving and then quietly breaking the render. Trim it and it
@@ -59,7 +59,7 @@ author a Concept that pushes the guardrails out.
 | Action | Expect |
 | --- | --- |
 | Save a normal Visual Concept | Saves fine |
-| Save a Concept > ~1200 chars | Clear "over budget" rejection |
+| Save a Concept > ~1500 chars | Clear "over budget" rejection |
 | Save a Concept with many `{NAME}` tokens (short raw, huge rendered) | Clear "expands to…" rejection |
 | Pile on role bindings + details + additions | Clear aggregate "over budget" rejection |
 | Render a valid fact (any style) | Renders as before; style look unchanged |
@@ -81,8 +81,10 @@ author a Concept that pushes the guardrails out.
 - **No in-editor character counter yet.** The budget is enforced on Save (with a
   clear message); a live "N / max" counter in the editor is a follow-up.
 - **The §21 numbers** (the exact Concept / additions size limits) are set from a
-  measurement and approved before merge — if a limit feels too tight or loose in
-  practice, it's a one-line tuning change.
+  measurement and were approved before merge (engine ceiling raised to 6000
+  chars — NB2's real context window is ~131K tokens, so the original 4000 was
+  editorial discipline, not a capacity limit) — if a limit feels too tight or
+  loose in practice, it's a one-line tuning change.
 - **Look-style copy is not admin-editable** (it ships via migration), so there's
   no style-copy save form to test.
 

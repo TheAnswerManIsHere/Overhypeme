@@ -9,29 +9,28 @@ here; apply the repo's normal migration/test flow against Replit's own DB.
 
 ---
 
-## ⚠️ §21 numbers gate — DAVID APPROVES THESE BEFORE MERGE
+## ✅ §21 numbers — APPROVED by David (2026-07-21)
 
 The moderator authoring limits below are **derived** from
-`measureRequiredPromptBudget()` run against the real compiler — they can't be
-honestly invented, so per the plan the PR generates them and you approve them
-before merge. The engine's hard ceiling is **4000 chars**.
+`measureRequiredPromptBudget()` run against the real compiler. David revisited
+the original 4000-char ceiling — NB2's actual context window is ~131K tokens, so
+4000 chars (<1% of it) was an editorial forcing function, not an engine
+capacity limit — and approved raising it to **6000 chars**, with the raw
+Visual Concept cap restored to its original 1500 (never stricter than legacy
+content).
 
 | Constant | Value | What it is |
 | --- | ---: | --- |
-| `FIXED_REQUIRED_RESERVE_BUDGET` | **1750** | Compiler-owned fixed sections. **Measured worst case = 1704** (human i2i + age-transform binding + 20-char identity + 180-char style + longest fixed policy lines); reserved with cushion. |
-| `CORE_SCENE_RENDERED_MAX` | **1250** | Moderator Visual Concept, worst-case **rendered** length. |
-| `MODERATOR_ADDITIONS_RENDERED_MAX` | **800** | All other moderator content (role bindings, required/forbidden details, subject realization, composition, additions, both policy guidances) — aggregate rendered length. |
-| `PROMPT_OUTER_MARGIN` | **200** | Outer safety slack (plan requires ≥100). |
-| `CORE_SCENE_RAW_MAX` | **1200** | Raw (pre-render) Concept storage cap (lowered from 1500). |
+| `FIXED_REQUIRED_RESERVE_BUDGET` | **1750** | Compiler-owned fixed sections. **Measured worst case = 1704** (human i2i + age-transform binding + 20-char identity + 180-char style + longest fixed policy lines); reserved with cushion. Unchanged — this is measured, not a product choice. |
+| `CORE_SCENE_RENDERED_MAX` | **2000** | Moderator Visual Concept, worst-case **rendered** length. |
+| `MODERATOR_ADDITIONS_RENDERED_MAX` | **1500** | All other moderator content (role bindings, required/forbidden details, subject realization, composition, additions, both policy guidances) — aggregate rendered length. |
+| `PROMPT_OUTER_MARGIN` | **750** | Outer safety slack (plan requires ≥100). |
+| `CORE_SCENE_RAW_MAX` | **1500** | Raw (pre-render) Concept storage cap — restored to match the existing VSO schema cap; a new save is never stricter than legacy content. |
 
-Arithmetic: `1750 + 1250 + 800 + 200 = 4000 ≤ 4000` ✓. The proof test
+Arithmetic: `1750 + 2000 + 1500 + 750 = 6000 ≤ 6000` ✓. The proof test
 (`promptBudget.test.ts`) asserts the **live** measurement still fits, so a future
 compiler wording change that grows a required section fails CI instead of
 silently shrinking the moderator pool.
-
-**If you want a different split** (e.g. more Concept room, less additions), say
-so — it's a one-line change in `lib/api-zod/src/promptBudget.ts`; the proof test
-re-validates it. Nothing else in the PR depends on the exact split.
 
 ---
 
@@ -77,11 +76,11 @@ What the new tests lock in:
 - **§12** — `terminalFailure` marks the row `failed` on the FIRST attempt
   ignoring `maxAttempts`; a plain `{ok:false,error}` still retries (opt-in).
 - **§10** — the live-compiler budget proof (measured ≤ reserve; reserves+margin
-  ≤ 4000; rendered cap ≥ raw cap); the VSO save validator (raw cap, worst-case
+  ≤ 6000; rendered cap ≥ raw cap); the VSO save validator (raw cap, worst-case
   rendered cap on a token-heavy Concept under the raw cap, additions-pool
   aggregate, Concept not double-counted into additions).
 - **§10.5** — the compiler signals `requiredBudgetOverflow` and does NOT truncate
-  (length > 4000) instead of silently dropping guardrails.
+  (length > 6000) instead of silently dropping guardrails.
 - **§14** — the 18+`none`=19 style catalogue is complete, no dup ids, none over
   `RENDER_STYLE_COPY_MAX_CHARS`.
 
@@ -98,8 +97,8 @@ What the new tests lock in:
    row goes `failed` after ONE attempt and the attempt row has both `error` and
    a typed `error_code`.
 4. **Save-time budget rejection** — PATCH `/admin/facts/:id/enrichment` (or the
-   review candidate endpoint) with a Visual Concept over 1200 raw chars, or with
-   ~65+ `{NAME}` tokens (raw small, rendered huge): expect **HTTP 400**
+   review candidate endpoint) with a Visual Concept over 1500 raw chars, or with
+   ~110+ `{NAME}` tokens (raw small, rendered huge): expect **HTTP 400**
    `visual_strategy_override_over_budget` with per-field `details`. A normal
    Concept saves fine.
 
