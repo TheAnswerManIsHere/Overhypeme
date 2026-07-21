@@ -1,0 +1,15 @@
+-- PR-A (NB2 prompt restructure, rev 7 plan §13): retire the planner-owned
+-- `styleIntegration` channel (style is now compiler-owned + single-channel),
+-- require a `kind` discriminator on supportingTextElements (literal_text vs
+-- visual_graphic), make the delta fields (subjectDetails / environment /
+-- keyVisualElements) additive-and-optional, and forbid rendering-medium claims
+-- in lightingAndStyle.
+--
+-- Pre-launch: there are no admin customizations to preserve, so rather than
+-- string-patching each retired fragment (the 0082/0084/0085 pattern, which
+-- existed to protect production edits) we simply reset the seeded
+-- `fact_image_prompt_system` row. `getImagePromptSystem()` falls back to the
+-- updated code default (FACT_IMAGE_PROMPT_SYSTEM_DEFAULT) when the row is
+-- absent, and the config seeder re-inserts the current default on next seed —
+-- either way the deployed system prompt reflects the new v7 contract.
+DELETE FROM "admin_config" WHERE "key" = 'fact_image_prompt_system';

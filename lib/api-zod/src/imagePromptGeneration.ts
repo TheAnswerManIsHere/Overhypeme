@@ -26,6 +26,7 @@ import {
   type ViolenceIntensity,
 } from "./renderPolicyEnums";
 import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
+import { detectMediumClaim } from "./promptContentDetectors";
 
 // ─── Versioning ────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 // DETAILS replaces REFERENCE INTERPRETATION and never doubles a name; additive
 // de-dupe upgraded from substring to content-word contiguity. Compiled output
 // changes for identical inputs, so existing test renders correctly flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v6";
+export const IMAGE_PROMPT_GENERATION_VERSION = "v7";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
@@ -419,8 +420,17 @@ const subjectTreatmentWireSchema = z.object({
   ageLifeStageTransform: ageLifeStageTransformWireSchema,
 });
 
+export const SUPPORTING_TEXT_KIND_VALUES = ["literal_text", "visual_graphic"] as const;
+export type SupportingTextKind = (typeof SUPPORTING_TEXT_KIND_VALUES)[number];
+
 const supportingTextElementWireSchema = z.object({
   content: z.string(),
+  // Whether `content` is a LITERAL glyph string to render as readable in-scene
+  // text ("COBRA", "GAME OVER", "E=mc²") or a VISUAL GRAPHIC described in words
+  // ("a flatline trace", "five crossed-off calendar days"). The compiler quotes
+  // literal_text as exact glyphs and routes visual_graphic to an unquoted
+  // scene-detail directive — so a description is never baked in as literal text.
+  kind: z.enum(SUPPORTING_TEXT_KIND_VALUES),
   purpose: z.string(),
   placement: z.string(),
 });
@@ -513,8 +523,9 @@ const visualPlanWireSchema = z.object({
   subjectDetails: z.array(z.string()),
   // environment → ENVIRONMENT: setting, background, props, scale (scene-side).
   environment: z.array(z.string()),
-  // lightingAndStyle → LIGHTING AND STYLE: light, mood, aesthetic (the resolved
-  // stylePrompt suffix is appended deterministically by the compiler).
+  // lightingAndStyle → LIGHTING: physical light, mood, and palette ONLY. The
+  // selected visual STYLE is compiler-owned and emitted as its own RENDER STYLE
+  // section (single-channel), so no rendering-medium claim belongs here.
   lightingAndStyle: z.string(),
   // keyVisualElements stays as a gap-fill safety net: any must-see element the
   // concrete fields above missed is injected once, de-duped against them.
@@ -533,7 +544,6 @@ const visualPlanWireSchema = z.object({
   // Echo-back of consumed cultural references. Must cover every MATERIAL
   // reference in the enrichment (validator rule 15).
   culturalReferencesUsed: z.array(culturalReferenceUsedWireSchema),
-  styleIntegration: z.string(),
   contentNotes: z.string(),
   debugNotes: z.string(),
   targetEngine: z.enum(IMAGE_PROMPT_TARGET_ENGINE_VALUES),
@@ -586,6 +596,16 @@ export interface PlanExpectations {
    * visualPlan.culturalReferencesUsed[].sourcePhrase (canonical fallback).
    */
   materialCulturalReferences?: string[];
+  /**
+   * True when an enabled, non-empty moderator core-scene override is the
+   * authoritative scene (the compiler emits it verbatim and ignores the AI
+   * `coreScene`). Under this mode the planner's additive delta collections
+   * (`subjectDetails`, `environment`, `keyVisualElements`) may legally be EMPTY
+   * — a complete human Concept needs no invented filler. The upper bound on
+   * `keyVisualElements` and every other rule still apply. Defaults to false
+   * (the AI-scene minimums stay in force), so existing callers are unchanged.
+   */
+  hasAuthoritativeCoreScene?: boolean;
 }
 
 export type ImagePromptValidationResult =
@@ -670,8 +690,17 @@ export function validateImagePromptPlan(
       correctableHint: `Set subjectTreatment.subjectRenderMode to exactly "${expectations.subjectRenderMode}".`,
     };
   }
-  // 5. keyVisualElements bounds
-  if (vp.keyVisualElements.length < 3 || vp.keyVisualElements.length > 12) {
+  // 5. keyVisualElements bounds. The UPPER bound always applies; the lower bound
+  // (≥3) is relaxed under an authoritative moderator Concept, where the scene is
+  // complete and additive elements may legitimately be zero.
+  if (vp.keyVisualElements.length > 12) {
+    return {
+      ok: false,
+      error: `keyVisualElements.length is ${vp.keyVisualElements.length}; must be at most 12`,
+      correctableHint: `Return at most 12 keyVisualElements.`,
+    };
+  }
+  if (!expectations.hasAuthoritativeCoreScene && vp.keyVisualElements.length < 3) {
     return {
       ok: false,
       error: `keyVisualElements.length is ${vp.keyVisualElements.length}; must be in [3, 12]`,
@@ -930,8 +959,11 @@ export function validateImagePromptPlan(
       correctableHint: `Write coreScene as one tight paragraph describing what is literally happening in the frame (subject + action + key objects). Concrete visuals only — no authorial intent.`,
     };
   }
+  // subjectDetails / environment minimums are relaxed under an authoritative
+  // moderator Concept (the compiler emits the human scene verbatim; these
+  // additive fields exist only for details the scene omits, and may be empty).
   const subjectDetailsNonEmpty = vp.subjectDetails.filter((s) => s.trim());
-  if (subjectDetailsNonEmpty.length < 1) {
+  if (!expectations.hasAuthoritativeCoreScene && subjectDetailsNonEmpty.length < 1) {
     return {
       ok: false,
       error: `visualPlan.subjectDetails must contain at least one concrete entry`,
@@ -939,12 +971,41 @@ export function validateImagePromptPlan(
     };
   }
   const environmentNonEmpty = vp.environment.filter((s) => s.trim());
-  if (environmentNonEmpty.length < 1) {
+  if (!expectations.hasAuthoritativeCoreScene && environmentNonEmpty.length < 1) {
     return {
       ok: false,
       error: `visualPlan.environment must contain at least one concrete entry`,
       correctableHint: `List concrete environment details: setting, background, props, and scale.`,
     };
+  }
+
+  // 17b. Single-channel style enforcement (PR #222 follow-up — Codex P2). Style
+  // is compiler-owned and emitted as its own RENDER STYLE section; a planner
+  // medium claim ("anime style", "oil painting") in any concrete field would
+  // reach LIGHTING and create exactly the duplicate/contradictory style channel
+  // this restructure removes. Scan every planner-authored field the compiler
+  // emits as prose (vp.coreScene here is always AI-authored — the moderator
+  // Concept lives outside visualPlan entirely, in enrichment — so no exclusion
+  // is needed). Fails with a correctable hint so the retry can fix it.
+  const mediumClaimFields: Array<[string, string]> = [
+    ["coreScene", vp.coreScene],
+    ["lightingAndStyle", vp.lightingAndStyle],
+    ["subjectTreatment.roleInScene", vp.subjectTreatment.roleInScene],
+    ["subjectTreatment.expressionAndPose", vp.subjectTreatment.expressionAndPose],
+    ...vp.subjectDetails.map((s, i): [string, string] => [`subjectDetails[${i}]`, s]),
+    ...vp.environment.map((s, i): [string, string] => [`environment[${i}]`, s]),
+    ...vp.keyVisualElements.map((s, i): [string, string] => [`keyVisualElements[${i}]`, s]),
+    ["compiledPrompt.prompt", cp.prompt],
+  ];
+  for (const [field, text] of mediumClaimFields) {
+    const claim = detectMediumClaim(text);
+    if (claim) {
+      return {
+        ok: false,
+        error: `${field} contains an artistic-medium/rendering-technique claim ("${claim.matchedText}"); style is compiler-owned`,
+        correctableHint: `Remove the rendering-medium/artistic-style language ("${claim.matchedText}") from ${field}. Describe physical light, mood, palette, and visible content only — the selected visual style is applied separately by the compiler as its own RENDER STYLE section.`,
+      };
+    }
   }
 
   // 18. Age / life-stage transform coherence. When the subject must be rendered

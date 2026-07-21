@@ -61,6 +61,18 @@ forward.
 
 ### Interaction preferences
 
+- **David never eyeballs commits or diffs — he verifies only the finished result
+  in the app, via UAT.** So I never offer, suggest, or pause for him to "review
+  the commits / the diff / the code," and I never gate progress on his code
+  inspection — that framing wastes his time and misreads how he works. I plan and
+  sequence the work **toward a runnable, UAT-able product state**, and my
+  checkpoints with him are about product intent, genuine decisions, or a
+  testable surface — never intermediate code milestones. Committing in verified
+  slices to keep the tree green is *my* engineering discipline (his safety net,
+  not his review queue); I keep him posted on progress at a high level and drive
+  to the point where he can actually test it. When I pause mid-build it must be
+  for a real reason (a broken-tree risk, a plan-breaking discovery, a product
+  decision) — not to invite a diff read.
 - **"What do you think?" means planning mode, not building mode.** When David
   asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
   "does this make sense?"), the deliverable is my assessment and a
@@ -218,25 +230,47 @@ follow-up work on the same branch looks like it conflicts / re-includes
 the merged changes. The fix is mine to apply *proactively*, not after
 David reports a conflict:
 
-**Before pushing follow-up work or opening any new PR, ALWAYS:**
+### This environment's git constraints (learned the hard way — work WITH them)
 
-1. `git fetch origin main`.
-2. Rebase the branch onto `origin/main`, keeping ONLY the not-yet-merged
-   commits: `git rebase --onto origin/main <last-merged-commit>`. (When in
-   doubt, `git diff origin/main HEAD --stat` shows the true delta — that,
-   and nothing else, is what the new PR should contain.)
-3. Re-run typecheck + the touched tests on the rebased state.
-4. Publish the rewritten branch. **NEVER force-push** — `.claude/guard.sh`
-   hard-blocks any `git push --force` / `--force-with-lease` and the attempt
-   just fails. Instead:
-   - After a squash-merge, GitHub auto-deletes the merged feature branch, so
-     the remote ref is usually gone. Run `git fetch --prune origin`, then a
-     plain `git push -u origin <branch>` recreates it fresh (no force needed).
-   - If the remote branch still exists and has diverged (a stale ref whose PR
-     is already merged/closed), delete it first with
-     `git push origin --delete <branch>`, then plain-push. Confirm the PR is
-     merged/closed before deleting.
-   - Only ever do this to MY feature branch, never `main`.
+`.claude/guard.sh` and the git proxy impose hard limits. I verified all of these;
+do not relitigate them mid-task:
+
+- **`git push --force` / `--force-with-lease` → BLOCKED** by the guard.
+- **`git reset --hard` → BLOCKED** by the guard.
+- **`git push origin --delete <branch>` → does NOT work** (the proxy hangs /
+  "remote end hung up"). I cannot delete a remote branch.
+- **`git checkout -B <branch> <ref>` → WORKS** (moves the branch ref without a
+  `--hard` reset; the guard allows it). This is my reset primitive.
+
+**The governing rule: NEVER rewrite history that is already pushed.** Because I
+can't force-push, can't delete the remote branch, and can't hard-reset, a
+rebased/amended already-pushed branch becomes **unpublishable** — plain push is
+(correctly) rejected as non-fast-forward and I have no way to reconcile it. A
+clean rebase wastes effort at best and strands the branch at worst. GitHub's
+squash-merge already 3-way-merges my branch against current `main` at merge time,
+so **rebasing "to sit on top of main" is unnecessary** and I stop doing it.
+
+**Before the FIRST push of a fresh branch** (nothing on the remote yet): it's
+fine to base it cleanly on main — `git fetch origin main` then
+`git checkout -B <branch> origin/main`, apply my work, push. (This is also how I
+**restart a branch after its PR squash-merged**: `git checkout -B <branch>
+origin/main` gives a fresh base with no merged history to fight — the sanctioned
+no-force reset.)
+
+**For follow-up work on an ALREADY-pushed branch:**
+
+1. Just add new commits on top and `git push -u origin <branch>` (fast-forward —
+   works). Do **not** rebase/amend the pushed commits.
+2. If I genuinely need current `main`'s changes in the branch, **merge, don't
+   rebase**: `git fetch origin main && git merge origin/main` (a merge commit is
+   fine — the squash collapses it). Then push.
+3. If local has accidentally diverged from the remote (e.g. an errant rebase I
+   can't publish), realign to the remote and continue: `git checkout -B <branch>
+   origin/<branch>` (content is preserved — the remote already has the work),
+   then add new commits and plain-push.
+
+Only ever do this to MY feature branch, never `main`. When in doubt,
+`git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
@@ -315,17 +349,32 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
-### Watching the PRs I open (opt-in — not automatic)
+### Watching the PRs I open (always — but gated on being on Sonnet)
 
-**I do NOT auto-subscribe to every PR, and I do NOT arm background self-check-in
-loops, ever, by default.** Each watched PR that arms an `send_later` self-check-in
-wakes a *persistent* session on a timer, and every wake reloads that session's
-full accumulated context uncached (the prompt cache is long dead after the
-interval) — so a fleet of PR watchers quietly burns tokens in the background
-whether or not David is present. That cost is real and compounds across PRs, so
-*subscribing* (receiving webhook events for comments/CI) is **opt-in per PR**:
-when I open a PR I offer to watch it and only subscribe if David says yes for
-*that* PR.
+**Standing rule (David, 2026-07-21): I always subscribe to a PR I create — no
+per-PR ask — but ONLY while running on Sonnet.** Watching (triaging comments,
+driving CI green, mechanical fixes) is ops-shaped work per the token-discipline
+table below, so it belongs on Sonnet, not whatever tier I built the PR on.
+Concretely, at the point I'd open/finish a PR:
+
+- **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
+- **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
+  the PR is ready to watch and I'm on the wrong tier, and ask him to
+  `/model claude-sonnet-5`. Once he switches me, subscribe then — I don't switch
+  myself (`/model` is his command to run), and I don't silently skip watching
+  because I forgot to flag the mismatch.
+- If a session ever gets switched to Sonnet later (e.g. for this exact reason)
+  and there's an open, unwatched PR I created earlier in the session, that's the
+  moment to subscribe — I don't need David to re-ask.
+
+**I still do NOT arm background self-check-in loops, ever, by default** — this
+part is unchanged and does not depend on model tier. Each `send_later`
+self-check-in wakes a *persistent* session on a timer, and every wake reloads
+that session's full accumulated context uncached (the prompt cache is long dead
+after the interval) — so a fleet of PR watchers quietly burns tokens in the
+background whether or not David is present. Subscribing (webhook events) is now
+the default per above; *scheduling my own wake-up* stays off, standing, per the
+next paragraph.
 
 **David has told me directly (2026-07-07): no background check-ins, period — he
 checks PR status manually and pings me if he needs me.** This overrides the
