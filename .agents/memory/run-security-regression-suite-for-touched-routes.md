@@ -50,5 +50,9 @@ you deliberately migrate every assertion.
 The fix (PR #218, commit reverting to explicit message-specific checks + inline
 email validation) is described in
 [`security-model.md`](../../docs/ai-context/security-model.md#authentication--sessions).
-The repo runs `node --test` sharded; a single suite is
-`node --import tsx/esm --test src/__tests__/<file>.test.ts`.
+Run a single suite through the isolated wrapper — `bash
+artifacts/api-server/scripts/run-test.sh src/__tests__/<file>.test.ts` — **not** a
+raw `node --test` / `node --import tsx/esm --test` invocation. The wrapper points
+the run at the isolated `heliumdb_test` schema and loads the safe test setup;
+running `node` directly bypasses that and can mutate the live/public schema or
+give non-reproducible results (see [`docs/TESTING.md`](../../docs/TESTING.md)).
