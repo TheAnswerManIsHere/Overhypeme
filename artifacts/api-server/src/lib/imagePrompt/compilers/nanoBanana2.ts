@@ -299,7 +299,9 @@ function composeKeyElementsDirective(vp: VisualPlan, haystack: string): Directiv
       dropped.push({ source, value, reason: "already-in-core-scene" });
       continue;
     }
-    missing.push(value);
+    // Strip trailing sentence punctuation so joining with "; " and the section's
+    // own terminal "." can't produce a doubled terminator ("…props..").
+    missing.push(value.replace(/[.!?]+$/, ""));
     localHaystack = `${localHaystack} ${value}`;
   }
   const text = missing.length ? `Ensure these elements are clearly visible: ${missing.join("; ")}.` : "";
@@ -570,7 +572,12 @@ function composeAdditiveRoleDetails(opts: {
       dropped.push({ source: "secondaryCharacter", value: `${label}: ${visualRole}`, reason: "already-in-core-scene" });
       continue;
     }
-    clauses.push(leadsWithName(visualRole, label) ? visualRole : `${label} is ${visualRole}`);
+    // Label-colon form ("king cobra: Large venomous snake…") rather than
+    // "<label> is <visualRole>": the latter mangled casing ("king cobra is Large
+    // venomous snake") and could produce ungrammatical joins with proper-noun /
+    // initialism labels ("NASA astronaut", "Dr. Smith"). A visualRole that
+    // already opens with the label stays a self-contained clause (no doubling).
+    clauses.push(leadsWithName(visualRole, label) ? visualRole : `${label}: ${visualRole}`);
   }
 
   const text = clauses.length ? clauses.map((c) => `${c}.`).join(" ") : "";

@@ -913,7 +913,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /ROLE DETAILS:/);
     // A bare-predicate subject role (no leading name) still gets the "is" binding.
     assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
-    assert.match(out.imagePrompt, /mother is adult woman in the passenger seat, surprised and amused/);
+    assert.match(out.imagePrompt, /mother: adult woman in the passenger seat, surprised and amused/);
   });
 
   it("moderator roleBindings mark ROLE DETAILS required + non-compressible, surviving the char budget", () => {
@@ -936,7 +936,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     }));
     assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
     assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
-    assert.match(out.imagePrompt, /mother is adult woman in the passenger seat, surprised and amused/);
+    assert.match(out.imagePrompt, /mother: adult woman in the passenger seat, surprised and amused/);
     const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
     assert.equal(roleDetails?.priority, "required");
     assert.equal(roleDetails?.status, "included");
@@ -1181,7 +1181,7 @@ describe("nanoBanana2 — ROLE DETAILS + role binding", () => {
     }));
     assert.match(out.imagePrompt, /ROLE DETAILS:/);
     assert.match(out.imagePrompt, /David is the newborn baby gripping the steering wheel and driving\./);
-    assert.match(out.imagePrompt.toLowerCase(), /his mother is a separate adult woman seated in the front passenger seat/);
+    assert.match(out.imagePrompt.toLowerCase(), /his mother: a separate adult woman seated in the front passenger seat/);
     // Role-swap is blocked + the subject must be actively driving (active frame).
     assert.match(out.imagePrompt.toLowerCase(), /keep each named character in their stated visual role/);
     assert.match(out.imagePrompt.toLowerCase(), /only david performs the central action/);
@@ -1232,7 +1232,7 @@ describe("nanoBanana2 — ROLE DETAILS + role binding", () => {
         secondaryCharacters: [{ label: "the referee", visualRole: "a separate official walking away, protesting" }],
       },
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /the referee is a separate official walking away/);
+    assert.match(out.imagePrompt.toLowerCase(), /the referee: a separate official walking away/);
     assert.match(out.imagePrompt.toLowerCase(), /keep each named character in their stated visual role/);
     // No age-split language for a non-transform fact.
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /do not render the adult reference person separately/);
