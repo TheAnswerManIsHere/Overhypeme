@@ -8,8 +8,8 @@
  *        single DB-side delete rather than a full-table scan.
  *   C7 — admin set-password enforces an 8-char minimum (was 6).
  *
- * (The dev-admin-login backdoor, C1, is intentionally deferred to pre-launch
- * per product decision — see the SECURITY TODO at that route.)
+ * (The dev-admin-login backdoor, C1, is now hardened fail-closed — see
+ * `localAuth.devAdminLogin.security.test.ts` and `lib/devAdminLogin.ts`.)
  */
 
 import { describe, it, before, after } from "node:test";
