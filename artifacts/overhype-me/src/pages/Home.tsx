@@ -1,6 +1,7 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { FactComments } from "@/components/facts/FactComments";
+import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { Layout } from "@/components/layout/Layout";
 import { ChevronDown, ChevronUp, Flame, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -22,7 +23,6 @@ const COLD_TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 // Sample name shown in the cold-visitor hero so visitors immediately see
 // the personalisation — the name renders in orange just like their own will.
 const DEMO_NAME = "David Franklin";
-const COLD_DEMO_RENDERED = renderFact(COLD_TEASER_FACT, DEMO_NAME, DEFAULT_PRONOUNS);
 
 function HashtagRail({
   hashtags,
@@ -167,11 +167,7 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
 
         <h2 className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
           style={{ fontSize: "clamp(36px, 10vw, 52px)" }}>
-          {COLD_DEMO_RENDERED.split(DEMO_NAME).map((p, i, arr) =>
-            i < arr.length - 1
-              ? <span key={i}>{p}<span className="text-primary">{DEMO_NAME}</span></span>
-              : <span key={i}>{p}</span>
-          )}
+          <HighlightedFactText template={COLD_TEASER_FACT} name={DEMO_NAME} pronouns={DEFAULT_PRONOUNS} />
         </h2>
 
         <button
@@ -241,21 +237,6 @@ const PRESET_LABELS: Record<string, string> = {
 
 const INPUT_CLASS =
   "w-full bg-secondary border border-border rounded-[8px] px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/60";
-
-/** Highlight all occurrences of `name` in orange within a rendered sentence. */
-function HighlightName({ text, name }: { text: string; name: string }) {
-  if (!name) return <>{text}</>;
-  const parts = text.split(name);
-  return (
-    <>
-      {parts.map((p, i) =>
-        i < parts.length - 1
-          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
-          : <span key={i}>{p}</span>
-      )}
-    </>
-  );
-}
 
 function PronounsOnboardingSheet({
   name,
@@ -334,16 +315,13 @@ function PronounsOnboardingSheet({
 
           {/* ── Three live previews ───────────────────────── */}
           <div className="space-y-2 mb-5">
-            {PRONOUN_PREVIEW_FACTS.map((tpl, i) => {
-              const rendered = renderFact(tpl, name, selected);
-              return (
-                <div key={i} className="rounded-[12px] bg-background border border-border px-4 py-2.5">
-                  <p className="font-display font-bold text-[15px] uppercase leading-snug text-foreground">
-                    <HighlightName text={rendered} name={name} />
-                  </p>
-                </div>
-              );
-            })}
+            {PRONOUN_PREVIEW_FACTS.map((tpl, i) => (
+              <div key={i} className="rounded-[12px] bg-background border border-border px-4 py-2.5">
+                <p className="font-display font-bold text-[15px] uppercase leading-snug text-foreground">
+                  <HighlightedFactText template={tpl} name={name} pronouns={selected} />
+                </p>
+              </div>
+            ))}
           </div>
 
           {/* ── Preset chips ──────────────────────────────── */}

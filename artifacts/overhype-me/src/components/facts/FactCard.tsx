@@ -4,24 +4,10 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { FactSummary } from "@workspace/api-client-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
-import { renderFact } from "@/lib/render-fact";
 import { FactComments } from "./FactComments";
 import { FactActionCluster } from "./FactActionCluster";
+import { HighlightedFactText } from "./HighlightedFactText";
 import { useFactExpansion } from "@/contexts/fact-expansion-context";
-
-function HighlightName({ text, name }: { text: string; name: string }) {
-  if (!name) return <>{text}</>;
-  const parts = text.split(name);
-  return (
-    <>
-      {parts.map((p, i) =>
-        i < parts.length - 1
-          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
-          : <span key={i}>{p}</span>
-      )}
-    </>
-  );
-}
 
 type Size = "feed" | "hero" | "detail" | "variant";
 
@@ -207,21 +193,21 @@ export function FactCard({
             detail page itself we're already there, so we render plain text. */}
         {isDetail ? (
           <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight mb-4">
-            {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+            {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
           </h1>
         ) : (
           <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
             {isHero ? (
               <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
-                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+                {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
               </h2>
             ) : isVariant ? (
               <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+                {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
               </h2>
             ) : (
               <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+                {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
               </h3>
             )}
           </Link>
