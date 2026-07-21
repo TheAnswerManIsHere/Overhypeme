@@ -13,6 +13,63 @@
 
 ---
 
+### 2026-07 · dev-admin-login backdoor stays open pre-launch, hardened before go-live
+- **Decision:** The `POST /api/auth/dev-admin-login` route (which mints/upgrades
+  any caller's session to the bootstrap admin — CSRF/origin-exempt, permissive
+  CORS, writes the sid to `localStorage`) is **deliberately left open** while
+  David is pre-launch and testing, and **must be hardened before go-live** behind
+  a fail-closed flag (`ENABLE_DEV_ADMIN_LOGIN` + prod-host/`NODE_ENV` guard,
+  default disabled) so that when disabled the route isn't registered, isn't
+  origin-exempt, and emits no cookie/Bearer.
+- **Why:** it's the fastest way for David to get an admin session across preview
+  contexts (Replit canvas, mobile) during pre-launch; the security cost is
+  acceptable *only* while there's nothing real to protect. This is a **deferral**,
+  not a decision to keep it — the review flagged it as the single
+  highest-severity finding (C1).
+- **Reference:** finding C1; [`security-model.md`](./security-model.md#-pre-launch-gate--the-dev-admin-login-backdoor-c1);
+  pre-launch item in [`current-roadmap.md`](./current-roadmap.md).
+- **Revisit if:** launch approaches (this becomes a hard gate), or any real user
+  data lands in the environment before then.
+
+### 2026-07 · Membership is granted only for Stripe products tagged `overhype_membership=true`
+- **Decision:** "Does paying for this grant Legendary?" is decided by a
+  positive allowlist keyed on the Stripe **product** metadata tag
+  `overhype_membership=true`, enforced at the **grant layer** (checkout,
+  subscription switch, the synchronous confirm endpoint, AND the webhook —
+  grant *and* cancellation), not just at checkout. One-time grants verify the
+  actual purchased product from the Checkout Session line items, never the
+  mutable `membership=true` PI metadata stamp.
+- **Why:** checkout previously accepted any active price and granted Legendary
+  for any succeeded payment, never checking *which* product — a price/tier
+  tampering hole that goes live the moment a non-membership product exists.
+  David confirmed non-membership purchases are coming (render credits), so a
+  product-metadata allowlist keeps the "is this membership?" decision next to
+  the product in Stripe (no env/config to drift), and the grant layer is the
+  authoritative gate because the webhook — not checkout — is what actually flips
+  the tier.
+- **Reference:** finding C6, PR #214;
+  [`security-model.md`](./security-model.md#payment-trust--membership-grants-c6),
+  `artifacts/api-server/src/lib/membershipPricing.ts`.
+- **Revisit if:** membership products ever need per-mode (test/live) isolation
+  beyond what the product tag gives, or a non-Stripe entitlement source appears.
+
+### 2026-07 · `isPublic=false` on a meme means owner-only/secret
+- **Decision:** A meme with `isPublic === false` is visible **only** to its
+  creator or an admin — not "unlisted but link-shareable." Every non-owner
+  (logged-in or not) gets a **404** (not 403), private responses are
+  `no-store` and excluded from the Cloudflare public cache and OG preview, and
+  the visibility gate runs *before* the soft-delete 410 so a deleted private
+  meme is indistinguishable from a missing one.
+- **Why:** David's explicit product call during the review — "private" is
+  secret, so slug unguessability is not authorization. 404-over-403 avoids
+  confirming a private meme exists.
+- **Reference:** finding C3, PR #213;
+  [`security-model.md`](./security-model.md#authorization--objects-media-and-memes),
+  `artifacts/api-server/src/lib/memeVisibility.ts`.
+- **Revisit if:** an "unlisted, link-shareable" tier is ever wanted as a
+  *distinct* third state (it would be a new value, not a reinterpretation of
+  `isPublic=false`).
+
 ### 2026-07 · Auto-tokenize admin Visual-Concept authoring on Save
 - **Decision:** Moderators author the Visual Strategy Override's rendered
   fields (Visual Concept, required/forbidden details, role visual roles,

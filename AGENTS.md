@@ -45,6 +45,12 @@ For **grammar, token rendering, or tokenizer** work, also read:
 
 - [`docs/ai-context/token-rendering-and-grammar.md`](docs/ai-context/token-rendering-and-grammar.md)
 
+For **auth, authorization, object/media serving, Stripe/membership grants,
+HTTP headers, or secrets** work, also read:
+
+- [`docs/ai-context/security-model.md`](docs/ai-context/security-model.md) —
+  the security posture, and the **pre-launch dev-admin-login gate (C1)**
+
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [testing-guide](docs/engineering/testing-guide.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md),
