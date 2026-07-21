@@ -118,17 +118,42 @@ export interface VsoBudgetResult {
 }
 
 /**
+ * Naive lower-bound of the additions' rendered length: the sum of each non-core
+ * rendered field's worst-case TOKEN expansion, with NO compiler wrapping. This
+ * UNDERCOUNTS what the compiler actually emits (it omits the "Do not …"
+ * negation prefixes, "label: " role forms, "; " list joins, and the per-section
+ * labels that only appear once a field is populated), so it must NOT be used as
+ * the save gate — pass `measureModeratorAdditionsEmission()` (api-server, which
+ * runs the real compiler) into `validateVisualStrategyOverrideForSave` instead.
+ * Exposed only for a cheap client-side "you're getting close" hint.
+ */
+export function naiveAdditionsRenderedLowerBound(ov: VisualPromptStrategyOverride): number {
+  let total = 0;
+  for (const { path, value } of collectRenderedTextEntries(ov)) {
+    if (path === "coreSceneOverride") continue;
+    total += projectWorstCaseRenderedLength(value);
+  }
+  return total;
+}
+
+/**
  * Validate a visual-strategy override's rendered-text budget at SAVE time
  * (§10.2 / §10.3). Applies, on the override's CURRENT content:
  *   • the CORE SCENE raw cap AND its projected-rendered cap, and
- *   • the aggregate projected-rendered cap for ALL other moderator content.
+ *   • the aggregate cap for ALL other moderator content, measured as the actual
+ *     COMPILER-EMITTED length (`additionsEmittedLength`, from
+ *     `measureModeratorAdditionsEmission()` in api-server) — NOT a raw field
+ *     sum, so the "Do not …"/"label: "/join/section-label overhead the compiler
+ *     adds is counted (Codex P1, PR#224). The caller measures because only
+ *     api-server owns the compiler; this function stays pure/testable.
  *
- * Pure and side-effect-free. Field-level raw caps (roleBinding lengths, list
- * sizes) stay owned by the zod schema; this adds the rendered-budget layer the
- * schema can't express. Returns every violation (not just the first) so the UI
- * can point at each, plus projected usage for the save counter.
+ * Field-level raw caps (roleBinding lengths, list sizes) stay owned by the zod
+ * schema. Returns every violation (not just the first) plus projected usage.
  */
-export function validateVisualStrategyOverrideForSave(ov: VisualPromptStrategyOverride): VsoBudgetResult {
+export function validateVisualStrategyOverrideForSave(
+  ov: VisualPromptStrategyOverride,
+  additionsEmittedLength: number,
+): VsoBudgetResult {
   const errors: VsoBudgetError[] = [];
 
   const coreRaw = (ov.coreSceneOverride ?? "").length;
@@ -153,25 +178,21 @@ export function validateVisualStrategyOverrideForSave(ov: VisualPromptStrategyOv
     });
   }
 
-  // Aggregate every OTHER rendered field (everything except the CORE SCENE).
-  let additionsRendered = 0;
-  for (const { path, value } of collectRenderedTextEntries(ov)) {
-    if (path === "coreSceneOverride") continue;
-    additionsRendered += projectWorstCaseRenderedLength(value);
-  }
-  if (additionsRendered > MODERATOR_ADDITIONS_RENDERED_MAX) {
+  // The COMPILER-EMITTED length of all other moderator content (measured by the
+  // caller, wrappers included) — not the raw field sum.
+  if (additionsEmittedLength > MODERATOR_ADDITIONS_RENDERED_MAX) {
     errors.push({
       code: "moderator_additions_rendered_too_long",
       field: "moderatorAdditions",
-      actual: additionsRendered,
+      actual: additionsEmittedLength,
       limit: MODERATOR_ADDITIONS_RENDERED_MAX,
-      message: `Your visual guidance (role bindings, required/forbidden details, composition, additions, policy guidance) expands to up to ${additionsRendered} characters; the combined maximum is ${MODERATOR_ADDITIONS_RENDERED_MAX}. Trim some entries.`,
+      message: `Your visual guidance (role bindings, required/forbidden details, composition, additions, policy guidance) adds up to ${additionsEmittedLength} characters to the prompt; the combined maximum is ${MODERATOR_ADDITIONS_RENDERED_MAX}. Trim some entries.`,
     });
   }
 
   return {
     ok: errors.length === 0,
     errors,
-    usage: { coreSceneRendered: coreRendered, moderatorAdditionsRendered: additionsRendered },
+    usage: { coreSceneRendered: coreRendered, moderatorAdditionsRendered: additionsEmittedLength },
   };
 }

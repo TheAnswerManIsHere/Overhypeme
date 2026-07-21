@@ -56,6 +56,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
 import { softDeleteUserLifecycle, hardDeleteUserLifecycle, exportUserData, anonymizePaymentHistoryForUser, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { getGovernanceAdminView } from "../lib/resourceGovernance";
+import { measureModeratorAdditionsEmission } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 
 const _styleStorage = new ObjectStorageService();
@@ -1072,7 +1073,10 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // compile. Legacy stored content stays readable; this gates saves only.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
   if (submittedVso?.enabled) {
-    const budget = validateVisualStrategyOverrideForSave(submittedVso);
+    // Additions are measured through the REAL compiler (wrapping included), not a
+    // raw field sum, so a save the gate accepts can't overflow at render.
+    const additionsEmitted = measureModeratorAdditionsEmission(submittedVso);
+    const budget = validateVisualStrategyOverrideForSave(submittedVso, additionsEmitted);
     if (!budget.ok) {
       res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
       return;
