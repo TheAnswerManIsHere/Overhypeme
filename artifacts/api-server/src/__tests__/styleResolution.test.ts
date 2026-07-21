@@ -21,6 +21,26 @@ import {
   RENDER_STYLE_SNAPSHOT_VERSION,
 } from "../lib/imagePrompt/styleResolution";
 import { DEFAULT_PHOTOREALISTIC_STYLE } from "../lib/imagePrompt/compilers/nanoBanana2";
+import { IMAGE_STYLES } from "../config/imageStyles";
+
+// Regression guard (Codex review, PR223): the copy-length gate must never
+// reject an already-shipped seeded style — `look_styles` (migration 0057) is
+// mirrored from this config, so every entry here must clear the cap on both
+// generation-mode variants.
+describe("seeded IMAGE_STYLES fit under RENDER_STYLE_COPY_MAX_CHARS", () => {
+  for (const style of IMAGE_STYLES) {
+    it(`${style.id}: promptSuffix and promptSuffixReference both fit`, () => {
+      assert.ok(
+        style.promptSuffix.length <= RENDER_STYLE_COPY_MAX_CHARS,
+        `${style.id} promptSuffix is ${style.promptSuffix.length} chars, exceeds cap ${RENDER_STYLE_COPY_MAX_CHARS}`,
+      );
+      assert.ok(
+        style.promptSuffixReference.length <= RENDER_STYLE_COPY_MAX_CHARS,
+        `${style.id} promptSuffixReference is ${style.promptSuffixReference.length} chars, exceeds cap ${RENDER_STYLE_COPY_MAX_CHARS}`,
+      );
+    });
+  }
+});
 
 describe("normalizeStyleCopy", () => {
   it("accepts a normal short suffix and trims outer whitespace", () => {

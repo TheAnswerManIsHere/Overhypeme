@@ -28,8 +28,10 @@ import { DEFAULT_PHOTOREALISTIC_STYLE } from "./compilers/nanoBanana2";
 /** The runtime + authoring invariant for style copy (plan 11.3) -- a
  *  customized row can be arbitrarily long in the DB (unbounded `text`
  *  columns), but must never exceed this to stay inside the compiler's RENDER
- *  STYLE budget reserve. */
-export const RENDER_STYLE_COPY_MAX_CHARS = 180;
+ *  STYLE budget reserve. Set with headroom above the longest seeded built-in
+ *  style (`cinematic`'s i2i `promptSuffixReference`, 220 chars as of migration
+ *  0057) -- this gate must never reject an already-shipped default style. */
+export const RENDER_STYLE_COPY_MAX_CHARS = 250;
 
 export type StyleInvalidReason = "not_found" | "inactive" | "empty_suffix" | "copy_too_long" | "copy_invalid";
 
