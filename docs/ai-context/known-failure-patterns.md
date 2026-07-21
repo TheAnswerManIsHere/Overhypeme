@@ -328,6 +328,41 @@ speculative generality. **Overhype:** pre-launch priorities are stability + cont
 quality — new external vendors and new abstractions need a strong reason and
 David's sign-off (see [`product-direction.md`](./product-direction.md)).
 
+## Security classification by URL path instead of resolved authorization
+
+**Looks like:** deciding a security posture (is this cacheable? cross-origin
+embeddable? public?) from a route's path *shape* — an allowlist of URL patterns —
+rather than from the ownership/visibility resolved for that specific response.
+**Dangerous:** one path serves both public and private responses, so a pattern
+match is wrong for half of them. `/api/memes/:slug/image` matches a public meme,
+a **private** meme, AND the owner-gated `/api/memes/ai-user/image`; marking it
+`cross-origin` by path leaks owner-only bytes (defeating CORP). The same shape
+also produces path-traversal when a path param is interpolated into a storage
+key (`video_style_previews/${id}.gif` with `id=../../x`). **Avoid:** classify at
+the point visibility is *known* — one shared choke point that runs after the ACL
+resolves — and derive any storage key from a sanitized/hashed form, never the raw
+input. **Overhype:** cross-origin CORP is set in `setPublicCors()`
+(`cacheHeaders.ts`), called *only* on confirmed-public responses; private
+responses call `setNoStore` and stay `same-origin`. The style preview key goes
+through `safeStylePreviewKey()`. See
+[`security-model.md`](./security-model.md#http-security-headers-c5) (C5/C9).
+
+## Trusting self-set mutable metadata as a security assertion across a deploy
+
+**Looks like:** an app writes a flag onto an object it controls (a Stripe PI's
+`membership=true` metadata, a signed cookie claim, a DB column) and later reads
+that flag back as *proof* of a security property. **Dangerous:** the flag was set
+by an *older* version of the code with weaker rules, and in-flight objects
+(pre-existing checkout sessions, cached tokens) carry it — so the new gate that
+trusts the flag can be satisfied by a pre-staged object the old code stamped
+wrongly. **Avoid:** verify the underlying fact from an authoritative,
+non-self-set source at read time (the actual purchased product from the Checkout
+Session line items), not the flag you wrote. **Overhype:** the one-time
+membership grant reads `session.line_items[].price.product` and ignores the
+`membership=true` PI stamp our own checkout set, closing the window where a
+legacy pre-allowlist session mints Legendary after deploy. See
+[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6) (C6).
+
 ## Head-of-line blocking in a shared background worker
 
 **Looks like:** one dispatch loop (one claim query, one concurrency pool, one
