@@ -42,6 +42,31 @@ describe("seeded IMAGE_STYLES fit under RENDER_STYLE_COPY_MAX_CHARS", () => {
   }
 });
 
+// §14 completeness/consistency: the canonical named-style catalogue.
+describe("IMAGE_STYLES catalogue is complete and consistent (§14)", () => {
+  it("has exactly 18 named styles + the `none` sentinel = 19, no duplicate ids", () => {
+    const ids = IMAGE_STYLES.map((s) => s.id);
+    assert.equal(ids.length, 19, "expected 18 named styles + `none`");
+    assert.equal(new Set(ids).size, ids.length, "duplicate style id");
+    assert.ok(ids.includes("none"), "the `none` sentinel must be present");
+    assert.equal(ids.filter((id) => id !== "none").length, 18, "expected exactly 18 NAMED styles");
+  });
+
+  it("`none` carries empty suffixes (it applies no style copy)", () => {
+    const none = IMAGE_STYLES.find((s) => s.id === "none");
+    assert.ok(none);
+    assert.equal(none!.promptSuffix, "");
+    assert.equal(none!.promptSuffixReference, "");
+  });
+
+  it("every NAMED style has non-empty copy on both generation-mode variants", () => {
+    for (const s of IMAGE_STYLES.filter((s) => s.id !== "none")) {
+      assert.ok(s.promptSuffix.trim().length > 0, `${s.id} promptSuffix is empty`);
+      assert.ok(s.promptSuffixReference.trim().length > 0, `${s.id} promptSuffixReference is empty`);
+    }
+  });
+});
+
 describe("normalizeStyleCopy", () => {
   it("accepts a normal short suffix and trims outer whitespace", () => {
     const r = normalizeStyleCopy("  Rendered in cinematic film style.  ");

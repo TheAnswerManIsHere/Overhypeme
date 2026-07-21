@@ -264,6 +264,20 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // drizzle-kit generate is broken on the malformed 0063 snapshot. Source of
   // truth: lib/db/src/schema/reviews.ts + lib/api-zod/src/moderationWorkflow.ts.
   "0083_review_workflow_stage_concept_review",
+
+  // Hand-authored DML resetting the seeded fact_image_prompt_system row to the
+  // v7 default (no schema delta — the code default is the source of truth).
+  "0086_retire_style_integration_add_supporting_text_kind",
+
+  // Hand-authored DDL adding the nullable `error_code varchar(64)` column to
+  // image_prompt_attempts (§12 typed terminal failure codes). Source of truth:
+  // lib/db/src/schema/imagePromptAttempts.ts.
+  "0087_image_prompt_attempts_error_code",
+
+  // Hand-authored DML per-column guarded UPDATE trimming the 18 named
+  // look_styles' copy (§14). No schema delta. Source of truth:
+  // artifacts/api-server/src/config/imageStyles.ts.
+  "0088_trim_global_look_style_copy",
 ]);
 
 interface JournalEntry {

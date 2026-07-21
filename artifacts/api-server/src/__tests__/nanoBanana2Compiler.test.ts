@@ -966,7 +966,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
       visualPlan: { subjectDetails: filler, environment: filler },
       override: makeOverride({ roleBindings }),
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
     assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
     assert.match(out.imagePrompt, /mother: adult woman in the passenger seat, surprised and amused/);
     const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
@@ -990,7 +990,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
       renderedSubject: { name: "David", pronouns: "he/him" },
       override: makeOverride({ roleBindings }),
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
     const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
     assert.equal(roleDetails?.priority, "required");
     assert.equal(roleDetails?.status, "included");
@@ -1180,7 +1180,7 @@ describe("nanoBanana2 — prompt component breakdown", () => {
       renderedSubject: { name: "David", pronouns: "he/him" },
       modifiers: ["baby_child_version"],
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
     assert.equal(out.negativePrompt, undefined);
     // Required identity + binding survive even when the scene is enormous.
     assert.match(out.imagePrompt.toLowerCase(), /image-to-image edit using the reference image/);
@@ -1497,7 +1497,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
       visualPlan: { subjectDetails: filler, environment: filler },
       override: makeOverride({ coreSceneOverride: moderatorScene }),
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
     assert.ok(out.imagePrompt.includes(moderatorScene), "moderator scene present verbatim");
     const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
     assert.equal(core?.status, "included");
@@ -1505,7 +1505,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     assert.match(String(out.engineNotes ?? ""), /budget/i);
   });
 
-  it("still records the hard-truncation note when required content alone overflows", () => {
+  it("signals required_budget_overflow instead of silently truncating required content (§10.5)", () => {
     const hugeRequired = Array.from({ length: 120 }, (_, i) => `a mandatory prop number ${i} rendered in full detail`);
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
@@ -1516,8 +1516,15 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
         requiredVisualDetails: hugeRequired,
       }),
     }));
-    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
-    assert.match(String(out.engineNotes ?? ""), /Hard-truncated required content/);
+    // The compiler NO LONGER truncates required content (which used to drop the
+    // policy guardrails off the end) — it exceeds the budget and flags overflow
+    // so the worker fails loud + terminal instead.
+    assert.ok(out.imagePrompt.length > 6000, `expected overflow, got length ${out.imagePrompt.length}`);
+    const overflow = out.diagnostics?.requiredBudgetOverflow;
+    assert.ok(overflow, "requiredBudgetOverflow diagnostic must be set");
+    assert.ok(overflow!.overBy > 0);
+    assert.equal(overflow!.budget, 6000);
+    assert.match(String(out.engineNotes ?? ""), /exceeds the engine prompt budget/);
   });
 });
 

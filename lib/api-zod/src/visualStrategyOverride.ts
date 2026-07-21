@@ -77,7 +77,7 @@ const visualPromptStrategyOverrideBase = z.object({
    * is the AUTHORITATIVE scene: the planner LLM is directed to realize it and
    * the compiler emits it as the required, non-compressible CORE SCENE section
    * (winning over the AI plan's coreScene). Carries {NAME}/pronoun tokens.
-   * Capped: the engine prompt budget is 4000 chars and this section is never
+   * Capped: the engine prompt budget is 6000 chars and this section is never
    * compressed — it is a scene brief, not a full prompt.
    */
   coreSceneOverride: z.string().max(1500).optional(),

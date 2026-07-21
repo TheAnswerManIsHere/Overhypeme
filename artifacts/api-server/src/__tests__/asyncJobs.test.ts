@@ -13,6 +13,7 @@ import {
   enqueueJob,
   queuesForLane,
   registerJobHandler,
+  terminalFailure,
   type JobHandler,
 } from "../lib/asyncJobs.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
@@ -197,6 +198,57 @@ describe("asyncJobs worker", () => {
     assert.equal(after.maxAttempts, 0, "0 sentinel should mean queue config, not a hard-coded override");
     assert.equal(after.attempts, 2);
     assert.equal(after.status, "failed");
+  });
+
+  it("terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)", async () => {
+    const queue = `${QUEUE_PREFIX}${randomUUID()}`;
+    const configKey = `async_job_${queue}_max_attempts`;
+    configKeys.push(configKey);
+    await setConfigInt(configKey, 5); // plenty of retries left — a retryable failure would NOT fail yet
+
+    registerJobHandler(queue, {
+      async run() {
+        return terminalFailure("style_snapshot_invalid", "deterministic: frozen style snapshot invalid");
+      },
+    });
+
+    await enqueueJob({ queue, payload: {} });
+    const [inserted] = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, queue)).limit(1);
+    assert.ok(inserted);
+    jobIds.push(inserted.id);
+
+    await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, inserted.id));
+    await asyncJobsTick(db);
+
+    const after = await getJob(inserted.id);
+    assert.equal(after.status, "failed", "a terminal failure fails immediately");
+    assert.equal(after.attempts, 1, "terminal failure does not burn extra retry attempts");
+    assert.match(after.lastError ?? "", /frozen style snapshot invalid/);
+  });
+
+  it("a plain (retryable) failure still retries under maxAttempts — terminal path is opt-in", async () => {
+    const queue = `${QUEUE_PREFIX}${randomUUID()}`;
+    const configKey = `async_job_${queue}_max_attempts`;
+    configKeys.push(configKey);
+    await setConfigInt(configKey, 5);
+
+    registerJobHandler(queue, {
+      async run() {
+        return { ok: false, error: "transient hiccup" }; // no retryable flag → historical retry behavior
+      },
+    });
+
+    await enqueueJob({ queue, payload: {} });
+    const [inserted] = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, queue)).limit(1);
+    assert.ok(inserted);
+    jobIds.push(inserted.id);
+
+    await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, inserted.id));
+    await asyncJobsTick(db);
+
+    const after = await getJob(inserted.id);
+    assert.equal(after.status, "pending", "retryable failure stays pending for another attempt");
+    assert.equal(after.attempts, 1);
   });
 
   // ─── Lane split ───────────────────────────────────────────────────────────

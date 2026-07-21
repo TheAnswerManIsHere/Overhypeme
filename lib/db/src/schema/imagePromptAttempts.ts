@@ -64,8 +64,17 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   compiledPrompt: jsonb("compiled_prompt"),
   /** NULL until image_prompt_generation handler succeeds. */
   subjectFactCompatibility: jsonb("subject_fact_compatibility"),
-  /** Non-null on failure. */
+  /** Non-null on failure — the safe, human-readable operational message. */
   error: text("error"),
+  /**
+   * Typed failure code for a DETERMINISTIC (terminal) prompt-generation
+   * failure (§12) — e.g. `invalid_persisted_enrichment`, `style_snapshot_invalid`,
+   * `required_budget_overflow`. NULL for a success or a transient/legacy failure
+   * that carries only `error`. The poll payload returns this ALONGSIDE `error`
+   * so the UI classifies by code instead of parsing a "code: message" string.
+   * Both `error` and `error_code` are cleared when a later attempt succeeds.
+   */
+  errorCode: varchar("error_code", { length: 64 }),
   /** Populated by the image_generation handler when fal returns. */
   generatedImageObjectPath: text("generated_image_object_path"),
   // ── Moderation render-scenario metadata (migration 0076) ──────────────────

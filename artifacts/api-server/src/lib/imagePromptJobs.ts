@@ -51,7 +51,7 @@ import {
   type SourceImageAnalysis,
   type GenerationMode,
 } from "@workspace/api-zod";
-import { registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } from "./asyncJobs";
+import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
@@ -107,8 +107,13 @@ export const imagePromptGenerationHandler: JobHandler = {
     // have been re-classified since this render was requested.
     const enrichmentValidation = validateEnrichment(attempt.factEnrichmentSnapshot);
     if (!enrichmentValidation.ok) {
-      await markAttemptError(p.attemptId, `enrichment snapshot invalid: ${enrichmentValidation.error}`);
-      return { ok: false, error: `enrichment snapshot invalid: ${enrichmentValidation.error}` };
+      // The frozen enrichment snapshot is invalid — re-running can't fix stored
+      // data, so this is terminal (§12).
+      return recordTerminalAttemptFailure(
+        p.attemptId,
+        "invalid_persisted_enrichment",
+        `enrichment snapshot invalid: ${enrichmentValidation.error}`,
+      );
     }
     const enrichment = enrichmentValidation.data;
 
@@ -125,8 +130,9 @@ export const imagePromptGenerationHandler: JobHandler = {
       factText = await resolveRenderedFactText(attempt, renderedSubject);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, msg);
-      return { ok: false, error: msg };
+      // Frozen fact text still carries unresolved tokens, or a legacy attempt's
+      // fact/template can't be resolved — deterministic, so terminal (§12).
+      return recordTerminalAttemptFailure(p.attemptId, "rendered_fact_unresolved_token", msg);
     }
 
     // Resolve style suffix per generation mode.
@@ -168,16 +174,62 @@ export const imagePromptGenerationHandler: JobHandler = {
       const provNote = prov
         ? ` [planner: ${prov.fallbackReason ? `fallback (${prov.fallbackReason})` : `${prov.model ?? "?"} via ${prov.resolvedEngineId ?? "?"}`}]`
         : "";
-      await markAttemptError(p.attemptId, `prompt-gen failed: ${msg}${provNote}`);
-      return { ok: false, error: `prompt-gen failed: ${msg}${provNote}` };
+      const fullMsg = `prompt-gen failed: ${msg}${provNote}`;
+      // Validation-exhaustion (planner output invalid after the corrective
+      // retry) is deterministic → terminal. Provider/timeout/transport failures
+      // (or any legacy/unclassified error) stay retryable (§12).
+      if (err instanceof ImagePromptError && err.cause === "validation_exhausted") {
+        return recordTerminalAttemptFailure(p.attemptId, "planner_output_invalid_after_retry", fullMsg);
+      }
+      await markAttemptError(p.attemptId, fullMsg);
+      return { ok: false, error: fullMsg };
     }
 
-    const compiled = compileForSubjectRenderMode({
-      visualPlan: output.visualPlan,
-      compiledPrompt: output.compiledPrompt,
-      input,
-      renderedSubject,
-    });
+    let compiled;
+    try {
+      compiled = compileForSubjectRenderMode({
+        visualPlan: output.visualPlan,
+        compiledPrompt: output.compiledPrompt,
+        input,
+        renderedSubject,
+      });
+    } catch (err) {
+      // A compiler throw (e.g. an unhandled subjectRenderMode) is deterministic
+      // given the frozen inputs → terminal; never retry the paid planner for it.
+      const msg = err instanceof Error ? err.message : String(err);
+      return recordTerminalAttemptFailure(p.attemptId, "compile_failed", `compile failed: ${msg}`);
+    }
+
+    // Fail-loud gate (§12): the final prompt must carry NO unresolved
+    // {NAME}/{SUBJ}/… token. The compiler flags this as a warning (shared with
+    // the admin preview), but at RENDER time a leaked token is terminal — we
+    // refuse to ship it to the engine and never enqueue image_generation.
+    const finalPromptText =
+      (compiled as { imagePrompt?: string; prompt?: string }).imagePrompt ??
+      (compiled as { prompt?: string }).prompt ??
+      "";
+    if (hasUnresolvedFactTokens(finalPromptText)) {
+      return recordTerminalAttemptFailure(
+        p.attemptId,
+        "moderator_core_scene_unresolved_token",
+        "compiled prompt still contains an unresolved personalization token (check the moderator Concept/override)",
+      );
+    }
+
+    // §10.5 fail-loud budget gate: the compiler no longer silently truncates
+    // required content, so if required content alone overflowed the engine
+    // budget (only reachable by legacy over-budget content — save validation
+    // prevents it for new saves), fail terminal instead of shipping a prompt
+    // whose policy guardrails were cut.
+    const overflow = compiled.diagnostics?.requiredBudgetOverflow;
+    if (overflow) {
+      return recordTerminalAttemptFailure(
+        p.attemptId,
+        "required_budget_overflow",
+        `compiled prompt exceeds the engine budget by ${overflow.overBy} characters (${overflow.totalLength}/${overflow.budget}); shorten the moderator Concept/additions`,
+      );
+    }
+
     // Persist which planner engine produced this plan alongside the compiled
     // prompt so attempts (and the admin preview) can attribute render quality.
     if (output.plannerProvenance && compiled.diagnostics) {
@@ -230,6 +282,7 @@ export async function persistImagePromptPlanAndEnqueueGeneration(args: {
       subjectFactCompatibility: args.subjectFactCompatibility,
       archetypeStrategyVersion: args.archetypeStrategyVersion,
       error: null,
+      errorCode: null,
       updatedAt: new Date(),
     })
     .where(eq(imagePromptAttemptsTable.id, args.attemptId));
@@ -471,6 +524,41 @@ async function markAttemptError(attemptId: number, error: string): Promise<void>
     .update(imagePromptAttemptsTable)
     .set({ error, updatedAt: new Date() })
     .where(eq(imagePromptAttemptsTable.id, attemptId));
+}
+
+/**
+ * Persist a DETERMINISTIC (terminal) prompt-generation failure and return the
+ * matching queue outcome (§12).
+ *
+ * The queue-row terminalization and the attempt `error`/`error_code` write are
+ * SEPARATE writes. If the attempt write fails transiently, terminalizing the
+ * queue row anyway would strand the UI: the render poll derives failure from the
+ * attempt row, so it would show `pending` forever behind a `failed` queue row.
+ * So: persist first; on success return a terminal outcome; on a persist failure,
+ * log the (known) deterministic code plus the persistence error and return a
+ * RETRYABLE infra failure — the retry re-discovers the same deterministic state
+ * and re-attempts the write. A terminal queue row can therefore never coexist
+ * indefinitely with a `pending`-looking attempt.
+ */
+async function recordTerminalAttemptFailure(
+  attemptId: number,
+  code: string,
+  message: string,
+): Promise<HandlerResult> {
+  try {
+    await db
+      .update(imagePromptAttemptsTable)
+      .set({ error: message, errorCode: code, updatedAt: new Date() })
+      .where(eq(imagePromptAttemptsTable.id, attemptId));
+  } catch (persistErr) {
+    const detail = persistErr instanceof Error ? persistErr.message : String(persistErr);
+    logger.error(
+      { attemptId, code, message, persistError: detail },
+      "[imagePromptJobs] terminal failure known but error_code persist failed — returning retryable so the write is re-attempted",
+    );
+    return { ok: false, error: `terminal_persist_failed(${code}): ${detail}` };
+  }
+  return terminalFailure(code, message);
 }
 
 async function resolveStylePrompt(

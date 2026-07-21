@@ -25,13 +25,13 @@ import { db, lookStylesTable } from "@workspace/db";
 import type { GenerationMode } from "@workspace/api-zod";
 import { DEFAULT_PHOTOREALISTIC_STYLE } from "./compilers/nanoBanana2";
 
-/** The runtime + authoring invariant for style copy (plan 11.3) -- a
+/** The runtime + authoring invariant for style copy (plan §11.3) -- a
  *  customized row can be arbitrarily long in the DB (unbounded `text`
  *  columns), but must never exceed this to stay inside the compiler's RENDER
- *  STYLE budget reserve. Set with headroom above the longest seeded built-in
- *  style (`cinematic`'s i2i `promptSuffixReference`, 220 chars as of migration
- *  0057) -- this gate must never reject an already-shipped default style. */
-export const RENDER_STYLE_COPY_MAX_CHARS = 250;
+ *  STYLE budget reserve (§10.4 reserves <=200 for the rendered RENDER STYLE
+ *  line). Migration 0088 trims every seeded style to <=180, so this honest
+ *  bound never rejects a shipped default; a seeded-catalogue test asserts it. */
+export const RENDER_STYLE_COPY_MAX_CHARS = 180;
 
 export type StyleInvalidReason = "not_found" | "inactive" | "empty_suffix" | "copy_too_long" | "copy_invalid";
 

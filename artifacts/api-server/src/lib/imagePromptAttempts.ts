@@ -166,6 +166,8 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
   blocked: boolean;
   blockReason: string | null;
   error: string | null;
+  /** Typed terminal failure code (§12), NULL for success / transient / legacy. */
+  errorCode: string | null;
   // Eval harness (Slice 2B): the moderator's verdict on this attempt, surfaced so
   // the Step-2 tile (and eval dashboard) can render the rating control + chips.
   moderatorRating: number | null;
@@ -192,6 +194,7 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
     blocked: blockedPoor,
     blockReason: blockedPoor ? "subject_fact_compatibility_poor" : null,
     error: blockedPoor ? null : (attempt.error ?? null),
+    errorCode: blockedPoor ? null : (attempt.errorCode ?? null),
     moderatorRating: attempt.moderatorRating ?? null,
     failureTag: attempt.failureTag ?? null,
     evalNotes: attempt.evalNotes ?? null,
