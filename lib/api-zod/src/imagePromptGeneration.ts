@@ -49,7 +49,7 @@ import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 // DETAILS replaces REFERENCE INTERPRETATION and never doubles a name; additive
 // de-dupe upgraded from substring to content-word contiguity. Compiled output
 // changes for identical inputs, so existing test renders correctly flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v6";
+export const IMAGE_PROMPT_GENERATION_VERSION = "v7";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
@@ -419,8 +419,17 @@ const subjectTreatmentWireSchema = z.object({
   ageLifeStageTransform: ageLifeStageTransformWireSchema,
 });
 
+export const SUPPORTING_TEXT_KIND_VALUES = ["literal_text", "visual_graphic"] as const;
+export type SupportingTextKind = (typeof SUPPORTING_TEXT_KIND_VALUES)[number];
+
 const supportingTextElementWireSchema = z.object({
   content: z.string(),
+  // Whether `content` is a LITERAL glyph string to render as readable in-scene
+  // text ("COBRA", "GAME OVER", "E=mc²") or a VISUAL GRAPHIC described in words
+  // ("a flatline trace", "five crossed-off calendar days"). The compiler quotes
+  // literal_text as exact glyphs and routes visual_graphic to an unquoted
+  // scene-detail directive — so a description is never baked in as literal text.
+  kind: z.enum(SUPPORTING_TEXT_KIND_VALUES),
   purpose: z.string(),
   placement: z.string(),
 });
@@ -533,7 +542,6 @@ const visualPlanWireSchema = z.object({
   // Echo-back of consumed cultural references. Must cover every MATERIAL
   // reference in the enrichment (validator rule 15).
   culturalReferencesUsed: z.array(culturalReferenceUsedWireSchema),
-  styleIntegration: z.string(),
   contentNotes: z.string(),
   debugNotes: z.string(),
   targetEngine: z.enum(IMAGE_PROMPT_TARGET_ENGINE_VALUES),

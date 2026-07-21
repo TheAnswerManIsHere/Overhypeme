@@ -40,7 +40,7 @@ function basePlan(overrides: Partial<{
   promptText: string;
   expressionAndPose: string;
   allowSupportingText: boolean;
-  supportingTextElements: Array<{ content: string; purpose: string; placement: string }>;
+  supportingTextElements: Array<{ content: string; kind: "literal_text" | "visual_graphic"; purpose: string; placement: string }>;
   keyVisualElements: string[];
   coreScene: string;
   subjectDetails: string[];
@@ -124,7 +124,6 @@ function basePlan(overrides: Partial<{
       secondaryCharacters: overrides.secondaryCharacters ?? [],
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
       culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
-      styleIntegration: "Apply cinematic style with shallow depth of field",
       contentNotes: "SFW; no real brand marks",
       debugNotes: "Strategy v2; example #2 echoed",
       targetEngine: "nano_banana_2" as const,
@@ -224,7 +223,7 @@ describe("validateImagePromptPlan", () => {
   it("rejects supportingTextElements when allowSupportingText=false", () => {
     const plan = basePlan({
       allowSupportingText: false,
-      supportingTextElements: [{ content: "1234", purpose: "PIN", placement: "keypad" }],
+      supportingTextElements: [{ content: "1234", kind: "literal_text", purpose: "PIN", placement: "keypad" }],
     });
     const result = validateImagePromptPlan(plan, baseExpectations);
     assert.equal(result.ok, false);
@@ -235,7 +234,7 @@ describe("validateImagePromptPlan", () => {
     const plan = basePlan({
       allowSupportingText: true,
       supportingTextElements: [
-        { content: "1234", purpose: "Random PIN digits", placement: "keypad" },
+        { content: "1234", kind: "literal_text", purpose: "Random PIN digits", placement: "keypad" },
       ],
     });
     const result = validateImagePromptPlan(plan, baseExpectations);
@@ -594,7 +593,7 @@ describe("validateImagePromptPlan", () => {
     if (!result.ok) assert.match(result.error, /secondaryCharacters/);
   });
 
-  it("is on generation version v6", () => {
-    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v6");
+  it("is on generation version v7", () => {
+    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v7");
   });
 });

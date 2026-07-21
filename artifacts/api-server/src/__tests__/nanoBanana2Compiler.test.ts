@@ -68,7 +68,6 @@ function makeVisualPlan(overrides: Partial<VisualPlan> = {}): VisualPlan {
     supportingTextPolicy: { allowSupportingText: false, supportingTextElements: [], forbiddenTextTypes: [] },
     semanticEntitiesUsed: [],
     culturalReferencesUsed: [],
-    styleIntegration: "",
     contentNotes: "",
     debugNotes: "",
     targetEngine: "nano_banana_2",
@@ -406,7 +405,7 @@ describe("nanoBanana2 — structured directive injection", () => {
       visualPlan: {
         supportingTextPolicy: {
           allowSupportingText: true,
-          supportingTextElements: [{ content: "999", purpose: "score", placement: "on the scoreboard" }],
+          supportingTextElements: [{ content: "999", kind: "literal_text", purpose: "score", placement: "on the scoreboard" }],
           forbiddenTextTypes: [],
         },
       },
@@ -553,7 +552,7 @@ describe("nanoBanana2 — retired text modifiers are inert (de-scaffolding)", ()
         supportingTextPolicy: {
           allowSupportingText: true,
           supportingTextElements: [
-            { content: "My Diary - AKA The Guinness Book of World Records", purpose: "cover", placement: "on the diary cover" },
+            { content: "My Diary - AKA The Guinness Book of World Records", kind: "literal_text", purpose: "cover", placement: "on the diary cover" },
           ],
           forbiddenTextTypes: [],
         },
@@ -616,7 +615,7 @@ describe("nanoBanana2 — always-on incidental-text guard (yields to intentional
 
   it("explicit supportingTextElements: rendered, guard present, no contradiction", () => {
     const out = textPolicyOut({
-      visualPlan: { supportingTextPolicy: { allowSupportingText: true, supportingTextElements: [{ content: "999", purpose: "score", placement: "on the scoreboard" }], forbiddenTextTypes: [] } },
+      visualPlan: { supportingTextPolicy: { allowSupportingText: true, supportingTextElements: [{ content: "999", kind: "literal_text", purpose: "score", placement: "on the scoreboard" }], forbiddenTextTypes: [] } },
     });
     assert.match(out.imagePrompt, /Render this in-scene text clearly: "999"/);
     assert.match(out.imagePrompt.toLowerCase(), GUARD);

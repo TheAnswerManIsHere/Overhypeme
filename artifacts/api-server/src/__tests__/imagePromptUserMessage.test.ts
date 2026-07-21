@@ -95,8 +95,8 @@ describe("buildImagePromptUserMessage", () => {
   it("describes the concrete visual contract fields and the age-transform binding", () => {
     const msg = buildImagePromptUserMessage(makeInput());
     assert.match(msg, /coreScene: REQUIRED/);
-    assert.match(msg, /subjectDetails: REQUIRED/);
-    assert.match(msg, /environment: REQUIRED/);
+    assert.match(msg, /subjectDetails: ADDITIVE/);
+    assert.match(msg, /environment: ADDITIVE/);
     assert.match(msg, /ageLifeStageTransform/);
     assert.match(msg, /one entity, never an adult plus a separate baby\/child/);
   });
@@ -267,7 +267,6 @@ describe("generateImagePromptPlanWithModel — template-token entity filter", ()
       // With the filter in place this should be accepted (no echo-back required for {NAME}).
       semanticEntitiesUsed: [],
       culturalReferencesUsed: [],
-      styleIntegration: "Dramatic cinematic lighting",
       contentNotes: "SFW",
       debugNotes: "",
       targetEngine: "nano_banana_2" as const,
