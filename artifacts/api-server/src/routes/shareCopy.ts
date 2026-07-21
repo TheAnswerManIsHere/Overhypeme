@@ -32,6 +32,7 @@ import { and, eq } from "drizzle-orm";
 import { getConfigString } from "../lib/adminConfig";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { canViewMeme } from "../lib/memeVisibility";
 
 const router: IRouter = Router();
 
@@ -117,7 +118,7 @@ interface ResolvedMeme {
   permalink: string;
 }
 
-async function resolveMeme(slug: string): Promise<ResolvedMeme> {
+async function resolveMeme(slug: string, req: Request): Promise<ResolvedMeme> {
   const baseUrl = getSiteBaseUrl();
   const permalink = `${baseUrl}/m/${slug}`;
 
@@ -128,6 +129,12 @@ async function resolveMeme(slug: string): Promise<ResolvedMeme> {
     .limit(1);
 
   if (!meme) {
+    return { status: "not_found", creatorName: "", factText: "", permalink };
+  }
+  // Private (owner-only) memes: a non-owner gets nothing — report not_found so
+  // the private meme's existence and content stay hidden. BEFORE the deletedAt
+  // branch so a deleted private meme is also indistinguishable from missing.
+  if (!canViewMeme(meme, req)) {
     return { status: "not_found", creatorName: "", factText: "", permalink };
   }
   if (meme.deletedAt) {
@@ -212,7 +219,7 @@ router.get("/share-copy/:memeId/:platform", async (req: Request, res: Response) 
     return;
   }
 
-  const meme = await resolveMeme(slug);
+  const meme = await resolveMeme(slug, req);
   if (meme.status === "not_found") {
     res.status(404).json({ error: "Meme not found" });
     return;

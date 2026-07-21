@@ -48,4 +48,11 @@ export function checkConditional(req: Request, res: Response, etag: string): boo
 export function setPublicCors(res: Response): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Vary", "Origin");
+  // This helper is called ONLY after a response is confirmed public (public
+  // memes/templates/AI backgrounds, and public-ACL objects — private responses
+  // call setNoStore instead). So it is the correct, visibility-classified place
+  // to relax the default `same-origin` CORP to `cross-origin` for hotlinking and
+  // social unfurls. Owner-only / private bytes never reach here and stay
+  // same-origin (non-embeddable). See lib/securityHeaders.ts.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 }

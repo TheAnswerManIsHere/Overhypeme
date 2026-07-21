@@ -422,6 +422,7 @@ calls. Two concrete, durable changes:
     | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
     | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
     | Security review | **Opus, always** | A missed vulnerability is the definition of uncatchable by either net. |
+    | **Dev-infra / self-healing / build-tooling resilience** (retry & reload loops, `dev-supervisor.sh`, Vite/esbuild config, HMR) | **Opus, always** | Uncatchable by either net: the defect is usually a *missing* guard (invisible to diff review) in code that isn't a product surface (invisible to product-testing). The crash/reload loop that cost days lived exactly here — see the *Self-retriggering recovery* pattern in [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md). |
     | **Database migrations / schema changes / backfills** | **Opus, always** | Often irreversible, and a subtly-wrong backfill isn't visible until the data is already mangled. The sharpest edge on this list. |
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |

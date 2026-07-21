@@ -38,12 +38,18 @@ async function fetchAndStripCookies(request: Request): Promise<Response> {
   const originResponse = await fetch(request);
   const cleaned = new Response(originResponse.body, originResponse);
   cleaned.headers.delete("Set-Cookie");
-  // Override whatever Cache-Control the origin sent — without the cookie,
-  // CF will now honour this and edge-cache the response.
-  cleaned.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, s-maxage=86400"
-  );
+
+  // Force long-lived public edge caching ONLY for genuinely public responses.
+  // Private (owner-only) meme images and OG shells now return no-store (or a
+  // 404) and the origin marks them so — overriding those would cache a private
+  // artifact at the edge. Leave the origin's Cache-Control intact for any
+  // non-200 or private/no-store response; only a public 200 gets the override
+  // (so GCP's GAESA cookie can't suppress edge caching).
+  const originCC = (originResponse.headers.get("Cache-Control") ?? "").toLowerCase();
+  const isPrivate = originCC.includes("no-store") || originCC.includes("private");
+  if (originResponse.status === 200 && !isPrivate) {
+    cleaned.headers.set("Cache-Control", "public, max-age=3600, s-maxage=86400");
+  }
   return cleaned;
 }
 

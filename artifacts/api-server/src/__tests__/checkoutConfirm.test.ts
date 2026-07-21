@@ -138,6 +138,12 @@ function makeFakeDeps(opts: {
 
 // ── Fake CheckoutSessionRetriever factory ────────────────────────────────────
 
+// A price whose product carries the membership tag → grants Legendary. Product
+// is expanded inline (as the real confirm flow expands it), so the confirm
+// handler reads the tag without calling retrieveProduct.
+const MEMBERSHIP_PRODUCT = { id: "prod_membership", metadata: { overhype_membership: "true" } };
+const NON_MEMBERSHIP_PRODUCT = { id: "prod_render_credits", metadata: {} };
+
 function makeSubscriptionSession(overrides: Partial<CheckoutSession> = {}): CheckoutSession {
   return {
     id: "cs_test_sub123",
@@ -152,7 +158,7 @@ function makeSubscriptionSession(overrides: Partial<CheckoutSession> = {}): Chec
       current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
       items: {
         object: "list",
-        data: [{ price: { id: "price_1", recurring: { interval: "month" } } } as Stripe.SubscriptionItem],
+        data: [{ price: { id: "price_1", recurring: { interval: "month" }, product: MEMBERSHIP_PRODUCT } } as unknown as Stripe.SubscriptionItem],
         has_more: false,
         url: "",
       },
@@ -170,12 +176,22 @@ function makePaymentSession(overrides: Partial<CheckoutSession> = {}): CheckoutS
     metadata: { userId: "user-1" },
     customer: "cus_1",
     subscription: null,
+    // The confirm grant reads the ACTUAL purchased product from line items, not
+    // the PI metadata stamp. The stamp is deliberately left set to a value a
+    // legacy tampered session would also have, to prove the decision ignores it.
+    line_items: {
+      object: "list",
+      data: [{ price: { id: "price_lifetime", product: MEMBERSHIP_PRODUCT } } as unknown as Stripe.LineItem],
+      has_more: false,
+      url: "",
+    },
     payment_intent: {
       id: "pi_test_1",
       status: "succeeded",
       amount: 29900,
       currency: "usd",
-    } as Stripe.PaymentIntent,
+      metadata: { membership: "true", plan: "lifetime" },
+    } as unknown as Stripe.PaymentIntent,
     ...overrides,
   } as unknown as CheckoutSession;
 }
@@ -189,6 +205,12 @@ function fakeRetriever(session: CheckoutSession): CheckoutSessionRetriever {
     },
   };
 }
+
+// Fallback product resolver — only reached when a fixture leaves price.product
+// as a bare id string. Membership fixtures expand the product inline, so this
+// returns a non-membership product (fail-closed default) for any other id.
+const fakeRetrieveProduct = async (id: string) =>
+  ({ id, metadata: {} }) as unknown as Stripe.Product;
 
 const noopLink = async (_uid: string, _cid: string) => {};
 
@@ -240,6 +262,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok(!("httpStatus" in result), `Expected success, got: ${JSON.stringify(result)}`);
@@ -262,6 +285,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok(!("httpStatus" in result));
@@ -279,6 +303,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok("httpStatus" in result);
@@ -304,6 +329,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok("httpStatus" in result);
@@ -321,6 +347,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok(!("httpStatus" in result));
@@ -344,10 +371,84 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok("httpStatus" in result);
     assert.equal(result.httpStatus, 400);
+  });
+
+  it("returns 400 for a subscription to a NON-membership product (no grant)", async () => {
+    const { deps, calls } = makeFakeDeps();
+    // A render-credits subscription: active + owned by the user, but its
+    // product is not tagged as membership → must NOT mint Legendary.
+    const session = makeSubscriptionSession({
+      metadata: { userId: "user-1" },
+      subscription: {
+        id: "sub_render_credits",
+        status: "active",
+        cancel_at_period_end: false,
+        current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+        items: {
+          object: "list",
+          data: [{ price: { id: "price_rc", recurring: { interval: "month" }, product: NON_MEMBERSHIP_PRODUCT } } as unknown as Stripe.SubscriptionItem],
+          has_more: false,
+          url: "",
+        },
+      } as unknown as Stripe.Subscription,
+    });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
+    });
+
+    assert.ok("httpStatus" in result, `Expected rejection, got: ${JSON.stringify(result)}`);
+    assert.equal(result.httpStatus, 400);
+    assert.equal(calls.setTier.length, 0, "must NOT grant Legendary for a non-membership subscription");
+  });
+
+  it("returns 400 for a one-time payment whose product is NOT membership (no grant)", async () => {
+    const { deps, calls } = makeFakeDeps();
+    // A render-credits / merch purchase: the line-item product is not tagged.
+    // Note the PI still carries membership=true (as a LEGACY tampered session
+    // would) — the grant must ignore the stamp and read the real product.
+    const session = makePaymentSession({
+      metadata: { userId: "user-1" },
+      line_items: {
+        object: "list",
+        data: [{ price: { id: "price_rc", product: NON_MEMBERSHIP_PRODUCT } } as unknown as Stripe.LineItem],
+        has_more: false,
+        url: "",
+      } as unknown as CheckoutSession["line_items"],
+      payment_intent: {
+        id: "pi_render_credits",
+        status: "succeeded",
+        amount: 500,
+        currency: "usd",
+        metadata: { membership: "true", plan: "lifetime" }, // legacy tampered stamp
+      } as unknown as Stripe.PaymentIntent,
+    });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_pay123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
+    });
+
+    assert.ok("httpStatus" in result, `Expected rejection, got: ${JSON.stringify(result)}`);
+    assert.equal(result.httpStatus, 400);
+    assert.equal(calls.setTier.length, 0, "must NOT grant Legendary for an untagged one-time payment");
+    assert.equal(calls.lifetimeInsert.length, 0, "must NOT insert a lifetime entitlement");
   });
 
   it("returns already_recorded when confirm is called again for same subscription", async () => {
@@ -361,6 +462,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok(!("httpStatus" in result));
@@ -380,6 +482,7 @@ describe("handleConfirmRequest", () => {
       stripe: fakeRetriever(session),
       deps,
       linkCustomerId: noopLink,
+      retrieveProduct: fakeRetrieveProduct,
     });
 
     assert.ok(!("httpStatus" in result));

@@ -21,6 +21,7 @@ import {
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
@@ -38,6 +39,7 @@ import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
+import { canViewMeme } from "../lib/memeVisibility";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
 import { buildZazzleUrl } from "../lib/zazzle";
@@ -362,7 +364,13 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
+  // Owner-only enforcement for private memes — 404 (not 403), and BEFORE the
+  // deletedAt 410 below, so a non-owner cannot distinguish a private meme
+  // (live or deleted) from one that never existed. See lib/memeVisibility.ts.
+  if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
   if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
+  // A private meme visible to its owner must never be cached publicly.
+  if (!meme.isPublic) setNoStore(res);
 
   // Use frozen text if available (stored at creation time), otherwise fall back
   // to dynamic rendering for memes created before this column was added.
@@ -561,12 +569,9 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid storagePath" }); return;
   }
 
-  // Verify ownership
-  const ownership = await db.execute<{ count: string }>(sql`
-    SELECT COUNT(*)::text AS count FROM user_ai_images
-    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} AND image_type = 'reference'
-  `);
-  if (parseInt(ownership.rows[0]?.count ?? "0", 10) === 0) {
+  // Verify ownership — shared with the video generator so both authorize AI
+  // reference images identically (see lib/objectAccess.ts).
+  if (!(await userOwnsAiReferenceImage(req.user.id, storagePath))) {
     res.status(403).json({ error: "Image not found or not owned by you" }); return;
   }
 
@@ -603,7 +608,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
+  // Owner-only enforcement, BEFORE the deletedAt 410, so a non-owner can't
+  // distinguish a private meme (live or deleted) from a nonexistent one.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
+  // Private meme images must be no-store (never publicly/edge cacheable).
+  const memeIsPrivate = !meme.isPublic;
 
   // ── Legacy path: memes stored before recipe-based rendering ─────
   if (!meme.imageSource) {
@@ -623,8 +633,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
         const response = await objectStorageService.downloadObject(objectFile, 86400);
         res.status(response.status);
         response.headers.forEach((value, key) => res.setHeader(key, value));
-        setPublicCache(res, CACHE.MEME_IMAGE, etag);
-        setPublicCors(res);
+        if (memeIsPrivate) {
+          setNoStore(res);
+        } else {
+          setPublicCache(res, CACHE.MEME_IMAGE, etag);
+          setPublicCors(res);
+        }
         if (response.body) {
           Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
         } else {
@@ -700,9 +714,13 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${createdAtMs}-${bytesHash}"`;
     if (checkConditional(req, res, etag)) return;
 
-    setPublicCors(res);
     res.setHeader("Content-Type", "image/jpeg");
-    setPublicCache(res, CACHE.MEME_IMAGE, etag);
+    if (memeIsPrivate) {
+      setNoStore(res);
+    } else {
+      setPublicCors(res);
+      setPublicCache(res, CACHE.MEME_IMAGE, etag);
+    }
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
 
@@ -729,6 +747,9 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
+  // Owner/admin only, BEFORE deletedAt, so a non-owner can't distinguish a
+  // private meme (live or deleted) from a nonexistent one.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
 
   try {
@@ -837,6 +858,10 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
+  // Private memes: only the owner/admin may mint a public Zazzle URL — and the
+  // check runs BEFORE deletedAt so a non-owner can't distinguish a deleted
+  // private meme from a nonexistent one.
+  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
 
   // Record the affiliate click before doing the (potentially-slow) image

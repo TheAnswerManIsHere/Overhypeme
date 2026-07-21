@@ -280,6 +280,44 @@ pronoun, mirroring the check the sibling `hasNoLikelySubjectReference`
 predicate already had. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206).
 
+## Self-retriggering recovery with no bounded exit
+
+**Looks like:** recovery / self-heal code that can *re-invoke the very action
+that failed* — `window.location.reload()` on a failed dynamic import, an
+auto-retry that re-runs on mount, a supervisor that restarts a crashed process
+— with no state carried across the retrigger to stop it. **Dangerous:** a
+transient upstream fault (a flapping dev server, a briefly-missing chunk, an
+OOM kill) becomes an infinite, self-amplifying loop, because each retrigger
+wipes in-memory state — a reload clears all JS; a process restart clears all
+globals — so any guard kept in memory resets to "first try" every cycle and the
+loop has no exit condition. This class slips **both** of Overhype's safety nets:
+it's invisible to diff review (the defect is a *missing* guard, and it only
+manifests under a runtime fault the review never simulates) and invisible to
+David's product-testing (it's dev-infra, not a product surface). **Avoid:** any
+code that can retrigger itself must carry a **bounded exit condition that
+survives the retrigger** — persist a counter/timestamp somewhere that outlives
+the recovery action (`sessionStorage` across a page reload; a rolling
+`/tmp`/on-disk window across a process restart), cap the rate, and when the cap
+trips **fail loud and settled** (surface an error boundary, or a give-up log
+that names the real reason) instead of silently trying again. Prefer "stop and
+show the error" over "reload again" whenever the fault could be persistent, and
+make the crash reason durable so it isn't lost to a fast restart. **Overhype:**
+`lazyWithRetry` (`artifacts/overhype-me/src/lib/lazy-retry.ts`) originally
+called `window.location.reload()` unconditionally on a double import failure —
+a flapping Vite dev server (esbuild thread exhaustion; see the `optimizeDeps`
+notes in `artifacts/overhype-me/vite.config.ts`) turned that into a ~1.3s reload
+loop that also tore down the HMR WebSocket. Fixed with a `sessionStorage`
+reload-timestamp cooldown that rejects to the Sentry error boundary instead of
+looping. `scripts/dev-supervisor.sh` is the process-level version done right: a
+rolling 20-crashes-per-300s window (bookkept across restarts) that gives up
+loudly — and now also captures + replays the child's last stderr and decodes the
+exit signal, so a silent fast crash (the one that made the esbuild panic take
+hours to find) is visible. The dev route-load smoke test
+(`artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`) is the regression net for
+the whole class. Full write-up in
+[`decisions.md`](./decisions.md) is unnecessary; the fix lives in the three
+anchors above.
+
 ## Over-engineered speculative abstractions
 
 **Looks like:** building a framework/config system/plugin layer for a need that

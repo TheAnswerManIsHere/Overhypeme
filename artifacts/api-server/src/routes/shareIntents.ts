@@ -23,6 +23,7 @@ import { memesTable, shareIntentsTable, SHARE_INTENT_PLATFORMS } from "@workspac
 import type { ShareIntentPlatform } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { canViewMeme } from "../lib/memeVisibility";
 
 const router: IRouter = Router();
 
@@ -51,12 +52,19 @@ router.post("/share-intents", async (req: Request, res: Response) => {
   const platform = body.platform;
 
   const [meme] = await db
-    .select({ id: memesTable.id, deletedAt: memesTable.deletedAt })
+    .select({ id: memesTable.id, deletedAt: memesTable.deletedAt, isPublic: memesTable.isPublic, createdById: memesTable.createdById })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
 
   if (!meme) {
+    res.status(404).json({ error: "Meme not found" });
+    return;
+  }
+  // Private (owner-only) memes: don't confirm existence or log an intent for a
+  // non-owner — 404, indistinguishable from a missing meme. BEFORE the
+  // deletedAt branch so a deleted private meme doesn't leak via a 410 either.
+  if (!canViewMeme(meme, req)) {
     res.status(404).json({ error: "Meme not found" });
     return;
   }

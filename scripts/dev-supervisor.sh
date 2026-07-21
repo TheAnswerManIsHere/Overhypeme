@@ -87,6 +87,14 @@ fi
 # Using a sanitized label so a label like "foo/bar" can't escape /tmp.
 sanitized_label="$(printf '%s' "${label}" | tr -c 'A-Za-z0-9._-' '_')"
 LOCK_FILE="/tmp/dev-supervisor-${sanitized_label}.lock"
+# Per-run capture of the child's stderr. A crash often happens faster than the
+# workflow log pane can flush (a Go/esbuild thread-exhaustion panic aborts the
+# process almost immediately), so the *reason* scrolls past or is lost and the
+# only visible signal is a bare non-zero exit code. We tee stderr here so that
+# on every crash we can replay the last lines with the decoded exit signal —
+# turning "Vite just died, no idea why" into an actionable diagnostic. Truncated
+# at the start of each run so it only ever holds the current attempt's output.
+STDERR_CAPTURE="/tmp/dev-supervisor-${sanitized_label}.stderr"
 exec 9>"${LOCK_FILE}"
 if ! flock -w "${LOCK_TIMEOUT}" 9; then
   echo "[supervisor:${label}] another supervisor for this label is already holding ${LOCK_FILE} after ${LOCK_TIMEOUT}s — refusing to start a second one"
@@ -239,6 +247,42 @@ ensure_port_free() {
 }
 
 # ---------------------------------------------------------------------------
+# Crash diagnostics
+# ---------------------------------------------------------------------------
+# Turns a raw `wait` status into a human-readable cause. A process killed by a
+# signal reports 128+signum, so decode the common fatal signals with a hint at
+# what usually causes them in this env (OOM, runtime panic, segfault).
+describe_exit() {
+  local code="$1"
+  if [ "${code}" -gt 128 ]; then
+    local sig=$((code - 128))
+    local name
+    name="$(kill -l "${sig}" 2>/dev/null || echo "?")"
+    case "${sig}" in
+      9)  echo "killed by SIG${name} (${code}) — likely OOM-killed or force-terminated" ;;
+      6)  echo "aborted via SIG${name} (${code}) — typically a runtime panic (e.g. Go/esbuild OS-thread exhaustion, Node OOM abort)" ;;
+      11) echo "crashed with SIG${name} (${code}) — segmentation fault" ;;
+      15) echo "terminated by SIG${name} (${code})" ;;
+      *)  echo "terminated by SIG${name} (${code})" ;;
+    esac
+  else
+    echo "exited with code ${code}"
+  fi
+}
+
+# Replays the tail of the captured stderr under a clear banner so the crash
+# cause is durable even if the live log already scrolled past it.
+replay_stderr() {
+  if [ -s "${STDERR_CAPTURE}" ]; then
+    echo "[supervisor:${label}] ──── last stderr before crash (${STDERR_CAPTURE}) ────"
+    tail -n 80 "${STDERR_CAPTURE}" | sed "s/^/[supervisor:${label}:stderr] /"
+    echo "[supervisor:${label}] ──── end stderr ────"
+  else
+    echo "[supervisor:${label}] (no stderr was captured before the crash — the child may have died before writing anything)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Restart-window bookkeeping
 # ---------------------------------------------------------------------------
 prune_window() {
@@ -281,7 +325,12 @@ while true; do
   fi
 
   echo "[supervisor:${label}] starting (recent crashes: ${active_restarts}/${MAX_RESTARTS})"
-  "$@" &
+  # Fresh capture per attempt; tee the child's stderr so it stays live on the
+  # console AND is saved for crash replay. Process substitution keeps the child
+  # itself as the tracked, own-process-group job ($! is the command, not tee),
+  # so the cleanup trap's process-group kill is unaffected.
+  : > "${STDERR_CAPTURE}" 2>/dev/null || true
+  "$@" 2> >(tee -a "${STDERR_CAPTURE}" >&2) &
   child_pid=$!
   wait "${child_pid}"
   code=$?
@@ -292,7 +341,8 @@ while true; do
     exit 0
   fi
 
-  echo "[supervisor:${label}] exited with code ${code}"
+  echo "[supervisor:${label}] child $(describe_exit "${code}")"
+  replay_stderr
   crash_at=$(date +%s)
   restart_times+=("${crash_at}")
   attempt=${#restart_times[@]}
