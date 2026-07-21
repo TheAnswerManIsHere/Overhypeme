@@ -21,6 +21,12 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Async-jobs worker split into fast/render/bulk lanes** — fixed head-of-line
+  blocking where a pure-DB admin action or a moderator-watched test render
+  could queue for 30s+ behind unrelated slow/bulk work; each lane now has its
+  own timer, re-entrancy guard, and concurrency bound (PR #216). See
+  [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
+  and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Auto-tokenize admin Visual-Concept authoring** — moderators write plain
   English in the Visual Strategy Override; Save auto-tokenizes (reusing the
   fact-submission tokenizer) and shows the result before persisting; a role
@@ -76,6 +82,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+- **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
+  (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
+  unraised — the three lanes' combined handler concurrency (8) fits under it,
+  but only with thin headroom shared with concurrent HTTP traffic. Raise it
+  only if pool-acquisition wait time or provider rate-limit errors actually
+  show up under load; it's an infra/cost decision, not a code change to make
+  proactively. See [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 - Broad public-growth surfaces and free→Legendary conversion optimization.
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."

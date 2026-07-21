@@ -89,7 +89,7 @@ bar for its area, or by the deferred backfill.)*
 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | Classification, hashtags, enrichment versioning, staleness | ✅ written |
 | `personalization-and-grammar.md` | Tokens, pronouns, verb conjugation — how facts adapt to the reader | not yet written |
 | `admin-console.md` | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | not yet written |
-| `background-work.md` | Async jobs and how their status is surfaced (two altitudes) | not yet written |
+| [`background-work.md`](./background-work.md) | Async jobs, the fast/render/bulk scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 
 When a chapter is added or an area renamed, update this table in the same
 commit.

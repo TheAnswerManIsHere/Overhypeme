@@ -89,11 +89,19 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 
 - Single durable table **`async_jobs`** (`lib/db/src/schema/asyncJobs.ts`), a
   `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
-  `pending → processing → done | failed`. A polling worker dispatches by queue to
-  registered handlers.
-- Registered queues include: `email`, `enrichment`, `fact_enrichment_backfill`,
-  `fact_pexels`, `image_prompt_generation`, `image_generation`,
-  `review_render_scenarios_prepare`, `fact_visual_concepts`, `projection_repair`.
+  `pending → processing → done | failed`.
+- **Three independent scheduling lanes** (`asyncJobs.ts`, PR #216) — `fast` /
+  `render` / `bulk` — each with its own poll timer, closure-local re-entrancy
+  guard, claim-query queue filter, and concurrency bound, so a busy lane can
+  never block another's progress:
+  - `fast` — `fact_send_back`, `projection_repair` (pure-DB admin actions).
+  - `render` — `image_prompt_generation`, `image_generation` (single-item,
+    moderator-watched renders).
+  - `bulk` (default for any queue that doesn't set `{ lane }`) — `enrichment`,
+    `fact_enrichment_backfill`, `fact_pexels`, `fact_visual_concepts`, `email`,
+    `review_render_scenarios_prepare`.
+  A queue's lane is set via `registerJobHandler(queue, handler, { lane })`; see
+  [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (`fal_video` is defined but marked a **future** queue — the video pipeline does
   not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
 - Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,

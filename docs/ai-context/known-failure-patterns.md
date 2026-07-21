@@ -327,3 +327,33 @@ the **smallest coherent change** that satisfies the approved plan; defer
 speculative generality. **Overhype:** pre-launch priorities are stability + content
 quality — new external vendors and new abstractions need a strong reason and
 David's sign-off (see [`product-direction.md`](./product-direction.md)).
+
+## Head-of-line blocking in a shared background worker
+
+**Looks like:** one dispatch loop (one claim query, one concurrency pool, one
+re-entrancy/"is it my turn" guard) processing several kinds of work that have
+very different costs — some cheap and interactive, some slow and external.
+**Dangerous:** a cheap, interactive action silently inherits the latency of
+whatever expensive work happens to be queued or already running ahead of it —
+looks like a hang or a broken feature, not a scheduling artifact, so it's hard
+to diagnose from the symptom alone. A single shared re-entrancy guard makes it
+worse: the *next* dispatch cycle can't even start until the *current* one's
+entire batch — including any slow job in it — finishes. **Avoid:** when a
+shared dispatcher serves work with meaningfully different latency profiles
+(interactive vs. external-API vs. bulk-background), give each class its own
+independent scheduling lane — own timer, own **closure-local** (never shared)
+re-entrancy guard, own claim filter, own concurrency bound — so one lane can
+never suppress another's progress. Don't just add more concurrency to the one
+shared pool; that doesn't fix FIFO ordering starving a fast job behind older
+slow ones. **Overhype:** the `async_jobs` worker (`asyncJobs.ts`) originally
+drained all 9 queues through one loop; a pure-DB admin action (Taxonomy Health
+"Send back to review," no model call) or a moderator-watched test render could
+sit in "Queued…" for 30s+ behind unrelated LLM/image-gen or bulk-backfill work.
+Fixed in PR #216 by splitting into `fast` / `render` / `bulk` lanes — see
+[`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
+and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+
+A related engineering gotcha surfaced while fixing this — defaulting a new
+lane-specific config knob to a fresh literal instead of the old shared knob's
+resolved value — is in
+[`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
