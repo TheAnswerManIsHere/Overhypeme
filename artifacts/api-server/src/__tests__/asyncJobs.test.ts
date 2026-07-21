@@ -126,7 +126,7 @@ describe("asyncJobs worker", () => {
     assert.ok(row);
     jobIds.push(row.id);
 
-    await asyncJobsTick(db);
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
 
     const after = await getJob(row.id);
     assert.equal(called, false, "email handler should not run when delivery is disabled");
@@ -192,7 +192,7 @@ describe("asyncJobs worker", () => {
       .set({ attempts: 1, nextAttemptAt: new Date(Date.now() - 1000) })
       .where(eq(asyncJobsTable.id, inserted.id));
 
-    await asyncJobsTick(db);
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
 
     const after = await getJob(inserted.id);
     assert.equal(after.maxAttempts, 0, "0 sentinel should mean queue config, not a hard-coded override");
