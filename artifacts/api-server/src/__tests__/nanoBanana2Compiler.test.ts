@@ -386,16 +386,29 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.match(out.imagePrompt.toLowerCase(), /negative space at the bottom/);
   });
 
-  it("folds lightingAndStyle and the style suffix into LIGHTING AND STYLE", () => {
+  it("single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David wins.",
       stylePrompt: "in a painterly oil style",
       visualPlan: { lightingAndStyle: "warm golden-hour rim light" },
     }));
-    assert.match(out.imagePrompt, /LIGHTING AND STYLE:/);
+    // LIGHTING (renamed from LIGHTING AND STYLE) holds the physical light only…
+    assert.match(out.imagePrompt, /LIGHTING:/);
     assert.match(out.imagePrompt.toLowerCase(), /warm golden-hour rim light/);
-    assert.match(out.imagePrompt.toLowerCase(), /in a painterly oil style/);
+    // …and the selected style is its OWN section, not folded into lighting.
+    assert.match(out.imagePrompt, /RENDER STYLE: in a painterly oil style/);
+    assert.doesNotMatch(out.imagePrompt, /LIGHTING AND STYLE/);
+  });
+
+  it("emits the photorealistic default RENDER STYLE when no style is selected", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David wins.",
+      stylePrompt: "",
+      visualPlan: { lightingAndStyle: "warm golden-hour rim light" },
+    }));
+    assert.match(out.imagePrompt, /RENDER STYLE: Photorealistic rendering:/);
   });
 
   it("renders the planner's in-scene text and excludes overlay text (no blanket ban)", () => {
@@ -620,6 +633,26 @@ describe("nanoBanana2 — always-on incidental-text guard (yields to intentional
     assert.match(out.imagePrompt, /Render this in-scene text clearly: "999"/);
     assert.match(out.imagePrompt.toLowerCase(), GUARD);
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
+  });
+
+  it("routes kind=visual_graphic UNQUOTED (never baked in as literal words) while literal_text stays quoted", () => {
+    const out = textPolicyOut({
+      visualPlan: {
+        supportingTextPolicy: {
+          allowSupportingText: true,
+          supportingTextElements: [
+            { content: "COBRA", kind: "literal_text", purpose: "toe tag", placement: "on the tag" },
+            { content: "a flat, flatlined heart-monitor trace", kind: "visual_graphic", purpose: "monitor", placement: "on the screen" },
+          ],
+          forbiddenTextTypes: [],
+        },
+      },
+    });
+    // literal glyphs are quoted for exact rendering…
+    assert.match(out.imagePrompt, /Render this in-scene text clearly: "COBRA"/);
+    // …but the graphic is emitted unquoted as a visual, so the words are not baked in.
+    assert.match(out.imagePrompt, /Depict these as visuals, not as written words: a flat, flatlined heart-monitor trace/);
+    assert.doesNotMatch(out.imagePrompt, /"a flat, flatlined heart-monitor trace"/);
   });
 
   it("is compiler-owned: present in the prompt, never counted as stripped planner prose", () => {
@@ -1391,7 +1424,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     assert.ok(!codes.includes("moderator_core_scene_empty_after_sanitize"), codes.join(","));
   });
 
-  it("strips compiler-owned clauses from the moderator scene and warns", () => {
+  it("emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "fallback",
@@ -1402,16 +1435,16 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
       }),
     }));
     assert.match(out.imagePrompt, /David rides a T-Rex through the office\./);
-    assert.doesNotMatch(out.imagePrompt, /recognizable face is preserved/);
-    const removed = out.diagnostics?.removedPlannerProseSentences ?? [];
-    assert.ok(removed.some((r) => r.reason === "identity-preservation-owned-by-compiler"), JSON.stringify(removed));
+    // Verbatim: the owned-language sentence is NOT removed (human authored it on purpose).
+    assert.match(out.imagePrompt, /recognizable face is preserved/);
+    // …but it IS flagged (non-mutating) so the moderator can fix it at authoring time.
     const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
-    assert.ok(codes.includes("moderator_core_scene_stripped"), codes.join(","));
+    assert.ok(codes.includes("moderator_core_scene_owned_language"), codes.join(","));
     const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
     assert.equal(core?.moderatorAuthored, true);
   });
 
-  it("falls back to the AI scene (with a loud warning) when the moderator scene sanitizes to empty", () => {
+  it("uses a non-empty moderator scene VERBATIM even when it is all compiler-owned language (never falls back to AI)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "fallback",
@@ -1422,13 +1455,15 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
           "Ensure David's recognizable face is preserved. Keep all surfaces free of readable text, watermarks, and logos.",
       }),
     }));
-    // Both moderator sentences are compiler-owned → AI scene used instead.
-    assert.match(out.imagePrompt, /CORE SCENE: David calmly putts a golf ball on a quiet green\./);
+    // A non-empty human Concept is authoritative and verbatim — NOT replaced by
+    // the AI scene, even when every sentence is compiler-owned language.
+    assert.doesNotMatch(out.imagePrompt, /golf ball/);
+    assert.match(out.imagePrompt, /recognizable face is preserved/);
     const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
-    assert.ok(codes.includes("moderator_core_scene_empty_after_sanitize"), codes.join(","));
+    assert.ok(codes.includes("moderator_core_scene_owned_language"), codes.join(","));
     const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
-    assert.equal(core?.priority, "high");
-    assert.equal(core?.moderatorAuthored, undefined);
+    assert.equal(core?.moderatorAuthored, true);
+    assert.equal(core?.priority, "required");
   });
 
   it("coexists with requiredVisualDetails — both land in the compiled prompt", () => {

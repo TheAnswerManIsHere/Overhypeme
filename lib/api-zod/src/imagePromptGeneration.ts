@@ -522,8 +522,9 @@ const visualPlanWireSchema = z.object({
   subjectDetails: z.array(z.string()),
   // environment → ENVIRONMENT: setting, background, props, scale (scene-side).
   environment: z.array(z.string()),
-  // lightingAndStyle → LIGHTING AND STYLE: light, mood, aesthetic (the resolved
-  // stylePrompt suffix is appended deterministically by the compiler).
+  // lightingAndStyle → LIGHTING: physical light, mood, and palette ONLY. The
+  // selected visual STYLE is compiler-owned and emitted as its own RENDER STYLE
+  // section (single-channel), so no rendering-medium claim belongs here.
   lightingAndStyle: z.string(),
   // keyVisualElements stays as a gap-fill safety net: any must-see element the
   // concrete fields above missed is injected once, de-duped against them.
