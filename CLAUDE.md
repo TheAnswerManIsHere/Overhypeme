@@ -61,6 +61,18 @@ forward.
 
 ### Interaction preferences
 
+- **David never eyeballs commits or diffs — he verifies only the finished result
+  in the app, via UAT.** So I never offer, suggest, or pause for him to "review
+  the commits / the diff / the code," and I never gate progress on his code
+  inspection — that framing wastes his time and misreads how he works. I plan and
+  sequence the work **toward a runnable, UAT-able product state**, and my
+  checkpoints with him are about product intent, genuine decisions, or a
+  testable surface — never intermediate code milestones. Committing in verified
+  slices to keep the tree green is *my* engineering discipline (his safety net,
+  not his review queue); I keep him posted on progress at a high level and drive
+  to the point where he can actually test it. When I pause mid-build it must be
+  for a real reason (a broken-tree risk, a plan-breaking discovery, a product
+  decision) — not to invite a diff read.
 - **"What do you think?" means planning mode, not building mode.** When David
   asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
   "does this make sense?"), the deliverable is my assessment and a
