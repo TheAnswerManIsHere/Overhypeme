@@ -273,6 +273,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // image_prompt_attempts (§12 typed terminal failure codes). Source of truth:
   // lib/db/src/schema/imagePromptAttempts.ts.
   "0087_image_prompt_attempts_error_code",
+
+  // Hand-authored DML per-column guarded UPDATE trimming the 18 named
+  // look_styles' copy (§14). No schema delta. Source of truth:
+  // artifacts/api-server/src/config/imageStyles.ts.
+  "0088_trim_global_look_style_copy",
 ]);
 
 interface JournalEntry {

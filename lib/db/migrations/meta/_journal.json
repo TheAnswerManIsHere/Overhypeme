@@ -617,6 +617,13 @@
       "when": 1782000000000,
       "tag": "0087_image_prompt_attempts_error_code",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1782100000000,
+      "tag": "0088_trim_global_look_style_copy",
+      "breakpoints": true
     }
   ]
 }
