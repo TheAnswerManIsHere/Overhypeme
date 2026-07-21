@@ -359,10 +359,14 @@ Concretely, at the point I'd open/finish a PR:
 
 - **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
 - **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
-  the PR is ready to watch and I'm on the wrong tier, and ask him to
-  `/model claude-sonnet-5`. Once he switches me, subscribe then — I don't switch
-  myself (`/model` is his command to run), and I don't silently skip watching
-  because I forgot to flag the mismatch.
+  the PR is ready to watch and I'm on the wrong tier, and ask him to switch me
+  to Sonnet. **I don't assume `/model claude-sonnet-5` is how he'll do it** — on
+  iPad (Claude Code on the Web) there's no slash-command input; he switches via
+  the model picker in the UI instead. So I ask generically ("switch me to
+  Sonnet") rather than prescribing the CLI command, and either mechanism ends
+  the same way: a system-reminder confirms "The model for this session has been
+  changed to claude-sonnet-5" — that confirmation, not the input method, is
+  what tells me the switch happened. I don't switch myself either way.
 - If a session ever gets switched to Sonnet later (e.g. for this exact reason)
   and there's an open, unwatched PR I created earlier in the session, that's the
   moment to subscribe — I don't need David to re-ask.
@@ -449,16 +453,22 @@ CI, mechanical fixes — was running at premium-model cost with redundant tool
 calls. Two concrete, durable changes:
 
 - **Match model tier to task shape.** I cannot switch the active model myself
-  — `/model` is a command only David can run — so codifying this means I
-  *reliably prompt* instead of leaving it to habit or memory. David is not a
-  software engineer and relies on me + Codex's code review as his only two
-  safety nets, so the deciding question for any task is: **if this goes
-  subtly wrong, will Codex's review or David's product-testing catch it
-  before it does damage?** Yes → Sonnet is safe. No → Opus, because I'm the
-  only guard.
-  - **Entering `/bugfix` mode** → I suggest `/model claude-sonnet-5`.
+  — David is the one who switches it, by typing `/model <name>` in the CLI **or**
+  using the model picker in the UI (his standing note: on iPad/Claude Code on
+  the Web there's no slash-command input, so the picker is how he does it
+  there) — so codifying this means I *reliably prompt* instead of leaving it to
+  habit or memory. I ask for the tier by name ("switch to Opus" / "switch to
+  Sonnet") rather than assuming he'll type the slash command, since I don't know
+  which surface he's on. Either way, a system-reminder confirming "The model for
+  this session has been changed to …" is what tells me the switch actually
+  happened — not the input method. David is not a software engineer and relies
+  on me + Codex's code review as his only two safety nets, so the deciding
+  question for any task is: **if this goes subtly wrong, will Codex's review or
+  David's product-testing catch it before it does damage?** Yes → Sonnet is
+  safe. No → Opus, because I'm the only guard.
+  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
   - **Entering plan mode, or any "let's build/design/add X" feature-building
-    request** → I suggest `/model claude-opus-4-8`.
+    request** → I suggest switching to Opus (`claude-opus-4-8`).
   - **By task type** (the reference table, since the two boundaries above
     don't cover everything I do):
 
@@ -481,9 +491,9 @@ calls. Two concrete, durable changes:
   - **I stay vocal about the model in play — David expects to forget this, not
     track it.** Whenever it's relevant, I state which tier is active and flag
     a mismatch immediately: before starting a task that's clearly wrong for
-    the current tier ("this is a migration — you're on Sonnet, want to
-    `/model claude-opus-4-8` first?"), and mid-task if a debugging/optimization
-    thread thrashes past ~2 rounds without converging. The goal is David never
+    the current tier ("this is a migration — you're on Sonnet, want to switch
+    to Opus first?"), and mid-task if a debugging/optimization thread thrashes
+    past ~2 rounds without converging. The goal is David never
     burns Opus tokens on something Sonnet could do, and never asks Sonnet to
     do something high-risk or genuinely hard, **without me saying so out
     loud first.**
