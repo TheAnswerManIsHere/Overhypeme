@@ -814,7 +814,9 @@ async function handleDevAdminLogin(req: Request, res: Response) {
       `</body></html>`,
     );
   } else {
-    res.json({ ok: true, email: adminUser.email });
+    // `user` mirrors the shape the e2e admin-login flow asserts on
+    // (`loginBody.user?.email`); `ok`/`email` kept for any existing caller.
+    res.json({ ok: true, email: adminUser.email, user: { email: adminUser.email } });
   }
 }
 

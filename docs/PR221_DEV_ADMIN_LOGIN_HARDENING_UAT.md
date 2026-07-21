@@ -26,15 +26,20 @@ redirect) — invisible in normal use.
 
 ## One-time setup to keep using it while testing
 
-In your **Replit preview** environment's Secrets, add:
+**The normal Replit dev preview already handles this for you** — the dev startup
+script (`dev-run.sh`) sets `ENABLE_DEV_ADMIN_LOGIN=true` automatically, so the
+triple-tap keeps working in the dev workflow (and the Playwright e2e admin flows
+keep passing) with no action needed.
+
+You only need to set it **manually** if you run a *deployed-style* preview that
+doesn't use the dev script — in that environment's Secrets, add:
 
 ```
 ENABLE_DEV_ADMIN_LOGIN = true
 ```
 
-That's it — the triple-tap admin login works again in the preview. (You do
-**not** set this in the deployed/production environment — and even if it were
-set there, the code ignores it.)
+(You do **not** set this in the real production environment — and even if it
+were set there, the code ignores it.)
 
 ## How to check it
 

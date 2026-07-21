@@ -61,6 +61,11 @@ curl -sD- -o /dev/null https://<host>/api/auth/dev-admin-login | grep -i set-coo
 # A production deploy must ALWAYS 404 regardless of the flag.
 ```
 
+> The dev entrypoint `scripts/dev-run.sh` sets `ENABLE_DEV_ADMIN_LOGIN=true`
+> automatically, so a server started the normal dev way (and the Playwright e2e
+> admin flows, which authenticate via this route) works without manual env
+> setup. Only a deployed-style run needs the flag set explicitly.
+
 Confirm the two things a headers/gate change is most likely to break:
 
 - **Replit preview still reaches admin** when `ENABLE_DEV_ADMIN_LOGIN=true` is

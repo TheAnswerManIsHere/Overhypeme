@@ -153,6 +153,8 @@ describe("dev-admin-login route — grants when enabled (non-prod preview)", () 
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
     assert.equal(res.body.email, ADMIN_EMAIL);
+    // The e2e admin-login flow asserts on `user.email` — lock that shape.
+    assert.equal(res.body.user?.email, ADMIN_EMAIL);
     assert.ok(res.headers["set-cookie"], "a fresh session cookie must be issued");
   });
 
