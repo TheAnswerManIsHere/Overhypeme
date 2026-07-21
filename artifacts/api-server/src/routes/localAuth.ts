@@ -3,7 +3,9 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and, or, sql } from "drizzle-orm";
-import { createSession, updateSession, getSessionId, type SessionData } from "../lib/auth";
+import { createSession, updateSession, deleteSession, getSessionId, type SessionData } from "../lib/auth";
+import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
+import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -730,6 +732,18 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 // Replit proxy redirect handling, SameSite restrictions, etc.).
 // If the caller has no session yet, a fresh one is created and the cookie set.
 async function handleDevAdminLogin(req: Request, res: Response) {
+  // Fail-closed gate (C1). This route mints a bootstrap-admin session for any
+  // caller, so it is inert unless explicitly enabled for a non-production
+  // preview (ENABLE_DEV_ADMIN_LOGIN=true and NOT production). When disabled it
+  // behaves like an unknown route — no session, no cookie, no disclosure that
+  // the endpoint exists. This request-time check is the authoritative guard;
+  // app.ts additionally withholds the permissive CORS + origin-exemption when
+  // disabled. See docs/ai-context/security-model.md.
+  if (!isDevAdminLoginEnabled()) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
   const ADMIN_EMAIL = "overhypeme+admin@gmail.com";
   const [adminUser] = await db
     .select()
@@ -755,18 +769,19 @@ async function handleDevAdminLogin(req: Request, res: Response) {
     adminModeDisabled: false,
   };
 
-  // Prefer in-place mutation — no new cookie needed, browser keeps sending
-  // the same sid it already has and the server now returns the admin user.
-  // We also need `effectiveSid` in scope for the GET branch so it can be
-  // written into localStorage (Bearer-token fallback for Chrome/iframe).
-  const existingSid = getSessionId(req);
-  let effectiveSid: string;
-  if (existingSid) {
-    await updateSession(existingSid, sessionData);
-    effectiveSid = existingSid;
-  } else {
-    effectiveSid = await createSession(sessionData, adminUser.id);
-    setSessionCookie(res, effectiveSid);
+  // Rotate the session: always mint a FRESH sid and delete the caller's old
+  // one, rather than mutating the caller's sid in place. In-place mutation is a
+  // session-fixation vector — an attacker-known/pre-set sid would become a live
+  // admin session. Create the new session BEFORE deleting the old one so there
+  // is never a window with no valid session. The GET branch writes the fresh
+  // sid into localStorage (Bearer-token fallback), which is what keeps the
+  // Replit-canvas iframe working even when the new cookie is dropped — so
+  // rotation does not regress the preview flow.
+  const oldSid = getSessionId(req);
+  const effectiveSid = await createSession(sessionData, adminUser.id);
+  setSessionCookie(res, effectiveSid);
+  if (oldSid && oldSid !== effectiveSid) {
+    await deleteSession(oldSid);
   }
 
   if (req.method === "GET") {
@@ -785,7 +800,10 @@ async function handleDevAdminLogin(req: Request, res: Response) {
     //
     // The Set-Cookie above is still sent for browsers/environments where
     // cookies work (Safari, direct URL access, etc.) — both paths stay active.
-    const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
+    // Sanitize returnTo to a same-origin path — it is interpolated into a
+    // client-side redirect, so a raw value (`javascript:…`, `//evil.com`, an
+    // absolute URL) would be an open-redirect / script-injection vector.
+    const returnTo = getSafeReturnTo(req.query["returnTo"]);
     res.setHeader("Content-Type", "text/html");
     res.send(
       `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
@@ -800,25 +818,15 @@ async function handleDevAdminLogin(req: Request, res: Response) {
   }
 }
 
-// ⚠️ SECURITY TODO — MUST HARDEN BEFORE PUBLIC LAUNCH ⚠️
-// This endpoint grants a full bootstrap-admin session to ANY caller with no
-// credential (unauthenticated privilege escalation). It is INTENTIONALLY left
-// open during pre-launch development per an explicit product decision
-// (David, 2026-07-07) — it is currently the primary way to reach the admin
-// panel. Before the app is publicly live this route MUST be gated fail-closed.
-//
-// Before launch, gate this route fail-closed. The known-good hardening:
-//   1. A single source-of-truth helper (e.g. isDevAdminLoginEnabled()) that is
-//      OFF by default, opt-in via an env flag for non-prod previews, and can
-//      NEVER return true when NODE_ENV==="production".
-//   2. Register these routes — and the matching CORS + ORIGIN_EXEMPT_PATHS
-//      entries in app.ts, and the wordmark trigger in Navbar.tsx — only when
-//      that helper is enabled, so the path 404s (no CORS, no session) when off.
-//   3. In the handler, mint a FRESH session (delete the old sid) instead of
-//      mutating the caller's sid in place, and sanitize `returnTo` to a
-//      same-origin path (the getSafeReturnTo helper in routes/auth.ts).
-//   4. Add a supertest regression asserting the route is inert by default.
-// Tracked as the pre-launch item of the security-hardening pass (C1).
+// dev-admin-login (C1) — HARDENED, fail-closed. The route grants a bootstrap-
+// admin session, so it is gated by `isDevAdminLoginEnabled()`: OFF by default,
+// opt-in only via ENABLE_DEV_ADMIN_LOGIN for a non-production preview, NEVER on
+// in production. The routes stay registered but `handleDevAdminLogin` 404s
+// immediately when disabled (the authoritative request-time guard); app.ts also
+// withholds the permissive CORS + origin-exemption when disabled, and the UI
+// trigger (Navbar.tsx) only fires in a dev build. The handler rotates the
+// session (fresh sid, delete old) and sanitizes returnTo. See
+// docs/ai-context/security-model.md.
 router.get("/auth/dev-admin-login", handleDevAdminLogin);
 router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
