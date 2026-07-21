@@ -1,0 +1,42 @@
+# Dependabot — automated dependency-update PRs (finding: supply-chain hygiene).
+# Surfaces known-vulnerability upgrades for the npm/pnpm workspace and the
+# GitHub Actions used in CI. Grouped so routine minor/patch bumps arrive as a
+# small number of PRs rather than one-per-package noise; majors come solo so
+# they get individual review.
+version: 2
+updates:
+  # npm (pnpm workspace). `directory` is a SINGLE manifest dir, so the root
+  # entry alone would miss every workspace package.json (where most prod deps —
+  # @sentry/node, openai, helmet, wrangler, drizzle, … — actually live). Use
+  # `directories` globs mirroring pnpm-workspace.yaml so every manifest is
+  # covered. https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#directories-or-directory
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/artifacts/*"
+      - "/cloudflare/*"
+      - "/lib/*"
+      - "/scripts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    # Security-critical, in the payment/webhook path — flag major bumps for
+    # individual review rather than auto-grouping.
+    ignore: []
+
+  # GitHub Actions used by the workflows in .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

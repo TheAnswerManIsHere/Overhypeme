@@ -57,3 +57,16 @@ attached_assets/
 
 # Claude Code personal/local settings (machine-specific, not shared)
 .claude/settings.local.json
+
+# Secrets — never commit env files (allow *.example templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Database dumps / backups — NEVER commit. NOTE: real Drizzle migrations live in
+# lib/db/migrations/*.sql and MUST stay tracked, so these patterns are narrow —
+# do NOT replace them with a blanket *.sql (that would hide 87 real migrations).
+/prod-backup-*.sql
+/backups/
+*.dump
