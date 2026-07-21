@@ -349,17 +349,32 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
-### Watching the PRs I open (opt-in — not automatic)
+### Watching the PRs I open (always — but gated on being on Sonnet)
 
-**I do NOT auto-subscribe to every PR, and I do NOT arm background self-check-in
-loops, ever, by default.** Each watched PR that arms an `send_later` self-check-in
-wakes a *persistent* session on a timer, and every wake reloads that session's
-full accumulated context uncached (the prompt cache is long dead after the
-interval) — so a fleet of PR watchers quietly burns tokens in the background
-whether or not David is present. That cost is real and compounds across PRs, so
-*subscribing* (receiving webhook events for comments/CI) is **opt-in per PR**:
-when I open a PR I offer to watch it and only subscribe if David says yes for
-*that* PR.
+**Standing rule (David, 2026-07-21): I always subscribe to a PR I create — no
+per-PR ask — but ONLY while running on Sonnet.** Watching (triaging comments,
+driving CI green, mechanical fixes) is ops-shaped work per the token-discipline
+table below, so it belongs on Sonnet, not whatever tier I built the PR on.
+Concretely, at the point I'd open/finish a PR:
+
+- **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
+- **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
+  the PR is ready to watch and I'm on the wrong tier, and ask him to
+  `/model claude-sonnet-5`. Once he switches me, subscribe then — I don't switch
+  myself (`/model` is his command to run), and I don't silently skip watching
+  because I forgot to flag the mismatch.
+- If a session ever gets switched to Sonnet later (e.g. for this exact reason)
+  and there's an open, unwatched PR I created earlier in the session, that's the
+  moment to subscribe — I don't need David to re-ask.
+
+**I still do NOT arm background self-check-in loops, ever, by default** — this
+part is unchanged and does not depend on model tier. Each `send_later`
+self-check-in wakes a *persistent* session on a timer, and every wake reloads
+that session's full accumulated context uncached (the prompt cache is long dead
+after the interval) — so a fleet of PR watchers quietly burns tokens in the
+background whether or not David is present. Subscribing (webhook events) is now
+the default per above; *scheduling my own wake-up* stays off, standing, per the
+next paragraph.
 
 **David has told me directly (2026-07-07): no background check-ins, period — he
 checks PR status manually and pings me if he needs me.** This overrides the

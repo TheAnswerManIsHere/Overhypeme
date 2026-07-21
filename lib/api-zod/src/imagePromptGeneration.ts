@@ -26,6 +26,7 @@ import {
   type ViolenceIntensity,
 } from "./renderPolicyEnums";
 import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
+import { detectMediumClaim } from "./promptContentDetectors";
 
 // ─── Versioning ────────────────────────────────────────────────────────────
 
@@ -976,6 +977,35 @@ export function validateImagePromptPlan(
       error: `visualPlan.environment must contain at least one concrete entry`,
       correctableHint: `List concrete environment details: setting, background, props, and scale.`,
     };
+  }
+
+  // 17b. Single-channel style enforcement (PR #222 follow-up — Codex P2). Style
+  // is compiler-owned and emitted as its own RENDER STYLE section; a planner
+  // medium claim ("anime style", "oil painting") in any concrete field would
+  // reach LIGHTING and create exactly the duplicate/contradictory style channel
+  // this restructure removes. Scan every planner-authored field the compiler
+  // emits as prose (vp.coreScene here is always AI-authored — the moderator
+  // Concept lives outside visualPlan entirely, in enrichment — so no exclusion
+  // is needed). Fails with a correctable hint so the retry can fix it.
+  const mediumClaimFields: Array<[string, string]> = [
+    ["coreScene", vp.coreScene],
+    ["lightingAndStyle", vp.lightingAndStyle],
+    ["subjectTreatment.roleInScene", vp.subjectTreatment.roleInScene],
+    ["subjectTreatment.expressionAndPose", vp.subjectTreatment.expressionAndPose],
+    ...vp.subjectDetails.map((s, i): [string, string] => [`subjectDetails[${i}]`, s]),
+    ...vp.environment.map((s, i): [string, string] => [`environment[${i}]`, s]),
+    ...vp.keyVisualElements.map((s, i): [string, string] => [`keyVisualElements[${i}]`, s]),
+    ["compiledPrompt.prompt", cp.prompt],
+  ];
+  for (const [field, text] of mediumClaimFields) {
+    const claim = detectMediumClaim(text);
+    if (claim) {
+      return {
+        ok: false,
+        error: `${field} contains an artistic-medium/rendering-technique claim ("${claim.matchedText}"); style is compiler-owned`,
+        correctableHint: `Remove the rendering-medium/artistic-style language ("${claim.matchedText}") from ${field}. Describe physical light, mood, palette, and visible content only — the selected visual style is applied separately by the compiler as its own RENDER STYLE section.`,
+      };
+    }
   }
 
   // 18. Age / life-stage transform coherence. When the subject must be rendered

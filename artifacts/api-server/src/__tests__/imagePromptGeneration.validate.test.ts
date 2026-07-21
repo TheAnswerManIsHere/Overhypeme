@@ -212,6 +212,42 @@ describe("validateImagePromptPlan", () => {
     assert.equal(result.ok, false);
   });
 
+  // Single-channel style enforcement (Codex P2 on PR #222): a planner-authored
+  // medium claim must fail validation, never silently reach LIGHTING alongside
+  // the compiler's own RENDER STYLE section.
+  it("rejects a planner medium claim in lightingAndStyle", () => {
+    const plan = basePlan({ lightingAndStyle: "Illustrated in detailed anime style with bold outlines" });
+    const result = validateImagePromptPlan(plan, baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /lightingAndStyle/);
+      assert.match(result.error, /medium/);
+      assert.ok(result.correctableHint, "expected a correctable hint for a retry");
+    }
+  });
+
+  it("rejects a planner medium claim in coreScene / subjectDetails / environment / keyVisualElements / compiledPrompt.prompt", () => {
+    const cases: Array<[string, Parameters<typeof basePlan>[0]]> = [
+      ["coreScene", { coreScene: "David rendered as a classical oil painting rides a T-Rex." }],
+      ["subjectDetails", { subjectDetails: ["hyper-photorealistic photograph texture on his jacket"] }],
+      ["environment", { environment: ["a background rendered as detailed 32-bit pixel art"] }],
+      ["keyVisualElements", { keyVisualElements: ["a cel-shaded highlight on the cobra", "b", "c"] }],
+      ["compiledPrompt.prompt", { promptText: "Drawn in bold American comic book style with heavy ink outlines." }],
+    ];
+    for (const [label, overrides] of cases) {
+      const result = validateImagePromptPlan(basePlan(overrides), baseExpectations);
+      assert.equal(result.ok, false, `expected ${label} medium claim to fail validation`);
+    }
+  });
+
+  it("does NOT reject physical light/mood/staging language (no false positive)", () => {
+    const plan = basePlan({
+      lightingAndStyle: "cold blue emergency lighting and a tense, dramatic nighttime mood",
+    });
+    const result = validateImagePromptPlan(plan, baseExpectations);
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
   it("rejects missing mandatory forbiddenTextTypes entry", () => {
     const plan = basePlan();
     plan.visualPlan.supportingTextPolicy.forbiddenTextTypes = ["watermarks", "real logos"]; // missing the rest
