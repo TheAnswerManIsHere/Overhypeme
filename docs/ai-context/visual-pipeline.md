@@ -121,6 +121,25 @@ directive template is deliberate — every fixed word bills against the pool);
 a payload that can't fit fails save with `bubble_directives_rendered_too_long`
 — never a silent drop or partial section.
 
+**The bubble-text placeholder used for measurement must preserve the real
+literal characters, not just their projected length** (Codex P2, PR #229,
+post-merge fix). Bubble text is the one field whose compiled form runs
+through an *escaping* serializer (`serializeLiteralPromptString` — every
+embedded `"`/`\` doubles). A naive length-only placeholder (e.g. `"x".repeat(n)`)
+either **undercounts** real quoted speech (no escaping ever triggers) or, if
+filled with worst-case-escaping characters uniformly, **over-penalizes**
+ordinary quote-free bubbles regardless of their actual content. The fix,
+`projectWorstCaseRenderedText()` (`lib/api-zod/promptIdentityBudget.ts`,
+sibling to `projectWorstCaseRenderedLength`), walks the same token-substitution
+logic but returns the real authored string with only `{TOKEN}` spans replaced
+by a safe worst-case-length filler — so the measurement, run through the real
+serializer via the same delta-compile method, reflects the actual escaping
+cost of what a moderator (or the AI proposer) actually wrote. **Generalizes:**
+any save-time budget measurement for a field whose compiled form is
+content-transformed (escaped, wrapped, case-folded, …) — not just
+length-expanded by token substitution — needs a placeholder that preserves
+the real content through that transform, not a content-blind filler.
+
 **Save-time validation measures the compiler's actual emitted length, not a
 raw field-text sum** (Codex caught this on PR #224 before merge: a naive sum
 of raw field text undercounts what the compiler emits — `"Do not …"` negation
@@ -236,6 +255,21 @@ via `withCandidateConceptDraft` (scene → `coreSceneOverride`, bubbles →
 `bubbles`; unrelated VSO fields preserved; never merged; atomic — one invalid
 bubble makes the whole concept unpickable).
 
+**Picking is blocked while unrelated Visual-Strategy edits are unsaved**
+(`computeCandidatePickBlockedReason`, `components/admin/candidatePickGate.ts`).
+A pick only replaces the scene + bubbles fields — so an unsaved draft edit to
+any *other* field (role bindings, required details, …) would let a pick land
+on a VSO shape the candidate's own preflight (below) never accounted for. The
+gate gives clear copy ("Save or discard your current Visual Strategy
+changes…") rather than silently risking that mismatch. Scene/bubble-only
+dirtiness (typing in the Concept box, a previous pick) stays pickable — only
+*other*-field drift blocks.
+**Gotcha:** a MISSING override (nothing persisted yet) must normalize to the
+same stripped shape as the empty scaffold `withCoreSceneOverride`/`withBubbles`
+create on a moderator's first edit, or the comparison wrongly treats a fresh
+empty-arrays draft as "different from nothing" and blocks picking on the very
+first keystroke (Codex P2, PR #229).
+
 **Candidate bubble contract (prompt version 2):** `bubbles` is REQUIRED on
 the strict wire (`[]` = the normal no-bubble case; strict Structured Outputs
 forbids omittable properties). The generator proposes a bubble only when it
@@ -246,9 +280,18 @@ literal-restatement check, with the one corrective retry). Over-cap text is
 INVALID output, never truncated (slicing a quote corrupts it). Token errors
 store the candidate unpickable (the existing scene pattern); an
 all-unpickable response FAILS the attempt rather than storing `ok`. Every
-pickable concept is preflighted through `validateVisualStrategyOverridePersistence`
-on the exact override a pick produces, so pickable ⇒ saveable is shared-code
-truth. The deployed system prompt was migrated (0089) because
+candidate is preflighted at generation time through
+`validateVisualStrategyOverridePersistence(withCandidateConceptDraft(undefined, c))`
+— **an empty/pool-independent base**, not the moderator's actual current VSO
+(Codex P2, PR #231 doc-review) — so "pickable" proves the candidate's own
+scene+bubbles fit their own pools **in isolation**, never that the eventual
+*combined* save will succeed. The real, authoritative gate is the **same**
+validator running again at actual Save time (`admin.ts`/`reviews.ts`, against
+the full submitted override) — one function, two call sites, so there's no
+second formula to drift, but a candidate marked pickable can still fail Save
+if the rest of the VSO is already near its own budget ceiling. Future work
+should not read "pickable" as removing the need for that final save-time
+check. The deployed system prompt was migrated (0090) because
 `seedVisualConceptsConfig` is ON CONFLICT DO NOTHING — editing the TS default
 alone never reaches deployed rows (same class as migration 0085).
 

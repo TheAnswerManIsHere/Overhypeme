@@ -43,6 +43,18 @@ automatically by the type change. Keep the enum labels in sync with the shared
 `SNAPSHOT_EXEMPT_TAGS`. **Overhype:** `0083_review_workflow_stage_concept_review.sql`
 adds `concept_review` between `prep_failed` and `production_review` this way.
 
+### Concurrent PRs claiming the same migration index
+
+Migration numbering is manual (see the drizzle-generator caveat above), so two
+PRs opened around the same time can independently pick the same next index
+(e.g. both write `0089_*.sql` and append `idx: 89` to
+`lib/db/migrations/meta/_journal.json`). Git's merge auto-resolves everything
+around it but conflicts exactly on the journal's tail entry. **Resolution: the
+PR that merges first keeps its number; the other PR renumbers to the next free
+index** (rename the `.sql` file, fix its journal entry, and grep the PR's own
+docs for the old number — a TEST_RUN/UAT doc or an inline comment can cite it).
+Never renumber an already-merged migration.
+
 ## Idempotency
 
 Every migration and backfill must be **safe to run more than once**:
