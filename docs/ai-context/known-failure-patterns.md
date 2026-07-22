@@ -492,3 +492,26 @@ overflow at render. Caught by Codex mid-review (PR #224); fixed by
 (once with worst-case-projected content, once empty) and takes the delta, so
 every fixed cost cancels and only the true additions contribution remains. See
 [`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget).
+
+## Not merged ≠ not disclosed (public-repo PR history)
+
+**Looks like:** using a branch or PR on a **public** repo as a "private" or
+"throwaway" channel for content you never intend to ship — a plan, a draft, a
+scratch file — assuming that because the PR is a *draft* or will be *closed
+without merging*, its contents aren't really public. **Dangerous:** this repo is
+public, so **every pushed commit and every closed-unmerged PR is permanently in
+public history** — searchable, forkable, cached — regardless of draft status or
+merge outcome. For content that describes an unpatched vulnerability, an exploit
+path, secrets, private customer/commercial data, or embargoed work, that
+*discloses* it the moment it's pushed, often before any fix ships. "It never
+merged" buys **zero** privacy. **Avoid:** before pushing non-shippable content to
+the public repo, run a disclosure check; route anything security-sensitive or
+confidential to a private/manual channel instead of the public PR. Treat "draft"
+and "will close unmerged" as no privacy at all. **Overhype:** the automated
+plan-review loop (PR #226) deliberately uses a *never-merged public draft PR* as
+its review channel — the first design had **no** disclosure gate, so a
+security-remediation plan run through it would have published the exploit before
+the fix landed. Fixed with a mandatory pre-open disclosure check that keeps such
+plans off the public channel (see
+[`decisions.md`](./decisions.md#2026-07-22--plan-review-automated-via-a-codex-draft-pr-loop-replaces-the-manual-chatgpt-paste)).
+Compare PR #217 — a production DB dump that sat committed on public `main`.
