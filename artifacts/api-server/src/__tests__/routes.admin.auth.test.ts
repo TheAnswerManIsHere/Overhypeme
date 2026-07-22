@@ -57,6 +57,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/facts" },
   { method: "get",    path: "/admin/facts/:id" },
   { method: "get",    path: "/admin/facts/:id/pexels-images" },
+  { method: "get",    path: "/admin/facts/:id/text-edit-history" },
   { method: "delete", path: "/admin/facts/:id" },
   { method: "patch",  path: "/admin/facts/:id" },
   { method: "patch",  path: "/admin/facts/:id/enrichment" },
