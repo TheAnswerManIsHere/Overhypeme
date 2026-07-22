@@ -343,6 +343,25 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert(validateEnrichment(row.enrichment).ok);
   });
 
+  it("discards a stale result when the classifier input drifts mid-classify (approved-fact-text lock §E)", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", text: "original wording." });
+    // The classify stub re-words the fact mid-call (a concurrent text edit),
+    // then returns OTHER. The worker's full-input recheck must DISCARD it.
+    const result = await runEnrichmentForFact(id, {
+      classify: async () => {
+        await db.update(factsTable).set({ text: "re-worded mid-classify." }).where(eq(factsTable.id, id));
+        return { ...OTHER };
+      },
+    });
+    assert.equal(result.ok, true, "a drift-discard retires as a successful no-op");
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    // OTHER's archetype must NOT have been written onto the re-worded fact.
+    assert.notEqual(row.primaryArchetype, "object_logic_impossibility");
+    // enrichmentStatus stays "pending" (never flipped to "ok" for a discarded result).
+    assert.equal(row.enrichmentStatus, "pending");
+    assert.equal(row.text, "re-worded mid-classify.");
+  });
+
   it("renders {NAME}/{SUBJ}/… tokens before passing factText to the classify stub", async () => {
     // Seed a fact whose text is a raw template with identity tokens.
     const id = await insertFact({
