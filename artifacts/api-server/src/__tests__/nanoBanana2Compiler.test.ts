@@ -843,7 +843,6 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
   function makeOverride(partial: OverridePartial = {}): OverridePartial {
     return {
       version: 1,
-      enabled: true,
       requiredVisualDetails: [],
       forbiddenVisualDetails: [],
       roleBindings: [],
@@ -854,14 +853,30 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     };
   }
 
-  it("disabled override does not add override sections", () => {
+  it("KEYSTONE: an empty override compiles byte-identically to no override (presence-based)", () => {
+    // Invariant 2 of the toggle-removal plan: returning the raw override for an
+    // empty override must produce exactly the prompt the old enabled-gated `null`
+    // produced. Every consumer no-ops on empty content, so the two must match.
+    const noOverride = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David lifts a car.",
+    }));
+    const emptyOverride = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David lifts a car.", override: makeOverride({}),
+    }));
+    assert.equal(emptyOverride.imagePrompt, noOverride.imagePrompt);
+    assert.doesNotMatch(emptyOverride.imagePrompt, /REQUIRED VISUAL DETAILS/);
+    assert.doesNotMatch(emptyOverride.imagePrompt, /SUBJECT REALIZATION/);
+  });
+
+  it("a populated override emits its section regardless of any (removed) toggle", () => {
+    // Presence-based: content applies because it is non-empty. (This fixture used to
+    // carry enabled:false to prove the opposite; the toggle is gone.)
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David lifts a car.",
-      override: makeOverride({ enabled: false, requiredVisualDetails: ["a glowing aura"] }),
+      override: makeOverride({ requiredVisualDetails: ["a glowing aura"] }),
     }));
-    assert.doesNotMatch(out.imagePrompt, /REQUIRED VISUAL DETAILS/);
-    assert.doesNotMatch(out.imagePrompt, /SUBJECT REALIZATION/);
+    assert.match(out.imagePrompt, /REQUIRED VISUAL DETAILS: a glowing aura\./);
   });
 
   it("enabled override emits REQUIRED VISUAL DETAILS", () => {
@@ -1366,7 +1381,6 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
   function makeOverride(partial: Record<string, unknown> = {}): Record<string, unknown> {
     return {
       version: 1,
-      enabled: true,
       requiredVisualDetails: [],
       forbiddenVisualDetails: [],
       roleBindings: [],
@@ -1393,9 +1407,11 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     assert.equal(core?.moderatorAuthored, true);
   });
 
-  it("keeps the AI path unchanged when the override is disabled or the field is empty", () => {
+  it("keeps the AI path unchanged when the override's scene is empty/blank or absent", () => {
+    // Presence-based: only an EMPTY/blank scene falls back to the AI plan. A non-empty
+    // scene is authoritative regardless of any (removed) toggle — see the test above.
     for (const override of [
-      makeOverride({ enabled: false, coreSceneOverride: "David rides a rubber duck." }),
+      makeOverride({ coreSceneOverride: "" }),
       makeOverride({ coreSceneOverride: "   " }),
       undefined,
     ]) {
@@ -1598,7 +1614,6 @@ describe("nanoBanana2 — no double-naming (X is X) from any role source", () =>
       renderedSubject: { name: "Alex Franklin", pronouns: "he/him" },
       override: {
         version: 1,
-        enabled: true,
         requiredVisualDetails: [],
         forbiddenVisualDetails: [],
         roleBindings: [{ entity: "subject", visualRole: "{NAME} raises a middle finger at a loud patron" }],
@@ -1686,7 +1701,7 @@ describe("nanoBanana2 — key-element crutch filter + structured diagnostics", (
 describe("nanoBanana2 — speech & thought bubbles", () => {
   function bubbleOverride(bubbles: unknown[], partial: Record<string, unknown> = {}): Record<string, unknown> {
     return {
-      version: 1, enabled: true,
+      version: 1,
       requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
       compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
       bubbles,

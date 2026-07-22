@@ -241,7 +241,7 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
 describe("human-field survival (visual override + sticky notes)", () => {
   it("preserves the visual override and a notes override across a taxonomy PUT and re-enrich", async () => {
     const visual = {
-      version: 1 as const, enabled: true,
+      version: 1 as const,
       requiredVisualDetails: ["adult head on a newborn body"], forbiddenVisualDetails: [],
       roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
     };

@@ -548,6 +548,14 @@ async function approveRefreshCandidateForProduction(
   const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
 
+  // Required Visual Concept (blocking): the promoted candidate cannot reach production
+  // without a non-empty Visual Concept — same publish-time backstop as the first-time
+  // production approval, applied to the candidate blob being promoted.
+  if (!enrichmentResult.enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+    res.status(409).json({ error: "Save a non-empty Visual Concept before promoting this refresh.", code: "CONCEPT_MISSING" });
+    return;
+  }
+
   // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
   // the currently-active enrichment) is what must render. The scenario grid
   // resolves a refresh review's enrichment to the candidate version, so this
@@ -671,6 +679,15 @@ async function approveForProduction(
   const enrichmentResult = resolveApprovalEnrichment(stagingFact.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
+
+  // Required Visual Concept (blocking): a fact cannot be released to production without
+  // a non-empty Visual Concept for the image/video engines. This is the publish-time
+  // backstop for the Step-2 gate — it catches a stale/pre-existing production_review row
+  // promoted directly (via a stale tab or a resumed cycle) that never passed Step 2.
+  if (!enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+    res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
+    return;
+  }
 
   // Final discovery tags. The moderator's curated list from the approve body is
   // authoritative; absent that, fall back to the submitter's tags (else AI
@@ -1052,9 +1069,10 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_DISABLED /
-  // CONCEPT_MISSING). Stale-but-saved is allowed — this reads the *persisted*
-  // enrichment, not the AI candidate cards or a browser-only draft.
+  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_MISSING).
+  // Presence-based: gates on a non-empty saved Visual Concept (the enable toggle was
+  // retired). Stale-but-saved is allowed — this reads the *persisted* enrichment, not
+  // the AI candidate cards or a browser-only draft.
   const saved = await resolveSavedCoreSceneForReview(review);
   if (!saved.ok) { res.status(saved.status).json({ error: saved.error, code: saved.code }); return; }
 
@@ -1400,7 +1418,8 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   // save whose Concept + additions would overflow the engine prompt is rejected
   // here, not silently dropped at compile.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso?.enabled) {
+  if (submittedVso) {
+    // Presence-based (the enable toggle was retired): validate whenever a VSO is submitted.
     const budget = validateVisualStrategyOverridePersistence(submittedVso);
     if (!budget.ok) {
       res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
@@ -1431,6 +1450,15 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
             trackedPaths: changed,
           },
         };
+      }
+
+      // Required Visual Concept (blocking): a moderator's candidate-enrichment save must carry
+      // a non-empty Visual Concept — including when the override is absent entirely. The client
+      // mirrors this (draftHasConcept gates save-and-continue); this is the server backstop.
+      // Placed after the write-guard (loadCandidateEditingContext) and tracked-field checks so
+      // it never shadows them.
+      if (!submittedVso?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
       }
 
       // suggestedHashtags PINNED: keep the candidate's persisted baseline

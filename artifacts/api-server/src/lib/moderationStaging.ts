@@ -179,11 +179,11 @@ export async function resolveSavedCoreSceneForReview(
     return { ok: false, status: 400, code: "ENRICHMENT_INVALID", error: `Enrichment is invalid: ${validated.error}` };
   }
   const enrichment = validated.data;
+  // Presence-based (the enable toggle was retired): the Visual Concept is required
+  // and gates approval purely on a non-empty saved core scene. There is no separate
+  // "enabled" requirement anymore.
   const ov = enrichment.visualPromptStrategyOverride;
-  if (!ov || ov.enabled !== true) {
-    return { ok: false, status: 409, code: "CONCEPT_DISABLED", error: "The Visual Concept is disabled. Enable it and save a scene before approving the visual gag." };
-  }
-  const coreScene = ov.coreSceneOverride?.trim() ?? "";
+  const coreScene = ov?.coreSceneOverride?.trim() ?? "";
   if (!coreScene) {
     return { ok: false, status: 409, code: "CONCEPT_MISSING", error: "Save a non-empty Visual Concept (core scene) before approving the visual gag." };
   }

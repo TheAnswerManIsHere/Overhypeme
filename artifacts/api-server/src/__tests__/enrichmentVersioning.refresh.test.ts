@@ -278,6 +278,27 @@ async function seedReadyRefreshCycle(fact: { id: number }): Promise<{ reviewId: 
   return { reviewId, candidateVersionId };
 }
 
+/** Author a moderator Visual Concept on a refresh candidate (required to promote —
+ *  presence-based, no enable toggle). Sends the candidate's CURRENT enrichment (so
+ *  tracked fields match) with only the VSO added. Kept OUT of seedReadyRefreshCycle so
+ *  shape-comparison tests still see a scene-less candidate. */
+async function authorConceptForCycle(reviewId: number, candidateVersionId: number): Promise<void> {
+  const [ver] = await db.select({ enrichment: factEnrichmentVersionsTable.enrichment })
+    .from(factEnrichmentVersionsTable).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+  const res = await request(makeApp())
+    .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+    .set("authorization", `Bearer ${adminSid}`)
+    .send({ enrichment: {
+      ...(ver.enrichment as FactEnrichment),
+      visualPromptStrategyOverride: {
+        version: 1, coreSceneOverride: "{NAME} lifts the planet overhead in a packed stadium.",
+        requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+        bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      },
+    } });
+  assert.equal(res.status, 200, `authorConceptForCycle: ${JSON.stringify(res.body)}`);
+}
+
 async function cleanup() {
   if (insertedFactIds.length) {
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, insertedFactIds));
@@ -632,6 +653,7 @@ describe("refresh approve → promote", () => {
     const fakeSignature = { engineRevision: 7, taxonomyVersion: "vTEST" };
     await db.update(factEnrichmentVersionsTable).set({ signature: fakeSignature })
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    await authorConceptForCycle(reviewId, candidateVersionId);
 
     __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const res = await request(makeApp())
@@ -699,6 +721,7 @@ describe("refresh approve → promote", () => {
   it("fact-text drift → 409 REFRESH_STALE_TEXT and nothing changes", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    await authorConceptForCycle(reviewId, candidateVersionId);
     // The fact's text is edited AFTER the candidate was classified against it.
     await db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id));
 
@@ -873,6 +896,9 @@ describe("processing signature stamping (PR3)", () => {
     assert.deepEqual(sig, currentProcessingSignature(5));
 
     // Promote copies the candidate's signature onto facts.last_processed_signature.
+    // (Author the required Visual Concept AFTER the signature assertions above, so those
+    // read the classify-time stamp; the concept save doesn't re-stamp the engine revision.)
+    await authorConceptForCycle(reviewId, candidateVersionId);
     __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const approve = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
@@ -960,6 +986,7 @@ describe("generic fact-enrichment guards", () => {
     // (b) Promoted (approved) refresh, then re-enrich.
     const factB = await seedActiveFact();
     const b = await seedReadyRefreshCycle(factB);
+    await authorConceptForCycle(b.reviewId, b.candidateVersionId);
     const approve = await request(makeApp())
       .post(`/admin/reviews/${b.reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)

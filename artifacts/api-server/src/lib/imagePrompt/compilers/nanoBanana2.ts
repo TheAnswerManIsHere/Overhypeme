@@ -487,8 +487,13 @@ function composeViolenceDirective(
 
 /** The active moderator override, or null when absent/disabled. */
 function activeOverride(input: ImagePromptGenerationInput): VisualPromptStrategyOverride | null {
+  // Presence-based activation (the enable toggle was retired): every override field
+  // applies when non-empty. Returning the raw override (or null when absent) is
+  // byte-identical to the old enabled-gated path because every consumer already
+  // no-ops on an empty field (empty list → no section, use_ai_plan → "", empty
+  // string → AI-scene fallback).
   const ov = input.enrichment.visualPromptStrategyOverride;
-  return ov?.enabled ? ov : null;
+  return ov ?? null;
 }
 
 /** Join trimmed, sentence-terminated override list entries; "" when none. */

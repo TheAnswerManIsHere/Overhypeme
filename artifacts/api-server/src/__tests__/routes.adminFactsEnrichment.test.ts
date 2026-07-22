@@ -189,7 +189,16 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
     const res = await request(adminApp)
       .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } });
+      // A valid admin save carries a required Visual Concept (presence-based, no toggle).
+      .send({ enrichment: {
+        ...VALID,
+        suggestedHashtags: ["alpha", "beta", "gamma"],
+        visualPromptStrategyOverride: {
+          version: 1, coreSceneOverride: "{NAME} hoists a barbell overhead in an arena.",
+          requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+          bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        },
+      } });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
@@ -202,7 +211,7 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
     const override = {
       version: 1 as const,
-      enabled: true,
+      coreSceneOverride: "{NAME} hoists a glowing barbell overhead.",
       requiredVisualDetails: ["a glowing aura"],
       forbiddenVisualDetails: [],
       roleBindings: [],
@@ -243,7 +252,7 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
     const base = {
       version: 1 as const,
-      enabled: true,
+      coreSceneOverride: "{NAME} stands ready in the arena.",
       forbiddenVisualDetails: [],
       roleBindings: [],
       compositionGuidance: [],
@@ -390,7 +399,6 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   it("preserves the moderator visual-strategy override across re-classification", async () => {
     const override = {
       version: 1 as const,
-      enabled: true,
       requiredVisualDetails: ["adult head on a newborn body"],
       forbiddenVisualDetails: [],
       roleBindings: [],

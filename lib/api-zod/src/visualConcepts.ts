@@ -186,7 +186,7 @@ export interface SanitizedSceneText {
  */
 export function sanitizeCandidateSceneText(rawScene: string): SanitizedSceneText {
   const text = canonicalizeNameToken(rawScene).trim().slice(0, CANDIDATE_SCENE_MAX_CHARS);
-  const probe = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: text };
+  const probe = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text };
   const tokenError = firstOverrideTokenError(probe);
   return tokenError ? { text, tokenValid: false, tokenError } : { text, tokenValid: true };
 }
@@ -234,7 +234,6 @@ export function sanitizeCandidateBubble(b: CandidateBubbleWire): StoredCandidate
   if (!tokenError && text.includes("{")) {
     const probe = {
       ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-      enabled: true,
       bubbles: [{ type: b.type, entity: "subject", text }] as VisualStrategyBubble[],
     };
     const err = firstOverrideTokenError(probe);
@@ -290,9 +289,12 @@ export function withCandidateConceptDraft(
   candidate: StoredCandidateConcept,
 ): VisualPromptStrategyOverride {
   const base = existing ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+  // Presence-based: a pick sets only the scene + bubbles; those apply because they
+  // are non-empty, and any pre-existing advanced fields keep applying independently.
+  // No `enabled` flip (the toggle is gone), so a pick can never resurrect dormant
+  // fields — there is no shared gate to flip.
   return {
     ...base,
-    enabled: true,
     coreSceneOverride: candidate.sceneDescription,
     bubbles: (candidate.bubbles ?? []).map(({ type, entity, text }) => ({ type, entity, text })),
   };

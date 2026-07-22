@@ -1176,8 +1176,9 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // engine prompt budget — before it can silently drop policy guardrails at
   // compile. Legacy stored content stays readable; this gates saves only.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso?.enabled) {
-    // Additions + bubbles are measured through the REAL compiler (wrapping
+  if (submittedVso) {
+    // Presence-based (the enable toggle was retired): validate whenever a VSO is
+    // submitted. Additions + bubbles are measured through the REAL compiler (wrapping
     // included), not a raw field sum, so a save the gate accepts can't overflow
     // at render. One shared preflight with the review-candidate PATCH and
     // candidate-concept pickability.
@@ -1211,6 +1212,17 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
       });
       return;
     }
+  }
+
+  // Required Visual Concept (blocking): a valid admin-authored enrichment save must carry
+  // a non-empty Visual Concept — including when the override is absent entirely. A fact
+  // cannot reach production without a scene for the image/video engines; this is the
+  // admin-save half of that gate (approval gates are enforced separately). Placed after the
+  // structural checks (404 / write-freeze / tracked-field) so it never shadows them, and
+  // after — automated enrichment jobs write through the worker, not this admin route.
+  if (!submittedVso?.coreSceneOverride?.trim()) {
+    res.status(400).json({ error: "visual_concept_required" });
+    return;
   }
 
   // Apply only the non-tracked edits. suggestedHashtags is an AI field edited in

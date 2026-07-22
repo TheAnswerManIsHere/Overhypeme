@@ -329,7 +329,9 @@ export function resolveRenderPolicy(
   enrichment: { visualPromptStrategyOverride?: VisualPromptStrategyOverride } | null | undefined,
 ): RenderPolicy {
   const ov = enrichment?.visualPromptStrategyOverride;
-  if (!ov?.enabled) return DEFAULT_RENDER_POLICY;
+  // Presence-based: each policy override applies when present; the field-presence
+  // checks below already default to the base policy on absence.
+  if (!ov) return DEFAULT_RENDER_POLICY;
   return {
     supportingText: ov.supportingTextPolicyOverride
       ? { mode: ov.supportingTextPolicyOverride.mode, guidance: ov.supportingTextPolicyOverride.guidance }
