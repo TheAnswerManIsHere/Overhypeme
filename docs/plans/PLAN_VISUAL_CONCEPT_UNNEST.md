@@ -19,6 +19,13 @@ controls" and post-#228). All line references below are current as of that commi
   P2-follow-up — removing the panel field strips **Step 3 (Test Renders)** of any scene
   editor; §D now adds the `VisualConceptCard` to Step 3 as well, preserving render-tweaking
   parity. Both acceptance tests added.
+- rev 5 — Codex round 4 (all non-blocking): (a) resolve the scene-only warning expectation —
+  with `coreSceneOverride` excluded from the predicate, a scene-only *enabled* override HAS no
+  besides-core content, so the "enabled but empty" warning **does** fire (correct: the toggle
+  has no effect without advanced content); test wording corrected. (b) Use the scoped
+  `pnpm --filter @workspace/overhype-me run generate:field-docs` command. (c) Update the
+  `VisualConceptCard` *visible* help text (`:72-76`), not just the header, so it matches
+  runtime (compiler-owned language is warned, not stripped).
 - rev 4 — Codex round 3: P2 — the server candidate-pickability preflight
   (`validateAndSanitizeCandidateConcepts`, `generator.ts:230`) has no persisted override; it
   passes `serverBaseEnabled=false` explicitly and `serverBaseEnabled` is a **required** param
@@ -227,7 +234,18 @@ external API / SDK / model / pricing / rate-limit claims.
   tested helper (e.g. `hasRenderableOverrideContentBesidesCoreScene(ov)`) in
   `lib/api-zod/src/visualStrategyOverride.ts` and use it **only** for this warning. Do
   **not** modify `hasRenderableVisualStrategyOverrideContent` or `collectRenderedTextEntries`
-  (invariant 5).
+  (invariant 5). **Intended behavior (Codex round 4):** with core-scene excluded, a
+  scene-only *enabled* override has no besides-core content, so the warning **fires** — which
+  is correct: after decoupling, enabling the override with only a scene (which renders anyway)
+  and no advanced content means the toggle does nothing, and the warning says so.
+- **`artifacts/overhype-me/src/components/admin/VisualConceptCard.tsx:72-76`** — update the
+  *visible* help text, not just the file header. It currently says compiler-owned
+  instructions "will strip them," but runtime (`nanoBanana2.ts:1295-1310`) renders the Visual
+  Concept **verbatim** and *warns* on compiler-owned language rather than stripping it. Since
+  this card is now the single surface on Facts and Step 3 too, reword the guidance to match
+  runtime (e.g. "the compiler owns those and will flag them — describe only the visible
+  scene"). Add/adjust a test asserting the corrected copy so the admin surface can't drift
+  from runtime again.
 - **`artifacts/overhype-me/src/pages/admin/facts.tsx`** — add `VisualConceptCard` above the
   `EnrichmentEditor` render (`:322`), mirroring `moderation.tsx:1056-1063`. Wiring already
   exists in scope: `value={enrichment?.visualPromptStrategyOverride}`,
@@ -330,8 +348,9 @@ Update existing assertions of the old coupled behavior, and add negative/general
   panel no longer hosts the field).
 - Add: Facts page renders `VisualConceptCard`; **Step 3 (Test Renders) renders
   `VisualConceptCard`** and editing it updates the same draft; the panel's "enabled but
-  empty" warning does **not** fire for a scene-only enabled override. **Codex round-3
-  read-only test:** in the Facts panel's read-only mode, the card is `disabled` and editing
+  empty" warning **does** fire for a scene-only enabled override (no besides-core content —
+  the toggle has no effect without advanced content); adding a role binding / bubble / policy
+  clears it. **Codex round-3 read-only test:** in the Facts panel's read-only mode, the card is `disabled` and editing
   it does **not** mutate the draft (no dirty state) — the `if (!disabled)` guard holds.
 - `candidatePickGate.test.ts` / `useFactEnrichmentEditing.test.tsx` — confirm still green
   (pick-blocking already strips `enabled`; tokenize baseline still includes coreScene).
@@ -344,7 +363,9 @@ Update existing assertions of the old coupled behavior, and add negative/general
   update the `vso.coreSceneOverride` doc: remove ":285 Typing a non-empty concept
   auto-enables the override," restate authority as independent of `enabled`, note the single
   card surface. Then **regenerate** `docs/ADMIN_FIELD_REFERENCE.md` via
-  `npm run generate:field-docs` so `fieldDocs.test.ts:143-146` (sync check) stays green.
+  `pnpm --filter @workspace/overhype-me run generate:field-docs` (the generator lives in
+  `@workspace/overhype-me`; there is no root script) so `fieldDocs.test.ts:143-146` (sync
+  check) stays green.
 - **`docs/ai-context/visual-pipeline.md`** — the "Visual Concept" section (`:181-194`):
   state it is authoritative whenever present, edited in one prominent card on both pages,
   and that `enabled` gates only the advanced machinery.
@@ -384,8 +405,8 @@ Update existing assertions of the old coupled behavior, and add negative/general
 - `pnpm --filter @workspace/overhype-me exec vitest run` — green, including the new card /
   panel / warning tests.
 - `pnpm --filter @workspace/overhype-me run build` and both typechecks — clean.
-- `npm run generate:field-docs` then `git diff --exit-code docs/ADMIN_FIELD_REFERENCE.md` —
-  clean (regenerated, committed).
+- `pnpm --filter @workspace/overhype-me run generate:field-docs` then
+  `git diff --exit-code docs/ADMIN_FIELD_REFERENCE.md` — clean (regenerated, committed).
 - `git diff --exit-code lib/api-zod/src/index.ts` after codegen — clean.
 - Manual (UAT): edit the Visual Concept in the card on **both** moderation and Facts pages;
   confirm the Advanced Options panel no longer shows a scene field; approve a visual gag with
