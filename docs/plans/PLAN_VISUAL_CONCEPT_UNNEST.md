@@ -19,6 +19,14 @@ controls" and post-#228). All line references below are current as of that commi
   P2-follow-up — removing the panel field strips **Step 3 (Test Renders)** of any scene
   editor; §D now adds the `VisualConceptCard` to Step 3 as well, preserving render-tweaking
   parity. Both acceptance tests added.
+- rev 4 — Codex round 3: P2 — the server candidate-pickability preflight
+  (`validateAndSanitizeCandidateConcepts`, `generator.ts:230`) has no persisted override; it
+  passes `serverBaseEnabled=false` explicitly and `serverBaseEnabled` is a **required** param
+  (no silent default). P2 — the Facts-page (and Step 3) card must inherit the host's
+  read-only/`disabled` state and guard `onChange` like the existing `EnrichmentEditor` wiring
+  (`if (!disabled) …`). P3 — invariant 6 reworded: the whole override is hashed by the
+  render-scenario / visual-concept **input hashes** (`renderAffectingEnrichment`), not
+  `ProcessingSignature`; staleness is unchanged and no processing-signature change is needed.
 
 ---
 
@@ -80,8 +88,12 @@ Per `docs/ai-context/visual-pipeline.md` and the `overhype-visual-pipeline` skil
 5. **Tokenization / canonicalization of `coreSceneOverride` is unchanged.** The shared
    `collectRenderedTextEntries` collector (used by tokenize routes, dirty-detection, and
    budget) keeps returning `coreSceneOverride`. We do **not** edit that collector.
-6. **Staleness / processing-signature hashing is unchanged** — it already hashes the whole
-   override regardless of `enabled`.
+6. **Staleness detection is unchanged.** The render-scenario input hash and the visual-concept
+   input hash already include the whole `visualPromptStrategyOverride` (via
+   `renderAffectingEnrichment`, `lib/visualConcepts/inputHash.ts`), regardless of `enabled`,
+   so decoupling the scene does not change what marks a render/ideas cycle stale.
+   `ProcessingSignature` is a **separate** mechanism (engine revision + code-version
+   constants) and needs **no** change — the plan touches neither hash.
 
 ---
 
@@ -187,14 +199,21 @@ external API / SDK / model / pricing / rate-limit claims.
   }
   ```
 
-  And the caller — **`artifacts/overhype-me/src/pages/admin/moderation.tsx:553-561`**
-  (`onPickConcept`) — passes `getServerVisualOverride()?.enabled ?? false` as the third arg
-  (the server preflight / pickability path passes the persisted override's `enabled`, which
-  is the authoritative base there too). (Function-body + signature change only — no new
-  `lib/api-zod` export, so the codegen/`index.ts` regeneration gotcha from PR #230 does not
-  apply. Run codegen once and confirm `git diff --exit-code lib/api-zod/src/index.ts` is
-  clean regardless. Update the `onPickConcept` doc-comment at `:555-556`, which currently
-  says the helper "auto-enables.")
+  Make `serverBaseEnabled` a **required** parameter (no default) so no call site can silently
+  fall back to a wrong value. Both callers pass it from the **saved** override:
+  - **`artifacts/overhype-me/src/pages/admin/moderation.tsx:553-561` (`onPickConcept`)** —
+    passes `getServerVisualOverride()?.enabled ?? false`. Update its doc-comment at `:555-556`
+    (currently says the helper "auto-enables").
+  - **`artifacts/api-server/src/lib/visualConcepts/generator.ts:230`
+    (`validateAndSanitizeCandidateConcepts`)** — the server pickability preflight has an
+    `undefined` base and no persisted override in scope, so it passes **`false`** explicitly
+    (Codex round 3). With an undefined/EMPTY base the reset is a no-op (no stale advanced
+    fields exist), so the pool-independent budget proof is unchanged; add a test for this
+    no-persisted-override path.
+
+  (Function-body + signature change only — no new `lib/api-zod` export, so the
+  codegen/`index.ts` regeneration gotcha from PR #230 does not apply. Run codegen once and
+  confirm `git diff --exit-code lib/api-zod/src/index.ts` is clean regardless.)
 
 ### D. Option 1 UI — single prominent surface
 
@@ -211,9 +230,15 @@ external API / SDK / model / pricing / rate-limit claims.
   (invariant 5).
 - **`artifacts/overhype-me/src/pages/admin/facts.tsx`** — add `VisualConceptCard` above the
   `EnrichmentEditor` render (`:322`), mirroring `moderation.tsx:1056-1063`. Wiring already
-  exists in scope: `value={enrichment?.visualPromptStrategyOverride}`, `disabled` from
-  `vsoTokenizing`/`committing`, `tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}`,
-  `onChange` → `draft.setValue({ ...enrichment, visualPromptStrategyOverride: next })`.
+  exists in scope: `value={enrichment?.visualPromptStrategyOverride}`,
+  `tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}`. **Read-only safety (Codex round
+  3):** `FactEnrichmentPanel` has a `disabled` read-only mode (refresh-in-review) and its
+  existing `EnrichmentEditor` wiring withholds writes with `onChange={(next) => { if
+  (!disabled) draft.setValue(next); }}`. The card's `disabled` prop must include that
+  read-only/`busy` state (not just `vsoTokenizing`/`committing`), and its `onChange` must be
+  guarded the **same** way — otherwise an admin could edit a prominent Visual Concept in
+  read-only mode that the backend refuses to save, leaving misleading dirty state. Mirror the
+  same guard on the Step 3 card below.
 - **`artifacts/overhype-me/src/pages/admin/moderation.tsx` — Step 3 (Test Renders)
   `:1125-1150` (Codex round 2):** removing the panel field would leave the
   `production_review` render step with no scene editor (only `FactVisualReviewGrid`,
@@ -286,7 +311,11 @@ Update existing assertions of the old coupled behavior, and add negative/general
   policy content from the discarded stale fields. **Codex round-2 sequence test:** with the
   helper's `serverBaseEnabled=false` but the passed-in draft `base.enabled=true` (moderator
   toggled on locally without saving), a bubble pick still resets the advanced fields — the
-  reset keys on `serverBaseEnabled`, not `base.enabled`.
+  reset keys on `serverBaseEnabled`, not `base.enabled`. **Codex round-3 no-base test:**
+  `withCandidateConceptDraft(undefined, candidate, false)` (the server pickability preflight
+  path) enables only when the candidate has bubbles and produces a clean scene-only/scene+
+  bubbles override — the pool-independent budget proof in `validateAndSanitizeCandidateConcepts`
+  still holds.
 - **Codex P2 route tests** — `routes.admin.test.ts` (fact enrichment PATCH) and the
   review-candidate PATCH in `routes.reviews.test.ts`: an `enabled:false` override with an
   **over-budget `coreSceneOverride`** now returns `400 visual_strategy_override_over_budget`
@@ -301,7 +330,9 @@ Update existing assertions of the old coupled behavior, and add negative/general
   panel no longer hosts the field).
 - Add: Facts page renders `VisualConceptCard`; **Step 3 (Test Renders) renders
   `VisualConceptCard`** and editing it updates the same draft; the panel's "enabled but
-  empty" warning does **not** fire for a scene-only enabled override.
+  empty" warning does **not** fire for a scene-only enabled override. **Codex round-3
+  read-only test:** in the Facts panel's read-only mode, the card is `disabled` and editing
+  it does **not** mutate the draft (no dirty state) — the `if (!disabled)` guard holds.
 - `candidatePickGate.test.ts` / `useFactEnrichmentEditing.test.tsx` — confirm still green
   (pick-blocking already strips `enabled`; tokenize baseline still includes coreScene).
 
