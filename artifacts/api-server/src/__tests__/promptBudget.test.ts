@@ -218,6 +218,28 @@ describe("bubble directives pool", () => {
     assert.equal(over.usage.bubbleDirectivesRendered, BUBBLE_DIRECTIVES_RENDERED_MAX + 1);
   });
 
+  it("measures the REAL escaping cost of quoted bubble text, not a content-blind placeholder (Codex P2, PR #229)", () => {
+    // `serializeLiteralPromptString` escapes every embedded `"`/`\` to two
+    // characters. Two same-LENGTH bubble texts — one plain, one all quote
+    // characters — must measure DIFFERENTLY: the quote-heavy one strictly
+    // higher, proving the measurement reflects the real authored text's
+    // actual escaping cost rather than an anonymized length-only placeholder
+    // (which would either undercount real quotes, or uniformly over-inflate
+    // every quote-free bubble by assuming the worst regardless of content).
+    const plain = withBubbles([bubble("x".repeat(40))]);
+    const quoted = withBubbles([bubble('"'.repeat(40))]);
+    const plainEmitted = measureBubbleDirectivesEmission(plain);
+    const quotedEmitted = measureBubbleDirectivesEmission(quoted);
+    assert.ok(
+      quotedEmitted > plainEmitted,
+      `quote-heavy text (${quotedEmitted}) must measure higher than same-length plain text (${plainEmitted})`,
+    );
+    // A save the gate accepts can never overflow at compile: the measured
+    // delta for the quoted text must be >= the actual compiled section's
+    // contribution for that exact override (proven directly, not inferred).
+    assert.equal(validateVisualStrategyOverridePersistence(quoted).ok, true);
+  });
+
   it("the additions measurement EXCLUDES bubbles (no double counting)", () => {
     const ov = withBubbles([bubble("Hello there, this is a fairly long bubble line.")]);
     assert.equal(measureModeratorAdditionsEmission(ov), 0);

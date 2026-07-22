@@ -32,6 +32,7 @@ import {
   collectRenderedTextEntries,
   setRenderedTextAtPath,
   projectWorstCaseRenderedLength,
+  projectWorstCaseRenderedText,
   resolveRenderPolicy,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   validateVisualStrategyOverrideForSave,
@@ -215,16 +216,26 @@ export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride
   let projected: VisualPromptStrategyOverride = { ...EMPTY_ENABLED_OVERRIDE, bubbles: ov.bubbles };
   for (const { path, value } of collectRenderedTextEntries(projected)) {
     if (!path.startsWith("bubbles[")) continue;
-    // Text placeholders take the worst-case rendered token expansion. Entity
-    // placeholders must cover the worst ATTRIBUTION TARGET: a role label emits
-    // as itself (raw length — entities are token-free), but "subject" (7 chars)
-    // emits as the rendered subject name (up to RENDERED_IDENTITY_NAME_MAX), so
-    // take the max of both. Every placeholder is ≥ the eventual rendered
-    // length, keeping the measurement an upper bound.
-    const projectedLen = path.endsWith(".entity")
-      ? Math.max(value.length, RENDERED_IDENTITY_NAME_MAX)
-      : projectWorstCaseRenderedLength(value);
-    projected = setRenderedTextAtPath(projected, path, "x".repeat(projectedLen));
+    if (path.endsWith(".entity")) {
+      // Entities are never escaped (composeBubbleDirective inserts the
+      // attribution noun raw, never through serializeLiteralPromptString) —
+      // only their worst-case ATTRIBUTION TARGET length matters: a role
+      // label emits as itself (raw length), but "subject" (7 chars) emits as
+      // the rendered subject name (up to RENDERED_IDENTITY_NAME_MAX).
+      const projectedLen = Math.max(value.length, RENDERED_IDENTITY_NAME_MAX);
+      projected = setRenderedTextAtPath(projected, path, "x".repeat(projectedLen));
+      continue;
+    }
+    // Text DOES run through `serializeLiteralPromptString`, which escapes
+    // every embedded `"`/`\` to two characters — so the placeholder must
+    // preserve the moderator's REAL literal characters (their true escaping
+    // cost is already fully known at save time) and only substitute the
+    // TOKEN-expansion portion with a safe worst-case-length filler.
+    // `projectWorstCaseRenderedText` does exactly that (a plain "x" fill on
+    // length alone would either undercount real quoted speech or, filled
+    // with worst-case-escaping chars uniformly, wrongly over-inflate
+    // ordinary quote-free bubbles — Codex P2, PR #229).
+    projected = setRenderedTextAtPath(projected, path, projectWorstCaseRenderedText(value));
   }
   let worst = 0;
   for (const entry of ADDITIONS_MODES) {
