@@ -50,7 +50,13 @@ import { detectMediumClaim } from "./promptContentDetectors";
 // DETAILS replaces REFERENCE INTERPRETATION and never doubles a name; additive
 // de-dupe upgraded from substring to content-word contiguity. Compiled output
 // changes for identical inputs, so existing test renders correctly flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v7";
+// v8: SPEECH & THOUGHT BUBBLES — moderator bubble directives compile as a new
+// required, dedupe-exempt section; the ceiling rises 6000 → 6900 to fund the
+// dedicated bubble pool; supporting-text literals move to the shared
+// serializer (escaped quotes). Compiled output changes for identical inputs
+// (zero-bubble inputs included — section order/serializer), so existing test
+// renders correctly flag stale.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v8";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────

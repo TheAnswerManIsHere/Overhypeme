@@ -95,22 +95,31 @@ the worker quietly resolving `stylePrompt = ""`.
 
 ## Render-time prompt budget
 
-**The engine prompt ceiling is 6000 chars** (`MAX_PROMPT_CHARS`,
-`compilers/nanoBanana2.ts`; raised from 4000 — PR #224. NB2's real context
-window is ~131K tokens, so 4000 was editorial discipline against
-bloated/redundant authoring, not an engine capacity limit, and it left the
-moderator authoring pools with zero margin). The budget is split into four
-reserves, derived from a **measurement of the real compiler**, not invented
-numbers — `measureRequiredPromptBudget()` and `measureModeratorAdditionsEmission()`
+**The engine prompt ceiling is 6900 chars** (`MAX_PROMPT_CHARS`,
+`compilers/nanoBanana2.ts`; raised from 4000 — PR #224 — and again from 6000
+to fund the dedicated bubble pool, David-approved. NB2's real context window
+is ~131K tokens, so the ceiling is editorial discipline against
+bloated/redundant authoring, not an engine capacity limit). The budget is
+split into five reserves, derived from a **measurement of the real
+compiler**, not invented numbers — `measureRequiredPromptBudget()`,
+`measureModeratorAdditionsEmission()`, and `measureBubbleDirectivesEmission()`
 (`imagePrompt/promptBudget.ts`) compile maximum-fixed-shape prompts through
 the actual compiler and a proof test asserts the split still fits:
 
 ```
-6000 = FIXED_REQUIRED_RESERVE_BUDGET (1750, measured compiler overhead)
+6900 = FIXED_REQUIRED_RESERVE_BUDGET (1750, measured compiler overhead)
      + CORE_SCENE_RENDERED_MAX       (2000, the moderator Concept)
-     + MODERATOR_ADDITIONS_RENDERED_MAX (1500, everything else moderator-authored)
+     + MODERATOR_ADDITIONS_RENDERED_MAX (1500, other moderator content, excl. bubbles)
+     + BUBBLE_DIRECTIVES_RENDERED_MAX (900, the SPEECH & THOUGHT BUBBLES section)
      + PROMPT_OUTER_MARGIN           (750, safety slack)
 ```
+
+The additions measurement **excludes bubbles** and the bubble measurement
+carries **only** bubbles, so the two pools can never double-count. The 900
+pool fits 2–3 maximum-length bubbles or 4 realistic ones (the compact
+directive template is deliberate — every fixed word bills against the pool);
+a payload that can't fit fails save with `bubble_directives_rendered_too_long`
+— never a silent drop or partial section.
 
 **Save-time validation measures the compiler's actual emitted length, not a
 raw field-text sum** (Codex caught this on PR #224 before merge: a naive sum
@@ -220,9 +229,28 @@ panel disable entirely while a batch tokenize round trip is in flight
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
 Slice 2A / PRs #163, #166). The planner drafts exactly **3**
-`{title, whyItWorks, sceneDescription}` concepts during moderation prep, stored on
-`facts.visual_concept_candidates`. They use a **render-mode-agnostic** context so a
-pick works across all modes. A pick → `coreSceneOverride`.
+`{title, whyItWorks, sceneDescription, bubbles}` concepts during moderation prep,
+stored on `facts.visual_concept_candidates`. They use a **render-mode-agnostic**
+context so a pick works across all modes. A pick applies the WHOLE concept
+via `withCandidateConceptDraft` (scene → `coreSceneOverride`, bubbles →
+`bubbles`; unrelated VSO fields preserved; never merged; atomic — one invalid
+bubble makes the whole concept unpickable).
+
+**Candidate bubble contract (prompt version 2):** `bubbles` is REQUIRED on
+the strict wire (`[]` = the normal no-bubble case; strict Structured Outputs
+forbids omittable properties). The generator proposes a bubble only when it
+materially serves the gag — the headline case is a literal quote in the fact
+text (the exact quote goes in `bubbles[].text`, never restated in the scene:
+single-channel is enforced by `detectBubbleDirectiveLanguage` + a
+literal-restatement check, with the one corrective retry). Over-cap text is
+INVALID output, never truncated (slicing a quote corrupts it). Token errors
+store the candidate unpickable (the existing scene pattern); an
+all-unpickable response FAILS the attempt rather than storing `ok`. Every
+pickable concept is preflighted through `validateVisualStrategyOverridePersistence`
+on the exact override a pick produces, so pickable ⇒ saveable is shared-code
+truth. The deployed system prompt was migrated (0089) because
+`seedVisualConceptsConfig` is ON CONFLICT DO NOTHING — editing the TS default
+alone never reaches deployed rows (same class as migration 0085).
 
 ## Frontier visual planner
 
@@ -261,6 +289,37 @@ seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
 Dropped role/key-element candidates are recorded in
 `diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
 parameter** — exclusions are positive scene language.
+
+## Speech & thought bubbles (moderator control, compiler-owned language)
+
+Explicit `bubbles` on the VSO (`{type: speech|thought, entity, text}`, max 4;
+text ≤80 chars, soft-warn 60; entity follows role-binding rules — "subject"
+or a plain label, tokens hard-rejected). Ownership is strictly
+single-channel:
+
+- **The compiler owns all bubble prompt language**: one compact deterministic
+  directive per bubble (stored order, atomic, via the shared
+  `serializeLiteralPromptString` — tokens render BEFORE escaping) in the
+  required `SPEECH & THOUGHT BUBBLES` section, which is **dedupe-exempt**
+  (`dedupe: "none"` — the assembler's sentence de-dup would otherwise drop a
+  bubble whose words the Concept already used). Explicit bubbles render even
+  under `supportingText.mode === "forbid"`; the overlay-caption exclusion is
+  untouched (a carveout line states the precedence in compiled language).
+- **The runtime planner only stages** (gated by `includeModeratorBubbles`,
+  planner-true / candidate-false): it sees type/entity/rendered-text context
+  and is told to pose characters compatibly and leave headroom — never to
+  author balloons. While bubbles are active, planner prose that authors a
+  balloon is stripped (`bubble-directive-owned-by-compiler` removal reason);
+  a moderator Concept doing the same gets a non-mutating warning
+  (`bubble_language_in_moderator_scene`).
+- **Entity diagnostics are structured** (`diagnostics.warnings`, never the
+  breakdown): `bubble_entity_unresolved` / `bubble_entity_ambiguous` with a
+  typed `{bubbleIndex, entity}` context, resolved against subject + role
+  bindings + the planner's effective secondary characters (so a valid
+  secondary-speaker bubble doesn't false-warn). The directive still emits —
+  moderator authority; the engine may still misresolve, which UAT verifies.
+- **UI**: ONE shared `BubbleEditor` (first-class beside the Visual Concept
+  card on Moderation + embedded in Advanced VSO), one draft, no drift.
 
 ## Render policy and readable text
 
