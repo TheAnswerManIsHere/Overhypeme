@@ -10,7 +10,7 @@ import {
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
   factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, count, inArray, isNull } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -711,31 +711,65 @@ async function approveForProduction(
   // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // Activate the fact, mark the review approved, AND attach the final hashtags in
-  // ONE transaction so a fact is never live with the review still pending (or vice
-  // versa) — and, since a fact can't ship without tags, never live-but-untagged.
-  await db.transaction(async (tx) => {
-    await tx.update(factsTable).set({
-      isActive: true,
-      parentId: parentId ?? null,
-    }).where(eq(factsTable.id, stagingFact.id));
-    await tx.update(pendingReviewsTable).set({
-      status: "approved",
-      workflowStage: "production_approved",
-      reviewedById: req.user.id,
-      approvedFactId: stagingFact.id,
-      adminNote,
-      reviewedAt: new Date(),
-      // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
-      // truth lives on facts.enrichment and its baseline/override layers — never
-      // read this back as editable state.
-      enrichment,
-      enrichmentStatus: "ok",
-      ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
-    }).where(eq(pendingReviewsTable.id, reviewId));
-    // The moderator-curated list resolved + gated (non-empty) above.
-    await attachHashtags(tx, stagingFact.id, finalTags);
-  });
+  // The render/enrichment gate above validated THIS exact wording. A concurrent
+  // approved-fact-text edit (which locks the same fact row) could re-word the
+  // staging fact between that gate and this activation, so the activation is a
+  // compare-and-set: activate ONLY while the fact is still inactive AND its text
+  // is still the wording we validated, and approve the review ONLY while it is
+  // still the same first-time production_review cycle. Either mismatch fails
+  // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
+  const validatedText = stagingFact.text;
+  let approvalConflict: "text" | "review_state" | null = null;
+  try {
+    await db.transaction(async (tx) => {
+      const activated = await tx.update(factsTable).set({
+        isActive: true,
+        parentId: parentId ?? null,
+      }).where(and(
+        eq(factsTable.id, stagingFact.id),
+        eq(factsTable.isActive, false),
+        eq(factsTable.text, validatedText),
+      )).returning({ id: factsTable.id });
+      if (activated.length === 0) { approvalConflict = "text"; throw new Error("approval_cas_text_conflict"); }
+
+      const reviewed = await tx.update(pendingReviewsTable).set({
+        status: "approved",
+        workflowStage: "production_approved",
+        reviewedById: req.user.id,
+        approvedFactId: stagingFact.id,
+        adminNote,
+        reviewedAt: new Date(),
+        // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
+        // truth lives on facts.enrichment and its baseline/override layers — never
+        // read this back as editable state.
+        enrichment,
+        enrichmentStatus: "ok",
+        ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
+      }).where(and(
+        eq(pendingReviewsTable.id, reviewId),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "production_review"),
+        eq(pendingReviewsTable.stagingFactId, stagingFact.id),
+        isNull(pendingReviewsTable.candidateVersionId),
+      )).returning({ id: pendingReviewsTable.id });
+      if (reviewed.length === 0) { approvalConflict = "review_state"; throw new Error("approval_cas_review_conflict"); }
+
+      // The moderator-curated list resolved + gated (non-empty) above.
+      await attachHashtags(tx, stagingFact.id, finalTags);
+    });
+  } catch (err) {
+    if (approvalConflict === "text") {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: fact text changed during approval");
+      res.status(409).json({ error: "The fact's text changed while you were approving it. Re-review the current wording, then approve again.", code: "FACT_TEXT_CHANGED_DURING_APPROVAL" });
+      return;
+    }
+    if (approvalConflict === "review_state") {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
+      res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
+      return;
+    }
+    throw err;
+  }
 
   // Post-commit side effects, once. Embed for duplicate/related surfacing.
   void embedFactAsync(stagingFact.id, stagingFact.text, canonicalText);
