@@ -43,7 +43,8 @@ import {
   evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { ensureStagingFact, resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
   promoteCandidateEnrichmentVersion,
   PromoteCandidateError,
@@ -66,8 +67,6 @@ import {
   OVERRIDABLE_PATH_KEYS,
   type OverridablePath,
 } from "@workspace/api-zod";
-import { enqueueJob } from "../lib/asyncJobs";
-import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
@@ -822,10 +821,12 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  // Idempotent re-click while prep is already running: return the existing
-  // staging fact without creating a second fact or re-enqueuing.
+  // Idempotent re-click while prep is already running: DON'T just return
+  // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
+  // "pending" projection left by a failed enqueue), then report their state.
   if (review.workflowStage === "prep_pending" && review.stagingFactId != null) {
-    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true });
+    const prepDispatch = await ensureFirstTimeStagingPrepJobs(review.stagingFactId);
+    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true, prepDispatch });
     return;
   }
 
@@ -861,42 +862,28 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   }
 
   // Create-or-reuse the staging fact and move the review into prep, in one
-  // transaction. If enqueue (below) fails the staging fact + prep_pending state
-  // remain, so a later re-click recovers without creating a duplicate fact.
+  // transaction (the shared first-time-staging-prep primitive, reused by the
+  // staging branch of the approved-fact-text edit). If the post-commit ensure
+  // fails, the staging fact + prep_pending state remain, so a later re-click
+  // recovers without creating a duplicate fact.
   let stagingFactId = 0;
   await db.transaction(async (tx) => {
-    const { factId } = await ensureStagingFact(
-      { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
-      parentFactId ?? null,
-      tx,
-    );
-    stagingFactId = factId;
-    // Mark enrichment prep "pending" up front so the moderation UI shows it
-    // "working" immediately (symmetric with pexels_status, set by enqueueFactPexels).
-    // A re-run from prep_failed / production_review also resets it here.
-    await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
-    await tx.update(pendingReviewsTable).set({
-      workflowStage: "prep_pending",
-      stagingFactId: factId,
+    const { factId } = await prepareFirstTimeStagingPrep(tx, {
+      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
+      parentFactId: parentFactId ?? null,
       reviewedById: req.user.id,
-      ...(adminNote != null ? { adminNote } : {}),
-    }).where(eq(pendingReviewsTable.id, id));
+      adminNote,
+    });
+    stagingFactId = factId;
   });
 
-  // Start fact-backed prep on the staging fact. Both queues are deduped so a
-  // re-click can't double-enqueue. Enrichment is the gate that advances the
-  // review to production_review; Pexels image prep runs alongside as tracked
-  // best-effort seeding (its status shows per-fact but never blocks the gate).
-  await enqueueJob({
-    queue: "enrichment",
-    payload: { factId: stagingFactId },
-    dedupeKey: `enrichment:fact:${stagingFactId}`,
-  });
-  await enqueueFactPexels(stagingFactId);
+  // Ensure the durable enrichment + Pexels jobs (both deduped; enrichment gates
+  // the advance to concept_review, Pexels is tracked best-effort seeding).
+  const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
-  res.json({ success: true, stagingFactId, workflowStage: "prep_pending" });
+  res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
