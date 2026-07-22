@@ -13,6 +13,12 @@ controls" and post-#228). All line references below are current as of that commi
   (new §F + route tests). Verified P2's mechanism: `validateVisualStrategyOverrideForSave`
   already budget-checks the core scene independent of `enabled`; the only gap is the
   route-level `if (submittedVso?.enabled)` guard.
+- rev 3 — Codex round 2: P1-follow-up — the stale-field reset must key on the **server-saved**
+  override state, not the draft's `enabled` (a moderator can locally toggle the override on,
+  then pick, defeating a draft-keyed reset). §C now threads `getServerVisualOverride()` in.
+  P2-follow-up — removing the panel field strips **Step 3 (Test Renders)** of any scene
+  editor; §D now adds the `VisualConceptCard` to Step 3 as well, preserving render-tweaking
+  parity. Both acceptance tests added.
 
 ---
 
@@ -96,9 +102,15 @@ Per `docs/ai-context/visual-pipeline.md` and the `overhype-visual-pipeline` skil
    subject-depiction override, policy overrides, composition/style/negative additions).
    Because `enabled` is the single shared gate, activating it would otherwise emit all that
    previously-dormant content. So a false→true pick resets the advanced fields to empty and
-   carries **only** the candidate's scene + bubbles. This preserves the "never silently
-   activate unreviewed override fields" principle while ensuring the picked candidate's
-   bubbles still render.
+   carries **only** the candidate's scene + bubbles. **The reset keys on the SERVER-SAVED
+   override's `enabled`, not the draft's (Codex round 2):** a moderator can locally toggle
+   the override on (unsaved) and *then* pick, so a draft-keyed reset would miss it. Since
+   `computeCandidatePickBlockedReason` already blocks a pick when the draft has unsaved edits
+   to *other* VSO fields, at pick time the draft's advanced fields always equal the server's
+   — so resetting based on the server's `enabled` discards exactly the server-dormant stale
+   fields and never deliberate unsaved work. This preserves the "never silently activate
+   unreviewed override fields" principle while ensuring the picked candidate's bubbles still
+   render.
 
 ## Open product questions
 
@@ -156,22 +168,33 @@ external API / SDK / model / pricing / rate-limit claims.
   and (b) does not activate a disabled base's stale advanced fields (Codex P1). Shape:
 
   ```ts
-  const hasBubbles = (candidate.bubbles?.length ?? 0) > 0;
-  const nextEnabled = base.enabled || hasBubbles;
-  // On a false→true transition, start advanced fields from EMPTY so a bubble pick
-  // never activates role bindings / policy / additions the moderator never reviewed.
-  const advancedBase = !base.enabled && nextEnabled ? EMPTY_VISUAL_STRATEGY_OVERRIDE : base;
-  return {
-    ...advancedBase,
-    enabled: nextEnabled,
-    coreSceneOverride: candidate.sceneDescription,
-    bubbles: (candidate.bubbles ?? []).map(({ type, entity, text }) => ({ type, entity, text })),
-  };
+  // serverBaseEnabled = the PERSISTED override's `enabled` (see onPickConcept below),
+  // NOT the draft's — so a locally-toggled-on-but-unsaved override can't smuggle stale
+  // fields through a pick.
+  export function withCandidateConceptDraft(existing, candidate, serverBaseEnabled) {
+    const base = existing ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+    const hasBubbles = (candidate.bubbles?.length ?? 0) > 0;
+    const nextEnabled = base.enabled || hasBubbles;
+    // If the SAVED override was disabled, its advanced fields are dormant/unreviewed;
+    // enabling now must not activate them — start those fields from EMPTY.
+    const advancedBase = !serverBaseEnabled && nextEnabled ? EMPTY_VISUAL_STRATEGY_OVERRIDE : base;
+    return {
+      ...advancedBase,
+      enabled: nextEnabled,
+      coreSceneOverride: candidate.sceneDescription,
+      bubbles: (candidate.bubbles ?? []).map(({ type, entity, text }) => ({ type, entity, text })),
+    };
+  }
   ```
 
-  (Function-body change only — no new `lib/api-zod` export, so the codegen/`index.ts`
-  regeneration gotcha from PR #230 does not apply. Run codegen once and confirm
-  `git diff --exit-code lib/api-zod/src/index.ts` is clean regardless.)
+  And the caller — **`artifacts/overhype-me/src/pages/admin/moderation.tsx:553-561`**
+  (`onPickConcept`) — passes `getServerVisualOverride()?.enabled ?? false` as the third arg
+  (the server preflight / pickability path passes the persisted override's `enabled`, which
+  is the authoritative base there too). (Function-body + signature change only — no new
+  `lib/api-zod` export, so the codegen/`index.ts` regeneration gotcha from PR #230 does not
+  apply. Run codegen once and confirm `git diff --exit-code lib/api-zod/src/index.ts` is
+  clean regardless. Update the `onPickConcept` doc-comment at `:555-556`, which currently
+  says the helper "auto-enables.")
 
 ### D. Option 1 UI — single prominent surface
 
@@ -191,6 +214,13 @@ external API / SDK / model / pricing / rate-limit claims.
   exists in scope: `value={enrichment?.visualPromptStrategyOverride}`, `disabled` from
   `vsoTokenizing`/`committing`, `tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}`,
   `onChange` → `draft.setValue({ ...enrichment, visualPromptStrategyOverride: next })`.
+- **`artifacts/overhype-me/src/pages/admin/moderation.tsx` — Step 3 (Test Renders)
+  `:1125-1150` (Codex round 2):** removing the panel field would leave the
+  `production_review` render step with no scene editor (only `FactVisualReviewGrid`,
+  `DraftSaveBar`, `AdvancedOptions`). Add the `VisualConceptCard` here too (e.g. before
+  `{DraftSaveBar}` at `:1147`), wired to the same `enrichmentDraft`, so a moderator can tune
+  the authoritative scene right where bad renders are evaluated instead of navigating back to
+  Step 2. Keeps preview/render-adjustment parity in Test Renders.
 - **`artifacts/overhype-me/src/components/admin/VisualConceptCard.tsx:1-9`** — update the
   doc-comment: the field no longer "also appears inside the Visual Strategy Override panel";
   this card is the single editing surface, on both the moderation and Facts pages.
@@ -253,7 +283,10 @@ Update existing assertions of the old coupled behavior, and add negative/general
   **only** the candidate's scene + bubbles (the stale role/policy fields are reset to empty).
   Pair it with a compiler assertion (in `nanoBanana2Compiler.test.ts`) that the resulting
   override emits only the CORE SCENE + SPEECH & THOUGHT BUBBLES sections — no ROLE DETAILS /
-  policy content from the discarded stale fields.
+  policy content from the discarded stale fields. **Codex round-2 sequence test:** with the
+  helper's `serverBaseEnabled=false` but the passed-in draft `base.enabled=true` (moderator
+  toggled on locally without saving), a bubble pick still resets the advanced fields — the
+  reset keys on `serverBaseEnabled`, not `base.enabled`.
 - **Codex P2 route tests** — `routes.admin.test.ts` (fact enrichment PATCH) and the
   review-candidate PATCH in `routes.reviews.test.ts`: an `enabled:false` override with an
   **over-budget `coreSceneOverride`** now returns `400 visual_strategy_override_over_budget`
@@ -266,8 +299,9 @@ Update existing assertions of the old coupled behavior, and add negative/general
 - `VisualStrategyOverrideTokens.test.tsx` — `:186-206` renders the panel and asserts a
   tokenize error beside the panel's coreScene field; move that coverage to the card (the
   panel no longer hosts the field).
-- Add: Facts page renders `VisualConceptCard`; the panel's "enabled but empty" warning does
-  **not** fire for a scene-only enabled override.
+- Add: Facts page renders `VisualConceptCard`; **Step 3 (Test Renders) renders
+  `VisualConceptCard`** and editing it updates the same draft; the panel's "enabled but
+  empty" warning does **not** fire for a scene-only enabled override.
 - `candidatePickGate.test.ts` / `useFactEnrichmentEditing.test.tsx` — confirm still green
   (pick-blocking already strips `enabled`; tokenize baseline still includes coreScene).
 
