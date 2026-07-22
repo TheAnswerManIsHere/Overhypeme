@@ -257,13 +257,13 @@ bubble makes the whole concept unpickable).
 
 **Picking is blocked while unrelated Visual-Strategy edits are unsaved**
 (`computeCandidatePickBlockedReason`, `components/admin/candidatePickGate.ts`).
-Candidates are validated server-side against the **persisted** override, but a
-pick only replaces the scene + bubbles fields — so an unsaved draft edit to
+A pick only replaces the scene + bubbles fields — so an unsaved draft edit to
 any *other* field (role bindings, required details, …) would let a pick land
-on a base the server's saveability proof never covered. The gate gives clear
-copy ("Save or discard your current Visual Strategy changes…") rather than
-silently risking a stale-base save. Scene/bubble-only dirtiness (typing in the
-Concept box, a previous pick) stays pickable — only *other*-field drift blocks.
+on a VSO shape the candidate's own preflight (below) never accounted for. The
+gate gives clear copy ("Save or discard your current Visual Strategy
+changes…") rather than silently risking that mismatch. Scene/bubble-only
+dirtiness (typing in the Concept box, a previous pick) stays pickable — only
+*other*-field drift blocks.
 **Gotcha:** a MISSING override (nothing persisted yet) must normalize to the
 same stripped shape as the empty scaffold `withCoreSceneOverride`/`withBubbles`
 create on a moderator's first edit, or the comparison wrongly treats a fresh
@@ -280,9 +280,18 @@ literal-restatement check, with the one corrective retry). Over-cap text is
 INVALID output, never truncated (slicing a quote corrupts it). Token errors
 store the candidate unpickable (the existing scene pattern); an
 all-unpickable response FAILS the attempt rather than storing `ok`. Every
-pickable concept is preflighted through `validateVisualStrategyOverridePersistence`
-on the exact override a pick produces, so pickable ⇒ saveable is shared-code
-truth. The deployed system prompt was migrated (0090) because
+candidate is preflighted at generation time through
+`validateVisualStrategyOverridePersistence(withCandidateConceptDraft(undefined, c))`
+— **an empty/pool-independent base**, not the moderator's actual current VSO
+(Codex P2, PR #231 doc-review) — so "pickable" proves the candidate's own
+scene+bubbles fit their own pools **in isolation**, never that the eventual
+*combined* save will succeed. The real, authoritative gate is the **same**
+validator running again at actual Save time (`admin.ts`/`reviews.ts`, against
+the full submitted override) — one function, two call sites, so there's no
+second formula to drift, but a candidate marked pickable can still fail Save
+if the rest of the VSO is already near its own budget ceiling. Future work
+should not read "pickable" as removing the need for that final save-time
+check. The deployed system prompt was migrated (0090) because
 `seedVisualConceptsConfig` is ON CONFLICT DO NOTHING — editing the TS default
 alone never reaches deployed rows (same class as migration 0085).
 
