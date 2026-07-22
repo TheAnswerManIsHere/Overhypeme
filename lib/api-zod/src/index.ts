@@ -23,3 +23,4 @@ export * from "./visualConcepts";
 export * from "./eval";
 export * from "./moderationWorkflow";
 export * from "./renderScenarios";
+export * from "./factTextEdit";

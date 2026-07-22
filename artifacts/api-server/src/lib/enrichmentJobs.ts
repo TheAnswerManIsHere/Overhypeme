@@ -182,6 +182,15 @@ export async function runEnrichmentForFact(
   const renderedFactText = renderCanonical(factRow.text);
   const renderedParentText = parentText != null ? renderCanonical(parentText) : null;
 
+  // Full classifier-input fingerprint (Plan v4 §E). A variant is classified WITH
+  // its parent's text as context, so the identity is the fact's own raw text,
+  // its parentId, AND the raw parent text — not just its own text. If ANY of
+  // these changed during the (slow) classify call (a staging edit re-worded the
+  // fact, or a root re-word changed a variant's parent context), the result is
+  // stale and must be discarded, even though the edit-side guards normally block
+  // an edit while this job is non-terminal. This is the authoritative backstop.
+  const classifiedInputKey = JSON.stringify([factRow.text, factRow.parentId ?? null, parentText]);
+
   // Capture the processing signature BEFORE the (slow) classify call. It is
   // stamped onto facts.last_processed_signature only for FIRST-TIME staging
   // prep (decided under the fact lock below) — so a brand-new fact approved
@@ -236,7 +245,7 @@ export async function runEnrichmentForFact(
   // send-back waits and seeds its candidate from the freshly-written active.
   const wrote = await db.transaction(async (tx) => {
     const [locked] = await tx
-      .select({ id: factsTable.id })
+      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("update")
@@ -247,6 +256,29 @@ export async function runEnrichmentForFact(
       logger.info(
         { factId, reason: recheck.reason },
         "[enrichment] generic fact result discarded at recheck (state changed mid-classify)",
+      );
+      return false;
+    }
+
+    // Full-input drift guard: re-derive the classifier input from the LOCKED
+    // fact (+ current parent text) and discard if it no longer matches what we
+    // classified. A fresh job for the new wording is guaranteed by the edit that
+    // changed it (a staging restart re-enqueues; a root re-word clears + is
+    // re-prepped), so dropping this stale result never loses coverage.
+    let currentParentText: string | null = null;
+    if (locked.parentId != null) {
+      const [parentNow] = await tx
+        .select({ text: factsTable.text })
+        .from(factsTable)
+        .where(eq(factsTable.id, locked.parentId))
+        .limit(1);
+      currentParentText = parentNow?.text ?? null;
+    }
+    const currentInputKey = JSON.stringify([locked.text, locked.parentId ?? null, currentParentText]);
+    if (currentInputKey !== classifiedInputKey) {
+      logger.info(
+        { factId },
+        "[enrichment] generic fact result discarded at recheck (classifier input drifted mid-classify)",
       );
       return false;
     }

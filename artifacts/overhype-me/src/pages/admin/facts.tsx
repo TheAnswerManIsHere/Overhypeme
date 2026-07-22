@@ -12,7 +12,11 @@ import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal"
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
 import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "@/components/admin/PexelsImageGallery";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
-import { useDraftForm } from "@/components/admin/useDraftForm";
+import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
+import { patchFactDraft } from "@/components/admin/patchFactDraft";
+import { ApprovedFactTextEditModal } from "@/components/admin/ApprovedFactTextEditModal";
+import { FactTextEditHistory } from "@/components/admin/FactTextEditHistory";
+import type { ApprovedFactTextEditImpact, ConfirmTextEdit } from "@workspace/api-zod";
 import {
   useFactEnrichmentEditing,
   type EnrichmentSaveResponse,
@@ -485,6 +489,13 @@ export default function AdminFacts() {
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  // Approved-fact-text lock: the confirmation modal + the pending confirmation
+  // the commit re-runs with. The commit callback owns opening/closing the modal.
+  const pendingConfirmationRef = useRef<ConfirmTextEdit | null>(null);
+  const [textEditModal, setTextEditModal] = useState<{ impact: ApprovedFactTextEditImpact } | null>(null);
+  const [textEditModalError, setTextEditModalError] = useState<string | null>(null);
+  const [textEditModalBusy, setTextEditModalBusy] = useState(false);
+
   const [importMode, setImportMode] = useState<ImportMode>("lines");
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
@@ -535,8 +546,10 @@ export default function AdminFacts() {
     commit: async (v) => {
       const sf = selectedFactRef.current;
       if (!sf) throw new Error("No fact selected.");
-      const body = {
-        text: v.text,
+      // Delta PATCH: only send `text` when it actually differs from the server
+      // baseline, so a score/use-case-only save never trips the approved-fact
+      // confirmation gate. The server compares normalized-vs-stored regardless.
+      const body: Record<string, unknown> = {
         parentId: v.parentId !== null && v.parentId !== undefined && String(v.parentId) !== "" ? Number(v.parentId) : null,
         useCase: v.useCase || null,
         isActive: v.isActive,
@@ -548,21 +561,73 @@ export default function AdminFacts() {
         shareCount: Number(v.shareCount),
         submittedById: v.submittedById || null,
       };
-      const res = await fetch(`/api/admin/facts/${sf.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as { success?: boolean; fact?: Fact; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Save failed");
-      const updated = data.fact!;
-      setFacts((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-      setSelectedFact(updated);
-      setSaveResult({ type: "success", message: "Saved successfully." });
+      if (v.text !== sf.text) body.text = v.text;
+
+      // Consume any pending confirmation (set by the modal's Confirm).
+      const confirmation = pendingConfirmationRef.current ?? undefined;
+      pendingConfirmationRef.current = null;
+
+      const result = await patchFactDraft<Fact>(sf.id, body, confirmation);
+      switch (result.kind) {
+        case "saved": {
+          setFacts((prev) => prev.map((f) => (f.id === result.fact.id ? result.fact : f)));
+          setSelectedFact(result.fact);
+          setTextEditModal(null);
+          setTextEditModalError(null);
+          let message = "Saved successfully.";
+          if (result.prepDispatch) message = "Saved. Prep restarted — enrichment and images are regenerating; re-approve the concept when ready.";
+          else if (result.affectedVariantCount && result.affectedVariantCount > 0) message = `Saved. ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? "" : "s"} marked stale for review.`;
+          setSaveResult({ type: "success", message });
+          // Adopt the server-normalized row as the new baseline (kills a phantom
+          // "unsaved change" from normalization).
+          return factToEditDraft(result.fact);
+        }
+        case "confirmation_required":
+          setTextEditModal({ impact: result.impact });
+          setTextEditModalError(null);
+          throw new CommitInterruption();
+        case "stale_baseline":
+          // The stored wording moved under us. Rebase the baseline to the new
+          // server text C (Discard now returns to C), keep the draft B, and
+          // re-open the modal on the fresh C→B diff.
+          editForm.rebaseBaseline({ ...factToEditDraft(sf), text: result.impact.currentStoredText });
+          setSelectedFact({ ...sf, text: result.impact.currentStoredText });
+          setTextEditModal({ impact: result.impact });
+          setTextEditModalError(confirmation ? "The stored text changed since you opened this — review the updated diff and confirm again." : null);
+          throw new CommitInterruption();
+        case "dependent_variant_in_progress":
+          setTextEditModal(null);
+          setSaveResult({ type: "error", message: `Can't re-word this parent: ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? " is" : "s are"} mid-review (e.g. fact #${result.blockingVariants[0]?.factId}). Resolve or finish those first.` });
+          throw new CommitInterruption();
+        case "staging_prep_in_progress":
+          setTextEditModal(null);
+          setSaveResult({ type: "error", message: "Prep is still running for this fact. Wait for it to finish, then edit." });
+          throw new CommitInterruption();
+        case "error":
+          throw new Error(result.message);
+      }
     },
   });
   const draft = editForm.value;
+
+  // Modal Confirm → stash the envelope + re-run the commit (which sends it and
+  // owns the outcome: close on success, re-open on a fresh stale baseline).
+  const handleTextEditConfirm = useCallback(async (confirmation: ConfirmTextEdit) => {
+    pendingConfirmationRef.current = confirmation;
+    setTextEditModalBusy(true);
+    setTextEditModalError(null);
+    try {
+      await editForm.save();
+    } finally {
+      setTextEditModalBusy(false);
+    }
+  }, [editForm]);
+
+  const handleTextEditCancel = useCallback(() => {
+    pendingConfirmationRef.current = null;
+    setTextEditModal(null);
+    setTextEditModalError(null);
+  }, []);
 
   const LIMIT = 25;
 
@@ -860,6 +925,17 @@ export default function AdminFacts() {
 
   return (
     <AdminLayout title="Facts Management">
+      {/* Approved-fact text-edit confirmation (dire-warning) modal */}
+      {textEditModal && (
+        <ApprovedFactTextEditModal
+          impact={textEditModal.impact}
+          busy={textEditModalBusy}
+          error={textEditModalError}
+          onConfirm={(c) => void handleTextEditConfirm(c)}
+          onCancel={handleTextEditCancel}
+        />
+      )}
+
       {/* Send Back to Review (stale-fact refresh) confirm modal */}
       {sendBackModal && selectedFact && (
         <SendBackToReviewModal
@@ -1470,6 +1546,11 @@ export default function AdminFacts() {
             {/* Enrichment version history (read-only; stale-fact refresh) */}
             <div className="border-t border-border pt-3">
               <FactEnrichmentVersionHistory info={versionInfo} loading={versionInfoLoading} />
+            </div>
+
+            {/* Approved-fact text-edit audit history (read-only) */}
+            <div className="border-t border-border pt-3">
+              <FactTextEditHistory key={selectedFact.id} factId={selectedFact.id} />
             </div>
 
             {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL render-time

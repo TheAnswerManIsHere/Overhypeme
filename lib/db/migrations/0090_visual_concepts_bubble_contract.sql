@@ -1,3 +1,6 @@
+-- 0090 (was drafted as 0089; renumbered on merge — PR #228 landed
+-- 0089_fact_text_edit_history first).
+--
 -- Migrate the seeded candidate-concept system prompt to the v2 bubble
 -- contract (speech/thought bubble proposals as a REQUIRED structured
 -- "bubbles" array on every concept, plus the single-channel scene rules).

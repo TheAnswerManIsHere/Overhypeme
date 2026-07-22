@@ -24,12 +24,12 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
   `VisualConceptCandidates.tsx` (proposal display + atomic pick),
   `EnrichmentEditor.tsx` (panel embed + renamed helper), `moderation.tsx`
   (first-class placement + unsaved-edit gate), field docs.
-- `lib/db/migrations/0089_visual_concepts_bubble_contract.sql` — admin-config
+- `lib/db/migrations/0090_visual_concepts_bubble_contract.sql` — admin-config
   DML prompt migration.
 
 ## Migrations (Replit owns the DB connection)
 
-- Apply migrations. **0089** is a DML-only prompt-content migration (no schema
+- Apply migrations. **0090** is a DML-only prompt-content migration (no schema
   change): it rewrites the `fact_visual_concepts_system` admin-config row
   (`value` + `debug_value`) from the old three-field output shape to the v2
   bubble contract, idempotently and preserving unrelated admin edits.

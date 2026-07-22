@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -31,6 +31,7 @@ import {
   OVERRIDABLE_PATHS,
   OVERRIDABLE_PATH_KEYS,
   pathToField,
+  FACT_TEXT_EDIT_CODES,
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
@@ -40,6 +41,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
+import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -789,59 +791,162 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   }
 });
 
-router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive } = req.body as Record<string, unknown>;
-  const updates: Record<string, unknown> = {};
-  const textChanged = text !== undefined;
-  if (textChanged) {
-    // Validate before updating — malformed grammar must not silently store.
-    // Editing the wording invalidates everything derived from it, so the full
-    // deterministic cleanup + derived metadata are recomputed from the
-    // normalized text (mirrors the create paths).
-    const normalized = normalizeFactTemplateForStorage(String(text));
-    if (!normalized.valid) {
-      res.status(422).json({
-        error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
-      });
-      return;
-    }
-    updates.text = normalized.text;
-    updates.canonicalText = normalized.canonicalText;
-    updates.splitTokenIndex = normalized.splitTokenIndex;
-    updates.hasPronouns = normalized.hasPronouns;
-  }
-  if (upvotes !== undefined) updates.upvotes = Number(upvotes);
-  if (downvotes !== undefined) updates.downvotes = Number(downvotes);
-  if (score !== undefined) updates.score = Number(score);
-  if (wilsonScore !== undefined) updates.wilsonScore = Number(wilsonScore);
-  if (commentCount !== undefined) updates.commentCount = Number(commentCount);
-  if (shareCount !== undefined) updates.shareCount = Number(shareCount);
-  if (submittedById !== undefined) updates.submittedById = submittedById ? String(submittedById) : null;
-  if (parentId !== undefined) updates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
-  if (useCase !== undefined) updates.useCase = useCase ? String(useCase) : null;
-  if (isActive !== undefined) updates.isActive = Boolean(isActive);
-
-  const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
-  if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  // When the text of a root fact changes, re-embed and re-seed stock photos
-  // (variants inherit the parent's images and are not embedded).
-  if (textChanged && updated.parentId === null) {
-    void embedFactAsync(updated.id, updated.text, updated.canonicalText ?? undefined);
-    void runFactImagePipeline(updated.id, updated.text);
-  }
-
+/** Shared success response — strips the raw embedding, adds the has* flags, and
+ *  merges any extra fields (audit id, variant count, prep dispatch). */
+function respondFactUpdate(
+  res: Response,
+  updated: typeof factsTable.$inferSelect,
+  extra: Record<string, unknown> = {},
+): void {
   const { embedding: _emb, ...factRow } = updated;
   res.json({
     success: true,
+    ...extra,
     fact: {
       ...factRow,
       hasEmbedding: updated.embedding !== null,
       hasPexelsImages: updated.pexelsImages !== null,
     },
+  });
+}
+
+router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const body = req.body as Record<string, unknown>;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive, confirmTextEdit } = body;
+
+  // Coerce the non-text column updates (shared by both paths). Text/canonical/
+  // split are NEVER set here — they flow only through the locked service below.
+  const nonTextUpdates: Record<string, unknown> = {};
+  if (upvotes !== undefined) nonTextUpdates.upvotes = Number(upvotes);
+  if (downvotes !== undefined) nonTextUpdates.downvotes = Number(downvotes);
+  if (score !== undefined) nonTextUpdates.score = Number(score);
+  if (wilsonScore !== undefined) nonTextUpdates.wilsonScore = Number(wilsonScore);
+  if (commentCount !== undefined) nonTextUpdates.commentCount = Number(commentCount);
+  if (shareCount !== undefined) nonTextUpdates.shareCount = Number(shareCount);
+  if (submittedById !== undefined) nonTextUpdates.submittedById = submittedById ? String(submittedById) : null;
+  if (parentId !== undefined) nonTextUpdates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
+  if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
+  if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
+
+  // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
+  if (text === undefined) {
+    if (Object.keys(nonTextUpdates).length === 0) {
+      const [current] = await db.select().from(factsTable).where(eq(factsTable.id, id)).limit(1);
+      if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+      respondFactUpdate(res, current);
+      return;
+    }
+    const [updated] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+    if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
+    respondFactUpdate(res, updated);
+    return;
+  }
+
+  // ── Text present → the approved-fact-text lock service owns the decision ───
+  const outcome = await confirmedFactTextEdit({
+    factId: id,
+    rawText: String(text),
+    confirmation: confirmTextEdit,
+    performedBy: req.user!.id,
+    nonTextUpdates,
+  });
+
+  switch (outcome.kind) {
+    case "not_found":
+      res.status(404).json({ error: "Fact not found" });
+      return;
+    case "too_long":
+      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.TOO_LONG });
+      return;
+    case "grammar_invalid":
+      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.GRAMMAR_INVALID });
+      return;
+    case "invalid_confirmation":
+      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.INVALID_CONFIRMATION });
+      return;
+    case "confirmation_required":
+      res.status(409).json({ error: "This fact is approved — editing its text needs explicit confirmation.", code: FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION, impact: outcome.impact });
+      return;
+    case "stale_baseline":
+      res.status(409).json({ error: "The stored wording changed since you opened this — review the new diff.", code: FACT_TEXT_EDIT_CODES.STALE_BASELINE, impact: outcome.impact });
+      return;
+    case "dependent_variant_in_progress":
+      res.status(409).json({ error: "A variant of this fact is mid-review. Resolve or finish those before re-wording the parent.", code: FACT_TEXT_EDIT_CODES.DEPENDENT_VARIANT_IN_PROGRESS, blockingVariants: outcome.blockingVariants, affectedVariantCount: outcome.affectedVariantCount });
+      return;
+    case "staging_prep_in_progress":
+      res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
+      return;
+    case "no_text_change":
+      respondFactUpdate(res, outcome.fact);
+      return;
+    case "protected_committed":
+      // Root re-word: re-embed + re-seed stock photos (variants inherit the
+      // parent's images and aren't embedded). Checked against the UPDATED row's
+      // parentId (not a pre-update flag) so a PATCH that also promotes a variant
+      // to root in the same request still seeds these root-only artifacts.
+      if (outcome.fact.parentId === null) {
+        void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
+        void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
+      }
+      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId, affectedVariantCount: outcome.affectedVariantCount });
+      return;
+    case "staging_restarted":
+      respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
+      return;
+  }
+});
+
+// GET /admin/facts/:id/text-edit-history — the rare, dire-warning-gated edits
+// of this fact's approved text (approved-fact-text lock). Admin-only,
+// fact-scoped, newest-first, paginated. The actor is rendered from the joined
+// user row, with a deleted/system fallback when performed_by was set null by a
+// hard user deletion.
+router.get("/admin/facts/:id/text-edit-history", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const limit = Math.min(Math.max(Number(req.query["limit"]) || 20, 1), 100);
+  const offset = Math.max(Number(req.query["offset"]) || 0, 0);
+
+  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const [rows, [{ total }]] = await Promise.all([
+    db
+      .select({
+        id: factTextEditHistoryTable.id,
+        oldText: factTextEditHistoryTable.oldText,
+        newText: factTextEditHistoryTable.newText,
+        reason: factTextEditHistoryTable.reason,
+        createdAt: factTextEditHistoryTable.createdAt,
+        performedById: factTextEditHistoryTable.performedBy,
+        performedByName: usersTable.displayName,
+        performedByEmail: usersTable.email,
+      })
+      .from(factTextEditHistoryTable)
+      .leftJoin(usersTable, eq(usersTable.id, factTextEditHistoryTable.performedBy))
+      .where(eq(factTextEditHistoryTable.factId, id))
+      .orderBy(desc(factTextEditHistoryTable.createdAt), desc(factTextEditHistoryTable.id))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(factTextEditHistoryTable).where(eq(factTextEditHistoryTable.factId, id)),
+  ]);
+
+  res.json({
+    entries: rows.map((r) => ({
+      id: r.id,
+      oldText: r.oldText,
+      newText: r.newText,
+      reason: r.reason,
+      createdAt: r.createdAt.toISOString(),
+      // Deleted-admin fallback: performed_by went null on hard user deletion.
+      actor: r.performedById == null ? null : { id: r.performedById, name: r.performedByName ?? null, email: r.performedByEmail ?? null },
+    })),
+    total,
+    limit,
+    offset,
   });
 });
 
