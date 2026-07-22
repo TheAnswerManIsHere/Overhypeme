@@ -280,6 +280,14 @@ export interface ImagePromptContextOpts {
   includeModeratorCoreScene: ModeratorCoreSceneMode;
   /** For includeModeratorCoreScene="existing_draft_context": the unsaved draft. */
   moderatorDraftScene?: string;
+  /**
+   * Emit the moderator-bubble staging block (runtime planner ONLY). The
+   * compiler owns bubble prompt language; the planner just stages the scene to
+   * support each balloon. Candidate concept generation stays FALSE — it never
+   * sees existing moderator bubbles (it proposes fresh ones as structured
+   * data), so runtime bubble strings can't leak into candidate context.
+   */
+  includeModeratorBubbles: boolean;
 }
 
 /** The full-context selection the render planner uses (behavior unchanged). */
@@ -298,6 +306,7 @@ export const PLANNER_CONTEXT_OPTS: ImagePromptContextOpts = {
   includeTargetEngine: true,
   includeVisualPlanEchoDirectives: true,
   includeModeratorCoreScene: "authoritative",
+  includeModeratorBubbles: true,
 };
 
 /**
@@ -321,6 +330,7 @@ export const CANDIDATE_CONTEXT_OPTS: Omit<ImagePromptContextOpts, "includeModera
   includeRenderControls: false,
   includeTargetEngine: false,
   includeVisualPlanEchoDirectives: false,
+  includeModeratorBubbles: false,
 };
 
 /**
@@ -391,6 +401,28 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
     "CURRENT MODERATOR DRAFT (context only — do NOT simply repeat or reword it):",
     `"${scene}"`,
     "The moderator has a working draft of the visual concept. Propose concepts that explore genuinely DIFFERENT stagings/gags — this draft shows the direction they're leaning, it is NOT an instruction to obey or echo.",
+  ];
+}
+
+/** The moderator-bubble staging block (runtime planner only; gated by
+ *  `includeModeratorBubbles`). Bubbles read only from an active, enabled
+ *  override; text is token-rendered when a render subject is available so the
+ *  planner stages for the words the engine will actually letter. */
+function moderatorBubbleLines(input: ImagePromptContextInput, opts: ImagePromptContextOpts): string[] {
+  if (!opts.includeModeratorBubbles) return [];
+  const ovb = input.enrichment.visualPromptStrategyOverride;
+  if (!ovb?.enabled) return [];
+  const bubbles = (ovb.bubbles ?? []).filter((b) => b.entity.trim() && b.text.trim());
+  if (bubbles.length === 0) return [];
+  const render = (t: string) =>
+    input.renderedSubject ? renderPersonalized(t, input.renderedSubject.name, input.renderedSubject.pronouns) : t;
+  const items = bubbles
+    .map((b) => `[${b.type} — ${b.entity.trim()}: "${render(b.text.trim())}"]`)
+    .join(", ");
+  return [
+    "",
+    `MODERATOR BUBBLE DIRECTIVES (compiler-owned; do NOT restate): ${bubbles.length} bubble(s): ${items}.`,
+    "Stage the scene so each character's pose and expression are compatible with speaking/thinking, and leave clear headroom near each for the balloon. The compiler renders the balloons and their text — do not describe balloons, tails, or bubble text in your plan.",
   ];
 }
 
@@ -537,6 +569,7 @@ export function buildImagePromptContextBlocks(
     );
   }
   lines.push(...moderatorSceneLines(input, opts));
+  lines.push(...moderatorBubbleLines(input, opts));
   if (opts.includeExamples) {
     lines.push(
       "",

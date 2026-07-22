@@ -462,3 +462,52 @@ describe("buildImagePromptUserMessage — moderator core-scene directive", () =>
     assert.doesNotMatch(msg, /separate adult version/);
   });
 });
+
+describe("buildImagePromptUserMessage — moderator bubble staging context", () => {
+  function withOverride(
+    override: Record<string, unknown> | undefined,
+    renderedSubject?: { name: string; pronouns: string | null },
+  ): ImagePromptGenerationInput {
+    const base = makeInput();
+    return {
+      ...base,
+      enrichment: { ...base.enrichment, ...(override ? { visualPromptStrategyOverride: override } : {}) },
+      ...(renderedSubject ? { renderedSubject } : {}),
+    } as unknown as ImagePromptGenerationInput;
+  }
+  const OV = (partial: Record<string, unknown> = {}) => ({
+    version: 1, enabled: true,
+    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+    compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+    ...partial,
+  });
+
+  it("injects the staging block (type, entity, rendered text) and forbids restating", () => {
+    const msg = buildImagePromptUserMessage(
+      withOverride(
+        OV({ bubbles: [
+          { type: "speech", entity: "subject", text: "{NAME} rules." },
+          { type: "thought", entity: "the bartender", text: "Not again." },
+        ] }),
+        { name: "David", pronouns: "he/him" },
+      ),
+    );
+    assert.match(msg, /MODERATOR BUBBLE DIRECTIVES \(compiler-owned; do NOT restate\): 2 bubble\(s\)/);
+    assert.match(msg, /\[speech — subject: "David rules\."\]/);
+    assert.match(msg, /\[thought — the bartender: "Not again\."\]/);
+    assert.match(msg, /compatible with speaking\/thinking/);
+    assert.match(msg, /clear headroom/);
+    assert.match(msg, /do not describe balloons, tails, or bubble text/);
+  });
+
+  it("omits the block when the override is disabled, has no bubbles, or only incomplete rows", () => {
+    for (const input of [
+      withOverride(OV({ enabled: false, bubbles: [{ type: "speech", entity: "subject", text: "Hi." }] })),
+      withOverride(OV({ bubbles: [] })),
+      withOverride(OV({ bubbles: [{ type: "speech", entity: "", text: "Hi." }, { type: "speech", entity: "subject", text: "  " }] })),
+      withOverride(undefined),
+    ]) {
+      assert.doesNotMatch(buildImagePromptUserMessage(input), /MODERATOR BUBBLE DIRECTIVES/);
+    }
+  });
+});

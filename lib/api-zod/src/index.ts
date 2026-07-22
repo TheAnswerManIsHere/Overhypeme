@@ -9,6 +9,7 @@ export * from "./resolvedIdentityForms";
 export * from "./promptIdentityBudget";
 export * from "./promptContentDetectors";
 export * from "./promptBudget";
+export * from "./literalPromptString";
 export * from "./taxonomy";
 export * from "./enrichmentOverrides";
 export * from "./visualPromptStrategies";

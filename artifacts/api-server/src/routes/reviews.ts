@@ -22,7 +22,6 @@ import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rat
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
-  validateVisualStrategyOverrideForSave,
   type VisualPromptStrategyOverride,
   type FactEnrichment,
   type ReviewWorkflowStage,
@@ -74,7 +73,7 @@ import {
   type RenderControlsWithRefs,
 } from "../lib/imagePromptAttempts";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
-import { measureModeratorAdditionsEmission } from "../lib/imagePrompt/promptBudget";
+import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import {
   buildReviewScenarioGrid,
   runReviewScenarios,
@@ -1402,8 +1401,7 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   // here, not silently dropped at compile.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
   if (submittedVso?.enabled) {
-    const additionsEmitted = measureModeratorAdditionsEmission(submittedVso);
-    const budget = validateVisualStrategyOverrideForSave(submittedVso, additionsEmitted);
+    const budget = validateVisualStrategyOverridePersistence(submittedVso);
     if (!budget.ok) {
       res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
       return;

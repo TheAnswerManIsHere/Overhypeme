@@ -243,7 +243,7 @@ describe("human-field survival (visual override + sticky notes)", () => {
     const visual = {
       version: 1 as const, enabled: true,
       requiredVisualDetails: ["adult head on a newborn body"], forbiddenVisualDetails: [],
-      roleBindings: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
     };
     const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: visual } as FactEnrichment);
     const [row0] = await db.insert(factsTable)

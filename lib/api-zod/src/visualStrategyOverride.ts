@@ -50,6 +50,40 @@ const roleBindingSchema = z.object({
   visualRole: z.string().max(300),
 });
 
+// ─── Speech / thought bubbles ───────────────────────────────────────────────
+
+export const BUBBLE_TYPE_VALUES = ["speech", "thought"] as const;
+export type VisualStrategyBubbleType = (typeof BUBBLE_TYPE_VALUES)[number];
+
+/** Hard cap for a bubble's literal text (legibility drops with length; the UI
+ *  soft-warns at BUBBLE_TEXT_SOFT_WARN). */
+export const BUBBLE_TEXT_MAX_CHARS = 80;
+export const BUBBLE_TEXT_SOFT_WARN = 60;
+export const BUBBLE_ENTITY_MAX_CHARS = 60;
+export const MAX_BUBBLES = 4;
+
+const bubbleSchema = z.object({
+  type: z.enum(BUBBLE_TYPE_VALUES),
+  // WHO thinks/speaks: "subject" or a plain role label ("the bartender") —
+  // exact same rules + normalization as roleBindings.entity (no tokens).
+  entity: z.string().max(BUBBLE_ENTITY_MAX_CHARS),
+  // The bubble's literal text, rendered as exact in-image glyphs. Token-capable
+  // ({NAME} etc.); whitespace-normalized on save.
+  text: z.string().max(BUBBLE_TEXT_MAX_CHARS),
+});
+export type VisualStrategyBubble = z.infer<typeof bubbleSchema>;
+
+/**
+ * Whitespace normalization for literal bubble text: trim outer whitespace and
+ * collapse any internal whitespace run (spaces, tabs, newlines, NBSP) to one
+ * space. Unicode punctuation and glyphs are preserved — the result IS the
+ * string the engine is asked to letter, so preview/save/runtime all show the
+ * same value. Applied on save via `canonicalizeOverrideTokens`.
+ */
+export function normalizeLiteralBubbleText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 const subjectRealizationOverrideSchema = z.object({
   mode: z.enum(SUBJECT_REALIZATION_MODE_VALUES),
   description: z.string(),
@@ -85,6 +119,13 @@ const visualPromptStrategyOverrideBase = z.object({
   requiredVisualDetails: z.array(z.string()).max(40).default([]),
   forbiddenVisualDetails: z.array(z.string()).max(40).default([]),
   roleBindings: z.array(roleBindingSchema).max(20).default([]),
+  /**
+   * Explicit speech/thought bubbles — verbatim moderator content the compiler
+   * emits as the required SPEECH & THOUGHT BUBBLES section (one deterministic
+   * directive per bubble, stored order, exempt from sentence de-duplication).
+   * Budgeted by the dedicated BUBBLE_DIRECTIVES_RENDERED_MAX pool at save.
+   */
+  bubbles: z.array(bubbleSchema).max(MAX_BUBBLES).default([]),
   compositionGuidance: z.array(z.string()).max(20).default([]),
   styleAgnosticPromptAdditions: z.array(z.string()).max(20).default([]),
   negativePromptAdditions: z.array(z.string()).max(20).default([]),
@@ -147,6 +188,12 @@ export function collectRenderedTextEntries(
     out.push({ path: `roleBindings[${i}].entity`, value: rb.entity, kind: "entity" });
     out.push({ path: `roleBindings[${i}].visualRole`, value: rb.visualRole, kind: "prose" });
   });
+  // `?? []`: legacy blobs (and hand-built test fixtures) may predate `bubbles`
+  // and are read without a schema parse in some paths.
+  (ov.bubbles ?? []).forEach((b, i) => {
+    out.push({ path: `bubbles[${i}].entity`, value: b.entity, kind: "entity" });
+    out.push({ path: `bubbles[${i}].text`, value: b.text, kind: "prose" });
+  });
   ov.compositionGuidance.forEach((value, i) =>
     out.push({ path: `compositionGuidance[${i}]`, value, kind: "prose" }),
   );
@@ -174,7 +221,7 @@ export function collectRenderedTextEntries(
 }
 
 const RENDERED_TEXT_PATH_RE =
-  /^(coreSceneOverride|subjectRealizationOverride\.description|requiredVisualDetails\[\d+\]|forbiddenVisualDetails\[\d+\]|roleBindings\[\d+\]\.(entity|visualRole)|compositionGuidance\[\d+\]|styleAgnosticPromptAdditions\[\d+\]|negativePromptAdditions\[\d+\]|supportingTextPolicyOverride\.guidance|violencePolicyOverride\.guidance)$/;
+  /^(coreSceneOverride|subjectRealizationOverride\.description|requiredVisualDetails\[\d+\]|forbiddenVisualDetails\[\d+\]|roleBindings\[\d+\]\.(entity|visualRole)|bubbles\[\d+\]\.(entity|text)|compositionGuidance\[\d+\]|styleAgnosticPromptAdditions\[\d+\]|negativePromptAdditions\[\d+\]|supportingTextPolicyOverride\.guidance|violencePolicyOverride\.guidance)$/;
 
 /** True iff `path` is one of the addressable rendered-text paths above — the
  *  admin batch tokenize route uses this to reject an unknown/forged path
@@ -183,7 +230,11 @@ export function isVisualStrategyRenderedTextPath(path: string): boolean {
   return RENDERED_TEXT_PATH_RE.test(path);
 }
 
-const ROLE_ENTITY_PATH_RE = /^roleBindings\[\d+\]\.entity$/;
+/** Every path that holds a plain "subject"/role LABEL rather than free prose —
+ *  role-binding entities AND bubble entities share identical rules (no tokens,
+ *  `normalizeRoleEntity` normalization). The single entity-path recognizer, so
+ *  the path→kind map can't drift when a new entity-bearing field is added. */
+const ENTITY_PATH_RE = /^(roleBindings|bubbles)\[\d+\]\.entity$/;
 
 /** Pure path → kind map (the route receives `{path, value, kind}` entries,
  *  not a whole override, so it needs this to catch a client "kind lie" —
@@ -193,12 +244,13 @@ export function getVisualStrategyRenderedTextKind(
   path: string,
 ): VisualStrategyRenderedTextKind | null {
   if (!isVisualStrategyRenderedTextPath(path)) return null;
-  return ROLE_ENTITY_PATH_RE.test(path) ? "entity" : "prose";
+  return ENTITY_PATH_RE.test(path) ? "entity" : "prose";
 }
 
 const INDEXED_ARRAY_FIELD_RE =
   /^(requiredVisualDetails|forbiddenVisualDetails|compositionGuidance|styleAgnosticPromptAdditions|negativePromptAdditions)\[(\d+)\]$/;
 const ROLE_BINDING_FIELD_RE = /^roleBindings\[(\d+)\]\.(entity|visualRole)$/;
+const BUBBLE_FIELD_RE = /^bubbles\[(\d+)\]\.(entity|text)$/;
 
 type IndexedArrayField =
   | "requiredVisualDetails"
@@ -248,6 +300,15 @@ export function setRenderedTextAtPath(
     const roleBindings = ov.roleBindings.slice();
     roleBindings[index] = { ...roleBindings[index], [field]: value };
     return { ...ov, roleBindings };
+  }
+  const bubbleMatch = BUBBLE_FIELD_RE.exec(path);
+  if (bubbleMatch) {
+    const index = Number(bubbleMatch[1]);
+    const field = bubbleMatch[2] as "entity" | "text";
+    if (index < 0 || index >= (ov.bubbles ?? []).length) return ov;
+    const bubbles = ov.bubbles.slice();
+    bubbles[index] = { ...bubbles[index], [field]: value };
+    return { ...ov, bubbles };
   }
   const arrayMatch = INDEXED_ARRAY_FIELD_RE.exec(path);
   if (arrayMatch) {
@@ -329,6 +390,13 @@ export function canonicalizeOverrideTokens(
     styleAgnosticPromptAdditions: ov.styleAgnosticPromptAdditions.map(mapText),
     negativePromptAdditions: ov.negativePromptAdditions.map(mapText),
     roleBindings: ov.roleBindings.map((rb) => ({ entity: mapText(rb.entity), visualRole: mapText(rb.visualRole) })),
+    // Bubble text is a LITERAL string the engine letters verbatim — canonicalize
+    // tokens AND normalize whitespace so preview/save/runtime show one value.
+    bubbles: (ov.bubbles ?? []).map((b) => ({
+      ...b,
+      entity: mapText(b.entity),
+      text: normalizeLiteralBubbleText(mapText(b.text)),
+    })),
     supportingTextPolicyOverride: ov.supportingTextPolicyOverride?.guidance
       ? { ...ov.supportingTextPolicyOverride, guidance: mapText(ov.supportingTextPolicyOverride.guidance) }
       : ov.supportingTextPolicyOverride,
@@ -379,6 +447,18 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
         });
       }
     });
+    // Same hard invariant for bubble entities (identical machine-recognizable
+    // message so the frontend's narrow Save-disable exception matches both).
+    (ov.bubbles ?? []).forEach((b, i) => {
+      if (b.entity.includes("{")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["bubbles", i, "entity"],
+          message:
+            "personalization tokens are not allowed here — use \"subject\" or a plain role label instead",
+        });
+      }
+    });
   });
 
 /**
@@ -402,6 +482,7 @@ export const EMPTY_VISUAL_STRATEGY_OVERRIDE: VisualPromptStrategyOverride = {
   requiredVisualDetails: [],
   forbiddenVisualDetails: [],
   roleBindings: [],
+  bubbles: [],
   compositionGuidance: [],
   styleAgnosticPromptAdditions: [],
   negativePromptAdditions: [],

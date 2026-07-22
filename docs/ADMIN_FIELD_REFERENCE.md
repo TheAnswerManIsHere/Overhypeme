@@ -36,6 +36,7 @@ behavior; David's spot-check is requested.
   - [Required Visual Details](#required-visual-details)
   - [Forbidden Visual Details](#forbidden-visual-details)
   - [Scene Role Assignments](#scene-role-assignments)
+  - [Speech & Thought Bubbles](#speech-thought-bubbles)
   - [Composition Guidance](#composition-guidance)
   - [Extra Prompt Details (any style)](#extra-prompt-details-any-style)
   - [Do-Not-Render Additions](#do-not-render-additions)
@@ -1272,6 +1273,42 @@ Rows with an empty entity or role are skipped (the editor warns).
 - **Scenario:** You accidentally type a token directly into the entity field.
   - **Input:** entity: "{NAME}"
   - **Outcome:** Save blocks with a clear error on that row (red-bordered) — entity is a label like "subject" or "mother", never a token. Type the plain name or role instead; a real subject name there auto-collapses to "subject".
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
+- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+
+### Speech & Thought Bubbles
+
+*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Attribute it to "subject" or a plain role label; shorter text renders more reliably.*
+
+- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Staleness:** Editing re-flags render scenarios as stale.
+- **Editor surface:** field-label
+
+**What it is**
+
+A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (the same rules as a Scene Role Assignment entity — "subject" or a plain role label like "the bartender", never a token), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
+
+**How the AI sets it**
+
+Moderator-authored, or proposed by the AI Visual-ideas generator when the fact contains a literal quote — picking an idea fills these rows (draft-only; Save still applies).
+
+**How it affects the render**
+
+Each bubble compiles to one deterministic directive in the required SPEECH & THOUGHT BUBBLES section (stored order preserved, never de-duplicated or compressed). Explicit bubbles render even when the supporting-text policy is "forbid" — moderator intent wins; overlay/caption text stays forbidden as ever.
+
+Bubbles have their own prompt-budget pool: if the combined directives exceed it, Save fails with a bubble-specific error — shorten the text or remove a bubble. Nothing is silently dropped.
+
+An entity that matches no scene character still renders its directive, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
+
+**Examples**
+
+- **Scenario:** "When David left for college, he told his dad, 'You're the man of the house now.'"
+  - **Input:** Speech bubble — entity "subject", text "You're the man of the house now."
+  - **Outcome:** The render shows a clean comic-style balloon whose tail points to David, lettered with exactly that line — in every render mode and style.
 
 **Sources**
 

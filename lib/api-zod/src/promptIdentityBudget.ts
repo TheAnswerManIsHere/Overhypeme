@@ -112,3 +112,60 @@ export function projectWorstCaseRenderedLength(template: string): number {
   }
   return total;
 }
+
+/**
+ * Worst-case RENDERED STRING for `template` — the same token-substitution
+ * walk as `projectWorstCaseRenderedLength`, but returns actual text instead
+ * of a length. Literal characters the moderator actually authored (INCLUDING
+ * any quotes/backslashes) pass through verbatim, so an escaping-aware
+ * downstream measurement (`serializeLiteralPromptString`) sees their true
+ * cost instead of an anonymized placeholder; only recognized `{TOKEN}` spans
+ * are replaced with a safe non-quote filler sized to their
+ * `PROMPT_IDENTITY_TOKEN_MAX` reserve (worst-case token LENGTH, not
+ * worst-case token content — a resolved identity name is not expected to
+ * contain literal quote/backslash characters). A `{a|b}` conjugation pair
+ * substitutes its longest literal branch verbatim (no further identity
+ * expansion, matching `projectWorstCaseRenderedLength`); an unrecognized
+ * `{…}` is kept verbatim.
+ *
+ * Guarantee: for every identity whose token expansions respect
+ * `PROMPT_IDENTITY_TOKEN_MAX`, this projection's length equals
+ * `projectWorstCaseRenderedLength(template)` — so any length-based budget
+ * invariant carries over — while its actual (non-token) characters are the
+ * real authored text, making it safe to feed to a real serializer/compiler
+ * for a precise-and-still-safe upper bound.
+ */
+export function projectWorstCaseRenderedText(template: string): string {
+  if (!template) return "";
+  let out = "";
+  let i = 0;
+  while (i < template.length) {
+    const open = template.indexOf("{", i);
+    if (open === -1) {
+      out += template.slice(i);
+      break;
+    }
+    out += template.slice(i, open); // literal run before the brace, verbatim
+    const close = template.indexOf("}", open + 1);
+    if (close === -1) {
+      out += template.slice(open); // unmatched brace — rest kept verbatim
+      break;
+    }
+    const inner = template.slice(open + 1, close);
+    if (inner in PROMPT_IDENTITY_TOKEN_MAX) {
+      out += "x".repeat(PROMPT_IDENTITY_TOKEN_MAX[inner as ResolvedIdentityTokenKey]);
+    } else if (inner.includes("|")) {
+      const branches = inner.split("|");
+      out += branches.reduce((longest, b) => (b.length > longest.length ? b : longest), "");
+    } else {
+      out += template.slice(open, close + 1); // unknown {…} kept verbatim
+    }
+    i = close + 1;
+  }
+  // Article-expansion slack ("a {NAME}" -> "an Alex"): pad with one extra
+  // non-escaping char per site so this projection's LENGTH matches
+  // `projectWorstCaseRenderedLength` exactly (the padding's exact position
+  // doesn't matter — only the length guarantee does).
+  const articleSites = (template.match(ARTICLE_BEFORE_NAME_RE) ?? []).length;
+  return out + "x".repeat(articleSites);
+}

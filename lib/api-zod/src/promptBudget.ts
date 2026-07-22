@@ -5,10 +5,11 @@
  *
  * The budget is enforced on RENDERED text (after token expansion), split into:
  *
- *   PROMPT_TOTAL_BUDGET (6000, = the compiler's MAX_PROMPT_CHARS)
+ *   PROMPT_TOTAL_BUDGET (6900, = the compiler's MAX_PROMPT_CHARS)
  *     = FIXED_REQUIRED_RESERVE_BUDGET   (compiler-owned fixed sections, MEASURED)
  *     + CORE_SCENE_RENDERED_MAX          (the moderator Concept reserve)
  *     + MODERATOR_ADDITIONS_RENDERED_MAX (all OTHER moderator content, aggregate)
+ *     + BUBBLE_DIRECTIVES_RENDERED_MAX   (the SPEECH & THOUGHT BUBBLES reserve)
  *     + PROMPT_OUTER_MARGIN              (outer safety slack)
  *
  * The FIXED reserve is not guessed: `measureRequiredPromptBudget()`
@@ -34,7 +35,7 @@ import { projectWorstCaseRenderedLength } from "./promptIdentityBudget";
 import { collectRenderedTextEntries, type VisualPromptStrategyOverride } from "./visualStrategyOverride";
 
 /** Bump when any reserve below changes, so budget fixtures/tests re-derive. */
-export const PROMPT_BUDGET_VERSION = 1 as const;
+export const PROMPT_BUDGET_VERSION = 2 as const;
 
 /**
  * The engine's hard prompt ceiling (mirrors the compiler's MAX_PROMPT_CHARS).
@@ -42,8 +43,11 @@ export const PROMPT_BUDGET_VERSION = 1 as const;
  * window is ~131K tokens (4000 chars is <1% of it) — the ceiling is an editorial
  * forcing function against bloated/redundant authoring, not an engine capacity
  * constraint, so it should have real headroom rather than zero slack.
+ * Raised again 6000 → 6900 (David, 2026-07-22) to fund the dedicated
+ * SPEECH & THOUGHT BUBBLES reserve below without shrinking any existing
+ * moderator pool or the safety margin.
  */
-export const PROMPT_TOTAL_BUDGET = 6000;
+export const PROMPT_TOTAL_BUDGET = 6900;
 
 /**
  * The compiler-owned fixed required overhead reserved out of the budget.
@@ -74,6 +78,18 @@ export const CORE_SCENE_RENDERED_MAX = 2000;
 export const MODERATOR_ADDITIONS_RENDERED_MAX = 1500;
 
 /**
+ * The rendered-length reserve for the SPEECH & THOUGHT BUBBLES section — the
+ * COMPILER-EMITTED length of every bubble directive (template wording +
+ * attribution + serialized literal text + section label), measured like the
+ * additions pool via `measureBubbleDirectivesEmission()` (api-server). Sized
+ * for 3 worst-case directives (~300 rendered chars each); `MAX_BUBBLES` (4)
+ * stays the schema cap — four bubbles save when their combined measured
+ * emission fits this pool, else the save fails with a bubble-specific error.
+ * §21-gated (David approved 6900/900, 2026-07-22).
+ */
+export const BUBBLE_DIRECTIVES_RENDERED_MAX = 900;
+
+/**
  * Raw (pre-render) storage cap for the moderator Concept. Matches the VSO
  * schema's `coreSceneOverride` cap (1500, `visualStrategyOverride.ts`) — with
  * the roomier rendered budget above, a new save is never stricter than legacy
@@ -85,7 +101,11 @@ export const CORE_SCENE_RAW_MAX = 1500;
 // literal arithmetic check on the constants above (the LIVE-compiler proof lives
 // in the api-server budget test). Kept here as executable documentation.
 const _RESERVE_SUM =
-  FIXED_REQUIRED_RESERVE_BUDGET + CORE_SCENE_RENDERED_MAX + MODERATOR_ADDITIONS_RENDERED_MAX + PROMPT_OUTER_MARGIN;
+  FIXED_REQUIRED_RESERVE_BUDGET +
+  CORE_SCENE_RENDERED_MAX +
+  MODERATOR_ADDITIONS_RENDERED_MAX +
+  BUBBLE_DIRECTIVES_RENDERED_MAX +
+  PROMPT_OUTER_MARGIN;
 if (_RESERVE_SUM > PROMPT_TOTAL_BUDGET) {
   throw new Error(
     `prompt budget reserves (${_RESERVE_SUM}) exceed PROMPT_TOTAL_BUDGET (${PROMPT_TOTAL_BUDGET}); re-derive the §21 numbers`,
@@ -97,7 +117,8 @@ if (_RESERVE_SUM > PROMPT_TOTAL_BUDGET) {
 export type VsoBudgetErrorCode =
   | "core_scene_raw_too_long"
   | "core_scene_rendered_too_long"
-  | "moderator_additions_rendered_too_long";
+  | "moderator_additions_rendered_too_long"
+  | "bubble_directives_rendered_too_long";
 
 export interface VsoBudgetError {
   code: VsoBudgetErrorCode;
@@ -114,7 +135,11 @@ export interface VsoBudgetResult {
   ok: boolean;
   errors: VsoBudgetError[];
   /** Diagnostics for a UI counter: projected rendered usage of each pool. */
-  usage: { coreSceneRendered: number; moderatorAdditionsRendered: number };
+  usage: {
+    coreSceneRendered: number;
+    moderatorAdditionsRendered: number;
+    bubbleDirectivesRendered: number;
+  };
 }
 
 /**
@@ -130,8 +155,20 @@ export interface VsoBudgetResult {
 export function naiveAdditionsRenderedLowerBound(ov: VisualPromptStrategyOverride): number {
   let total = 0;
   for (const { path, value } of collectRenderedTextEntries(ov)) {
-    if (path === "coreSceneOverride") continue;
+    // Core scene and bubbles each have their OWN pool — never counted here.
+    if (path === "coreSceneOverride" || path.startsWith("bubbles[")) continue;
     total += projectWorstCaseRenderedLength(value);
+  }
+  return total;
+}
+
+/** Naive lower-bound of the bubbles' rendered length (token expansion only, no
+ *  directive-template wrapping) — same caveat as the additions bound: a cheap
+ *  client-side "getting close" hint, never the save gate. */
+export function naiveBubbleRenderedLowerBound(ov: VisualPromptStrategyOverride): number {
+  let total = 0;
+  for (const { path, value } of collectRenderedTextEntries(ov)) {
+    if (path.startsWith("bubbles[")) total += projectWorstCaseRenderedLength(value);
   }
   return total;
 }
@@ -153,6 +190,7 @@ export function naiveAdditionsRenderedLowerBound(ov: VisualPromptStrategyOverrid
 export function validateVisualStrategyOverrideForSave(
   ov: VisualPromptStrategyOverride,
   additionsEmittedLength: number,
+  bubbleEmittedLength: number,
 ): VsoBudgetResult {
   const errors: VsoBudgetError[] = [];
 
@@ -190,9 +228,25 @@ export function validateVisualStrategyOverrideForSave(
     });
   }
 
+  // The COMPILER-EMITTED length of the bubble directives (dedicated pool,
+  // measured by the caller via measureBubbleDirectivesEmission).
+  if (bubbleEmittedLength > BUBBLE_DIRECTIVES_RENDERED_MAX) {
+    errors.push({
+      code: "bubble_directives_rendered_too_long",
+      field: "bubbles",
+      actual: bubbleEmittedLength,
+      limit: BUBBLE_DIRECTIVES_RENDERED_MAX,
+      message: `Your speech/thought bubbles add up to ${bubbleEmittedLength} characters of prompt directives; the combined maximum is ${BUBBLE_DIRECTIVES_RENDERED_MAX}. Shorten the bubble text or remove a bubble.`,
+    });
+  }
+
   return {
     ok: errors.length === 0,
     errors,
-    usage: { coreSceneRendered: coreRendered, moderatorAdditionsRendered: additionsEmittedLength },
+    usage: {
+      coreSceneRendered: coreRendered,
+      moderatorAdditionsRendered: additionsEmittedLength,
+      bubbleDirectivesRendered: bubbleEmittedLength,
+    },
   };
 }

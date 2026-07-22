@@ -631,6 +631,13 @@
       "when": 1782200000000,
       "tag": "0089_fact_text_edit_history",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1782300000000,
+      "tag": "0090_visual_concepts_bubble_contract",
+      "breakpoints": true
     }
   ]
 }
