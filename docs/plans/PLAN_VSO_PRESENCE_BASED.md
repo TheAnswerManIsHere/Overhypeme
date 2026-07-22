@@ -11,6 +11,15 @@ go further and remove the toggle entirely, which subsumes that plan and deletes 
 machinery — see "Why this replaces the earlier plan."
 
 **Revision log:**
+- rev 6 — David's scope call: **SPLIT.** This plan (Head 1) is now scoped to the VSO toggle
+  removal + presence-based activation + the required-Concept gates **within the moderation flow**
+  (§F points 1–3). The system-wide production-release enforcement (central activation guard) and
+  the ingestion-pipeline routing (§F′) are **carved out to a separate follow-up plan (Head 2)**,
+  landing as a **pre-launch fast-follow** (David approved the gap: he controls the admin/import
+  paths pre-launch and cleans up dev facts at launch). Head 2's governing principle, per David:
+  *there are exactly two ingestion routes (manual submission + bulk import) — and any future one
+  (e.g. an API) — and all of them must deposit a fact at the **front of the moderation pipeline**
+  (Stage 1: triage → enrich → activate); no path creates an active fact directly.*
 - rev 5 — Codex round 4: enforcing the production-release invariant completely is a **fact-
   lifecycle** change, not a 3-path patch. (P1) More activation paths set `isActive: true` on
   concept-less rows — Facts admin PATCH reactivation (`admin.ts:832/842`), CSV import
@@ -101,7 +110,9 @@ touches more files, but the runtime logic is simpler and has one activation mode
    enrich + author concept) → approve for production (active)**; the concept-gated moderation
    approve path is the single production doorway. (Facts already past moderation — e.g. sent for a
    taxonomy upgrade — have a concept by construction. Existing unmoderated-but-active dev facts
-   are David's launch cleanup, out of scope.)
+   are David's launch cleanup, out of scope.) **Scope (rev 6): this plan enforces the invariant
+   within the moderation flow (§F 1–3); the system-wide guarantee across all ingestion/activation
+   paths is Head 2 — see §F′.**
 6. **Option 1 single prominent surface (carried from the superseded plan):** the
    `VisualConceptCard` is the *only* scene editor, on moderation Step 2, moderation Step 3, and
    the Facts page; the scene field is removed from the Advanced Options panel. With the toggle
@@ -235,45 +246,34 @@ silently dies:
      shared helper so Step-2 and publish can't drift), returning `CONCEPT_MISSING`. This is the
      backstop that makes "cannot be published blank" true regardless of which tab/row/state the
      admin came from.
-  4. **Production-release invariant — see the dedicated section below** (`F′`) — the complete
-     design: a full audit of activation paths + a central guard + moderation intake, expanded
-     after Codex round 4.
+  4. **Production-release invariant — DEFERRED to Head 2** (David chose split, rev 6). The
+     moderation-flow gates above (points 1–3) ship in *this* plan; the system-wide guarantee that
+     *no* path can publish a concept-less fact is the follow-up. See "§F′ — deferred" below.
 
-### F′. Production-release invariant — central activation guard + moderation intake (fact-lifecycle)
+### F′. Production-release invariant — DEFERRED to the Head 2 follow-up plan
 
-> **Scope decision pending David.** This is the point where "required Visual Concept," done
-> completely, stops being a visual-pipeline change and becomes a **fact-lifecycle / activation**
-> change touching imports and seeding. It is *separable* from the toggle removal. David to choose:
-> **(A)** do it all in this plan (one coherent change), or **(B)** split — ship the VSO
-> toggle-removal + presence-based + the moderation-flow concept gates (§A–F points 1–3) now, and
-> take the activation-guard + intake lifecycle work as a **separate follow-up plan/PR** (distinct
-> risk surface: external import route, seed, DB constraint). The design below stands either way.
+**Not in this plan.** David scoped this out (rev 6) as a separate, pre-launch fast-follow. It is a
+fact-**ingestion/activation** change, not a visual-pipeline change, with a distinct risk surface
+(a DB constraint, the external API-key import route, seeding). Captured here so the design + the
+Codex findings that produced it aren't lost:
 
-The invariant is repo-wide: **no fact is `isActive: true` without a non-empty persisted
-`coreSceneOverride`.** Enumerating insert paths is fragile — beyond `POST /facts` / variant /
-bulk import, Codex found the Facts admin PATCH reactivation (`admin.ts:832/842` — `isActive` in
-`nonTextUpdates`, written at `:842`), CSV import (`admin.ts:1505-1514`), the API-key import route
-(`import.ts:184-187`), and empty-DB seeding (`seed.ts:732-736`). So enforce centrally, two parts:
+- **Governing principle (David).** Exactly two ingestion routes exist — **manual user submission**
+  and **bulk import** — and any future one (e.g. an API) must behave the same: every ingested fact
+  is deposited at the **front of the moderation pipeline** (Stage 1: triage → enrich → activate).
+  **No path creates an active fact directly.** So the fix is not "add a guard to each active
+  insert" — it's that the direct-insert-as-active paths (`POST /facts` `facts.ts:454`, variant
+  create `admin.ts:1387`, bulk import `admin.ts:1454`, CSV import `admin.ts:1505-1514`, API-key
+  import `import.ts:184-187`, seed `seed.ts:732-736`) should **route to Stage 1** (create a
+  `pending_reviews` intake row like a submission does, `reviews.ts:191-202`) instead of inserting
+  `isActive: true`.
+- **Belt-and-suspenders.** A central activation guard (a DB `CHECK`/trigger binding
+  `facts.is_active = true` to a non-empty persisted `coreSceneOverride`, or one `activateFact()`
+  service every activation funnels through — including the Facts-admin-PATCH reactivation at
+  `admin.ts:832/842`) so the invariant holds structurally regardless of route.
+- **Existing dev facts** active without a concept are David's launch-time cleanup.
 
-1. **Shared activation guard (authoritative enforcement).** A single chokepoint — a DB
-   `CHECK`/trigger binding `facts.is_active = true` to a non-empty persisted concept, or one
-   `activateFact()` write-guard service that every activation funnels through — so no current or
-   future path can publish a concept-less fact. The route-level gates in §F points 1–3 remain the
-   friendly, specific UI errors layered on top of this backstop.
-2. **Moderation intake for bare-created facts (so "pending" is real, not stranded).** The real
-   lifecycle: a submission creates a `pending_reviews` row (`reviews.ts:191-202`); the fact is
-   created *inactive* only later, by `ensureStagingFact` during moderation
-   (`moderationStaging.ts:52-73`). A bare fact created directly with **no** review row is invisible
-   to `/admin/reviews` and can never be moderated or promoted. So the bare-creation paths
-   (`POST /facts`, variant, bulk import, CSV/API import, seed) must create a **`pending_reviews`
-   intake row** (like a submission) — ideally *not* pre-creating a fact at all, letting the normal
-   staging path create it — so every fact flows create→moderate(+concept)→approve. (This changes
-   those paths' return shape from "a fact" to "a queued review," which is why it may warrant its
-   own plan — see the scope decision above.)
-
-*Behavioral consequence (either scope): admin direct-create, variant-create, and bulk/CSV/API
-import no longer produce immediately-live facts — they enqueue pending facts that must be
-moderated (get a concept) before production, matching David's create→moderate→approve lifecycle.*
+Head 2 will get its own plan doc + Codex review cycle when David is ready. **This plan does not
+change any ingestion/activation path** — those keep their current behavior until Head 2 ships.
 
 ### G. Candidate concepts (`lib/api-zod/src/visualConcepts.ts`)
 
@@ -379,12 +379,8 @@ moderated (get a concept) before production, matching David's create→moderate�
      refresh-candidate path): a cycle whose persisted `coreSceneOverride` is blank is rejected at
      **publish** (`CONCEPT_MISSING`), even when the Step-2 gate was somehow bypassed (stale
      row/tab); a non-blank cycle promotes.
-  4. *Production-release invariant* (§F′): the **central activation guard** rejects any attempt
-     to set `facts.is_active = true` without a non-empty persisted `coreSceneOverride` — exercise
-     it through *every* activation path (POST /facts, variant, bulk import, CSV import, API-key
-     import, Facts admin PATCH reactivation, seed). And a **moderation-intake** test: an item from
-     each bare-creation path appears in `/admin/reviews` and can be driven through to concept-gated
-     production approval (i.e. it is not stranded).
+  4. *Production-release invariant (activation guard + ingestion→Stage-1 routing)* — **deferred to
+     Head 2** (§F′); its tests land with that plan.
 - **Presence-based budget gate** — an over-budget scene/additions on a VSO with no (removed)
   toggle is still rejected `visual_strategy_override_over_budget`.
 - **Two-gate coverage** — a policy override (`resolveRenderPolicy`) applies with no toggle; the
