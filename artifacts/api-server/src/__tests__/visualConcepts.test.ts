@@ -204,3 +204,24 @@ describe("generateVisualConceptsWithModel", () => {
     await assert.rejects(() => generateVisualConceptsWithModel(input, model), /concepts/);
   });
 });
+
+describe("buildVisualConceptsUserMessage — no runtime bubble leakage", () => {
+  it("existing moderator bubbles never reach candidate-concept context", () => {
+    const base: GenerateVisualConceptsInput = { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT };
+    const withBubbles = {
+      ...base,
+      enrichment: {
+        ...base.enrichment,
+        visualPromptStrategyOverride: {
+          version: 1, enabled: true,
+          requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+          compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+          bubbles: [{ type: "speech", entity: "subject", text: "RUNTIME BUBBLE STRING" }],
+        },
+      },
+    } as typeof base;
+    const msg = buildVisualConceptsUserMessage(withBubbles);
+    assert.ok(!msg.includes("RUNTIME BUBBLE STRING"), "bubble text must not leak");
+    assert.ok(!msg.includes("MODERATOR BUBBLE DIRECTIVES"), "no bubble staging block in candidate context");
+  });
+});
