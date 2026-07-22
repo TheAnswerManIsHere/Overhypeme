@@ -297,10 +297,14 @@ have a draft plan, and the disclosure check passes:
    ## Plan file
    `docs/plans/PLAN_<SLUG>.md`
    ```
-2. **Subscribe** with `subscribe_pr_activity` — regardless of model tier. The
-   Sonnet gate under *Watching the PRs I open* applies to implementation-PR
-   watching (ops-shaped work); revising a plan under review is planning-shaped
-   and stays on the planning tier (Opus, per the token-discipline table).
+2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
+   tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
+   the PRs I open* is for *implementation* PRs (ops-shaped work); a
+   `[PLAN REVIEW]` PR and the whole revise-until-converged loop are **planning**,
+   so I stay on **Opus** for all of it and do **not** ask David to switch me to
+   Sonnet mid-plan. The tier only ever changes *after* David approves the plan,
+   at the transition to execution — see the tier-lifecycle rule in
+   *Token / cost discipline*.
 3. **Trigger the first review explicitly.** I do **not** assume opening the PR
    auto-triggers Codex — I post an explicit `@codex review` comment after
    opening. I never treat a push, or webhook silence, as proof the current
@@ -485,13 +489,22 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
-### Watching the PRs I open (always — but gated on being on Sonnet)
+### Watching the PRs I open (always — implementation-PR watching gated on Sonnet)
 
 **Standing rule (David, 2026-07-21): I always subscribe to a PR I create — no
 per-PR ask — but ONLY while running on Sonnet.** Watching (triaging comments,
 driving CI green, mechanical fixes) is ops-shaped work per the token-discipline
 table below, so it belongs on Sonnet, not whatever tier I built the PR on.
-Concretely, at the point I'd open/finish a PR:
+
+**Scope — this gate is for *implementation* PRs only (David, 2026-07-22).** A
+`[PLAN REVIEW]` draft PR (the *Automated plan review* loop above) is a
+**planning** artifact: I watch it and revise the plan on **Opus**, subscribing
+immediately with **no** tier-switch ask. Everything below — the Sonnet gate, the
+"ask to switch" step — applies only to the normal implementation/feature PRs I
+open *after* a plan is approved. I never bounce off Opus mid-plan just to watch
+the plan-review PR.
+
+Concretely, at the point I'd open/finish an **implementation** PR:
 
 - **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
 - **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
@@ -605,6 +618,22 @@ calls. Two concrete, durable changes:
   - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
   - **Entering plan mode, or any "let's build/design/add X" feature-building
     request** → I suggest switching to Opus (`claude-opus-4-8`).
+  - **Planning stays on Opus end-to-end — no switching back and forth (David,
+    2026-07-22).** A planning cycle is *continuous* Opus: the pre-plan
+    conversation, the plan itself, **and the whole Codex plan-review loop**
+    (watching the `[PLAN REVIEW]` PR and revising until it converges, through to
+    David's approval). I do **not** ask to be switched to Sonnet at any point
+    during planning — including to watch the plan-review PR, which is planning,
+    not ops. David should never have to switch me *back* to Opus for the next
+    plan because I bounced to Sonnet mid-cycle.
+  - **The only downshift to Sonnet is to *execute* an approved plan — and only
+    when the execution is simple/low-risk (David, 2026-07-22).** Per the
+    *Implementing features* row below, simple builds run on Sonnet (Codex's diff
+    review is the net); high-risk subsystems (migrations, tokenizer/grammar,
+    visual pipeline, dev-infra, or a build that surfaces real complexity) stay on
+    Opus. So at plan approval I suggest Sonnet **only if** the execution ahead is
+    genuinely simple; otherwise I stay on Opus to build. Watching that
+    implementation PR afterward then follows the ops-shaped Sonnet gate above.
   - **By task type** (the reference table, since the two boundaries above
     don't cover everything I do):
 
