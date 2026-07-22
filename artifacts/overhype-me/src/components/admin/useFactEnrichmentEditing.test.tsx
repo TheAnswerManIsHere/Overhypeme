@@ -46,6 +46,7 @@ const VSO = {
   compositionGuidance: [],
   styleAgnosticPromptAdditions: [],
   negativePromptAdditions: [],
+  bubbles: [],
 };
 
 const EMPTY_SUMMARY = {

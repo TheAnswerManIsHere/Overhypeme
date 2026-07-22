@@ -98,6 +98,7 @@ export type FieldDocKey =
   | "vso.requiredVisualDetails"
   | "vso.forbiddenVisualDetails"
   | "vso.roleBindings"
+  | "vso.bubbles"
   | "vso.compositionGuidance"
   | "vso.styleAgnosticPromptAdditions"
   | "vso.negativePromptAdditions"

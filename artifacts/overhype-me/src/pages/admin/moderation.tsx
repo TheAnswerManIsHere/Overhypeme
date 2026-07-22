@@ -16,6 +16,9 @@ import {
   type RenderScenarioKey,
   RENDER_SCENARIO_DESCRIPTORS,
   type VisualConceptsResponse,
+  type VisualPromptStrategyOverride,
+  type StoredCandidateConcept,
+  withCandidateConceptDraft,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
@@ -29,6 +32,7 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
+import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
@@ -429,7 +433,7 @@ function ReviewModal({
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
-  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride } = enrichEditing;
+  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride, getServerVisualOverride } = enrichEditing;
 
   // Subject-name hint for tokenizeAndSaveVisualOverride: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -546,13 +550,35 @@ function ReviewModal({
     }
   }, [review.id, enrichment, loadDetail]);
 
-  const onPickConcept = useCallback((sceneDescription: string) => {
+  const onPickConcept = useCallback((concept: StoredCandidateConcept) => {
     if (!enrichment) return;
+    // The SAME pure helper the server preflighted this candidate through:
+    // preserves unrelated VSO fields, replaces scene + bubbles, auto-enables.
     enrichmentDraft.setValue({
       ...enrichment,
-      visualPromptStrategyOverride: withCoreSceneOverride(enrichment.visualPromptStrategyOverride, sceneDescription),
+      visualPromptStrategyOverride: withCandidateConceptDraft(enrichment.visualPromptStrategyOverride, concept),
     });
   }, [enrichment, enrichmentDraft]);
+
+  // Candidates were validated against the PERSISTED override. Picking replaces
+  // only the scene + bubbles and preserves everything else — so unsaved edits
+  // to any OTHER Visual-Strategy field mean the pick would land on a base the
+  // server never saw. Block picking (with clear copy) until those edits are
+  // saved or discarded; scene/bubble-only dirtiness (e.g. a previous pick, or
+  // typing in the Concept box) stays pickable so switching between ideas is
+  // fluid.
+  const pickBlockedReason = useMemo(() => {
+    if (!enrichment) return null;
+    const strip = (ov: VisualPromptStrategyOverride | null | undefined) => {
+      if (!ov) return null;
+      const { coreSceneOverride: _s, bubbles: _b, updatedBy: _by, updatedAt: _at, enabled: _e, ...rest } = ov;
+      return rest;
+    };
+    const draftRest = strip(enrichment.visualPromptStrategyOverride);
+    const serverRest = strip(getServerVisualOverride());
+    if (JSON.stringify(draftRest ?? null) === JSON.stringify(serverRest ?? null)) return null;
+    return "Save or discard your current Visual Strategy changes before using an AI idea — picking applies on top of the saved state.";
+  }, [enrichment, getServerVisualOverride]);
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");
@@ -1047,11 +1073,25 @@ function ReviewModal({
                 }}
               />
 
+              {/* Speech & thought bubbles — first-class placement beside the
+                  Concept; the SAME shared component renders in Advanced
+                  Options, editing the same draft. */}
+              <BubbleEditor
+                firstClass
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                fieldErrors={vsoTokenizeErrors}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
+              />
+
               {/* Candidate Visual ideas — REQUIRED gate in Step 2: picking one
-                  fills the concept field above (draft only; still Save). */}
+                  fills the concept + bubbles above (draft only; still Save). */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
                 disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                pickBlockedReason={pickBlockedReason}
                 onPick={onPickConcept}
                 onGenerate={onGenerateConcepts}
               />

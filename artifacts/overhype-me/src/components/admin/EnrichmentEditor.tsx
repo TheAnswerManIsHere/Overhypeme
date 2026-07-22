@@ -39,6 +39,7 @@ import {
 import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 import { OverrideMark } from "./OverrideMark";
 import { FieldInfo, FieldLabel, ADMIN_LABEL_CLASS } from "./FieldInfo";
+import { BubbleEditor } from "./BubbleEditor";
 import { fieldLabel, PATH_TO_DOC_KEY, type FieldDocKey } from "./fieldDocs";
 
 /**
@@ -82,17 +83,18 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
 
 /**
  * True ONLY for the exact, path-specific `visualPromptStrategyOverride`
- * schema issue that rejects a personalization token in a role binding's
- * `entity` field (see `visualStrategyOverrideSchema`'s superRefine) — the one
- * validity error `tokenizeAndSaveVisualOverride` can fix by itself (it blocks
- * persistence and red-borders that row on its own if the token survives
- * tokenizing). Deliberately narrow: does NOT match unknown/malformed tokens in
- * prose fields, VSO length/cap/enum errors, or any non-VSO enrichment
- * failure — those must still hard-disable Save. Never broaden this to a
- * `startsWith("visualPromptStrategyOverride:")` catch-all.
+ * schema issues that reject a personalization token in an ENTITY field — a
+ * role binding's or a bubble's (see `visualStrategyOverrideSchema`'s
+ * superRefine; both emit the identical machine-recognizable message) — the
+ * validity errors `tokenizeAndSaveVisualOverride` can fix by itself (it
+ * blocks persistence and red-borders that row on its own if the token
+ * survives tokenizing). Deliberately narrow: does NOT match unknown/malformed
+ * tokens in prose fields, VSO length/cap/enum errors, or any non-VSO
+ * enrichment failure — those must still hard-disable Save. Never broaden this
+ * to a `startsWith("visualPromptStrategyOverride:")` catch-all.
  */
-export function isFixableRoleEntityTokenIssue(error: string): boolean {
-  return /^visualPromptStrategyOverride\.roleBindings\.\d+\.entity: personalization tokens are not allowed/.test(error);
+export function isFixableEntityTokenIssue(error: string): boolean {
+  return /^visualPromptStrategyOverride\.(roleBindings|bubbles)\.\d+\.entity: personalization tokens are not allowed/.test(error);
 }
 
 /** Sentinel `fieldErrors` key for a whole-batch tokenize failure (network/HTTP
@@ -1443,6 +1445,10 @@ export function VisualStrategyOverridePanel({
             </div>
           </div>
 
+          {/* Speech & thought bubbles — the SAME shared component as the
+              first-class card beside the Visual Concept (one draft, no drift). */}
+          <BubbleEditor value={ov} onChange={(next) => onChange(next)} disabled={disabled} fieldErrors={fieldErrors} />
+
           <StringListEditor docKey="vso.compositionGuidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} pathPrefix="compositionGuidance" fieldErrors={fieldErrors} disabled={disabled} />
           <StringListEditor docKey="vso.styleAgnosticPromptAdditions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} pathPrefix="styleAgnosticPromptAdditions" fieldErrors={fieldErrors} disabled={disabled} />
           <StringListEditor docKey="vso.negativePromptAdditions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} pathPrefix="negativePromptAdditions" fieldErrors={fieldErrors} disabled={disabled} />
@@ -1623,8 +1629,9 @@ export function EnrichmentEditor({
   };
 
   const validity = validateEnrichment(e);
-  // The schema's role-entity token backstop (`roleBindings[i].entity` carrying
-  // a `{…}` token) is the ONE validity error that Save can fix by itself — it
+  // The schema's entity token backstop (`roleBindings[i].entity` or
+  // `bubbles[i].entity` carrying a `{…}` token) is the ONE validity error
+  // class that Save can fix by itself — it
   // routes through tokenizeAndSaveVisualOverride, which blocks persistence and
   // red-borders that row on its own if the token is still there after
   // tokenizing. Save must NOT hard-disable on it, or the "click Save → shown
@@ -1634,7 +1641,7 @@ export function EnrichmentEditor({
   // exact schema issue, never a broad `visualPromptStrategyOverride:` prefix.
   const nonFixableValidityErrors = validity.ok
     ? []
-    : validity.error.split("; ").filter((err) => !isFixableRoleEntityTokenIssue(err));
+    : validity.error.split("; ").filter((err) => !isFixableEntityTokenIssue(err));
   const subtypeOptions = SUBTYPES_BY_ARCHETYPE[e.primaryArchetype] as readonly string[];
 
   return (

@@ -183,6 +183,10 @@ export interface UseFactEnrichmentEditingResult {
    * (blocking, not persisting) when any field failed to tokenize.
    */
   tokenizeAndSaveVisualOverride: (subjectNames: string[]) => Promise<boolean>;
+  /** The last-known PERSISTED visual-strategy override (server state, not the
+   *  draft) — lets pick surfaces compare "what would this candidate apply on
+   *  top of" against unsaved local edits. Null before the first load. */
+  getServerVisualOverride: () => VisualPromptStrategyOverride | null;
 }
 
 export function useFactEnrichmentEditing({
@@ -641,5 +645,6 @@ export function useFactEnrichmentEditing({
     vsoTokenizing,
     vsoTokenizeErrors,
     tokenizeAndSaveVisualOverride,
+    getServerVisualOverride: () => serverEnrichmentRef.current?.visualPromptStrategyOverride ?? null,
   };
 }

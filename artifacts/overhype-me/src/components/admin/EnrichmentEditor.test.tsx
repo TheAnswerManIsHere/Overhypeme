@@ -1,5 +1,5 @@
 /**
- * isFixableRoleEntityTokenIssue — the narrow Save-disable gate exception.
+ * isFixableEntityTokenIssue — the narrow Save-disable gate exception.
  *
  * Adding the schema-level backstop that rejects a personalization token in
  * `roleBindings[i].entity` would make `validateEnrichment(e).ok` false and
@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from "vitest";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
-import { isFixableRoleEntityTokenIssue } from "./EnrichmentEditor";
+import { isFixableEntityTokenIssue } from "./EnrichmentEditor";
 
 function makeEnrichment(over: Partial<FactEnrichment> = {}): FactEnrichment {
   return {
@@ -45,15 +45,16 @@ const VSO = {
   compositionGuidance: [],
   styleAgnosticPromptAdditions: [],
   negativePromptAdditions: [],
+  bubbles: [],
 };
 
 function nonFixableErrors(enrichment: FactEnrichment): string[] {
   const validity = validateEnrichment(enrichment);
   if (validity.ok) return [];
-  return validity.error.split("; ").filter((err) => !isFixableRoleEntityTokenIssue(err));
+  return validity.error.split("; ").filter((err) => !isFixableEntityTokenIssue(err));
 }
 
-describe("isFixableRoleEntityTokenIssue", () => {
+describe("isFixableEntityTokenIssue", () => {
   it("POSITIVE: a valid {NAME} token in roleBindings[0].entity does not hard-disable Save", () => {
     const enrichment = makeEnrichment({
       visualPromptStrategyOverride: {
@@ -93,10 +94,10 @@ describe("isFixableRoleEntityTokenIssue", () => {
   });
 
   it("does not match a broad visualPromptStrategyOverride: prefix, only the exact role-entity issue", () => {
-    expect(isFixableRoleEntityTokenIssue("visualPromptStrategyOverride: some other error")).toBe(false);
-    expect(isFixableRoleEntityTokenIssue("visualPromptStrategyOverride.coreSceneOverride: unknown token")).toBe(false);
+    expect(isFixableEntityTokenIssue("visualPromptStrategyOverride: some other error")).toBe(false);
+    expect(isFixableEntityTokenIssue("visualPromptStrategyOverride.coreSceneOverride: unknown token")).toBe(false);
     expect(
-      isFixableRoleEntityTokenIssue(
+      isFixableEntityTokenIssue(
         "visualPromptStrategyOverride.roleBindings.2.entity: personalization tokens are not allowed here — use \"subject\" or a plain role label instead",
       ),
     ).toBe(true);

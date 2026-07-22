@@ -16,6 +16,7 @@ function candidate(overrides: Partial<StoredCandidateConcept> = {}): StoredCandi
     whyItWorks: "Turns the gag into a scene.",
     sceneDescription: "{NAME} stands amid melting clocks in a marble courtroom.",
     tokenValid: true,
+    bubbles: [],
     ...overrides,
   };
 }
@@ -85,12 +86,15 @@ describe("VisualConceptCandidates", () => {
     expect(screen.getByTestId("candidate-scene").textContent).toMatch(/melting clocks/);
   });
 
-  it('"Use as draft" calls onPick with the candidate\'s scene text', () => {
+  it('"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)', () => {
     const onPick = vi.fn();
-    const c = candidate({ sceneDescription: "{NAME} surfs a tidal wave of paperwork." });
+    const c = candidate({
+      sceneDescription: "{NAME} surfs a tidal wave of paperwork.",
+      bubbles: [{ type: "speech", entity: "subject", text: "Approved!", tokenValid: true }],
+    });
     render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={onPick} onGenerate={noop} />);
     fireEvent.click(screen.getByTestId("candidate-use"));
-    expect(onPick).toHaveBeenCalledWith("{NAME} surfs a tidal wave of paperwork.");
+    expect(onPick).toHaveBeenCalledWith(c);
   });
 
   it("an invalid-token candidate can't be picked (button disabled, error shown)", () => {
@@ -122,5 +126,56 @@ describe("VisualConceptCandidates", () => {
     await act(async () => { resolve(); });
     await waitFor(() => expect(btn().disabled).toBe(false));
     expect(onGenerate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("candidate bubble proposals", () => {
+  const noop = async () => {};
+
+  it("renders the normalized proposed bubbles on the card (exactly what pick applies)", () => {
+    const c = candidate({
+      bubbles: [
+        { type: "speech", entity: "subject", text: "You're the man of the house now.", tokenValid: true },
+        { type: "thought", entity: "the bartender", text: "Not again.", tokenValid: true },
+      ],
+    });
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={() => {}} onGenerate={noop} />);
+    const rows = screen.getAllByTestId("candidate-bubble");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain("Speech — subject");
+    expect(rows[0]!.textContent).toContain("You're the man of the house now.");
+    expect(rows[1]!.textContent).toContain("Thought — the bartender");
+  });
+
+  it("one invalid bubble makes the WHOLE concept unpickable (atomic), naming the bubble", () => {
+    const onPick = vi.fn();
+    const c = candidate({
+      bubbles: [
+        { type: "speech", entity: "subject", text: "Fine.", tokenValid: true },
+        { type: "speech", entity: "{NAME}", text: "Broken.", tokenValid: false, tokenError: "personalization tokens are not allowed here" },
+      ],
+    });
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={onPick} onGenerate={noop} />);
+    const btn = screen.getByTestId("candidate-use") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.getByTestId("candidate-unpickable").textContent).toContain("bubble 2");
+  });
+
+  it("pickBlockedReason disables picking with the reason but keeps the cards rendered", () => {
+    const onPick = vi.fn();
+    const c = candidate({});
+    render(
+      <VisualConceptCandidates
+        visualConcepts={okCurrent([c])}
+        pickBlockedReason="Save or discard your current Visual Strategy changes before using an AI idea — picking applies on top of the saved state."
+        onPick={onPick}
+        onGenerate={noop}
+      />,
+    );
+    expect((screen.getByTestId("candidate-use") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("pick-blocked-note").textContent).toContain("Save or discard");
+    expect(screen.getByTestId("candidate-title")).toBeTruthy();
   });
 });
