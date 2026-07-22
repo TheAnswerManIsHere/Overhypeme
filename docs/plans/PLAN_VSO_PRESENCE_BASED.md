@@ -11,6 +11,14 @@ go further and remove the toggle entirely, which subsumes that plan and deletes 
 machinery — see "Why this replaces the earlier plan."
 
 **Revision log:**
+- rev 4 — Codex round 3 + David's lifecycle clarification: the required-Concept rule is a
+  **production-release invariant** — *a fact cannot be `isActive: true` (user-visible) without a
+  non-empty Visual Concept* (the public feed filters only on `isActive`, so a concept-less active
+  fact would render bad memes). The three **direct active-fact insert** paths (`POST /facts`,
+  variant create, bulk import) currently jump bare facts straight to `isActive: true`, bypassing
+  the moderation concept gate. §F now inserts those as **inactive/pending** so the only route to
+  production is the concept-gated moderation approve path. (Existing dev facts that are active
+  without a concept are David's launch-time cleanup — out of scope.)
 - rev 3 — Codex round 2: P2 — the Step-3 client affordance `canApproveProduction`
   (`moderation.tsx:723`, used `:1349/:1356/:1370`) checks enrichment validity + hashtags but
   **not** the scene, so after rev 2's server publish gate a stale blank-scene row would show an
@@ -74,6 +82,15 @@ touches more files, but the runtime logic is simpler and has one activation mode
      deploy (a one-time regenerate, not wrong output). Acceptable given the fact redo. (If we
      later wanted to avoid this, the lever is to exclude `enabled` from `renderAffectingEnrichment`
      while keeping it in the blob — not chosen here, since we're removing the field outright.)
+7. **Production-release invariant (David's lifecycle clarification).** "Required" means a fact
+   cannot be **released into production** — i.e. become `isActive: true` / user-visible — without
+   a non-empty Visual Concept, because the image/video engines need it to make memes. Bare facts
+   (text only, from user submission, direct admin create, or bulk import) may **exist**; they just
+   can't be *active* without a concept. The canonical lifecycle is **create (text) → moderate (AI
+   enrich + author concept) → approve for production (active)**; the concept-gated moderation
+   approve path is the single production doorway. (Facts already past moderation — e.g. sent for a
+   taxonomy upgrade — have a concept by construction. Existing unmoderated-but-active dev facts
+   are David's launch cleanup, out of scope.)
 6. **Option 1 single prominent surface (carried from the superseded plan):** the
    `VisualConceptCard` is the *only* scene editor, on moderation Step 2, moderation Step 3, and
    the Facts page; the scene field is removed from the Advanced Options panel. With the toggle
@@ -207,6 +224,21 @@ silently dies:
      shared helper so Step-2 and publish can't drift), returning `CONCEPT_MISSING`. This is the
      backstop that makes "cannot be published blank" true regardless of which tab/row/state the
      admin came from.
+  4. **Direct active-fact inserts — close the production bypass (Codex round 3 + decision 7).**
+     `POST /facts` (`facts.ts:454`), variant creation (`admin.ts:1387-1395`), and bulk import
+     (`admin.ts:1454-1463`) currently insert `isActive: true` with **no enrichment**, so a bare,
+     concept-less fact goes straight to the public feed (which filters only on `isActive`). Per the
+     production-release invariant, these bare inserts must **not** land in production: change them
+     to insert **`isActive: false`** (pending), so the only path to `isActive: true` is the
+     concept-gated moderation approve flow (points 2–3). Implementation must confirm a
+     pending-inserted fact is **reachable by moderation** (enters the review/pending pool rather
+     than being stranded) — verify against the existing submission→review mechanism; if routing a
+     bulk import into moderation is a larger lift, the fallback is a hard **activation guard**
+     (reject any transition/insert to `isActive: true` without a non-empty `coreSceneOverride`) so
+     the invariant holds even if the enqueue wiring lands separately. *Behavioral consequence to
+     surface at approval: admin direct-create and bulk-import no longer produce immediately-live
+     facts — they produce pending facts that must be moderated (which matches David's described
+     lifecycle).*
 
 ### G. Candidate concepts (`lib/api-zod/src/visualConcepts.ts`)
 
@@ -312,6 +344,11 @@ silently dies:
      refresh-candidate path): a cycle whose persisted `coreSceneOverride` is blank is rejected at
      **publish** (`CONCEPT_MISSING`), even when the Step-2 gate was somehow bypassed (stale
      row/tab); a non-blank cycle promotes.
+  4. *Direct inserts* (`POST /facts`, variant create, bulk import): the created rows are
+     `isActive: false` (not in production); assert no path inserts an `isActive: true` fact
+     without a concept — i.e. the production-release invariant holds. (If the activation-guard
+     fallback is used instead, assert an attempt to activate without a `coreSceneOverride` is
+     rejected.)
 - **Presence-based budget gate** — an over-budget scene/additions on a VSO with no (removed)
   toggle is still rejected `visual_strategy_override_over_budget`.
 - **Two-gate coverage** — a policy override (`resolveRenderPolicy`) applies with no toggle; the
