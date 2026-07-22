@@ -188,7 +188,9 @@ export function collectRenderedTextEntries(
     out.push({ path: `roleBindings[${i}].entity`, value: rb.entity, kind: "entity" });
     out.push({ path: `roleBindings[${i}].visualRole`, value: rb.visualRole, kind: "prose" });
   });
-  ov.bubbles.forEach((b, i) => {
+  // `?? []`: legacy blobs (and hand-built test fixtures) may predate `bubbles`
+  // and are read without a schema parse in some paths.
+  (ov.bubbles ?? []).forEach((b, i) => {
     out.push({ path: `bubbles[${i}].entity`, value: b.entity, kind: "entity" });
     out.push({ path: `bubbles[${i}].text`, value: b.text, kind: "prose" });
   });
@@ -303,7 +305,7 @@ export function setRenderedTextAtPath(
   if (bubbleMatch) {
     const index = Number(bubbleMatch[1]);
     const field = bubbleMatch[2] as "entity" | "text";
-    if (index < 0 || index >= ov.bubbles.length) return ov;
+    if (index < 0 || index >= (ov.bubbles ?? []).length) return ov;
     const bubbles = ov.bubbles.slice();
     bubbles[index] = { ...bubbles[index], [field]: value };
     return { ...ov, bubbles };
@@ -390,7 +392,7 @@ export function canonicalizeOverrideTokens(
     roleBindings: ov.roleBindings.map((rb) => ({ entity: mapText(rb.entity), visualRole: mapText(rb.visualRole) })),
     // Bubble text is a LITERAL string the engine letters verbatim — canonicalize
     // tokens AND normalize whitespace so preview/save/runtime show one value.
-    bubbles: ov.bubbles.map((b) => ({
+    bubbles: (ov.bubbles ?? []).map((b) => ({
       ...b,
       entity: mapText(b.entity),
       text: normalizeLiteralBubbleText(mapText(b.text)),
@@ -447,7 +449,7 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
     });
     // Same hard invariant for bubble entities (identical machine-recognizable
     // message so the frontend's narrow Save-disable exception matches both).
-    ov.bubbles.forEach((b, i) => {
+    (ov.bubbles ?? []).forEach((b, i) => {
       if (b.entity.includes("{")) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

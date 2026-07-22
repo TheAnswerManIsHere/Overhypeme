@@ -549,11 +549,17 @@ export function composeBubbleDirective(
   bubble: Pick<VisualStrategyBubble, "type" | "text">,
   who: string,
 ): string {
+  // Wording is deliberately COMPACT: each directive is billed to the finite
+  // BUBBLE_DIRECTIVES_RENDERED_MAX pool, so every fixed word here directly
+  // shrinks how many bubbles fit. Keep the four load-bearing parts — balloon
+  // shape, tail/trail attribution to <who>, the exact-literal contract, and
+  // legibility — and nothing else (in-scene-ness is stated once by the
+  // carveout line).
   const literal = serializeLiteralPromptString(bubble.text);
   if (bubble.type === "speech") {
-    return `Render one clean comic-style speech balloon integrated into the scene, with its tail pointing unambiguously to ${who}. The balloon contains exactly the literal string ${literal} in clear, legible lettering.`;
+    return `One clean comic-style speech balloon with its tail pointing to ${who}, containing exactly the text ${literal} in clear, legible lettering.`;
   }
-  return `Render one cloud-shaped thought balloon integrated into the scene, with a trail of small circles leading unambiguously to the head of ${who}. The balloon contains exactly the literal string ${literal} in clear, legible lettering.`;
+  return `One cloud-shaped thought balloon with a trail of small circles leading to the head of ${who}, containing exactly the text ${literal} in clear, legible lettering.`;
 }
 
 /** Trailing carveout emitted once after the directives: makes the precedence
@@ -561,7 +567,7 @@ export function composeBubbleDirective(
  *  IN the compiled language (a balloon is in-scene graphic text, not an
  *  overlay caption). */
 const BUBBLE_CARVEOUT_LINE =
-  "These balloons are intentional in-scene graphic elements requested by these instructions — render them; they are not overlay or caption text.";
+  "These balloons are intentional in-scene graphic elements requested by these instructions, not overlay captions.";
 
 export interface BubbleDirectivesResult {
   text: string;

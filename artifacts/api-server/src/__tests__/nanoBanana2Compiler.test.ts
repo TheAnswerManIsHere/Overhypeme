@@ -26,6 +26,7 @@ import {
   compileNanoBanana2T2I,
 } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import type { ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
+import { PROMPT_TOTAL_BUDGET } from "@workspace/api-zod";
 
 function countOccurrences(haystack: string, needle: string): number {
   return haystack.toLowerCase().split(needle.toLowerCase()).length - 1;
@@ -966,7 +967,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
       visualPlan: { subjectDetails: filler, environment: filler },
       override: makeOverride({ roleBindings }),
     }));
-    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= PROMPT_TOTAL_BUDGET, true, `prompt length ${out.imagePrompt.length}`);
     assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
     assert.match(out.imagePrompt, /mother: adult woman in the passenger seat, surprised and amused/);
     const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
@@ -990,7 +991,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
       renderedSubject: { name: "David", pronouns: "he/him" },
       override: makeOverride({ roleBindings }),
     }));
-    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= PROMPT_TOTAL_BUDGET, true, `prompt length ${out.imagePrompt.length}`);
     const roleDetails = out.promptBreakdown?.find((s) => s.id === "role_details");
     assert.equal(roleDetails?.priority, "required");
     assert.equal(roleDetails?.status, "included");
@@ -1180,7 +1181,7 @@ describe("nanoBanana2 — prompt component breakdown", () => {
       renderedSubject: { name: "David", pronouns: "he/him" },
       modifiers: ["baby_child_version"],
     }));
-    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= PROMPT_TOTAL_BUDGET, true, `prompt length ${out.imagePrompt.length}`);
     assert.equal(out.negativePrompt, undefined);
     // Required identity + binding survive even when the scene is enormous.
     assert.match(out.imagePrompt.toLowerCase(), /image-to-image edit using the reference image/);
@@ -1497,7 +1498,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
       visualPlan: { subjectDetails: filler, environment: filler },
       override: makeOverride({ coreSceneOverride: moderatorScene }),
     }));
-    assert.equal(out.imagePrompt.length <= 6000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.equal(out.imagePrompt.length <= PROMPT_TOTAL_BUDGET, true, `prompt length ${out.imagePrompt.length}`);
     assert.ok(out.imagePrompt.includes(moderatorScene), "moderator scene present verbatim");
     const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
     assert.equal(core?.status, "included");
@@ -1519,11 +1520,11 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
     // The compiler NO LONGER truncates required content (which used to drop the
     // policy guardrails off the end) — it exceeds the budget and flags overflow
     // so the worker fails loud + terminal instead.
-    assert.ok(out.imagePrompt.length > 6000, `expected overflow, got length ${out.imagePrompt.length}`);
+    assert.ok(out.imagePrompt.length > PROMPT_TOTAL_BUDGET, `expected overflow, got length ${out.imagePrompt.length}`);
     const overflow = out.diagnostics?.requiredBudgetOverflow;
     assert.ok(overflow, "requiredBudgetOverflow diagnostic must be set");
     assert.ok(overflow!.overBy > 0);
-    assert.equal(overflow!.budget, 6000);
+    assert.equal(overflow!.budget, PROMPT_TOTAL_BUDGET);
     assert.match(String(out.engineNotes ?? ""), /exceeds the engine prompt budget/);
   });
 });
@@ -1677,5 +1678,235 @@ describe("nanoBanana2 — key-element crutch filter + structured diagnostics", (
     assert.match(out.imagePrompt, /STRICT CONSTRAINTS:/);
     assert.match(out.imagePrompt.toLowerCase(), /do not bake overlay or caption text into the image/);
     assert.match(out.imagePrompt.toLowerCase(), /keep incidental background text non-readable/);
+  });
+});
+
+// ─── SPEECH & THOUGHT BUBBLES (moderator bubbles, compiler-owned language) ──
+
+describe("nanoBanana2 — speech & thought bubbles", () => {
+  function bubbleOverride(bubbles: unknown[], partial: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      version: 1, enabled: true,
+      requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+      compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      bubbles,
+      ...partial,
+    };
+  }
+  const speech = (text: string, entity = "subject") => ({ type: "speech", entity, text });
+  const thought = (text: string, entity = "subject") => ({ type: "thought", entity, text });
+
+  it("emits one deterministic directive per bubble in STORED order, with exact serialized text", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands in a kitchen.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([
+        thought("Not again.", "the bartender"),
+        speech("You're the man of the house now."),
+      ]),
+    }));
+    const p = out.imagePrompt;
+    assert.ok(p.includes("SPEECH & THOUGHT BUBBLES:"), "section label present");
+    assert.ok(
+      p.includes('One cloud-shaped thought balloon with a trail of small circles leading to the head of the bartender, containing exactly the text "Not again." in clear, legible lettering.'),
+      "thought directive exact",
+    );
+    assert.ok(
+      p.includes(`One clean comic-style speech balloon with its tail pointing to David, containing exactly the text "You're the man of the house now." in clear, legible lettering.`),
+      "speech directive exact (subject → rendered name)",
+    );
+    // Stored order preserved: the thought (first stored) precedes the speech.
+    assert.ok(p.indexOf("cloud-shaped thought balloon") < p.indexOf("comic-style speech balloon"), "stored order");
+    const section = out.promptBreakdown?.find((s) => s.id === "bubbles");
+    assert.equal(section?.status, "included");
+    assert.equal(section?.moderatorAuthored, true);
+  });
+
+  it("token-bearing bubble text renders the subject name BEFORE serialization", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech("{NAME} did it again!")]),
+    }));
+    assert.ok(out.imagePrompt.includes('"David did it again!"'), "token rendered inside the literal");
+    assert.ok(!out.imagePrompt.includes("{NAME} did it again"), "no raw token reaches the engine");
+  });
+
+  it("escapes embedded straight quotes in the literal via the shared serializer", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech('He said "now" twice.')]),
+    }));
+    assert.ok(out.imagePrompt.includes('containing exactly the text "He said \\"now\\" twice."'), "embedded quotes escaped");
+  });
+
+  it("survives sentence de-duplication when CORE SCENE uses the same words (dedupe exemption)", () => {
+    const line = "You're the man of the house now.";
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech(line)], {
+        coreSceneOverride: "David hugs his father in a doorway; the father looks moved by what David just said.",
+      }),
+    }));
+    const section = out.promptBreakdown?.find((s) => s.id === "bubbles");
+    assert.equal(section?.status, "included");
+    assert.ok(out.imagePrompt.includes(`"${line}"`), "bubble literal present despite scene context");
+  });
+
+  it("renders under supportingText mode=forbid and keeps the overlay exclusion + incidental guard intact", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      renderPolicy: { supportingText: { mode: "forbid" }, violence: { mode: "allow", intensity: "mild" } },
+      override: bubbleOverride([speech("Still here.")]),
+    }));
+    const p = out.imagePrompt;
+    assert.ok(p.includes('"Still here."'), "bubble renders under forbid");
+    assert.ok(p.includes("Do not bake overlay or caption text into the image"), "overlay exclusion intact");
+    assert.ok(p.includes("Avoid readable in-scene text unless required by a higher-priority instruction"), "forbid line intact");
+    assert.ok(p.includes("not overlay captions"), "carveout line present");
+  });
+
+  it("a bubble repeating the full fact text still renders exactly (moderator authority collision case)", () => {
+    const fact = "David told his dad he is the man of the house now.";
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      factText: fact,
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech(fact.slice(0, 80))]),
+    }));
+    assert.ok(out.imagePrompt.includes(`"${fact.slice(0, 80)}"`));
+  });
+
+  it("strips planner-authored bubble directives from AI prose/lists while bubbles are active, with the typed reason", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        coreScene: "David stands in a doorway. A speech bubble reading \"You're the man now\" floats above him.",
+        subjectDetails: ["a speech balloon saying \"You're the man now\" above David", "a worn duffel bag over one shoulder"],
+      },
+      override: bubbleOverride([speech("You're the man of the house now.")]),
+    }));
+    const p = out.imagePrompt;
+    assert.equal(countOccurrences(p, "speech balloon"), 1, "exactly ONE compiled bubble owner");
+    assert.ok(p.includes("a worn duffel bag"), "non-bubble planner detail survives");
+    const removed = out.diagnostics?.removedPlannerProseSentences ?? [];
+    assert.ok(
+      removed.some((r) => r.reason === "bubble-directive-owned-by-compiler"),
+      "removal recorded with the typed reason",
+    );
+  });
+
+  it("does NOT strip planner bubble prose when no moderator bubbles exist (no competing channel)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { coreScene: "A thought bubble above David shows a beach." },
+    }));
+    assert.ok(out.imagePrompt.includes("thought bubble above David"), "planner prose untouched without moderator bubbles");
+  });
+
+  it("emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "the bartender", visualRole: "polishing a glass behind the bar" }] },
+      override: bubbleOverride([
+        thought("Not again.", "the bartender"),
+        speech("Who are you?", "the mailman"),
+      ]),
+    }));
+    const warnings = out.diagnostics?.warnings ?? [];
+    const unresolved = warnings.filter((w) => w.code === "bubble_entity_unresolved");
+    assert.equal(unresolved.length, 1, "only the mailman is unresolved");
+    assert.equal(unresolved[0]?.context?.bubbleIndex, 1);
+    assert.equal(unresolved[0]?.context?.entity, "the mailman");
+    // The directive still emits (moderator authority — honest wording, no gate).
+    assert.ok(out.imagePrompt.includes("the mailman"));
+  });
+
+  it("emits bubble_entity_ambiguous when two effective characters share the label", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech("Hey!", "the twin")], {
+        roleBindings: [
+          { entity: "the twin", visualRole: "left twin grinning" },
+          { entity: "the twin", visualRole: "right twin frowning" },
+        ],
+      }),
+    }));
+    const warnings = out.diagnostics?.warnings ?? [];
+    assert.ok(warnings.some((w) => w.code === "bubble_entity_ambiguous" && w.context?.entity === "the twin"));
+  });
+
+  it("zero bubbles → no section, no carveout, no bubble diagnostics", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David lifts a car.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([]),
+    }));
+    assert.ok(!out.imagePrompt.includes("SPEECH & THOUGHT BUBBLES"));
+    assert.ok(!out.imagePrompt.includes("not overlay captions"));
+    const section = out.promptBreakdown?.find((s) => s.id === "bubbles");
+    assert.equal(section?.status, "empty");
+    const warnings = out.diagnostics?.warnings ?? [];
+    assert.ok(!warnings.some((w) => w.code.startsWith("bubble_")));
+  });
+
+  it("incomplete mid-edit rows (empty entity or text) are ignored", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech("", "subject"), speech("Kept.", "subject"), { type: "thought", entity: "", text: "orphan" }]),
+    }));
+    assert.equal(countOccurrences(out.imagePrompt, "balloon with its tail"), 1, "only the complete bubble emits");
+    assert.ok(out.imagePrompt.includes('"Kept."'));
+  });
+
+  it("warns (never strips) when the moderator Concept itself authors a balloon while bubbles are active", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: bubbleOverride([speech("Hi.")], {
+        coreSceneOverride: "David waves; a speech bubble reading \"Hi.\" hangs over him.",
+      }),
+    }));
+    assert.ok(out.imagePrompt.includes('a speech bubble reading "Hi." hangs over him'), "moderator Concept verbatim");
+    const warnings = out.diagnostics?.warnings ?? [];
+    assert.ok(warnings.some((w) => w.code === "bubble_language_in_moderator_scene"));
+  });
+
+  it("works in all three render modes", () => {
+    for (const [mode, compilerFn] of [
+      ["human_identity_i2i", compileNanoBanana2HumanI2I],
+      ["nonhuman_subject_i2i", compileNanoBanana2NonhumanI2I],
+      ["t2i_fallback", compileNanoBanana2T2I],
+    ] as const) {
+      const out = compilerFn(makeArgs({
+        subjectRenderMode: mode,
+        prompt: "scene",
+        referenceImageUrl: mode === "t2i_fallback" ? null : "https://example.com/ref.png",
+        renderedSubject: { name: "David", pronouns: "he/him" },
+        override: bubbleOverride([speech("Same in every mode.")]),
+      }));
+      assert.ok(out.imagePrompt.includes('"Same in every mode."'), `bubble renders in ${mode}`);
+    }
   });
 });

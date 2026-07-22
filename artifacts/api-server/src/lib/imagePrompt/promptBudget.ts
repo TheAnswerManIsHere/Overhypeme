@@ -211,7 +211,7 @@ export function measureModeratorAdditionsEmission(ov: VisualPromptStrategyOverri
  * `validateVisualStrategyOverrideForSave`.
  */
 export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride): number {
-  if (!ov.enabled || ov.bubbles.length === 0) return 0;
+  if (!ov.enabled || (ov.bubbles ?? []).length === 0) return 0;
   let projected: VisualPromptStrategyOverride = { ...EMPTY_ENABLED_OVERRIDE, bubbles: ov.bubbles };
   for (const { path, value } of collectRenderedTextEntries(projected)) {
     if (!path.startsWith("bubbles[")) continue;
