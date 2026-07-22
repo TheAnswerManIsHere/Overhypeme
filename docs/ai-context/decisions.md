@@ -13,6 +13,46 @@
 
 ---
 
+### 2026-07-22 · Plan review automated via a Codex draft-PR loop (replaces the manual ChatGPT paste)
+- **Decision:** plan review now runs through **Codex on a dedicated,
+  never-merged draft PR** instead of David hand-pasting each plan into ChatGPT.
+  Claude commits the plan to a `plan-review/<slug>` branch, opens a
+  `[PLAN REVIEW] … — DO NOT MERGE` draft PR, and iterates (revise → explicit
+  `@codex review`) until Codex has **no substantive objections, minimum 3
+  rounds**; the PR is then **closed unmerged**. Codex reviews against a shared
+  contract, not its default code-review persona. **Codex convergence is not plan
+  approval — only David approves.**
+- **Why:** it removes the iPad copy-paste loop, gives the reviewer direct repo
+  context (structurally better than a detached markdown upload), and leaves a
+  durable, attributable review trail. Same OpenAI models as ChatGPT — but the
+  reviewer **harness/contract matters more than the model**: the default Codex
+  GitHub reviewer is tuned for serious *code* defects and can stay silent on a
+  plausible-but-incomplete plan, so the loop gives Codex an explicit plan-review
+  contract instead of relying on that persona.
+- **Doc-routing principle applied:** the *review contract Codex executes* is
+  **shared** ([`plan-review-contract.md`](./plan-review-contract.md), routed
+  from [`AGENTS.md`](../../AGENTS.md)); the *workflow ceremony Claude drives* stays
+  **Claude-specific** (`CLAUDE.md`). Instructions live where the agent that runs
+  them reads — a narrower, correct split than mirroring one agent's whole
+  workflow into the shared docs.
+- **Guardrails (each a deliberate why):** a **public-repo disclosure check**
+  keeps security-sensitive/confidential plans off the public PR channel (a
+  closed-unmerged PR is still public history — see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#not-merged--not-disclosed-public-repo-pr-history));
+  **external API/SDK/pricing claims are verified by Claude** (which has web
+  access) and recorded in the plan, since Codex's review environment may be
+  network-restricted; **model tier** — the whole plan-review loop is *planning*
+  and stays on Opus, the only downshift to Sonnet being execution of a *simple*
+  approved plan.
+- **Reference:** PR #226. Operational contract: `CLAUDE.md` → *Automated plan
+  review: the Codex draft-PR loop*; reviewer contract:
+  [`plan-review-contract.md`](./plan-review-contract.md).
+- **Revisit if:** the calibration pilot (first ~3 real plans — Codex's review vs.
+  what the manual ChatGPT pass would have caught) shows Codex's plan reviews are
+  too shallow. The PR **transport** stays good regardless; the fix would be to
+  swap the **reviewer** (a dedicated Codex task/Action, or manual review for the
+  substance) while keeping the draft-PR channel.
+
 ### 2026-07 · NB2 render pipeline hardened: terminal async failures, a measured prompt budget, 6000-char ceiling
 - **Decision:** three coordinated hardening changes to the Nano Banana 2 render
   pipeline, shipped together:

@@ -5,52 +5,24 @@ description: Review a software-development plan (usually Claude Code's) for Over
 
 # Overhype plan review
 
+> **Thin enactment.** The review *substance* — non-negotiables, priority order,
+> required checks, the failure-pattern watchlist, external-claims handling,
+> status labels, finding structure — is the single canonical contract in
+> [`docs/ai-context/plan-review-contract.md`](../../../docs/ai-context/plan-review-contract.md),
+> shared with Codex (on the automated draft-PR loop) and ChatGPT (manual
+> upload). Apply that contract in full. This file adds only the delivery
+> mechanics specific to reviewing inside Claude Code — same relationship as the
+> `bugfix` skill ↔ `working-modes.md`. If the two ever disagree, the shared
+> contract wins and this file gets fixed.
+
 Review an Overhype.me implementation plan and give David an independent, technical
-opinion. **Assume the plan is from Claude Code** unless David says otherwise.
-
-## Non-negotiables
-
-- **You do not approve plans. David does.** Use review-status labels, never
-  "approved / LGTM / ship it."
-- **Inspect the repo before finalizing a review.** Do not review from the pasted
-  plan alone. If you lack the repo context to judge a claim, **stop and say repo
-  context is required** rather than pretending.
-- **Verify external claims.** For external APIs, SDKs, model behavior, pricing, or
-  rate limits, check current authoritative docs — don't trust memory.
-- Read the relevant `docs/ai-context/*` and `docs/engineering/*` files for the
-  subsystem the plan touches before judging source-of-truth and correctness.
-
-## Review priority order
-
-1. Runtime correctness
-2. Data-model durability
-3. Repository fit
-4. Migration and backfill safety
-5. Security, permissions, validation, auditability
-6. Admin and user UX clarity
-7. Test coverage and regression protection
-8. Simplicity and scope control
-9. Observability and debuggability
-10. Speed of implementation
-
-## Review status labels (pick one)
-
-```
-No major technical disagreement
-Directionally good, revisions needed
-Substantive technical concerns
-Strong disagreement on direction
-Human clarification required
-Repo context required
-```
+opinion, per the shared contract. **Assume the plan is from Claude Code** unless
+David says otherwise.
 
 ## Output
 
-Give David concise chat feedback, and when the environment supports file creation,
-also write a complete markdown review with this structure:
-
 ```markdown
-# Feedback from ChatGPT on Claude's Plan: <Plan Title>
+# Plan Review: <Plan Title>
 
 ## Review Status
 <one status label — no approval language>
