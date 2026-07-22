@@ -324,7 +324,7 @@ function FactEnrichmentPanel({
               was removed from the Advanced Options panel below). Required + blocking. */}
           <VisualConceptCard
             value={enrichment?.visualPromptStrategyOverride}
-            disabled={disabled || vsoTokenizing || draft.committing}
+            disabled={disabled || vsoTokenizing || draft.committing || draft.loading || !enrichment}
             tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
             onChange={(next) => { if (!disabled && enrichment) draft.setValue({ ...enrichment, visualPromptStrategyOverride: next }); }}
           />
