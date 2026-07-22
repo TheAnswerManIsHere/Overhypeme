@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -896,6 +896,57 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
       return;
   }
+});
+
+// GET /admin/facts/:id/text-edit-history — the rare, dire-warning-gated edits
+// of this fact's approved text (approved-fact-text lock). Admin-only,
+// fact-scoped, newest-first, paginated. The actor is rendered from the joined
+// user row, with a deleted/system fallback when performed_by was set null by a
+// hard user deletion.
+router.get("/admin/facts/:id/text-edit-history", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const limit = Math.min(Math.max(Number(req.query["limit"]) || 20, 1), 100);
+  const offset = Math.max(Number(req.query["offset"]) || 0, 0);
+
+  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const [rows, [{ total }]] = await Promise.all([
+    db
+      .select({
+        id: factTextEditHistoryTable.id,
+        oldText: factTextEditHistoryTable.oldText,
+        newText: factTextEditHistoryTable.newText,
+        reason: factTextEditHistoryTable.reason,
+        createdAt: factTextEditHistoryTable.createdAt,
+        performedById: factTextEditHistoryTable.performedBy,
+        performedByName: usersTable.displayName,
+        performedByEmail: usersTable.email,
+      })
+      .from(factTextEditHistoryTable)
+      .leftJoin(usersTable, eq(usersTable.id, factTextEditHistoryTable.performedBy))
+      .where(eq(factTextEditHistoryTable.factId, id))
+      .orderBy(desc(factTextEditHistoryTable.createdAt), desc(factTextEditHistoryTable.id))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(factTextEditHistoryTable).where(eq(factTextEditHistoryTable.factId, id)),
+  ]);
+
+  res.json({
+    entries: rows.map((r) => ({
+      id: r.id,
+      oldText: r.oldText,
+      newText: r.newText,
+      reason: r.reason,
+      createdAt: r.createdAt.toISOString(),
+      // Deleted-admin fallback: performed_by went null on hard user deletion.
+      actor: r.performedById == null ? null : { id: r.performedById, name: r.performedByName ?? null, email: r.performedByEmail ?? null },
+    })),
+    total,
+    limit,
+    offset,
+  });
 });
 
 // GET /admin/facts/:id/pexels-images — all stored Pexels thumbnails for the

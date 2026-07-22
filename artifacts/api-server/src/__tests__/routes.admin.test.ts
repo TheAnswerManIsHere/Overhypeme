@@ -29,7 +29,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, factTextEditHistoryTable } from "@workspace/db/schema";
 import { like, eq } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -94,10 +94,12 @@ async function createTestFact(
 
 let adminSid: string;
 let userSid: string;
+let adminUserId: string;
 
 before(async () => {
   await cleanup();
   const adminId = await createTestUser({ isAdmin: true });
+  adminUserId = adminId;
   const userId = await createTestUser({ isAdmin: false, tier: "legendary" });
   adminSid = await sessionFor(adminId, true);
   userSid = await sessionFor(userId, false);
@@ -594,5 +596,38 @@ describe("PATCH /admin/config/:key", () => {
       .send({ value: "test" });
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
+  });
+});
+
+describe("GET /admin/facts/:id/text-edit-history", () => {
+  it("requires admin", async () => {
+    const res = await request(makeApp()).get("/admin/facts/1/text-edit-history");
+    assert.equal(res.status, 401);
+  });
+
+  it("returns fact-scoped entries newest-first with a deleted-actor fallback", async () => {
+    const factId = await createTestFact(`${FACT_PREFIX}${randomUUID()} history fact`);
+    // Two rows: one by the admin, one by an already-deleted admin (performedBy null).
+    await db.insert(factTextEditHistoryTable).values([
+      { factId, oldText: "a", newText: "b", reason: "first edit reason here", performedBy: null },
+      { factId, oldText: "b", newText: "c", reason: "second edit reason here", performedBy: adminUserId },
+    ]);
+    const res = await request(makeApp())
+      .get(`/admin/facts/${factId}/text-edit-history`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.total, 2);
+    // Newest-first: the second insert (by id desc) comes first.
+    assert.equal(res.body.entries[0].newText, "c");
+    assert.ok(res.body.entries[0].actor, "actor present for a live admin");
+    assert.equal(res.body.entries[1].newText, "b");
+    assert.equal(res.body.entries[1].actor, null, "null actor for a deleted admin");
+  });
+
+  it("404s for a missing fact", async () => {
+    const res = await request(makeApp())
+      .get("/admin/facts/999999999/text-edit-history")
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 404);
   });
 });
