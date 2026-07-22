@@ -303,6 +303,10 @@ describe("candidate override writes", () => {
   it("PUT set/update/reset-when-equal-AI land on the VERSION row only; facts.* byte-identical; zero history rows", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    // Tracked-override writes are concept-gated; author one first (doesn't touch
+    // the live fact or write override-history, so the byte-identical/zero-history
+    // assertions below still hold).
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const before = await factSnapshot(fact.id);
     const historyBefore = await historyCount(fact.id);
     const app = makeApp();
@@ -357,7 +361,8 @@ describe("candidate override writes", () => {
 
   it("PUT /primaryArchetype auto-links a compatible /subtype on the candidate", async () => {
     const fact = await seedActiveFact();
-    const { reviewId } = await seedReadyRefreshCycle(fact);
+    const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const res = await request(makeApp())
       .put(`/admin/reviews/${reviewId}/candidate-overrides`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -371,6 +376,7 @@ describe("candidate override writes", () => {
   it("DELETE resets one path or all, on the candidate only", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const before = await factSnapshot(fact.id);
     const app = makeApp();
     await request(app).put(`/admin/reviews/${reviewId}/candidate-overrides`)

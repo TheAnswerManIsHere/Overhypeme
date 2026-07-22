@@ -241,8 +241,22 @@ let submitterId: string;
 const insertedFactIds: number[] = [];
 
 /** A live fact in full override-tracking shape (baseline + one manual override). */
+// A saved Visual Concept on the LIVE fact — required to save through the
+// tracked-override endpoints (PUT/DELETE /admin/facts/:id/enrichment-overrides),
+// which several tests below exercise after a write-freeze lifts.
+const LIVE_FACT_SAVED_CONCEPT = {
+  version: 1 as const,
+  coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+  requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+  bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+};
+
 async function seedActiveFact(opts: { text?: string } = {}): Promise<typeof factsTable.$inferSelect> {
-  const { columns } = materializeEnrichment({ aiDerived: ACTIVE_AI_BASELINE, overrides: MANUAL_OVERRIDES });
+  const { columns } = materializeEnrichment({
+    aiDerived: ACTIVE_AI_BASELINE,
+    overrides: MANUAL_OVERRIDES,
+    visualPromptStrategyOverride: LIVE_FACT_SAVED_CONCEPT,
+  });
   const [fact] = await db
     .insert(factsTable)
     .values({

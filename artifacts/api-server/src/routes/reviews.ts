@@ -1342,6 +1342,11 @@ router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: A
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!; // write intent guarantees a classified candidate
+      // Required Visual Concept (blocking) — same invariant as the candidate
+      // PATCH; this is a separate tracked-field write path and needs its own gate.
+      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
+      }
       const result = applyOverrideUpsert({
         layers: { ...ctx.layers, aiDerived },
         path,
@@ -1383,6 +1388,11 @@ router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!;
+      // Required Visual Concept (blocking) — same invariant as the PUT handler
+      // above; a reset is still a save and must not bypass the gate.
+      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
+      }
       const result = applyOverrideReset({ layers: { ...ctx.layers, aiDerived }, path: path as OverridablePath | null });
       const { columns } = materializeEnrichment({
         aiDerived,

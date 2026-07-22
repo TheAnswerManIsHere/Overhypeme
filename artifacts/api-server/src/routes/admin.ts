@@ -1068,6 +1068,12 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
+      // Required Visual Concept (blocking) — same invariant as the whole-blob
+      // PATCH: a fact can't be saved without one. This is a separate tracked-
+      // field write path (PUT /enrichment-overrides), so it needs its own gate.
+      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, error: "visual_concept_required" };
+      }
       const aiDerived = state.aiDerived;
 
       // Shared merge core: validation, reset-when-equal-AI, acknowledge
@@ -1121,6 +1127,11 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
+      // Required Visual Concept (blocking) — same invariant as the PUT handler
+      // above; a reset is still a save and must not bypass the gate.
+      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, error: "visual_concept_required" };
+      }
       const aiDerived = state.aiDerived;
 
       const result = applyOverrideReset({ layers: { ...state, aiDerived }, path: path as OverridablePath | null });
