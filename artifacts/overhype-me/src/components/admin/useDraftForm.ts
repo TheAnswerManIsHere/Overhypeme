@@ -34,6 +34,20 @@ import {
   type LoadedDraft,
 } from "@/lib/form-draft-storage";
 
+/**
+ * Thrown by a `commit` callback to signal a DELIBERATE interruption (e.g. an
+ * approved-fact-text edit needs the confirmation modal, or the server baseline
+ * went stale) rather than a save failure. `commitValue` swallows it WITHOUT
+ * setting `commitError`, so no generic red "Save failed" banner appears behind
+ * the modal the callback opened. Ordinary Errors still surface as commit errors.
+ */
+export class CommitInterruption extends Error {
+  constructor(message = "commit interrupted") {
+    super(message);
+    this.name = "CommitInterruption";
+  }
+}
+
 export interface UseDraftFormOptions<T, R = unknown> {
   /** Stable per-entity localStorage key (e.g. `fact-edit-draft::123`). */
   storageKey: string;
@@ -118,6 +132,14 @@ export interface UseDraftFormResult<T, R = unknown> {
    * the localStorage draft is re-reconciled (cleared if nothing differs now).
    */
   adoptServerSlice: (updater: (prev: T) => T) => void;
+  /**
+   * Replace the server BASELINE only, preserving the current value + local
+   * draft. Used when the server's stored value moved under us (e.g. a stale-
+   * baseline 409 returns the new current wording C) but the admin's in-progress
+   * draft B must survive: Discard then returns to C, not the pre-edit wording,
+   * and dirty-state/delta detection compares against C.
+   */
+  rebaseBaseline: (nextBaseline: T) => void;
   /** Re-fetch the record and adopt it wholesale as the new baseline + value. */
   syncFromServer: () => Promise<R | null>;
   /** Remove the localStorage draft without touching value/baseline. */
@@ -347,6 +369,10 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
         setCommittedAt(Date.now());
         return true;
       } catch (e) {
+        // A deliberate interruption (confirmation needed / stale baseline) is
+        // NOT a save failure — the callback already opened the right modal, so
+        // don't paint a generic red error behind it.
+        if (e instanceof CommitInterruption) return false;
         setCommitError(e instanceof Error ? e.message : "Save failed");
         return false;
       } finally {
@@ -396,6 +422,12 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     valueRef.current = newValue;
   }, []);
 
+  const rebaseBaseline = useCallback((nextBaseline: T) => {
+    setBaseline(nextBaseline);
+    baselineRef.current = nextBaseline;
+    // value + local draft are intentionally left as-is.
+  }, []);
+
   const syncFromServer = useCallback(async (): Promise<R | null> => {
     let record: R | null = null;
     try {
@@ -440,6 +472,7 @@ export function useDraftForm<T, R = unknown>(opts: UseDraftFormOptions<T, R>): U
     discard,
     markCommitted,
     adoptServerSlice,
+    rebaseBaseline,
     syncFromServer,
     clearDraft,
   };
