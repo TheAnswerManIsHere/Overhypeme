@@ -58,6 +58,105 @@ model receives.** Enrichment is an input, not the prompt (see
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt
    (`imagePromptAttempts.ts`).
 
+## Frozen render inputs: identity + style (reproducibility)
+
+**A render's identity and style are frozen ONCE, at the moment the user clicks
+generate — never re-resolved live by the async worker (PR #223).**
+`prepareImagePromptAttemptInputs()` (`imagePrompt/prepareAttemptInputs.ts`)
+resolves a `PromptIdentitySnapshot` (`promptIdentity.ts`) and a
+`ResolvedRenderStyleSnapshot` (`styleResolution.ts`), renders the fact text
+from that SAME identity (so the frozen fact text and the compiler's later
+token gate can never diverge), and persists both snapshots onto
+`render_controls`. The `image_prompt_generation` worker reads the frozen
+snapshots (`isValidPromptIdentitySnapshot` / `isValidRenderStyleSnapshot`)
+instead of re-querying the user/style tables, falling back to live resolution
+only for attempt rows that predate this change. Wired into both user-facing
+generate routes (`/memes/ai/:factId/generate-v2`, and the generic branch of
+`/generate`); moderation/eval renders use fixed sample identities and no live
+style, so they were already reproducible and are intentionally left on their
+existing `reviewRenderSubject` mechanism.
+
+**The identity fed into the image prompt is reduced to a short prompt-safe
+name** — `reducePromptName()`: prefer the validated `firstName`; else the
+first whitespace-delimited token of `displayName`; else the canonical
+fallback (`"Alex"`) — grapheme-safe-bounded to `RENDERED_IDENTITY_NAME_MAX`
+(20 chars, `promptIdentityBudget.ts`). This is a **render-time reducer only**,
+not a new profile storage bound: `validators/personalName.ts` remains the
+sole source of truth for what a user may store, and the composited meme
+**caption** (`createMemeRecord.ts`) independently uses the full stored
+display name, untouched.
+
+**An invalid/inactive/over-budget style is a typed rejection, never a silent
+"no style."** `resolveRenderStyle()` returns a discriminated
+`default | selected | invalid` result (reason: `not_found` / `inactive` /
+`empty_suffix` / `copy_too_long` / `copy_invalid`); a generate request with an
+invalid style gets an HTTP 400 before any paid work is enqueued, instead of
+the worker quietly resolving `stylePrompt = ""`.
+
+## Render-time prompt budget
+
+**The engine prompt ceiling is 6000 chars** (`MAX_PROMPT_CHARS`,
+`compilers/nanoBanana2.ts`; raised from 4000 — PR #224. NB2's real context
+window is ~131K tokens, so 4000 was editorial discipline against
+bloated/redundant authoring, not an engine capacity limit, and it left the
+moderator authoring pools with zero margin). The budget is split into four
+reserves, derived from a **measurement of the real compiler**, not invented
+numbers — `measureRequiredPromptBudget()` and `measureModeratorAdditionsEmission()`
+(`imagePrompt/promptBudget.ts`) compile maximum-fixed-shape prompts through
+the actual compiler and a proof test asserts the split still fits:
+
+```
+6000 = FIXED_REQUIRED_RESERVE_BUDGET (1750, measured compiler overhead)
+     + CORE_SCENE_RENDERED_MAX       (2000, the moderator Concept)
+     + MODERATOR_ADDITIONS_RENDERED_MAX (1500, everything else moderator-authored)
+     + PROMPT_OUTER_MARGIN           (750, safety slack)
+```
+
+**Save-time validation measures the compiler's actual emitted length, not a
+raw field-text sum** (Codex caught this on PR #224 before merge: a naive sum
+of raw field text undercounts what the compiler emits — `"Do not …"` negation
+prefixes, `"label: "` role-binding forms, `"; "`-joins, and per-section
+labels that only appear once a field is populated). `validateVisualStrategyOverrideForSave()`
+(`lib/api-zod/src/promptBudget.ts`) takes the measured emission as an
+argument from its caller (the save routes), which computes it via
+`measureModeratorAdditionsEmission()` — compile the fixed shape twice (once
+with the override's worst-case-projected content, once empty) and take the
+delta, so every fixed cost cancels out and what remains is the additions'
+true contribution. **Never re-derive a raw-sum estimate for this check** — it
+will silently undercount; see the `naiveAdditionsRenderedLowerBound` doc
+comment for why it's a lower bound only, never the gate.
+
+`CORE_SCENE_RAW_MAX` (1500) matches the frontend editor's
+`CORE_SCENE_MAX_CHARS` and the candidate generator's `CANDIDATE_SCENE_MAX_CHARS`
+— a save is never rejected by the budget gate for content the authoring UI
+itself presented as valid.
+
+**The compiler never silently truncates required content that overflows the
+budget** — the old behavior (`assembleSections`' final hard-cut) could lop the
+STRICT CONSTRAINTS safety guardrails off the end of the assembled prompt,
+since they're emitted last. It now surfaces
+`diagnostics.requiredBudgetOverflow` and the worker fails terminal
+(`required_budget_overflow`) instead of shipping a guardrail-truncated
+prompt. Reachable only by legacy over-budget content — save validation
+prevents it for new saves.
+
+## Terminal vs retryable render failures
+
+The `image_prompt_generation` worker classifies each deterministic stage
+failure as **terminal** (fails the queue row on the first attempt, no wasted
+retries, typed `error_code` persisted) vs the existing **retryable** default
+(transient failures still retry with backoff) — see
+[`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) for the
+underlying additive `HandlerResult` contract. Terminal codes:
+`invalid_persisted_enrichment`, `rendered_fact_unresolved_token`,
+`planner_output_invalid_after_retry` (only when the planner's error is
+validation-exhaustion, `ImagePromptError.cause === "validation_exhausted"` —
+a genuine provider/timeout failure stays retryable), `compile_failed`,
+`moderator_core_scene_unresolved_token`, `required_budget_overflow`. Both
+`error` (human-readable) and the typed `error_code` are cleared on a
+successful later attempt and surfaced together in the render-poll payload
+(`buildRenderStatusPayload`) so the UI never parses a "code: message" string.
+
 ## Text-to-image vs image-to-image
 
 `SUBJECT_RENDER_MODE_VALUES` (`lib/api-zod/src/imagePromptGeneration.ts`):
@@ -251,6 +350,21 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.
+- **Re-resolving identity or style LIVE in the async worker** — retired by
+  PR #223; both are frozen at attempt-construction (see "Frozen render inputs"
+  above). A worker that re-queries `usersTable`/`lookStylesTable` directly
+  instead of reading `render_controls.promptIdentity` /
+  `.resolvedRenderStyle` has regressed this.
+- **Silently hard-truncating required prompt content when it overflows the
+  budget** — retired by PR #224; the compiler now fails terminal
+  (`required_budget_overflow`) instead, because the old truncation could cut
+  the STRICT CONSTRAINTS safety guardrails off the end.
+- **Summing raw VSO field text as a proxy for the compiler's emitted length**
+  — this undercounts the compiler's wrapping (negation prefixes, role-binding
+  labels, list joins, section labels) and was the exact bug Codex caught on
+  PR #224. Any new save-time budget check must measure through the real
+  compiler (`measureModeratorAdditionsEmission()` pattern), never sum raw
+  field lengths.
 
 ## Files to inspect before visual-pipeline work
 
@@ -259,6 +373,18 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
   `imagePrompt/preview.ts` (parity), `imagePrompt/types.ts`,
   `imagePrompt/resolveRenderReviewInput.ts`, `imagePromptJobs.ts` (production),
   `imagePromptConfig.ts`, `imagePromptAttempts.ts`.
+- **Reproducibility (PR #223):** `imagePrompt/prepareAttemptInputs.ts`
+  (freeze + render fact text from the same identity), `promptIdentity.ts`
+  (`PromptIdentitySnapshot`, `reducePromptName`), `styleResolution.ts`
+  (`ResolvedRenderStyleSnapshot`, `resolveRenderStyle`),
+  `lib/api-zod/src/resolvedIdentityForms.ts` (shared token/grammatical-form
+  contract), `promptIdentityBudget.ts` (`RENDERED_IDENTITY_NAME_MAX`,
+  `projectWorstCaseRenderedLength`).
+- **Prompt budget (PR #224):** `imagePrompt/promptBudget.ts` (api-server —
+  `measureRequiredPromptBudget`, `measureModeratorAdditionsEmission`, the
+  live-compiler measurement), `lib/api-zod/src/promptBudget.ts` (the reserve
+  constants + `validateVisualStrategyOverrideForSave`), `asyncJobs.ts`
+  (`HandlerResult`, `terminalFailure`).
 - `lib/api-zod/src/imagePromptGeneration.ts`, `visualStrategyOverride.ts`
   (override schema + the path-aware `collectRenderedTextEntries` /
   `setRenderedTextAtPath` / `normalizeRoleEntity` authoring helpers),

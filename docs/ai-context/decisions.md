@@ -13,6 +13,114 @@
 
 ---
 
+### 2026-07 · NB2 render pipeline hardened: terminal async failures, a measured prompt budget, 6000-char ceiling
+- **Decision:** three coordinated hardening changes to the Nano Banana 2 render
+  pipeline, shipped together:
+  1. **Terminal vs retryable async failures.** `HandlerResult` gained an
+     additive `retryable?`/`code?` shape (existing `{ok:false,error}` handlers
+     are unchanged and still retry with backoff); a handler opts into
+     `terminalFailure(code, message)` for a **deterministic** failure — the
+     worker marks the row `failed` on the first attempt instead of burning
+     retries. The image-prompt worker now classifies invalid frozen
+     enrichment, an unresolved personalization token, planner
+     validation-exhaustion (vs. a genuinely transient provider/timeout
+     failure — `ImagePromptError` now carries a `validation_exhausted` vs
+     `provider_failure` cause), a compiler throw, and a budget overflow as
+     terminal, each with a typed `error_code` persisted alongside the
+     human-readable `error` (new nullable `image_prompt_attempts.error_code`
+     column) so the poll payload never requires parsing a "code: message"
+     string.
+  2. **The moderator prompt budget is *measured*, not estimated.**
+     `measureRequiredPromptBudget()` compiles the fixed-shape prompt through
+     the **real** Nano Banana 2 compiler across all three subject modes (at
+     max-bound identity, max style copy, the longest fixed policy branches,
+     the age-transform binding) to derive the compiler's true fixed overhead,
+     and a proof test asserts it still fits the reserved budget — so a future
+     compiler wording change that grows a required section fails CI instead
+     of silently eating the moderator's authoring pool. The engine's prompt
+     ceiling was raised from **4000 → 6000 chars**: David questioned the
+     original 4000 mid-build — Nano Banana 2's real context window is ~131K
+     tokens, so 4000 was editorial discipline against bloated prompts, not an
+     engine capacity limit, and it left the moderator pools with zero margin.
+     Approved split (all four terms sum to exactly 6000):
+     `FIXED_REQUIRED_RESERVE_BUDGET=1750` (measured, unchanged) +
+     `CORE_SCENE_RENDERED_MAX=2000` + `MODERATOR_ADDITIONS_RENDERED_MAX=1500` +
+     `PROMPT_OUTER_MARGIN=750`. `CORE_SCENE_RAW_MAX` was restored to **1500**
+     (matching the frontend editor's `CORE_SCENE_MAX_CHARS` and the candidate
+     generator's `CANDIDATE_SCENE_MAX_CHARS`, both already 1500) rather than
+     kept at the earlier plan's lowered 1200, so a save is never rejected by
+     the budget gate for content the authoring UI itself presented as valid.
+     The compiler no longer silently hard-truncates required content that
+     overflows the budget (the old truncation could cut the STRICT
+     CONSTRAINTS safety guardrails, which sit at the end of the assembled
+     prompt) — it now surfaces `diagnostics.requiredBudgetOverflow` and the
+     worker fails terminal (`required_budget_overflow`) instead.
+  3. **The moderator-additions save check is measured through the compiler
+     too, not summed from raw field text** (found by Codex mid-review, fixed
+     before merge). The save-time aggregate check originally summed each VSO
+     field's raw projected length, which undercounts what the compiler
+     actually emits — `"Do not …"` negation prefixes on forbidden details,
+     `"label: "` role-binding forms, `"; "`-joins between list entries, and
+     per-section labels that only appear once a field is populated. A save
+     that check accepted could still overflow at render. Fixed the same way
+     as #2 — measure, don't guess: `measureModeratorAdditionsEmission()`
+     compiles the fixed shape twice per mode (once with the override's
+     worst-case-projected content, once with an empty override) and takes the
+     delta, so every fixed cost cancels and what's left is exactly the
+     additions' true compiler-emitted contribution.
+  4. **Global `look_styles` copy trimmed** to a canonical ≤180-char catalogue
+     for all 18 named styles via a per-column guarded migration (an
+     admin-customized column is never overwritten); `RENDER_STYLE_COPY_MAX_CHARS`
+     restored from a same-arc stopgap of 250 back to its intended 180.
+- **Why:** the render pipeline previously retried every failure uniformly
+  (wasting attempts on failures no retry could fix) and could silently
+  truncate its own safety guardrails under budget pressure; the moderator
+  authoring limits were invented numbers nobody could prove were safe. Measure
+  real system behavior, fail loud and typed when a failure is deterministic,
+  never silently drop a safety constraint.
+- **Reference:** PR #224;
+  [`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget),
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues),
+  `lib/api-zod/src/promptBudget.ts`,
+  `artifacts/api-server/src/lib/imagePrompt/promptBudget.ts`,
+  `artifacts/api-server/src/lib/asyncJobs.ts`.
+- **Revisit if:** the 6000-char split ever feels too tight/loose in practice
+  (it's a one-line constant change, re-validated by the live-compiler proof
+  test) — see `lib/api-zod/src/promptBudget.ts`.
+
+### 2026-07 · Render identity + style are frozen at attempt-construction time, not re-resolved live by the worker
+- **Decision:** the image-prompt async worker used to re-query the user's
+  displayName/pronouns and re-resolve the selected look-style **live**, every
+  time it ran — even though the fact text had already been frozen at enqueue.
+  `prepareImagePromptAttemptInputs()` now resolves + freezes BOTH inputs once,
+  at the moment the user clicks generate, and renders the fact text from that
+  SAME frozen identity; the worker reads the frozen `PromptIdentitySnapshot` /
+  `ResolvedRenderStyleSnapshot` off `render_controls` instead of re-deriving
+  them, falling back to live resolution only for pre-existing attempt rows.
+  Wired into both user-facing generate routes
+  (`/memes/ai/:factId/generate-v2` and the generic branch of `/generate`).
+  Separately, the identity fed **into the image prompt** (not the composited
+  meme caption, which is untouched) is reduced to a short prompt-safe name —
+  first name, else the first token of displayName, else the canonical
+  fallback, grapheme-safe-bounded to `RENDERED_IDENTITY_NAME_MAX` (20 chars).
+  This is a render-time reducer, NOT a new profile storage bound —
+  `validators/personalName.ts` remains the sole source of truth for what a
+  user may store.
+- **Why:** a profile-name edit or a look-style edit/deactivation landing in
+  the window between enqueue and worker execution could previously produce a
+  render whose frozen fact text and whose live-resolved identity/style
+  disagreed with each other — or an invalid/deactivated style silently
+  degraded to "no style" instead of surfacing an error. No reason to feed a
+  full (potentially very long) display name into an image model either.
+- **Reference:** PR #223;
+  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility),
+  `artifacts/api-server/src/lib/imagePrompt/prepareAttemptInputs.ts`,
+  `promptIdentity.ts`, `styleResolution.ts`.
+- **Revisit if:** a fourth render entry point (moderation/eval) needs the same
+  freezing — today those paths use fixed sample identities and no live style,
+  so they were already reproducible without this change; converting them is a
+  clean follow-up if that stops being true.
+
 ### 2026-07 · dev-admin-login backdoor hardened fail-closed
 - **Decision:** `GET/POST /api/auth/dev-admin-login` — which mints a
   bootstrap-admin session for any caller — is gated fail-closed by

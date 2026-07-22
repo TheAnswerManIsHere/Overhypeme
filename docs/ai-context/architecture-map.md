@@ -109,6 +109,17 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll
   its terminal state. UI must show per-item + aggregate status (see
   [`known-failure-patterns.md`](./known-failure-patterns.md)).
+- **`HandlerResult` failures are terminal or retryable, additively (PR #224).**
+  The historical `{ ok: false, error }` shape still means "retryable" (backoff,
+  retry up to `maxAttempts`) with zero change to existing handlers. A handler
+  may opt in to `{ ok: false, error, retryable: false, code }` — built via the
+  `terminalFailure(code, message)` helper — for a **deterministic** failure
+  (re-running the same frozen inputs can't change the outcome): the worker
+  marks the row `failed` after the first attempt instead of retrying, and does
+  **not** fire `onAbandon` (that hook's contract is "retries exhausted," which a
+  first-attempt terminal isn't). The image-prompt handler is the first
+  consumer — see
+  [`visual-pipeline.md`](./visual-pipeline.md#terminal-vs-retryable-render-failures).
 
 ## Storage / CDN
 
