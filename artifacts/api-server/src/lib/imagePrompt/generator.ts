@@ -50,14 +50,29 @@ export const IMAGE_PROMPT_MAX_TOKENS = 2800;
  */
 export const IMAGE_PROMPT_LLM_TIMEOUT_MS = 180_000;
 
+/**
+ * Why a planner call failed — the async worker classifies retry semantics from
+ * this, NOT from parsing the message (§12):
+ *   • `validation_exhausted` — the planner returned output that failed schema/
+ *     expectation validation even AFTER the one corrective retry. Deterministic
+ *     given the same frozen inputs → TERMINAL.
+ *   • `provider_failure` — the model call itself threw (timeout, provider/server
+ *     error, transport). Transient → RETRYABLE.
+ * Undefined = legacy/unclassified → treated as retryable (historical default).
+ */
+export type ImagePromptErrorCause = "validation_exhausted" | "provider_failure";
+
 export class ImagePromptError extends Error {
   /** Which planner engine produced (or failed to produce) this error — set by
    *  generateImagePromptPlan so attempt errors are attributable. */
   plannerProvenance?: PlannerProvenance;
+  /** Retry-classification cause (see ImagePromptErrorCause). */
+  cause?: ImagePromptErrorCause;
 
-  constructor(message: string) {
+  constructor(message: string, cause?: ImagePromptErrorCause) {
     super(message);
     this.name = "ImagePromptError";
+    this.cause = cause;
   }
 }
 
@@ -764,7 +779,10 @@ export async function generateImagePromptPlanWithModel(
   }
 
   if (!result.ok) {
-    throw new ImagePromptError(result.error);
+    // Planner output still invalid after the corrective retry — deterministic
+    // given the same frozen inputs, so the worker terminalizes rather than
+    // re-running the (paid, nondeterministic) planner indefinitely.
+    throw new ImagePromptError(result.error, "validation_exhausted");
   }
 
   const data = result.data;
@@ -821,7 +839,8 @@ export async function generateImagePromptPlan(
       throw err;
     }
     logger.error({ err, plannerProvenance: settings.plannerProvenance }, "[imagePrompt.generator] unexpected failure");
-    const wrapped = new ImagePromptError(err instanceof Error ? err.message : String(err));
+    // The model call itself threw (timeout / provider / transport) — transient.
+    const wrapped = new ImagePromptError(err instanceof Error ? err.message : String(err), "provider_failure");
     wrapped.plannerProvenance = settings.plannerProvenance;
     throw wrapped;
   }

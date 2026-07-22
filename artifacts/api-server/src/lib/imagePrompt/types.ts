@@ -140,6 +140,16 @@ export interface CompiledPromptDiagnostics {
   /** Which planner engine produced the visualPlan (copied from the
    *  generation output so it persists with the attempt + shows in preview). */
   plannerProvenance?: PlannerProvenance;
+  /**
+   * Set ONLY when the assembled REQUIRED content alone exceeds the engine
+   * prompt budget (§10.5). The compiler NO LONGER silently hard-truncates
+   * required content (which used to drop policy guardrails off the end); instead
+   * it surfaces the overflow here so the render worker fails loud + terminal
+   * (`required_budget_overflow`) rather than shipping a truncated-guardrail
+   * prompt. Impossible for save-validated content (§10.1–10.3); reachable only
+   * by legacy over-budget rows. `overBy` = chars over the ceiling.
+   */
+  requiredBudgetOverflow?: { overBy: number; totalLength: number; budget: number };
 }
 
 export interface CompiledImagePrompt {

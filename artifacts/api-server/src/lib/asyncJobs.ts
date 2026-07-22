@@ -27,10 +27,40 @@ import { logger } from "./logger";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
-export type HandlerResult = { ok: true; result?: unknown } | { ok: false; error: string };
+/**
+ * A handler outcome.
+ *
+ * The failure variant is deliberately ADDITIVE (rev-7 plan §12): existing
+ * handlers that return `{ ok:false, error }` keep the historical behavior —
+ * retryable with exponential backoff up to maxAttempts — with zero changes.
+ * A handler may OPT IN to two extra failure semantics:
+ *
+ *   • `retryable: false` — a DETERMINISTIC failure that re-running cannot fix
+ *     (invalid persisted input, a fail-loud corruption state). The worker marks
+ *     the row `failed` immediately after this attempt instead of scheduling
+ *     retries. `code` is REQUIRED here so consumers classify by a typed code,
+ *     never by parsing the human `error` string.
+ *   • `retryable: true` (or omitted) — the historical transient failure; retries.
+ *     `code` is optional.
+ *
+ * Use the `terminalFailure()` helper to construct the terminal variant so a
+ * malformed `{ retryable:false }` without a code can't be built by accident.
+ */
+export type HandlerResult =
+  | { ok: true; result?: unknown }
+  | { ok: false; error: string; retryable?: true; code?: string }
+  | { ok: false; error: string; retryable: false; code: string };
+
+/** Build a terminal (non-retryable) failure with its required typed code. */
+export function terminalFailure(code: string, error: string): HandlerResult {
+  return { ok: false, error, retryable: false, code };
+}
 
 export interface JobHandler {
-  /** Process one row. Should never throw; return { ok:false, error } instead. */
+  /**
+   * Process one row. Should never throw; return `{ ok:false, error }` (retryable)
+   * or `terminalFailure(code, error)` (deterministic, no retry) instead.
+   */
   run(payload: unknown, row: AsyncJobRow): Promise<HandlerResult>;
   /** Optional: fired when a row is marked `failed` after exhausting retries. */
   onAbandon?(row: AsyncJobRow): Promise<void> | void;
@@ -370,6 +400,7 @@ async function processClaimedJob(
   // the row committed as `processing`. On a finalize failure we log and rely on
   // the periodic stuck-row recovery to requeue it.
   let abandoned = false;
+  let terminalFailed = false;
   let outcomeError: string | null = null;
   try {
     if (outcome.ok) {
@@ -388,28 +419,63 @@ async function processClaimedJob(
     }
 
     outcomeError = outcome.error;
-    const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
-    const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
-    const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
-    abandoned = newAttempts >= effectiveMax;
-    const scheduledDelay = retryDelays[newAttempts];
-    const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
-    await dbInstance.transaction(async (tx) => {
-      await tx
-        .update(asyncJobsTable)
-        .set({
-          status: abandoned ? "failed" : "pending",
-          attempts: newAttempts,
-          lastError: outcome.error,
-          nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
-          updatedAt: new Date(),
-        })
-        .where(eq(asyncJobsTable.id, row.id));
-    });
+    // A terminal (deterministic, non-retryable) failure is marked `failed`
+    // immediately — re-running cannot change the outcome, so backoff/retry would
+    // only delay the visible failure and waste attempts (§12). `lastError` keeps
+    // the operational detail; the typed `code` is surfaced by the handler onto
+    // its own domain row (e.g. image_prompt_attempts.error_code), not the queue.
+    const isTerminal = outcome.retryable === false;
+    if (isTerminal) {
+      terminalFailed = true;
+      await dbInstance.transaction(async (tx) => {
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: "failed",
+            attempts: newAttempts,
+            lastError: outcome.error,
+            nextAttemptAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+      });
+    } else {
+      const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
+      const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+      const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
+      abandoned = newAttempts >= effectiveMax;
+      const scheduledDelay = retryDelays[newAttempts];
+      const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
+      await dbInstance.transaction(async (tx) => {
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: abandoned ? "failed" : "pending",
+            attempts: newAttempts,
+            lastError: outcome.error,
+            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+      });
+    }
   } catch (finalizeErr) {
     logger.error(
       { ...laneField(lane), err: finalizeErr, queue: row.queue, id: row.id },
       `${lanePrefix(lane)} finalize failed — row left in processing for stuck-row recovery`,
+    );
+    return;
+  }
+
+  if (terminalFailed) {
+    // A first-attempt terminal failure is NOT "retries exhausted": we do NOT
+    // fire onAbandon (its contract is the exhaustion case, and existing hooks
+    // are written for that). The image-prompt handler persists its own typed
+    // terminal code onto the attempt row inside run() (recordTerminalAttemptFailure),
+    // so no queue-level hook is needed here.
+    logger.warn(
+      { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
+      `${lanePrefix(lane)} job failed terminally (deterministic, not retried)`,
     );
     return;
   }

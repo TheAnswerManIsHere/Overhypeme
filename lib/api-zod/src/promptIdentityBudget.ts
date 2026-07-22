@@ -26,6 +26,7 @@
  */
 
 import { ALLOWED_SIMPLE_TOKENS } from "./templateGrammar";
+import type { ResolvedIdentityTokenKey } from "./resolvedIdentityForms";
 
 /** Bump when any maximum below changes, so budget fixtures re-derive. */
 export const PROMPT_IDENTITY_BUDGET_VERSION = 1 as const;
@@ -40,7 +41,11 @@ export const RENDERED_IDENTITY_NAME_MAX = 20;
  * default 20 — we reserve that same 20 here rather than couple to admin config).
  * `NAME_POSSESSIVE` adds the possessive suffix ("'s").
  */
-export const PROMPT_IDENTITY_TOKEN_MAX: Readonly<Record<string, number>> = {
+// Typed against the SAME token-key type `resolvedIdentityForms.ts` uses for its
+// resolved-forms map — a compile-time guarantee (not just the runtime
+// `unbudgetedSimpleTokens` check below) that a reserve can never exist for a
+// token the resolver doesn't produce, or vice versa.
+export const PROMPT_IDENTITY_TOKEN_MAX: Readonly<Record<ResolvedIdentityTokenKey, number>> = {
   NAME: RENDERED_IDENTITY_NAME_MAX,
   NAME_POSSESSIVE: RENDERED_IDENTITY_NAME_MAX + 2, // "…'s"
   SUBJ: 20, Subj: 20,
@@ -94,7 +99,7 @@ export function projectWorstCaseRenderedLength(template: string): number {
     }
     const inner = template.slice(open + 1, close);
     if (inner in PROMPT_IDENTITY_TOKEN_MAX) {
-      total += PROMPT_IDENTITY_TOKEN_MAX[inner]!;
+      total += PROMPT_IDENTITY_TOKEN_MAX[inner as ResolvedIdentityTokenKey];
     } else if (inner.includes("|")) {
       // Conjugation pair {a|b}: renders one literal branch — the longer one.
       const longest = inner.split("|").reduce((m, b) => Math.max(m, b.length), 0);
