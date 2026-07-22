@@ -244,6 +244,27 @@ silently saving something wrong; both the Visual Concept card and the override
 panel disable entirely while a batch tokenize round trip is in flight
 (`vsoTokenizing`), so no edit can race it.
 
+**Activation is presence-based — there is no `enabled` field.** The override
+object no longer carries an `enabled` boolean (retired). Every sub-field applies
+on its own whenever it is non-empty; an override whose fields are all empty
+compiles byte-identically to having no override at all (the keystone invariant —
+every consumer no-ops on empty, verified in `nanoBanana2Compiler.test.ts`). Both
+compiler-side gates were converted from `ov?.enabled` to a plain presence check
+(`activeOverride()` in `nanoBanana2.ts`, `resolveRenderPolicy()` in
+`imagePromptGeneration.ts`). Stored rows that still have a legacy `enabled` key
+parse cleanly — Zod strips the unknown field — so no migration was needed.
+
+**The Visual Concept (core scene) is REQUIRED, and the card is its single
+editing surface.** The core-scene field was removed from the Advanced Options
+`VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now the only
+place it is edited, on both the Moderation Step-2 flow and the Facts page. A
+blank `coreSceneOverride` **blocks admin save** (the enrichment PATCH and the
+review-candidate PATCH reject it `400 visual_concept_required`) **and blocks
+production approval** (`CONCEPT_MISSING` on the approve-visual-concept and
+first-time/refresh production-approval paths). Rationale: the image and video
+engines need a concrete scene to make a meme, so a fact can't be released
+without one.
+
 ## Candidate Visual Concepts
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,

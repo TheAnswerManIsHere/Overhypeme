@@ -6,6 +6,7 @@ import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
@@ -319,6 +320,14 @@ function FactEnrichmentPanel({
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
             </div>
           )}
+          {/* Visual Concept — the single prominent scene surface (the scene field
+              was removed from the Advanced Options panel below). Required + blocking. */}
+          <VisualConceptCard
+            value={enrichment?.visualPromptStrategyOverride}
+            disabled={disabled || vsoTokenizing || draft.committing}
+            tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
+            onChange={(next) => { if (!disabled && enrichment) draft.setValue({ ...enrichment, visualPromptStrategyOverride: next }); }}
+          />
           <EnrichmentEditor
             value={enrichment}
             status={enrichmentStatus}

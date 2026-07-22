@@ -40,20 +40,16 @@ function TokenizeError({ message }: { message?: string }) {
 }
 
 /**
- * Apply a bubbles list to the override blob. AUTO-ENABLES the override when
- * any row carries content (adding a bubble must take effect without hunting
- * for the toggle — mirrors `withCoreSceneOverride`), never auto-disables.
+ * Apply a bubbles list to the override blob. Presence-based activation (the
+ * enable toggle was retired): bubbles apply whenever a row carries content, so
+ * there is no side effect to flip — every other field is preserved untouched.
  */
 export function withBubbles(
   ov: VisualPromptStrategyOverride | undefined,
   bubbles: VisualStrategyBubble[],
 ): VisualPromptStrategyOverride {
   const base = ov ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
-  return {
-    ...base,
-    bubbles,
-    enabled: base.enabled || bubbles.some((b) => b.entity.trim().length > 0 || b.text.trim().length > 0),
-  };
+  return { ...base, bubbles };
 }
 
 export function BubbleEditor({

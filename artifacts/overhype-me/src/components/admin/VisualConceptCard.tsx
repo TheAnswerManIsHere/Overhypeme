@@ -1,12 +1,13 @@
 /**
  * "Visual concept — describe the picture" — the moderator's primary lever for
- * getting the render right. One prominent textarea that writes
- * `enrichment.visualPromptStrategyOverride.coreSceneOverride` (auto-enabling
- * the override via `withCoreSceneOverride`); the compiler emits it as the
- * required, never-compressed CORE SCENE and the planner LLM is directed to
- * realize exactly this scene. The same field appears inside the Visual
- * Strategy Override panel (Advanced Options) — both edit the same blob through
- * the same draft, so there is no conflict.
+ * getting the render right, and now the SINGLE editing surface for the scene
+ * (moderation Step 2 & 3 and the Facts page). One prominent textarea that writes
+ * `enrichment.visualPromptStrategyOverride.coreSceneOverride` via
+ * `withCoreSceneOverride`; the scene applies whenever it is non-empty
+ * (presence-based — the enable toggle was retired), the compiler emits it as the
+ * required, never-compressed CORE SCENE, and the planner LLM realizes exactly
+ * this scene. It is a REQUIRED field: a fact cannot be saved or released to
+ * production with a blank Visual Concept.
  */
 import { useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -67,12 +68,14 @@ export function VisualConceptCard({
     <div className="bg-background border-2 border-border rounded-sm p-4 space-y-2" data-testid="visual-concept-card">
       <div>
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-          Visual concept — describe the picture
+          Visual concept — describe the picture <span className="text-red-500" title="Required">*</span>
         </p>
         <p className="text-xs text-muted-foreground mt-1">
           Describe the picture: subject, action, setting, objects, composition. This wins over the AI's
           scene. Don't write engine instructions ("preserve identity", "use the reference photo",
-          "no logos") — the compiler owns those and will strip them.
+          "no logos") — the compiler owns those and will flag them; describe only the visible scene.
+          <strong className="text-foreground"> Required</strong> — a fact can't be saved or approved for
+          production without it.
         </p>
       </div>
 
@@ -113,6 +116,11 @@ export function VisualConceptCard({
           <p className="text-xs text-destructive flex items-start gap-1">
             <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
             {tokenizeError}
+          </p>
+        ) : !text.trim() ? (
+          <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="visual-concept-required">
+            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+            Required — describe the picture before saving or approving.
           </p>
         ) : tokenErr ? (
           <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1">

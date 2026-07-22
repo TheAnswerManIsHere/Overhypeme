@@ -196,11 +196,13 @@ describe("EnrichmentEditor dual mode (review hashtags + override decoration)", (
     const oc = makeOverrideContext();
     const { onChange } = renderDualMode(oc);
 
-    fireEvent.click(screen.getByLabelText("Toggle override"));
+    // The panel always renders (the enable toggle was retired); editing a panel
+    // field (moderator intent) flows through onChange as the additive VSO layer.
+    fireEvent.change(screen.getByTestId("vso-moderator-intent"), { target: { value: "art-direction note" } });
 
     expect(onChange).toHaveBeenCalledTimes(1);
     const next = onChange.mock.calls[0][0] as FactEnrichment;
-    expect(next.visualPromptStrategyOverride?.enabled).toBe(true);
+    expect(next.visualPromptStrategyOverride?.moderatorIntent).toBe("art-direction note");
     expect(oc.onOverride).not.toHaveBeenCalled();
   });
 
