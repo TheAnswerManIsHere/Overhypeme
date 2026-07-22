@@ -5,9 +5,12 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-07 (through PR #208) — the visual-enrichment cleanup
-> (PR #189, #192/#198, #206) and the stale-fact-refresh arc (through PR #205)
-> are both reflected below; read `git log` for anything more recent.*
+> *Snapshot date: 2026-07-21 (through PR #224) — the visual-enrichment cleanup
+> (PR #189, #192/#198, #206), the stale-fact-refresh arc (through PR #205), the
+> security remediation arc (through PR #221), the async-jobs lane split
+> (PR #216), and the NB2 prompt-restructure + render-pipeline hardening arc
+> (PR #222–#224) are all reflected below; read `git log` for anything more
+> recent.*
 
 ## Active area of focus
 
@@ -21,6 +24,21 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **NB2 prompt restructure + render-pipeline hardening.** Compiled prompt
+  restructured into a labeled contract with the moderator Visual Concept
+  verbatim + leading, single-channel style, and literal-vs-visual supporting
+  text (PR #222); render identity + look-style frozen once at click time
+  instead of re-resolved live by the worker, with the image-prompt identity
+  reduced to a short prompt-safe name (PR #223); async render failures split
+  into terminal (fail-fast, typed `error_code`) vs retryable, the moderator
+  prompt budget measured through the real compiler instead of estimated
+  (engine ceiling raised 4000→6000 chars), the compiler's silent
+  required-content truncation retired in favor of a terminal
+  `required_budget_overflow`, and the built-in style catalogue trimmed to a
+  canonical ≤180-char set (PR #224). See
+  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
+  and
+  [`decisions.md`](./decisions.md#2026-07--nb2-render-pipeline-hardened-terminal-async-failures-a-measured-prompt-budget-6000-char-ceiling).
 - **Security review + remediation (findings C1–C10)** — a full security pass and
   fix arc: auth hardening (login/register rate limits, password-reset session
   invalidation, min-8 password — #210), video/object IDOR (#212), private memes
