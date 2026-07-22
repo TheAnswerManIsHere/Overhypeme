@@ -231,47 +231,112 @@ never rides an implementation PR.
 
 **Standing rule (David, 2026-07-22): plan review runs automatically through
 Codex on a draft PR — David no longer copy-pastes plans into ChatGPT.** The
-manual paste-into-ChatGPT flow is the fallback only when the loop is broken
-(e.g. Codex isn't picking up the PR), and I say so explicitly when falling back.
+manual paste-into-ChatGPT flow is the fallback only for the two carve-outs below
+(security-sensitive plans; a broken loop), and I say so explicitly when falling
+back.
 
-In feature-building mode, once the pre-plan conversation has settled intent and
-I have a draft plan:
+**What Codex actually applies.** The default Codex GitHub reviewer is a *code*
+reviewer tuned for serious defects — left to its default persona it may stay
+silent on a plan that merely *looks* sound. So the loop does not rely on that
+persona: Codex reads the shared
+[`plan-review-contract.md`](docs/ai-context/plan-review-contract.md) (routed from
+`AGENTS.md`), which tells it to review the markdown as a *specification*, return a
+**complete** assessment every time, and use review-status labels. That contract
+is the reviewer-side twin of my `overhype-plan-review` skill. (This is the
+narrow, correct thing to put in the shared docs — a *review contract Codex
+executes* — as distinct from mirroring my whole workflow ceremony there, which
+stays out per the sync rule.)
+
+**Before opening anything — the disclosure check.** This repo is **public**, and
+a closed-unmerged PR stays in public history. So before I open a plan-review PR I
+confirm the plan contains no unpatched-vulnerability details, auth/authorization
+bypass specifics, secrets/credentials, payment-fraud abuse paths, private
+customer/commercial data, or embargoed plans. **If it does, it does NOT go
+through the public PR channel** — that plan stays on the manual/private review
+path (a public plan describing an exploit discloses it before the fix ships). I
+run this check every time, before creating the PR, not after.
+
+**External-claim verification is mine.** Codex's review environment is often
+network-restricted, so I don't outsource external verification to it. When a plan
+makes a material external API / SDK / model / pricing / rate-limit claim, **I**
+verify it against current authoritative docs (I have web access) and record what
+I checked — the sources and their versions — in the plan itself. Codex's contract
+then just confirms that record exists; it never substitutes model memory for
+current docs.
+
+In feature-building mode, once the pre-plan conversation has settled intent, I
+have a draft plan, and the disclosure check passes:
 
 1. **Open the review channel.** Commit the plan markdown (the same content I
-   deliver via `SendUserFile`) as `docs/plans/PLAN_<SLUG>.md` on a fresh branch
-   `plan-review/<slug>` cut from `origin/main`, push, and open a **draft PR**
-   (base `main`) titled `[PLAN REVIEW] <title> — DO NOT MERGE`. The PR body
-   briefs the reviewer: this is a *plan document, not code* — review it against
-   the repo for product intent, design fit, correctness, and source-of-truth
-   risks; the PR will be closed unmerged once review converges.
+   deliver via `SendUserFile`, with the external-verification record folded in)
+   as `docs/plans/PLAN_<SLUG>.md` on a fresh branch `plan-review/<slug>` cut from
+   `origin/main`, push, and open a **draft PR** (base `main`) titled
+   `[PLAN REVIEW] <title> — DO NOT MERGE`. The PR body uses this template — it is
+   Codex's review oracle:
+
+   ```markdown
+   ## Review mode
+   Plan review only. Never merge. Do not implement. Apply
+   docs/ai-context/plan-review-contract.md.
+
+   ## Product intent
+   <What David asked this feature to accomplish — verbatim or faithful.>
+
+   ## Must not change
+   <Invariants / out-of-scope behavior.>
+
+   ## Settled decisions
+   1. <decision> …
+
+   ## Open product questions
+   <None, or only genuine David-only questions.>
+
+   ## External-claim verification
+   <not-applicable | what I checked against current docs, with versions.>
+
+   ## Plan file
+   `docs/plans/PLAN_<SLUG>.md`
+   ```
 2. **Subscribe** with `subscribe_pr_activity` — regardless of model tier. The
    Sonnet gate under *Watching the PRs I open* applies to implementation-PR
    watching (ops-shaped work); revising a plan under review is planning-shaped
    and stays on the planning tier (Opus, per the token-discipline table).
-3. **Each round:** when Codex reviews, I fetch live PR state first (never act
-   on the webhook text alone), weigh every comment on plan *substance*, revise
-   the plan file, push, reply inline on each comment's thread (never resolving
-   threads), and request the next round with an `@codex review` comment. The
-   advisory rule above applies verbatim: Codex has authority on substance,
-   none on branch/PR/devops mechanics.
-4. **Convergence: no substantive objections, minimum 3 rounds (David,
-   2026-07-22).** I do not stop before three completed Codex review rounds,
-   even if an early round comes back clean — in that case I request the
-   re-review through a different lens (edge cases, data integrity/migrations,
+3. **Trigger the first review explicitly.** I do **not** assume opening the PR
+   auto-triggers Codex — I post an explicit `@codex review` comment after
+   opening. I never treat a push, or webhook silence, as proof the current
+   revision was reviewed.
+4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
+   the webhook text alone), confirm which revision it reviewed (compare against
+   the current head), weigh every comment on plan *substance*, revise the plan
+   file, push, reply inline on each comment's thread (never resolving threads),
+   and request the next round with a fresh explicit `@codex review` comment.
+   Codex has authority on plan *substance*, **none** on branch/PR/devops
+   mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
+5. **Convergence: no substantive objections, minimum 3 rounds (David,
+   2026-07-22).** I do not stop before three completed Codex review rounds, even
+   if an early round comes back clean — in that case I request the re-review
+   through a different lens (edge cases, data integrity/migrations,
    source-of-truth risks, failure modes) instead of manufacturing plan churn.
-   From round 3 on, I stop as soon as a round produces no substantive
-   objections.
-5. **Escalate, don't absorb, real product decisions.** If Codex raises a
-   genuine product/design fork, it goes to David as a numbered question — the
-   loop never settles product intent on its own.
-6. **Break non-convergence.** If substantive objections are still coming after
-   ~6 rounds, or Codex and I flatly disagree on a point of substance, I stop
-   and bring David the disagreement instead of churning.
-7. **Close out.** When converged: close the draft PR **without merging**
-   (`update_pull_request`, state `closed`), unsubscribe, then deliver the final
-   plan via `SendUserFile` and ask for David's approval per the ritual above.
-   **Codex convergence is NOT plan approval** — *Plan approval is explicit
-   only* still governs; only David approves.
+   From round 3 on, I stop as soon as a round produces no substantive objections.
+6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
+   product/design fork, it goes to David as a numbered question — the loop never
+   settles product intent on its own.
+7. **Break non-convergence.** If substantive objections are still coming after
+   ~6 rounds, or Codex and I flatly disagree on a point of substance, I stop and
+   bring David the disagreement instead of churning.
+8. **Close out.** When converged: close the draft PR **without merging**
+   (`update_pull_request`, state `closed`) with a closing comment recording the
+   final review status, unsubscribe, then deliver the final plan via
+   `SendUserFile` and ask for David's approval per the ritual above. **Codex
+   convergence is NOT plan approval** — *Plan approval is explicit only* still
+   governs; only David approves.
+
+**Calibration (first ~3 real plans).** This is a pilot, not a proven
+replacement. For the first few plans I run the Codex loop *and* note where its
+review lands versus what the manual ChatGPT pass would have caught, and report
+that to David — so we replace ChatGPT on evidence, not on "same models, should be
+fine." If Codex's plan reviews prove too shallow, the transport (PR) still stands
+and we swap the reviewer, per David's call.
 
 Hard boundaries:
 
@@ -279,11 +344,14 @@ Hard boundaries:
   implementation** — the build happens on a normal feature branch after David
   approves. (Remote branch deletion is blocked in this environment, so closed
   `plan-review/*` branches simply accumulate; that's expected, not a mess to
-  clean up.)
-- A `docs/plans/` file reaches `main` only if David explicitly asks to keep it.
+  clean up — and not something to take Codex's "delete the branch" advice on.)
+- A `docs/plans/` file reaches `main` only if David explicitly asks to keep it
+  (the plan lives only on the never-merged review branch otherwise).
+- Security-sensitive/confidential plans never enter this public channel (the
+  disclosure check above).
 - No `send_later` self-check-ins for this loop either — the standing
-  no-background-check-ins rule applies. Codex's webhook events and David's
-  pings are the only wake-ups.
+  no-background-check-ins rule applies. Codex's webhook events and David's pings
+  are the only wake-ups.
 
 ## Always open a PR when work is done
 
