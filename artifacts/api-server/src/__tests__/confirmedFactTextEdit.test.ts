@@ -125,6 +125,28 @@ describe("confirmedFactTextEdit — root → variant dependency", () => {
     assert.equal((await rowOf(c2)).lastProcessedSignature, null);
   });
 
+  it("returns the UPDATED parentId when a variant is promoted to root in the same PATCH (Codex #228 P2)", async () => {
+    // A variant is protected (it was ever-approved, per its own history) and the
+    // same PATCH both re-words it AND clears parentId (promoting it to root).
+    // The route decides root-only side effects from outcome.fact.parentId, so
+    // this MUST reflect the post-update state, not the pre-update isRoot flag.
+    const parent = await seedFact(`${PREFIX}${randomUUID()} parent.`);
+    const variant = await seedFact("variant text.", { parentId: parent });
+    const old = (await rowOf(variant)).text;
+    const out = await confirmedFactTextEdit({
+      factId: variant,
+      rawText: "promoted root wording.",
+      performedBy: adminId,
+      nonTextUpdates: { parentId: null },
+      confirmation: goodConfirm(old),
+    });
+    assert.equal(out.kind, "protected_committed");
+    if (out.kind === "protected_committed") {
+      assert.equal(out.fact.parentId, null, "the returned row must show the NEW (root) parentage");
+      assert.equal(out.fact.text, "promoted root wording.");
+    }
+  });
+
   it("blocks (dependent_variant_in_progress) when a child is mid-review — no write", async () => {
     const root = await seedFact(`${PREFIX}${randomUUID()} root2.`);
     const child = await seedFact("child.", { parentId: root, isActive: false });

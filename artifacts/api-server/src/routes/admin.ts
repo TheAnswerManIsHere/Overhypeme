@@ -885,8 +885,10 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       return;
     case "protected_committed":
       // Root re-word: re-embed + re-seed stock photos (variants inherit the
-      // parent's images and aren't embedded). Mirrors the prior behavior.
-      if (outcome.didChangeRootText) {
+      // parent's images and aren't embedded). Checked against the UPDATED row's
+      // parentId (not a pre-update flag) so a PATCH that also promotes a variant
+      // to root in the same request still seeds these root-only artifacts.
+      if (outcome.fact.parentId === null) {
         void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
         void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
       }

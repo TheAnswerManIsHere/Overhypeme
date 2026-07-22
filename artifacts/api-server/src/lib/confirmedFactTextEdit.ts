@@ -52,7 +52,7 @@ export type FactTextEditOutcome =
   | { kind: "invalid_confirmation"; message: string }
   | { kind: "dependent_variant_in_progress"; blockingVariants: BlockingVariant[]; affectedVariantCount: number }
   | { kind: "staging_prep_in_progress" }
-  | { kind: "protected_committed"; fact: FactRow; auditRowId: number; affectedVariantCount: number; didChangeRootText: boolean }
+  | { kind: "protected_committed"; fact: FactRow; auditRowId: number; affectedVariantCount: number }
   | { kind: "staging_restarted"; fact: FactRow; prepDispatch: PrepDispatchState };
 
 export interface ConfirmedFactTextEditArgs {
@@ -197,7 +197,6 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
         fact: updated!,
         auditRowId: audit!.id,
         affectedVariantCount,
-        didChangeRootText: isRoot,
       };
     }
 
