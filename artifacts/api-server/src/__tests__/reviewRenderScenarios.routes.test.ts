@@ -20,7 +20,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import { defaultIdentityPolicyForRenderMode, type FactEnrichment } from "@workspace/api-zod";
+import { defaultIdentityPolicyForRenderMode, validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
@@ -47,6 +47,15 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  // A fact reaching production_review carries a moderator Visual Concept (required to
+  // release to production — presence-based, no enable toggle). Without it, approval
+  // 409s on CONCEPT_MISSING before ever reaching the visual-render gate under test.
+  visualPromptStrategyOverride: {
+    version: 1,
+    coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+    bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+  },
 };
 
 function makeApp(): Express {
@@ -185,13 +194,18 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     // the historical David/he brand default…
     assert.match(attempt!.renderedFactText!, /Alex Franklin/);
     // …and the stored input hash must be computed from that SAME rendered text,
-    // or staleness/idempotency compares against inputs no render ever used.
+    // or staleness/idempotency compares against inputs no render ever used. Hash
+    // against the VALIDATED enrichment (what the real route hashes), not the raw
+    // pre-parse literal — the schema transform normalizes VSO's optional fields
+    // to explicit keys, which changes the canonical (sorted-key) hash input.
+    const validated = validateEnrichment(ENRICHMENT);
+    assert.ok(validated.ok, "fixture enrichment must validate");
     const expectedHash = buildScenarioInputHash({
       stagingFactId: attempt!.factId!,
       scenarioKey: "generic_t2i",
       subjectRenderMode: "t2i_fallback",
       renderedFactText: attempt!.renderedFactText!,
-      enrichment: ENRICHMENT,
+      enrichment: validated.ok ? validated.data : ENRICHMENT,
       referenceIdentityType: null,
       referenceAssetVersion: null,
       renderControls: { aspectRatio: "portrait", contentMode: "sfw", fallbackSubjectGender: "neutral" },
