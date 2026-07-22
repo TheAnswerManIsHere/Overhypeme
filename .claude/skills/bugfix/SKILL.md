@@ -25,7 +25,8 @@ While in bug-fixing mode, the following CLAUDE.md feature-ceremony steps are
 
 - **No plan mode / no plan markdown file.** I don't draft a plan, don't write
   a plan `.md`, don't `SendUserFile` a plan, don't `ExitPlanMode`. I just fix.
-- **No ChatGPT/external plan review.**
+- **No plan review** — no Codex draft-PR plan-review loop, no ChatGPT/external
+  review.
 - **No `docs/PR<N>_*_TEST_RUN.md` and no `docs/PR<N>_*_UAT.md`.** Bug-fix PRs
   ship **neither doc** (David's standing call). The PR body itself carries a
   short per-bug "what changed / how to verify" line instead.

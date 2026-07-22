@@ -8,8 +8,8 @@ we agreed on before the plan was made** — not by reading diffs. Other AI
 agents (Codex, Replit) provide the technical safety net.
 
 **This file holds only what is specific to *me* (Claude Code): my plan-mode
-delivery ritual, the PR / squash-merge workflow, the TEST_RUN + UAT docs, and
-PR auto-watch.** Everything that is *shared* across agents — the product truth,
+delivery ritual, the automated Codex plan-review loop, the PR / squash-merge
+workflow, the TEST_RUN + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
 architecture, and the working/product principles — lives in the repo-native
 context system and **applies to me too**. I read it and keep it current; I do
 **not** restate it here (single source of truth).
@@ -94,7 +94,10 @@ forward.
   weigh ChatGPT on the *substance* of a plan — product intent, design fit,
   correctness, source-of-truth risks — and ignore it on environment mechanics.
   I don't surface an external reviewer's devops opinion to David as an open
-  question when the contract already answers it.
+  question when the contract already answers it. The same split governs the
+  **automated Codex plan-review loop** (see *Automated plan review* below):
+  Codex's comments on a plan carry weight on substance and none on how I run
+  branches, PRs, or git.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -104,14 +107,15 @@ the **Claude-specific** elaboration — my extra ceremony layered on the shared
 contract. David picks the mode explicitly so there's no guessing:
 
 - **Feature-building mode is the default.** The full ceremony in this file —
-  pre-plan conversation, plan markdown file, ChatGPT review, the full build,
-  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan
-  mode and any "let's build / add / change X" request put me here.
+  pre-plan conversation, plan markdown file, the automated Codex plan-review
+  loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
+  gate — applies. Plan mode and any "let's build / add / change X" request put
+  me here.
 - **Bug-fixing mode is the lightweight path, entered explicitly via the
   `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
   small bug), I switch to a fix-and-commit loop: fresh branch off
-  `origin/main`, one focused commit per bug, **no plan file, no ChatGPT
-  review, no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
+  `origin/main`, one focused commit per bug, **no plan file, no plan review
+  (no Codex loop, no ChatGPT), no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
   only open the PR when he explicitly says "create the PR." The full contract
   lives in `.claude/skills/bugfix/SKILL.md`.
 
@@ -196,8 +200,8 @@ not.
 ## Deliver every proposed plan as a markdown file
 
 David works from the Claude Code on the Web iPad UI, where a plan rendered only in
-the plan/chat panel is awkward to capture and share for outside review (e.g.
-pasting into ChatGPT). So **whenever I present a plan for David's approval, I also
+the plan/chat panel is awkward to capture, save, or forward. So **whenever I
+present a plan for David's approval, I also
 write it to a markdown file and surface it with `SendUserFile`** — automatically,
 without being asked — so he can copy or forward it from the iPad without scraping
 it out of the panel. The file mirrors the plan verbatim.
@@ -216,6 +220,142 @@ The plan file is a **transient user-delivery artifact, not a repo deliverable**:
 do not commit it, do not include it in any PR diff, and write it outside the repo
 (or to a gitignored scratch path) so it never shows up as untracked churn. I add a
 plan to the repository only if David explicitly asks for it as a doc.
+
+**One carve-out (David, 2026-07-22):** the automated Codex plan-review loop
+(next section) commits the plan file to a dedicated `plan-review/<slug>` branch
+on a **never-merged draft PR**, purely as the review channel. That branch is the
+only place a plan file gets committed; the plan still never lands on `main` and
+never rides an implementation PR.
+
+## Automated plan review: the Codex draft-PR loop
+
+**Standing rule (David, 2026-07-22): plan review runs automatically through
+Codex on a draft PR — David no longer copy-pastes plans into ChatGPT.** The
+manual paste-into-ChatGPT flow is the fallback only for the two carve-outs below
+(security-sensitive plans; a broken loop), and I say so explicitly when falling
+back.
+
+**What Codex actually applies.** The default Codex GitHub reviewer is a *code*
+reviewer tuned for serious defects — left to its default persona it may stay
+silent on a plan that merely *looks* sound. So the loop does not rely on that
+persona: Codex reads the shared
+[`plan-review-contract.md`](docs/ai-context/plan-review-contract.md) (routed from
+`AGENTS.md`), which tells it to review the markdown as a *specification*, return a
+**complete** assessment every time, and use review-status labels. That contract
+is the reviewer-side twin of my `overhype-plan-review` skill. (This is the
+narrow, correct thing to put in the shared docs — a *review contract Codex
+executes* — as distinct from mirroring my whole workflow ceremony there, which
+stays out per the sync rule.)
+
+**Before opening anything — the disclosure check.** This repo is **public**, and
+a closed-unmerged PR stays in public history. So before I open a plan-review PR I
+confirm the plan contains no unpatched-vulnerability details, auth/authorization
+bypass specifics, secrets/credentials, payment-fraud abuse paths, private
+customer/commercial data, or embargoed plans. **If it does, it does NOT go
+through the public PR channel** — that plan stays on the manual/private review
+path (a public plan describing an exploit discloses it before the fix ships). I
+run this check every time, before creating the PR, not after.
+
+**External-claim verification is mine.** Codex's review environment is often
+network-restricted, so I don't outsource external verification to it. When a plan
+makes a material external API / SDK / model / pricing / rate-limit claim, **I**
+verify it against current authoritative docs (I have web access) and record what
+I checked — the sources and their versions — in the plan itself. Codex's contract
+then just confirms that record exists; it never substitutes model memory for
+current docs.
+
+In feature-building mode, once the pre-plan conversation has settled intent, I
+have a draft plan, and the disclosure check passes:
+
+1. **Open the review channel.** Commit the plan markdown (the same content I
+   deliver via `SendUserFile`, with the external-verification record folded in)
+   as `docs/plans/PLAN_<SLUG>.md` on a fresh branch `plan-review/<slug>` cut from
+   `origin/main`, push, and open a **draft PR** (base `main`) titled
+   `[PLAN REVIEW] <title> — DO NOT MERGE`. The PR body uses this template — it is
+   Codex's review oracle:
+
+   ```markdown
+   ## Review mode
+   Plan review only. Never merge. Do not implement. Apply
+   docs/ai-context/plan-review-contract.md.
+
+   ## Product intent
+   <What David asked this feature to accomplish — verbatim or faithful.>
+
+   ## Must not change
+   <Invariants / out-of-scope behavior.>
+
+   ## Settled decisions
+   1. <decision> …
+
+   ## Open product questions
+   <None, or only genuine David-only questions.>
+
+   ## External-claim verification
+   <not-applicable | what I checked against current docs, with versions.>
+
+   ## Plan file
+   `docs/plans/PLAN_<SLUG>.md`
+   ```
+2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
+   tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
+   the PRs I open* is for *implementation* PRs (ops-shaped work); a
+   `[PLAN REVIEW]` PR and the whole revise-until-converged loop are **planning**,
+   so I stay on **Opus** for all of it and do **not** ask David to switch me to
+   Sonnet mid-plan. The tier only ever changes *after* David approves the plan,
+   at the transition to execution — see the tier-lifecycle rule in
+   *Token / cost discipline*.
+3. **Trigger the first review explicitly.** I do **not** assume opening the PR
+   auto-triggers Codex — I post an explicit `@codex review` comment after
+   opening. I never treat a push, or webhook silence, as proof the current
+   revision was reviewed.
+4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
+   the webhook text alone), confirm which revision it reviewed (compare against
+   the current head), weigh every comment on plan *substance*, revise the plan
+   file, push, reply inline on each comment's thread (never resolving threads),
+   and request the next round with a fresh explicit `@codex review` comment.
+   Codex has authority on plan *substance*, **none** on branch/PR/devops
+   mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
+5. **Convergence: no substantive objections, minimum 3 rounds (David,
+   2026-07-22).** I do not stop before three completed Codex review rounds, even
+   if an early round comes back clean — in that case I request the re-review
+   through a different lens (edge cases, data integrity/migrations,
+   source-of-truth risks, failure modes) instead of manufacturing plan churn.
+   From round 3 on, I stop as soon as a round produces no substantive objections.
+6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
+   product/design fork, it goes to David as a numbered question — the loop never
+   settles product intent on its own.
+7. **Break non-convergence.** If substantive objections are still coming after
+   ~6 rounds, or Codex and I flatly disagree on a point of substance, I stop and
+   bring David the disagreement instead of churning.
+8. **Close out.** When converged: close the draft PR **without merging**
+   (`update_pull_request`, state `closed`) with a closing comment recording the
+   final review status, unsubscribe, then deliver the final plan via
+   `SendUserFile` and ask for David's approval per the ritual above. **Codex
+   convergence is NOT plan approval** — *Plan approval is explicit only* still
+   governs; only David approves.
+
+**Calibration (first ~3 real plans).** This is a pilot, not a proven
+replacement. For the first few plans I run the Codex loop *and* note where its
+review lands versus what the manual ChatGPT pass would have caught, and report
+that to David — so we replace ChatGPT on evidence, not on "same models, should be
+fine." If Codex's plan reviews prove too shallow, the transport (PR) still stands
+and we swap the reviewer, per David's call.
+
+Hard boundaries:
+
+- The plan-review PR is **never merged**, and its branch is **never reused for
+  implementation** — the build happens on a normal feature branch after David
+  approves. (Remote branch deletion is blocked in this environment, so closed
+  `plan-review/*` branches simply accumulate; that's expected, not a mess to
+  clean up — and not something to take Codex's "delete the branch" advice on.)
+- A `docs/plans/` file reaches `main` only if David explicitly asks to keep it
+  (the plan lives only on the never-merged review branch otherwise).
+- Security-sensitive/confidential plans never enter this public channel (the
+  disclosure check above).
+- No `send_later` self-check-ins for this loop either — the standing
+  no-background-check-ins rule applies. Codex's webhook events and David's pings
+  are the only wake-ups.
 
 ## Always open a PR when work is done
 
@@ -349,13 +489,22 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
-### Watching the PRs I open (always — but gated on being on Sonnet)
+### Watching the PRs I open (always — implementation-PR watching gated on Sonnet)
 
 **Standing rule (David, 2026-07-21): I always subscribe to a PR I create — no
 per-PR ask — but ONLY while running on Sonnet.** Watching (triaging comments,
 driving CI green, mechanical fixes) is ops-shaped work per the token-discipline
 table below, so it belongs on Sonnet, not whatever tier I built the PR on.
-Concretely, at the point I'd open/finish a PR:
+
+**Scope — this gate is for *implementation* PRs only (David, 2026-07-22).** A
+`[PLAN REVIEW]` draft PR (the *Automated plan review* loop above) is a
+**planning** artifact: I watch it and revise the plan on **Opus**, subscribing
+immediately with **no** tier-switch ask. Everything below — the Sonnet gate, the
+"ask to switch" step — applies only to the normal implementation/feature PRs I
+open *after* a plan is approved. I never bounce off Opus mid-plan just to watch
+the plan-review PR.
+
+Concretely, at the point I'd open/finish an **implementation** PR:
 
 - **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
 - **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
@@ -469,6 +618,22 @@ calls. Two concrete, durable changes:
   - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
   - **Entering plan mode, or any "let's build/design/add X" feature-building
     request** → I suggest switching to Opus (`claude-opus-4-8`).
+  - **Planning stays on Opus end-to-end — no switching back and forth (David,
+    2026-07-22).** A planning cycle is *continuous* Opus: the pre-plan
+    conversation, the plan itself, **and the whole Codex plan-review loop**
+    (watching the `[PLAN REVIEW]` PR and revising until it converges, through to
+    David's approval). I do **not** ask to be switched to Sonnet at any point
+    during planning — including to watch the plan-review PR, which is planning,
+    not ops. David should never have to switch me *back* to Opus for the next
+    plan because I bounced to Sonnet mid-cycle.
+  - **The only downshift to Sonnet is to *execute* an approved plan — and only
+    when the execution is simple/low-risk (David, 2026-07-22).** Per the
+    *Implementing features* row below, simple builds run on Sonnet (Codex's diff
+    review is the net); high-risk subsystems (migrations, tokenizer/grammar,
+    visual pipeline, dev-infra, or a build that surfaces real complexity) stay on
+    Opus. So at plan approval I suggest Sonnet **only if** the execution ahead is
+    genuinely simple; otherwise I stay on Opus to build. Watching that
+    implementation PR afterward then follows the ops-shaped Sonnet gate above.
   - **By task type** (the reference table, since the two boundaries above
     don't cover everything I do):
 
