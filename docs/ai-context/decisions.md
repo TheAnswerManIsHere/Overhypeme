@@ -13,6 +13,34 @@
 
 ---
 
+### 2026-07-22 · Speech & thought bubbles: a dedicated 900-char budget pool, funded by raising the prompt ceiling (not by shrinking an existing reserve)
+- **Decision:** moderator-authored (and AI-proposed) speech/thought bubbles get
+  their **own** rendered-length budget pool, `BUBBLE_DIRECTIVES_RENDERED_MAX =
+  900`, funded by raising the engine prompt ceiling `PROMPT_TOTAL_BUDGET` 6000
+  → **6900** — not by shrinking `CORE_SCENE_RENDERED_MAX`,
+  `MODERATOR_ADDITIONS_RENDERED_MAX`, or `PROMPT_OUTER_MARGIN`. Bubbles are
+  measured (and budgeted) completely separately from the existing "moderator
+  additions" pool, so the two can never double-count and a bubble-heavy save
+  can never silently eat another field's guaranteed capacity.
+- **Why:** the merged pre-bubble budget (PR #224) was already fully allocated
+  with zero spare margin, so *some* reserve had to move for bubbles to exist at
+  all. Every existing reserve had already been set deliberately (each behind
+  its own approval gate) — reducing one to make room for a brand-new feature
+  would silently change a contract David already approved for unrelated
+  content. NB2's actual context window (~131K tokens) has ample headroom below
+  6900 chars, so raising the ceiling costs nothing at the engine level; the
+  ceiling exists purely as editorial discipline against bloated authoring, not
+  an engine capacity limit.
+- **Reference:** PR #229 (plan rev 5, David-approved 2026-07-22). See
+  [`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget) for
+  the mechanics (measurement method, the escaping-precision follow-up fix).
+- **Revisit if:** render evidence shows 900 chars is too tight for the bubble
+  count/length the product actually needs (revisit the pool size, not the
+  "separate pool, ceiling raise" funding model), or a future feature needs
+  budget headroom and 6900 no longer has slack to give.
+
+---
+
 ### 2026-07-22 · Plan review automated via a Codex draft-PR loop (replaces the manual ChatGPT paste)
 - **Decision:** plan review now runs through **Codex on a dedicated,
   never-merged draft PR** instead of David hand-pasting each plan into ChatGPT.

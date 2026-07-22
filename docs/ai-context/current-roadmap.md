@@ -5,12 +5,12 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-21 (through PR #224) — the visual-enrichment cleanup
+> *Snapshot date: 2026-07-22 (through PR #229) — the visual-enrichment cleanup
 > (PR #189, #192/#198, #206), the stale-fact-refresh arc (through PR #205), the
 > security remediation arc (through PR #221), the async-jobs lane split
-> (PR #216), and the NB2 prompt-restructure + render-pipeline hardening arc
-> (PR #222–#224) are all reflected below; read `git log` for anything more
-> recent.*
+> (PR #216), the NB2 prompt-restructure + render-pipeline hardening arc
+> (PR #222–#224), and speech/thought bubble controls (PR #229) are all
+> reflected below; read `git log` for anything more recent.*
 
 ## Active area of focus
 
@@ -24,6 +24,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Speech & thought bubble controls.** Explicit moderator-authored speech/
+  thought balloons compile as a new required, dedupe-exempt prompt section
+  with their own dedicated 900-char budget pool (ceiling raised 6000→6900 to
+  fund it); the candidate Visual-concept generator proposes bubbles when a
+  fact contains literal quoted speech, with atomic pick-then-save and a
+  server-shared saveability proof; one shared `BubbleEditor` on both admin
+  surfaces (PR #229). See
+  [`visual-pipeline.md`](./visual-pipeline.md#speech--thought-bubbles-moderator-control-compiler-owned-language)
+  and
+  [`decisions.md`](./decisions.md#2026-07-22--speech--thought-bubbles-a-dedicated-900-char-budget-pool-funded-by-raising-the-prompt-ceiling-not-by-shrinking-an-existing-reserve).
 - **NB2 prompt restructure + render-pipeline hardening.** Compiled prompt
   restructured into a labeled contract with the moderator Visual Concept
   verbatim + leading, single-channel style, and literal-vs-visual supporting
@@ -118,6 +128,14 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+- **Speech/thought bubble follow-ups.** The runtime image-prompt planner
+  proposing bubbles (only the candidate Visual-concept generator does today);
+  end-user wizard exposure (moderator-only for now); `thinking_level: high`
+  as a spatial-attribution lever (the engine adapter exposes it but the image
+  job doesn't pass it — needs a latency/cost/both-paths evaluation first);
+  post-composited/SVG bubble rendering; per-bubble placement, color, and font
+  styling; a "Use scene only" partial candidate-pick action; OCR-based
+  exactness scoring (PR #229).
 - **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
   (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
   unraised — the three lanes' combined handler concurrency (8) fits under it,
