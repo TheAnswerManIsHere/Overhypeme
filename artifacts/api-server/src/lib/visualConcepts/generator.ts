@@ -21,13 +21,18 @@ import {
   candidateConceptsWireSchema,
   validateCandidateConcepts,
   sanitizeCandidateConcept,
+  isCandidateConceptPickable,
+  withCandidateConceptDraft,
   CANDIDATE_VISUAL_CONCEPT_COUNT,
   VISUAL_CONCEPTS_PROMPT_VERSION,
+  MAX_BUBBLES,
+  BUBBLE_TEXT_MAX_CHARS,
   type FactEnrichment,
   type RenderPolicy,
   type StoredCandidateConcept,
   type VisualConceptProvenance,
 } from "@workspace/api-zod";
+import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { callUtilityLLM, UTILITY_LLM_TIMEOUT_MS } from "../utilityLLM";
 import {
   buildImagePromptContextBlocks,
@@ -166,8 +171,10 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     ...contextLines,
     "OUTPUT CONTRACT:",
     `- Return EXACTLY ${CANDIDATE_VISUAL_CONCEPT_COUNT} concepts in "concepts".`,
-    "- Each concept: { title, whyItWorks, sceneDescription }, all non-empty.",
+    '- Each concept: { title, whyItWorks, sceneDescription, bubbles }, with title/whyItWorks/sceneDescription non-empty. "bubbles" is REQUIRED — [] when the concept needs none (the normal case).',
     "- sceneDescription: ONE tight paragraph, describe-the-picture (visible pixels only), referring to the protagonist ONLY as {NAME} / {NAME_POSSESSIVE} (+ pronoun tokens). No identity/reference-image/style/target-engine language.",
+    `- bubbles: propose a speech/thought bubble ONLY when it materially serves the gag — above all when the fact contains literal quoted speech or thought (put the exact quote in a bubble instead of describing it). Each bubble: { type: "speech"|"thought", entity, text }. entity is the literal word "subject" for the protagonist (NEVER {NAME} or any {token}) or a plain role label for another character ("the bartender"). text is the EXACT line to letter, at most ${BUBBLE_TEXT_MAX_CHARS} characters (shorter is better; {NAME}/pronoun tokens allowed). If a source quote is longer, use an exact meaningful excerpt that fits, or propose no bubble — NEVER paraphrase as if it were the quote. At most ${MAX_BUBBLES} bubbles.`,
+    "- When you propose bubbles, the sceneDescription must NOT describe any balloon, bubble, tail, or the bubble's text — stage only the pose, expression, and clear headroom for it. Text on signs/screens/objects is scene content, not a bubble; quotation marks used ironically or as a title are not speech; if you cannot attribute a quote to a clear speaker, propose no bubble.",
     "- Make the three concepts genuinely different from each other.",
     "- Return ONLY the JSON object.",
   ]
@@ -189,6 +196,58 @@ function safeJsonParse(raw: string): unknown {
 
 // ─── Orchestration ──────────────────────────────────────────────────────────
 
+/**
+ * The DETERMINISTIC validate/sanitize matrix — runs in full BEFORE the retry
+ * decision, so every error class has exactly one outcome:
+ *
+ *   RETRYABLE whole-response contract errors (one corrective retry; a second
+ *   failure fails the generation attempt under normal queue semantics):
+ *     wire-shape/missing `bubbles`, wrong concept count, >MAX bubbles,
+ *     empty/over-cap entity or text, invalid type, single-channel violations
+ *     (all via `validateCandidateConcepts`), a pickable concept whose applied
+ *     override fails the combined budget preflight, and a response with NO
+ *     pickable concept at all (an all-unpickable response is not a useful
+ *     artifact — it must never be stored as `ok`).
+ *
+ *   STORED-UNPICKABLE candidate errors (kept, displayed with their exact
+ *   error, excluded from pick — the existing scene tokenValid pattern):
+ *     an unknown personalization token in scene or bubble text, or a token in
+ *     a bubble entity, on a response that still has ≥1 pickable concept.
+ */
+export function validateAndSanitizeCandidateConcepts(
+  parsed: unknown,
+): { ok: true; candidates: StoredCandidateConcept[] } | { ok: false; error: string } {
+  const result = validateCandidateConcepts(parsed);
+  if (!result.ok) return result;
+  const candidates = result.data.concepts.map(sanitizeCandidateConcept);
+
+  // pickable ⇒ saveable: preflight the EXACT override a pick produces
+  // (withCandidateConceptDraft on the pool-independent base) through the one
+  // server persistence validator. A pickable concept that cannot be saved is
+  // a contract violation the model must correct.
+  for (const [i, c] of candidates.entries()) {
+    if (!isCandidateConceptPickable(c)) continue;
+    const budget = validateVisualStrategyOverridePersistence(withCandidateConceptDraft(undefined, c));
+    if (!budget.ok) {
+      const first = budget.errors[0];
+      return {
+        ok: false,
+        error: `concept ${i + 1} would exceed the prompt budget once applied (${first?.message ?? "over budget"}) — shorten its sceneDescription or bubble text`,
+      };
+    }
+  }
+
+  if (!candidates.some(isCandidateConceptPickable)) {
+    return {
+      ok: false,
+      error:
+        "every concept has an invalid personalization token in its scene or bubbles — use ONLY {NAME}/{NAME_POSSESSIVE}/pronoun tokens in text, and 'subject' or a plain role label (never a token) as a bubble entity",
+    };
+  }
+
+  return { ok: true, candidates };
+}
+
 export async function generateVisualConceptsWithModel(
   input: GenerateVisualConceptsInput,
   callModel: (msgs: UserMessage[]) => Promise<string>,
@@ -196,18 +255,18 @@ export async function generateVisualConceptsWithModel(
   const firstUser: UserMessage = { role: "user", content: buildVisualConceptsUserMessage(input) };
 
   let raw = await callModel([firstUser]);
-  let result = validateCandidateConcepts(safeJsonParse(raw));
+  let result = validateAndSanitizeCandidateConcepts(safeJsonParse(raw));
 
   if (!result.ok) {
     raw = await callModel([firstUser, { role: "user", content: buildCorrective(result.error) }]);
-    result = validateCandidateConcepts(safeJsonParse(raw));
+    result = validateAndSanitizeCandidateConcepts(safeJsonParse(raw));
   }
 
   if (!result.ok) {
     throw new VisualConceptsError(result.error);
   }
 
-  return result.data.concepts.map(sanitizeCandidateConcept);
+  return result.candidates;
 }
 
 function makeOpenAIConceptsCaller(

@@ -36,6 +36,7 @@ import {
   MANDATORY_FORBIDDEN_TEXT_TYPES,
   detectOwnedLanguage,
   serializeLiteralPromptString,
+  BUBBLE_DIRECTIVE_LANGUAGE_RE,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import type {
@@ -529,15 +530,6 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
 }
 
 // ─── Speech & thought bubbles (moderator-authored, compiler-owned language) ──
-
-/**
- * Detects a sentence that AUTHORS a balloon/bubble render directive (the shape,
- * tail/trail, or "bubble reading …" lettering claims). Deliberately narrow:
- * ordinary dialogue context ("the father looks surprised at what he said") must
- * never match — only the balloon-as-render-instruction shapes do.
- */
-export const BUBBLE_DIRECTIVE_LANGUAGE_RE =
-  /\b(?:speech|thought|word|dialogue)\s+(?:bubble|balloon)s?\b|\bthought\s+cloud\b|\b(?:bubble|balloon)\s+(?:reading|saying|containing|that\s+(?:reads|says))\b/i;
 
 /**
  * The one deterministic directive per bubble. `who` must already be the

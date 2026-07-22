@@ -11,7 +11,11 @@
  * same inputs must not stale them).
  *
  * Reuses the render-scenario projection so "what stales candidates" tracks "what
- * stales renders".
+ * stales renders". That projection includes the ENTIRE visualPromptStrategyOverride
+ * — so saved bubble edits conservatively stale candidate ideas exactly as saved
+ * core-scene edits do (deliberate, Option A of the bubble plan §E6). Candidate
+ * PROMPT CONTEXT still excludes existing bubbles (CANDIDATE_CONTEXT_OPTS gate);
+ * only the freshness hash is conservative.
  */
 
 import { createHash } from "node:crypto";
