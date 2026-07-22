@@ -8,8 +8,8 @@ we agreed on before the plan was made** — not by reading diffs. Other AI
 agents (Codex, Replit) provide the technical safety net.
 
 **This file holds only what is specific to *me* (Claude Code): my plan-mode
-delivery ritual, the PR / squash-merge workflow, the TEST_RUN + UAT docs, and
-PR auto-watch.** Everything that is *shared* across agents — the product truth,
+delivery ritual, the automated Codex plan-review loop, the PR / squash-merge
+workflow, the TEST_RUN + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
 architecture, and the working/product principles — lives in the repo-native
 context system and **applies to me too**. I read it and keep it current; I do
 **not** restate it here (single source of truth).
@@ -94,7 +94,10 @@ forward.
   weigh ChatGPT on the *substance* of a plan — product intent, design fit,
   correctness, source-of-truth risks — and ignore it on environment mechanics.
   I don't surface an external reviewer's devops opinion to David as an open
-  question when the contract already answers it.
+  question when the contract already answers it. The same split governs the
+  **automated Codex plan-review loop** (see *Automated plan review* below):
+  Codex's comments on a plan carry weight on substance and none on how I run
+  branches, PRs, or git.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -104,14 +107,15 @@ the **Claude-specific** elaboration — my extra ceremony layered on the shared
 contract. David picks the mode explicitly so there's no guessing:
 
 - **Feature-building mode is the default.** The full ceremony in this file —
-  pre-plan conversation, plan markdown file, ChatGPT review, the full build,
-  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan
-  mode and any "let's build / add / change X" request put me here.
+  pre-plan conversation, plan markdown file, the automated Codex plan-review
+  loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
+  gate — applies. Plan mode and any "let's build / add / change X" request put
+  me here.
 - **Bug-fixing mode is the lightweight path, entered explicitly via the
   `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
   small bug), I switch to a fix-and-commit loop: fresh branch off
-  `origin/main`, one focused commit per bug, **no plan file, no ChatGPT
-  review, no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
+  `origin/main`, one focused commit per bug, **no plan file, no plan review
+  (no Codex loop, no ChatGPT), no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
   only open the PR when he explicitly says "create the PR." The full contract
   lives in `.claude/skills/bugfix/SKILL.md`.
 
@@ -196,8 +200,8 @@ not.
 ## Deliver every proposed plan as a markdown file
 
 David works from the Claude Code on the Web iPad UI, where a plan rendered only in
-the plan/chat panel is awkward to capture and share for outside review (e.g.
-pasting into ChatGPT). So **whenever I present a plan for David's approval, I also
+the plan/chat panel is awkward to capture, save, or forward. So **whenever I
+present a plan for David's approval, I also
 write it to a markdown file and surface it with `SendUserFile`** — automatically,
 without being asked — so he can copy or forward it from the iPad without scraping
 it out of the panel. The file mirrors the plan verbatim.
@@ -216,6 +220,70 @@ The plan file is a **transient user-delivery artifact, not a repo deliverable**:
 do not commit it, do not include it in any PR diff, and write it outside the repo
 (or to a gitignored scratch path) so it never shows up as untracked churn. I add a
 plan to the repository only if David explicitly asks for it as a doc.
+
+**One carve-out (David, 2026-07-22):** the automated Codex plan-review loop
+(next section) commits the plan file to a dedicated `plan-review/<slug>` branch
+on a **never-merged draft PR**, purely as the review channel. That branch is the
+only place a plan file gets committed; the plan still never lands on `main` and
+never rides an implementation PR.
+
+## Automated plan review: the Codex draft-PR loop
+
+**Standing rule (David, 2026-07-22): plan review runs automatically through
+Codex on a draft PR — David no longer copy-pastes plans into ChatGPT.** The
+manual paste-into-ChatGPT flow is the fallback only when the loop is broken
+(e.g. Codex isn't picking up the PR), and I say so explicitly when falling back.
+
+In feature-building mode, once the pre-plan conversation has settled intent and
+I have a draft plan:
+
+1. **Open the review channel.** Commit the plan markdown (the same content I
+   deliver via `SendUserFile`) as `docs/plans/PLAN_<SLUG>.md` on a fresh branch
+   `plan-review/<slug>` cut from `origin/main`, push, and open a **draft PR**
+   (base `main`) titled `[PLAN REVIEW] <title> — DO NOT MERGE`. The PR body
+   briefs the reviewer: this is a *plan document, not code* — review it against
+   the repo for product intent, design fit, correctness, and source-of-truth
+   risks; the PR will be closed unmerged once review converges.
+2. **Subscribe** with `subscribe_pr_activity` — regardless of model tier. The
+   Sonnet gate under *Watching the PRs I open* applies to implementation-PR
+   watching (ops-shaped work); revising a plan under review is planning-shaped
+   and stays on the planning tier (Opus, per the token-discipline table).
+3. **Each round:** when Codex reviews, I fetch live PR state first (never act
+   on the webhook text alone), weigh every comment on plan *substance*, revise
+   the plan file, push, reply inline on each comment's thread (never resolving
+   threads), and request the next round with an `@codex review` comment. The
+   advisory rule above applies verbatim: Codex has authority on substance,
+   none on branch/PR/devops mechanics.
+4. **Convergence: no substantive objections, minimum 3 rounds (David,
+   2026-07-22).** I do not stop before three completed Codex review rounds,
+   even if an early round comes back clean — in that case I request the
+   re-review through a different lens (edge cases, data integrity/migrations,
+   source-of-truth risks, failure modes) instead of manufacturing plan churn.
+   From round 3 on, I stop as soon as a round produces no substantive
+   objections.
+5. **Escalate, don't absorb, real product decisions.** If Codex raises a
+   genuine product/design fork, it goes to David as a numbered question — the
+   loop never settles product intent on its own.
+6. **Break non-convergence.** If substantive objections are still coming after
+   ~6 rounds, or Codex and I flatly disagree on a point of substance, I stop
+   and bring David the disagreement instead of churning.
+7. **Close out.** When converged: close the draft PR **without merging**
+   (`update_pull_request`, state `closed`), unsubscribe, then deliver the final
+   plan via `SendUserFile` and ask for David's approval per the ritual above.
+   **Codex convergence is NOT plan approval** — *Plan approval is explicit
+   only* still governs; only David approves.
+
+Hard boundaries:
+
+- The plan-review PR is **never merged**, and its branch is **never reused for
+  implementation** — the build happens on a normal feature branch after David
+  approves. (Remote branch deletion is blocked in this environment, so closed
+  `plan-review/*` branches simply accumulate; that's expected, not a mess to
+  clean up.)
+- A `docs/plans/` file reaches `main` only if David explicitly asks to keep it.
+- No `send_later` self-check-ins for this loop either — the standing
+  no-background-check-ins rule applies. Codex's webhook events and David's
+  pings are the only wake-ups.
 
 ## Always open a PR when work is done
 
