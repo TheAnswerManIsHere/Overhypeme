@@ -167,6 +167,14 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    // On Replit, the platform's path router (.replit `router = "path"`) sends
+    // /api to the api-server workflow before requests ever reach Vite, so no
+    // proxy is needed (or used) there. Outside Replit — CI's e2e smoke job and
+    // bare local dev — nothing plays that role, so this env-gated proxy is the
+    // stand-in. Unset E2E_API_PROXY_TARGET → config is byte-for-byte inert.
+    ...(process.env.E2E_API_PROXY_TARGET
+      ? { proxy: { "/api": { target: process.env.E2E_API_PROXY_TARGET } } }
+      : {}),
   },
   preview: {
     port,

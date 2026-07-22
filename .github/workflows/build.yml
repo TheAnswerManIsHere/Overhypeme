@@ -39,6 +39,22 @@ jobs:
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots
 
+      # Codegen-drift guard: a hand-edited generated file (the classic case:
+      # adding an export to lib/api-zod/src/index.ts without registering it in
+      # patch-generated.mjs's apiZodIndexLines) survives typecheck but gets
+      # silently wiped by the next codegen run, surfacing later as an
+      # unrelated-looking wave of test failures. See known-failure-patterns.md
+      # → "Manual api-zod/src/index.ts export silently reverted by codegen".
+      # Running codegen here and failing on any resulting diff makes that
+      # mistake impossible to merge.
+      - name: Codegen drift check
+        run: |
+          pnpm --filter @workspace/api-spec run codegen
+          git diff --exit-code -- lib/ || {
+            echo "::error::Generated files drifted after codegen. If you edited a generated file (e.g. lib/api-zod/src/index.ts), register the change in lib/api-spec/patch-generated.mjs instead."
+            exit 1
+          }
+
       - name: Build app
         run: pnpm run build
         env:
@@ -128,3 +144,137 @@ jobs:
       # then clones an isolated database per shard (auto-selected min(nproc,4)).
       - name: Run api-server test suite
         run: pnpm --filter @workspace/api-server test
+
+  # Frontend unit suite (vitest, jsdom — no server or DB needed). Runs in
+  # parallel with build/test for fast feedback. Before this job existed, only
+  # the backend suite gated PRs and a frontend regression rode through green CI.
+  frontend-test:
+    name: Frontend Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run overhype-me vitest suite
+        run: pnpm --filter @workspace/overhype-me test
+
+  # Route-load smoke (Playwright) — the regression net for the crash/reload-loop
+  # bug class (known-failure-patterns.md → "Self-retriggering recovery with no
+  # bounded exit"). Boots the REAL dev stack — api-server + Vite dev server —
+  # because the bug class lives in dev-server/lazy-chunk behavior that neither
+  # unit tests nor a production build exercise. Outside Replit there is no
+  # platform path-router splitting /api from the SPA, so the Vite config's
+  # env-gated E2E_API_PROXY_TARGET proxy plays that role here.
+  e2e-smoke:
+    name: E2E Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: overhype
+          POSTGRES_PASSWORD: overhype
+          POSTGRES_DB: overhype_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U overhype -d overhype_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @workspace/overhype-me exec playwright install --with-deps chromium
+
+      - name: Apply schema + migrations
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+          pnpm --filter @workspace/db push-force
+          pnpm --filter @workspace/db run migrate
+
+      # The smoke spec authenticates via POST /api/auth/dev-admin-login, which
+      # looks up this exact admin user (routes/localAuth.ts) — seed it.
+      - name: Seed admin user
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO users (email, is_admin, is_active, display_name) VALUES ('overhypeme+admin@gmail.com', true, true, 'CI Admin') ON CONFLICT DO NOTHING;"
+
+      # Real dev entrypoints, minus the supervisor wrapper (a crash should fail
+      # CI, not restart). ENABLE_DEV_ADMIN_LOGIN is safe here for the same
+      # reason as dev-run.sh: isDevAdminLoginEnabled() is fail-closed and this
+      # is an ephemeral CI database.
+      - name: Start api-server
+        run: |
+          cd artifacts/api-server
+          PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
+            pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &
+          timeout 90 bash -c 'until curl -sf http://localhost:8080/api/config > /dev/null; do sleep 2; done' \
+            || { echo '::error::api-server never became healthy'; tail -50 /tmp/api-server.log; exit 1; }
+
+      - name: Start Vite dev server
+        run: |
+          cd artifacts/overhype-me
+          PORT=5173 BASE_PATH=/ E2E_API_PROXY_TARGET=http://localhost:8080 \
+            pnpm exec vite --config vite.config.ts --host 0.0.0.0 > /tmp/vite.log 2>&1 &
+          timeout 90 bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 2; done' \
+            || { echo '::error::Vite dev server never became healthy'; tail -50 /tmp/vite.log; exit 1; }
+
+      - name: Run route-load smoke suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-traces
+          path: |
+            artifacts/overhype-me/test-results/
+            /tmp/api-server.log
+            /tmp/vite.log
+          retention-days: 7
+          if-no-files-found: ignore
