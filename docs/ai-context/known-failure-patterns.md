@@ -2,8 +2,11 @@
 
 > Mistakes AI agents have repeatedly made (or nearly made) on Overhype.me. Each
 > has a real anchor in this codebase. Read this before visual-pipeline,
-> enrichment, moderation, or migration work. Anchored IDs are linked from other
-> docs.
+> enrichment, moderation, or migration work — **and before any change that adds
+> or touches an export under `lib/api-zod/src/`** (see the codegen-revert
+> pattern below; this one has been missed more than once because it doesn't
+> "feel" like visual-pipeline/enrichment/moderation/migration work, but it is
+> exactly this class of gotcha). Anchored IDs are linked from other docs.
 
 Format per pattern: **what it looks like → why it's dangerous → how to avoid →
 Overhype example.**
@@ -81,6 +84,23 @@ array in `patch-generated.mjs`, then run codegen and confirm the export survives
 `git checkout lib/api-zod/src/index.ts` restores the committed (correct) version
 if a codegen run clobbers your working tree mid-session. Do **not** try to "just
 re-add it to index.ts" — it will be reverted again.
+
+**Recurred (PR #228):** added `export * from "./factTextEdit"` directly to
+`index.ts` mid-session, verified with `tail`/`grep` and passing targeted tests,
+and moved on without adding the line to `patch-generated.mjs`. CI's `pretest`
+ran codegen and wiped it — surfaced as 9–10 unrelated test files across
+multiple shards failing to even load (`visualConceptJobs`, `phase4.memes.save`,
+`routes.admin.auth`, `routes.adminStripeSync`, `routes.facts`, …), exactly the
+"broad, mysterious cascade" this entry already warned about. The doc existed
+and was correct; it just wasn't consulted at the moment the new `lib/api-zod`
+module was created. **The lesson isn't "read the doc harder" — it's a
+mechanical check:** after adding *any* new file under `lib/api-zod/src/` (or
+any export to an existing one), run
+`pnpm --filter @workspace/api-spec run codegen` once, immediately, and confirm
+`git diff --exit-code lib/api-zod/src/index.ts` is clean, before writing a
+single consumer of that export. Don't defer this verification to "when I run
+the full test suite later" — by then the mistake is buried under unrelated
+work and looks like a cascade of broken tests, not a one-line miss.
 
 ## Stale historical docs treated as current truth
 
