@@ -10,6 +10,14 @@ only the *scene* from the toggle while keeping the toggle for advanced fields). 
 go further and remove the toggle entirely, which subsumes that plan and deletes most of its
 machinery — see "Why this replaces the earlier plan."
 
+**Revision log:**
+- rev 2 — Codex round 1 (PR #233): P1 — the required-scene admin gate must reject a blank scene
+  **including when the VSO is absent** (it's optional; a no-override save slipped through). P1 —
+  the required-scene gate must also cover the **final production-approval** paths
+  (`approveForProduction` / `approveRefreshCandidateForProduction`), not just the Step-2
+  `approve-visual-concept` transition, or a stale/pre-existing Step-3 row could publish blank.
+  §F expanded + tests added.
+
 ---
 
 ## Product intent (David)
@@ -166,18 +174,34 @@ silently dies:
   budget gate is currently `if (submittedVso?.enabled)`. Change to run
   `validateVisualStrategyOverridePersistence` whenever a VSO is submitted (presence), so an
   over-budget scene/additions can't skip validation.
-- **NEW — required-scene block (decision 1).** On the admin save paths that persist a
-  moderator-authored/edited VSO, **reject a blank `coreSceneOverride`** with a clear
-  server error (e.g. `visual_concept_required`, 400) — on **both** `admin.ts` (Facts save) and
-  the moderation save/continue path. Scope this to the **admin-authored** enrichment write, not
-  automated enrichment jobs (decision 4). Define the precise gate: a fact's enrichment cannot be
-  **saved by an admin** with a VSO present-but-blank-scene, and cannot be **approved** with a
-  blank scene.
-- **`artifacts/api-server/src/lib/moderationStaging.ts:182-189`** `resolveSavedCoreSceneForReview`
-  — retire the `CONCEPT_DISABLED` branch (`:183-184`); gate approval solely on a non-empty saved
-  `coreSceneOverride` (`CONCEPT_MISSING` at `:187-188` stays and *is* the blocking approve gate).
-  Confirm the only `CONCEPT_DISABLED` references are this route + its test. Reached from
-  `reviews.ts:1055-1059`.
+- **NEW — required-scene block (decision 1). Three enforcement points, all server-side:**
+
+  1. **Admin enrichment save (`admin.ts` Facts PATCH + `reviews.ts` candidate PATCH).** Reject
+     when the submitted enrichment's scene is blank — **including when the VSO is absent**
+     entirely (Codex round 1). The VSO is optional, so a hashtag-only Facts save or a moderation
+     save starting from no override would otherwise persist a blank Visual Concept. Gate on
+     `submitted.visualPromptStrategyOverride?.coreSceneOverride?.trim()` being empty →
+     `400 visual_concept_required`. This is an **admin-authored** save gate; automated enrichment
+     jobs write through the enrichment worker (a different path) and are **not** blocked
+     (decision 4). *Behavioral consequence to surface at approval: an admin can no longer save a
+     fact's enrichment on the Facts page without a Visual Concept — this is the literal intent of
+     "required, cannot be left blank," but it means partial/hashtag-only admin saves now require a
+     scene.*
+  2. **Step-2 concept approval (`moderationStaging.ts:182-189` `resolveSavedCoreSceneForReview`).**
+     Retire the `CONCEPT_DISABLED` branch (`:183-184`); gate solely on a non-empty saved
+     `coreSceneOverride` (`CONCEPT_MISSING` at `:187-188` stays and *is* the blocking gate).
+     Confirm the only `CONCEPT_DISABLED` references are this route + its test. Reached from
+     `reviews.ts:1055-1059`.
+  3. **Final production approval — the actual publish gate (Codex round 1).** The publish paths
+     `approveForProduction` (`reviews.ts:613`) and `approveRefreshCandidateForProduction`
+     (`:514`) — routes `/approve-for-production` (`:803`), `/approve` (`:821`), `/approve-variant`
+     (`:826`) — currently validate enrichment shape + render/hashtag gates but **not** the scene.
+     A pre-existing Step-3 row, refresh candidate, or stale tab could reach promotion with a blank
+     persisted scene. Add the same server-side non-empty `coreSceneOverride` re-check on the
+     cycle's resolved enrichment before promotion (reuse `resolveSavedCoreSceneForReview` / a
+     shared helper so Step-2 and publish can't drift), returning `CONCEPT_MISSING`. This is the
+     backstop that makes "cannot be published blank" true regardless of which tab/row/state the
+     admin came from.
 
 ### G. Candidate concepts (`lib/api-zod/src/visualConcepts.ts`)
 
@@ -264,10 +288,17 @@ silently dies:
   gate).
 
 **New behavior:**
-- **Required-blocking scene** — route tests (both `admin.ts` Facts PATCH and the moderation
-  save/approve path): an admin save/approve with a **blank** `coreSceneOverride` is rejected
-  (`visual_concept_required` / `CONCEPT_MISSING`); a non-blank one succeeds. A background
-  *automated* enrichment write without a scene is **not** blocked (decision 4).
+- **Required-blocking scene — all three enforcement points:**
+  1. *Admin save* (`admin.ts` Facts PATCH + `reviews.ts` candidate PATCH): reject a blank scene
+     `400 visual_concept_required` — with a case where the **VSO is entirely absent** (Codex round
+     1) and a case where it's present-but-blank; a non-blank save succeeds; a background automated
+     enrichment write without a scene is **not** blocked (decision 4).
+  2. *Step-2 approval*: `CONCEPT_MISSING` on blank, succeeds on non-blank; `CONCEPT_DISABLED`
+     retired.
+  3. *Production approval* (`/approve-for-production`, `/approve`, `/approve-variant`, and the
+     refresh-candidate path): a cycle whose persisted `coreSceneOverride` is blank is rejected at
+     **publish** (`CONCEPT_MISSING`), even when the Step-2 gate was somehow bypassed (stale
+     row/tab); a non-blank cycle promotes.
 - **Presence-based budget gate** — an over-budget scene/additions on a VSO with no (removed)
   toggle is still rejected `visual_strategy_override_over_budget`.
 - **Two-gate coverage** — a policy override (`resolveRenderPolicy`) applies with no toggle; the
@@ -309,9 +340,11 @@ for the new serialized shape; assert the hash no longer depends on a (removed) `
   it must cover a genuinely empty override across all subject render modes.
 - **The second gate (`resolveRenderPolicy`) is easy to miss** — this plan names it explicitly so
   policy overrides don't silently die.
-- **Required-scene enforcement points** must be exactly right: admin save + approve, both
-  surfaces, server-enforced, but **not** automated enrichment writes (decision 4). Getting the
-  gate location wrong either blocks background jobs or lets a blank scene through.
+- **Required-scene enforcement is three points, not one** (Codex round 1): admin save (incl.
+  **absent** VSO), Step-2 approval, and **final production approval** — all server-enforced, but
+  **not** automated enrichment writes (decision 4). The publish gate is the real backstop; the
+  admin-save gate is the first line. Getting the location wrong either blocks background jobs or
+  lets a blank scene reach production via a stale row/tab.
 - **Mass staleness on deploy** (decision 5) is expected, one-time, and acceptable (fact redo) —
   but the release note/UAT should say renders/ideas will show stale until regenerated.
 - **No new external vendor; no data migration; no new `lib/api-zod` export** (removing a field —
