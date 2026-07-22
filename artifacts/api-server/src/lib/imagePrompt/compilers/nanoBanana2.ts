@@ -31,7 +31,13 @@ import type {
   SubjectRenderMode,
   VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES, detectOwnedLanguage } from "@workspace/api-zod";
+import {
+  DEFAULT_RENDER_POLICY,
+  MANDATORY_FORBIDDEN_TEXT_TYPES,
+  detectOwnedLanguage,
+  serializeLiteralPromptString,
+  type VisualStrategyBubble,
+} from "@workspace/api-zod";
 import type {
   CompiledImagePrompt,
   PromptSection,
@@ -46,8 +52,10 @@ import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonic
 // Mirrors PROMPT_TOTAL_BUDGET (api-zod promptBudget.ts) — an editorial forcing
 // function against bloated/redundant authoring, NOT an engine capacity
 // constraint (NB2's context window is ~131K tokens). Raised from 4000 to 6000
-// (David, 2026-07-21) to give the moderator authoring pools real headroom.
-const MAX_PROMPT_CHARS = 6000;
+// (David, 2026-07-21) to give the moderator authoring pools real headroom, and
+// 6000 → 6900 (David, 2026-07-22) to fund the dedicated SPEECH & THOUGHT
+// BUBBLES reserve (BUBBLE_DIRECTIVES_RENDERED_MAX).
+const MAX_PROMPT_CHARS = 6900;
 
 // ROLE DETAILS becomes required + non-compressible whenever moderator
 // roleBindings are present (so a casting correction can't be silently
@@ -387,8 +395,10 @@ function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["su
     const literals = pol.supportingTextElements.filter((e) => e.kind === "literal_text" && e.content.trim());
     const graphics = pol.supportingTextElements.filter((e) => e.kind === "visual_graphic" && e.content.trim());
     if (literals.length > 0) {
+      // Shared literal serializer (same dialect as bubble directives) so an
+      // embedded quote in the literal can't break the delimiters.
       const items = literals
-        .map((e) => `"${e.content.trim()}"${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
+        .map((e) => `${serializeLiteralPromptString(e.content)}${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
         .join("; ");
       lines.push(`Render this in-scene text clearly: ${items}.`);
     }
@@ -516,6 +526,101 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
     .map(asNegativeConstraint)
     .filter(Boolean)
     .join(" ");
+}
+
+// ─── Speech & thought bubbles (moderator-authored, compiler-owned language) ──
+
+/**
+ * Detects a sentence that AUTHORS a balloon/bubble render directive (the shape,
+ * tail/trail, or "bubble reading …" lettering claims). Deliberately narrow:
+ * ordinary dialogue context ("the father looks surprised at what he said") must
+ * never match — only the balloon-as-render-instruction shapes do.
+ */
+export const BUBBLE_DIRECTIVE_LANGUAGE_RE =
+  /\b(?:speech|thought|word|dialogue)\s+(?:bubble|balloon)s?\b|\bthought\s+cloud\b|\b(?:bubble|balloon)\s+(?:reading|saying|containing|that\s+(?:reads|says))\b/i;
+
+/**
+ * The one deterministic directive per bubble. `who` must already be the
+ * RENDERED attribution target (subject name / mode noun / role label as
+ * written) and `text` must already be token-RENDERED — serialization runs last
+ * (token-before-escape contract, `serializeLiteralPromptString`).
+ */
+export function composeBubbleDirective(
+  bubble: Pick<VisualStrategyBubble, "type" | "text">,
+  who: string,
+): string {
+  const literal = serializeLiteralPromptString(bubble.text);
+  if (bubble.type === "speech") {
+    return `Render one clean comic-style speech balloon integrated into the scene, with its tail pointing unambiguously to ${who}. The balloon contains exactly the literal string ${literal} in clear, legible lettering.`;
+  }
+  return `Render one cloud-shaped thought balloon integrated into the scene, with a trail of small circles leading unambiguously to the head of ${who}. The balloon contains exactly the literal string ${literal} in clear, legible lettering.`;
+}
+
+/** Trailing carveout emitted once after the directives: makes the precedence
+ *  over the overlay-caption exclusion and any forbid-mode text policy explicit
+ *  IN the compiled language (a balloon is in-scene graphic text, not an
+ *  overlay caption). */
+const BUBBLE_CARVEOUT_LINE =
+  "These balloons are intentional in-scene graphic elements requested by these instructions — render them; they are not overlay or caption text.";
+
+export interface BubbleDirectivesResult {
+  text: string;
+  warnings: PromptWarning[];
+}
+
+/**
+ * Compose the SPEECH & THOUGHT BUBBLES section body: one atomic directive per
+ * valid bubble, in STORED ORDER (moderator order is intent — never sorted),
+ * with incomplete mid-edit rows (empty entity or text) skipped, plus the
+ * carveout line. Emits structured entity diagnostics against the EFFECTIVE
+ * scene characters (subject + active role bindings + the planner's secondary
+ * characters), so a valid secondary-speaker bubble doesn't false-warn:
+ *   - `bubble_entity_unresolved`: no effective character matches;
+ *   - `bubble_entity_ambiguous`: several effective labels collide with it.
+ */
+export function composeBubbleDirectives(opts: {
+  bubbles: readonly VisualStrategyBubble[];
+  /** Rendered attribution noun for entity "subject" (name or mode noun). */
+  subjectNoun: string;
+  /** Effective non-subject character labels in the scene (post-precedence). */
+  effectiveCharacterLabels: readonly string[];
+  renderText: (text: string) => string;
+}): BubbleDirectivesResult {
+  const warnings: PromptWarning[] = [];
+  const directives: string[] = [];
+  const normalizedLabels = opts.effectiveCharacterLabels
+    .map((l) => l.trim().toLowerCase())
+    .filter(Boolean);
+
+  opts.bubbles.forEach((bubble, i) => {
+    const entity = bubble.entity.trim();
+    const text = bubble.text.trim();
+    if (!entity || !text) return; // incomplete mid-edit row
+    const isSubject = entity.toLowerCase() === "subject";
+    const who = isSubject ? opts.subjectNoun : entity;
+    if (!isSubject) {
+      const matches = normalizedLabels.filter((l) => l === entity.toLowerCase()).length;
+      if (matches === 0) {
+        warnings.push({
+          code: "bubble_entity_unresolved",
+          severity: "warning",
+          message: `Bubble ${i + 1} is attributed to "${entity}", which matches no character in the scene (subject, role bindings, or planned secondary characters). The directive still renders; the model may introduce, ignore, or misattribute that character — confirm the render.`,
+          context: { bubbleIndex: i, entity },
+        });
+      } else if (matches > 1) {
+        warnings.push({
+          code: "bubble_entity_ambiguous",
+          severity: "warning",
+          message: `Bubble ${i + 1} is attributed to "${entity}", which matches more than one scene character — the balloon's tail attribution may land on the wrong one.`,
+          context: { bubbleIndex: i, entity },
+        });
+      }
+    }
+    directives.push(composeBubbleDirective({ type: bubble.type, text: opts.renderText(text) }, who));
+  });
+
+  if (directives.length === 0) return { text: "", warnings: [] };
+  return { text: `${directives.join(" ")} ${BUBBLE_CARVEOUT_LINE}`, warnings };
 }
 
 /**
@@ -825,9 +930,21 @@ function composeListBody(entries: readonly string[], haystack: string): string {
  * meaning — only these four compiler-owned categories — so it never strips a
  * concrete scene description. Returns the removal reason, or null to keep.
  */
-function getPlannerProseRemovalReason(sentence: string): RemovedProseReason | null {
+function getPlannerProseRemovalReason(
+  sentence: string,
+  opts?: { stripBubbleDirectives?: boolean },
+): RemovedProseReason | null {
   const s = normalizeSentence(sentence);
   if (!s) return "empty-or-duplicate";
+
+  // Balloon/bubble render directives — stripped ONLY while moderator bubbles
+  // are active (the compiler then owns the sole bubble channel and the bubble
+  // section is dedupe-exempt, so a planner restatement would double-render).
+  // Without moderator bubbles there is no competing channel and planner prose
+  // is left alone.
+  if (opts?.stripBubbleDirectives && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(sentence)) {
+    return "bubble-directive-owned-by-compiler";
+  }
 
   // Unresolved template tokens / explicit interpretation clauses.
   if (hasUnresolvedFactTokens(sentence) || /\binterpret these terms exactly\b/.test(s)) {
@@ -860,11 +977,14 @@ function getPlannerProseRemovalReason(sentence: string): RemovedProseReason | nu
 }
 
 /** Split the planner prose into sentences and drop the compiler-owned ones. */
-function sanitizePlannerProse(raw: string): { text: string; removed: RemovedProseSentence[] } {
+function sanitizePlannerProse(
+  raw: string,
+  opts?: { stripBubbleDirectives?: boolean },
+): { text: string; removed: RemovedProseSentence[] } {
   const removed: RemovedProseSentence[] = [];
   const kept: string[] = [];
   for (const sentence of splitSentences(raw)) {
-    const reason = getPlannerProseRemovalReason(sentence);
+    const reason = getPlannerProseRemovalReason(sentence, opts);
     if (reason) {
       removed.push({ sentence: sentence.trim(), reason });
       continue;
@@ -872,6 +992,25 @@ function sanitizePlannerProse(raw: string): { text: string; removed: RemovedPros
     kept.push(sentence.trim());
   }
   return { text: kept.join(" ").trim(), removed };
+}
+
+/** Entry-level bubble-directive filter for the planner's list fields
+ *  (subjectDetails / environment / keyVisualElements / expressionAndPose) —
+ *  active only while moderator bubbles exist, mirroring sanitizePlannerProse's
+ *  sentence-level strip on the scene. Removed entries are recorded. */
+function stripBubbleDirectiveEntries(
+  entries: readonly string[],
+  active: boolean,
+  removed: RemovedProseSentence[],
+): string[] {
+  if (!active) return [...entries];
+  return entries.filter((e) => {
+    if (BUBBLE_DIRECTIVE_LANGUAGE_RE.test(e)) {
+      removed.push({ sentence: e.trim(), reason: "bubble-directive-owned-by-compiler" });
+      return false;
+    }
+    return true;
+  });
 }
 
 /**
@@ -982,6 +1121,10 @@ interface Section {
   compressible?: boolean;
   /** Content authored by a human moderator (core scene, role bindings). */
   moderatorAuthored?: boolean;
+  /** "none" exempts the section from generic sentence de-duplication —
+   *  verbatim moderator content (the bubble directives) must never be
+   *  suppressed because CORE SCENE or a planner delta used the same words. */
+  dedupe?: "normal" | "none";
 }
 
 /**
@@ -1036,7 +1179,7 @@ function assembleSections(
       record(section, "empty", "", "");
       continue;
     }
-    const deduped = dedupeSentences(raw, assembled);
+    const deduped = section.dedupe === "none" ? raw : dedupeSentences(raw, assembled);
     if (!deduped) {
       record(section, "deduped", "", raw);
       continue;
@@ -1127,6 +1270,14 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Moderator visual-strategy override (Phase 2). null when absent/disabled.
   const ov = activeOverride(input);
 
+  // Moderator bubbles (incomplete mid-edit rows ignored). While any are active,
+  // the compiler owns the ONLY bubble channel: planner prose that authors a
+  // balloon directive is stripped (see sanitizePlannerProse /
+  // stripBubbleDirectiveEntries) so the dedupe-exempt bubble section can never
+  // be doubled by a restatement.
+  const activeBubbles = (ov?.bubbles ?? []).filter((b) => b.entity.trim() && b.text.trim());
+  const hasBubbles = activeBubbles.length > 0;
+
   // ── CORE SCENE FIRST. The Visual Concept leads the prompt AND seeds the
   // additive de-dupe haystack. A moderator-authored coreSceneOverride is
   // AUTHORITATIVE and wins over the AI plan; otherwise prefer the structured
@@ -1160,9 +1311,19 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
         message: `The Visual concept contains ${owned.category} language the compiler owns ("${owned.matchedText}"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler's identity/reference/text-policy clauses stay the single source.`,
       });
     }
+    // Moderator content is verbatim (warn, never strip): a Concept that authors
+    // its own balloon while structured bubbles are active would double-render.
+    if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(moderatorCoreRaw)) {
+      moderatorCoreWarnings.push({
+        code: "bubble_language_in_moderator_scene",
+        severity: "warning",
+        message:
+          "The Visual concept describes a speech/thought balloon while structured bubbles are configured. The SPEECH & THOUGHT BUBBLES section owns balloon rendering — describe only the staging (pose, expression, headroom) in the Concept to avoid a doubled balloon.",
+      });
+    }
   }
   if (!coreSceneModeratorAuthored) {
-    const sanitized = sanitizePlannerProse(aiCore);
+    const sanitized = sanitizePlannerProse(aiCore, { stripBubbleDirectives: hasBubbles });
     removedProse.push(...sanitized.removed);
     coreScene = scrubIntentLanguage(sanitized.text);
   }
@@ -1234,10 +1395,24 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   // SUBJECT DETAILS — subject-specific visible details (strictly additive), plus
   // expression/pose and key-element gap-fill. Modifiers are NOT re-injected as
-  // prose (their structural effects have dedicated owners).
-  const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
-  const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
-  const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody}`);
+  // prose (their structural effects have dedicated owners). While moderator
+  // bubbles are active, planner entries that author a balloon directive are
+  // stripped (the compiler owns the bubble channel).
+  const subjectListBody = composeListBody(
+    stripBubbleDirectiveEntries(vp.subjectDetails ?? [], hasBubbles, removedProse),
+    haystack,
+  );
+  const expressionPoseRaw = vp.subjectTreatment?.expressionAndPose ?? "";
+  let expressionPose = "";
+  if (hasBubbles && BUBBLE_DIRECTIVE_LANGUAGE_RE.test(expressionPoseRaw)) {
+    removedProse.push({ sentence: expressionPoseRaw.trim(), reason: "bubble-directive-owned-by-compiler" });
+  } else {
+    expressionPose = scrubIntentLanguage(expressionPoseRaw);
+  }
+  const vpForKeyElements = hasBubbles
+    ? { ...vp, keyVisualElements: stripBubbleDirectiveEntries(vp.keyVisualElements ?? [], true, removedProse) }
+    : vp;
+  const keyElements = composeKeyElementsDirective(vpForKeyElements, `${haystack} ${subjectListBody}`);
   const subjectDetails = [
     subjectListBody,
     expressionPose && !coveredWithContiguity(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
@@ -1250,12 +1425,28 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   if (requiredVisualDetails) haystack = `${haystack} ${requiredVisualDetails}`;
 
   // ENVIRONMENT — setting, background, props, scale (strictly additive).
-  const environment = composeListBody(vp.environment ?? [], haystack);
+  const environment = composeListBody(
+    stripBubbleDirectiveEntries(vp.environment ?? [], hasBubbles, removedProse),
+    haystack,
+  );
   if (environment) haystack = `${haystack} ${environment}`;
 
   // ADDITIONAL DETAILS (moderator style-agnostic additions).
   const additionalDetails = ov ? composeOverrideList(ov.styleAgnosticPromptAdditions) : "";
   if (additionalDetails) haystack = `${haystack} ${additionalDetails}`;
+
+  // SPEECH & THOUGHT BUBBLES — verbatim moderator content, one atomic directive
+  // per bubble in stored order, dedupe-exempt (see the section flag below).
+  // Token-rendered HERE (before serialization inside the composer — the
+  // token-before-escape contract), and deliberately NOT folded into the
+  // de-dupe haystack: the directives are render instructions, not scene
+  // description, and must never suppress staging language elsewhere.
+  const bubbleResult = composeBubbleDirectives({
+    bubbles: activeBubbles,
+    subjectNoun: bindingSubjectNoun(subjectName, bindingMode),
+    effectiveCharacterLabels: secondaryCharacters.map((c) => c.label),
+    renderText: (t) => renderIdentityTokens(t, args.renderedSubject),
+  });
 
   // COMPOSITION — framing + camera + caption negative space, plus moderator
   // composition guidance.
@@ -1334,6 +1525,14 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
     { id: "additional_details", label: "ADDITIONAL DETAILS", text: labeled("ADDITIONAL DETAILS", additionalDetails), priority: "high", compressible: true },
+    {
+      id: "bubbles",
+      label: "SPEECH & THOUGHT BUBBLES",
+      text: labeled("SPEECH & THOUGHT BUBBLES", bubbleResult.text),
+      priority: "required",
+      dedupe: "none",
+      ...(hasBubbles ? { moderatorAuthored: true } : {}),
+    },
     { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
     { id: "lighting", label: "LIGHTING", text: labeled("LIGHTING", lighting), priority: "medium", compressible: true },
     { id: "render_style", label: "RENDER STYLE", text: labeled("RENDER STYLE", renderStyle), priority: "required" },
@@ -1350,6 +1549,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   const warnings = [
     ...moderatorCoreWarnings,
+    ...bubbleResult.warnings,
     ...detectToneWarnings({ visualApproach, prose: coreScene }),
     ...detectDensityWarnings({
       coreScene,

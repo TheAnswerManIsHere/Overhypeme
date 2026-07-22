@@ -85,6 +85,7 @@ export type RemovedProseReason =
   | "reference-image-owned-by-compiler"
   | "token-interpretation-owned-by-compiler"
   | "text-policy-owned-by-compiler"
+  | "bubble-directive-owned-by-compiler"
   | "empty-or-duplicate";
 
 export interface RemovedProseSentence {
@@ -96,6 +97,13 @@ export interface PromptWarning {
   code: string;
   message: string;
   severity: "info" | "warning";
+  /** Optional structured anchor for row-specific warnings (e.g. which bubble
+   *  an entity diagnostic refers to). Additive — old persisted diagnostics
+   *  JSON without it still parses/renders. */
+  context?: {
+    bubbleIndex?: number;
+    entity?: string;
+  };
 }
 
 /**

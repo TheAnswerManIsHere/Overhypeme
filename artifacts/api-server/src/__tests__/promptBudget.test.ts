@@ -54,13 +54,13 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
   const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true });
 
   it("accepts an empty / small override", () => {
-    const r = validateVisualStrategyOverrideForSave(base(), 0);
+    const r = validateVisualStrategyOverrideForSave(base(), 0, 0);
     assert.equal(r.ok, true);
     assert.equal(r.errors.length, 0);
   });
 
   it("rejects a Concept over the raw cap", () => {
-    const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: "x".repeat(CORE_SCENE_RAW_MAX + 1) }, 0);
+    const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: "x".repeat(CORE_SCENE_RAW_MAX + 1) }, 0, 0);
     assert.equal(r.ok, false);
     assert.ok(r.errors.some((e) => e.code === "core_scene_raw_too_long"));
   });
@@ -70,21 +70,21 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
     // renders to up to 20 chars → ~2300+ rendered (> the rendered cap).
     const tokenHeavy = "{NAME} ".repeat(110).trim();
     assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
-    const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: tokenHeavy }, 0);
+    const r = validateVisualStrategyOverrideForSave({ ...base(), coreSceneOverride: tokenHeavy }, 0, 0);
     assert.equal(r.ok, false);
     assert.ok(r.errors.some((e) => e.code === "core_scene_rendered_too_long"));
   });
 
   it("rejects when the (compiler-measured) additions emission exceeds the pool", () => {
     // The validator trusts the injected emission — over the cap → rejection.
-    const r = validateVisualStrategyOverrideForSave(base(), MODERATOR_ADDITIONS_RENDERED_MAX + 1);
+    const r = validateVisualStrategyOverrideForSave(base(), MODERATOR_ADDITIONS_RENDERED_MAX + 1, 0);
     assert.equal(r.ok, false);
     assert.ok(r.errors.some((e) => e.code === "moderator_additions_rendered_too_long"));
     assert.equal(r.usage.moderatorAdditionsRendered, MODERATOR_ADDITIONS_RENDERED_MAX + 1);
   });
 
   it("accepts additions emission exactly at the cap", () => {
-    const r = validateVisualStrategyOverrideForSave(base(), MODERATOR_ADDITIONS_RENDERED_MAX);
+    const r = validateVisualStrategyOverrideForSave(base(), MODERATOR_ADDITIONS_RENDERED_MAX, 0);
     assert.equal(r.ok, true);
   });
 });
@@ -123,7 +123,7 @@ describe("measureModeratorAdditionsEmission — compiler-measured, wrapping incl
     const naive = naiveAdditionsRenderedLowerBound(ov); // 40 * 30 = 1200 (< pool)
     assert.ok(naive <= MODERATOR_ADDITIONS_RENDERED_MAX, `sanity: naive ${naive} is under the pool`);
     const measured = measureModeratorAdditionsEmission(ov);
-    const r = validateVisualStrategyOverrideForSave(ov, measured);
+    const r = validateVisualStrategyOverrideForSave(ov, measured, 0);
     assert.equal(r.ok, false, `measured ${measured} should exceed the pool ${MODERATOR_ADDITIONS_RENDERED_MAX}`);
     assert.ok(r.errors.some((e) => e.code === "moderator_additions_rendered_too_long"));
   });

@@ -104,6 +104,7 @@ describe("buildScenarioInputHash", () => {
       compositionGuidance: [],
       styleAgnosticPromptAdditions: [],
       negativePromptAdditions: [],
+      bubbles: [],
       ...(coreSceneOverride !== undefined ? { coreSceneOverride } : {}),
     });
     const withScene = baseHashInputs();

@@ -378,6 +378,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
       compositionGuidance: [],
       styleAgnosticPromptAdditions: [],
       negativePromptAdditions: [],
+      bubbles: [],
       updatedBy: "tfactsenrich-prior-admin",
       updatedAt: "2026-06-13T00:00:00.000Z",
     };
