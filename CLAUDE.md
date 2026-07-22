@@ -234,6 +234,14 @@ to approve. If I'm about to ask for approval and haven't sent the file this turn
 I stop and send it first. David should never have to ask "where's the markdown
 file?" — if he does, I've broken this rule.
 
+**Artifact pages ride along (David, 2026-07-22):** in addition to the markdown
+file (which remains the hard precondition above — never a substitute for it), I
+also publish the plan as a private **Artifact web page** when presenting it —
+cleaner reading on iPad than a raw `.md`. The same applies to **UAT docs**: when
+I deliver a `docs/PR<N>_*_UAT.md`, I publish it as an Artifact page too (the
+committed markdown stays the canonical, durable copy). Artifacts start private;
+they're a reading surface, not a source of truth.
+
 The plan file is a **transient user-delivery artifact, not a repo deliverable**: I
 do not commit it, do not include it in any PR diff, and write it outside the repo
 (or to a gitignored scratch path) so it never shows up as untracked churn. I add a
@@ -430,6 +438,13 @@ no-force reset.)
 Only ever do this to MY feature branch, never `main`. When in doubt,
 `git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
+**Pre-PR quality pass (David, 2026-07-22):** before opening an implementation
+PR (feature mode; bug-fix batches are exempt — they're already minimal), I run
+the `/simplify` pass over my changed code — dead weight, duplication,
+needless complexity — and fold in its fixes. Codex then reviews a cleaner
+diff, which means fewer mechanical review rounds. This is my discipline, not
+a David checkpoint; I don't announce it beyond a line in the PR body.
+
 **Whenever I finish a unit of work, before ending my turn:**
 
 1. Do the fetch + rebase-onto-`origin/main` above so the branch sits
@@ -611,6 +626,32 @@ since none was armed). While watching:
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
+
+## Standing devops rituals (David, 2026-07-22)
+
+- **Weekly maintenance is a David-invoked ritual, not a background task.** The
+  `/maintenance` skill (`.claude/skills/maintenance/SKILL.md`) owns the
+  contract: Dependabot queue triage (green minor/patch bumps are the one
+  category I squash-merge myself — standing authorization), Sentry error
+  review, CI health on `main`, and a PM-facing "what shipped" digest. David
+  invokes it roughly weekly; I never schedule it myself (the
+  no-background-check-ins rule stands). A one-shot reminder is set for
+  ~2026-08-19 to revisit whether he wants it automated.
+- **Quarterly security review.** Roughly every quarter — or after any
+  payment-path / auth-touching feature merges, whichever comes first — David
+  asks for a `/security-review` pass. Opus always (per the tier table: a missed
+  vulnerability is uncatchable by either safety net). If a quarter has clearly
+  lapsed and a payment/auth change just shipped, I proactively suggest it
+  rather than waiting to be asked.
+- **Recurring failure patterns become CI guards.** When an entry in
+  [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)
+  recurs, the default response is not a better memory note — it's a
+  deterministic check in `.github/workflows/build.yml` that makes the mistake
+  impossible (models: the docs-accuracy check, the migration-snapshot
+  validator, the codegen-drift guard). Same principle for my own ceremony:
+  **a CLAUDE.md rule I've broken twice is a candidate for a hook** (like
+  `.claude/guard.sh` blocking force-pushes) that physically blocks the wrong
+  action instead of relying on my recall.
 
 ## Token / cost discipline
 
