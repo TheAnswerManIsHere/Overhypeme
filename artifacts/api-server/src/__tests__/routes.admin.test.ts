@@ -35,6 +35,8 @@ import { like, eq } from "drizzle-orm";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { hashFactText } from "../lib/enrichmentVersioning.js";
+import { APPROVED_FACT_TEXT_EDIT_PHRASE } from "@workspace/api-zod";
 
 
 const USER_PREFIX = "troutesadmin-";
@@ -404,11 +406,22 @@ describe("PATCH /admin/facts/:id", () => {
   });
 
   it("normalizes text and recomputes canonicalText/splitTokenIndex/hasPronouns from the normalized text", async () => {
-    const factId = await createTestFact(`${FACT_PREFIX}${randomUUID()} original text`);
+    // A live fact is protected, so a text change now requires the confirmation
+    // envelope (approved-fact-text lock). Normalization/derived-metadata is the
+    // same on the confirmed path.
+    const original = `${FACT_PREFIX}${randomUUID()} original text`;
+    const factId = await createTestFact(original);
     const res = await request(makeApp())
       .patch(`/admin/facts/${factId}`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: "{Subj} keeps it locked in {POSS} back yard." });
+      .send({
+        text: "{Subj} keeps it locked in {POSS} back yard.",
+        confirmTextEdit: {
+          phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
+          reason: "UAT: verifying normalization on the confirmed path.",
+          expectedOldTextHash: hashFactText(original),
+        },
+      });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     assert.equal(res.body.fact.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
