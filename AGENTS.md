@@ -45,6 +45,15 @@ For **grammar, token rendering, or tokenizer** work, also read:
 
 - [`docs/ai-context/token-rendering-and-grammar.md`](docs/ai-context/token-rendering-and-grammar.md)
 
+For **adding or changing an export under `lib/api-zod/src/`** (a new schema
+module, a new named export), also read:
+
+- [`docs/ai-context/known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)
+  — codegen rewrites `lib/api-zod/src/index.ts` from a hardcoded list in
+  `lib/api-spec/patch-generated.mjs` on every run; a hand-edit to `index.ts`
+  alone is silently reverted the next time codegen runs (CI's `pretest`
+  included), surfacing as a broad, unrelated-looking wave of test failures.
+
 For **auth, authorization, object/media serving, Stripe/membership grants,
 HTTP headers, or secrets** work, also read:
 
