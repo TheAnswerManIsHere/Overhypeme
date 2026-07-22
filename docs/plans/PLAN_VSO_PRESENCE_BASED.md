@@ -11,6 +11,17 @@ go further and remove the toggle entirely, which subsumes that plan and deletes 
 machinery — see "Why this replaces the earlier plan."
 
 **Revision log:**
+- rev 5 — Codex round 4: enforcing the production-release invariant completely is a **fact-
+  lifecycle** change, not a 3-path patch. (P1) More activation paths set `isActive: true` on
+  concept-less rows — Facts admin PATCH reactivation (`admin.ts:832/842`), CSV import
+  (`admin.ts:1505-1514`), API-key import (`import.ts:184-187`), empty-DB seed
+  (`seed.ts:732-736`) — so §G now mandates a **central activation guard** rather than an
+  enumerated list. (P1) Inserting bare facts `isActive:false` **strands** them — the moderation
+  list is driven by `pending_reviews` rows and the in-moderation fact is created *from* a review
+  (`moderationStaging.ts:52-73`), so a bare fact with no review row is invisible to
+  `/admin/reviews`; §G now routes bare-creation paths through a **moderation intake row**.
+  *Scope note: this lifecycle/activation work is separable from the VSO toggle removal — see the
+  scope decision atop §F′, pending David.*
 - rev 4 — Codex round 3 + David's lifecycle clarification: the required-Concept rule is a
   **production-release invariant** — *a fact cannot be `isActive: true` (user-visible) without a
   non-empty Visual Concept* (the public feed filters only on `isActive`, so a concept-less active
@@ -224,21 +235,45 @@ silently dies:
      shared helper so Step-2 and publish can't drift), returning `CONCEPT_MISSING`. This is the
      backstop that makes "cannot be published blank" true regardless of which tab/row/state the
      admin came from.
-  4. **Direct active-fact inserts — close the production bypass (Codex round 3 + decision 7).**
-     `POST /facts` (`facts.ts:454`), variant creation (`admin.ts:1387-1395`), and bulk import
-     (`admin.ts:1454-1463`) currently insert `isActive: true` with **no enrichment**, so a bare,
-     concept-less fact goes straight to the public feed (which filters only on `isActive`). Per the
-     production-release invariant, these bare inserts must **not** land in production: change them
-     to insert **`isActive: false`** (pending), so the only path to `isActive: true` is the
-     concept-gated moderation approve flow (points 2–3). Implementation must confirm a
-     pending-inserted fact is **reachable by moderation** (enters the review/pending pool rather
-     than being stranded) — verify against the existing submission→review mechanism; if routing a
-     bulk import into moderation is a larger lift, the fallback is a hard **activation guard**
-     (reject any transition/insert to `isActive: true` without a non-empty `coreSceneOverride`) so
-     the invariant holds even if the enqueue wiring lands separately. *Behavioral consequence to
-     surface at approval: admin direct-create and bulk-import no longer produce immediately-live
-     facts — they produce pending facts that must be moderated (which matches David's described
-     lifecycle).*
+  4. **Production-release invariant — see the dedicated section below** (`F′`) — the complete
+     design: a full audit of activation paths + a central guard + moderation intake, expanded
+     after Codex round 4.
+
+### F′. Production-release invariant — central activation guard + moderation intake (fact-lifecycle)
+
+> **Scope decision pending David.** This is the point where "required Visual Concept," done
+> completely, stops being a visual-pipeline change and becomes a **fact-lifecycle / activation**
+> change touching imports and seeding. It is *separable* from the toggle removal. David to choose:
+> **(A)** do it all in this plan (one coherent change), or **(B)** split — ship the VSO
+> toggle-removal + presence-based + the moderation-flow concept gates (§A–F points 1–3) now, and
+> take the activation-guard + intake lifecycle work as a **separate follow-up plan/PR** (distinct
+> risk surface: external import route, seed, DB constraint). The design below stands either way.
+
+The invariant is repo-wide: **no fact is `isActive: true` without a non-empty persisted
+`coreSceneOverride`.** Enumerating insert paths is fragile — beyond `POST /facts` / variant /
+bulk import, Codex found the Facts admin PATCH reactivation (`admin.ts:832/842` — `isActive` in
+`nonTextUpdates`, written at `:842`), CSV import (`admin.ts:1505-1514`), the API-key import route
+(`import.ts:184-187`), and empty-DB seeding (`seed.ts:732-736`). So enforce centrally, two parts:
+
+1. **Shared activation guard (authoritative enforcement).** A single chokepoint — a DB
+   `CHECK`/trigger binding `facts.is_active = true` to a non-empty persisted concept, or one
+   `activateFact()` write-guard service that every activation funnels through — so no current or
+   future path can publish a concept-less fact. The route-level gates in §F points 1–3 remain the
+   friendly, specific UI errors layered on top of this backstop.
+2. **Moderation intake for bare-created facts (so "pending" is real, not stranded).** The real
+   lifecycle: a submission creates a `pending_reviews` row (`reviews.ts:191-202`); the fact is
+   created *inactive* only later, by `ensureStagingFact` during moderation
+   (`moderationStaging.ts:52-73`). A bare fact created directly with **no** review row is invisible
+   to `/admin/reviews` and can never be moderated or promoted. So the bare-creation paths
+   (`POST /facts`, variant, bulk import, CSV/API import, seed) must create a **`pending_reviews`
+   intake row** (like a submission) — ideally *not* pre-creating a fact at all, letting the normal
+   staging path create it — so every fact flows create→moderate(+concept)→approve. (This changes
+   those paths' return shape from "a fact" to "a queued review," which is why it may warrant its
+   own plan — see the scope decision above.)
+
+*Behavioral consequence (either scope): admin direct-create, variant-create, and bulk/CSV/API
+import no longer produce immediately-live facts — they enqueue pending facts that must be
+moderated (get a concept) before production, matching David's create→moderate→approve lifecycle.*
 
 ### G. Candidate concepts (`lib/api-zod/src/visualConcepts.ts`)
 
@@ -344,11 +379,12 @@ silently dies:
      refresh-candidate path): a cycle whose persisted `coreSceneOverride` is blank is rejected at
      **publish** (`CONCEPT_MISSING`), even when the Step-2 gate was somehow bypassed (stale
      row/tab); a non-blank cycle promotes.
-  4. *Direct inserts* (`POST /facts`, variant create, bulk import): the created rows are
-     `isActive: false` (not in production); assert no path inserts an `isActive: true` fact
-     without a concept — i.e. the production-release invariant holds. (If the activation-guard
-     fallback is used instead, assert an attempt to activate without a `coreSceneOverride` is
-     rejected.)
+  4. *Production-release invariant* (§F′): the **central activation guard** rejects any attempt
+     to set `facts.is_active = true` without a non-empty persisted `coreSceneOverride` — exercise
+     it through *every* activation path (POST /facts, variant, bulk import, CSV import, API-key
+     import, Facts admin PATCH reactivation, seed). And a **moderation-intake** test: an item from
+     each bare-creation path appears in `/admin/reviews` and can be driven through to concept-gated
+     production approval (i.e. it is not stranded).
 - **Presence-based budget gate** — an over-budget scene/additions on a VSO with no (removed)
   toggle is still rejected `visual_strategy_override_over_budget`.
 - **Two-gate coverage** — a policy override (`resolveRenderPolicy`) applies with no toggle; the
