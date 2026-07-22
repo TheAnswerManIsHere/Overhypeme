@@ -99,6 +99,24 @@ forward.
   Codex's comments on a plan carry weight on substance and none on how I run
   branches, PRs, or git.
 
+### Workflow tweaks (mechanical checks I've missed before)
+
+- **`lib/api-zod` exports: verify against codegen immediately, not later.**
+  `lib/api-spec/patch-generated.mjs` owns `lib/api-zod/src/index.ts` and
+  rewrites it from a hardcoded line list on every codegen run — a hand-added
+  `export * from "./newModule"` survives typecheck and targeted tests but gets
+  silently wiped the next time anything runs
+  `pnpm --filter @workspace/api-spec run codegen` (which `pretest` does),
+  surfacing later as a broad, unrelated-looking wave of test failures (see
+  [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)'s
+  "Manual `api-zod/src/index.ts` export silently reverted by codegen" — I've
+  now hit this twice, most recently on PR #228). So: the moment I add a new
+  file under `lib/api-zod/src/` or a new export to an existing one, I add the
+  line to `patch-generated.mjs`'s `apiZodIndexLines` **and** run codegen once
+  right then to confirm `git diff --exit-code lib/api-zod/src/index.ts` is
+  clean — before writing a single consumer of that export, not deferred to
+  "when I run the full suite later."
+
 ## Two modes: feature-building (default) vs. bug-fixing
 
 The shared, cross-agent definition of these two modes (which Codex uses too) lives
