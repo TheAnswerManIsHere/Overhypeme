@@ -11,6 +11,10 @@ go further and remove the toggle entirely, which subsumes that plan and deletes 
 machinery — see "Why this replaces the earlier plan."
 
 **Revision log:**
+- rev 7 — Codex round 5 (non-blocking): the docs pass must also rewrite the stale "Turn ON the
+  Visual Strategy Override" worked example in `fieldDocs/classification.ts` (it regenerates
+  `ADMIN_FIELD_REFERENCE.md`), not just `visualStrategy.ts`. Round 5 otherwise found no
+  substantive objections on the scoped-down Head-1 plan → converged.
 - rev 6 — David's scope call: **SPLIT.** This plan (Head 1) is now scoped to the VSO toggle
   removal + presence-based activation + the required-Concept gates **within the moderation flow**
   (§F points 1–3). The system-wide production-release enforcement (central activation guard) and
@@ -406,9 +410,12 @@ for the new serialized shape; assert the hash no longer depends on a (removed) `
 
 - `artifacts/overhype-me/src/components/admin/fieldDocs/visualStrategy.ts:244, :263-265` — remove
   the "enabled toggle is the master switch" prose + the "disable the toggle" worked example;
-  state presence-based activation + required Visual Concept. Regenerate `docs/ADMIN_FIELD_REFERENCE.md`
-  via `pnpm --filter @workspace/overhype-me run generate:field-docs` (`:961, :984-985` update;
-  `fieldDocs.test.ts:143-146` sync check stays green).
+  state presence-based activation + required Visual Concept. **Also (Codex round 5)** rewrite the
+  stale "Turn ON the Visual Strategy Override" worked example in
+  `artifacts/overhype-me/src/components/admin/fieldDocs/classification.ts` to presence-based
+  policy-field wording (it also feeds `ADMIN_FIELD_REFERENCE.md`). Then regenerate
+  `docs/ADMIN_FIELD_REFERENCE.md` via `pnpm --filter @workspace/overhype-me run generate:field-docs`
+  (`:961, :984-985` update; `fieldDocs.test.ts:143-146` sync check stays green).
 - `docs/ai-context/visual-pipeline.md:187-220` — presence-based activation; Visual Concept
   required + single-card surface.
 - `docs/ai-context/moderation-workflow.md` — reconcile the Step-2 concept-approval gate (no
