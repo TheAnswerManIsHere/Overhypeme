@@ -405,7 +405,6 @@ describe("buildImagePromptUserMessage — moderator core-scene directive", () =>
   }
   const OV = (partial: Record<string, unknown> = {}) => ({
     version: 1,
-    enabled: true,
     requiredVisualDetails: [],
     forbiddenVisualDetails: [],
     roleBindings: [],
@@ -436,9 +435,9 @@ describe("buildImagePromptUserMessage — moderator core-scene directive", () =>
     assert.doesNotMatch(msg, /\{NAME\}|\{SUBJ\}|\{POSS\}/);
   });
 
-  it("omits the directive when the override is disabled, empty, or absent", () => {
+  it("omits the directive when the override's scene is empty/blank or absent (presence-based)", () => {
     for (const input of [
-      withOverride(OV({ enabled: false, coreSceneOverride: "David rides a duck." })),
+      withOverride(OV({ coreSceneOverride: "" })),
       withOverride(OV({ coreSceneOverride: "   " })),
       withOverride(undefined),
     ]) {
@@ -476,7 +475,7 @@ describe("buildImagePromptUserMessage — moderator bubble staging context", () 
     } as unknown as ImagePromptGenerationInput;
   }
   const OV = (partial: Record<string, unknown> = {}) => ({
-    version: 1, enabled: true,
+    version: 1,
     requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
     compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
     ...partial,
@@ -500,9 +499,8 @@ describe("buildImagePromptUserMessage — moderator bubble staging context", () 
     assert.match(msg, /do not describe balloons, tails, or bubble text/);
   });
 
-  it("omits the block when the override is disabled, has no bubbles, or only incomplete rows", () => {
+  it("omits the block when there are no bubbles or only incomplete rows (presence-based)", () => {
     for (const input of [
-      withOverride(OV({ enabled: false, bubbles: [{ type: "speech", entity: "subject", text: "Hi." }] })),
       withOverride(OV({ bubbles: [] })),
       withOverride(OV({ bubbles: [{ type: "speech", entity: "", text: "Hi." }, { type: "speech", entity: "subject", text: "  " }] })),
       withOverride(undefined),

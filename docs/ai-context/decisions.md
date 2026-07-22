@@ -13,6 +13,53 @@
 
 ---
 
+### 2026-07-22 · Visual Strategy Override is presence-based (no enable toggle); Visual Concept is required to save AND to release — one card is its only surface
+- **Decision:** Three linked changes to the moderator Visual Strategy Override (VSO):
+  - **Presence-based activation — the `enabled` boolean is retired.** Every VSO
+    sub-field applies on its own whenever it is non-empty; there is no master
+    switch. The two compiler gates that read `ov?.enabled` (`activeOverride()` in
+    `nanoBanana2.ts`, `resolveRenderPolicy()` in `imagePromptGeneration.ts`) now do
+    a plain presence check. **Keystone invariant:** an all-empty override compiles
+    byte-identically to the old `null`/absent override (every consumer no-ops on
+    empty). No migration — Zod strips the legacy `enabled` key from stored rows on
+    parse (pre-launch, and David is re-doing all facts anyway).
+  - **The Visual Concept (`coreSceneOverride`) is REQUIRED and blocking.** A blank
+    concept blocks the admin **save** itself — the enrichment PATCH and the
+    review-candidate PATCH reject it `400 visual_concept_required` — **and** blocks
+    **production approval** (`CONCEPT_MISSING` on approve-visual-concept and the
+    first-time/refresh production-approval paths). This **supersedes D1** of the
+    "mandatory human gate" entry below: the gate no longer keys on a *saved,
+    **enabled**, non-empty* concept — `enabled` is gone, and the requirement now
+    also bites at save time, not only at approval. Rationale (David, verbatim): "in
+    order for the fact to be released into production, it must have a Visual Concept
+    so that the image and video engines have something to work with when we make
+    memes."
+  - **One editing surface.** The core-scene field was removed from the Advanced
+    Options `VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now
+    the single scene-editing surface, on both the Moderation Step-2 flow and the
+    Facts page (Option 1 — David dislikes the duplicate/confusing surface).
+- **Why:** The enable toggle added a confusing "populated but off" state with no
+  real value — presence is a clearer, self-evident model. Requiring the concept at
+  save (not only at approval) makes "a fact can't be released without something for
+  the engines to render" a hard, early invariant.
+- **Consequence accepted:** partial/hashtag-only admin saves that touch enrichment
+  now require a non-empty concept — David explicitly accepted this blast radius.
+- **Scope note (fast-follow):** the system-wide *activation guard* (no
+  `isActive:true` without a concept) and the *ingestion→Stage-1 routing* principle
+  (below) are a deferred pre-launch fast-follow ("Head 2"), not this change.
+- **Ingestion principle (recorded now, David verbatim):** "there should only be two
+  ways that a fact gets into the system. The first is the manual path where a user
+  submits a fact. The second is a bulk import. In both those cases, the ingestion of
+  the fact should put it on stage 1 of the moderation flow where it needs to be
+  triaged, then enriched, then activated. If we ever have a future way of ingesting
+  a fact (API for example) then it should also just be filling the front of that
+  production pipeline."
+- **Reference:** this PR (VSO presence-based + required concept, Head 1); see
+  [`visual-pipeline.md`](./visual-pipeline.md) and
+  [`moderation-workflow.md`](./moderation-workflow.md).
+- **Revisit if:** the two ways a fact enters the system change, or the concept is
+  later split per-scenario (as D1's revisit note already contemplates).
+
 ### 2026-07-22 · Speech & thought bubbles: a dedicated 900-char budget pool, funded by raising the prompt ceiling (not by shrinking an existing reserve)
 - **Decision:** moderator-authored (and AI-proposed) speech/thought bubbles get
   their **own** rendered-length budget pool, `BUBBLE_DIRECTIVES_RENDERED_MAX =
@@ -421,7 +468,9 @@
   - **D1** — gag approval requires a **saved, enabled, non-empty**
     `coreSceneOverride` on the cycle's effective enrichment (not just an AI
     candidate card, not a browser-only draft; the server checks the persisted
-    value).
+    value). *(Partially superseded 2026-07-22: `enabled` retired — activation is
+    presence-based — and the non-empty concept is now also required at **save**
+    time, not only at approval. See the presence-based VSO entry at the top.)*
   - **D2** — **no hard-cancel** of in-flight renders on a Step-3→Step-2 bounce;
     they finish but are superseded, and re-approval **force-creates a fresh batch**.
   - **D3** — **no back-migration**: pre-deploy `production_review` rows stay at

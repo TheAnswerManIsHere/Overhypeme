@@ -26,6 +26,7 @@ import {
   type FactEnrichment,
   type PrimaryArchetype,
 } from "./taxonomy";
+import { hasRenderableVisualStrategyOverrideContent } from "./visualStrategyOverride";
 
 // ─── Override record shape ──────────────────────────────────────────────────
 
@@ -251,7 +252,9 @@ export function resolveEnrichment(input: ResolveEnrichmentInput): ResolveEnrichm
       baselineChangedPaths,
       invalidPaths,
       crossFieldInvalid,
-      hasVisualStrategyOverride: Boolean(visualPromptStrategyOverride?.enabled),
+      hasVisualStrategyOverride: visualPromptStrategyOverride
+        ? hasRenderableVisualStrategyOverrideContent(visualPromptStrategyOverride)
+        : false,
     },
   };
 }

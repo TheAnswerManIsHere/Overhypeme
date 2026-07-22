@@ -223,7 +223,7 @@ describe("buildVisualConceptsUserMessage — no runtime bubble leakage", () => {
       enrichment: {
         ...base.enrichment,
         visualPromptStrategyOverride: {
-          version: 1, enabled: true,
+          version: 1,
           requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
           compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
           bubbles: [{ type: "speech", entity: "subject", text: "RUNTIME BUBBLE STRING" }],
@@ -328,10 +328,9 @@ describe("candidate bubbles — sanitize + pickability + pick helper", () => {
     assert.equal(isCandidateConceptPickable(v1), true);
   });
 
-  it("withCandidateConceptDraft preserves unrelated fields, replaces scene + bubbles, auto-enables", () => {
+  it("withCandidateConceptDraft preserves unrelated fields, replaces scene + bubbles (presence-based, no enable flip)", () => {
     const existing = {
       ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-      enabled: false,
       requiredVisualDetails: ["a glowing scoreboard"],
       roleBindings: [{ entity: "the father", visualRole: "standing in the doorway" }],
       bubbles: [{ type: "thought" as const, entity: "subject", text: "old bubble" }],
@@ -344,7 +343,9 @@ describe("candidate bubbles — sanitize + pickability + pick helper", () => {
       bubbles: [{ type: "speech", entity: "subject", text: "You're the man of the house now.", tokenValid: true }],
     };
     const next = withCandidateConceptDraft(existing, candidate);
-    assert.equal(next.enabled, true);
+    // No `enabled` field exists anymore — presence-based activation means the scene +
+    // bubbles apply because they're non-empty; unrelated fields keep applying too.
+    assert.equal("enabled" in next, false);
     assert.equal(next.coreSceneOverride, "{NAME} hugs his father in a doorway.");
     assert.deepEqual(next.bubbles, [{ type: "speech", entity: "subject", text: "You're the man of the house now." }]);
     assert.deepEqual(next.requiredVisualDetails, ["a glowing scoreboard"], "unrelated fields preserved");

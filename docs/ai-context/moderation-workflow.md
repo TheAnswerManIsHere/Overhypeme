@@ -99,6 +99,11 @@ description of how the gag works (see [`visual-pipeline.md`](./visual-pipeline.m
   or sends it back to prep. (A first-time submission is never rejected here —
   see **Rejection paths** below.)
 
+The Visual Concept is edited in the prominent **`VisualConceptCard`** (the single
+scene-editing surface — it was removed from the Advanced Options panel), and it is
+**required**: a blank concept blocks the enrichment/candidate save itself
+(`400 visual_concept_required`), not just the gag approval.
+
 **Visual Ideas are a blocking prep artifact here**, not best-effort: the gag
 gate requires a saved, non-empty `visualPromptStrategyOverride.coreSceneOverride`
 **and** terminal-OK generated ideas (`facts.visual_concept_status === "ok"`).

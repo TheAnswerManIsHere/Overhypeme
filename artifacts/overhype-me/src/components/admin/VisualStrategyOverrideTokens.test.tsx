@@ -79,7 +79,7 @@ describe("insertTokenIntoTextControl", () => {
 // ── panel wiring ──────────────────────────────────────────────────────────────
 
 function enabledOverride(partial: Partial<VisualPromptStrategyOverride> = {}): VisualPromptStrategyOverride {
-  return { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, ...partial };
+  return { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...partial };
 }
 
 /** Render the panel as a controlled host so chip clicks flow back into state. */
@@ -173,8 +173,10 @@ describe("VisualStrategyOverridePanel — token chips", () => {
         disabled
       />,
     );
-    const core = screen.getByTestId("vso-core-scene") as HTMLTextAreaElement;
-    expect(core.disabled).toBe(true);
+    // The core-scene field lives on VisualConceptCard now, not the panel; the
+    // Moderator Intent textarea is the panel's own always-present text control.
+    const intent = screen.getByTestId("vso-moderator-intent") as HTMLTextAreaElement;
+    expect(intent.disabled).toBe(true);
     for (const chip of screen.getAllByTestId("vso-token-chip")) {
       expect((chip as HTMLButtonElement).disabled).toBe(true);
     }
@@ -183,21 +185,20 @@ describe("VisualStrategyOverridePanel — token chips", () => {
     }
   });
 
-  it("PR2: fieldErrors surfaces a tokenize error beside the coreSceneOverride field and a roleBindings.entity row", () => {
+  it("PR2: fieldErrors surfaces a tokenize error on a roleBindings.entity row", () => {
+    // The coreSceneOverride tokenize error now surfaces on VisualConceptCard
+    // (see VisualConceptCard.test.tsx) — the panel owns the remaining fields.
     render(
       <VisualStrategyOverridePanel
         value={enabledOverride({
-          coreSceneOverride: "a broken scene",
           roleBindings: [{ entity: "{NAME}", visualRole: "role" }],
         })}
         onChange={() => {}}
         fieldErrors={{
-          coreSceneOverride: "unbalanced token",
           "roleBindings[0].entity": "personalization tokens are not allowed here",
         }}
       />,
     );
-    expect(screen.getByText("unbalanced token")).toBeTruthy();
     expect(screen.getByText("personalization tokens are not allowed here")).toBeTruthy();
   });
 

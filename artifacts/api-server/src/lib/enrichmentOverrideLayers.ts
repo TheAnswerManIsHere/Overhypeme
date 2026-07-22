@@ -17,6 +17,7 @@ import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import {
   isOverridablePath,
+  hasRenderableVisualStrategyOverrideContent,
   overrideValuesEqual,
   pathToField,
   resolveEnrichment,
@@ -181,7 +182,9 @@ export function serializeResolved(s: {
       overrideSummary: {
         hasOverrides: false, overriddenPaths: [], baselineChangedPaths: [],
         invalidPaths: [], crossFieldInvalid: false,
-        hasVisualStrategyOverride: Boolean(s.visualPromptStrategyOverride?.enabled),
+        hasVisualStrategyOverride: s.visualPromptStrategyOverride
+          ? hasRenderableVisualStrategyOverrideContent(s.visualPromptStrategyOverride)
+          : false,
       },
       enrichmentStatus: s.enrichmentStatus,
     };

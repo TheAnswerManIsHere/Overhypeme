@@ -1068,6 +1068,12 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
+      // Required Visual Concept (blocking) — same invariant as the whole-blob
+      // PATCH: a fact can't be saved without one. This is a separate tracked-
+      // field write path (PUT /enrichment-overrides), so it needs its own gate.
+      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, error: "visual_concept_required" };
+      }
       const aiDerived = state.aiDerived;
 
       // Shared merge core: validation, reset-when-equal-AI, acknowledge
@@ -1121,6 +1127,11 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
+      // Required Visual Concept (blocking) — same invariant as the PUT handler
+      // above; a reset is still a save and must not bypass the gate.
+      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, error: "visual_concept_required" };
+      }
       const aiDerived = state.aiDerived;
 
       const result = applyOverrideReset({ layers: { ...state, aiDerived }, path: path as OverridablePath | null });
@@ -1176,8 +1187,9 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // engine prompt budget — before it can silently drop policy guardrails at
   // compile. Legacy stored content stays readable; this gates saves only.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso?.enabled) {
-    // Additions + bubbles are measured through the REAL compiler (wrapping
+  if (submittedVso) {
+    // Presence-based (the enable toggle was retired): validate whenever a VSO is
+    // submitted. Additions + bubbles are measured through the REAL compiler (wrapping
     // included), not a raw field sum, so a save the gate accepts can't overflow
     // at render. One shared preflight with the review-candidate PATCH and
     // candidate-concept pickability.
@@ -1211,6 +1223,17 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
       });
       return;
     }
+  }
+
+  // Required Visual Concept (blocking): a valid admin-authored enrichment save must carry
+  // a non-empty Visual Concept — including when the override is absent entirely. A fact
+  // cannot reach production without a scene for the image/video engines; this is the
+  // admin-save half of that gate (approval gates are enforced separately). Placed after the
+  // structural checks (404 / write-freeze / tracked-field) so it never shadows them, and
+  // after — automated enrichment jobs write through the worker, not this admin route.
+  if (!submittedVso?.coreSceneOverride?.trim()) {
+    res.status(400).json({ error: "visual_concept_required" });
+    return;
   }
 
   // Apply only the non-tracked edits. suggestedHashtags is an AI field edited in

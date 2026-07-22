@@ -26,7 +26,6 @@ import {
 function makeOverride(partial: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     version: 1,
-    enabled: true,
     requiredVisualDetails: [],
     forbiddenVisualDetails: [],
     roleBindings: [],
@@ -38,10 +37,14 @@ function makeOverride(partial: Record<string, unknown> = {}): Record<string, unk
 }
 
 describe("visualPromptStrategyOverrideSchema", () => {
-  it("parses a valid override and defaults the lists", () => {
-    const res = visualPromptStrategyOverrideSchema.safeParse({ version: 1, enabled: false });
+  it("parses a valid override and defaults the lists (no enable field — presence-based)", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse({ version: 1 });
     assert.equal(res.success, true);
     if (res.success) assert.deepEqual(res.data.requiredVisualDetails, []);
+    // The retired `enabled` key is stripped (unknown) rather than required.
+    const withStale = visualPromptStrategyOverrideSchema.safeParse({ version: 1, enabled: false });
+    assert.equal(withStale.success, true);
+    if (withStale.success) assert.equal("enabled" in withStale.data, false);
   });
 
   it("rejects an unknown subject-realization mode (hard enum failure)", () => {
@@ -227,14 +230,14 @@ describe("hasRenderableVisualStrategyOverrideContent", () => {
 });
 
 describe("resolveRenderPolicy", () => {
-  it("returns the default when there is no override or it is disabled", () => {
+  it("returns the default when there is no override or it has no policy fields (presence-based)", () => {
     assert.deepEqual(resolveRenderPolicy(null), DEFAULT_RENDER_POLICY);
     assert.deepEqual(resolveRenderPolicy({}), DEFAULT_RENDER_POLICY);
-    const disabled = makeOverride({ enabled: false }) as unknown as VisualPromptStrategyOverride;
-    assert.deepEqual(resolveRenderPolicy({ visualPromptStrategyOverride: disabled }), DEFAULT_RENDER_POLICY);
+    const noPolicy = makeOverride({}) as unknown as VisualPromptStrategyOverride;
+    assert.deepEqual(resolveRenderPolicy({ visualPromptStrategyOverride: noPolicy }), DEFAULT_RENDER_POLICY);
   });
 
-  it("applies the moderator text + violence overrides when enabled", () => {
+  it("applies the moderator text + violence overrides when present", () => {
     const ov = makeOverride({
       supportingTextPolicyOverride: { mode: "require", guidance: "show the title" },
       violencePolicyOverride: { mode: "allow", intensity: "strong", guidance: "visible aftermath" },

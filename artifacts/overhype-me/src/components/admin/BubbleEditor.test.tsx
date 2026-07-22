@@ -17,7 +17,6 @@ import { BubbleEditor, withBubbles } from "./BubbleEditor";
 
 const OV = (partial: Partial<VisualPromptStrategyOverride> = {}): VisualPromptStrategyOverride => ({
   ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  enabled: true,
   ...partial,
 });
 const bubble = (partial: Partial<VisualStrategyBubble> = {}): VisualStrategyBubble => ({
@@ -27,14 +26,12 @@ const bubble = (partial: Partial<VisualStrategyBubble> = {}): VisualStrategyBubb
   ...partial,
 });
 
-describe("withBubbles", () => {
-  it("auto-enables the override when a row carries content, never auto-disables", () => {
-    const enabled = withBubbles(undefined, [bubble()]);
-    expect(enabled.enabled).toBe(true);
-    const alreadyEnabled = withBubbles(OV(), []);
-    expect(alreadyEnabled.enabled).toBe(true);
-    const untouched = withBubbles({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE }, [{ type: "speech", entity: "", text: "" }]);
-    expect(untouched.enabled).toBe(false);
+describe("withBubbles (presence-based — no enable field)", () => {
+  it("sets the bubbles and preserves every other field, with no enable side effect", () => {
+    const next = withBubbles({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "a scene" }, [bubble()]);
+    expect("enabled" in next).toBe(false);
+    expect(next.bubbles).toEqual([bubble()]);
+    expect(next.coreSceneOverride).toBe("a scene");
   });
 });
 

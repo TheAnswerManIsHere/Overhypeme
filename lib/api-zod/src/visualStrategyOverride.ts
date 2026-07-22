@@ -104,7 +104,6 @@ const violencePolicyOverrideSchema = z.object({
 // token transform/refine layered on top in `visualPromptStrategyOverrideSchema`.
 const visualPromptStrategyOverrideBase = z.object({
   version: z.literal(VISUAL_STRATEGY_OVERRIDE_VERSION),
-  enabled: z.boolean(),
   moderatorIntent: z.string().optional(),
   /**
    * Moderator-authored CORE SCENE ("describe the picture"). When non-empty it
@@ -475,10 +474,10 @@ export function hasRenderableVisualStrategyOverrideContent(
   return collectRenderedTextEntries(ov).some(({ value }) => value.trim().length > 0);
 }
 
-/** A disabled-but-present override scaffold (all lists empty). */
+/** An empty override scaffold (all lists empty). Under presence-based activation
+ *  every field applies only when non-empty, so an empty scaffold is inert. */
 export const EMPTY_VISUAL_STRATEGY_OVERRIDE: VisualPromptStrategyOverride = {
   version: VISUAL_STRATEGY_OVERRIDE_VERSION,
-  enabled: false,
   requiredVisualDetails: [],
   forbiddenVisualDetails: [],
   roleBindings: [],

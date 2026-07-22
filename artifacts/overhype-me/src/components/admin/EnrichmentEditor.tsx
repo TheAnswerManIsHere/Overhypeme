@@ -1181,11 +1181,10 @@ export const ROLE_VISUAL_ROLE_MAX_CHARS = 300;
 
 /**
  * Apply a moderator-typed visual concept (core scene) to the override blob.
- * Canonicalizes name tokens and AUTO-ENABLES the override when the scene is
- * non-empty (typing a picture description must take effect without hunting for
- * the toggle) — but never auto-disables on clear, since other override fields
- * may be in use. Shared by the prominent VisualConceptCard and the panel so
- * the two surfaces can't drift.
+ * Canonicalizes name tokens. Presence-based activation (the enable toggle was
+ * retired): the scene applies whenever it is non-empty, so there is no side
+ * effect to flip — every other override field is preserved untouched. Shared by
+ * the prominent VisualConceptCard (now the single scene surface).
  */
 export function withCoreSceneOverride(
   ov: VisualPromptStrategyOverride | undefined,
@@ -1193,11 +1192,7 @@ export function withCoreSceneOverride(
 ): VisualPromptStrategyOverride {
   const base = ov ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const canonical = canonicalizeNameToken(text);
-  return {
-    ...base,
-    coreSceneOverride: canonical,
-    enabled: base.enabled || canonical.trim().length > 0,
-  };
+  return { ...base, coreSceneOverride: canonical };
 }
 
 /**
@@ -1257,9 +1252,12 @@ export function VisualStrategyOverridePanel({
     }
   };
 
-  // Advisory client-side warnings (approval is the hard gate).
+  // Advisory client-side warnings (approval is the hard gate). Presence-based:
+  // each warning fires when its relevant field is populated but incomplete —
+  // there is no enable gate anymore, and no "enabled but empty" warning (an
+  // empty field simply doesn't render).
   const warnings: string[] = [];
-  if (ov.enabled) {
+  {
     const tokenErr = firstOverrideTokenError(ov);
     if (tokenErr) warnings.push(`Invalid token: ${tokenErr}. Use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens only.`);
     if (ov.roleBindings.some((b) => !b.entity.trim() || !b.visualRole.trim())) {
@@ -1271,9 +1269,6 @@ export function VisualStrategyOverridePanel({
     if (ov.supportingTextPolicyOverride?.mode === "require" && !ov.supportingTextPolicyOverride.guidance?.trim()) {
       warnings.push('Supporting-text "require" needs guidance describing the required text.');
     }
-    if (!hasRenderableVisualStrategyOverrideContent(ov)) {
-      warnings.push("Override is enabled but has no renderable content — it will have no effect on the prompt.");
-    }
   }
 
   return (
@@ -1284,20 +1279,11 @@ export function VisualStrategyOverridePanel({
             Visual Strategy Override
             <FieldInfo docKey="vso.panel" />
           </p>
-          <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt. Use {"{NAME}"}, {"{NAME_POSSESSIVE}"}, and pronoun tokens — never a real name.</p>
+          <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt — each field applies whenever it is filled in. Use {"{NAME}"}, {"{NAME_POSSESSIVE}"}, and pronoun tokens — never a real name.</p>
         </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(value ? { ...ov, enabled: !ov.enabled } : { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true })}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${ov.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
-          aria-label="Toggle override"
-        >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${ov.enabled ? "translate-x-6" : "translate-x-1"}`} />
-        </button>
       </div>
 
-      {ov.enabled && (
+      {(
         <div className="space-y-3" onFocusCapture={onFieldFocusCapture}>
           {warnings.length > 0 && (
             <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-2 space-y-1">
@@ -1333,29 +1319,15 @@ export function VisualStrategyOverridePanel({
           </div>
           {chipNote && <p className="text-[11px] text-muted-foreground" data-testid="vso-token-note">{chipNote}</p>}
 
-          <div>
-            <FieldLabel docKey="vso.coreSceneOverride" />
-            <textarea
-              className={`${SELECT_CLASS} resize-none`}
-              rows={3}
-              data-token-insert-target="true"
-              data-testid="vso-core-scene"
-              maxLength={CORE_SCENE_MAX_CHARS}
-              disabled={disabled}
-              value={ov.coreSceneOverride ?? ""}
-              onChange={(ev) => set({ coreSceneOverride: canonicalizeNameToken(ev.target.value) })}
-            />
-            <p className="text-[10px] text-muted-foreground text-right">
-              {(ov.coreSceneOverride ?? "").length}/{CORE_SCENE_MAX_CHARS}
-            </p>
-            <FieldTokenizeError message={fieldErrors?.["coreSceneOverride"]} />
-          </div>
+          {/* The Visual Concept (core scene) is edited in the prominent
+              VisualConceptCard — the single scene surface — not here. */}
 
           <div>
             <FieldLabel docKey="vso.moderatorIntent" />
             <textarea
               className={`${SELECT_CLASS} resize-none`}
               rows={2}
+              data-testid="vso-moderator-intent"
               disabled={disabled}
               value={ov.moderatorIntent ?? ""}
               onChange={(ev) => set({ moderatorIntent: ev.target.value })}

@@ -79,7 +79,7 @@ describe("resolveEnrichment", () => {
 
   it("carries the preserved visual override onto effective verbatim", () => {
     const visual = {
-      version: 1 as const, enabled: true,
+      version: 1 as const,
       requiredVisualDetails: ["a glowing aura"], forbiddenVisualDetails: [],
       roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
     };
