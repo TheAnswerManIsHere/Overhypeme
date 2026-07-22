@@ -11,6 +11,11 @@ go further and remove the toggle entirely, which subsumes that plan and deletes 
 machinery — see "Why this replaces the earlier plan."
 
 **Revision log:**
+- rev 3 — Codex round 2: P2 — the Step-3 client affordance `canApproveProduction`
+  (`moderation.tsx:723`, used `:1349/:1356/:1370`) checks enrichment validity + hashtags but
+  **not** the scene, so after rev 2's server publish gate a stale blank-scene row would show an
+  enabled Approve/Promote button that then fails server-side. Add the non-empty-scene check to
+  the affordance + locked copy + test so UI-required matches the final gate.
 - rev 2 — Codex round 1 (PR #233): P1 — the required-scene admin gate must reject a blank scene
   **including when the VSO is absent** (it's optional; a no-override save slipped through). P1 —
   the required-scene gate must also cover the **final production-approval** paths
@@ -237,6 +242,14 @@ silently dies:
 - **`moderation.tsx`**:
   - **`:1125-1150` (Step 3 / Test Renders)** — add `VisualConceptCard` (before `{DraftSaveBar}`)
     so the scene is editable where renders are evaluated.
+  - **`:723` `canApproveProduction` (Codex round 2)** — this Step-3 production affordance
+    (`isApprovable(enrichment) && (isRefreshCycle || finalHashtags.length > 0)`, used at the
+    Approve/Promote buttons `:1349/:1356` and the disabled-note `:1370`) must **also** require a
+    non-empty saved scene (`&& !!enrichment?.visualPromptStrategyOverride?.coreSceneOverride?.trim()`),
+    so a stale/pre-existing `production_review` row with a blank scene shows a *disabled*
+    Approve/Promote (matching the new server publish gate in §F point 3) instead of an enabled
+    button that fails server-side. Add the missing-concept reason to the disabled-note copy
+    (`:1370-1372`).
   - **`:527-529`** `coreSceneDraft` — drop the `?.enabled ?` gate.
   - **`:728-729`** `draftHasConcept` — drop `conceptOverride?.enabled &&`; gate on non-empty
     scene only (drives `canApproveGag`, `canSaveConceptAndContinue`, `ideasStaleButSaved`,
@@ -311,6 +324,9 @@ silently dies:
   `enabledOverride()` helper + panel-render cases) — the panel body renders without a toggle.
 - Add: the card shows a **required** state and **blocks** save when blank (client affordance);
   Facts + Step 3 render the card; read-only mode disables the card and its `onChange` is guarded.
+- Add (Codex round 2): with a blank saved scene, the **Step-3 Approve/Promote button is
+  disabled** (`canApproveProduction` false) with the missing-concept note shown — the client
+  affordance matches the server publish gate; a non-blank scene enables it.
 
 **Hashing:** update `factRenderScenarios.test.ts` (and any inputHash snapshot) expected hashes
 for the new serialized shape; assert the hash no longer depends on a (removed) `enabled`.
