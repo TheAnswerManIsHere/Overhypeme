@@ -31,14 +31,23 @@ PRs") — the discipline stays visible, the report stays short.
 
 ## 2. Production errors (Sentry)
 
-- If Sentry API access is configured (a `SENTRY_AUTH_TOKEN` available in
-  the environment), pull the week's new/regressed issues for the project
-  and summarize: top issues by event count, anything new since last week,
-  anything payment- or auth-path-touching (those get flagged loudest).
-- If no API access is configured, say exactly that in the report and give
-  David the one-liner ask: open the Sentry dashboard → Issues → sort by
-  "New" for the last 7 days, and paste anything that looks alarming into
-  the chat for triage. Never silently skip the section.
+The API read needs **two** things, not one: a `SENTRY_AUTH_TOKEN` in the
+environment **and** network egress to `sentry.io`. The Claude Code
+environment's network policy may block the host even when the token is
+present — a `403` on the proxy CONNECT tunnel is a policy denial, not a
+token problem, and per the environment README it is reported, never
+retried.
+
+- **If both hold** (token present AND `sentry.io` reachable), pull the
+  week's new/regressed issues for the project and summarize: top issues by
+  event count, anything new since last week, anything payment- or
+  auth-path-touching (those get flagged loudest).
+- **Otherwise fall back to the manual path** — whether the token is
+  missing, the host is blocked by network policy, or the call errors. Say
+  exactly which of the three it was, then give David the one-liner ask:
+  open the Sentry dashboard → Issues → sort by "New" for the last 7 days,
+  and paste anything that looks alarming into the chat for triage. Never
+  silently skip the section, and never retry a 403 policy denial.
 
 ## 3. CI health on main
 
