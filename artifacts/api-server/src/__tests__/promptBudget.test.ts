@@ -58,7 +58,7 @@ describe("measureRequiredPromptBudget — the §21 proof", () => {
 });
 
 describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
-  const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true });
+  const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE });
 
   it("accepts an empty / small override", () => {
     const r = validateVisualStrategyOverrideForSave(base(), 0, 0);
@@ -97,11 +97,10 @@ describe("validateVisualStrategyOverrideForSave (§10.2 / §10.3)", () => {
 });
 
 describe("measureModeratorAdditionsEmission — compiler-measured, wrapping included (Codex P1)", () => {
-  const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true });
+  const base = (): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE });
 
-  it("an empty (or disabled) override adds nothing", () => {
+  it("an empty override adds nothing (presence-based — no content, no emission)", () => {
     assert.equal(measureModeratorAdditionsEmission(base()), 0);
-    assert.equal(measureModeratorAdditionsEmission({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: false }), 0);
   });
 
   it("counts the compiler wrapping the naive raw-field sum misses (this is the bug being fixed)", () => {
@@ -142,7 +141,7 @@ describe("bubble directives pool", () => {
   const bubble = (text: string, entity = "subject", type: "speech" | "thought" = "speech") =>
     ({ type, entity, text });
   const withBubbles = (bubbles: unknown[]): VisualPromptStrategyOverride =>
-    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, bubbles } as VisualPromptStrategyOverride);
+    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, bubbles } as VisualPromptStrategyOverride);
 
   it("pool equation: every reserve + margin fits the total budget exactly", () => {
     assert.ok(

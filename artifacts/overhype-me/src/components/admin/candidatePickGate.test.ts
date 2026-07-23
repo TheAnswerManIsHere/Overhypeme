@@ -14,7 +14,6 @@ import { computeCandidatePickBlockedReason } from "./candidatePickGate";
 
 const OV = (partial: Partial<VisualPromptStrategyOverride> = {}): VisualPromptStrategyOverride => ({
   ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  enabled: true,
   ...partial,
 });
 

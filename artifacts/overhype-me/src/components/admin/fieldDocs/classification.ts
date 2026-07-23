@@ -426,7 +426,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
       },
       {
         scenario: "A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.",
-        input: "Turn ON the Visual Strategy Override and set Supporting-text policy → forbid.",
+        input: "In the Visual Strategy Override, set Supporting-text policy → forbid.",
         outcome:
           'STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)',
       },

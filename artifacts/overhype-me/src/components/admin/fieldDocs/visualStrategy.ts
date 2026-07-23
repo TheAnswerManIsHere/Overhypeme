@@ -241,7 +241,7 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     hint: "Moderator art-direction merged into the compiled prompt's labeled sections — it corrects the AI plan, never replaces it.",
     whatItIs: [
       "A per-fact, style-agnostic override object a human moderator edits to correct or sharpen the AI's visual strategy WITHOUT hand-editing the brittle final engine prompt. It is stored inside the enrichment blob (enrichment.visualPromptStrategyOverride) and merged into the deterministic compiler's labeled sections at render time — so the final prompt still adapts to subject, pronouns, reference image, style, render mode, aspect ratio, and the render policy.",
-      "The enabled toggle is the master switch: when OFF, the ENTIRE override is ignored by the compiler (every sub-field, both policies) — the object is kept but has zero render effect. When ON, each populated sub-field merges into its own compiled section.",
+      "Activation is presence-based — there is no enable toggle. Each populated sub-field merges into its own compiled section on its own; a field left blank simply contributes nothing. An override whose every field is empty compiles identically to having no override at all, so clearing a field is how you 'turn it off'.",
       "Write plain English — don't hand-type tokens. Each rendered-text field just needs the subject's name written naturally (\"David laughs\", not \"{NAME} laughs\"); on Save the system auto-tokenizes every changed field through the same tokenizer fact submission uses, and shows you the tokenized result right there so you can verify it and correct it before it persists. Chips ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, and the other pronoun tokens) remain in the toolbar as an expert escape hatch, but authoring no longer requires them. Name ONLY the main subject in your prose; refer to every other character by role (\"the mother\", \"a bystander\") — the tokenizer only replaces the subject's name and pronouns, so a second named character would be left literal.",
       "The violence policy override here is the ONLY thing that can suppress violent depiction — the auto-sanitizing modifiers were retired, and the planner is told the render policy 'is the ONLY layer that may suppress; do not self-censor beyond it'.",
     ],
@@ -256,13 +256,13 @@ export const VISUAL_STRATEGY_FIELD_DOCS: FieldDoc[] = [
     workedExamples: [
       {
         scenario: "The AI's plan is 90% right but keeps adding a second adult subject next to the baby version.",
-        input: 'Enable the override; Forbidden Visual Details: ["a separate adult version of the subject"].',
-        outcome: '"Do not add a separate adult version of the subject." lands in STRICT CONSTRAINTS; everything else in the AI plan is untouched.',
+        input: 'Forbidden Visual Details: ["a separate adult version of the subject"].',
+        outcome: '"Do not add a separate adult version of the subject." lands in STRICT CONSTRAINTS; everything else in the AI plan is untouched — no toggle to flip, the filled field applies on its own.',
       },
       {
-        scenario: "You disable the toggle after a one-off experiment.",
-        input: "enabled: false (fields left populated)",
-        outcome: "The compiler ignores the entire override — renders behave as if it didn't exist, but your authored fields are preserved for later.",
+        scenario: "You want to back out a one-off experiment.",
+        input: "Clear the fields you added (leave them blank).",
+        outcome: "With nothing populated, the override contributes nothing — renders behave as if it never existed. Presence, not a toggle, is what activates each field.",
       },
       {
         scenario: "You write a Required Visual Detail naming the subject in plain English.",

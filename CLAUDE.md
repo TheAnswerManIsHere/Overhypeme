@@ -617,6 +617,20 @@ since none was armed). While watching:
   what I did. I do **NOT** post a single new top-level PR comment summarizing
   several fixes — David tracks "is every issue addressed?" by seeing a reply on
   each thread, and a catch-all comment defeats that.
+- **Fix commits get re-reviewed — one `@codex review` per fix round (David,
+  2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
+  reliably re-trigger it — so the fixes I push in response to review comments or
+  CI failures would otherwise reach David's squash-merge unreviewed, and
+  reactive fix code is exactly where subtle mistakes hide. After I've addressed
+  a round of review feedback (fixes pushed, inline replies posted), I post
+  **one** explicit `@codex review` comment so the new commits get reviewed —
+  batched per round, never per-comment, and it's the *commits* being reviewed,
+  never my prose replies. **No minimum rounds, no convergence ceremony** — that
+  is the plan loop, not this: a clean/silent re-review ends it, and new
+  substantive findings just follow the rules above (fix the mechanical,
+  escalate real decisions, break after ~2 non-converging rounds). Only
+  exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
+  one — anything touching product code or test logic does.
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real

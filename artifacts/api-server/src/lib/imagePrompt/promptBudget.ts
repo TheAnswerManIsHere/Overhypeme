@@ -127,8 +127,6 @@ const ADDITIONS_MODES: ReadonlyArray<{ mode: SubjectRenderModeKey; gender?: "mal
   { mode: "t2i_fallback", gender: "neutral" },
 ];
 
-const EMPTY_ENABLED_OVERRIDE: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true };
-
 /**
  * Build a WORST-CASE projection of a moderator override for measurement:
  * every non-core rendered field's text is replaced with a placeholder of its
@@ -140,7 +138,7 @@ const EMPTY_ENABLED_OVERRIDE: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_S
 function projectAdditionsOverride(ov: VisualPromptStrategyOverride): VisualPromptStrategyOverride {
   // Bubbles are dropped: they have their OWN reserve, measured separately by
   // `measureBubbleDirectivesEmission` — counting them here would double-count.
-  let projected: VisualPromptStrategyOverride = { ...ov, enabled: true, coreSceneOverride: undefined, bubbles: [] };
+  let projected: VisualPromptStrategyOverride = { ...ov, coreSceneOverride: undefined, bubbles: [] };
   for (const { path, value } of collectRenderedTextEntries(ov)) {
     if (path === "coreSceneOverride" || path.startsWith("bubbles[")) continue;
     projected = setRenderedTextAtPath(projected, path, "x".repeat(projectWorstCaseRenderedLength(value)));
@@ -191,12 +189,13 @@ function compileWithOverride(
  * emitted contribution. Returns the max across modes (the reserve to enforce).
  */
 export function measureModeratorAdditionsEmission(ov: VisualPromptStrategyOverride): number {
-  if (!ov.enabled) return 0;
+  // Presence-based: an all-empty override projects to a 0 delta against the empty
+  // baseline, so no enable gate is needed — additions are measured whenever present.
   const projected = projectAdditionsOverride(ov);
   let worst = 0;
   for (const entry of ADDITIONS_MODES) {
     const withAdditions = compileWithOverride(entry, projected);
-    const baseline = compileWithOverride(entry, EMPTY_ENABLED_OVERRIDE);
+    const baseline = compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
     worst = Math.max(worst, withAdditions - baseline);
   }
   return Math.max(0, worst);
@@ -212,8 +211,8 @@ export function measureModeratorAdditionsEmission(ov: VisualPromptStrategyOverri
  * `validateVisualStrategyOverrideForSave`.
  */
 export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride): number {
-  if (!ov.enabled || (ov.bubbles ?? []).length === 0) return 0;
-  let projected: VisualPromptStrategyOverride = { ...EMPTY_ENABLED_OVERRIDE, bubbles: ov.bubbles };
+  if ((ov.bubbles ?? []).length === 0) return 0;
+  let projected: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, bubbles: ov.bubbles };
   for (const { path, value } of collectRenderedTextEntries(projected)) {
     if (!path.startsWith("bubbles[")) continue;
     if (path.endsWith(".entity")) {
@@ -240,7 +239,7 @@ export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride
   let worst = 0;
   for (const entry of ADDITIONS_MODES) {
     const withBubbles = compileWithOverride(entry, projected);
-    const baseline = compileWithOverride(entry, EMPTY_ENABLED_OVERRIDE);
+    const baseline = compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
     worst = Math.max(worst, withBubbles - baseline);
   }
   return Math.max(0, worst);
@@ -255,7 +254,8 @@ export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride
  * or promises to persist a VSO — the admin fact enrichment PATCH, the
  * review-candidate enrichment PATCH, and candidate-concept pickability — calls
  * THIS helper, so "valid to pick" and "valid to save" can never drift.
- * Disabled overrides validate trivially (nothing is emitted at compile).
+ * An all-empty override validates trivially (nothing is emitted at compile);
+ * the core scene has its own raw/rendered caps, checked independent of anything.
  */
 export function validateVisualStrategyOverridePersistence(
   ov: VisualPromptStrategyOverride,

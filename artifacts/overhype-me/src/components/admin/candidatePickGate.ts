@@ -25,7 +25,7 @@ export function computeCandidatePickBlockedReason(
   serverOverride: VisualPromptStrategyOverride | null | undefined,
 ): string | null {
   const strip = (ov: VisualPromptStrategyOverride | null | undefined) => {
-    const { coreSceneOverride: _s, bubbles: _b, updatedBy: _by, updatedAt: _at, enabled: _e, ...rest } =
+    const { coreSceneOverride: _s, bubbles: _b, updatedBy: _by, updatedAt: _at, ...rest } =
       ov ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
     return rest;
   };

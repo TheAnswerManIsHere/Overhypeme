@@ -218,14 +218,12 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
     .filter(isMaterialCulturalReference)
     .map(culturalReferenceKey)
     .filter(Boolean);
-  // An enabled, non-empty moderator core-scene override is the authoritative
-  // scene: the compiler emits it verbatim, so the planner's additive delta
-  // collections may legally be empty (no invented filler). Mirrors the
-  // compiler's `activeOverride` + coreSceneOverride precedence.
+  // A non-empty moderator core-scene override is the authoritative scene: the
+  // compiler emits it verbatim, so the planner's additive delta collections may
+  // legally be empty (no invented filler). Presence-based (the enable toggle was
+  // retired) — mirrors the compiler's coreSceneOverride precedence.
   const override = input.enrichment.visualPromptStrategyOverride;
-  const hasAuthoritativeCoreScene = Boolean(
-    override?.enabled && (override.coreSceneOverride?.trim() ?? "") !== "",
-  );
+  const hasAuthoritativeCoreScene = (override?.coreSceneOverride?.trim() ?? "") !== "";
   return {
     archetype: input.enrichment.primaryArchetype,
     subtype: input.enrichment.subtype as FactSubtype,
@@ -369,7 +367,7 @@ function resolveModeratorContextScene(input: ImagePromptContextInput, opts: Imag
   let raw = "";
   if (opts.includeModeratorCoreScene === "authoritative") {
     const ovb = input.enrichment.visualPromptStrategyOverride;
-    raw = ovb?.enabled ? (ovb.coreSceneOverride?.trim() ?? "") : "";
+    raw = ovb?.coreSceneOverride?.trim() ?? "";
   } else if (opts.includeModeratorCoreScene === "existing_draft_context") {
     raw = opts.moderatorDraftScene?.trim() ?? "";
   }
@@ -405,14 +403,13 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
 }
 
 /** The moderator-bubble staging block (runtime planner only; gated by
- *  `includeModeratorBubbles`). Bubbles read only from an active, enabled
- *  override; text is token-rendered when a render subject is available so the
- *  planner stages for the words the engine will actually letter. */
+ *  `includeModeratorBubbles`). Bubbles apply when present (presence-based —
+ *  the enable toggle was retired); text is token-rendered when a render subject
+ *  is available so the planner stages for the words the engine will actually letter. */
 function moderatorBubbleLines(input: ImagePromptContextInput, opts: ImagePromptContextOpts): string[] {
   if (!opts.includeModeratorBubbles) return [];
   const ovb = input.enrichment.visualPromptStrategyOverride;
-  if (!ovb?.enabled) return [];
-  const bubbles = (ovb.bubbles ?? []).filter((b) => b.entity.trim() && b.text.trim());
+  const bubbles = (ovb?.bubbles ?? []).filter((b) => b.entity.trim() && b.text.trim());
   if (bubbles.length === 0) return [];
   const render = (t: string) =>
     input.renderedSubject ? renderPersonalized(t, input.renderedSubject.name, input.renderedSubject.pronouns) : t;

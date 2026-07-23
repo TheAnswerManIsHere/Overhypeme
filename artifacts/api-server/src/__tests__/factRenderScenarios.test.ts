@@ -97,7 +97,6 @@ describe("buildScenarioInputHash", () => {
     // tiles stale without any other enrichment change.
     const override = (coreSceneOverride?: string) => ({
       version: 1 as const,
-      enabled: true,
       requiredVisualDetails: [],
       forbiddenVisualDetails: [],
       roleBindings: [],

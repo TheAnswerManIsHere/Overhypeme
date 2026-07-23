@@ -93,7 +93,7 @@ const MANUAL_OVERRIDES = {
 
 const VSO_FIXTURE = {
   version: 1,
-  enabled: true,
+  coreSceneOverride: "{NAME} lifts the planet overhead in a packed stadium.",
   requiredVisualDetails: ["{NAME} wearing a glowing crown"],
   forbiddenVisualDetails: [],
   roleBindings: [],
@@ -153,6 +153,28 @@ async function seedReadyRefreshCycle(fact: { id: number }): Promise<{ reviewId: 
   await db.update(pendingReviewsTable).set({ workflowStage: "production_review" })
     .where(eq(pendingReviewsTable.id, reviewId));
   return { reviewId, candidateVersionId };
+}
+
+/** Author a moderator Visual Concept on a refresh candidate via the real save path
+ *  so it can be promoted (production release requires a non-empty scene — presence-based).
+ *  Sends the candidate's CURRENT enrichment (so tracked fields match) with only the VSO
+ *  added. Kept OUT of seedReadyRefreshCycle so shape-comparison tests see a scene-less
+ *  candidate. */
+async function authorConceptForCycle(reviewId: number, candidateVersionId: number): Promise<void> {
+  const [ver] = await db.select({ enrichment: factEnrichmentVersionsTable.enrichment })
+    .from(factEnrichmentVersionsTable).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+  const res = await request(makeApp())
+    .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+    .set("authorization", `Bearer ${adminSid}`)
+    .send({ enrichment: {
+      ...(ver.enrichment as FactEnrichment),
+      visualPromptStrategyOverride: {
+        version: 1, coreSceneOverride: "{NAME} lifts the planet overhead in a packed stadium.",
+        requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+        bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      },
+    } });
+  assert.equal(res.status, 200, `authorConceptForCycle: ${JSON.stringify(res.body)}`);
 }
 
 /** The live fact's refresh-protected fields, for byte-identical comparisons. */
@@ -281,6 +303,10 @@ describe("candidate override writes", () => {
   it("PUT set/update/reset-when-equal-AI land on the VERSION row only; facts.* byte-identical; zero history rows", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    // Tracked-override writes are concept-gated; author one first (doesn't touch
+    // the live fact or write override-history, so the byte-identical/zero-history
+    // assertions below still hold).
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const before = await factSnapshot(fact.id);
     const historyBefore = await historyCount(fact.id);
     const app = makeApp();
@@ -335,7 +361,8 @@ describe("candidate override writes", () => {
 
   it("PUT /primaryArchetype auto-links a compatible /subtype on the candidate", async () => {
     const fact = await seedActiveFact();
-    const { reviewId } = await seedReadyRefreshCycle(fact);
+    const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const res = await request(makeApp())
       .put(`/admin/reviews/${reviewId}/candidate-overrides`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -349,6 +376,7 @@ describe("candidate override writes", () => {
   it("DELETE resets one path or all, on the candidate only", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
+    await authorConceptForCycle(reviewId, candidateVersionId);
     const before = await factSnapshot(fact.id);
     const app = makeApp();
     await request(app).put(`/admin/reviews/${reviewId}/candidate-overrides`)
@@ -454,6 +482,7 @@ describe("candidate override writes", () => {
     // After promote: same protection.
     const factC = await seedActiveFact();
     const c = await seedReadyRefreshCycle(factC);
+    await authorConceptForCycle(c.reviewId, c.candidateVersionId);
     const approve = await request(app)
       .post(`/admin/reviews/${c.reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -471,6 +500,7 @@ describe("candidate override writes", () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
     const app = makeApp();
+    await authorConceptForCycle(reviewId, candidateVersionId);
 
     const put = await request(app)
       .put(`/admin/reviews/${reviewId}/candidate-overrides`)

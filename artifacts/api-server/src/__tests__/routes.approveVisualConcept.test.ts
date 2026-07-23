@@ -51,7 +51,6 @@ function enrichmentWithConcept(coreScene: string | null): FactEnrichment {
     semanticEntities: [],
     visualPromptStrategyOverride: {
       ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-      enabled: coreScene != null,
       coreSceneOverride: coreScene ?? "",
     },
   } as FactEnrichment;
@@ -223,19 +222,17 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
     assert.equal(res.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
   });
 
-  it("409 CONCEPT_DISABLED when the strategy override is disabled", async () => {
+  it("succeeds with a non-empty saved Visual Concept (presence-based — no enable toggle)", async () => {
     const { reviewId } = await seedReview({
       submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok",
-      enrichment: enrichmentWithConcept(null), // enabled:false, empty scene
+      enrichment: enrichmentWithConcept("A hero hoists the planet overhead."),
     });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
-    assert.equal(res.status, 409);
-    assert.equal(res.body.code, "CONCEPT_DISABLED");
+    assert.equal(res.status, 200);
   });
 
-  it("409 CONCEPT_MISSING when the concept is enabled but blank", async () => {
+  it("409 CONCEPT_MISSING when the concept is blank", async () => {
     const blank = enrichmentWithConcept("A hero hoists the planet.");
-    (blank.visualPromptStrategyOverride as { enabled: boolean; coreSceneOverride: string }).enabled = true;
     (blank.visualPromptStrategyOverride as { coreSceneOverride: string }).coreSceneOverride = "   ";
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok", enrichment: blank });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
