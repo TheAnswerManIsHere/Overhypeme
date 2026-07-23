@@ -8,7 +8,7 @@ import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, su
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
-import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
+import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
@@ -2004,7 +2004,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -2023,7 +2023,18 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
             factText: fact.text,
             status: fact.parentId ? "variant" : "new_fact",
           });
-          await db.update(factsTable).set(buildFactEnrichmentColumns(enrichment)).where(eq(factsTable.id, fact.id));
+          // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
+          // from the EXISTING row: fresh classifier output never carries a VSO, so
+          // materializing from it alone would strip the human concept (breaking
+          // render, and failing the active-requires-concept CHECK on active rows).
+          // Re-apply the current row's VSO onto the fresh AI baseline via the
+          // VSO-preserving materialize path — the preservation source is the
+          // existing row, not the new baseline.
+          const priorVSO = (fact.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride;
+          const aiDerived = { ...enrichment } as FactEnrichment;
+          delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
+          const { columns } = materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride: priorVSO });
+          await db.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
           done++;
         } catch (err) {
           failed++;
