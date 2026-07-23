@@ -35,6 +35,57 @@ const PRONOUN_TOKEN_RE =
 
 type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+/**
+ * THE single ingestion primitive (Phase 2 fact-lifecycle closure): create a
+ * Stage-1 (`triage_pending`) review. Every way a fact enters the system —
+ * manual user submission, bulk import, variant creation, and any future
+ * ingestion path (e.g. an API) — funnels through here, so a fact can never be
+ * born active/enriched: it always starts at the front of the moderation pipeline
+ * (triage → enrich → activate).
+ *
+ * Deliberately carries EVERY column the manual-submit path writes today —
+ * `matchingFactId` / `matchingSimilarity` / `reason` (duplicate/near-match
+ * context) and `parentFactId` (variant parent) — so refactoring manual submit
+ * onto it is byte-identical. `enrichment` / `canonicalText` / hashtag-upsert /
+ * embeddings are intentionally NOT derived here: they belong to later pipeline
+ * stages (the cost gate), exactly as manual submit already defers them.
+ *
+ * `submittedById` is nullable: system imports via the API-key bulk endpoint have
+ * no user (the same nullable-submitter shape refresh reviews already use — no
+ * user to notify, no activity-feed entry). Must run inside the caller's `tx` when
+ * the caller needs the insert atomic with a cap check / advisory lock.
+ */
+export async function createTriageReview(
+  tx: DbLike,
+  input: {
+    submittedText: string;
+    submittedById: string | null;
+    hashtags: string[];
+    parentFactId?: number | null;
+    matchingFactId?: number | null;
+    matchingSimilarity?: number;
+    reason?: (typeof pendingReviewsTable.$inferInsert)["reason"];
+  },
+): Promise<typeof pendingReviewsTable.$inferSelect> {
+  const [review] = await tx
+    .insert(pendingReviewsTable)
+    .values({
+      submittedText: input.submittedText,
+      submittedById: input.submittedById,
+      matchingFactId: input.matchingFactId ?? null,
+      matchingSimilarity: input.matchingSimilarity ?? 0,
+      hashtags: input.hashtags,
+      parentFactId: input.parentFactId ?? null,
+      status: "pending",
+      workflowStage: "triage_pending",
+      reason: input.reason ?? null,
+      enrichment: null,
+      enrichmentStatus: null,
+    })
+    .returning();
+  return review;
+}
+
 export interface StagingReviewRow {
   id: number;
   submittedText: string;

@@ -42,7 +42,7 @@ import {
   evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview, createTriageReview } from "../lib/moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
   promoteCandidateEnrichmentVersion,
@@ -194,18 +194,14 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
       capExceeded = true;
       return;
     }
-    [review] = await tx.insert(pendingReviewsTable).values({
+    review = await createTriageReview(tx, {
       submittedText: text,
       submittedById: req.user.id,
       matchingFactId,
       matchingSimilarity,
       hashtags,
-      status: "pending",
-      workflowStage: "triage_pending",
       reason: reason ?? null,
-      enrichment: null,
-      enrichmentStatus: null,
-    }).returning();
+    });
   });
 
   if (capExceeded || !review) {
