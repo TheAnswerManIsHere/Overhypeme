@@ -45,6 +45,8 @@ Runner: `bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>` (ad
 | `routes.admin.test.ts` | 45/45 | admin import/import-csv → queued reviews; variant → queued review carrying `parent_fact_id` (no active variant fact); cleanup clears reviews before users |
 | `routes.reviews.test.ts` | 55/55 | manual submit unchanged; provisional-approve threads the parent; production approval activates through `activateFact` |
 | `routes.facts.test.ts` | 31/31 | public feed still returns active facts; `POST /facts` is gone |
+| `routes.resubmitForModeration.test.ts` | 4/4 | **NEW** (round 7 follow-up) — `POST /admin/facts/:id/resubmit-for-moderation`: re-enters an INACTIVE fact at `prep_pending` reusing its existing id (no duplicate fact), preserves a variant's `parentId`, 404 missing / 409 `ALREADY_ACTIVE` / 409 `REVIEW_ALREADY_IN_PROGRESS` |
+| `routes.admin.auth.test.ts` | full suite | the new route is registered in `ADMIN_AUTH_ROUTES` (drift-guard test — fails loudly if a route is added without an entry) |
 
 **Sharded full run:** `pnpm --filter @workspace/api-server test`. **Known
 environmental caveat in this container:** the sharded per-schema clone does **not**
@@ -72,9 +74,10 @@ the stripe issue does not occur.
 
 ## What's deliberately NOT shipped
 
-- No admin "reactivate a deactivated fact" shortcut — David confirmed activation is
-  moderation-only; bringing a fact back means re-moderation. (A narrow
-  reactivate-previously-approved action is an optional future follow-up.)
+- No direct "reactivate a deactivated fact" toggle — David confirmed activation is
+  moderation-only. Round 7 added `POST /admin/facts/:id/resubmit-for-moderation` so a
+  deactivated fact isn't permanently stuck: it re-enters at `prep_pending` under its
+  existing id and rides the normal pipeline back to production approval.
 - No async/queued backfill — the grandfather backfill runs inline in `0092` at
   startup (single-instance deploy, migrate-before-serve), which is sufficient at
   this scale.

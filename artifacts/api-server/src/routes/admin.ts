@@ -12,6 +12,7 @@ import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
+import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration";
 import {
   applyOverrideReset,
   applyOverrideUpsert,
@@ -1436,6 +1437,35 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
     }
     logger.error({ err, factId: id }, "[POST /admin/facts/:id/send-back-to-review] failed");
     res.status(500).json({ error: "Failed to send fact back to review" });
+  }
+});
+
+// POST /admin/facts/:id/resubmit-for-moderation — re-enter an INACTIVE fact
+// into moderation (the opposite case from send-back-to-review, which requires
+// the fact to already be active). Reuses the existing factId/history; no
+// duplicate fact is created. See resubmitForModeration.ts for why this exists.
+router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+
+  try {
+    const result = await resubmitInactiveFactForModeration({ factId: id, adminId });
+    res.json({ success: true, workflowStage: "prep_pending", ...result });
+  } catch (err) {
+    if (err instanceof ResubmitForModerationError) {
+      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
+      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS — the in-progress case
+      // names the in-flight review so the UI can link to it.
+      res.status(409).json({
+        error: err.message,
+        code: err.code,
+        ...(err.existing ? { reviewId: err.existing.reviewId } : {}),
+      });
+      return;
+    }
+    logger.error({ err, factId: id }, "[POST /admin/facts/:id/resubmit-for-moderation] failed");
+    res.status(500).json({ error: "Failed to resubmit fact for moderation" });
   }
 });
 

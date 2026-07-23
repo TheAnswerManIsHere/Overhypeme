@@ -11,6 +11,7 @@ import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExample
 import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
+import { resubmitFactForModeration } from "@/components/admin/resubmitForModeration";
 import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "@/components/admin/PexelsImageGallery";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
@@ -519,6 +520,9 @@ export default function AdminFacts() {
   const [versionInfoLoading, setVersionInfoLoading] = useState(false);
   const [sendBackModal, setSendBackModal] = useState(false);
   const [sendingBack, setSendingBack] = useState(false);
+  // Resubmit-for-moderation: the reactivation-gap fix — the mirror action for
+  // an INACTIVE fact (send-back-to-review only works on an active one).
+  const [resubmitting, setResubmitting] = useState(false);
 
   // Image pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -851,6 +855,27 @@ export default function AdminFacts() {
       void loadVersionInfo(factId);
     } finally {
       setSendingBack(false);
+    }
+  }
+
+  async function resubmitForModeration() {
+    if (!selectedFact) return;
+    const factId = selectedFact.id;
+    setResubmitting(true);
+    try {
+      const result = await resubmitFactForModeration(factId);
+      if (result.success) {
+        setSaveResult({
+          type: "success",
+          message: `Resubmitted for moderation — Review #${result.reviewId} is back in the queue at Stage 1. Find it in the Moderation queue to re-approve.`,
+        });
+        setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
+        setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
+      } else {
+        setSaveResult({ type: "error", message: result.error ?? "Resubmit failed" });
+      }
+    } finally {
+      setResubmitting(false);
     }
   }
 
@@ -1626,6 +1651,27 @@ export default function AdminFacts() {
                 <p className="text-xs text-muted-foreground mt-1.5">
                   Re-runs enrichment with the current pipeline as a refresh candidate for moderator approval. The fact
                   stays live throughout.
+                </p>
+              </div>
+            )}
+
+            {/* Resubmit for moderation — inactive facts only (the reactivation-gap
+                fix: deactivating a fact is otherwise a dead end). */}
+            {!selectedFact.isActive && (
+              <div className="border-t border-border pt-3">
+                <Button
+                  variant="outline"
+                  onClick={() => void resubmitForModeration()}
+                  disabled={resubmitting}
+                  className="w-full text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/10 hover:border-blue-500/60 gap-2"
+                  data-testid="resubmit-for-moderation-button"
+                >
+                  {resubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Resubmit for Moderation
+                </Button>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Puts this fact back through moderation (Stage 1 enrichment → Visual Concept → production approval)
+                  under its existing id. It only goes live again once re-approved.
                 </p>
               </div>
             )}

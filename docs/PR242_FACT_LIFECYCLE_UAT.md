@@ -38,8 +38,24 @@ Companion engineering checklist: [`PR242_FACT_LIFECYCLE_TEST_RUN.md`](PR242_FACT
 - ✅ Toggling an **active** fact to inactive still works (deactivation is always
   allowed).
 - **This is the intended capability change** (you confirmed it): to bring a
-  deactivated fact back, it goes through moderation again. There's no direct
-  "reactivate" button — if you ever want a narrow one, that's a small follow-up.
+  deactivated fact back, it goes through moderation again — see item 4a for how.
+
+### 4a. "Resubmit for Moderation" puts a deactivated fact back through the pipeline
+- Open an **inactive** fact in the admin Facts editor.
+- ✅ You'll see a new **"Resubmit for Moderation"** button (where "Send Back to
+  Review" shows for active facts instead).
+- Click it.
+- ✅ You get **"Resubmitted for moderation — Review #… is back in the queue at Stage
+  1."**
+- Go to Admin → Reviews. ✅ The fact is there at **Stage 1 prep** (enrichment running
+  again), reusing the **same fact id** — not a duplicate. Take it through
+  triage/enrichment → Visual Concept → production approval as normal to bring it back
+  live.
+- Click the button again before finishing that review. ✅ You get a 409 — a review is
+  already in progress for this fact (no duplicate reviews stack up).
+- Try it on an **active** fact via a direct API call (or just note: the button only
+  appears on inactive facts in the first place) — it's rejected, pointing you at Send
+  Back to Review instead.
 
 ### 5. Approving a fact for production still requires a Visual Concept
 - Take a fact through moderation to the production-approval step **without** a Visual
