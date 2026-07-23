@@ -51,6 +51,9 @@ at the database.
 - The refresh/send-back flow — it refreshes *already-active* facts and never
   touches `is_active`; it stays as-is.
 - Existing live facts stay live (grandfathered — see below); this is not a purge.
+  **One exception** (David-decided): active facts with *no enrichment at all* (old
+  bulk imports) are deactivated, since a fabricated concept can't make them
+  render-valid — see §C.
 - The render-time plan/compiler remains the prompt source of truth; the Visual
   Concept remains the authoritative scene.
 
@@ -245,26 +248,22 @@ added VALID.
   (materialize the VSO layer if `visualPromptStrategyOverride` is absent),
   re-materializing via the same `materializeEnrichment` path so all derived
   columns stay canonical.
-- **Facts with null enrichment** (old bulk-imported/admin-created) are a genuine
-  fork — **PENDING DAVID'S DECISION** (Codex P2). A blob carrying only the
-  sentinel VSO is **not** a valid `FactEnrichment`: the schema requires
-  `primaryArchetype`, `subtype`, `visualLiteralness`, hashtags, suitability, etc.,
-  and generic meme rendering validates `facts.enrichment` first — so a VSO-only
-  blob would *pass the CHECK yet still fail render* as `fact_enrichment_invalid`.
-  "Constraint-valid but renderable" was wrong in the first draft. Two resolutions,
-  David's call:
-  - **(a) Keep live:** materialize a **full schema-valid placeholder** enrichment
-    (generic taxonomy defaults + the promoted projection columns + sentinel VSO)
-    so the row is genuinely renderable (generically) until David redoes it.
-  - **(b) Deactivate:** set these unmoderated, never-enriched rows `is_active =
-    false` so they re-enter moderation and earn real enrichment via the pipeline.
-    (This is the *only* place the backfill would touch `is_active`; it departs from
-    a literal "grandfather all," which is exactly why it's David's call — and it
-    aligns with "I'll redo them shortly," since re-moderation is how they'd get
-    proper enrichment.)
-  This only bites if such rows actually exist in David's data. Facts that already
-  have a valid enrichment (just missing the scene) are handled cleanly by the
-  with-enrichment path above regardless.
+- **Facts with null enrichment** (old bulk-imported/admin-created) — **DECIDED
+  (David): deactivate.** A blob carrying only the sentinel VSO is **not** a valid
+  `FactEnrichment` (schema requires `primaryArchetype`, `subtype`,
+  `visualLiteralness`, hashtags, suitability, …), and generic meme rendering
+  validates `facts.enrichment` first — so a VSO-only blob would *pass the CHECK yet
+  still fail render* as `fact_enrichment_invalid`. Rather than fabricate a fake
+  full enrichment to keep junk live (the exact anti-state Phase 2 removes), the
+  backfill sets these unmoderated, never-enriched rows **`is_active = false`**.
+  This is the **one** place the backfill touches `is_active` (the single exception
+  to "grandfather all live facts"). We do **not** auto-create triage reviews for
+  them — auto-enqueuing potentially-hundreds of unmoderated bulk-import rows would
+  flood the moderator. They simply drop off the live site; David re-adds the ones
+  worth keeping via the now-funneled bulk import (which lands them in triage the
+  normal way — consistent with "I'll redo them shortly"). Facts that already have a
+  valid enrichment (just missing the scene) are unaffected — the with-enrichment
+  path above handles them.
 - **Grandfather:** never set `is_active = false` on an existing fact. Live stays
   live.
 
@@ -280,7 +279,8 @@ Three schema/data changes, sequenced in one migration series:
    integer FKs; a uuid FK to a serial PK is invalid. Drizzle:
    `parentFactId: integer("parent_fact_id").references(() => factsTable.id, { onDelete: "set null" })`.
    Additive, nullable — no backfill needed (existing reviews have no parent).
-3. **Backfill** the sentinel concept into active-conceptless facts (Section C).
+3. **Backfill** (Section C): sentinel concept into active *with-enrichment*
+   conceptless facts; **deactivate** active *null-enrichment* facts.
 4. **`facts_active_requires_concept` CHECK constraint**, added **VALID after** the
    backfill.
 
@@ -294,8 +294,8 @@ the migration fails.
   effective `coreSceneOverride` is blank/absent; re-running is a no-op (those rows
   now have the sentinel). Guard by matching blank scene, not "equals sentinel," so
   a re-run after a partial failure completes cleanly.
-- Emit counts: candidates scanned, backfilled (with-enrichment vs null-enrichment
-  split), already-had-concept (skipped), failed.
+- Emit counts: candidates scanned, sentinel-backfilled (with-enrichment),
+  deactivated (null-enrichment), already-had-concept (skipped), failed.
 - Rollback: the CHECK can be dropped; the column can be dropped; the default can
   be restored. The sentinel backfill is *forward-only* data (harmless if left —
   it's a valid concept), but the migration doc will note the grep to find/undo
@@ -307,7 +307,7 @@ the migration fails.
 |---|---|
 | active + real concept | skip (no-op) |
 | active + blank/absent concept, enrichment present | set sentinel in VSO, re-materialize |
-| active + null enrichment | **pending David** — (a) full schema-valid placeholder enrichment + sentinel VSO, or (b) deactivate to re-moderate (see §C) |
+| active + null enrichment | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
 | inactive (any) | skip — constraint permits inactive-without-concept |
 | already sentinel (re-run) | skip (blank-scene predicate no longer matches) |
 
@@ -438,15 +438,11 @@ Ordered, each independently green-able:
 
 ## Questions for David
 
-**One open fork (Codex P2, round 1):** existing **active facts that have no
-enrichment at all** (old bulk imports) can't be made valid by the sentinel
-concept alone — a VSO-only blob isn't a valid `FactEnrichment` and would still
-fail render. For those rows only: **(a)** materialize a full schema-valid
-placeholder enrichment so they stay live, or **(b)** deactivate them to re-enter
-moderation and earn real enrichment. Escalated to David; the loop will not settle
-this on its own. (Everything else from the pre-plan conversation is resolved:
-scope, admin-create removal, variant handling, DB backstop, grandfather+sentinel,
-one plan.)
+**None open.** The one fork Codex surfaced in round 1 — how to handle existing
+active facts with no enrichment at all — was escalated and **David decided:
+deactivate them** (§C). Everything else was resolved in the pre-plan conversation
+(scope, admin-create removal, variant handling, DB backstop, grandfather+sentinel,
+one plan).
 
 ## External-Claim Verification
 
