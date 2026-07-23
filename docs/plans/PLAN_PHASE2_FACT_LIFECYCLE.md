@@ -161,6 +161,14 @@ Stage-1 review.**
    instead of updating inline. **This is the only code that sets `is_active =
    true`.** (The existing app-level `CONCEPT_MISSING` gate stays as the early,
    friendly 409; the helper is the last-line assertion.)
+   **Parent revalidation at commit (Codex P2, round 2):** when `parentId` is set,
+   `activateFact` re-reads it *in the same transaction* and requires it to be an
+   **active root** (`is_active = true AND parent_id IS NULL`); if the parent was
+   deactivated between variant enqueue/provisional-approve and final approval, it
+   throws a typed `ParentNotActiveError` so approval is blocked and the moderator
+   resolves it (re-parent or promote to root) — a variant must never activate
+   under an inactive/orphaned root. This closes the TOCTOU gap where
+   `approveForProduction` trusts a stale `stagingFact.parentId`.
 3. **DB backstop — CHECK constraint** on `facts`:
    ```sql
    ALTER TABLE facts ADD CONSTRAINT facts_active_requires_concept
@@ -188,11 +196,16 @@ Stage-1 review.**
 
 The reusable primitive: the `submit-review` row-build (`reviews.ts:191-202`) —
 "create a `triage_pending` review." Extract it into a shared
-`createTriageReview(tx, { submittedText, submittedById, hashtags, parentFactId? })`
+`createTriageReview(tx, { submittedText, submittedById, hashtags, parentFactId?, matchingFactId?, matchingSimilarity?, reason? })`
 helper in `lib/moderationStaging.ts` (or a sibling). Manual submit, bulk import,
-and variants all call it. `enrichment`/`canonicalText`/`hashtag upsert`/`embeddings`
-stay deferred to the pipeline (as manual submit already does) — nothing derives
-them at ingest.
+and variants all call it. **The helper must carry every column manual submit
+writes today** — `matchingFactId`, `matchingSimilarity`, and `reason` (the
+duplicate/near-match context) in addition to the above (Codex P2, round 2) — so
+refactoring manual submit through it is byte-identical; a regression test asserts
+those fields survive. `submittedById` is **nullable** (see the API-key import case
+below; refresh reviews already carry `submittedById = null`).
+`enrichment`/`canonicalText`/`hashtag upsert`/`embeddings` stay deferred to the
+pipeline (as manual submit already does) — nothing derives them at ingest.
 
 1. **Manual submit — unchanged**, but refactored to call `createTriageReview`
    (behavior identical; proven by its existing tests).
@@ -203,7 +216,15 @@ them at ingest.
    diff), and delete the dead `useCreateFact`/`createFact` wiring in
    `use-mutations.ts`. No live caller, no test — clean.
 3. **Reroute the three bulk-import endpoints:** instead of inserting active facts,
-   each row becomes a `createTriageReview` call (admin as `submittedById`).
+   each row becomes a `createTriageReview` call. **Submitter (Codex P2, round 2):**
+   the two session-admin endpoints (`/admin/facts/import`, `/import-csv`,
+   `requireAdmin`) use `req.user.id`; the machine endpoint
+   `POST /admin/import/facts` is `requireApiKey` and has **no `req.user`**, so its
+   reviews are **system imports with `submittedById = null`** (the same
+   nullable-submitter shape refresh reviews already use — no user to notify, no
+   activity-feed entry). We keep the API-key auth contract as-is (no migration to
+   session auth). Triage queue/UX must tolerate a null submitter (it already does
+   for refresh cycles).
    - **Preserve exact-text dedup** (currently only on `POST /admin/import/facts`)
      — extend it to all three so bulk import can't flood triage with duplicates;
      dedup against both existing facts *and* existing unresolved reviews.
@@ -264,8 +285,22 @@ added VALID.
   normal way — consistent with "I'll redo them shortly"). Facts that already have a
   valid enrichment (just missing the scene) are unaffected — the with-enrichment
   path above handles them.
-- **Grandfather:** never set `is_active = false` on an existing fact. Live stays
-  live.
+- **Deactivating a root that has active children (Codex P1, round 2):** if a
+  null-enrichment row being deactivated is a *root* (`parent_id IS NULL`) with
+  **active children/variants**, deactivating only the root orphans them — the
+  public `/facts` feed returns active roots (`is_active = true AND parent_id IS
+  NULL`), while variant/detail code derives the canonical root from `parent_id`, so
+  live children under an inactive root vanish from the main feed. Resolution:
+  **cascade-deactivate** — the backfill also sets `is_active = false` on the root's
+  active children, so the whole lineage drops out together and re-enters via
+  re-import. (Those children came from the old moderation-bypassing variant path,
+  so they're unmoderated too; cascade preserves identity/lineage rather than
+  re-parenting. Deterministic, intent-consistent default — **flagged to David**;
+  promote-a-child-to-root is the alternative if he prefers.) Covered by a dedicated
+  row-state + test: `active null-enrichment root + active children`.
+- **Grandfather:** never set `is_active = false` on an existing fact **except** the
+  null-enrichment deactivation above and its child cascade. Facts with a valid
+  enrichment stay live.
 
 ## Data Model and Migration Impact
 
@@ -307,9 +342,11 @@ the migration fails.
 |---|---|
 | active + real concept | skip (no-op) |
 | active + blank/absent concept, enrichment present | set sentinel in VSO, re-materialize |
-| active + null enrichment | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
+| active + null enrichment (leaf, or root with no active children) | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
+| active + null enrichment **root with active children** | **cascade-deactivate** root + its active children (see §C, Codex P1) |
 | inactive (any) | skip — constraint permits inactive-without-concept |
 | already sentinel (re-run) | skip (blank-scene predicate no longer matches) |
+| already deactivated (re-run) | skip (`is_active = false` no longer matches the `is_active = true` predicate) |
 
 ## Runtime Behavior
 
@@ -380,14 +417,21 @@ New/updated tests proving the **invariants** (with negative cases):
 3. **Default flip:** a bare `insert(factsTable)` lands inactive.
 4. **Ingestion funnel:** `POST /facts` returns 404 (removed); each bulk endpoint
    creates `triage_pending` reviews (not facts), dedups exact-text against facts
-   AND open reviews, and reuses the submit normalizer; variant creation creates a
+   AND open reviews, and reuses the submit normalizer; the API-key import creates
+   reviews with `submittedById = null` (system import); variant creation creates a
    review with `parent_fact_id` set.
 5. **Parent threading:** a variant taken through provisional-approve → approve
-   yields an active fact with the correct `parent_id`.
-6. **Backfill:** the row-state matrix — with-enrichment, null-enrichment,
-   already-concept (skip), inactive (skip), re-run idempotent; counts correct.
-7. **Regression:** manual submit unchanged (existing tests green); refresh/
-   send-back untouched (existing tests green).
+   yields an active fact with the correct `parent_id`. **Parent revalidation:** if
+   the carried parent is deactivated before final approval, `activateFact` throws
+   `ParentNotActiveError` and no live variant is created under an inactive root.
+6. **Backfill:** the row-state matrix — with-enrichment (sentinel), null-enrichment
+   leaf (deactivate), **null-enrichment root with active children
+   (cascade-deactivate — children go inactive, none orphaned)**, already-concept
+   (skip), inactive (skip), re-run idempotent (incl. re-run over
+   already-deactivated); counts correct.
+7. **Regression:** manual submit **byte-identical** through `createTriageReview` —
+   `matchingFactId`/`matchingSimilarity`/`reason` preserved on the review row
+   (Codex round 2); refresh/send-back untouched (existing tests green).
 
 Manual QA (Replit TEST_RUN + David UAT, authored PR-first per CLAUDE.md): import a
 CSV → see reviews in triage, not live facts; add a variant → see it in triage with
@@ -398,13 +442,16 @@ facts now show the sentinel concept.
 
 Ordered, each independently green-able:
 
-1. **Guard core (no behavior change yet):** add `activateFact` + `ConceptMissingError`;
-   route `approveForProduction` through it. Tests 2. (Tree stays green; behavior
-   identical.)
+1. **Guard core (no behavior change yet):** add `activateFact` +
+   `ConceptMissingError` + `ParentNotActiveError` (concept check now; parent
+   revalidation wired but inert until variants carry a parent in step 7); route
+   `approveForProduction` through it. Test 2. (Tree stays green; behavior identical.)
 2. **Default flip + seed fix:** flip `is_active` default; make `scripts/src/seed.ts`
    explicit. Test 3.
-3. **Backfill migration:** sentinel concept into active-conceptless facts; counts;
-   idempotency. Test 6.
+3. **Backfill migration:** sentinel concept into active *with-enrichment*
+   conceptless facts; **deactivate** active *null-enrichment* facts,
+   **cascade-deactivating** active children of a deactivated root; counts;
+   idempotency (incl. re-run over already-deactivated). Test 6.
 4. **CHECK constraint (VALID):** add after backfill. Test 1 + the fixture sweep +
    `insertActiveFactWithConcept` helper.
 5. **`createTriageReview` extraction:** refactor manual submit onto it (behavior
@@ -431,8 +478,9 @@ Ordered, each independently green-able:
   confirm `git diff --exit-code` on generated files.
 - **Migration ordering** (constraint-before-backfill fails). Mitigation: encoded
   order in the migration series + the row-state matrix + idempotent re-run.
-- **Null-enrichment facts remain taxonomy-poor** after the sentinel backfill.
-  Accepted pre-launch (David redoes all facts); documented, not silently hidden.
+- **Null-enrichment active facts are deactivated** (not sentinel-backfilled), incl.
+  cascade to active children of a deactivated root. Accepted pre-launch (David
+  redoes/re-imports them); counted and tested, not silently dropped.
 - **Bulk import UX shift** (queue vs publish) could surprise an admin mid-launch.
   Mitigation: explicit UI copy + UAT step.
 
@@ -459,9 +507,13 @@ this repo runs 16). No current-docs verification needed.
       negative test).
 - [ ] Every ingestion path produces a Stage-1 review: bulk import (×3) and variant
       creation create `triage_pending` reviews, not facts; `POST /facts` is gone.
-- [ ] Variants carry their parent through moderation to the activated fact.
-- [ ] Existing live facts stay live and now carry the sentinel concept; the CHECK
-      is VALID with zero violators.
+- [ ] Variants carry their parent through moderation to the activated fact, and a
+      variant never activates under an inactive/orphaned root (`activateFact`
+      revalidates the parent at commit).
+- [ ] Existing live facts **with enrichment** stay live and carry the sentinel
+      concept; existing active facts **with null enrichment are deactivated**
+      (cascade-deactivating any active children), with counts emitted; the CHECK is
+      VALID with zero violators.
 - [ ] Manual submission and refresh/send-back behavior unchanged (existing tests
       green).
 - [ ] Full backend sharded suite + frontend suite green; all typechecks clean.
