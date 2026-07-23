@@ -25,6 +25,16 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
   matchingFactId: integer("matching_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
+  /**
+   * Parent fact for a VARIANT submission (Phase 2 fact-lifecycle closure). A
+   * variant is a normal fact that happens to have a parent; it enters moderation
+   * at Stage 1 like any other, carrying its parent linkage here from ingestion
+   * through provisional-approve → staging → activation (where it becomes
+   * facts.parent_id). Integer FK to facts.id (matching the serial PK and the
+   * other review→fact FKs); `SET NULL` on parent delete keeps the review valid.
+   * Null for non-variant submissions.
+   */
+  parentFactId: integer("parent_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   /** Visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod). Null until the async enrichment job writes it. */
   enrichment: jsonb("enrichment"),
