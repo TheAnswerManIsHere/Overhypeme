@@ -15,11 +15,20 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 pnpm --filter @workspace/api-spec run codegen
 
-if ! git diff --exit-code -- lib/; then
+# `git status --porcelain`, not `git diff --exit-code`: codegen splitting out a
+# brand-new generated file is untracked, not modified, so a plain diff misses
+# it entirely and would let a PR merge with a generated file the checkout
+# never got (Codex review, PR #236).
+drift="$(git status --porcelain -- lib/)"
+if [ -n "$drift" ]; then
+  echo "$drift"
+  echo ""
+  git --no-pager diff -- lib/
   echo ""
   echo "ERROR: Generated files drifted after codegen (diff above)." >&2
   echo "If you edited a generated file (e.g. lib/api-zod/src/index.ts)," >&2
   echo "register the change in lib/api-spec/patch-generated.mjs instead." >&2
+  echo "If codegen split out a new file, commit it." >&2
   exit 1
 fi
 
