@@ -19,6 +19,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import ogRouter from "../routes/og.js";
 
@@ -50,7 +51,7 @@ async function insertFact(text: string): Promise<number> {
   const prefixedText = `${FACT_TEXT_PREFIX}${text}`;
   const [row] = await db
     .insert(factsTable)
-    .values({ text: prefixedText, isActive: true, canonicalText: prefixedText })
+    .values({ text: prefixedText, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: prefixedText })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;
