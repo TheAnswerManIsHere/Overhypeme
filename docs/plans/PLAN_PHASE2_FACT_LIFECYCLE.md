@@ -112,7 +112,7 @@ Two structured recon passes (activation paths + design details) covered:
   false→true writer today:** `PATCH /admin/facts/:id` (`admin.ts`) also copies the
   body's `isActive` straight into `factsTable` (`nonTextUpdates`), so the admin
   "Active" toggle can flip a fact live outside moderation. Phase 2 closes that
-  (route its false→true through `activateFact`) — see Design A.2.
+  (**reject** its false→true; activation is moderation-only) — see Design A.2.
 - **`parentId`** is carried on the *staging fact* (`facts.parent_id`), set at
   provisional-approve from the request body → `ensureStagingFact` →
   `approveForProduction`. `pendingReviews` has **no parent column**.
@@ -123,7 +123,8 @@ Two structured recon passes (activation paths + design details) covered:
   dedup/hashtags/embeddings); `POST /admin/facts/:id/variants` (sets only
   `parentId`, copies nothing). **Flip:** `PATCH /admin/facts/:id` can set
   `is_active` false→true directly (the admin Active toggle) — see the activation
-  bullet above. Phase 2 closes all of these.
+  bullet above. Phase 2 closes all of these (the admin flip is **rejected** —
+  activation is moderation-only).
 - **The Visual Concept lives inside the `enrichment` JSONB** at
   `enrichment -> 'visualPromptStrategyOverride' ->> 'coreSceneOverride'`. There is
   **no dedicated column** for it.
@@ -163,25 +164,36 @@ Stage-1 review.**
    startup seed — explicitly inserts `isActive: true` with no concept; the earlier
    draft's `lib/seed.ts` path was wrong, Codex P3 round 4) — either seed a valid
    enrichment with a concept or insert inactive, or they'll violate the CHECK.
-2. **Single `false → true` writer — audit ALL activation writers, not just inserts.**
+2. **Single `false → true` writer — `approveForProduction` (via `activateFact`) only.**
    A shared helper `activateFact(tx, { factId, parentId, expectedText })` in
    `lib/factActivation.ts` (new). It performs the guarded update currently inline
    at `reviews.ts:741-748`: it re-reads the row's effective concept, refuses
    (throws a typed `ConceptMissingError`) if `coreSceneOverride` is blank/absent,
    then flips `is_active = true` under the same compare-and-set predicates
-   (`is_active = false`, `text = expectedText`). **Every code path that transitions
-   `is_active` from false → true must route through it** — including the one Codex
-   found in round 3: **`PATCH /admin/facts/:id`** (`admin.ts`) copies the request
-   body's `isActive` straight into `factsTable`, so the admin "Active" toggle could
-   flip an inactive concept-bearing staging row live, bypassing moderation + audit.
-   Fix: the admin PATCH may still set `is_active = false` (deactivate is always
-   safe), but a **false → true transition routes through `activateFact`** (concept +
-   active-root parent checks + audit) or is rejected server-side. The
-   implementation includes an explicit audit of every `.set({ isActive … })` /
-   `is_active` write in the codebase to confirm `activateFact` is the *sole*
-   false→true writer; `true → false` deactivations stay unrestricted.
-   (The existing app-level `CONCEPT_MISSING` gate stays as the early, friendly 409;
-   the helper is the last-line assertion.)
+   (`is_active = false`, `text = expectedText`). It is called **only** from
+   `approveForProduction`, whose surrounding logic enforces the *rest* of the
+   production gate (render-waiver checks, `pending_reviews` transition,
+   production-approval recording, submitter notification). `activateFact` is the
+   last-line assertion, **not** a standalone activation API — because on its own it
+   would let any concept-bearing inactive row (e.g. a staging fact parked in
+   `concept_review`) go live while skipping all of that.
+   **Admin PATCH (Codex P1, rounds 3+5): reject false→true entirely.**
+   `PATCH /admin/facts/:id` (`admin.ts`) today copies the body's `isActive` straight
+   into `factsTable`. My round-3 fix (route it through `activateFact`) was
+   **insufficient** — that still skips the production gate for a staging fact. So
+   the admin PATCH may set `is_active = false` (deactivate is always safe) but a
+   **false → true transition is rejected server-side** (`400 activation_requires_moderation`
+   or similar); **activation is moderation-only.** *(Consequence flagged to David:
+   an admin can no longer directly re-activate a deactivated fact; bringing one back
+   goes through re-moderation. If a narrow "reactivate a previously-production-approved
+   fact" shortcut is wanted, it's a small follow-up that verifies the prior approval
+   and re-runs the production gate — out of scope here unless David wants it.)*
+   **Whole-codebase writer audit.** The implementation includes an explicit audit
+   of **every** path that writes `is_active` **or rewrites `facts.enrichment` on an
+   active row** (not just inserts) to confirm the invariant holds — see the
+   enrichment-rewrite audit in §A.4 below (Codex P2 round 5). `true → false`
+   deactivations stay unrestricted. (The existing app-level `CONCEPT_MISSING` gate
+   stays as the early, friendly 409.)
    **Parent revalidation at commit (Codex P2, round 2):** when `parentId` is set,
    `activateFact` re-reads it *in the same transaction* and requires it to be an
    **active root** (`is_active = true AND parent_id IS NULL`); if the parent was
@@ -212,6 +224,22 @@ Stage-1 review.**
    e.g., a number slip through). `~ '\S'` = "contains a non-whitespace char" = the
    app's `.trim()` non-empty semantics. Added **VALID after** the backfill (no
    existing violators) rather than the weaker `NOT VALID`.
+4. **Concept-preservation audit — paths that REWRITE enrichment on an active row**
+   (Codex P2 round 5). The activation invariant has a second face: a path that
+   overwrites `facts.enrichment` on an already-active row can *drop the moderator
+   Visual Concept*, which both violates the CHECK (once installed) and erases a
+   human decision (AGENTS.md "human decisions preserved"). The known offender is
+   **`POST /admin/facts/backfill-enrichment`** (`admin.ts`), which rewrites active
+   rows with `buildFactEnrichmentColumns(enrichFact(...))` — fresh classifier
+   output that carries **no** `visualPromptStrategyOverride`. After the CHECK it
+   would fail every active-row update; before it, `?force=true` would silently
+   strip the concept. Fix: route this (and any other active-row enrichment rewrite)
+   through the **VSO-preserving** `materializeEnrichment` path — the same split the
+   re-classification path already uses (`materializeFromBaseline` pulls the VSO out
+   of the AI baseline and re-feeds it) — so the moderator concept survives, or
+   disable the legacy route. A regression test asserts the VSO survives a forced
+   re-enrich of an active fact. The whole-codebase audit in §A.2 covers **both**
+   writer classes: `is_active` writers *and* active-row enrichment rewriters.
 
 ### B. Ingestion funnel (the entrance)
 
@@ -325,30 +353,43 @@ added VALID.
 
 ## Data Model and Migration Impact
 
-Four schema/data changes, sequenced in one migration series (after the code that
-closes the bypass writers has shipped — see the ordering note below):
+Four schema/data changes, split across **two** migration phases with the
+writer-closing code deployed **between** them (Codex P2 round 5) — because the
+variant-reroute code needs the new column to *already exist*, while the
+backfill+CHECK must *not* run until the old active-writers are gone. Framing it as
+one batch breaks on a migration-before-code or rolling deploy (new code hits a
+missing column, or old code creates a fresh violator between backfill scan and
+`ADD CONSTRAINT`).
 
-1. **`facts.is_active` default `true` → `false`** (schema change; affects future
-   inserts only — no existing row changes).
+**Phase 1 — additive schema (safe before the new code):**
+1. **`facts.is_active` default `true` → `false`** (affects future inserts only — no
+   existing row changes; old writers set `isActive` explicitly so they're
+   unaffected until rerouted).
 2. **New column `pending_reviews.parent_fact_id` integer NULL, FK → facts.id**
    (`ON DELETE SET NULL`) — **`integer`** (Codex P1), matching `facts.id`
    (`serial`) and the existing `stagingFactId`/`approvedFactId`/`matchingFactId`
    integer FKs; a uuid FK to a serial PK is invalid. Drizzle:
    `parentFactId: integer("parent_fact_id").references(() => factsTable.id, { onDelete: "set null" })`.
    Additive, nullable — no backfill needed (existing reviews have no parent).
-3. **Backfill** (Section C): sentinel concept into active *with-enrichment*
-   conceptless facts; **deactivate** active *null-enrichment* facts.
-4. **`facts_active_requires_concept` CHECK constraint**, added **VALID after** the
-   backfill.
 
-**Ordering (must hold):** default-flip + column-add → **close every ingestion/
-activation writer** (bulk import, variants, `POST /facts`, admin-PATCH
-false→true) → backfill → add CHECK VALID. Two reasons the writer-closure must come
-*before* backfill+CHECK: (1) if the CHECK is added before the backfill it rejects
-the grandfathered rows and the migration fails; (2) if a live writer is still open
-during a rolling deploy, it can insert a fresh `is_active=true, enrichment=NULL`
-violator between the backfill scan and `ADD CONSTRAINT` (Codex round 3). See the
-Implementation Steps for the full order.
+**→ Deploy the writer-closure code** (Ingestion funnel §B + admin-PATCH/enrichment
+audit §A.2/§A.4 + variant reroute, which now has its column). After this, no code
+path can create/flip an active conceptless row.
+
+**Phase 2 — data + constraint (only after the writers are closed):**
+3. **Backfill** (Section C): sentinel concept into active *with-enrichment*
+   conceptless facts; **deactivate** active *null-enrichment* facts (+ child
+   cascade).
+4. **`facts_active_requires_concept` CHECK constraint**, added **VALID** (no
+   violators remain — the backfill fixed the old ones and no writer can make new
+   ones).
+
+**Ordering (must hold):** Phase-1 schema → writer-closure code → Phase-2
+backfill+CHECK. Two reasons the writer-closure must precede backfill+CHECK: (1) the
+CHECK added before the backfill rejects grandfathered rows and fails; (2) a live
+writer open during a rolling deploy inserts a fresh `is_active=true,
+enrichment=NULL` violator between the backfill scan and `ADD CONSTRAINT` (Codex
+round 3). See Implementation Steps for the full order.
 
 **Idempotency / observability / rollback** (per
 `docs/engineering/migrations-and-backfills.md`):
@@ -459,12 +500,17 @@ New/updated tests proving the **invariants** (with negative cases):
 7. **Regression:** manual submit **byte-identical** through `createTriageReview` —
    `matchingFactId`/`matchingSimilarity`/`reason` preserved on the review row
    (Codex round 2); refresh/send-back untouched (existing tests green).
-8. **Admin PATCH activation guard (Codex round 3):** `PATCH /admin/facts/:id` with
-   `isActive: true` on a conceptless inactive fact is rejected (routes through
-   `activateFact` → `ConceptMissingError`); on a concept-bearing fact it activates
-   *through* `activateFact` (audited, parent-checked), not a raw update; and
-   `isActive: false` (deactivate) still works directly. A guard test asserts no
-   other `is_active` false→true writer exists.
+8. **Admin PATCH activation guard (Codex round 3+5):** `PATCH /admin/facts/:id`
+   with `isActive: true` is **rejected** (`400`, activation is moderation-only) —
+   including on a *concept-bearing* inactive staging fact, which must NOT shortcut
+   the production gate; `isActive: false` (deactivate) still works directly. A
+   guard test asserts `activateFact`/`approveForProduction` is the sole false→true
+   writer.
+9. **Concept preservation on active-row re-enrich (Codex round 5):** a forced
+   re-enrich of an active fact (`POST /admin/facts/backfill-enrichment?force=true`,
+   and any other active-row enrichment rewrite) **preserves** the moderator
+   `visualPromptStrategyOverride` — the concept survives; the row stays
+   CHECK-valid; the human decision isn't erased.
 
 Manual QA (Replit TEST_RUN + David UAT, authored PR-first per CLAUDE.md): import a
 CSV → see reviews in triage, not live facts; add a variant → see it in triage with
@@ -473,45 +519,48 @@ facts now show the sentinel concept.
 
 ## Implementation Steps
 
-Ordered, each independently green-able. **Ordering invariant (Codex P2, round 3):
-close every path that can create/flip an active conceptless fact BEFORE the
-backfill + VALID CHECK** — otherwise, in a rolling deploy, a still-live bypass
-writer could insert a fresh `is_active=true, enrichment=NULL` violator between the
-backfill scan and `ADD CONSTRAINT`, failing the migration. So all writer
-reroutes/removal come first; the constraint is added last, when no code path can
-produce a violator.
+Ordered, each independently green-able. **Ordering invariant (Codex rounds 3+5):
+additive schema first → close every writer that can create/flip an active
+conceptless fact (or strip its concept) → THEN backfill + VALID CHECK.** In a
+rolling/migration-before-code deploy this ordering is load-bearing: the
+variant-reroute code needs the new column to exist first, and a still-live writer
+could insert a fresh violator between the backfill scan and `ADD CONSTRAINT`.
 
 1. **Guard core (no behavior change yet):** add `activateFact` +
    `ConceptMissingError` + `ParentNotActiveError` (concept check now; parent
-   revalidation wired but inert until variants carry a parent in step 6); route
-   `approveForProduction` through it. Test 2. (Tree stays green; behavior identical.)
-2. **Default flip + seed/reseed fix:** flip `is_active` default; make
+   revalidation wired but inert until variants carry a parent in step 4); keep it
+   callable **only** from `approveForProduction`. Test 2. (Tree stays green.)
+2. **Phase-1 additive schema + seed/reseed fix:** flip `is_active` default to
+   `false`; add `pending_reviews.parent_fact_id` (integer FK); make
    `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`, and
    `artifacts/api-server/src/lib/seed.ts` (`seedIfEmpty()`) explicit +
-   concept-valid (or inactive). Test 3.
-3. **Close the ingestion/activation writers (all before the constraint):**
+   concept-valid (or inactive). Test 3. (Additive — safe before the new code.)
+3. **Close the ingestion/activation/enrichment writers (all before the constraint):**
    - `createTriageReview` extraction; refactor manual submit onto it (identical).
    - Bulk import reroute (×3) → `createTriageReview`; dedup; normalizer reconcile;
      cap bypass; null system-submitter for the API-key path; response shape + admin
      UI copy. Test 4.
-   - Variant reroute: add `pending_reviews.parent_fact_id`; variant → review; thread
-     parent → activation; admin UI copy. Tests 4-5.
+   - Variant reroute (uses the Phase-1 column): variant → review; thread parent →
+     activation; admin UI copy. Tests 4-5.
    - Remove `POST /facts`: route + openapi + regen + dead wiring. Test 4 (404).
-   - **Route `PATCH /admin/facts/:id` `is_active` false→true through `activateFact`**
-     (deactivate stays direct); audit that no other `.set({ isActive })` path can
-     flip false→true. Test 8 (below).
-4. **Backfill migration:** sentinel concept into active *with-enrichment* conceptless
-   facts; **deactivate** active *null-enrichment* facts, **cascade-deactivating**
-   active children of a deactivated root; counts; idempotency (incl. re-run over
-   already-deactivated). Test 6.
-5. **CHECK constraint (VALID):** add last, after every writer is closed and the
-   backfill is done — no source of a fresh violator remains. `ADD CONSTRAINT …
+   - **Reject `PATCH /admin/facts/:id` `is_active` false→true** (activation is
+     moderation-only; deactivate stays direct). Test 8.
+   - **Preserve the VSO on active-row enrichment rewrites** (`backfill-enrichment`
+     `?force` and any peer) via the VSO-preserving materialize path. Test 9.
+   - Audit that no `is_active` false→true writer and no concept-stripping active-row
+     enrichment writer remains.
+4. **Phase-2 backfill migration:** sentinel concept into active *with-enrichment*
+   conceptless facts; **deactivate** active *null-enrichment* facts,
+   **cascade-deactivating** active children of a deactivated root; counts;
+   idempotency (incl. re-run over already-deactivated). Test 6.
+5. **Phase-2 CHECK constraint (VALID):** add last, after every writer is closed and
+   the backfill is done — no source of a fresh violator remains. `ADD CONSTRAINT …
    CHECK` also takes an `ACCESS EXCLUSIVE` lock during validation as a backstop.
    Test 1 + the fixture sweep + `insertActiveFactWithConcept` helper.
 6. **Docs:** update `moderation-workflow.md` (ingestion funnel), `visual-pipeline.md`
-   (activation guard + single-writer), `decisions.md` (supersede/close the Phase-2
-   fast-follow note), regenerate any field-doc references. TEST_RUN + UAT
-   (PR-numbered).
+   (activation guard + single-writer + concept-preservation), `decisions.md`
+   (supersede/close the Phase-2 fast-follow note), regenerate any field-doc
+   references. TEST_RUN + UAT (PR-numbered).
 
 ## Risks and Mitigations
 
@@ -534,11 +583,19 @@ produce a violator.
 
 ## Questions for David
 
-**None open.** The one fork Codex surfaced in round 1 — how to handle existing
-active facts with no enrichment at all — was escalated and **David decided:
-deactivate them** (§C). Everything else was resolved in the pre-plan conversation
-(scope, admin-create removal, variant handling, DB backstop, grandfather+sentinel,
-one plan).
+**One capability change to confirm (flagged, not blocking):** the admin "Active"
+toggle can no longer **activate** a fact — `PATCH /admin/facts/:id` false→true is
+rejected, activation is moderation-only (Codex rounds 3+5; deactivation still
+works). This is the faithful reading of "only moderation activates," but it does
+remove an admin shortcut: to bring back a deactivated fact, an admin re-moderates
+it. If you want a narrow "reactivate a previously-production-approved fact" button
+that re-runs the production gate, say so and I'll add it (small follow-up).
+
+The round-1 fork (active facts with no enrichment) was **David-decided: deactivate
+them** (§C). The cascade-vs-promote choice for a deactivated root's children is a
+flagged default (cascade — §C). Everything else was resolved in the pre-plan
+conversation (scope, admin-create removal, variant handling, DB backstop,
+grandfather+sentinel, one plan).
 
 ## External-Claim Verification
 
@@ -552,9 +609,10 @@ this repo runs 16). No current-docs verification needed.
 
 - [ ] A fact cannot become `is_active: true` without a non-empty Visual Concept —
       enforced by `activateFact` AND the DB CHECK constraint (proven by a raw-SQL
-      negative test). `activateFact` is the **sole** false→true writer — the admin
-      PATCH toggle routes through it, and no other `is_active` write can flip
-      false→true (audited).
+      negative test). `approveForProduction`→`activateFact` is the **sole**
+      false→true writer — the admin PATCH rejects activation, and no other
+      `is_active` write nor active-row enrichment rewrite can bypass the concept
+      (audited).
 - [ ] Every ingestion path produces a Stage-1 review: bulk import (×3) and variant
       creation create `triage_pending` reviews, not facts; `POST /facts` is gone.
 - [ ] Variants carry their parent through moderation to the activated fact, and a
