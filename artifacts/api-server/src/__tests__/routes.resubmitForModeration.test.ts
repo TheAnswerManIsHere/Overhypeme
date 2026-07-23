@@ -167,6 +167,25 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
     assert.equal(res.body.code, "ALREADY_ACTIVE");
   });
 
+  it("409 ORPHANED_PARENT when the variant's parent row no longer exists (hard-delete orphan)", async () => {
+    const root = await seedInactiveFact();
+    const variant = await seedInactiveFact({ parentId: root.id });
+    // Simulate the orphan state a hard delete leaves: facts.parent_id has no
+    // FK, so deleting the root leaves the variant's parent_id dangling.
+    await db.delete(factsTable).where(eq(factsTable.id, root.id));
+    insertedFactIds.splice(insertedFactIds.indexOf(root.id), 1);
+
+    const res = await request(makeApp())
+      .post(`/admin/facts/${variant.id}/resubmit-for-moderation`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, "ORPHANED_PARENT");
+
+    const reviews = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.stagingFactId, variant.id));
+    assert.equal(reviews.length, 0, "no review must have been written");
+  });
+
   it("409 REVIEW_ALREADY_IN_PROGRESS naming the in-flight review on a second click", async () => {
     const fact = await seedInactiveFact();
     const first = await request(makeApp())

@@ -1467,8 +1467,8 @@ router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req
   } catch (err) {
     if (err instanceof ResubmitForModerationError) {
       if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS — the in-progress case
-      // names the in-flight review so the UI can link to it.
+      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / ORPHANED_PARENT — the
+      // in-progress case names the in-flight review so the UI can link to it.
       res.status(409).json({
         error: err.message,
         code: err.code,

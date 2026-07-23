@@ -28,7 +28,11 @@ import { findUnresolvedReviewForStagingFact } from "./moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs, type PrepDispatchResult } from "./firstTimeStagingPrep";
 import { logger } from "./logger";
 
-export type ResubmitForModerationErrorCode = "FACT_NOT_FOUND" | "ALREADY_ACTIVE" | "REVIEW_ALREADY_IN_PROGRESS";
+export type ResubmitForModerationErrorCode =
+  | "FACT_NOT_FOUND"
+  | "ALREADY_ACTIVE"
+  | "REVIEW_ALREADY_IN_PROGRESS"
+  | "ORPHANED_PARENT";
 
 /** Typed failure from `resubmitInactiveFactForModeration`; the caller maps codes to HTTP. */
 export class ResubmitForModerationError extends Error {
@@ -81,6 +85,24 @@ export async function resubmitInactiveFactForModeration(args: {
         "A moderation review is already in progress for this fact.",
         { reviewId: existing.id },
       );
+    }
+
+    // pending_reviews.parent_fact_id has a real FK (ON DELETE SET NULL) —
+    // unlike facts.parent_id, which carries none. A hard-deleted root leaves
+    // its former children inactive with parent_id still pointing at the
+    // now-gone row (cascadeDeactivateActiveChildren only flips is_active, it
+    // never clears parent_id), so blindly copying that stale value into this
+    // INSERT would hit the FK and throw. Reject with a clear error instead of
+    // letting it fall through to a 500 — the admin must re-parent or promote
+    // this fact to a root (PATCH parentId) before it can be resubmitted.
+    if (fact.parentId != null) {
+      const [parent] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, fact.parentId)).limit(1);
+      if (!parent) {
+        throw new ResubmitForModerationError(
+          "ORPHANED_PARENT",
+          `This fact's parent (#${fact.parentId}) no longer exists. Re-parent it or promote it to a root before resubmitting.`,
+        );
+      }
     }
 
     const [review] = await tx
