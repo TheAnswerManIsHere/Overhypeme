@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, factTextEditHistoryTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { APPROVED_FACT_TEXT_EDIT_PHRASE } from "@workspace/api-zod";
+import { APPROVED_FACT_TEXT_EDIT_PHRASE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit.js";
 import { hashFactText } from "../lib/enrichmentVersioning.js";
@@ -29,7 +29,7 @@ const SIG = { engineRevision: 1, codeVersions: {} } as unknown as Record<string,
 async function seedFact(text: string, overrides: Partial<typeof factsTable.$inferInsert> = {}): Promise<number> {
   const [f] = await db
     .insert(factsTable)
-    .values({ text, submittedById: adminId, isActive: true, enrichmentStatus: "ok", lastProcessedSignature: SIG, ...overrides } as typeof factsTable.$inferInsert)
+    .values({ text, submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok", lastProcessedSignature: SIG, ...overrides } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });
   factIds.push(f!.id);
   return f!.id;

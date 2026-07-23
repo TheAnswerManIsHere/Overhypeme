@@ -42,7 +42,7 @@ import {
   adminConfigTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
-import { currentProcessingSignature, type FactEnrichment, type ProcessingSignature } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, currentProcessingSignature, type FactEnrichment, type ProcessingSignature } from "@workspace/api-zod";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
@@ -439,7 +439,7 @@ describe("sendFactBackToReview", () => {
 
     const root = await seedActiveFact();
     const [variant] = await db.insert(factsTable)
-      .values({ text: "{NAME} variant", submittedById: submitterId, isActive: true, parentId: root.id })
+      .values({ text: "{NAME} variant", submittedById: submitterId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
       .returning();
     insertedFactIds.push(variant.id);
     await assert.rejects(

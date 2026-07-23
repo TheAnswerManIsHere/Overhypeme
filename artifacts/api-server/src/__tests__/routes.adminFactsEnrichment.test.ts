@@ -24,7 +24,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { factsTable, usersTable, asyncJobsTable } from "@workspace/db/schema";
 import { eq, inArray, like, and } from "drizzle-orm";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -139,9 +139,9 @@ describe("GET /admin/facts/:id", () => {
 describe("GET /admin/facts — variant hierarchy", () => {
   it("nests variants under their root, paginates by root, and groups search matches under the parent", async () => {
     const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-    const rootId = await insertFact({ text: `${marker} root fact` });
-    const v1 = await insertFact({ text: `${marker} variant one`, parentId: rootId });
-    const v2 = await insertFact({ text: `${marker} variant two`, parentId: rootId });
+    const rootId = await insertFact({ text: `${marker} root fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    const v1 = await insertFact({ text: `${marker} variant one`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    const v2 = await insertFact({ text: `${marker} variant two`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
 
     const res = await request(adminApp).get(`/api/admin/facts?search=${marker}`);
     assert.equal(res.status, 200);
@@ -157,8 +157,8 @@ describe("GET /admin/facts — variant hierarchy", () => {
   it("surfaces the parent root when only a variant's text matches the search", async () => {
     const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
     const rare = `zzonly${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-    const rootId = await insertFact({ text: `${marker} plain root` });
-    const v = await insertFact({ text: `${marker} ${rare} special variant`, parentId: rootId });
+    const rootId = await insertFact({ text: `${marker} plain root`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    const v = await insertFact({ text: `${marker} ${rare} special variant`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
 
     const res = await request(adminApp).get(`/api/admin/facts?search=${rare}`);
     assert.equal(res.status, 200);
@@ -328,7 +328,7 @@ describe("POST /admin/facts/:id/enrich", () => {
 
 describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   it("classification failure → enrichmentStatus failed", async () => {
-    const id = await insertFact({ enrichmentStatus: "pending" });
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
     const result = await runEnrichmentForFact(id, {
       classify: async () => { throw new EnrichmentError("boom"); },
     });
@@ -338,7 +338,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   });
 
   it("classification ok → enrichmentStatus ok, projection synced, no preview key", async () => {
-    const id = await insertFact({ enrichmentStatus: "pending" });
+    const id = await insertFact({ enrichmentStatus: "pending", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
     const result = await runEnrichmentForFact(id, {
       classify: async () => ({ ...OTHER }),
     });
@@ -353,7 +353,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   });
 
   it("discards a stale result when the classifier input drifts mid-classify (approved-fact-text lock §E)", async () => {
-    const id = await insertFact({ enrichmentStatus: "pending", text: "original wording." });
+    const id = await insertFact({ enrichmentStatus: "pending", text: "original wording.", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
     // The classify stub re-words the fact mid-call (a concurrent text edit),
     // then returns OTHER. The worker's full-input recheck must DISCARD it.
     const result = await runEnrichmentForFact(id, {
@@ -376,6 +376,8 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     const id = await insertFact({
       enrichmentStatus: "pending",
       text: "{NAME} bench-presses the Earth while {SUBJ} hums {POSS} favourite tune.",
+      isActive: true,
+      enrichment: buildPlaceholderFactEnrichment(),
     });
 
     let classifyReceivedText: string | undefined;
@@ -399,6 +401,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   it("preserves the moderator visual-strategy override across re-classification", async () => {
     const override = {
       version: 1 as const,
+      coreSceneOverride: "A hero stands tall.",
       requiredVisualDetails: ["adult head on a newborn body"],
       forbiddenVisualDetails: [],
       roleBindings: [],
@@ -412,6 +415,7 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     const id = await insertFact({
       ...buildFactEnrichmentColumns({ ...VALID, visualPromptStrategyOverride: override } as FactEnrichment),
       enrichmentStatus: "pending",
+      isActive: true,
     });
 
     // The classify stub returns a fresh blob WITHOUT any override (as the LLM would).
