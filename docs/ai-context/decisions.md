@@ -13,6 +13,26 @@
 
 ---
 
+### 2026-07-23 · Recurring failure patterns become CI guards, not just doc updates
+- **Decision:** When a mistake already recorded in `known-failure-patterns.md`
+  happens a **second** time, the default response is a deterministic CI check
+  in `.github/workflows/build.yml` that makes the mistake impossible to merge
+  — not a stronger doc warning or a one-off correction. This applies to any
+  reviewer (Codex or Claude), not just the agent that adds the guard.
+- **Why:** the `api-zod`/codegen-revert entry in `known-failure-patterns.md`
+  already existed, was correct, and was consulted by nobody at the moment it
+  recurred (PR #228) — a docs-only warning can't stop a mistake that happens
+  before anyone thinks to check the doc. A CI guard can't be skipped that way.
+  `scripts/check-codegen-drift.sh` (wired into the `Build` job as
+  `pnpm run check:codegen-drift`) is the first instance of this principle.
+- **Reference:** PR #236; the extended entry in
+  [`known-failure-patterns.md`](./known-failure-patterns.md); the review
+  checklist addition in
+  [`code-review.md`](../engineering/code-review.md).
+- **Revisit if:** never — standing engineering practice, not a one-off.
+
+---
+
 ### 2026-07-22 · Visual Strategy Override is presence-based (no enable toggle); Visual Concept is required to save AND to release — one card is its only surface
 - **Decision:** Three linked changes to the moderator Visual Strategy Override (VSO):
   - **Presence-based activation — the `enabled` boolean is retired.** Every VSO

@@ -102,6 +102,19 @@ single consumer of that export. Don't defer this verification to "when I run
 the full test suite later" — by then the mistake is buried under unrelated
 work and looks like a cascade of broken tests, not a one-line miss.
 
+**Now automated (2026-07-23, PR #236):** a doc reminder didn't stop this from
+recurring once already (PR #228), so the mechanical check above is no longer
+opt-in. CI's `Build` job runs `pnpm run check:codegen-drift`
+([`scripts/check-codegen-drift.sh`](../../scripts/check-codegen-drift.sh)) on
+every PR, which reruns codegen and fails the merge on any resulting drift —
+same command works locally. **One correctness detail if you ever touch that
+guard:** it checks `git status --porcelain -- lib/`, not
+`git diff --exit-code -- lib/`. A `git diff` only sees modified *tracked*
+files; when codegen splits out a brand-new generated file, that file is
+*untracked*, and a diff-only guard would silently pass while the merged
+checkout is still missing it (caught in Codex review on PR #236 — see
+`code-review.md`'s Tests section for the general principle this became).
+
 ## Stale historical docs treated as current truth
 
 **Looks like:** implementing from an old note (or training-data memory) that no
