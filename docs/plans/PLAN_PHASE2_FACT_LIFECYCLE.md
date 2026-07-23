@@ -116,11 +116,14 @@ Two structured recon passes (activation paths + design details) covered:
 - **`parentId`** is carried on the *staging fact* (`facts.parent_id`), set at
   provisional-approve from the request body → `ensureStagingFact` →
   `approveForProduction`. `pendingReviews` has **no parent column**.
-- **Bypass paths** (all insert `isActive: true`, enrichment null, no review):
-  `POST /facts` (dead code — no live caller, no test; codegen'd into two client
-  packages); `POST /admin/import/facts` (dedup + hashtags + embeddings);
-  `POST /admin/facts/import` + `import-csv` (no dedup/hashtags/embeddings);
-  `POST /admin/facts/:id/variants` (sets only `parentId`, copies nothing).
+- **Bypass paths** — two shapes. **Inserts** (all `isActive: true`, enrichment
+  null, no review): `POST /facts` (dead code — no live caller, no test; codegen'd
+  into two client packages); `POST /admin/import/facts` (dedup + hashtags +
+  embeddings); `POST /admin/facts/import` + `import-csv` (no
+  dedup/hashtags/embeddings); `POST /admin/facts/:id/variants` (sets only
+  `parentId`, copies nothing). **Flip:** `PATCH /admin/facts/:id` can set
+  `is_active` false→true directly (the admin Active toggle) — see the activation
+  bullet above. Phase 2 closes all of these.
 - **The Visual Concept lives inside the `enrichment` JSONB** at
   `enrichment -> 'visualPromptStrategyOverride' ->> 'coreSceneOverride'`. There is
   **no dedicated column** for it.
