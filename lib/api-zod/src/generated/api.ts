@@ -135,26 +135,6 @@ export const ListFactsResponse = zod.object({
 });
 
 /**
- * @summary Submit a new fact
- */
-export const createFactBodyTextMin = 10;
-export const createFactBodyTextMax = 1000;
-
-export const createFactBodyHashtagsDefault = [];
-
-export const CreateFactBody = zod.object({
-  text: zod.string().min(createFactBodyTextMin).max(createFactBodyTextMax),
-  hashtags: zod.array(zod.string()).default(createFactBodyHashtagsDefault),
-  captchaToken: zod.string(),
-  skipDuplicateCheck: zod
-    .boolean()
-    .optional()
-    .describe(
-      "If true, bypasses server-side duplicate enforcement and allows submission even when a duplicate is detected.",
-    ),
-});
-
-/**
  * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
  */
 export const GetHeroFactQueryParams = zod.object({

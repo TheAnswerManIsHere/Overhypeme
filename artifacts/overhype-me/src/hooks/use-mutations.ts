@@ -1,8 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  useCreateFact, 
-  useRateFact, 
-  useAddComment, 
+import {
+  useRateFact,
+  useAddComment,
   useDeleteLink,
   useRecordSearch,
   getListFactsQueryKey,
@@ -14,15 +13,6 @@ import {
 
 export function useAppMutations() {
   const queryClient = useQueryClient();
-
-  const createFactMutation = useCreateFact({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListFactsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      }
-    }
-  });
 
   const rateFactMutation = useRateFact({
     mutation: {
@@ -61,7 +51,6 @@ export function useAppMutations() {
   });
 
   return {
-    createFact: createFactMutation,
     rateFact: rateFactMutation,
     addComment: addCommentMutation,
     deleteLink: deleteLinkMutation,
