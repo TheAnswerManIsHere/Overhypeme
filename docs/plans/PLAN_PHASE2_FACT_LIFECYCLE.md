@@ -51,8 +51,9 @@ at the database.
 - The refresh/send-back flow — it refreshes *already-active* facts and never
   touches `is_active`; it stays as-is.
 - Existing live facts stay live (grandfathered — see below); this is not a purge.
-  **One exception** (David-decided): active facts with *no enrichment at all* (old
-  bulk imports) are deactivated, since a fabricated concept can't make them
+  **One exception** (David-decided): active facts with *no valid enrichment* —
+  null enrichment (old bulk imports) or malformed `invalid_enrichment` — are
+  deactivated + re-moderated, since a fabricated concept can't make them
   render-valid — see §C.
 - The render-time plan/compiler remains the prompt source of truth; the Visual
   Concept remains the authoritative scene.
@@ -68,9 +69,12 @@ at the database.
 4. Dev fixtures may do whatever dev needs (but must satisfy the DB constraint —
    see Testing).
 5. DB backstop **included** (David deferred the call; recommended and accepted).
-6. Existing active-but-conceptless facts are **grandfathered** and **backfilled**
-   with a visible sentinel concept `{NAME} stands there confidently.` so they're
-   obviously placeholders (David will replace them shortly).
+6. Existing active-but-conceptless facts **with valid enrichment** are
+   **grandfathered** and **backfilled** with a visible sentinel concept
+   `{NAME} stands there confidently.` so they're obviously placeholders (David will
+   replace them shortly). Active facts with **null or invalid enrichment** are
+   instead **deactivated + re-moderated** (they can't be made render-valid by
+   stamping a concept) — see §C.
 7. All in one plan (this one).
 
 ## Repo Context Inspected
@@ -330,30 +334,33 @@ added VALID.
 - Sentinel: `coreSceneOverride: "{NAME} stands there confidently."` — a valid,
   renderable, obviously-generic scene; greppable so David can find and replace
   them. (It carries the `{NAME}` token, consistent with authored concepts.)
-- For facts **with** an enrichment blob but no scene: set
+- For facts **with a valid enrichment blob** but no scene: set
   `enrichment.visualPromptStrategyOverride.coreSceneOverride` to the sentinel
   (materialize the VSO layer if `visualPromptStrategyOverride` is absent),
   re-materializing via the same `materializeEnrichment` path so all derived
   columns stay canonical.
-- **Facts with null enrichment** (old bulk-imported/admin-created) — **DECIDED
-  (David): deactivate.** A blob carrying only the sentinel VSO is **not** a valid
+- **Facts with null OR invalid enrichment** (old bulk-imported/admin-created, or
+  malformed/outdated `invalid_enrichment` rows) — **DECIDED (David): deactivate +
+  re-moderate.** A blob carrying only the sentinel VSO is **not** a valid
   `FactEnrichment` (schema requires `primaryArchetype`, `subtype`,
   `visualLiteralness`, hashtags, suitability, …), and generic meme rendering
-  validates `facts.enrichment` first — so a VSO-only blob would *pass the CHECK yet
-  still fail render* as `fact_enrichment_invalid`. Rather than fabricate a fake
-  full enrichment to keep junk live (the exact anti-state Phase 2 removes), the
-  backfill sets these unmoderated, never-enriched rows **`is_active = false`**.
-  This is the **one** place the backfill touches `is_active` (the single exception
-  to "grandfather all live facts"). We do **not** auto-create triage reviews for
-  them — auto-enqueuing potentially-hundreds of unmoderated bulk-import rows would
-  flood the moderator. They simply drop off the live site; David re-adds the ones
-  worth keeping via the now-funneled bulk import (which lands them in triage the
-  normal way — consistent with "I'll redo them shortly"). Facts that already have a
-  valid enrichment (just missing the scene) are unaffected — the with-enrichment
-  path above handles them.
+  validates `facts.enrichment` first — so a VSO-only *or* malformed blob would
+  *pass the CHECK yet still fail render* as `fact_enrichment_invalid`. Rather than
+  fabricate a fake full enrichment to keep junk live (the exact anti-state Phase 2
+  removes), the backfill sets these unmoderated/never-validly-enriched rows
+  **`is_active = false`**. This covers **both** the null-enrichment case and the
+  round-6 invalid-enrichment case — same remedy, since neither can be made
+  render-valid by stamping a concept. This is the **one** place the backfill
+  touches `is_active` (the single exception to "grandfather all live facts"). We do
+  **not** auto-create triage reviews for them — auto-enqueuing potentially-hundreds
+  of unmoderated rows would flood the moderator. They simply drop off the live
+  site; David re-adds the ones worth keeping via the now-funneled bulk import
+  (which lands them in triage the normal way — consistent with "I'll redo them
+  shortly"). Facts that already have a valid enrichment (just missing the scene)
+  are unaffected — the with-enrichment path above handles them.
 - **Deactivating a root that has active children (Codex P1, round 2):** if a
-  null-enrichment row being deactivated is a *root* (`parent_id IS NULL`) with
-  **active children/variants**, deactivating only the root orphans them — the
+  null-/invalid-enrichment row being deactivated is a *root* (`parent_id IS NULL`)
+  with **active children/variants**, deactivating only the root orphans them — the
   public `/facts` feed returns active roots (`is_active = true AND parent_id IS
   NULL`), while variant/detail code derives the canonical root from `parent_id`, so
   live children under an inactive root vanish from the main feed. Resolution:
@@ -363,9 +370,9 @@ added VALID.
   so they're unmoderated too; cascade preserves identity/lineage rather than
   re-parenting. Deterministic, intent-consistent default — **flagged to David**;
   promote-a-child-to-root is the alternative if he prefers.) Covered by a dedicated
-  row-state + test: `active null-enrichment root + active children`.
+  row-state + test: `active null-/invalid-enrichment root + active children`.
 - **Grandfather:** never set `is_active = false` on an existing fact **except** the
-  null-enrichment deactivation above and its child cascade. Facts with a valid
+  null-/invalid-enrichment deactivation above and its child cascade. Facts with a valid
   enrichment stay live.
 
 ## Data Model and Migration Impact
@@ -394,9 +401,9 @@ audit §A.2/§A.4 + variant reroute, which now has its column). After this, no c
 path can create/flip an active conceptless row.
 
 **Phase 2 — data + constraint (only after the writers are closed):**
-3. **Backfill** (Section C): sentinel concept into active *with-enrichment*
-   conceptless facts; **deactivate** active *null-enrichment* facts (+ child
-   cascade).
+3. **Backfill** (Section C): sentinel concept into active *with-valid-enrichment*
+   conceptless facts; **deactivate** active *null-/invalid-enrichment* facts (+
+   child cascade).
 4. **`facts_active_requires_concept` CHECK constraint**, added **VALID** (no
    violators remain — the backfill fixed the old ones and no writer can make new
    ones).
@@ -428,7 +435,7 @@ round 3). See Implementation Steps for the full order.
   interrupted. The sweep is independently idempotent (re-runs to a no-op once no
   active child has an inactive parent).
 - Emit counts: candidates scanned, sentinel-backfilled (with-enrichment),
-  deactivated (null-enrichment), already-had-concept (skipped), failed.
+  deactivated (null-/invalid-enrichment), already-had-concept (skipped), failed.
 - Rollback: the CHECK can be dropped; the column can be dropped; the default can
   be restored. The sentinel backfill is *forward-only* data (harmless if left —
   it's a valid concept), but the migration doc will note the grep to find/undo
@@ -440,9 +447,9 @@ round 3). See Implementation Steps for the full order.
 |---|---|
 | active + real concept | skip (no-op) |
 | active + blank/absent concept, enrichment present **and valid** | set sentinel in VSO, re-materialize |
-| active + non-null but **invalid/non-materializable** enrichment, no concept | **OPEN — David** (Codex P2, round 6): neither `null` nor materializable, so it can't be sentinel-backfilled. Proposed default: **deactivate + re-moderate**, consistent with the null-enrichment call. See Questions for David. |
-| active + null enrichment (leaf, or root with no active children) | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
-| active + null enrichment **root with active children** | **cascade-deactivate** root + its active children, atomically (see §C + the atomicity/orphan-sweep note above, Codex P1/P2) |
+| active + non-null but **invalid/non-materializable** enrichment, no concept | **deactivate** (`is_active = false`) — David-decided (round 6): same treatment as null enrichment; it can't be sentinel-backfilled (still fails render), so it drops off the live site and re-enters via normal ingestion. Cascade applies if it's a root with active children (below). |
+| active + null **or invalid** enrichment (leaf, or root with no active children) | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
+| active + null **or invalid** enrichment **root with active children** | **cascade-deactivate** root + its active children, atomically (see §C + the atomicity/orphan-sweep note above, Codex P1/P2) |
 | inactive (any) | skip — constraint permits inactive-without-concept |
 | already sentinel (re-run) | skip (blank-scene predicate no longer matches) |
 | already deactivated (re-run) | skip; the standalone orphan sweep still re-checks its children (see idempotency note above) |
@@ -523,11 +530,12 @@ New/updated tests proving the **invariants** (with negative cases):
    yields an active fact with the correct `parent_id`. **Parent revalidation:** if
    the carried parent is deactivated before final approval, `activateFact` throws
    `ParentNotActiveError` and no live variant is created under an inactive root.
-6. **Backfill:** the row-state matrix — with-enrichment (sentinel), null-enrichment
-   leaf (deactivate), **null-enrichment root with active children
-   (cascade-deactivate — children go inactive, none orphaned)**, already-concept
-   (skip), inactive (skip), re-run idempotent (incl. re-run over
-   already-deactivated); counts correct.
+6. **Backfill:** the row-state matrix — with-valid-enrichment (sentinel),
+   null-/invalid-enrichment leaf (deactivate), **null-/invalid-enrichment root
+   with active children (cascade-deactivate — children go inactive, none
+   orphaned)**, already-concept (skip), inactive (skip), re-run idempotent (incl.
+   re-run over already-deactivated, and the standalone orphan sweep); counts
+   correct.
 7. **Regression:** manual submit **byte-identical** through `createTriageReview` —
    `matchingFactId`/`matchingSimilarity`/`reason` preserved on the review row
    (Codex round 2); refresh/send-back untouched (existing tests green).
@@ -584,9 +592,10 @@ could insert a fresh violator between the backfill scan and `ADD CONSTRAINT`.
      invalid-enrichment matrix row per David's remedy choice.
    - Audit that no `is_active` false→true writer and no concept-stripping active-row
      enrichment writer remains.
-4. **Phase-2 backfill migration:** sentinel concept into active *with-enrichment*
-   conceptless facts; **deactivate** active *null-enrichment* facts,
-   **cascade-deactivating** active children of a deactivated root; counts;
+4. **Phase-2 backfill migration:** sentinel concept into active
+   *with-valid-enrichment* conceptless facts; **deactivate** active
+   *null-/invalid-enrichment* facts, **cascade-deactivating** active children of a
+   deactivated root (atomic cascade + rerunnable orphan sweep); counts;
    idempotency (incl. re-run over already-deactivated). Test 6.
 5. **Phase-2 CHECK constraint (VALID):** add last, after every writer is closed and
    the backfill is done — no source of a fresh violator remains. `ADD CONSTRAINT …
@@ -626,17 +635,12 @@ remove an admin shortcut: to bring back a deactivated fact, an admin re-moderate
 it. If you want a narrow "reactivate a previously-production-approved fact" button
 that re-runs the production gate, say so and I'll add it (small follow-up).
 
-**One new fork to confirm (Codex P2, round 6) — invalid-enrichment rows.** The
-repo has a first-class `invalid_enrichment` state. An existing active legacy row
-whose enrichment is **non-null but malformed/outdated** (so `materializeEnrichment`
-can't accept it) and has no concept is neither `null` nor sentinel-backfillable:
-the backfill would either fail (blocking the VALID CHECK) or raw-stamp a sentinel
-into a blob that still fails render validation. Three remedies — **deactivate +
-re-moderate**, **repair** (attempt re-enrichment first, then treat like the
-with-enrichment path), or **send to triage**. My proposed default is **deactivate
-+ re-moderate**, for exact consistency with your null-enrichment call ("no point
-having a fact that hasn't gone through moderation") — but this is your decision,
-not one I'll settle in the loop.
+The invalid-enrichment edge (Codex P2, round 6) — active legacy rows with
+**non-null but malformed/outdated** enrichment (the repo's `invalid_enrichment`
+state) and no concept, which can't be sentinel-backfilled — was **David-decided:
+deactivate + re-moderate**, the same treatment as null enrichment (consistent with
+"no point having a fact that hasn't gone through moderation"). Folded into the
+row-state matrix and §C.
 
 The round-1 fork (active facts with no enrichment) was **David-decided: deactivate
 them** (§C). The cascade-vs-promote choice for a deactivated root's children is a
@@ -665,10 +669,11 @@ this repo runs 16). No current-docs verification needed.
 - [ ] Variants carry their parent through moderation to the activated fact, and a
       variant never activates under an inactive/orphaned root (`activateFact`
       revalidates the parent at commit).
-- [ ] Existing live facts **with enrichment** stay live and carry the sentinel
-      concept; existing active facts **with null enrichment are deactivated**
-      (cascade-deactivating any active children), with counts emitted; the CHECK is
-      VALID with zero violators.
+- [ ] Existing live facts **with valid enrichment** stay live and carry the
+      sentinel concept; existing active facts **with null or invalid enrichment
+      are deactivated** (cascade-deactivating any active children, with a
+      rerunnable orphan sweep), with counts emitted; the CHECK is VALID with zero
+      violators.
 - [ ] Manual submission and refresh/send-back behavior unchanged (existing tests
       green).
 - [ ] Full backend sharded suite + frontend suite green; all typechecks clean.
