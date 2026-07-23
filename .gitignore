@@ -70,3 +70,8 @@ attached_assets/
 /prod-backup-*.sql
 /backups/
 *.dump
+
+# Derived copy of artifacts/api-server/src/assets/ — build.mjs (and a dev-stack
+# boot) materializes it next to dist/ so the bundled server can resolve
+# ../assets. The canonical, tracked sources live under src/assets/.
+artifacts/api-server/assets/
