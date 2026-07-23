@@ -233,13 +233,30 @@ Stage-1 review.**
    rows with `buildFactEnrichmentColumns(enrichFact(...))` — fresh classifier
    output that carries **no** `visualPromptStrategyOverride`. After the CHECK it
    would fail every active-row update; before it, `?force=true` would silently
-   strip the concept. Fix: route this (and any other active-row enrichment rewrite)
-   through the **VSO-preserving** `materializeEnrichment` path — the same split the
-   re-classification path already uses (`materializeFromBaseline` pulls the VSO out
-   of the AI baseline and re-feeds it) — so the moderator concept survives, or
-   disable the legacy route. A regression test asserts the VSO survives a forced
-   re-enrich of an active fact. The whole-codebase audit in §A.2 covers **both**
-   writer classes: `is_active` writers *and* active-row enrichment rewriters.
+   strip the concept.
+
+   **Two offenders, not one (Codex P1, round 6).** The audit must cover *both*
+   the sync route and its async twin:
+   - **Sync:** `POST /admin/facts/backfill-enrichment` (`admin.ts:1945-1969`).
+   - **Async:** `factEnrichmentBackfillHandler` — the job drained from
+     `FACT_ENRICHMENT_BACKFILL_QUEUE`, enqueued by
+     `/admin/taxonomy-health/actions/backfill-enrichment`. It currently
+     re-materializes with `materializeFromBaseline(next)` too, so it strips the
+     concept on the async path even after the sync route is fixed.
+
+   **Preservation source = the existing row, NOT the fresh AI baseline (Codex P1,
+   round 6).** The critical correction to the round-5 wording: `materializeFrom
+   Baseline(next)` where `next` is fresh classifier output is *insufficient* — it
+   can only carry a VSO that is *already present in that fresh blob*, and the
+   classifier never emits one. The fix must **explicitly load the current fact's
+   `visualPromptStrategyOverride` / override layers from the existing row** and
+   pass them into `materializeEnrichment` as the concept source, so the moderator
+   decision is re-applied on top of the fresh baseline — or disable the route
+   entirely. Test 9 asserts the VSO survives a forced re-enrich on **both** the
+   sync route and the async `factEnrichmentBackfillHandler`, with the existing
+   row's concept as the preservation source. The whole-codebase audit in §A.2
+   covers **both** writer classes: `is_active` writers *and* active-row enrichment
+   rewriters (sync and async).
 
 ### B. Ingestion funnel (the entrance)
 
@@ -397,6 +414,19 @@ round 3). See Implementation Steps for the full order.
   effective `coreSceneOverride` is blank/absent; re-running is a no-op (those rows
   now have the sentinel). Guard by matching blank scene, not "equals sentinel," so
   a re-run after a partial failure completes cleanly.
+- **Cascade-deactivate must be atomic + rerunnable (Codex P2, round 6).** A
+  root+children cascade implemented as two separate updates can be interrupted
+  after the root is deactivated but before its children — and because the re-run
+  predicate skips any row already `is_active = false`, the re-run would never
+  revisit that root, stranding active variants under an inactive parent. Guard
+  both ways: (1) do the root+children cascade in **one atomic statement** (a
+  single recursive CTE / `UPDATE … WHERE id = root OR parent_id = root`), so it
+  never half-applies; **and** (2) add a standalone **rerunnable orphan sweep** —
+  `UPDATE facts SET is_active = false WHERE is_active = true AND parent_id IN
+  (SELECT id FROM facts WHERE is_active = false)` — that closes any child left
+  active under an already-inactive root regardless of how the cascade was
+  interrupted. The sweep is independently idempotent (re-runs to a no-op once no
+  active child has an inactive parent).
 - Emit counts: candidates scanned, sentinel-backfilled (with-enrichment),
   deactivated (null-enrichment), already-had-concept (skipped), failed.
 - Rollback: the CHECK can be dropped; the column can be dropped; the default can
@@ -409,12 +439,13 @@ round 3). See Implementation Steps for the full order.
 | Row state | Action |
 |---|---|
 | active + real concept | skip (no-op) |
-| active + blank/absent concept, enrichment present | set sentinel in VSO, re-materialize |
+| active + blank/absent concept, enrichment present **and valid** | set sentinel in VSO, re-materialize |
+| active + non-null but **invalid/non-materializable** enrichment, no concept | **OPEN — David** (Codex P2, round 6): neither `null` nor materializable, so it can't be sentinel-backfilled. Proposed default: **deactivate + re-moderate**, consistent with the null-enrichment call. See Questions for David. |
 | active + null enrichment (leaf, or root with no active children) | **deactivate** (`is_active = false`) — the one exception to grandfathering; no auto-review (see §C) |
-| active + null enrichment **root with active children** | **cascade-deactivate** root + its active children (see §C, Codex P1) |
+| active + null enrichment **root with active children** | **cascade-deactivate** root + its active children, atomically (see §C + the atomicity/orphan-sweep note above, Codex P1/P2) |
 | inactive (any) | skip — constraint permits inactive-without-concept |
 | already sentinel (re-run) | skip (blank-scene predicate no longer matches) |
-| already deactivated (re-run) | skip (`is_active = false` no longer matches the `is_active = true` predicate) |
+| already deactivated (re-run) | skip; the standalone orphan sweep still re-checks its children (see idempotency note above) |
 
 ## Runtime Behavior
 
@@ -545,8 +576,12 @@ could insert a fresh violator between the backfill scan and `ADD CONSTRAINT`.
    - Remove `POST /facts`: route + openapi + regen + dead wiring. Test 4 (404).
    - **Reject `PATCH /admin/facts/:id` `is_active` false→true** (activation is
      moderation-only; deactivate stays direct). Test 8.
-   - **Preserve the VSO on active-row enrichment rewrites** (`backfill-enrichment`
-     `?force` and any peer) via the VSO-preserving materialize path. Test 9.
+   - **Preserve the VSO on active-row enrichment rewrites** — both the sync
+     `backfill-enrichment` `?force` route **and** the async
+     `factEnrichmentBackfillHandler` (`FACT_ENRICHMENT_BACKFILL_QUEUE`) — by
+     re-applying the *existing row's* concept onto the fresh baseline (not trusting
+     the classifier blob). Test 9 (both paths). Test 6 also covers the
+     invalid-enrichment matrix row per David's remedy choice.
    - Audit that no `is_active` false→true writer and no concept-stripping active-row
      enrichment writer remains.
 4. **Phase-2 backfill migration:** sentinel concept into active *with-enrichment*
@@ -590,6 +625,18 @@ works). This is the faithful reading of "only moderation activates," but it does
 remove an admin shortcut: to bring back a deactivated fact, an admin re-moderates
 it. If you want a narrow "reactivate a previously-production-approved fact" button
 that re-runs the production gate, say so and I'll add it (small follow-up).
+
+**One new fork to confirm (Codex P2, round 6) — invalid-enrichment rows.** The
+repo has a first-class `invalid_enrichment` state. An existing active legacy row
+whose enrichment is **non-null but malformed/outdated** (so `materializeEnrichment`
+can't accept it) and has no concept is neither `null` nor sentinel-backfillable:
+the backfill would either fail (blocking the VALID CHECK) or raw-stamp a sentinel
+into a blob that still fails render validation. Three remedies — **deactivate +
+re-moderate**, **repair** (attempt re-enrichment first, then treat like the
+with-enrichment path), or **send to triage**. My proposed default is **deactivate
++ re-moderate**, for exact consistency with your null-enrichment call ("no point
+having a fact that hasn't gone through moderation") — but this is your decision,
+not one I'll settle in the loop.
 
 The round-1 fork (active facts with no enrichment) was **David-decided: deactivate
 them** (§C). The cascade-vs-promote choice for a deactivated root's children is a
