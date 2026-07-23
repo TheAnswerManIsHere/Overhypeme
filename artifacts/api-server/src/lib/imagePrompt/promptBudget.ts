@@ -32,8 +32,11 @@ import {
   collectRenderedTextEntries,
   setRenderedTextAtPath,
   projectWorstCaseRenderedLength,
+  projectWorstCaseRenderedText,
   resolveRenderPolicy,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  validateVisualStrategyOverrideForSave,
+  type VsoBudgetResult,
 } from "@workspace/api-zod";
 import {
   compileForSubjectRenderMode,
@@ -124,8 +127,6 @@ const ADDITIONS_MODES: ReadonlyArray<{ mode: SubjectRenderModeKey; gender?: "mal
   { mode: "t2i_fallback", gender: "neutral" },
 ];
 
-const EMPTY_ENABLED_OVERRIDE: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true };
-
 /**
  * Build a WORST-CASE projection of a moderator override for measurement:
  * every non-core rendered field's text is replaced with a placeholder of its
@@ -135,9 +136,11 @@ const EMPTY_ENABLED_OVERRIDE: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_S
  * actually render.
  */
 function projectAdditionsOverride(ov: VisualPromptStrategyOverride): VisualPromptStrategyOverride {
-  let projected: VisualPromptStrategyOverride = { ...ov, enabled: true, coreSceneOverride: undefined };
+  // Bubbles are dropped: they have their OWN reserve, measured separately by
+  // `measureBubbleDirectivesEmission` — counting them here would double-count.
+  let projected: VisualPromptStrategyOverride = { ...ov, coreSceneOverride: undefined, bubbles: [] };
   for (const { path, value } of collectRenderedTextEntries(ov)) {
-    if (path === "coreSceneOverride") continue;
+    if (path === "coreSceneOverride" || path.startsWith("bubbles[")) continue;
     projected = setRenderedTextAtPath(projected, path, "x".repeat(projectWorstCaseRenderedLength(value)));
   }
   return projected;
@@ -186,13 +189,80 @@ function compileWithOverride(
  * emitted contribution. Returns the max across modes (the reserve to enforce).
  */
 export function measureModeratorAdditionsEmission(ov: VisualPromptStrategyOverride): number {
-  if (!ov.enabled) return 0;
+  // Presence-based: an all-empty override projects to a 0 delta against the empty
+  // baseline, so no enable gate is needed — additions are measured whenever present.
   const projected = projectAdditionsOverride(ov);
   let worst = 0;
   for (const entry of ADDITIONS_MODES) {
     const withAdditions = compileWithOverride(entry, projected);
-    const baseline = compileWithOverride(entry, EMPTY_ENABLED_OVERRIDE);
+    const baseline = compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
     worst = Math.max(worst, withAdditions - baseline);
   }
   return Math.max(0, worst);
+}
+
+/**
+ * The number of characters the moderator's SPEECH & THOUGHT BUBBLES actually
+ * add to the compiled prompt at worst case — the compiler-emitted directives
+ * (template wording + attribution + serialized literal + section label), with
+ * bubble text projected to its worst-case token expansion. Same delta method
+ * as the additions measurement, with ONLY the bubbles populated, so the two
+ * pools can never double-count. This is the `bubbleEmittedLength` input to
+ * `validateVisualStrategyOverrideForSave`.
+ */
+export function measureBubbleDirectivesEmission(ov: VisualPromptStrategyOverride): number {
+  if ((ov.bubbles ?? []).length === 0) return 0;
+  let projected: VisualPromptStrategyOverride = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, bubbles: ov.bubbles };
+  for (const { path, value } of collectRenderedTextEntries(projected)) {
+    if (!path.startsWith("bubbles[")) continue;
+    if (path.endsWith(".entity")) {
+      // Entities are never escaped (composeBubbleDirective inserts the
+      // attribution noun raw, never through serializeLiteralPromptString) —
+      // only their worst-case ATTRIBUTION TARGET length matters: a role
+      // label emits as itself (raw length), but "subject" (7 chars) emits as
+      // the rendered subject name (up to RENDERED_IDENTITY_NAME_MAX).
+      const projectedLen = Math.max(value.length, RENDERED_IDENTITY_NAME_MAX);
+      projected = setRenderedTextAtPath(projected, path, "x".repeat(projectedLen));
+      continue;
+    }
+    // Text DOES run through `serializeLiteralPromptString`, which escapes
+    // every embedded `"`/`\` to two characters — so the placeholder must
+    // preserve the moderator's REAL literal characters (their true escaping
+    // cost is already fully known at save time) and only substitute the
+    // TOKEN-expansion portion with a safe worst-case-length filler.
+    // `projectWorstCaseRenderedText` does exactly that (a plain "x" fill on
+    // length alone would either undercount real quoted speech or, filled
+    // with worst-case-escaping chars uniformly, wrongly over-inflate
+    // ordinary quote-free bubbles — Codex P2, PR #229).
+    projected = setRenderedTextAtPath(projected, path, projectWorstCaseRenderedText(value));
+  }
+  let worst = 0;
+  for (const entry of ADDITIONS_MODES) {
+    const withBubbles = compileWithOverride(entry, projected);
+    const baseline = compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
+    worst = Math.max(worst, withBubbles - baseline);
+  }
+  return Math.max(0, worst);
+}
+
+// ─── The one server-side VSO persistence preflight ──────────────────────────
+
+/**
+ * The single authoritative save/pick gate for a visual-strategy override:
+ * measures the additions and bubble emissions through the REAL compiler and
+ * runs the pure api-zod budget validator on them. Every surface that persists
+ * or promises to persist a VSO — the admin fact enrichment PATCH, the
+ * review-candidate enrichment PATCH, and candidate-concept pickability — calls
+ * THIS helper, so "valid to pick" and "valid to save" can never drift.
+ * An all-empty override validates trivially (nothing is emitted at compile);
+ * the core scene has its own raw/rendered caps, checked independent of anything.
+ */
+export function validateVisualStrategyOverridePersistence(
+  ov: VisualPromptStrategyOverride,
+): VsoBudgetResult {
+  return validateVisualStrategyOverrideForSave(
+    ov,
+    measureModeratorAdditionsEmission(ov),
+    measureBubbleDirectivesEmission(ov),
+  );
 }

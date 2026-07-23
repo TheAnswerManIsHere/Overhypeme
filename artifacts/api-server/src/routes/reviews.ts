@@ -10,7 +10,7 @@ import {
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
   factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, count, inArray, isNull } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -22,7 +22,6 @@ import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rat
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import {
   validateEnrichment,
-  validateVisualStrategyOverrideForSave,
   type VisualPromptStrategyOverride,
   type FactEnrichment,
   type ReviewWorkflowStage,
@@ -43,7 +42,8 @@ import {
   evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { ensureStagingFact, resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
   promoteCandidateEnrichmentVersion,
   PromoteCandidateError,
@@ -66,8 +66,6 @@ import {
   OVERRIDABLE_PATH_KEYS,
   type OverridablePath,
 } from "@workspace/api-zod";
-import { enqueueJob } from "../lib/asyncJobs";
-import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
@@ -75,7 +73,7 @@ import {
   type RenderControlsWithRefs,
 } from "../lib/imagePromptAttempts";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
-import { measureModeratorAdditionsEmission } from "../lib/imagePrompt/promptBudget";
+import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import {
   buildReviewScenarioGrid,
   runReviewScenarios,
@@ -550,6 +548,14 @@ async function approveRefreshCandidateForProduction(
   const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
 
+  // Required Visual Concept (blocking): the promoted candidate cannot reach production
+  // without a non-empty Visual Concept — same publish-time backstop as the first-time
+  // production approval, applied to the candidate blob being promoted.
+  if (!enrichmentResult.enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+    res.status(409).json({ error: "Save a non-empty Visual Concept before promoting this refresh.", code: "CONCEPT_MISSING" });
+    return;
+  }
+
   // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
   // the currently-active enrichment) is what must render. The scenario grid
   // resolves a refresh review's enrichment to the candidate version, so this
@@ -674,6 +680,15 @@ async function approveForProduction(
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
 
+  // Required Visual Concept (blocking): a fact cannot be released to production without
+  // a non-empty Visual Concept for the image/video engines. This is the publish-time
+  // backstop for the Step-2 gate — it catches a stale/pre-existing production_review row
+  // promoted directly (via a stale tab or a resumed cycle) that never passed Step 2.
+  if (!enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+    res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
+    return;
+  }
+
   // Final discovery tags. The moderator's curated list from the approve body is
   // authoritative; absent that, fall back to the submitter's tags (else AI
   // suggestions). Computed BEFORE any mutation so the required-hashtags gate can
@@ -712,31 +727,65 @@ async function approveForProduction(
   // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // Activate the fact, mark the review approved, AND attach the final hashtags in
-  // ONE transaction so a fact is never live with the review still pending (or vice
-  // versa) — and, since a fact can't ship without tags, never live-but-untagged.
-  await db.transaction(async (tx) => {
-    await tx.update(factsTable).set({
-      isActive: true,
-      parentId: parentId ?? null,
-    }).where(eq(factsTable.id, stagingFact.id));
-    await tx.update(pendingReviewsTable).set({
-      status: "approved",
-      workflowStage: "production_approved",
-      reviewedById: req.user.id,
-      approvedFactId: stagingFact.id,
-      adminNote,
-      reviewedAt: new Date(),
-      // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
-      // truth lives on facts.enrichment and its baseline/override layers — never
-      // read this back as editable state.
-      enrichment,
-      enrichmentStatus: "ok",
-      ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
-    }).where(eq(pendingReviewsTable.id, reviewId));
-    // The moderator-curated list resolved + gated (non-empty) above.
-    await attachHashtags(tx, stagingFact.id, finalTags);
-  });
+  // The render/enrichment gate above validated THIS exact wording. A concurrent
+  // approved-fact-text edit (which locks the same fact row) could re-word the
+  // staging fact between that gate and this activation, so the activation is a
+  // compare-and-set: activate ONLY while the fact is still inactive AND its text
+  // is still the wording we validated, and approve the review ONLY while it is
+  // still the same first-time production_review cycle. Either mismatch fails
+  // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
+  const validatedText = stagingFact.text;
+  let approvalConflict: "text" | "review_state" | null = null;
+  try {
+    await db.transaction(async (tx) => {
+      const activated = await tx.update(factsTable).set({
+        isActive: true,
+        parentId: parentId ?? null,
+      }).where(and(
+        eq(factsTable.id, stagingFact.id),
+        eq(factsTable.isActive, false),
+        eq(factsTable.text, validatedText),
+      )).returning({ id: factsTable.id });
+      if (activated.length === 0) { approvalConflict = "text"; throw new Error("approval_cas_text_conflict"); }
+
+      const reviewed = await tx.update(pendingReviewsTable).set({
+        status: "approved",
+        workflowStage: "production_approved",
+        reviewedById: req.user.id,
+        approvedFactId: stagingFact.id,
+        adminNote,
+        reviewedAt: new Date(),
+        // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
+        // truth lives on facts.enrichment and its baseline/override layers — never
+        // read this back as editable state.
+        enrichment,
+        enrichmentStatus: "ok",
+        ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
+      }).where(and(
+        eq(pendingReviewsTable.id, reviewId),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "production_review"),
+        eq(pendingReviewsTable.stagingFactId, stagingFact.id),
+        isNull(pendingReviewsTable.candidateVersionId),
+      )).returning({ id: pendingReviewsTable.id });
+      if (reviewed.length === 0) { approvalConflict = "review_state"; throw new Error("approval_cas_review_conflict"); }
+
+      // The moderator-curated list resolved + gated (non-empty) above.
+      await attachHashtags(tx, stagingFact.id, finalTags);
+    });
+  } catch (err) {
+    if (approvalConflict === "text") {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: fact text changed during approval");
+      res.status(409).json({ error: "The fact's text changed while you were approving it. Re-review the current wording, then approve again.", code: "FACT_TEXT_CHANGED_DURING_APPROVAL" });
+      return;
+    }
+    if (approvalConflict === "review_state") {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
+      res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
+      return;
+    }
+    throw err;
+  }
 
   // Post-commit side effects, once. Embed for duplicate/related surfacing.
   void embedFactAsync(stagingFact.id, stagingFact.text, canonicalText);
@@ -822,10 +871,12 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  // Idempotent re-click while prep is already running: return the existing
-  // staging fact without creating a second fact or re-enqueuing.
+  // Idempotent re-click while prep is already running: DON'T just return
+  // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
+  // "pending" projection left by a failed enqueue), then report their state.
   if (review.workflowStage === "prep_pending" && review.stagingFactId != null) {
-    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true });
+    const prepDispatch = await ensureFirstTimeStagingPrepJobs(review.stagingFactId);
+    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true, prepDispatch });
     return;
   }
 
@@ -861,42 +912,28 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   }
 
   // Create-or-reuse the staging fact and move the review into prep, in one
-  // transaction. If enqueue (below) fails the staging fact + prep_pending state
-  // remain, so a later re-click recovers without creating a duplicate fact.
+  // transaction (the shared first-time-staging-prep primitive, reused by the
+  // staging branch of the approved-fact-text edit). If the post-commit ensure
+  // fails, the staging fact + prep_pending state remain, so a later re-click
+  // recovers without creating a duplicate fact.
   let stagingFactId = 0;
   await db.transaction(async (tx) => {
-    const { factId } = await ensureStagingFact(
-      { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
-      parentFactId ?? null,
-      tx,
-    );
-    stagingFactId = factId;
-    // Mark enrichment prep "pending" up front so the moderation UI shows it
-    // "working" immediately (symmetric with pexels_status, set by enqueueFactPexels).
-    // A re-run from prep_failed / production_review also resets it here.
-    await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
-    await tx.update(pendingReviewsTable).set({
-      workflowStage: "prep_pending",
-      stagingFactId: factId,
+    const { factId } = await prepareFirstTimeStagingPrep(tx, {
+      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
+      parentFactId: parentFactId ?? null,
       reviewedById: req.user.id,
-      ...(adminNote != null ? { adminNote } : {}),
-    }).where(eq(pendingReviewsTable.id, id));
+      adminNote,
+    });
+    stagingFactId = factId;
   });
 
-  // Start fact-backed prep on the staging fact. Both queues are deduped so a
-  // re-click can't double-enqueue. Enrichment is the gate that advances the
-  // review to production_review; Pexels image prep runs alongside as tracked
-  // best-effort seeding (its status shows per-fact but never blocks the gate).
-  await enqueueJob({
-    queue: "enrichment",
-    payload: { factId: stagingFactId },
-    dedupeKey: `enrichment:fact:${stagingFactId}`,
-  });
-  await enqueueFactPexels(stagingFactId);
+  // Ensure the durable enrichment + Pexels jobs (both deduped; enrichment gates
+  // the advance to concept_review, Pexels is tracked best-effort seeding).
+  const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
-  res.json({ success: true, stagingFactId, workflowStage: "prep_pending" });
+  res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
@@ -1032,9 +1069,10 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_DISABLED /
-  // CONCEPT_MISSING). Stale-but-saved is allowed — this reads the *persisted*
-  // enrichment, not the AI candidate cards or a browser-only draft.
+  // Saved-concept gate (distinct codes: ENRICHMENT_INVALID / CONCEPT_MISSING).
+  // Presence-based: gates on a non-empty saved Visual Concept (the enable toggle was
+  // retired). Stale-but-saved is allowed — this reads the *persisted* enrichment, not
+  // the AI candidate cards or a browser-only draft.
   const saved = await resolveSavedCoreSceneForReview(review);
   if (!saved.ok) { res.status(saved.status).json({ error: saved.error, code: saved.code }); return; }
 
@@ -1304,6 +1342,11 @@ router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: A
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!; // write intent guarantees a classified candidate
+      // Required Visual Concept (blocking) — same invariant as the candidate
+      // PATCH; this is a separate tracked-field write path and needs its own gate.
+      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
+      }
       const result = applyOverrideUpsert({
         layers: { ...ctx.layers, aiDerived },
         path,
@@ -1345,6 +1388,11 @@ router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!;
+      // Required Visual Concept (blocking) — same invariant as the PUT handler
+      // above; a reset is still a save and must not bypass the gate.
+      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
+      }
       const result = applyOverrideReset({ layers: { ...ctx.layers, aiDerived }, path: path as OverridablePath | null });
       const { columns } = materializeEnrichment({
         aiDerived,
@@ -1380,9 +1428,9 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
   // save whose Concept + additions would overflow the engine prompt is rejected
   // here, not silently dropped at compile.
   const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso?.enabled) {
-    const additionsEmitted = measureModeratorAdditionsEmission(submittedVso);
-    const budget = validateVisualStrategyOverrideForSave(submittedVso, additionsEmitted);
+  if (submittedVso) {
+    // Presence-based (the enable toggle was retired): validate whenever a VSO is submitted.
+    const budget = validateVisualStrategyOverridePersistence(submittedVso);
     if (!budget.ok) {
       res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
       return;
@@ -1412,6 +1460,15 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
             trackedPaths: changed,
           },
         };
+      }
+
+      // Required Visual Concept (blocking): a moderator's candidate-enrichment save must carry
+      // a non-empty Visual Concept — including when the override is absent entirely. The client
+      // mirrors this (draftHasConcept gates save-and-continue); this is the server backstop.
+      // Placed after the write-guard (loadCandidateEditingContext) and tracked-field checks so
+      // it never shadows them.
+      if (!submittedVso?.coreSceneOverride?.trim()) {
+        return { status: 400, body: { error: "visual_concept_required" } };
       }
 
       // suggestedHashtags PINNED: keep the candidate's persisted baseline

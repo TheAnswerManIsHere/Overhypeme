@@ -16,12 +16,15 @@ import {
   type RenderScenarioKey,
   RENDER_SCENARIO_DESCRIPTORS,
   type VisualConceptsResponse,
+  type StoredCandidateConcept,
+  withCandidateConceptDraft,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
   stageToWizardStep,
   type WizardStep,
 } from "@/components/admin/moderationQueueState";
+import { computeCandidatePickBlockedReason } from "@/components/admin/candidatePickGate";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable, withCoreSceneOverride } from "@/components/admin/EnrichmentEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
@@ -29,6 +32,7 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
+import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
@@ -429,7 +433,7 @@ function ReviewModal({
     editableUntrackedFields: ["visualPromptStrategyOverride"],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
-  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride } = enrichEditing;
+  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride, getServerVisualOverride } = enrichEditing;
 
   // Subject-name hint for tokenizeAndSaveVisualOverride: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -520,9 +524,7 @@ function ReviewModal({
   // optimistically flip the local status to "pending" so the picker shows
   // "working" immediately, then let polling reconcile.
   const onGenerateConcepts = useCallback(async (): Promise<void> => {
-    const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.enabled
-      ? (enrichment.visualPromptStrategyOverride.coreSceneOverride?.trim() || null)
-      : null;
+    const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.coreSceneOverride?.trim() || null;
     setError("");
     // Optimistic "pending" for instant feedback; loadDetail() in finally
     // reconciles against the real server state, so a rejected POST (409 stale
@@ -546,13 +548,24 @@ function ReviewModal({
     }
   }, [review.id, enrichment, loadDetail]);
 
-  const onPickConcept = useCallback((sceneDescription: string) => {
+  const onPickConcept = useCallback((concept: StoredCandidateConcept) => {
     if (!enrichment) return;
+    // The SAME pure helper the server preflighted this candidate through:
+    // preserves unrelated VSO fields, replaces scene + bubbles, auto-enables.
     enrichmentDraft.setValue({
       ...enrichment,
-      visualPromptStrategyOverride: withCoreSceneOverride(enrichment.visualPromptStrategyOverride, sceneDescription),
+      visualPromptStrategyOverride: withCandidateConceptDraft(enrichment.visualPromptStrategyOverride, concept),
     });
   }, [enrichment, enrichmentDraft]);
+
+  // See computeCandidatePickBlockedReason (top of file) for the full
+  // rationale — unsaved edits to Visual-Strategy fields OTHER than the
+  // scene/bubbles a pick would replace block "Use as draft" until saved or
+  // discarded.
+  const pickBlockedReason = useMemo(
+    () => (enrichment ? computeCandidatePickBlockedReason(enrichment.visualPromptStrategyOverride, getServerVisualOverride()) : null),
+    [enrichment, getServerVisualOverride],
+  );
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");
@@ -705,13 +718,20 @@ function ReviewModal({
 
   // A first-time fact can't ship without discovery tags; a refresh keeps the
   // live fact's existing tags, so the gate doesn't apply (the server skips it too).
-  const canApproveProduction = isApprovable(enrichment) && (isRefreshCycle || finalHashtags.length > 0);
-
   // ── Step-2 (Visual Concept) gag-gate derivation ──
   // `enrichment` from the hook is the DRAFT value; when the draft is clean it
   // equals the persisted enrichment, so a clean non-empty concept == a SAVED one.
+  // Presence-based (the enable toggle was retired): a concept is present whenever
+  // its core scene is non-empty.
   const conceptOverride = enrichment?.visualPromptStrategyOverride;
-  const draftHasConcept = !!(conceptOverride?.enabled && conceptOverride.coreSceneOverride?.trim());
+  const draftHasConcept = !!conceptOverride?.coreSceneOverride?.trim();
+
+  // Production release requires a Visual Concept (presence-based) — the client
+  // affordance mirrors the server publish gate so a blank-scene row shows a
+  // disabled Approve/Promote instead of a button that fails on click.
+  const canApproveProduction = isApprovable(enrichment)
+    && (isRefreshCycle || finalHashtags.length > 0)
+    && draftHasConcept;
   const conceptDirty = enrichmentDraft.hasUncommittedChanges;
   const ideasPending = visualConceptStatus === "pending";
   const ideasFailed = visualConceptStatus === "failed";
@@ -1034,10 +1054,10 @@ function ReviewModal({
                 visually. Approving the gag spends nothing yet; it unlocks the test renders in the next step.
               </p>
 
-              {/* Visual concept — the moderator's primary lever: describe the
-                  picture in plain language and the planner/compiler realize it.
-                  Edits the same override blob (and rides the same draft) as the
-                  panel inside Advanced Options. */}
+              {/* Visual concept — the moderator's primary lever and the single
+                  scene-editing surface: describe the picture in plain language
+                  and the planner/compiler realize it. Rides the same override
+                  draft as everything else; required before save/approve. */}
               <VisualConceptCard
                 value={enrichment?.visualPromptStrategyOverride}
                 disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
@@ -1047,11 +1067,25 @@ function ReviewModal({
                 }}
               />
 
+              {/* Speech & thought bubbles — first-class placement beside the
+                  Concept; the SAME shared component renders in Advanced
+                  Options, editing the same draft. */}
+              <BubbleEditor
+                firstClass
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                fieldErrors={vsoTokenizeErrors}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
+              />
+
               {/* Candidate Visual ideas — REQUIRED gate in Step 2: picking one
-                  fills the concept field above (draft only; still Save). */}
+                  fills the concept + bubbles above (draft only; still Save). */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
                 disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                pickBlockedReason={pickBlockedReason}
                 onPick={onPickConcept}
                 onGenerate={onGenerateConcepts}
               />
@@ -1082,8 +1116,8 @@ function ReviewModal({
               {ideasStaleButSaved && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-stale-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                  Visual ideas were generated before your latest Advanced Options edit. You can regenerate them, but the
-                  saved Visual Concept below is what will drive renders.
+                  Visual ideas were generated before your latest Visual Concept edit. You can regenerate them, but the
+                  saved Visual Concept above is what will drive renders.
                 </p>
               )}
 
@@ -1113,6 +1147,18 @@ function ReviewModal({
                 onFinalHashtagsChange={onFinalHashtagsChange}
                 hideFinalHashtags={isRefreshCycle}
                 onRunScenarios={onRendersEnqueued}
+              />
+
+              {/* The Visual Concept is editable right here in Test Renders (the single
+                  card surface) so a moderator can tune the authoritative scene after a
+                  bad render without navigating back to Step 2. */}
+              <VisualConceptCard
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
+                tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
               />
 
               {DraftSaveBar}

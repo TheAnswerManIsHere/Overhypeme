@@ -58,6 +58,133 @@ model receives.** Enrichment is an input, not the prompt (see
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt
    (`imagePromptAttempts.ts`).
 
+## Frozen render inputs: identity + style (reproducibility)
+
+**A render's identity and style are frozen ONCE, at the moment the user clicks
+generate — never re-resolved live by the async worker (PR #223).**
+`prepareImagePromptAttemptInputs()` (`imagePrompt/prepareAttemptInputs.ts`)
+resolves a `PromptIdentitySnapshot` (`promptIdentity.ts`) and a
+`ResolvedRenderStyleSnapshot` (`styleResolution.ts`), renders the fact text
+from that SAME identity (so the frozen fact text and the compiler's later
+token gate can never diverge), and persists both snapshots onto
+`render_controls`. The `image_prompt_generation` worker reads the frozen
+snapshots (`isValidPromptIdentitySnapshot` / `isValidRenderStyleSnapshot`)
+instead of re-querying the user/style tables, falling back to live resolution
+only for attempt rows that predate this change. Wired into both user-facing
+generate routes (`/memes/ai/:factId/generate-v2`, and the generic branch of
+`/generate`); moderation/eval renders use fixed sample identities and no live
+style, so they were already reproducible and are intentionally left on their
+existing `reviewRenderSubject` mechanism.
+
+**The identity fed into the image prompt is reduced to a short prompt-safe
+name** — `reducePromptName()`: prefer the validated `firstName`; else the
+first whitespace-delimited token of `displayName`; else the canonical
+fallback (`"Alex"`) — grapheme-safe-bounded to `RENDERED_IDENTITY_NAME_MAX`
+(20 chars, `promptIdentityBudget.ts`). This is a **render-time reducer only**,
+not a new profile storage bound: `validators/personalName.ts` remains the
+sole source of truth for what a user may store, and the composited meme
+**caption** (`createMemeRecord.ts`) independently uses the full stored
+display name, untouched.
+
+**An invalid/inactive/over-budget style is a typed rejection, never a silent
+"no style."** `resolveRenderStyle()` returns a discriminated
+`default | selected | invalid` result (reason: `not_found` / `inactive` /
+`empty_suffix` / `copy_too_long` / `copy_invalid`); a generate request with an
+invalid style gets an HTTP 400 before any paid work is enqueued, instead of
+the worker quietly resolving `stylePrompt = ""`.
+
+## Render-time prompt budget
+
+**The engine prompt ceiling is 6900 chars** (`MAX_PROMPT_CHARS`,
+`compilers/nanoBanana2.ts`; raised from 4000 — PR #224 — and again from 6000
+to fund the dedicated bubble pool, David-approved. NB2's real context window
+is ~131K tokens, so the ceiling is editorial discipline against
+bloated/redundant authoring, not an engine capacity limit). The budget is
+split into five reserves, derived from a **measurement of the real
+compiler**, not invented numbers — `measureRequiredPromptBudget()`,
+`measureModeratorAdditionsEmission()`, and `measureBubbleDirectivesEmission()`
+(`imagePrompt/promptBudget.ts`) compile maximum-fixed-shape prompts through
+the actual compiler and a proof test asserts the split still fits:
+
+```
+6900 = FIXED_REQUIRED_RESERVE_BUDGET (1750, measured compiler overhead)
+     + CORE_SCENE_RENDERED_MAX       (2000, the moderator Concept)
+     + MODERATOR_ADDITIONS_RENDERED_MAX (1500, other moderator content, excl. bubbles)
+     + BUBBLE_DIRECTIVES_RENDERED_MAX (900, the SPEECH & THOUGHT BUBBLES section)
+     + PROMPT_OUTER_MARGIN           (750, safety slack)
+```
+
+The additions measurement **excludes bubbles** and the bubble measurement
+carries **only** bubbles, so the two pools can never double-count. The 900
+pool fits 2–3 maximum-length bubbles or 4 realistic ones (the compact
+directive template is deliberate — every fixed word bills against the pool);
+a payload that can't fit fails save with `bubble_directives_rendered_too_long`
+— never a silent drop or partial section.
+
+**The bubble-text placeholder used for measurement must preserve the real
+literal characters, not just their projected length** (Codex P2, PR #229,
+post-merge fix). Bubble text is the one field whose compiled form runs
+through an *escaping* serializer (`serializeLiteralPromptString` — every
+embedded `"`/`\` doubles). A naive length-only placeholder (e.g. `"x".repeat(n)`)
+either **undercounts** real quoted speech (no escaping ever triggers) or, if
+filled with worst-case-escaping characters uniformly, **over-penalizes**
+ordinary quote-free bubbles regardless of their actual content. The fix,
+`projectWorstCaseRenderedText()` (`lib/api-zod/promptIdentityBudget.ts`,
+sibling to `projectWorstCaseRenderedLength`), walks the same token-substitution
+logic but returns the real authored string with only `{TOKEN}` spans replaced
+by a safe worst-case-length filler — so the measurement, run through the real
+serializer via the same delta-compile method, reflects the actual escaping
+cost of what a moderator (or the AI proposer) actually wrote. **Generalizes:**
+any save-time budget measurement for a field whose compiled form is
+content-transformed (escaped, wrapped, case-folded, …) — not just
+length-expanded by token substitution — needs a placeholder that preserves
+the real content through that transform, not a content-blind filler.
+
+**Save-time validation measures the compiler's actual emitted length, not a
+raw field-text sum** (Codex caught this on PR #224 before merge: a naive sum
+of raw field text undercounts what the compiler emits — `"Do not …"` negation
+prefixes, `"label: "` role-binding forms, `"; "`-joins, and per-section
+labels that only appear once a field is populated). `validateVisualStrategyOverrideForSave()`
+(`lib/api-zod/src/promptBudget.ts`) takes the measured emission as an
+argument from its caller (the save routes), which computes it via
+`measureModeratorAdditionsEmission()` — compile the fixed shape twice (once
+with the override's worst-case-projected content, once empty) and take the
+delta, so every fixed cost cancels out and what remains is the additions'
+true contribution. **Never re-derive a raw-sum estimate for this check** — it
+will silently undercount; see the `naiveAdditionsRenderedLowerBound` doc
+comment for why it's a lower bound only, never the gate.
+
+`CORE_SCENE_RAW_MAX` (1500) matches the frontend editor's
+`CORE_SCENE_MAX_CHARS` and the candidate generator's `CANDIDATE_SCENE_MAX_CHARS`
+— a save is never rejected by the budget gate for content the authoring UI
+itself presented as valid.
+
+**The compiler never silently truncates required content that overflows the
+budget** — the old behavior (`assembleSections`' final hard-cut) could lop the
+STRICT CONSTRAINTS safety guardrails off the end of the assembled prompt,
+since they're emitted last. It now surfaces
+`diagnostics.requiredBudgetOverflow` and the worker fails terminal
+(`required_budget_overflow`) instead of shipping a guardrail-truncated
+prompt. Reachable only by legacy over-budget content — save validation
+prevents it for new saves.
+
+## Terminal vs retryable render failures
+
+The `image_prompt_generation` worker classifies each deterministic stage
+failure as **terminal** (fails the queue row on the first attempt, no wasted
+retries, typed `error_code` persisted) vs the existing **retryable** default
+(transient failures still retry with backoff) — see
+[`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) for the
+underlying additive `HandlerResult` contract. Terminal codes:
+`invalid_persisted_enrichment`, `rendered_fact_unresolved_token`,
+`planner_output_invalid_after_retry` (only when the planner's error is
+validation-exhaustion, `ImagePromptError.cause === "validation_exhausted"` —
+a genuine provider/timeout failure stays retryable), `compile_failed`,
+`moderator_core_scene_unresolved_token`, `required_budget_overflow`. Both
+`error` (human-readable) and the typed `error_code` are cleared on a
+successful later attempt and surfaced together in the render-poll payload
+(`buildRenderStatusPayload`) so the UI never parses a "code: message" string.
+
 ## Text-to-image vs image-to-image
 
 `SUBJECT_RENDER_MODE_VALUES` (`lib/api-zod/src/imagePromptGeneration.ts`):
@@ -117,13 +244,77 @@ silently saving something wrong; both the Visual Concept card and the override
 panel disable entirely while a batch tokenize round trip is in flight
 (`vsoTokenizing`), so no edit can race it.
 
+**Activation is presence-based — there is no `enabled` field.** The override
+object no longer carries an `enabled` boolean (retired). Every sub-field applies
+on its own whenever it is non-empty; an override whose fields are all empty
+compiles byte-identically to having no override at all (the keystone invariant —
+every consumer no-ops on empty, verified in `nanoBanana2Compiler.test.ts`). Both
+compiler-side gates were converted from `ov?.enabled` to a plain presence check
+(`activeOverride()` in `nanoBanana2.ts`, `resolveRenderPolicy()` in
+`imagePromptGeneration.ts`). Stored rows that still have a legacy `enabled` key
+parse cleanly — Zod strips the unknown field — so no migration was needed.
+
+**The Visual Concept (core scene) is REQUIRED, and the card is its single
+editing surface.** The core-scene field was removed from the Advanced Options
+`VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now the only
+place it is edited, on both the Moderation Step-2 flow and the Facts page. A
+blank `coreSceneOverride` **blocks admin save** (the enrichment PATCH and the
+review-candidate PATCH reject it `400 visual_concept_required`) **and blocks
+production approval** (`CONCEPT_MISSING` on the approve-visual-concept and
+first-time/refresh production-approval paths). Rationale: the image and video
+engines need a concrete scene to make a meme, so a fact can't be released
+without one.
+
 ## Candidate Visual Concepts
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
 Slice 2A / PRs #163, #166). The planner drafts exactly **3**
-`{title, whyItWorks, sceneDescription}` concepts during moderation prep, stored on
-`facts.visual_concept_candidates`. They use a **render-mode-agnostic** context so a
-pick works across all modes. A pick → `coreSceneOverride`.
+`{title, whyItWorks, sceneDescription, bubbles}` concepts during moderation prep,
+stored on `facts.visual_concept_candidates`. They use a **render-mode-agnostic**
+context so a pick works across all modes. A pick applies the WHOLE concept
+via `withCandidateConceptDraft` (scene → `coreSceneOverride`, bubbles →
+`bubbles`; unrelated VSO fields preserved; never merged; atomic — one invalid
+bubble makes the whole concept unpickable).
+
+**Picking is blocked while unrelated Visual-Strategy edits are unsaved**
+(`computeCandidatePickBlockedReason`, `components/admin/candidatePickGate.ts`).
+A pick only replaces the scene + bubbles fields — so an unsaved draft edit to
+any *other* field (role bindings, required details, …) would let a pick land
+on a VSO shape the candidate's own preflight (below) never accounted for. The
+gate gives clear copy ("Save or discard your current Visual Strategy
+changes…") rather than silently risking that mismatch. Scene/bubble-only
+dirtiness (typing in the Concept box, a previous pick) stays pickable — only
+*other*-field drift blocks.
+**Gotcha:** a MISSING override (nothing persisted yet) must normalize to the
+same stripped shape as the empty scaffold `withCoreSceneOverride`/`withBubbles`
+create on a moderator's first edit, or the comparison wrongly treats a fresh
+empty-arrays draft as "different from nothing" and blocks picking on the very
+first keystroke (Codex P2, PR #229).
+
+**Candidate bubble contract (prompt version 2):** `bubbles` is REQUIRED on
+the strict wire (`[]` = the normal no-bubble case; strict Structured Outputs
+forbids omittable properties). The generator proposes a bubble only when it
+materially serves the gag — the headline case is a literal quote in the fact
+text (the exact quote goes in `bubbles[].text`, never restated in the scene:
+single-channel is enforced by `detectBubbleDirectiveLanguage` + a
+literal-restatement check, with the one corrective retry). Over-cap text is
+INVALID output, never truncated (slicing a quote corrupts it). Token errors
+store the candidate unpickable (the existing scene pattern); an
+all-unpickable response FAILS the attempt rather than storing `ok`. Every
+candidate is preflighted at generation time through
+`validateVisualStrategyOverridePersistence(withCandidateConceptDraft(undefined, c))`
+— **an empty/pool-independent base**, not the moderator's actual current VSO
+(Codex P2, PR #231 doc-review) — so "pickable" proves the candidate's own
+scene+bubbles fit their own pools **in isolation**, never that the eventual
+*combined* save will succeed. The real, authoritative gate is the **same**
+validator running again at actual Save time (`admin.ts`/`reviews.ts`, against
+the full submitted override) — one function, two call sites, so there's no
+second formula to drift, but a candidate marked pickable can still fail Save
+if the rest of the VSO is already near its own budget ceiling. Future work
+should not read "pickable" as removing the need for that final save-time
+check. The deployed system prompt was migrated (0090) because
+`seedVisualConceptsConfig` is ON CONFLICT DO NOTHING — editing the TS default
+alone never reaches deployed rows (same class as migration 0085).
 
 ## Frontier visual planner
 
@@ -162,6 +353,37 @@ seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
 Dropped role/key-element candidates are recorded in
 `diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
 parameter** — exclusions are positive scene language.
+
+## Speech & thought bubbles (moderator control, compiler-owned language)
+
+Explicit `bubbles` on the VSO (`{type: speech|thought, entity, text}`, max 4;
+text ≤80 chars, soft-warn 60; entity follows role-binding rules — "subject"
+or a plain label, tokens hard-rejected). Ownership is strictly
+single-channel:
+
+- **The compiler owns all bubble prompt language**: one compact deterministic
+  directive per bubble (stored order, atomic, via the shared
+  `serializeLiteralPromptString` — tokens render BEFORE escaping) in the
+  required `SPEECH & THOUGHT BUBBLES` section, which is **dedupe-exempt**
+  (`dedupe: "none"` — the assembler's sentence de-dup would otherwise drop a
+  bubble whose words the Concept already used). Explicit bubbles render even
+  under `supportingText.mode === "forbid"`; the overlay-caption exclusion is
+  untouched (a carveout line states the precedence in compiled language).
+- **The runtime planner only stages** (gated by `includeModeratorBubbles`,
+  planner-true / candidate-false): it sees type/entity/rendered-text context
+  and is told to pose characters compatibly and leave headroom — never to
+  author balloons. While bubbles are active, planner prose that authors a
+  balloon is stripped (`bubble-directive-owned-by-compiler` removal reason);
+  a moderator Concept doing the same gets a non-mutating warning
+  (`bubble_language_in_moderator_scene`).
+- **Entity diagnostics are structured** (`diagnostics.warnings`, never the
+  breakdown): `bubble_entity_unresolved` / `bubble_entity_ambiguous` with a
+  typed `{bubbleIndex, entity}` context, resolved against subject + role
+  bindings + the planner's effective secondary characters (so a valid
+  secondary-speaker bubble doesn't false-warn). The directive still emits —
+  moderator authority; the engine may still misresolve, which UAT verifies.
+- **UI**: ONE shared `BubbleEditor` (first-class beside the Visual Concept
+  card on Moderation + embedded in Advanced VSO), one draft, no drift.
 
 ## Render policy and readable text
 
@@ -251,6 +473,21 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.
+- **Re-resolving identity or style LIVE in the async worker** — retired by
+  PR #223; both are frozen at attempt-construction (see "Frozen render inputs"
+  above). A worker that re-queries `usersTable`/`lookStylesTable` directly
+  instead of reading `render_controls.promptIdentity` /
+  `.resolvedRenderStyle` has regressed this.
+- **Silently hard-truncating required prompt content when it overflows the
+  budget** — retired by PR #224; the compiler now fails terminal
+  (`required_budget_overflow`) instead, because the old truncation could cut
+  the STRICT CONSTRAINTS safety guardrails off the end.
+- **Summing raw VSO field text as a proxy for the compiler's emitted length**
+  — this undercounts the compiler's wrapping (negation prefixes, role-binding
+  labels, list joins, section labels) and was the exact bug Codex caught on
+  PR #224. Any new save-time budget check must measure through the real
+  compiler (`measureModeratorAdditionsEmission()` pattern), never sum raw
+  field lengths.
 
 ## Files to inspect before visual-pipeline work
 
@@ -259,6 +496,18 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
   `imagePrompt/preview.ts` (parity), `imagePrompt/types.ts`,
   `imagePrompt/resolveRenderReviewInput.ts`, `imagePromptJobs.ts` (production),
   `imagePromptConfig.ts`, `imagePromptAttempts.ts`.
+- **Reproducibility (PR #223):** `imagePrompt/prepareAttemptInputs.ts`
+  (freeze + render fact text from the same identity), `promptIdentity.ts`
+  (`PromptIdentitySnapshot`, `reducePromptName`), `styleResolution.ts`
+  (`ResolvedRenderStyleSnapshot`, `resolveRenderStyle`),
+  `lib/api-zod/src/resolvedIdentityForms.ts` (shared token/grammatical-form
+  contract), `promptIdentityBudget.ts` (`RENDERED_IDENTITY_NAME_MAX`,
+  `projectWorstCaseRenderedLength`).
+- **Prompt budget (PR #224):** `imagePrompt/promptBudget.ts` (api-server —
+  `measureRequiredPromptBudget`, `measureModeratorAdditionsEmission`, the
+  live-compiler measurement), `lib/api-zod/src/promptBudget.ts` (the reserve
+  constants + `validateVisualStrategyOverrideForSave`), `asyncJobs.ts`
+  (`HandlerResult`, `terminalFailure`).
 - `lib/api-zod/src/imagePromptGeneration.ts`, `visualStrategyOverride.ts`
   (override schema + the path-aware `collectRenderedTextEntries` /
   `setRenderedTextAtPath` / `normalizeRoleEntity` authoring helpers),

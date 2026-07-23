@@ -72,6 +72,7 @@ function stubGenerate(sceneSuffix = ""): VisualConceptsJobDeps["generate"] {
       whyItWorks: "It lands.",
       sceneDescription: `{NAME} lifts the planet, variant ${n}${sceneSuffix}.`,
       tokenValid: true,
+      bubbles: [],
     })),
     provenance: PROVENANCE,
   });

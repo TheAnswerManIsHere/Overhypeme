@@ -55,7 +55,15 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
-};
+  // A fact reaching production_review carries a moderator Visual Concept (required to
+  // release to production — presence-based, no enable toggle).
+  visualPromptStrategyOverride: {
+    version: 1,
+    coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+    bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+  },
+} as FactEnrichment;
 
 // These fixtures seed a production_review WITHOUT any Step-2 render scenarios, so
 // the (new) admin-waivable visual-render gate would 409 on approval. Tests that
@@ -1013,7 +1021,14 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const { columns } = materializeEnrichment({ aiDerived: VALID_APPROVAL_ENRICHMENT, overrides });
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
-      ...columns, enrichmentStatus: "ok",
+      ...columns,
+      // The moderator Visual Concept is a separate additive layer (materializeEnrichment
+      // strips it from aiDerived); re-add it to the effective so the fact is promotable.
+      enrichment: {
+        ...(columns.enrichment as Record<string, unknown>),
+        visualPromptStrategyOverride: VALID_APPROVAL_ENRICHMENT.visualPromptStrategyOverride,
+      },
+      enrichmentStatus: "ok",
     } as typeof factsTable.$inferInsert).returning();
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",

@@ -75,6 +75,26 @@
   stored hash; a mismatch reads as "stale," prompting a re-run.
   → [visual-pipeline](./visual-pipeline.md)
 
+- **Prompt-identity snapshot** — the render identity (name + pronouns, reduced
+  to a short prompt-safe form) resolved ONCE at attempt-construction and
+  frozen on `render_controls`, so the async worker never re-queries the live
+  user. Distinct from the profile's own stored name/the meme caption, which
+  are untouched.
+  → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
+
+- **Resolved-style snapshot** — the selected look-style's suffix, frozen at
+  attempt-construction alongside the prompt-identity snapshot, so a style
+  edited/deactivated after a user clicks generate can't change the pending
+  render.
+  → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
+
+- **Terminal vs retryable (async failure)** — how the async-jobs worker
+  classifies a handler failure. Terminal = deterministic (re-running the same
+  frozen inputs can't fix it) → the row fails on the first attempt with a
+  typed `code`. Retryable = the historical default → backoff and retry up to
+  `maxAttempts`.
+  → [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
 - **Engine / engine catalogue** — any generative model the platform can call
   (`image | video | utility | llm`), defined **code-first** in
   `artifacts/api-server/src/lib/engines/` and reconciled into the `engines` table

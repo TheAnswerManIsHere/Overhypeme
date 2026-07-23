@@ -85,3 +85,22 @@ export function detectMediumClaim(text: string): MediumClaimFinding | null {
   const m = MEDIUM_CLAIM_RE.exec(text);
   return m ? { matchedText: m[0] } : null;
 }
+
+/**
+ * A sentence/entry that AUTHORS a balloon/bubble render directive — the shape,
+ * tail/trail, or "bubble reading …" lettering claims. ONE definition shared by
+ * the compiler (which strips planner prose while moderator bubbles are active)
+ * and candidate-concept validation (which rejects a sceneDescription that
+ * authors a balloon alongside structured `bubbles` — the single-channel rule).
+ * Deliberately narrow: ordinary dialogue context ("the father looks surprised
+ * at what he said") must never match.
+ */
+export const BUBBLE_DIRECTIVE_LANGUAGE_RE =
+  /\b(?:speech|thought|word|dialogue)\s+(?:bubble|balloon)s?\b|\bthought\s+cloud\b|\b(?:bubble|balloon)\s+(?:reading|saying|containing|that\s+(?:reads|says))\b/i;
+
+/** First bubble-directive phrase in `text`, or null. Pure. */
+export function detectBubbleDirectiveLanguage(text: string): string | null {
+  if (!text) return null;
+  const m = BUBBLE_DIRECTIVE_LANGUAGE_RE.exec(text);
+  return m ? m[0] : null;
+}

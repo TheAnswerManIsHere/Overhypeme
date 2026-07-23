@@ -36,6 +36,7 @@ behavior; David's spot-check is requested.
   - [Required Visual Details](#required-visual-details)
   - [Forbidden Visual Details](#forbidden-visual-details)
   - [Scene Role Assignments](#scene-role-assignments)
+  - [Speech & Thought Bubbles](#speech-thought-bubbles)
   - [Composition Guidance](#composition-guidance)
   - [Extra Prompt Details (any style)](#extra-prompt-details-any-style)
   - [Do-Not-Render Additions](#do-not-render-additions)
@@ -776,7 +777,7 @@ Editing modifiers flips test renders stale (except the inert legacy text/logo na
   - **Input:** Add modifier: "baby_child_version"
   - **Outcome:** The compiler emits a SUBJECT BINDING section fusing the subject with the transformed life stage as ONE entity ("the same person de-aged… no separate generic baby, no adult version left in frame"), plus anti-split strict constraints. The modifier also reaches the planner as context.
 - **Scenario:** A render keeps drawing readable gibberish signage, but the scene has NO text that should appear.
-  - **Input:** Turn ON the Visual Strategy Override and set Supporting-text policy → forbid.
+  - **Input:** In the Visual Strategy Override, set Supporting-text policy → forbid.
   - **Outcome:** STRICT CONSTRAINTS emits "Avoid readable in-scene text unless required by a higher-priority instruction." (Incidental background gibberish is already steered clean by an always-on guard; a full ban is this moderator override — the old no_readable_text modifier was retired.)
 - **Scenario:** You add a custom modifier "sepia_flashback".
   - **Input:** modifiers: [..., "sepia_flashback"] (amber chip)
@@ -957,7 +958,7 @@ None — human-only. Never enters the planner or compiled prompt; excluded from 
 
 A per-fact, style-agnostic override object a human moderator edits to correct or sharpen the AI's visual strategy WITHOUT hand-editing the brittle final engine prompt. It is stored inside the enrichment blob (enrichment.visualPromptStrategyOverride) and merged into the deterministic compiler's labeled sections at render time — so the final prompt still adapts to subject, pronouns, reference image, style, render mode, aspect ratio, and the render policy.
 
-The enabled toggle is the master switch: when OFF, the ENTIRE override is ignored by the compiler (every sub-field, both policies) — the object is kept but has zero render effect. When ON, each populated sub-field merges into its own compiled section.
+Activation is presence-based — there is no enable toggle. Each populated sub-field merges into its own compiled section on its own; a field left blank simply contributes nothing. An override whose every field is empty compiles identically to having no override at all, so clearing a field is how you 'turn it off'.
 
 Write plain English — don't hand-type tokens. Each rendered-text field just needs the subject's name written naturally ("David laughs", not "{NAME} laughs"); on Save the system auto-tokenizes every changed field through the same tokenizer fact submission uses, and shows you the tokenized result right there so you can verify it and correct it before it persists. Chips ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, and the other pronoun tokens) remain in the toolbar as an expert escape hatch, but authoring no longer requires them. Name ONLY the main subject in your prose; refer to every other character by role ("the mother", "a bystander") — the tokenizer only replaces the subject's name and pronouns, so a second named character would be left literal.
 
@@ -978,11 +979,11 @@ The whole override object is in the render-input hash, so ANY edit (including ad
 **Examples**
 
 - **Scenario:** The AI's plan is 90% right but keeps adding a second adult subject next to the baby version.
-  - **Input:** Enable the override; Forbidden Visual Details: ["a separate adult version of the subject"].
-  - **Outcome:** "Do not add a separate adult version of the subject." lands in STRICT CONSTRAINTS; everything else in the AI plan is untouched.
-- **Scenario:** You disable the toggle after a one-off experiment.
-  - **Input:** enabled: false (fields left populated)
-  - **Outcome:** The compiler ignores the entire override — renders behave as if it didn't exist, but your authored fields are preserved for later.
+  - **Input:** Forbidden Visual Details: ["a separate adult version of the subject"].
+  - **Outcome:** "Do not add a separate adult version of the subject." lands in STRICT CONSTRAINTS; everything else in the AI plan is untouched — no toggle to flip, the filled field applies on its own.
+- **Scenario:** You want to back out a one-off experiment.
+  - **Input:** Clear the fields you added (leave them blank).
+  - **Outcome:** With nothing populated, the override contributes nothing — renders behave as if it never existed. Presence, not a toggle, is what activates each field.
 - **Scenario:** You write a Required Visual Detail naming the subject in plain English.
   - **Input:** Required Visual Details: ["David's face on the statue"]
   - **Outcome:** Click Save — the system tokenizes it to "{NAME_POSSESSIVE} face on the statue" and shows you the result. Tokens resolve per render; a plain name persisted as-is would leak into every other user's render, which is exactly what auto-tokenize prevents.
@@ -1272,6 +1273,42 @@ Rows with an empty entity or role are skipped (the editor warns).
 - **Scenario:** You accidentally type a token directly into the entity field.
   - **Input:** entity: "{NAME}"
   - **Outcome:** Save blocks with a clear error on that row (red-bordered) — entity is a label like "subject" or "mother", never a token. Type the plain name or role instead; a real subject name there auto-collapses to "subject".
+
+**Sources**
+
+- `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
+- `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
+
+### Speech & Thought Bubbles
+
+*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Attribute it to "subject" or a plain role label; shorter text renders more reliably.*
+
+- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Staleness:** Editing re-flags render scenarios as stale.
+- **Editor surface:** field-label
+
+**What it is**
+
+A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (the same rules as a Scene Role Assignment entity — "subject" or a plain role label like "the bartender", never a token), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
+
+**How the AI sets it**
+
+Moderator-authored, or proposed by the AI Visual-ideas generator when the fact contains a literal quote — picking an idea fills these rows (draft-only; Save still applies).
+
+**How it affects the render**
+
+Each bubble compiles to one deterministic directive in the required SPEECH & THOUGHT BUBBLES section (stored order preserved, never de-duplicated or compressed). Explicit bubbles render even when the supporting-text policy is "forbid" — moderator intent wins; overlay/caption text stays forbidden as ever.
+
+Bubbles have their own prompt-budget pool: if the combined directives exceed it, Save fails with a bubble-specific error — shorten the text or remove a bubble. Nothing is silently dropped.
+
+An entity that matches no scene character still renders its directive, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
+
+**Examples**
+
+- **Scenario:** "When David left for college, he told his dad, 'You're the man of the house now.'"
+  - **Input:** Speech bubble — entity "subject", text "You're the man of the house now."
+  - **Outcome:** The render shows a clean comic-style balloon whose tail points to David, lettered with exactly that line — in every render mode and style.
 
 **Sources**
 

@@ -30,7 +30,8 @@ import { materializeFromBaseline } from "../lib/factEnrichment.js";
 const USER_PREFIX = "tenrov-";
 const TEXT_PREFIX = "t_enrov ";
 
-// A complete, valid AI baseline (superhuman archetype family).
+// A complete, valid AI baseline (superhuman archetype family) — exactly what a
+// real classify() call would return; the AI never authors a Visual Concept.
 const AI: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
   subtype: "force_scaled_action",
@@ -48,13 +49,29 @@ const AI: FactEnrichment = {
   aiGenerationId: "gen-1",
 };
 
+// A saved Visual Concept — required to save through the tracked-override
+// endpoints (PUT/DELETE /enrichment-overrides), which this file exercises
+// throughout. Applied by `seedFact` (moderator layer, never part of `AI`
+// itself — the AI never authors this field).
+const SAVED_CONCEPT = {
+  version: 1 as const,
+  coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+  requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+  bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+};
+
 let adminId: string;
 let adminApp: Express;
 const insertedFactIds: number[] = [];
 
 async function seedFact(baseline: FactEnrichment = AI): Promise<number> {
   // Use the real materializer so the row has aiDerived + overrides({}) + projections.
-  const { columns } = materializeFromBaseline(baseline);
+  // Default in a saved Visual Concept (required by the tracked-override write
+  // paths this file exercises) unless the caller already supplied one.
+  const withConcept = baseline.visualPromptStrategyOverride
+    ? baseline
+    : { ...baseline, visualPromptStrategyOverride: SAVED_CONCEPT };
+  const { columns } = materializeFromBaseline(withConcept);
   const [row] = await db
     .insert(factsTable)
     .values({ text: `${TEXT_PREFIX}${randomUUID()}`, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
@@ -241,9 +258,8 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
 describe("human-field survival (visual override + sticky notes)", () => {
   it("preserves the visual override and a notes override across a taxonomy PUT and re-enrich", async () => {
     const visual = {
-      version: 1 as const, enabled: true,
-      requiredVisualDetails: ["adult head on a newborn body"], forbiddenVisualDetails: [],
-      roleBindings: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      ...SAVED_CONCEPT,
+      requiredVisualDetails: ["adult head on a newborn body"],
     };
     const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: visual } as FactEnrichment);
     const [row0] = await db.insert(factsTable)
@@ -278,7 +294,7 @@ describe("override endpoints on inactive (staging) facts", () => {
   // refactor adds an active-only filter, this fails loudly instead of
   // silently breaking moderation.
   it("PUT and GET-resolved work on an isActive:false fact", async () => {
-    const { columns } = materializeFromBaseline(AI);
+    const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: SAVED_CONCEPT });
     const [row] = await db.insert(factsTable)
       .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: false, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
       .returning({ id: factsTable.id });

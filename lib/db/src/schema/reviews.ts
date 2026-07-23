@@ -75,6 +75,10 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   index("idx_pending_reviews_submitted_by").on(table.submittedById),
   index("idx_pending_reviews_workflow_stage").on(table.workflowStage),
   index("idx_pending_reviews_staging_fact").on(table.stagingFactId),
+  // The approved-fact-text-lock protection predicate asks, per text-bearing
+  // PATCH, "does a production-approved review point at this fact?" — an
+  // approvedFactId existence lookup that this index serves.
+  index("idx_pending_reviews_approved_fact").on(table.approvedFactId),
 ]);
 
 export type PendingReview = typeof pendingReviewsTable.$inferSelect;

@@ -189,7 +189,16 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
     const res = await request(adminApp)
       .patch(`/api/admin/facts/${id}/enrichment`)
-      .send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } });
+      // A valid admin save carries a required Visual Concept (presence-based, no toggle).
+      .send({ enrichment: {
+        ...VALID,
+        suggestedHashtags: ["alpha", "beta", "gamma"],
+        visualPromptStrategyOverride: {
+          version: 1, coreSceneOverride: "{NAME} hoists a barbell overhead in an arena.",
+          requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+          bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        },
+      } });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
@@ -202,7 +211,7 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
     const override = {
       version: 1 as const,
-      enabled: true,
+      coreSceneOverride: "{NAME} hoists a glowing barbell overhead.",
       requiredVisualDetails: ["a glowing aura"],
       forbiddenVisualDetails: [],
       roleBindings: [],
@@ -243,7 +252,7 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
     const base = {
       version: 1 as const,
-      enabled: true,
+      coreSceneOverride: "{NAME} stands ready in the arena.",
       forbiddenVisualDetails: [],
       roleBindings: [],
       compositionGuidance: [],
@@ -343,6 +352,25 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert(validateEnrichment(row.enrichment).ok);
   });
 
+  it("discards a stale result when the classifier input drifts mid-classify (approved-fact-text lock §E)", async () => {
+    const id = await insertFact({ enrichmentStatus: "pending", text: "original wording." });
+    // The classify stub re-words the fact mid-call (a concurrent text edit),
+    // then returns OTHER. The worker's full-input recheck must DISCARD it.
+    const result = await runEnrichmentForFact(id, {
+      classify: async () => {
+        await db.update(factsTable).set({ text: "re-worded mid-classify." }).where(eq(factsTable.id, id));
+        return { ...OTHER };
+      },
+    });
+    assert.equal(result.ok, true, "a drift-discard retires as a successful no-op");
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    // OTHER's archetype must NOT have been written onto the re-worded fact.
+    assert.notEqual(row.primaryArchetype, "object_logic_impossibility");
+    // enrichmentStatus stays "pending" (never flipped to "ok" for a discarded result).
+    assert.equal(row.enrichmentStatus, "pending");
+    assert.equal(row.text, "re-worded mid-classify.");
+  });
+
   it("renders {NAME}/{SUBJ}/… tokens before passing factText to the classify stub", async () => {
     // Seed a fact whose text is a raw template with identity tokens.
     const id = await insertFact({
@@ -371,13 +399,13 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   it("preserves the moderator visual-strategy override across re-classification", async () => {
     const override = {
       version: 1 as const,
-      enabled: true,
       requiredVisualDetails: ["adult head on a newborn body"],
       forbiddenVisualDetails: [],
       roleBindings: [],
       compositionGuidance: [],
       styleAgnosticPromptAdditions: [],
       negativePromptAdditions: [],
+      bubbles: [],
       updatedBy: "tfactsenrich-prior-admin",
       updatedAt: "2026-06-13T00:00:00.000Z",
     };

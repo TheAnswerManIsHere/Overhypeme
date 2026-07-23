@@ -45,6 +45,15 @@ For **grammar, token rendering, or tokenizer** work, also read:
 
 - [`docs/ai-context/token-rendering-and-grammar.md`](docs/ai-context/token-rendering-and-grammar.md)
 
+For **adding or changing an export under `lib/api-zod/src/`** (a new schema
+module, a new named export), also read:
+
+- [`docs/ai-context/known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)
+  — codegen rewrites `lib/api-zod/src/index.ts` from a hardcoded list in
+  `lib/api-spec/patch-generated.mjs` on every run; a hand-edit to `index.ts`
+  alone is silently reverted the next time codegen runs (CI's `pretest`
+  included), surfacing as a broad, unrelated-looking wave of test failures.
+
 For **auth, authorization, object/media serving, Stripe/membership grants,
 HTTP headers, or secrets** work, also read:
 
@@ -123,6 +132,14 @@ Prefer, in order:
 For non-trivial implementation work, create or update a plan using
 [`.agents/PLANS.md`](.agents/PLANS.md). **Do not begin implementation until David
 approves the plan.**
+
+**Reviewing a plan (not code).** When asked to review a pull request whose title
+is prefixed **`[PLAN REVIEW]`** (a plan document, not a code diff), apply the
+[plan-review contract](docs/ai-context/plan-review-contract.md): review the
+markdown as an implementation *specification* against the PR body's stated intent
+and the repo, return a **complete** assessment even when nothing is critical, use
+review-status labels (never approval language — only David approves), and never
+implement anything on that PR.
 
 ## Setup, verification, and the CI gate
 

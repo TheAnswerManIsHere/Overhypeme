@@ -2,8 +2,11 @@
 
 > Mistakes AI agents have repeatedly made (or nearly made) on Overhype.me. Each
 > has a real anchor in this codebase. Read this before visual-pipeline,
-> enrichment, moderation, or migration work. Anchored IDs are linked from other
-> docs.
+> enrichment, moderation, or migration work — **and before any change that adds
+> or touches an export under `lib/api-zod/src/`** (see the codegen-revert
+> pattern below; this one has been missed more than once because it doesn't
+> "feel" like visual-pipeline/enrichment/moderation/migration work, but it is
+> exactly this class of gotcha). Anchored IDs are linked from other docs.
 
 Format per pattern: **what it looks like → why it's dangerous → how to avoid →
 Overhype example.**
@@ -81,6 +84,36 @@ array in `patch-generated.mjs`, then run codegen and confirm the export survives
 `git checkout lib/api-zod/src/index.ts` restores the committed (correct) version
 if a codegen run clobbers your working tree mid-session. Do **not** try to "just
 re-add it to index.ts" — it will be reverted again.
+
+**Recurred (PR #228):** added `export * from "./factTextEdit"` directly to
+`index.ts` mid-session, verified with `tail`/`grep` and passing targeted tests,
+and moved on without adding the line to `patch-generated.mjs`. CI's `pretest`
+ran codegen and wiped it — surfaced as 9–10 unrelated test files across
+multiple shards failing to even load (`visualConceptJobs`, `phase4.memes.save`,
+`routes.admin.auth`, `routes.adminStripeSync`, `routes.facts`, …), exactly the
+"broad, mysterious cascade" this entry already warned about. The doc existed
+and was correct; it just wasn't consulted at the moment the new `lib/api-zod`
+module was created. **The lesson isn't "read the doc harder" — it's a
+mechanical check:** after adding *any* new file under `lib/api-zod/src/` (or
+any export to an existing one), run
+`pnpm --filter @workspace/api-spec run codegen` once, immediately, and confirm
+`git diff --exit-code lib/api-zod/src/index.ts` is clean, before writing a
+single consumer of that export. Don't defer this verification to "when I run
+the full test suite later" — by then the mistake is buried under unrelated
+work and looks like a cascade of broken tests, not a one-line miss.
+
+**Now automated (2026-07-23, PR #236):** a doc reminder didn't stop this from
+recurring once already (PR #228), so the mechanical check above is no longer
+opt-in. CI's `Build` job runs `pnpm run check:codegen-drift`
+([`scripts/check-codegen-drift.sh`](../../scripts/check-codegen-drift.sh)) on
+every PR, which reruns codegen and fails the merge on any resulting drift —
+same command works locally. **One correctness detail if you ever touch that
+guard:** it checks `git status --porcelain -- lib/`, not
+`git diff --exit-code -- lib/`. A `git diff` only sees modified *tracked*
+files; when codegen splits out a brand-new generated file, that file is
+*untracked*, and a diff-only guard would silently pass while the merged
+checkout is still missing it (caught in Codex review on PR #236 — see
+`code-review.md`'s Tests section for the general principle this became).
 
 ## Stale historical docs treated as current truth
 
@@ -415,3 +448,103 @@ A related engineering gotcha surfaced while fixing this — defaulting a new
 lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
+
+## Un-frozen input re-resolved live between enqueue and async execution
+
+**Looks like:** a value (identity, config, a selected option) is fixed at the
+moment a user takes an action, but an async worker that processes the
+resulting job re-derives that same value **live** — a fresh DB query, a fresh
+config read — instead of reading whatever was fixed at enqueue time.
+**Dangerous:** if the underlying source changes in the window between enqueue
+and execution (a profile edit, a config change, a row deactivated), the worker
+silently uses the NEW value while other parts of the same job (text already
+rendered from the OLD value) still reflect the old one — producing output that
+is internally inconsistent with itself, and non-reproducible (the same job
+re-run later can produce a different result than it would have at enqueue
+time). **Avoid:** resolve every input a job needs exactly ONCE, at the point of
+enqueue, and persist a validated snapshot on the job/row; the worker reads the
+snapshot and never re-queries the live source for that input. **Overhype:** the
+`image_prompt_generation` worker re-queried the user's `displayName`/`pronouns`
+and re-resolved the selected look-style live on every run, even though the
+fact text had already been frozen at enqueue — a profile edit or a style
+edit/deactivation in that window could produce a render whose frozen fact text
+and whose live-resolved identity/style disagreed. Fixed by
+`prepareImagePromptAttemptInputs()` freezing a `PromptIdentitySnapshot` +
+`ResolvedRenderStyleSnapshot` once and rendering the fact text from that same
+identity (PR #223). See
+[`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+
+## Budget-constrained assembly blindly truncates wherever length lands
+
+**Looks like:** an assembly pipeline builds output up to a hard character/token
+ceiling, and when the assembled result overflows, it hard-cuts the END of the
+string to fit — regardless of what content happens to be there.
+**Dangerous:** if safety-critical content (a policy guardrail, a required
+disclaimer, an exclusion rule) is emitted LAST — often because it's the final
+"and don't do X" section — blind end-truncation can silently remove exactly
+that content under budget pressure, while everything upstream of the cut still
+looks fine. The failure is invisible until someone notices the guardrail
+didn't apply. **Avoid:** never let a length ceiling silently drop
+safety-critical content; either reserve budget for it so it always survives
+truncation, or — safer — treat an overflow of required content as a hard
+failure (fail loud, don't ship) instead of truncating at all. **Overhype:** the
+Nano Banana 2 compiler's `assembleSections()` used to hard-truncate the fully
+assembled prompt to `MAX_PROMPT_CHARS` as a last resort — and STRICT
+CONSTRAINTS (the violence/text-policy safety guardrails) is the LAST section
+emitted, so an overflow could cut exactly the guardrails. Retired in PR #224:
+required-content overflow now surfaces `diagnostics.requiredBudgetOverflow`
+and the async worker fails terminal (`required_budget_overflow`) instead of
+shipping a truncated prompt; save-time validation (below) makes new
+over-budget content essentially unreachable. See
+[`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget).
+
+## Predicting a downstream system's output by summing raw component inputs
+
+**Looks like:** a save-time (or any pre-flight) check needs to predict how big
+/ long / expensive a downstream system's OUTPUT will be, and does it by summing
+or estimating the raw INPUT components — without accounting for formatting,
+wrapping, joins, labels, or other transformation the downstream system applies
+on the way from input to output. **Dangerous:** the estimate systematically
+undercounts, so content the pre-flight check accepts can still overflow/break
+downstream — and the gap is invisible in code review, because the estimate
+"looks reasonable" and the actual overflow only shows up at the OTHER end of
+the pipeline, often much later. **Avoid:** when you must predict a downstream
+system's real output, measure it by actually running (or a faithful,
+minimal-diff invocation of) that system — don't hand-derive a proxy formula
+that will drift the moment the downstream system's formatting changes.
+**Overhype:** two instances in the same feature. (1) The compiler's fixed
+required-section overhead is measured by literally compiling a maximum-shape
+prompt through the real compiler (`measureRequiredPromptBudget()`), not
+hand-estimated — this was right from the start. (2) The save-time check for a
+moderator's "additions" content originally summed each field's raw projected
+text length, missing the compiler's `"Do not …"` negation prefixes,
+`"label: "` role-binding forms, `"; "`-joins, and per-section labels that only
+appear once a field is populated — a save that check accepted could still
+overflow at render. Caught by Codex mid-review (PR #224); fixed by
+`measureModeratorAdditionsEmission()`, which compiles the fixed shape twice
+(once with worst-case-projected content, once empty) and takes the delta, so
+every fixed cost cancels and only the true additions contribution remains. See
+[`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget).
+
+## Not merged ≠ not disclosed (public-repo PR history)
+
+**Looks like:** using a branch or PR on a **public** repo as a "private" or
+"throwaway" channel for content you never intend to ship — a plan, a draft, a
+scratch file — assuming that because the PR is a *draft* or will be *closed
+without merging*, its contents aren't really public. **Dangerous:** this repo is
+public, so **every pushed commit and every closed-unmerged PR is permanently in
+public history** — searchable, forkable, cached — regardless of draft status or
+merge outcome. For content that describes an unpatched vulnerability, an exploit
+path, secrets, private customer/commercial data, or embargoed work, that
+*discloses* it the moment it's pushed, often before any fix ships. "It never
+merged" buys **zero** privacy. **Avoid:** before pushing non-shippable content to
+the public repo, run a disclosure check; route anything security-sensitive or
+confidential to a private/manual channel instead of the public PR. Treat "draft"
+and "will close unmerged" as no privacy at all. **Overhype:** the automated
+plan-review loop (PR #226) deliberately uses a *never-merged public draft PR* as
+its review channel — the first design had **no** disclosure gate, so a
+security-remediation plan run through it would have published the exploit before
+the fix landed. Fixed with a mandatory pre-open disclosure check that keeps such
+plans off the public channel (see
+[`decisions.md`](./decisions.md#2026-07-22--plan-review-automated-via-a-codex-draft-pr-loop-replaces-the-manual-chatgpt-paste)).
+Compare PR #217 — a production DB dump that sat committed on public `main`.

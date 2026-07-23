@@ -64,6 +64,7 @@ export const FIELD_DOC_USAGE = {
   "vso.requiredVisualDetails": "field-label",
   "vso.forbiddenVisualDetails": "field-label",
   "vso.roleBindings": "field-label",
+  "vso.bubbles": "field-label",
   "vso.compositionGuidance": "field-label",
   "vso.styleAgnosticPromptAdditions": "field-label",
   "vso.negativePromptAdditions": "field-label",

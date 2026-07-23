@@ -79,9 +79,9 @@ describe("resolveEnrichment", () => {
 
   it("carries the preserved visual override onto effective verbatim", () => {
     const visual = {
-      version: 1 as const, enabled: true,
+      version: 1 as const,
       requiredVisualDetails: ["a glowing aura"], forbiddenVisualDetails: [],
-      roleBindings: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      roleBindings: [], bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
     };
     const { effective, summary } = resolveEnrichment({ aiDerived: AI, overrides: {}, visualPromptStrategyOverride: visual });
     assert.equal(effective.visualPromptStrategyOverride?.requiredVisualDetails[0], "a glowing aura");

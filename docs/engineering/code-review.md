@@ -66,6 +66,15 @@ style nit.
 - Do tests prove the **general invariant**, not just the reported example, with
   negative cases? Run via the repo runners (never raw `node --test`)?
 - Regression fixtures added for the bug class?
+- If this fixes a **recurring** pattern (a second occurrence of something
+  already in [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)),
+  did the fix add a deterministic CI guard
+  (`.github/workflows/build.yml`) rather than just a one-off correction or a
+  stronger doc warning? A doc reminder didn't stop the `api-zod` codegen-revert
+  mistake from recurring once already; a mechanical check can't be skipped by
+  not reading the doc. See
+  [`decisions.md`](../ai-context/decisions.md) → "Recurring failure patterns
+  become CI guards."
 
 ## Observability
 

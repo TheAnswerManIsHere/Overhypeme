@@ -167,6 +167,20 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    // On Replit, the platform's path router (.replit `router = "path"`) sends
+    // /api to the api-server workflow before requests ever reach Vite, so no
+    // proxy is needed there (and this block is skipped — REPL_ID is Replit's
+    // environment marker, same detection as mockup-sandbox/vite.config.ts).
+    // Everywhere else — CI's e2e-smoke job, a bare local dev stack — nothing
+    // plays that role, so proxy /api to the api-server's pinned dev port
+    // (8080 in both .replit and CI), overridable via API_PROXY_TARGET.
+    ...(process.env.REPL_ID
+      ? {}
+      : {
+          proxy: {
+            "/api": { target: process.env.API_PROXY_TARGET ?? "http://localhost:8080" },
+          },
+        }),
   },
   preview: {
     port,

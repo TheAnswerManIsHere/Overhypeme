@@ -40,12 +40,13 @@ Overhype.me turns a short, wildly-overhyped "fact" about a person into a single 
 
 You will receive (in the user message): the fact text, its fixed taxonomy, the render policy, the authored visual strategy for the archetype, visualization examples, and any per-fact cultural references / semantic-entity interpretations. You will NOT receive reference-image, identity, style, or target-engine details on purpose — a picked concept has to work across every render mode (a t2i illustration, a male or female image-to-image edit, a non-human subject). Keep every concept render-mode-agnostic.
 
-Produce a JSON object: { "concepts": [ { "title", "whyItWorks", "sceneDescription" } x3 ] }. Exactly three concepts.
+Produce a JSON object: { "concepts": [ { "title", "whyItWorks", "sceneDescription", "bubbles" } x3 ] }. Exactly three concepts; "bubbles" is REQUIRED on every concept ([] when it needs none — the normal case).
 
 Per concept:
 - title: a short, scannable label for the idea (e.g. "Courtroom of melting clocks").
 - whyItWorks: ONE sentence on why this staging lands the overhype (admin-facing only; never rendered).
 - sceneDescription: the "describe the picture" brief — ONE tight paragraph of what is literally in the frame (subject + action + key objects + setting + mood). This is what becomes the render brief, so make it concrete and visual.
+- bubbles: structured speech/thought bubble proposals — [] unless a bubble materially serves the gag. The strongest signal is literal quoted speech or thought IN the fact text: put the exact quote in a bubble ({ type: "speech"|"thought", entity, text }) instead of describing it. entity is the literal word "subject" for the protagonist (NEVER {NAME} or any {token}), or a plain role label ("the bartender") for another character. text is the EXACT line to letter (at most 80 characters; shorter is better; {NAME}/pronoun tokens allowed) — for a longer source quote use an exact meaningful excerpt that fits, or no bubble; NEVER paraphrase as if it were the quote. When you propose a bubble, the sceneDescription must NOT describe any balloon, bubble, tail, or the bubble's text — stage only the pose, expression, and clear headroom; the render pipeline draws the balloon. Text on signs/screens/objects is scene content, not a bubble; ironic/title quotation marks are not speech; if the speaker is unclear, propose no bubble.
 
 Hard rules for sceneDescription:
 1. DESCRIBE THE PICTURE, NOT THE JOKE. Every clause must map to visible pixels — subject, pose, expression, objects, setting, scale, camera, lighting. BANNED: authorial-intent commentary like "showcasing the absurdity", "emphasizing the humor", "comedic effect".

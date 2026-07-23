@@ -13,6 +13,249 @@
 
 ---
 
+### 2026-07-23 · Recurring failure patterns become CI guards, not just doc updates
+- **Decision:** When a mistake already recorded in `known-failure-patterns.md`
+  happens a **second** time, the default response is a deterministic CI check
+  in `.github/workflows/build.yml` that makes the mistake impossible to merge
+  — not a stronger doc warning or a one-off correction. This applies to any
+  reviewer (Codex or Claude), not just the agent that adds the guard.
+- **Why:** the `api-zod`/codegen-revert entry in `known-failure-patterns.md`
+  already existed, was correct, and was consulted by nobody at the moment it
+  recurred (PR #228) — a docs-only warning can't stop a mistake that happens
+  before anyone thinks to check the doc. A CI guard can't be skipped that way.
+  `scripts/check-codegen-drift.sh` (wired into the `Build` job as
+  `pnpm run check:codegen-drift`) is the first instance of this principle.
+- **Reference:** PR #236; the extended entry in
+  [`known-failure-patterns.md`](./known-failure-patterns.md); the review
+  checklist addition in
+  [`code-review.md`](../engineering/code-review.md).
+- **Revisit if:** never — standing engineering practice, not a one-off.
+
+---
+
+### 2026-07-22 · Visual Strategy Override is presence-based (no enable toggle); Visual Concept is required to save AND to release — one card is its only surface
+- **Decision:** Three linked changes to the moderator Visual Strategy Override (VSO):
+  - **Presence-based activation — the `enabled` boolean is retired.** Every VSO
+    sub-field applies on its own whenever it is non-empty; there is no master
+    switch. The two compiler gates that read `ov?.enabled` (`activeOverride()` in
+    `nanoBanana2.ts`, `resolveRenderPolicy()` in `imagePromptGeneration.ts`) now do
+    a plain presence check. **Keystone invariant:** an all-empty override compiles
+    byte-identically to the old `null`/absent override (every consumer no-ops on
+    empty). No migration — Zod strips the legacy `enabled` key from stored rows on
+    parse (pre-launch, and David is re-doing all facts anyway).
+  - **The Visual Concept (`coreSceneOverride`) is REQUIRED and blocking.** A blank
+    concept blocks the admin **save** itself — the enrichment PATCH and the
+    review-candidate PATCH reject it `400 visual_concept_required` — **and** blocks
+    **production approval** (`CONCEPT_MISSING` on approve-visual-concept and the
+    first-time/refresh production-approval paths). This **supersedes D1** of the
+    "mandatory human gate" entry below: the gate no longer keys on a *saved,
+    **enabled**, non-empty* concept — `enabled` is gone, and the requirement now
+    also bites at save time, not only at approval. Rationale (David, verbatim): "in
+    order for the fact to be released into production, it must have a Visual Concept
+    so that the image and video engines have something to work with when we make
+    memes."
+  - **One editing surface.** The core-scene field was removed from the Advanced
+    Options `VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now
+    the single scene-editing surface, on both the Moderation Step-2 flow and the
+    Facts page (Option 1 — David dislikes the duplicate/confusing surface).
+- **Why:** The enable toggle added a confusing "populated but off" state with no
+  real value — presence is a clearer, self-evident model. Requiring the concept at
+  save (not only at approval) makes "a fact can't be released without something for
+  the engines to render" a hard, early invariant.
+- **Consequence accepted:** partial/hashtag-only admin saves that touch enrichment
+  now require a non-empty concept — David explicitly accepted this blast radius.
+- **Scope note (fast-follow):** the system-wide *activation guard* (no
+  `isActive:true` without a concept) and the *ingestion→Stage-1 routing* principle
+  (below) are a deferred pre-launch fast-follow ("Head 2"), not this change.
+- **Ingestion principle (recorded now, David verbatim):** "there should only be two
+  ways that a fact gets into the system. The first is the manual path where a user
+  submits a fact. The second is a bulk import. In both those cases, the ingestion of
+  the fact should put it on stage 1 of the moderation flow where it needs to be
+  triaged, then enriched, then activated. If we ever have a future way of ingesting
+  a fact (API for example) then it should also just be filling the front of that
+  production pipeline."
+- **Reference:** this PR (VSO presence-based + required concept, Head 1); see
+  [`visual-pipeline.md`](./visual-pipeline.md) and
+  [`moderation-workflow.md`](./moderation-workflow.md).
+- **Revisit if:** the two ways a fact enters the system change, or the concept is
+  later split per-scenario (as D1's revisit note already contemplates).
+
+### 2026-07-22 · Speech & thought bubbles: a dedicated 900-char budget pool, funded by raising the prompt ceiling (not by shrinking an existing reserve)
+- **Decision:** moderator-authored (and AI-proposed) speech/thought bubbles get
+  their **own** rendered-length budget pool, `BUBBLE_DIRECTIVES_RENDERED_MAX =
+  900`, funded by raising the engine prompt ceiling `PROMPT_TOTAL_BUDGET` 6000
+  → **6900** — not by shrinking `CORE_SCENE_RENDERED_MAX`,
+  `MODERATOR_ADDITIONS_RENDERED_MAX`, or `PROMPT_OUTER_MARGIN`. Bubbles are
+  measured (and budgeted) completely separately from the existing "moderator
+  additions" pool, so the two can never double-count and a bubble-heavy save
+  can never silently eat another field's guaranteed capacity.
+- **Why:** the merged pre-bubble budget (PR #224) was already fully allocated
+  with zero spare margin, so *some* reserve had to move for bubbles to exist at
+  all. Every existing reserve had already been set deliberately (each behind
+  its own approval gate) — reducing one to make room for a brand-new feature
+  would silently change a contract David already approved for unrelated
+  content. NB2's actual context window (~131K tokens) has ample headroom below
+  6900 chars, so raising the ceiling costs nothing at the engine level; the
+  ceiling exists purely as editorial discipline against bloated authoring, not
+  an engine capacity limit.
+- **Reference:** PR #229 (plan rev 5, David-approved 2026-07-22). See
+  [`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget) for
+  the mechanics (measurement method, the escaping-precision follow-up fix).
+- **Revisit if:** render evidence shows 900 chars is too tight for the bubble
+  count/length the product actually needs (revisit the pool size, not the
+  "separate pool, ceiling raise" funding model), or a future feature needs
+  budget headroom and 6900 no longer has slack to give.
+
+---
+
+### 2026-07-22 · Plan review automated via a Codex draft-PR loop (replaces the manual ChatGPT paste)
+- **Decision:** plan review now runs through **Codex on a dedicated,
+  never-merged draft PR** instead of David hand-pasting each plan into ChatGPT.
+  Claude commits the plan to a `plan-review/<slug>` branch, opens a
+  `[PLAN REVIEW] … — DO NOT MERGE` draft PR, and iterates (revise → explicit
+  `@codex review`) until Codex has **no substantive objections, minimum 3
+  rounds**; the PR is then **closed unmerged**. Codex reviews against a shared
+  contract, not its default code-review persona. **Codex convergence is not plan
+  approval — only David approves.**
+- **Why:** it removes the iPad copy-paste loop, gives the reviewer direct repo
+  context (structurally better than a detached markdown upload), and leaves a
+  durable, attributable review trail. Same OpenAI models as ChatGPT — but the
+  reviewer **harness/contract matters more than the model**: the default Codex
+  GitHub reviewer is tuned for serious *code* defects and can stay silent on a
+  plausible-but-incomplete plan, so the loop gives Codex an explicit plan-review
+  contract instead of relying on that persona.
+- **Doc-routing principle applied:** the *review contract Codex executes* is
+  **shared** ([`plan-review-contract.md`](./plan-review-contract.md), routed
+  from [`AGENTS.md`](../../AGENTS.md)); the *workflow ceremony Claude drives* stays
+  **Claude-specific** (`CLAUDE.md`). Instructions live where the agent that runs
+  them reads — a narrower, correct split than mirroring one agent's whole
+  workflow into the shared docs.
+- **Guardrails (each a deliberate why):** a **public-repo disclosure check**
+  keeps security-sensitive/confidential plans off the public PR channel (a
+  closed-unmerged PR is still public history — see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#not-merged--not-disclosed-public-repo-pr-history));
+  **external API/SDK/pricing claims are verified by Claude** (which has web
+  access) and recorded in the plan, since Codex's review environment may be
+  network-restricted; **model tier** — the whole plan-review loop is *planning*
+  and stays on Opus, the only downshift to Sonnet being execution of a *simple*
+  approved plan.
+- **Reference:** PR #226. Operational contract: `CLAUDE.md` → *Automated plan
+  review: the Codex draft-PR loop*; reviewer contract:
+  [`plan-review-contract.md`](./plan-review-contract.md).
+- **Revisit if:** the calibration pilot (first ~3 real plans — Codex's review vs.
+  what the manual ChatGPT pass would have caught) shows Codex's plan reviews are
+  too shallow. The PR **transport** stays good regardless; the fix would be to
+  swap the **reviewer** (a dedicated Codex task/Action, or manual review for the
+  substance) while keeping the draft-PR channel.
+
+### 2026-07 · NB2 render pipeline hardened: terminal async failures, a measured prompt budget, 6000-char ceiling
+- **Decision:** three coordinated hardening changes to the Nano Banana 2 render
+  pipeline, shipped together:
+  1. **Terminal vs retryable async failures.** `HandlerResult` gained an
+     additive `retryable?`/`code?` shape (existing `{ok:false,error}` handlers
+     are unchanged and still retry with backoff); a handler opts into
+     `terminalFailure(code, message)` for a **deterministic** failure — the
+     worker marks the row `failed` on the first attempt instead of burning
+     retries. The image-prompt worker now classifies invalid frozen
+     enrichment, an unresolved personalization token, planner
+     validation-exhaustion (vs. a genuinely transient provider/timeout
+     failure — `ImagePromptError` now carries a `validation_exhausted` vs
+     `provider_failure` cause), a compiler throw, and a budget overflow as
+     terminal, each with a typed `error_code` persisted alongside the
+     human-readable `error` (new nullable `image_prompt_attempts.error_code`
+     column) so the poll payload never requires parsing a "code: message"
+     string.
+  2. **The moderator prompt budget is *measured*, not estimated.**
+     `measureRequiredPromptBudget()` compiles the fixed-shape prompt through
+     the **real** Nano Banana 2 compiler across all three subject modes (at
+     max-bound identity, max style copy, the longest fixed policy branches,
+     the age-transform binding) to derive the compiler's true fixed overhead,
+     and a proof test asserts it still fits the reserved budget — so a future
+     compiler wording change that grows a required section fails CI instead
+     of silently eating the moderator's authoring pool. The engine's prompt
+     ceiling was raised from **4000 → 6000 chars**: David questioned the
+     original 4000 mid-build — Nano Banana 2's real context window is ~131K
+     tokens, so 4000 was editorial discipline against bloated prompts, not an
+     engine capacity limit, and it left the moderator pools with zero margin.
+     Approved split (all four terms sum to exactly 6000):
+     `FIXED_REQUIRED_RESERVE_BUDGET=1750` (measured, unchanged) +
+     `CORE_SCENE_RENDERED_MAX=2000` + `MODERATOR_ADDITIONS_RENDERED_MAX=1500` +
+     `PROMPT_OUTER_MARGIN=750`. `CORE_SCENE_RAW_MAX` was restored to **1500**
+     (matching the frontend editor's `CORE_SCENE_MAX_CHARS` and the candidate
+     generator's `CANDIDATE_SCENE_MAX_CHARS`, both already 1500) rather than
+     kept at the earlier plan's lowered 1200, so a save is never rejected by
+     the budget gate for content the authoring UI itself presented as valid.
+     The compiler no longer silently hard-truncates required content that
+     overflows the budget (the old truncation could cut the STRICT
+     CONSTRAINTS safety guardrails, which sit at the end of the assembled
+     prompt) — it now surfaces `diagnostics.requiredBudgetOverflow` and the
+     worker fails terminal (`required_budget_overflow`) instead.
+  3. **The moderator-additions save check is measured through the compiler
+     too, not summed from raw field text** (found by Codex mid-review, fixed
+     before merge). The save-time aggregate check originally summed each VSO
+     field's raw projected length, which undercounts what the compiler
+     actually emits — `"Do not …"` negation prefixes on forbidden details,
+     `"label: "` role-binding forms, `"; "`-joins between list entries, and
+     per-section labels that only appear once a field is populated. A save
+     that check accepted could still overflow at render. Fixed the same way
+     as #2 — measure, don't guess: `measureModeratorAdditionsEmission()`
+     compiles the fixed shape twice per mode (once with the override's
+     worst-case-projected content, once with an empty override) and takes the
+     delta, so every fixed cost cancels and what's left is exactly the
+     additions' true compiler-emitted contribution.
+  4. **Global `look_styles` copy trimmed** to a canonical ≤180-char catalogue
+     for all 18 named styles via a per-column guarded migration (an
+     admin-customized column is never overwritten); `RENDER_STYLE_COPY_MAX_CHARS`
+     restored from a same-arc stopgap of 250 back to its intended 180.
+- **Why:** the render pipeline previously retried every failure uniformly
+  (wasting attempts on failures no retry could fix) and could silently
+  truncate its own safety guardrails under budget pressure; the moderator
+  authoring limits were invented numbers nobody could prove were safe. Measure
+  real system behavior, fail loud and typed when a failure is deterministic,
+  never silently drop a safety constraint.
+- **Reference:** PR #224;
+  [`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget),
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues),
+  `lib/api-zod/src/promptBudget.ts`,
+  `artifacts/api-server/src/lib/imagePrompt/promptBudget.ts`,
+  `artifacts/api-server/src/lib/asyncJobs.ts`.
+- **Revisit if:** the 6000-char split ever feels too tight/loose in practice
+  (it's a one-line constant change, re-validated by the live-compiler proof
+  test) — see `lib/api-zod/src/promptBudget.ts`.
+
+### 2026-07 · Render identity + style are frozen at attempt-construction time, not re-resolved live by the worker
+- **Decision:** the image-prompt async worker used to re-query the user's
+  displayName/pronouns and re-resolve the selected look-style **live**, every
+  time it ran — even though the fact text had already been frozen at enqueue.
+  `prepareImagePromptAttemptInputs()` now resolves + freezes BOTH inputs once,
+  at the moment the user clicks generate, and renders the fact text from that
+  SAME frozen identity; the worker reads the frozen `PromptIdentitySnapshot` /
+  `ResolvedRenderStyleSnapshot` off `render_controls` instead of re-deriving
+  them, falling back to live resolution only for pre-existing attempt rows.
+  Wired into both user-facing generate routes
+  (`/memes/ai/:factId/generate-v2` and the generic branch of `/generate`).
+  Separately, the identity fed **into the image prompt** (not the composited
+  meme caption, which is untouched) is reduced to a short prompt-safe name —
+  first name, else the first token of displayName, else the canonical
+  fallback, grapheme-safe-bounded to `RENDERED_IDENTITY_NAME_MAX` (20 chars).
+  This is a render-time reducer, NOT a new profile storage bound —
+  `validators/personalName.ts` remains the sole source of truth for what a
+  user may store.
+- **Why:** a profile-name edit or a look-style edit/deactivation landing in
+  the window between enqueue and worker execution could previously produce a
+  render whose frozen fact text and whose live-resolved identity/style
+  disagreed with each other — or an invalid/deactivated style silently
+  degraded to "no style" instead of surfacing an error. No reason to feed a
+  full (potentially very long) display name into an image model either.
+- **Reference:** PR #223;
+  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility),
+  `artifacts/api-server/src/lib/imagePrompt/prepareAttemptInputs.ts`,
+  `promptIdentity.ts`, `styleResolution.ts`.
+- **Revisit if:** a fourth render entry point (moderation/eval) needs the same
+  freezing — today those paths use fixed sample identities and no live style,
+  so they were already reproducible without this change; converting them is a
+  clean follow-up if that stops being true.
+
 ### 2026-07 · dev-admin-login backdoor hardened fail-closed
 - **Decision:** `GET/POST /api/auth/dev-admin-login` — which mints a
   bootstrap-admin session for any caller — is gated fail-closed by
@@ -245,7 +488,9 @@
   - **D1** — gag approval requires a **saved, enabled, non-empty**
     `coreSceneOverride` on the cycle's effective enrichment (not just an AI
     candidate card, not a browser-only draft; the server checks the persisted
-    value).
+    value). *(Partially superseded 2026-07-22: `enabled` retired — activation is
+    presence-based — and the non-empty concept is now also required at **save**
+    time, not only at approval. See the presence-based VSO entry at the top.)*
   - **D2** — **no hard-cancel** of in-flight renders on a Step-3→Step-2 bounce;
     they finish but are superseded, and re-approval **force-creates a fresh batch**.
   - **D3** — **no back-migration**: pre-deploy `production_review` rows stay at

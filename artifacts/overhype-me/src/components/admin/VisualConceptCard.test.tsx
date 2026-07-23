@@ -33,55 +33,51 @@ function Harness({
   );
 }
 
-describe("withCoreSceneOverride", () => {
-  it("auto-enables when the scene is non-empty and canonicalizes name tokens", () => {
+describe("withCoreSceneOverride (presence-based — no enable field)", () => {
+  it("canonicalizes name tokens and sets the scene, with no enable side effect", () => {
     const next = withCoreSceneOverride(undefined, "{name} rides a duck");
-    expect(next.enabled).toBe(true);
+    expect("enabled" in next).toBe(false);
     expect(next.coreSceneOverride).toBe("{NAME} rides a duck");
   });
 
-  it("never auto-disables on clear (other fields may be in use)", () => {
-    const enabled = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "a scene" };
-    const cleared = withCoreSceneOverride(enabled, "");
-    expect(cleared.enabled).toBe(true);
+  it("clearing the scene leaves every other field untouched", () => {
+    const base = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "a scene", requiredVisualDetails: ["a detail"] };
+    const cleared = withCoreSceneOverride(base, "");
     expect(cleared.coreSceneOverride).toBe("");
-  });
-
-  it("leaves a disabled override disabled when the scene stays empty", () => {
-    const next = withCoreSceneOverride(EMPTY_VISUAL_STRATEGY_OVERRIDE, "   ");
-    expect(next.enabled).toBe(false);
+    expect(cleared.requiredVisualDetails).toEqual(["a detail"]);
+    expect("enabled" in cleared).toBe(false);
   });
 });
 
 describe("VisualConceptCard", () => {
-  it("typing a scene calls onChange with enabled:true and canonicalized text", () => {
+  it("typing a scene calls onChange with the canonicalized text (no enable side effect)", () => {
     const spy = vi.fn();
     render(<Harness onChangeSpy={spy} />);
     fireEvent.change(screen.getByTestId("visual-concept-textarea"), {
       target: { value: "{name} rides a giant rubber duck" },
     });
     const next = spy.mock.calls.at(-1)![0] as VisualPromptStrategyOverride;
-    expect(next.enabled).toBe(true);
+    expect("enabled" in next).toBe(false);
     expect(next.coreSceneOverride).toBe("{NAME} rides a giant rubber duck");
   });
 
-  it("clearing keeps enabled:true", () => {
+  it("clearing the scene emits an empty concept (no enable flip)", () => {
     const spy = vi.fn();
     render(
       <Harness
-        initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "a scene" }}
+        initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "a scene" }}
         onChangeSpy={spy}
       />,
     );
     fireEvent.change(screen.getByTestId("visual-concept-textarea"), { target: { value: "" } });
     const next = spy.mock.calls.at(-1)![0] as VisualPromptStrategyOverride;
-    expect(next.enabled).toBe(true);
+    expect("enabled" in next).toBe(false);
     expect(next.coreSceneOverride).toBe("");
   });
 
   it("token chip inserts at the caret of the textarea", () => {
     const spy = vi.fn();
-    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "a  b" }} onChangeSpy={spy} />);
+    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "a  b" }} onChangeSpy={spy} />);
     const el = screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement;
     el.focus();
     el.setSelectionRange(2, 2);
@@ -109,20 +105,20 @@ describe("VisualConceptCard", () => {
   });
 
   it("shows the char counter and the don't-write-engine-instructions helper copy", () => {
-    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "abc" }} />);
+    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "abc" }} />);
     expect(screen.getByText(`3/${CORE_SCENE_MAX_CHARS}`)).toBeTruthy();
-    expect(screen.getByTestId("visual-concept-card").textContent).toMatch(/compiler owns those and will strip them/i);
+    expect(screen.getByTestId("visual-concept-card").textContent).toMatch(/compiler owns those and will flag them/i);
   });
 
   it("flags an unknown token with the advisory", () => {
-    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "starring {BOGUS}" }} />);
+    render(<Harness initial={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "starring {BOGUS}" }} />);
     expect(screen.getByTestId("visual-concept-card").textContent).toMatch(/Invalid token/i);
   });
 
   it("shows a tokenize error (from vsoTokenizeErrors) ahead of the token-validation warning", () => {
     render(
       <VisualConceptCard
-        value={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true, coreSceneOverride: "starring {BOGUS}" }}
+        value={{ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "starring {BOGUS}" }}
         onChange={() => {}}
         tokenizeError="unbalanced token"
       />,

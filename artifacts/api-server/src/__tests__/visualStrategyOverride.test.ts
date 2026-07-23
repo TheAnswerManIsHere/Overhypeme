@@ -18,6 +18,7 @@ import {
   getVisualStrategyRenderedTextKind,
   setRenderedTextAtPath,
   normalizeRoleEntity,
+  serializeLiteralPromptString,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
@@ -25,7 +26,6 @@ import {
 function makeOverride(partial: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     version: 1,
-    enabled: true,
     requiredVisualDetails: [],
     forbiddenVisualDetails: [],
     roleBindings: [],
@@ -37,10 +37,14 @@ function makeOverride(partial: Record<string, unknown> = {}): Record<string, unk
 }
 
 describe("visualPromptStrategyOverrideSchema", () => {
-  it("parses a valid override and defaults the lists", () => {
-    const res = visualPromptStrategyOverrideSchema.safeParse({ version: 1, enabled: false });
+  it("parses a valid override and defaults the lists (no enable field — presence-based)", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse({ version: 1 });
     assert.equal(res.success, true);
     if (res.success) assert.deepEqual(res.data.requiredVisualDetails, []);
+    // The retired `enabled` key is stripped (unknown) rather than required.
+    const withStale = visualPromptStrategyOverrideSchema.safeParse({ version: 1, enabled: false });
+    assert.equal(withStale.success, true);
+    if (withStale.success) assert.equal("enabled" in withStale.data, false);
   });
 
   it("rejects an unknown subject-realization mode (hard enum failure)", () => {
@@ -226,14 +230,14 @@ describe("hasRenderableVisualStrategyOverrideContent", () => {
 });
 
 describe("resolveRenderPolicy", () => {
-  it("returns the default when there is no override or it is disabled", () => {
+  it("returns the default when there is no override or it has no policy fields (presence-based)", () => {
     assert.deepEqual(resolveRenderPolicy(null), DEFAULT_RENDER_POLICY);
     assert.deepEqual(resolveRenderPolicy({}), DEFAULT_RENDER_POLICY);
-    const disabled = makeOverride({ enabled: false }) as unknown as VisualPromptStrategyOverride;
-    assert.deepEqual(resolveRenderPolicy({ visualPromptStrategyOverride: disabled }), DEFAULT_RENDER_POLICY);
+    const noPolicy = makeOverride({}) as unknown as VisualPromptStrategyOverride;
+    assert.deepEqual(resolveRenderPolicy({ visualPromptStrategyOverride: noPolicy }), DEFAULT_RENDER_POLICY);
   });
 
-  it("applies the moderator text + violence overrides when enabled", () => {
+  it("applies the moderator text + violence overrides when present", () => {
     const ov = makeOverride({
       supportingTextPolicyOverride: { mode: "require", guidance: "show the title" },
       violencePolicyOverride: { mode: "allow", intensity: "strong", guidance: "visible aftermath" },
@@ -418,5 +422,117 @@ describe("normalizeRoleEntity", () => {
 
   it("does not collapse a name that isn't in subjectNames", () => {
     assert.deepEqual(normalizeRoleEntity("Alex Franklin", ["David Franklin"]), { value: "Alex Franklin" });
+  });
+});
+
+// ─── Speech & thought bubbles (schema + token plumbing) ─────────────────────
+
+describe("bubbles — schema + token plumbing", () => {
+  const bubble = (partial: Record<string, unknown> = {}) => ({
+    type: "speech",
+    entity: "subject",
+    text: "You're the man of the house now.",
+    ...partial,
+  });
+
+  it("old stored blob without bubbles parses to []", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(makeOverride());
+    assert.equal(res.success, true);
+    if (res.success) assert.deepEqual(res.data.bubbles, []);
+  });
+
+  it("accepts up to four bubbles and rejects a fifth", () => {
+    const four = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ bubbles: [bubble(), bubble({ type: "thought" }), bubble(), bubble()] }),
+    );
+    assert.equal(four.success, true);
+    const five = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ bubbles: Array.from({ length: 5 }, () => bubble()) }),
+    );
+    assert.equal(five.success, false);
+  });
+
+  it("rejects over-cap text (81) and entity (61)", () => {
+    const longText = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ bubbles: [bubble({ text: "x".repeat(81) })] }),
+    );
+    assert.equal(longText.success, false);
+    const longEntity = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ bubbles: [bubble({ entity: "e".repeat(61) })] }),
+    );
+    assert.equal(longEntity.success, false);
+  });
+
+  it("collector yields entity + prose kinds for bubble paths, and the path→kind map agrees", () => {
+    const parsed = visualPromptStrategyOverrideSchema.parse(
+      makeOverride({ bubbles: [bubble(), bubble({ type: "thought", entity: "the bartender", text: "Not again." })] }),
+    );
+    const entries = collectRenderedTextEntries(parsed);
+    const entity0 = entries.find((e) => e.path === "bubbles[0].entity");
+    const text1 = entries.find((e) => e.path === "bubbles[1].text");
+    assert.equal(entity0?.kind, "entity");
+    assert.equal(text1?.kind, "prose");
+    assert.equal(getVisualStrategyRenderedTextKind("bubbles[0].entity"), "entity");
+    assert.equal(getVisualStrategyRenderedTextKind("bubbles[1].text"), "prose");
+    assert.equal(isVisualStrategyRenderedTextPath("bubbles[3].text"), true);
+    assert.equal(isVisualStrategyRenderedTextPath("bubbles[0].type"), false);
+  });
+
+  it("setRenderedTextAtPath writes back bubble fields and no-ops on stale indices", () => {
+    const parsed = visualPromptStrategyOverrideSchema.parse(makeOverride({ bubbles: [bubble()] }));
+    const updated = setRenderedTextAtPath(parsed, "bubbles[0].text", "Short.");
+    assert.equal(updated.bubbles[0]?.text, "Short.");
+    const stale = setRenderedTextAtPath(parsed, "bubbles[7].text", "nope");
+    assert.equal(stale, parsed);
+  });
+
+  it("canonicalizes tokens and normalizes whitespace in bubble text on save", () => {
+    const parsed = visualPromptStrategyOverrideSchema.parse(
+      makeOverride({ bubbles: [bubble({ text: "  {name}   said\n\tthis  " })] }),
+    );
+    assert.equal(parsed.bubbles[0]?.text, "{NAME} said this");
+  });
+
+  it("rejects a personalization token in a bubble entity with the exact machine-recognizable issue", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ bubbles: [bubble({ entity: "{NAME}" })] }),
+    );
+    assert.equal(res.success, false);
+    if (!res.success) {
+      const issue = res.error.issues.find(
+        (i) => JSON.stringify(i.path) === JSON.stringify(["bubbles", 0, "entity"]),
+      );
+      assert.ok(issue, "issue must be at bubbles[0].entity");
+      assert.match(issue!.message, /personalization tokens are not allowed here/);
+    }
+  });
+
+  it("counts bubbles as renderable content", () => {
+    const parsed = visualPromptStrategyOverrideSchema.parse(makeOverride({ bubbles: [bubble()] }));
+    assert.equal(hasRenderableVisualStrategyOverrideContent(parsed), true);
+  });
+
+  it("round-trips a bubble-bearing override through the schema unchanged", () => {
+    const parsed = visualPromptStrategyOverrideSchema.parse(
+      makeOverride({ bubbles: [bubble({ type: "thought", entity: "the bartender", text: "Not again." })] }),
+    );
+    const again = visualPromptStrategyOverrideSchema.parse(parsed);
+    assert.deepEqual(again.bubbles, parsed.bubbles);
+  });
+});
+
+describe("serializeLiteralPromptString", () => {
+  it("wraps in double quotes and escapes embedded straight quotes + backslashes", () => {
+    assert.equal(serializeLiteralPromptString('He said, "now."'), '"He said, \\"now.\\""');
+    assert.equal(serializeLiteralPromptString("a\\b"), '"a\\\\b"');
+  });
+
+  it("preserves apostrophes, curly quotes, and Unicode untouched", () => {
+    const input = "You're the “man” now — ¿sí?";
+    assert.equal(serializeLiteralPromptString(input), `"${input}"`);
+  });
+
+  it("collapses whitespace runs and trims", () => {
+    assert.equal(serializeLiteralPromptString("  a \n b\t c  "), '"a b c"');
   });
 });

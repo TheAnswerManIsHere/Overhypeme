@@ -25,7 +25,8 @@ While in bug-fixing mode, the following CLAUDE.md feature-ceremony steps are
 
 - **No plan mode / no plan markdown file.** I don't draft a plan, don't write
   a plan `.md`, don't `SendUserFile` a plan, don't `ExitPlanMode`. I just fix.
-- **No ChatGPT/external plan review.**
+- **No plan review** — no Codex draft-PR plan-review loop, no ChatGPT/external
+  review.
 - **No `docs/PR<N>_*_TEST_RUN.md` and no `docs/PR<N>_*_UAT.md`.** Bug-fix PRs
   ship **neither doc** (David's standing call). The PR body itself carries a
   short per-bug "what changed / how to verify" line instead.
@@ -83,11 +84,23 @@ send me bugs."
 David feeds bugs one at a time or as a list. For **each** bug:
 
 1. Reproduce / locate the cause.
-2. Make the **smallest correct fix**.
-3. Run the touched tests + typecheck.
-4. **One focused commit per bug** — message names the bug and the fix, so the
-   PR is a clean, revertable, one-commit-per-bug history. Don't batch multiple
-   unrelated bugs into one commit.
+2. **Write the regression test first: a test that fails on the current code
+   because of this bug** (David, 2026-07-22 — standing rule). This is the
+   difference between fixing a bug once and fixing it forever: the test
+   pins the behavior so no future change can silently reintroduce it.
+3. Make the **smallest correct fix** and confirm the new test now passes.
+4. Run the touched tests + typecheck.
+5. **One focused commit per bug** — fix + its regression test together —
+   message names the bug and the fix, so the PR is a clean, revertable,
+   one-commit-per-bug history. Don't batch multiple unrelated bugs into one
+   commit.
+
+**Narrow carve-out:** if a fix is genuinely untestable at reasonable cost
+(e.g. a pure visual/CSS tweak with no assertable behavior), I may skip the
+regression test — but I say so explicitly in the commit message and the PR's
+per-bug line ("no regression test: <why>"), so the exception is always
+visible, never silent. "The test is annoying to write" does not qualify; a
+tokenizer, API, data, or logic bug always gets its test.
 
 Keep going as David sends more. Don't open a PR yet — bug-fixing mode
 accumulates commits on the branch and **waits for David's explicit "create the

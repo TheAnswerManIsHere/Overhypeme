@@ -31,6 +31,7 @@ export * from "./heroExamples";
 export * from "./imagePromptAttempts";
 export * from "./referenceResearchCache";
 export * from "./enrichmentOverrideHistory";
+export * from "./factTextEditHistory";
 export * from "./factEnrichmentVersions";
 export * from "./engineRevisionBumps";
 export * from "./evalRuns";
