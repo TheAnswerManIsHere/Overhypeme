@@ -12,7 +12,8 @@
     "db:pull-prod:schema-only": "pg_dump --schema-only --clean --if-exists --no-owner --no-acl \"$PROD_DATABASE_URL\" | psql \"$DATABASE_URL\"",
     "worker:deploy": "pnpm --filter @workspace/og-router run deploy",
     "worker:dev": "pnpm --filter @workspace/og-router run dev",
-    "check:docs": "node scripts/check-docs-accuracy.mjs"
+    "check:docs": "node scripts/check-docs-accuracy.mjs",
+    "check:codegen-drift": "bash scripts/check-codegen-drift.sh"
   },
   "private": true,
   "devDependencies": {

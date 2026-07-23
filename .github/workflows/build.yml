@@ -39,21 +39,11 @@ jobs:
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots
 
-      # Codegen-drift guard: a hand-edited generated file (the classic case:
-      # adding an export to lib/api-zod/src/index.ts without registering it in
-      # patch-generated.mjs's apiZodIndexLines) survives typecheck but gets
-      # silently wiped by the next codegen run, surfacing later as an
-      # unrelated-looking wave of test failures. See known-failure-patterns.md
-      # → "Manual api-zod/src/index.ts export silently reverted by codegen".
-      # Running codegen here and failing on any resulting diff makes that
-      # mistake impossible to merge.
+      # Guard against hand-edits to codegen-owned files (known-failure-patterns.md
+      # → "Manual api-zod/src/index.ts export silently reverted by codegen").
+      # Same script as the local ritual: rerun codegen, fail on any diff.
       - name: Codegen drift check
-        run: |
-          pnpm --filter @workspace/api-spec run codegen
-          git diff --exit-code -- lib/ || {
-            echo "::error::Generated files drifted after codegen. If you edited a generated file (e.g. lib/api-zod/src/index.ts), register the change in lib/api-spec/patch-generated.mjs instead."
-            exit 1
-          }
+        run: pnpm run check:codegen-drift
 
       - name: Build app
         run: pnpm run build
@@ -228,7 +218,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ~170MB Chromium download — cache it like setup-node caches the pnpm
+      # store. On a hit the install step is skipped entirely (the ubuntu-24.04
+      # image already ships the browser's shared-library deps; --with-deps
+      # below only matters on the cache-miss path).
+      - name: Cache Playwright Chromium
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install Playwright Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @workspace/overhype-me exec playwright install --with-deps chromium
 
       - name: Apply schema + migrations
@@ -238,31 +240,30 @@ jobs:
           pnpm --filter @workspace/db run migrate
 
       # The smoke spec authenticates via POST /api/auth/dev-admin-login, which
-      # looks up this exact admin user (routes/localAuth.ts) — seed it.
+      # looks up the bootstrap admin account. The seed script imports the
+      # canonical BOOTSTRAP_ADMIN_EMAIL so CI can't drift from the route.
       - name: Seed admin user
-        run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "INSERT INTO users (email, is_admin, is_active, display_name) VALUES ('overhypeme+admin@gmail.com', true, true, 'CI Admin') ON CONFLICT DO NOTHING;"
+        run: pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
 
       # Real dev entrypoints, minus the supervisor wrapper (a crash should fail
-      # CI, not restart). ENABLE_DEV_ADMIN_LOGIN is safe here for the same
-      # reason as dev-run.sh: isDevAdminLoginEnabled() is fail-closed and this
-      # is an ephemeral CI database.
-      - name: Start api-server
+      # CI, not restart). Both servers boot concurrently; the health polls run
+      # after both launches so total wait is max(boot times), not the sum.
+      # ENABLE_DEV_ADMIN_LOGIN is safe here for the same reason as dev-run.sh:
+      # isDevAdminLoginEnabled() is fail-closed and this is an ephemeral CI
+      # database. Vite's /api proxy defaults to localhost:8080 off-Replit
+      # (vite.config.ts), standing in for Replit's path router.
+      - name: Start dev stack (api-server + Vite)
         run: |
-          cd artifacts/api-server
-          PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
-            pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &
-          timeout 90 bash -c 'until curl -sf http://localhost:8080/api/config > /dev/null; do sleep 2; done' \
-            || { echo '::error::api-server never became healthy'; tail -50 /tmp/api-server.log; exit 1; }
-
-      - name: Start Vite dev server
-        run: |
-          cd artifacts/overhype-me
-          PORT=5173 BASE_PATH=/ E2E_API_PROXY_TARGET=http://localhost:8080 \
-            pnpm exec vite --config vite.config.ts --host 0.0.0.0 > /tmp/vite.log 2>&1 &
-          timeout 90 bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 2; done' \
-            || { echo '::error::Vite dev server never became healthy'; tail -50 /tmp/vite.log; exit 1; }
+          (cd artifacts/api-server && PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
+            pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
+          (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
+            pnpm exec vite > /tmp/vite.log 2>&1 &)
+          wait_for_url() {
+            timeout 90 bash -c "until curl -sf $1 > /dev/null; do sleep 2; done" \
+              || { echo "::error::$2 never became healthy"; tail -50 "$3"; exit 1; }
+          }
+          wait_for_url http://localhost:8080/api/config api-server /tmp/api-server.log
+          wait_for_url http://localhost:5173/ "Vite-dev-server" /tmp/vite.log
 
       - name: Run route-load smoke suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke

@@ -25,11 +25,9 @@ export default defineConfig({
         // Escape hatch for environments with a system-provided Chromium at a
         // fixed path (e.g. Claude Code's remote container, where downloading
         // browsers is disabled and the pinned Playwright build may not match
-        // the preinstalled one). Unset → Playwright's own managed browser, as
-        // before (Replit and CI both use that path).
-        ...(process.env["E2E_CHROMIUM_PATH"]
-          ? { launchOptions: { executablePath: process.env["E2E_CHROMIUM_PATH"] } }
-          : {}),
+        // the preinstalled one). Unset/empty → Playwright's own managed
+        // browser, as before (Replit and CI both use that path).
+        launchOptions: { executablePath: process.env["E2E_CHROMIUM_PATH"] || undefined },
       },
     },
   ],

@@ -115,7 +115,8 @@ forward.
   line to `patch-generated.mjs`'s `apiZodIndexLines` **and** run codegen once
   right then to confirm `git diff --exit-code lib/api-zod/src/index.ts` is
   clean — before writing a single consumer of that export, not deferred to
-  "when I run the full suite later."
+  "when I run the full suite later." (`pnpm run check:codegen-drift` runs this
+  exact check; CI runs the same script, so local and merge-gate can't drift.)
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -631,12 +632,12 @@ watching is to *respond* — fix the mechanical, escalate the substantive.
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
   `/maintenance` skill (`.claude/skills/maintenance/SKILL.md`) owns the
-  contract: Dependabot queue triage (green minor/patch bumps are the one
-  category I squash-merge myself — standing authorization), Sentry error
-  review, CI health on `main`, and a PM-facing "what shipped" digest. David
-  invokes it roughly weekly; I never schedule it myself (the
-  no-background-check-ins rule stands). A one-shot reminder is set for
-  ~2026-08-19 to revisit whether he wants it automated.
+  contract; the one piece worth restating here is the standing authorization
+  it grants — green minor/patch Dependabot bumps are the single category of PR
+  I squash-merge myself. David invokes it roughly weekly; I never schedule it
+  myself (the no-background-check-ins rule stands). David asked for a one-shot
+  ~4-week reminder (around 2026-08-19) to revisit whether he wants it
+  automated.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed
