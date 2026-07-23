@@ -148,19 +148,31 @@ Stage-1 review.**
 ### A. Activation guard (the exit)
 
 1. **Invert the storage default:** `facts.is_active` → `.notNull().default(false)`.
-   Facts are born inactive; activation is now an explicit, opt-in act. Make
-   `scripts/src/seed.ts` set `isActive` explicitly (it's the one path relying on
-   the old default).
-2. **Single activation chokepoint:** a shared helper
-   `activateFact(tx, { factId, parentId, expectedText })` in
+   Facts are born inactive; activation is now an explicit, opt-in act. Make **every
+   seed/reseed script** that inserts active facts explicit *and* concept-valid —
+   `scripts/src/seed.ts` (relies on the old default), `scripts/src/reseed-facts.ts`
+   and `lib/seed.ts` (explicitly insert `isActive: true` with no concept, Codex P2
+   round 3) — either seed a valid enrichment with a concept or insert inactive, or
+   they'll violate the CHECK.
+2. **Single `false → true` writer — audit ALL activation writers, not just inserts.**
+   A shared helper `activateFact(tx, { factId, parentId, expectedText })` in
    `lib/factActivation.ts` (new). It performs the guarded update currently inline
    at `reviews.ts:741-748`: it re-reads the row's effective concept, refuses
    (throws a typed `ConceptMissingError`) if `coreSceneOverride` is blank/absent,
    then flips `is_active = true` under the same compare-and-set predicates
-   (`is_active = false`, `text = expectedText`). `approveForProduction` calls it
-   instead of updating inline. **This is the only code that sets `is_active =
-   true`.** (The existing app-level `CONCEPT_MISSING` gate stays as the early,
-   friendly 409; the helper is the last-line assertion.)
+   (`is_active = false`, `text = expectedText`). **Every code path that transitions
+   `is_active` from false → true must route through it** — including the one Codex
+   found in round 3: **`PATCH /admin/facts/:id`** (`admin.ts`) copies the request
+   body's `isActive` straight into `factsTable`, so the admin "Active" toggle could
+   flip an inactive concept-bearing staging row live, bypassing moderation + audit.
+   Fix: the admin PATCH may still set `is_active = false` (deactivate is always
+   safe), but a **false → true transition routes through `activateFact`** (concept +
+   active-root parent checks + audit) or is rejected server-side. The
+   implementation includes an explicit audit of every `.set({ isActive … })` /
+   `is_active` write in the codebase to confirm `activateFact` is the *sole*
+   false→true writer; `true → false` deactivations stay unrestricted.
+   (The existing app-level `CONCEPT_MISSING` gate stays as the early, friendly 409;
+   the helper is the last-line assertion.)
    **Parent revalidation at commit (Codex P2, round 2):** when `parentId` is set,
    `activateFact` re-reads it *in the same transaction* and requires it to be an
    **active root** (`is_active = true AND parent_id IS NULL`); if the parent was
@@ -432,6 +444,12 @@ New/updated tests proving the **invariants** (with negative cases):
 7. **Regression:** manual submit **byte-identical** through `createTriageReview` —
    `matchingFactId`/`matchingSimilarity`/`reason` preserved on the review row
    (Codex round 2); refresh/send-back untouched (existing tests green).
+8. **Admin PATCH activation guard (Codex round 3):** `PATCH /admin/facts/:id` with
+   `isActive: true` on a conceptless inactive fact is rejected (routes through
+   `activateFact` → `ConceptMissingError`); on a concept-bearing fact it activates
+   *through* `activateFact` (audited, parent-checked), not a raw update; and
+   `isActive: false` (deactivate) still works directly. A guard test asserts no
+   other `is_active` false→true writer exists.
 
 Manual QA (Replit TEST_RUN + David UAT, authored PR-first per CLAUDE.md): import a
 CSV → see reviews in triage, not live facts; add a variant → see it in triage with
@@ -440,30 +458,44 @@ facts now show the sentinel concept.
 
 ## Implementation Steps
 
-Ordered, each independently green-able:
+Ordered, each independently green-able. **Ordering invariant (Codex P2, round 3):
+close every path that can create/flip an active conceptless fact BEFORE the
+backfill + VALID CHECK** — otherwise, in a rolling deploy, a still-live bypass
+writer could insert a fresh `is_active=true, enrichment=NULL` violator between the
+backfill scan and `ADD CONSTRAINT`, failing the migration. So all writer
+reroutes/removal come first; the constraint is added last, when no code path can
+produce a violator.
 
 1. **Guard core (no behavior change yet):** add `activateFact` +
    `ConceptMissingError` + `ParentNotActiveError` (concept check now; parent
-   revalidation wired but inert until variants carry a parent in step 7); route
+   revalidation wired but inert until variants carry a parent in step 6); route
    `approveForProduction` through it. Test 2. (Tree stays green; behavior identical.)
-2. **Default flip + seed fix:** flip `is_active` default; make `scripts/src/seed.ts`
-   explicit. Test 3.
-3. **Backfill migration:** sentinel concept into active *with-enrichment*
-   conceptless facts; **deactivate** active *null-enrichment* facts,
-   **cascade-deactivating** active children of a deactivated root; counts;
-   idempotency (incl. re-run over already-deactivated). Test 6.
-4. **CHECK constraint (VALID):** add after backfill. Test 1 + the fixture sweep +
-   `insertActiveFactWithConcept` helper.
-5. **`createTriageReview` extraction:** refactor manual submit onto it (behavior
-   identical; existing tests green).
-6. **Bulk import reroute:** all three endpoints → `createTriageReview`; dedup;
-   normalizer reconcile; cap bypass; response shape + admin UI copy. Test 4.
-7. **Variant reroute:** add `pending_reviews.parent_fact_id`; variant → review;
-   thread parent through provisional-approve → activation; admin UI copy. Tests 4-5.
-8. **Remove `POST /facts`:** route + openapi + regen + dead wiring. Test 4 (404).
-9. **Docs:** update `moderation-workflow.md` (ingestion funnel), `visual-pipeline.md`
-   (activation guard), `decisions.md` (supersede/close the Phase-2 fast-follow note),
-   regenerate any field-doc references. TEST_RUN + UAT (PR-numbered).
+2. **Default flip + seed/reseed fix:** flip `is_active` default; make
+   `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`, and `lib/seed.ts`
+   explicit + concept-valid (or inactive). Test 3.
+3. **Close the ingestion/activation writers (all before the constraint):**
+   - `createTriageReview` extraction; refactor manual submit onto it (identical).
+   - Bulk import reroute (×3) → `createTriageReview`; dedup; normalizer reconcile;
+     cap bypass; null system-submitter for the API-key path; response shape + admin
+     UI copy. Test 4.
+   - Variant reroute: add `pending_reviews.parent_fact_id`; variant → review; thread
+     parent → activation; admin UI copy. Tests 4-5.
+   - Remove `POST /facts`: route + openapi + regen + dead wiring. Test 4 (404).
+   - **Route `PATCH /admin/facts/:id` `is_active` false→true through `activateFact`**
+     (deactivate stays direct); audit that no other `.set({ isActive })` path can
+     flip false→true. Test 8 (below).
+4. **Backfill migration:** sentinel concept into active *with-enrichment* conceptless
+   facts; **deactivate** active *null-enrichment* facts, **cascade-deactivating**
+   active children of a deactivated root; counts; idempotency (incl. re-run over
+   already-deactivated). Test 6.
+5. **CHECK constraint (VALID):** add last, after every writer is closed and the
+   backfill is done — no source of a fresh violator remains. `ADD CONSTRAINT …
+   CHECK` also takes an `ACCESS EXCLUSIVE` lock during validation as a backstop.
+   Test 1 + the fixture sweep + `insertActiveFactWithConcept` helper.
+6. **Docs:** update `moderation-workflow.md` (ingestion funnel), `visual-pipeline.md`
+   (activation guard + single-writer), `decisions.md` (supersede/close the Phase-2
+   fast-follow note), regenerate any field-doc references. TEST_RUN + UAT
+   (PR-numbered).
 
 ## Risks and Mitigations
 
@@ -504,7 +536,9 @@ this repo runs 16). No current-docs verification needed.
 
 - [ ] A fact cannot become `is_active: true` without a non-empty Visual Concept —
       enforced by `activateFact` AND the DB CHECK constraint (proven by a raw-SQL
-      negative test).
+      negative test). `activateFact` is the **sole** false→true writer — the admin
+      PATCH toggle routes through it, and no other `is_active` write can flip
+      false→true (audited).
 - [ ] Every ingestion path produces a Stage-1 review: bulk import (×3) and variant
       creation create `triage_pending` reviews, not facts; `POST /facts` is gone.
 - [ ] Variants carry their parent through moderation to the activated fact, and a
