@@ -83,6 +83,15 @@ forward.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
+- **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
+  ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
+  deliverables, I label the pieces **Phase N**, written out. I do **not**
+  abbreviate to "P1/P2": that collides with Codex's review-finding *severity*
+  badges (P1 = critical, P2 = medium), which are already in use in this repo, so
+  "P2" would be ambiguous between "phase two" and "a medium-priority finding." I
+  also retire one-off scope names like "Head 1/Head 2." (Retroactively: the VSO
+  presence-based / required-Concept work is **Phase 1** (PR #234) and the
+  system-wide activation guard + ingestion→Stage-1 routing is **Phase 2**.)
 - **ChatGPT's review is advisory on product/design/correctness only — never on
   branches, PRs, or devops in my environment.** ChatGPT reviews plans without
   access to my execution environment, so its suggestions about *how* to ship —
