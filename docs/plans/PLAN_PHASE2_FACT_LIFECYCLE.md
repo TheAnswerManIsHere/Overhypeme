@@ -627,13 +627,13 @@ could insert a fresh violator between the backfill scan and `ADD CONSTRAINT`.
 
 ## Questions for David
 
-**One capability change to confirm (flagged, not blocking):** the admin "Active"
-toggle can no longer **activate** a fact — `PATCH /admin/facts/:id` false→true is
-rejected, activation is moderation-only (Codex rounds 3+5; deactivation still
-works). This is the faithful reading of "only moderation activates," but it does
-remove an admin shortcut: to bring back a deactivated fact, an admin re-moderates
-it. If you want a narrow "reactivate a previously-production-approved fact" button
-that re-runs the production gate, say so and I'll add it (small follow-up).
+**One capability change — David-confirmed.** The admin "Active" toggle can no
+longer **activate** a fact — `PATCH /admin/facts/:id` false→true is rejected,
+activation is moderation-only (Codex rounds 3+5; deactivation still works). David
+confirmed this is intended ("no point having a fact in the database if it hasn't
+gone through moderation"): to bring back a deactivated fact, an admin re-moderates
+it. No narrow "reactivate a previously-production-approved fact" shortcut is in
+scope (available as a small follow-up later if wanted).
 
 The invalid-enrichment edge (Codex P2, round 6) — active legacy rows with
 **non-null but malformed/outdated** enrichment (the repo's `invalid_enrichment`
