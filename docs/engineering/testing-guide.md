@@ -4,7 +4,13 @@
 > reference** for DB isolation modes, the production guard, the DB-name glossary,
 > and the CI gate — this is the orientation layer. Do **not** invent commands;
 > the ones below are verified against the repo. **GitHub CI is the authoritative
-> gate** (required `Build` + `Test` on PRs to `main`).
+> gate**: `.github/workflows/build.yml` runs four jobs on every PR to `main` —
+> `Build` (typecheck, docs-accuracy, migration-snapshot, and codegen-drift
+> checks, then the app build), `Test` (the api-server integration suite),
+> `Frontend Test` (the overhype-me vitest suite), and `E2E Smoke` (the
+> Playwright route-load smoke suite against a real dev stack). Whether all
+> four are configured as *required* status checks is a branch-protection
+> setting, separate from whether they run.
 
 ## Canonical setup and typecheck order
 
@@ -105,6 +111,39 @@ example, with negative cases.
 `artifacts/api-server/src/__tests__/*.test.ts`, run via the runners above against
 Postgres + pgvector. They exercise routes + domain logic end to end with
 DB-backed fixtures created in-test.
+
+## End-to-end / route-load smoke tests
+
+`artifacts/overhype-me/e2e/*.spec.ts`, run via Playwright against a **real
+dev stack** — not a mock. `routeLoadSmoke.spec.ts` in particular is the
+regression net for the crash/reload-loop bug class (see
+`known-failure-patterns.md` → "Self-retriggering recovery with no bounded
+exit"): it asserts each heavy route actually renders, doesn't loop, and
+doesn't hit the Sentry error boundary.
+
+Locally (both servers already running, e.g. via Replit's workflows):
+
+```sh
+pnpm --filter @workspace/overhype-me run e2e:smoke
+```
+
+Outside Replit (CI, or a bare Claude Code environment) there's no platform
+path-router splitting `/api` from the SPA, so two env-gated escape hatches in
+`vite.config.ts` / `playwright.config.ts` stand in:
+
+- `E2E_API_PROXY_TARGET` — points Vite's dev-server proxy at the api-server
+  (e.g. `http://localhost:8080`). Inert when unset.
+- `E2E_CHROMIUM_PATH` — pins Playwright to a system-provided Chromium binary
+  instead of its managed download (needed where browser downloads are
+  disabled and the pinned Playwright version may not match what's
+  preinstalled). Inert when unset.
+
+The suite authenticates via `POST /api/auth/dev-admin-login`, which looks up
+a specific bootstrap admin row — seed it first with
+`pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts`
+(idempotent; imports the canonical email from `src/lib/auth.ts` so it can't
+drift from the login route). See the `E2E Smoke` job in
+`.github/workflows/build.yml` for the full sequence CI runs.
 
 ## Admin UI tests
 
