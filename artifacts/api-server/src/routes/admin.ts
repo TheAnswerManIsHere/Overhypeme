@@ -788,8 +788,20 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
     // transaction as the removal for both paths.
     if (hard) {
       const deleted = await db.transaction(async (tx) => {
-        await cascadeDeactivateActiveChildren(tx, id);
+        // Delete THIS row first (locks it for the delete), then cascade — not
+        // the reverse. The cascade's own children-check must run only after
+        // we've serialized against a concurrent activateFact validating this
+        // exact row as a parent (its parent-revalidation locks this same row
+        // via FOR UPDATE): deleting first means either we win the lock and
+        // delete before it locks (so its own re-check then sees no parent row
+        // and fails), or it wins first (activates a child, commits, releases
+        // the lock) and OUR delete then proceeds, with the cascade below
+        // running after — catching that newly-active child. Cascading before
+        // ever touching this row (the old order) never contended for the lock
+        // at all, so a variant could activate under this root moments after
+        // the cascade found nothing and moments before the delete removed it.
         const [row] = await tx.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
         return row;
       });
       if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
