@@ -50,6 +50,7 @@ import {
   userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { and, desc, eq, inArray, isNull, like, not, or, sql } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -117,6 +118,7 @@ async function seedHeroFacts() {
         text: `Hero pool seed fact ${i + 1} — {NAME} does something legendary.`,
         submittedById: null,
         isActive: true,
+        enrichment: buildPlaceholderFactEnrichment(),
         wilsonScore,
       })),
     )

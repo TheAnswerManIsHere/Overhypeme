@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import {
   resolveFactTextProtection,
@@ -33,6 +34,7 @@ async function seedFact(overrides: Partial<typeof factsTable.$inferInsert> = {})
       text: `{NAME} does a thing #${randomUUID().slice(0, 8)}.`,
       submittedById: adminId,
       isActive: false,
+      enrichment: buildPlaceholderFactEnrichment(),
       ...overrides,
     } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });

@@ -31,7 +31,13 @@ export const factsTable = pgTable("facts", {
   commentCount: integer("comment_count").notNull().default(0),
   shareCount: integer("share_count").notNull().default(0),
   hasPronouns: boolean("has_pronouns").notNull().default(false),
-  isActive: boolean("is_active").notNull().default(true),
+  // Facts are born INACTIVE (Phase 2 fact-lifecycle closure): the only transition
+  // to active is the moderation activation chokepoint (activateFact, reached only
+  // via approveForProduction after the full pipeline + a non-empty Visual Concept).
+  // A DB CHECK constraint (facts_active_requires_concept) enforces the concept gate
+  // even against raw SQL. Every insert that wants a live fact must say so explicitly
+  // AND carry a valid concept.
+  isActive: boolean("is_active").notNull().default(false),
   canonicalText: text("canonical_text"),
   /**
    * Token-boundary index where the rendered fact splits into top/bottom captions.

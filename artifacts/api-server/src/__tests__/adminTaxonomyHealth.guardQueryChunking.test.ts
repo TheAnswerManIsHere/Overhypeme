@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { inArray, like } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import {
   chunkIds,
@@ -54,6 +55,7 @@ async function seedFact(overrides: Partial<typeof factsTable.$inferInsert> = {})
       text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
       submittedById: adminId,
       isActive: true,
+      enrichment: buildPlaceholderFactEnrichment(),
       ...overrides,
     } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });

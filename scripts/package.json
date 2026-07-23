@@ -9,6 +9,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "openai": "^6.27.0"
   },

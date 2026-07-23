@@ -25,6 +25,16 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
   matchingFactId: integer("matching_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
+  /**
+   * Parent fact for a VARIANT submission (Phase 2 fact-lifecycle closure). A
+   * variant is a normal fact that happens to have a parent; it enters moderation
+   * at Stage 1 like any other, carrying its parent linkage here from ingestion
+   * through provisional-approve → staging → activation (where it becomes
+   * facts.parent_id). Integer FK to facts.id (matching the serial PK and the
+   * other review→fact FKs); `SET NULL` on parent delete keeps the review valid.
+   * Null for non-variant submissions.
+   */
+  parentFactId: integer("parent_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   /** Visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod). Null until the async enrichment job writes it. */
   enrichment: jsonb("enrichment"),
@@ -75,6 +85,9 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   index("idx_pending_reviews_submitted_by").on(table.submittedById),
   index("idx_pending_reviews_workflow_stage").on(table.workflowStage),
   index("idx_pending_reviews_staging_fact").on(table.stagingFactId),
+  // Mirrors migration 0091's CREATE INDEX — a DB built via `drizzle-kit push`
+  // (schema-diff, not migrations) would otherwise never get this index at all.
+  index("idx_pending_reviews_parent_fact").on(table.parentFactId),
   // The approved-fact-text-lock protection predicate asks, per text-bearing
   // PATCH, "does a production-approved review point at this fact?" — an
   // approvedFactId existence lookup that this index serves.

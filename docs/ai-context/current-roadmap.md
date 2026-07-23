@@ -24,6 +24,18 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Fact lifecycle closed: one entrance, one exit** (PR #242 — Codex review
+  converged after 11 rounds, CI green except one open policy call below; **not
+  yet merged**). `facts.is_active` now defaults `false`; `activateFact` is the
+  sole `is_active` false→true writer, backstopped by a DB CHECK requiring a
+  non-empty Visual Concept; every ingestion path (manual submit, bulk import,
+  variant creation) funnels through `createTriageReview` into Stage-1 triage;
+  the admin Active toggle is deactivate-only, and a new
+  `resubmit-for-moderation` route puts a deactivated fact back through the same
+  review pipeline under its existing id. See
+  [`decisions.md`](./decisions.md#2026-07-23--fact-lifecycle-closed-one-entrance-one-exit--activation-is-moderation-only-and-deactivation-is-reversible-through-moderation-not-a-direct-toggle),
+  [`moderation-workflow.md`](./moderation-workflow.md), and
+  [`moderation.md`](../manual/moderation.md).
 - **Speech & thought bubble controls.** Explicit moderator-authored speech/
   thought balloons compile as a new required, dedupe-exempt prompt section
   with their own dedicated 900-char budget pool (ceiling raised 6000→6900 to
@@ -165,6 +177,15 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Open product questions
 
+- **Should admin (`requireAdmin`) routes ever get rate limiting?** CodeQL
+  flagged the new `resubmit-for-moderation` route (PR #242) as high-severity
+  "missing rate limiting." Verified this matches ~30 existing `requireAdmin`
+  routes across `admin.ts`/`reviews.ts` — none are rate-limited; the two
+  rate-limiter factories in the repo are used exclusively on public/
+  authenticated-user-reachable routes (fact submission, AI generation). Pending
+  David's call: dismiss the alert as consistent with the existing admin trust
+  boundary (session + role, not per-request throttling), or start adding rate
+  limiting to admin routes as new policy.
 - Should any render scenario become a **hard** approval gate (today all waivable)?
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk

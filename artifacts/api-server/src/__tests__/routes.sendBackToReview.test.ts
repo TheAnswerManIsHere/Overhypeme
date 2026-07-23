@@ -30,7 +30,7 @@ import {
   asyncJobsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, EMPTY_VISUAL_STRATEGY_OVERRIDE, type FactEnrichment } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
@@ -55,6 +55,7 @@ const AI_BASELINE: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
 };
 
 const MANUAL_OVERRIDES = {
@@ -81,7 +82,11 @@ let adminSid: string;
 const insertedFactIds: number[] = [];
 
 async function seedActiveFact(): Promise<typeof factsTable.$inferSelect> {
-  const { columns } = materializeEnrichment({ aiDerived: AI_BASELINE, overrides: MANUAL_OVERRIDES });
+  const { columns } = materializeEnrichment({
+    aiDerived: AI_BASELINE,
+    overrides: MANUAL_OVERRIDES,
+    visualPromptStrategyOverride: AI_BASELINE.visualPromptStrategyOverride,
+  });
   const [fact] = await db
     .insert(factsTable)
     .values({
@@ -202,7 +207,7 @@ describe("POST /admin/facts/:id/send-back-to-review", () => {
 
     const root = await seedActiveFact();
     const [variant] = await db.insert(factsTable)
-      .values({ text: "{NAME} variant", submittedById: adminId, isActive: true, parentId: root.id })
+      .values({ text: "{NAME} variant", submittedById: adminId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
       .returning();
     insertedFactIds.push(variant.id);
     const withVariants = await request(makeApp())

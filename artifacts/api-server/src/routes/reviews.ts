@@ -42,7 +42,7 @@ import {
   evalColumnUpdateIsEmpty,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
-import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview } from "../lib/moderationStaging";
+import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview, createTriageReview } from "../lib/moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
   promoteCandidateEnrichmentVersion,
@@ -58,6 +58,12 @@ import {
   type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
 import { materializeEnrichment } from "../lib/factEnrichment";
+import {
+  activateFact,
+  ConceptMissingError,
+  ParentNotActiveError,
+  ActivationConflictError,
+} from "../lib/factActivation";
 import {
   isOverridablePath,
   overrideValuesEqual,
@@ -188,18 +194,14 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
       capExceeded = true;
       return;
     }
-    [review] = await tx.insert(pendingReviewsTable).values({
+    review = await createTriageReview(tx, {
       submittedText: text,
       submittedById: req.user.id,
       matchingFactId,
       matchingSimilarity,
       hashtags,
-      status: "pending",
-      workflowStage: "triage_pending",
       reason: reason ?? null,
-      enrichment: null,
-      enrichmentStatus: null,
-    }).returning();
+    });
   });
 
   if (capExceeded || !review) {
@@ -735,18 +737,18 @@ async function approveForProduction(
   // still the same first-time production_review cycle. Either mismatch fails
   // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
   const validatedText = stagingFact.text;
-  let approvalConflict: "text" | "review_state" | null = null;
+  let reviewStateConflict = false;
   try {
     await db.transaction(async (tx) => {
-      const activated = await tx.update(factsTable).set({
-        isActive: true,
-        parentId: parentId ?? null,
-      }).where(and(
-        eq(factsTable.id, stagingFact.id),
-        eq(factsTable.isActive, false),
-        eq(factsTable.text, validatedText),
-      )).returning({ id: factsTable.id });
-      if (activated.length === 0) { approvalConflict = "text"; throw new Error("approval_cas_text_conflict"); }
+      // Sole activation chokepoint: re-reads the concept + revalidates the parent
+      // (active root) in-tx and does the compare-and-set flip. `expectedEnrichment`
+      // CASes on the RAW staging-fact enrichment the render gate validated above
+      // (not the Zod-normalized `enrichment` variable), so a concurrent Visual
+      // Concept edit between the render gate and this activation is caught rather
+      // than silently publishing unreviewed enrichment. Throws
+      // ConceptMissingError / ParentNotActiveError / ActivationConflictError —
+      // never activates on failure.
+      await activateFact(tx, { factId: stagingFact.id, parentId, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",
@@ -768,18 +770,28 @@ async function approveForProduction(
         eq(pendingReviewsTable.stagingFactId, stagingFact.id),
         isNull(pendingReviewsTable.candidateVersionId),
       )).returning({ id: pendingReviewsTable.id });
-      if (reviewed.length === 0) { approvalConflict = "review_state"; throw new Error("approval_cas_review_conflict"); }
+      if (reviewed.length === 0) { reviewStateConflict = true; throw new Error("approval_cas_review_conflict"); }
 
       // The moderator-curated list resolved + gated (non-empty) above.
       await attachHashtags(tx, stagingFact.id, finalTags);
     });
   } catch (err) {
-    if (approvalConflict === "text") {
+    if (err instanceof ActivationConflictError) {
       logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: fact text changed during approval");
       res.status(409).json({ error: "The fact's text changed while you were approving it. Re-review the current wording, then approve again.", code: "FACT_TEXT_CHANGED_DURING_APPROVAL" });
       return;
     }
-    if (approvalConflict === "review_state") {
+    if (err instanceof ConceptMissingError) {
+      logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: Visual Concept missing at activation");
+      res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
+      return;
+    }
+    if (err instanceof ParentNotActiveError) {
+      logger.warn({ reviewId, factId: stagingFact.id, parentId: err.parentId }, "[moderation] approval aborted: parent no longer an active root");
+      res.status(409).json({ error: `Fact #${err.parentId} is no longer an active root, so this variant can't be activated under it. Re-parent it or promote it to a root, then approve again.`, code: "PARENT_NOT_ACTIVE" });
+      return;
+    }
+    if (reviewStateConflict) {
       logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
       res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
       return;
@@ -866,10 +878,16 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 
   const bodyParsed = ProvisionalApproveBody.safeParse(req.body);
   if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
-  const { parentFactId, adminNote = null } = bodyParsed.data;
+  const { adminNote = null } = bodyParsed.data;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  // Variant parent: an explicit body override wins; otherwise default to the
+  // parent the review has carried since ingestion (createTriageReview). This is
+  // how a variant submission threads its parent from Stage 1 into the staging
+  // fact (and on to activation, where activateFact revalidates it as an active root).
+  const parentFactId = bodyParsed.data.parentFactId ?? review.parentFactId ?? undefined;
 
   // Idempotent re-click while prep is already running: DON'T just return
   // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded

@@ -420,7 +420,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true }).returning();
+    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
     const reviewId = await seedTriageReview(submitterId);
 
     const res = await request(makeApp())
@@ -498,7 +498,7 @@ describe("staging-fact enrichment stage advancement", () => {
 
   it("live-fact re-enrich (no linked review) still classifies normally", async () => {
     const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true }).returning();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
     let classifyCalled = false;
     const result = await runEnrichmentForFact(fact.id, {
       classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
@@ -876,7 +876,7 @@ describe("approval renderability gating", () => {
     const submitterId = await createTestUser();
     const [parent] = await db
       .insert(factsTable)
-      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
+      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT })
       .returning();
     const [staging] = await db
       .insert(factsTable)

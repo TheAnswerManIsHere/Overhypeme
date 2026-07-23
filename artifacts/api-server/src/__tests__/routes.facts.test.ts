@@ -17,6 +17,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import {
   usersTable,
   factsTable,
@@ -69,6 +70,8 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
     submittedById: opts.submittedById,
     isActive: true,
     canonicalText: text,
+    // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
+    enrichment: buildPlaceholderFactEnrichment(),
   }).returning();
   insertedFactIds.push(row.id);
   return row.id;
@@ -277,7 +280,7 @@ describe("GET /facts/:factId/related", () => {
     const parentId = await insertFact("parent", { submittedById: userId });
     const [variant] = await db.insert(factsTable).values({
       text: "variant", canonicalText: "variant", isActive: true,
-      submittedById: userId, parentId,
+      submittedById: userId, parentId, enrichment: buildPlaceholderFactEnrichment(),
     }).returning();
 
     const tag = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);

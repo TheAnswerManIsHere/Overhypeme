@@ -278,6 +278,18 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // look_styles' copy (§14). No schema delta. Source of truth:
   // artifacts/api-server/src/config/imageStyles.ts.
   "0088_trim_global_look_style_copy",
+
+  // Phase 2 fact-lifecycle closure, part 1: flips facts.is_active default to
+  // false and adds pending_reviews.parent_fact_id (nullable integer FK). Hand-
+  // authored idempotent DDL — drizzle-kit generate stays broken on the malformed
+  // 0063 snapshot. Source of truth: lib/db/src/schema/facts.ts + reviews.ts.
+  "0091_fact_lifecycle_phase1_additive",
+
+  // Phase 2 fact-lifecycle closure, part 2: grandfather backfill (deactivate
+  // no-valid-enrichment active facts + orphan sweep + sentinel Visual Concept)
+  // then the facts_active_requires_concept CHECK. Pure DML + one CHECK — no
+  // column/table shape delta. Source of truth: this migration + reviews.ts.
+  "0092_fact_lifecycle_phase2_backfill_check",
 ]);
 
 interface JournalEntry {

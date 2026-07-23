@@ -14,6 +14,12 @@ import {
   commentsTable, ratingsTable, memesTable, externalLinksTable, pendingReviewsTable,
 } from "@workspace/db/schema";
 import { sql, eq } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+
+// Facts are born inactive and only go live with a non-empty Visual Concept
+// (Phase-2 fact-lifecycle closure + DB CHECK). This dev reseed inserts live
+// facts, so each carries a valid placeholder enrichment + concept.
+const RESEED_ENRICHMENT = buildPlaceholderFactEnrichment();
 
 // ---------- inline renderCanonical (mirrors artifacts/api-server/src/lib/renderCanonical.ts) ----------
 const TOKEN_MAP: Record<string, string> = {
@@ -129,6 +135,11 @@ for (const item of SEED_FACTS) {
       canonicalText,
       hasPronouns,
       isActive: true,
+      enrichment: RESEED_ENRICHMENT,
+      primaryArchetype: RESEED_ENRICHMENT.primaryArchetype,
+      subtype: RESEED_ENRICHMENT.subtype,
+      overhypeFit: RESEED_ENRICHMENT.overhypeFit,
+      adultSuitability: RESEED_ENRICHMENT.adultSuitability,
     })
     .returning({ id: factsTable.id });
 

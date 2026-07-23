@@ -788,7 +788,10 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
   async function seedFact(scenePrompts: unknown | null): Promise<number> {
     const [row] = await db
       .insert(factsTable)
-      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: true, aiScenePrompts: scenePrompts as never })
+      // isActive: false — /assemble-prompt reads a fact by id with no active
+      // filter, and these facts have no Visual Concept, so activating them would
+      // trip the facts_active_requires_concept CHECK for no test-relevant reason.
+      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: false, aiScenePrompts: scenePrompts as never })
       .returning({ id: factsTable.id });
     return row!.id;
   }
@@ -820,7 +823,10 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
   async function seedEnrichedFact(enrichment: unknown = VALID_ENRICHMENT): Promise<number> {
     const [row] = await db
       .insert(factsTable)
-      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: true, enrichment: enrichment as never })
+      // isActive: false — see seedFact's note; VALID_ENRICHMENT (and the
+      // deliberately-invalid override in the negative test) carry no Visual
+      // Concept, and /assemble-prompt doesn't gate on active state.
+      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: false, enrichment: enrichment as never })
       .returning({ id: factsTable.id });
     return row!.id;
   }
@@ -1112,7 +1118,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       .insert(factsTable)
       .values({
         text: "{NAME} pushes the Earth down when {SUBJ} does a {pushup|pushups}.",
-        isActive: true,
+        isActive: false, // see seedFact's note above
         aiScenePrompts: SCENE as never,
       })
       .returning({ id: factsTable.id });

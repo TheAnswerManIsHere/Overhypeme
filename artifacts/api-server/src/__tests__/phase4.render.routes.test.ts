@@ -16,6 +16,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, transientRendersTable } from "@workspace/db/schema";
 import { eq, like, and, gt, inArray } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import renderRouter from "../routes/render.js";
 import memesRouter from "../routes/memes.js";
@@ -50,6 +51,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
       text: prefixedText,
       submittedById: opts.submittedById,
       isActive: true,
+      enrichment: buildPlaceholderFactEnrichment(),
       canonicalText: prefixedText,
     })
     .returning();

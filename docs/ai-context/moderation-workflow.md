@@ -62,6 +62,53 @@ gag" advances `concept_review → production_review` via an atomic compare-and-s
 and force-enqueues a fresh default render batch (no dedupe key). Renders only
 ever fire in Step 3.
 
+## The ingestion funnel — one entrance
+
+Every way a fact enters the system funnels through one primitive,
+`createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`): manual
+user submission, admin/API-key bulk import, and variant creation (from an
+existing fact's Facts-page editor) all insert a `pending_reviews` row starting at
+`triage_pending` — none of them can create a fact directly. `facts.is_active`
+defaults to `false`, so a fact is never born active or already enriched.
+
+## The activation chokepoint — one exit
+
+A fact can only become `is_active = true` through `activateFact`
+(`artifacts/api-server/src/lib/factActivation.ts`), called from exactly one place
+(`approveForProduction`). Inside the activating transaction it re-reads and
+re-validates, atomically with the flip:
+
+- the fact still carries a non-empty Visual Concept
+  (`enrichment.visualPromptStrategyOverride.coreSceneOverride`), and
+- a variant's parent is still an active root (`is_active = true AND parent_id IS
+  NULL`), locked `FOR UPDATE` so a concurrent deactivate of that exact parent
+  can't race the check.
+
+A DB CHECK constraint, `facts_active_requires_concept`, backstops this at the
+schema level — no writer, present or future, can create a live fact without a
+concept even by accident.
+
+**The invariant holds for the fact's lifetime, not just at activation.** An
+active variant's parent must stay an active root for as long as the variant is
+live — so every write path that can flip a root `is_active = false` (the admin
+PATCH deactivate, both DELETE paths, an approved-text edit that also
+deactivates) cascades the deactivation to that root's active children in the
+same transaction (`cascadeDeactivateActiveChildren`), rather than leaving them
+stranded under an inactive/missing parent.
+
+## Deactivation is reversible, through moderation — never a direct toggle
+
+The admin Facts editor's Active toggle can turn a fact **off** freely, but
+**never directly back on** — a `false → true` PATCH is rejected
+(`ACTIVATION_REQUIRES_MODERATION`). To bring a deactivated fact back:
+`POST /admin/facts/:id/resubmit-for-moderation` re-enters it at `prep_pending`,
+exactly like a first-time staging fact — same enrichment → Visual Concept →
+Test Renders → production-approval pipeline, reusing the fact's existing id and
+history (never a duplicate row). It rejects (409) if the fact is already active
+(use Send Back to Review instead), if a review is already in progress for it, or
+if a variant's `parent_id` points at a parent that no longer exists (a hard-delete
+orphan) — the admin must re-parent or promote it to a root first.
+
 ## Staging facts
 
 Provisional acceptance creates an **inactive staging fact** (`facts` row with

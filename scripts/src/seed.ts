@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { count, eq, sql } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 const FACTS = [
   "{NAME} {doesn't|don't} read books. {Subj} stares them down until {SUBJ} gets the information {SUBJ} wants.",
@@ -77,13 +78,29 @@ async function seed() {
     insertedHashtags.map((h: { name: string; id: number }) => [h.name, h.id]),
   );
 
+  // Facts are born inactive and may only go live with a non-empty Visual Concept
+  // (Phase-2 fact-lifecycle closure + DB CHECK). Dev seed facts are meant to be
+  // live/browsable, so each carries a valid placeholder enrichment + concept and
+  // its projected taxonomy columns.
+  const seedEnrichment = buildPlaceholderFactEnrichment();
   const insertedFacts = await db
     .insert(factsTable)
     .values(
       FACTS.map((text) => {
         const upvotes = Math.floor(Math.random() * 200);
         const downvotes = Math.floor(Math.random() * 20);
-        return { text, upvotes, downvotes, score: upvotes - downvotes };
+        return {
+          text,
+          upvotes,
+          downvotes,
+          score: upvotes - downvotes,
+          isActive: true,
+          enrichment: seedEnrichment,
+          primaryArchetype: seedEnrichment.primaryArchetype,
+          subtype: seedEnrichment.subtype,
+          overhypeFit: seedEnrichment.overhypeFit,
+          adultSuitability: seedEnrichment.adultSuitability,
+        };
       }),
     )
     .returning();

@@ -34,7 +34,7 @@ import {
   asyncJobsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, type FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter from "../routes/reviews.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
@@ -60,6 +60,7 @@ const ACTIVE_AI_BASELINE: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
 };
 
 // The refreshed baseline the candidate job produces — distinct tags + a
@@ -122,7 +123,11 @@ let plainSid: string;
 const insertedFactIds: number[] = [];
 
 async function seedActiveFact(): Promise<typeof factsTable.$inferSelect> {
-  const { columns } = materializeEnrichment({ aiDerived: ACTIVE_AI_BASELINE, overrides: MANUAL_OVERRIDES });
+  const { columns } = materializeEnrichment({
+    aiDerived: ACTIVE_AI_BASELINE,
+    overrides: MANUAL_OVERRIDES,
+    visualPromptStrategyOverride: ACTIVE_AI_BASELINE.visualPromptStrategyOverride,
+  });
   const [fact] = await db
     .insert(factsTable)
     .values({

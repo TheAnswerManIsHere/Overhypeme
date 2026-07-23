@@ -22,6 +22,7 @@ import {
   asyncJobsTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import {
   factSendBackHandler,
@@ -41,6 +42,7 @@ async function seedActiveFact(overrides: Partial<typeof factsTable.$inferInsert>
       text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
       submittedById: adminId,
       isActive: true,
+      enrichment: buildPlaceholderFactEnrichment(),
       enrichmentStatus: "ok",
       ...overrides,
     } as typeof factsTable.$inferInsert)

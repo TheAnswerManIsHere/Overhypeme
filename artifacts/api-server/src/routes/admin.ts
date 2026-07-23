@@ -3,15 +3,16 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
-import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
+import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
+import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration";
 import {
   applyOverrideReset,
   applyOverrideUpsert,
@@ -32,6 +33,7 @@ import {
   OVERRIDABLE_PATH_KEYS,
   pathToField,
   FACT_TEXT_EDIT_CODES,
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
@@ -40,7 +42,9 @@ import {
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { createTriageReview } from "../lib/moderationStaging";
+import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -776,12 +780,38 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   const hard = req.query["hard"] === "true";
 
   try {
+    // Removing a root (soft or hard) that still has active variants would leave
+    // them active under an inactive/missing parent — the same orphan state
+    // cascadeDeactivateActiveChildren exists to prevent elsewhere. facts.parent_id
+    // has no FK/ON DELETE behavior, so a hard delete in particular would strand
+    // them indefinitely (nothing else ever revisits them). Cascade in the same
+    // transaction as the removal for both paths.
     if (hard) {
-      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+      const deleted = await db.transaction(async (tx) => {
+        // Delete THIS row first (locks it for the delete), then cascade — not
+        // the reverse. The cascade's own children-check must run only after
+        // we've serialized against a concurrent activateFact validating this
+        // exact row as a parent (its parent-revalidation locks this same row
+        // via FOR UPDATE): deleting first means either we win the lock and
+        // delete before it locks (so its own re-check then sees no parent row
+        // and fails), or it wins first (activates a child, commits, releases
+        // the lock) and OUR delete then proceeds, with the cascade below
+        // running after — catching that newly-active child. Cascading before
+        // ever touching this row (the old order) never contended for the lock
+        // at all, so a variant could activate under this root moments after
+        // the cascade found nothing and moments before the delete removed it.
+        const [row] = await tx.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
+        return row;
+      });
       if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
       res.json({ success: true, deleted: true });
     } else {
-      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
+        return row;
+      });
       if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
       res.json({ success: true, deleted: false });
     }
@@ -831,6 +861,57 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
+  // Fetch current state once if either guard below needs it.
+  let current: { isActive: boolean } | undefined;
+  if (nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
+    [current] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+  }
+
+  // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
+  // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
+  // ACTIVATE one: a false→true flip here would bypass the entire production gate
+  // that approveForProduction/activateFact enforce (Visual Concept check,
+  // active-root parent revalidation, the pending_reviews transition,
+  // production-approval recording, submitter notification). To bring a
+  // deactivated fact back, re-moderate it. So: reject any false→true request;
+  // asserting isActive=true on an already-active fact is a harmless no-op that we
+  // simply drop.
+  if (nonTextUpdates.isActive === true) {
+    if (current!.isActive === false) {
+      res.status(400).json({
+        error: "A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
+        code: "ACTIVATION_REQUIRES_MODERATION",
+      });
+      return;
+    }
+    delete nonTextUpdates.isActive;
+  }
+
+  // Active-root parent invariant: this PATCH's parentId field is otherwise
+  // unguarded, so an admin could point an ACTIVE fact at an inactive/missing/
+  // non-root parent, bypassing the same active-root revalidation activateFact
+  // performs at activation time — reintroducing exactly the orphan state Phase 2
+  // closes. Only matters when the target fact IS (or remains) active: a fact
+  // that's inactive, or being deactivated by this same request, can point
+  // anywhere (activateFact will revalidate whenever it's next activated).
+  //
+  // A fact can never be its own parent, active or not — this is a structural
+  // invariant, not just an active-root one, and cheap to check up front.
+  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId === id) {
+    res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
+    return;
+  }
+  // The active-root lookup + active-children check, however, MUST run inside
+  // the same transaction as the write, with the parent row locked (`FOR
+  // UPDATE`) — otherwise a concurrent deactivate/delete of that parent (or a
+  // concurrent variant created under `id`) between this check and the write
+  // below could still land an active variant under an inactive/missing root,
+  // exactly mirroring the TOCTOU `activateFact` itself guards against. See the
+  // transaction below.
+  const reparenting = nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null;
+  const reparentStaysActive = reparenting && current!.isActive && nonTextUpdates.isActive !== false;
+
   // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
   if (text === undefined) {
     if (Object.keys(nonTextUpdates).length === 0) {
@@ -839,9 +920,47 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, current);
       return;
     }
-    const [updated] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
-    if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-    respondFactUpdate(res, updated);
+    // Deactivating a fact that's an active root with active children would
+    // strand those children active under a now-inactive parent, so cascade in
+    // the same transaction (no-op if there's nothing to cascade — see
+    // cascadeDeactivateActiveChildren).
+    const deactivating = nonTextUpdates.isActive === false;
+    type PatchTxResult =
+      | { kind: "guard"; status: number; body: Record<string, unknown> }
+      | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
+    const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
+      if (reparentStaysActive) {
+        // Lock `id`'s own row BEFORE checking its active children —
+        // assertReparentAllowed's contract requires the target already locked
+        // by the caller (confirmedFactTextEdit's text-edit path satisfies this
+        // incidentally, since it locks the fact row for its own CAS first; this
+        // branch didn't). Without it, a concurrent activateFact activating a
+        // variant UNDER `id` (which locks `id` as the parent via the same
+        // FOR UPDATE primitive) can interleave between this check and the
+        // reparent UPDATE below: whichever side loses the race for `id`'s lock
+        // sees the other's committed result — either `id` already has a new
+        // parent (so activateFact's own parent-revalidation then correctly
+        // fails), or `id` already has the newly-active child (so the
+        // active-children check below, now running after the lock, correctly
+        // rejects) — instead of both proceeding on stale reads.
+        const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
+        if (!targetLock) {
+          return { kind: "guard", status: 404, body: { error: "Fact not found" } };
+        }
+        const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
+        if (failure) {
+          return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
+        }
+      }
+      const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+      if (row && deactivating) {
+        await cascadeDeactivateActiveChildren(tx, id);
+      }
+      return { kind: "ok", row };
+    });
+    if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
+    if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
+    respondFactUpdate(res, result.row);
     return;
   }
 
@@ -878,6 +997,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       return;
     case "staging_prep_in_progress":
       res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
+      return;
+    case "reparent_rejected":
+      res.status(400).json({ error: outcome.failure.message, code: outcome.failure.code });
       return;
     case "no_text_change":
       respondFactUpdate(res, outcome.fact);
@@ -1330,6 +1452,35 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
   }
 });
 
+// POST /admin/facts/:id/resubmit-for-moderation — re-enter an INACTIVE fact
+// into moderation (the opposite case from send-back-to-review, which requires
+// the fact to already be active). Reuses the existing factId/history; no
+// duplicate fact is created. See resubmitForModeration.ts for why this exists.
+router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+
+  try {
+    const result = await resubmitInactiveFactForModeration({ factId: id, adminId });
+    res.json({ success: true, workflowStage: "prep_pending", ...result });
+  } catch (err) {
+    if (err instanceof ResubmitForModerationError) {
+      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
+      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / ORPHANED_PARENT — the
+      // in-progress case names the in-flight review so the UI can link to it.
+      res.status(409).json({
+        error: err.message,
+        code: err.code,
+        ...(err.existing ? { reviewId: err.existing.reviewId } : {}),
+      });
+      return;
+    }
+    logger.error({ err, factId: id }, "[POST /admin/facts/:id/resubmit-for-moderation] failed");
+    res.status(500).json({ error: "Failed to resubmit fact for moderation" });
+  }
+});
+
 // GET /admin/facts/:id/enrichment-versions — the fact's versioned-enrichment
 // history, METADATA ONLY (no jsonb blobs — the panel is for visibility, not
 // rollback). "current" is derived from facts.* (the sole active truth — the
@@ -1397,26 +1548,27 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(and(eq(factsTable.id, rootId), eq(factsTable.isActive, true))).limit(1);
   if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
   if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
-  const { text, useCase } = req.body as Record<string, unknown>;
+  const { text } = req.body as Record<string, unknown>;
   if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
-  // Not a bulk path — a single invalid variant is a normal validation error.
-  const normalized = normalizeFactTemplateForStorage(text.trim());
+  // A variant is a normal fact that happens to have a parent (Phase 2
+  // fact-lifecycle closure): it enters moderation at Stage 1 like any other
+  // submission, carrying its parent linkage on the review. It earns its own
+  // triage/enrichment/concept and only becomes an active variant on production
+  // approval (where activateFact revalidates the parent as an active root).
+  const normalized = normalizeFactTemplateForPendingReview(text.trim());
   if (!normalized.valid) {
     res.status(422).json({
       error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
     });
     return;
   }
-  const [variant] = await db.insert(factsTable).values({
-    text: normalized.text,
-    canonicalText: normalized.canonicalText,
-    splitTokenIndex: normalized.splitTokenIndex,
-    hasPronouns: normalized.hasPronouns,
-    parentId: rootId,
-    useCase: useCase ? String(useCase) : null,
-    isActive: true,
-  } as typeof factsTable.$inferInsert).returning();
-  res.status(201).json({ success: true, variant });
+  const review = await createTriageReview(db, {
+    submittedText: normalized.text,
+    submittedById: (req as AuthenticatedRequest).user!.id,
+    hashtags: [],
+    parentFactId: rootId,
+  });
+  res.status(201).json({ success: true, queued: true, reviewId: review.id });
 });
 
 // DELETE /admin/facts/variants/:variantId — soft-delete a single variant
@@ -1439,6 +1591,45 @@ export const FactsImportBody = z.object({
     z.object({ text: z.string().max(2000) }).passthrough(),
   ])).min(1).max(1000),
 });
+
+/**
+ * Shared bulk-ingestion funnel (Phase 2 fact-lifecycle closure) for the two
+ * session-admin import endpoints. Dedups each text against existing facts AND
+ * unresolved reviews, then creates a Stage-1 triage review per new text
+ * (submittedById = the acting admin). Bulk import LOADS the moderation queue — it
+ * does NOT publish — so nothing here inserts an active fact; enrichment/hashtags/
+ * embeddings are deferred to the pipeline. Returns queued/skipped counts.
+ */
+async function queueTextsForTriage(
+  submittedById: string | null,
+  texts: string[],
+): Promise<{ queued: number; skipped: number }> {
+  if (texts.length === 0) return { queued: 0, skipped: 0 };
+  const [factRows, reviewRows] = await Promise.all([
+    db.select({ text: factsTable.text }).from(factsTable).where(inArray(factsTable.text, texts)),
+    db
+      .select({ text: pendingReviewsTable.submittedText })
+      .from(pendingReviewsTable)
+      .where(
+        and(
+          inArray(pendingReviewsTable.submittedText, texts),
+          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+        ),
+      ),
+  ]);
+  const seen = new Set<string>([...factRows.map((r) => r.text), ...reviewRows.map((r) => r.text)]);
+  let queued = 0;
+  let skipped = 0;
+  await db.transaction(async (tx) => {
+    for (const text of texts) {
+      if (seen.has(text)) { skipped++; continue; }
+      seen.add(text);
+      await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
+      queued++;
+    }
+  });
+  return { queued, skipped };
+}
 
 router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
   const parsed = FactsImportBody.safeParse(req.body);
@@ -1463,29 +1654,24 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported`/`facts` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row through the SAME normalizer user submissions
+  // use, then QUEUE valid rows for moderation (Stage-1 triage reviews) rather
+  // than inserting active facts. Partial success: invalid rows are reported in
+  // `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   texts.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, facts: inserted, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // Cap the raw CSV size (≤2 MB) so an unbounded string can't exhaust memory.
@@ -1514,29 +1700,23 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row, then QUEUE valid rows for moderation (Stage-1
+  // triage reviews) rather than inserting active facts. Partial success: invalid
+  // rows are reported in `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   lines.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation
@@ -1947,7 +2127,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -1966,7 +2146,18 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
             factText: fact.text,
             status: fact.parentId ? "variant" : "new_fact",
           });
-          await db.update(factsTable).set(buildFactEnrichmentColumns(enrichment)).where(eq(factsTable.id, fact.id));
+          // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
+          // from the EXISTING row: fresh classifier output never carries a VSO, so
+          // materializing from it alone would strip the human concept (breaking
+          // render, and failing the active-requires-concept CHECK on active rows).
+          // Re-apply the current row's VSO onto the fresh AI baseline via the
+          // VSO-preserving materialize path — the preservation source is the
+          // existing row, not the new baseline.
+          const priorVSO = (fact.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride;
+          const aiDerived = { ...enrichment } as FactEnrichment;
+          delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
+          const { columns } = materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride: priorVSO });
+          await db.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
           done++;
         } catch (err) {
           failed++;

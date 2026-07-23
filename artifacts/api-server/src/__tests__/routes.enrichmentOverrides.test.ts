@@ -74,7 +74,7 @@ async function seedFact(baseline: FactEnrichment = AI): Promise<number> {
   const { columns } = materializeFromBaseline(withConcept);
   const [row] = await db
     .insert(factsTable)
-    .values({ text: `${TEXT_PREFIX}${randomUUID()}`, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+    .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: true, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });
   insertedFactIds.push(row.id);
   return row.id;
@@ -263,7 +263,7 @@ describe("human-field survival (visual override + sticky notes)", () => {
     };
     const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: visual } as FactEnrichment);
     const [row0] = await db.insert(factsTable)
-      .values({ text: `${TEXT_PREFIX}${randomUUID()}`, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+      .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: true, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
       .returning({ id: factsTable.id });
     const id = row0.id;
     insertedFactIds.push(id);

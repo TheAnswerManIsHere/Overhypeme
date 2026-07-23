@@ -19,6 +19,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
 import { eq, like, and, inArray } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 
@@ -93,7 +94,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
   const prefixedText = `${FACT_TEXT_PREFIX}${text}`;
   const [row] = await db
     .insert(factsTable)
-    .values({ text: prefixedText, submittedById: opts.submittedById, isActive: true, canonicalText: prefixedText })
+    .values({ text: prefixedText, submittedById: opts.submittedById, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: prefixedText })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;

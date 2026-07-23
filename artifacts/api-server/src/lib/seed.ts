@@ -5,6 +5,7 @@ import {
   factHashtagsTable,
 } from "@workspace/db/schema";
 import { eq, sql, gt } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
@@ -51,8 +52,12 @@ export async function ensureSchema(): Promise<void> {
       ddl: `CREATE INDEX IF NOT EXISTS "IDX_prt_token_hash" ON password_reset_tokens (token_hash)`,
     },
     {
+      // Facts are born INACTIVE (Phase 2 fact-lifecycle closure) — activation is
+      // moderation-only. Kept in sync with the schema default + migration 0091.
+      // (ADD COLUMN IF NOT EXISTS is a no-op on any existing DB, so this only
+      // governs a from-scratch bootstrap; migrations own the live column.)
       label: "facts.is_active",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT false`,
     },
     {
       label: "users.is_active",
@@ -729,10 +734,24 @@ export async function seedIfEmpty(): Promise<void> {
 
   logger.info({ count: SEED_FACTS.length }, "[seed] Production database is empty — seeding facts");
 
+  // Facts are born inactive and only go live with a non-empty Visual Concept
+  // (Phase-2 fact-lifecycle closure + DB CHECK). The startup seed inserts live
+  // starter facts, so each carries a valid placeholder enrichment + concept and
+  // its projected taxonomy columns.
+  const seedEnrichment = buildPlaceholderFactEnrichment();
+
   for (const item of SEED_FACTS) {
     const [fact] = await db
       .insert(factsTable)
-      .values({ text: item.text, isActive: true })
+      .values({
+        text: item.text,
+        isActive: true,
+        enrichment: seedEnrichment,
+        primaryArchetype: seedEnrichment.primaryArchetype,
+        subtype: seedEnrichment.subtype,
+        overhypeFit: seedEnrichment.overhypeFit,
+        adultSuitability: seedEnrichment.adultSuitability,
+      })
       .returning({ id: factsTable.id });
 
     for (const tagName of item.hashtags) {

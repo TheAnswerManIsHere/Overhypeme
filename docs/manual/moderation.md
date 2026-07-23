@@ -9,12 +9,18 @@
 
 ## What it does
 
-Every fact a user submits lands in a review queue, not the live catalogue. A
+Every fact entering the system — a user submission, an admin/API bulk import,
+or a new variant of an existing fact — lands in a review queue, not the live
+catalogue. There is no other way in: a fact cannot be created directly. A
 moderator walks it through three gates — **Triage**, **Visual Concept**, and
 **Test Renders** — and only a fact that clears all three goes live. The whole
 design exists to answer two questions cheaply and in order: *does this fact
 deserve to exist?*, then *does its joke work as a picture?*, and only then to
 spend the (real, per-image) money on rendering it.
+
+Going live is gated just as strictly on the way out: a fact cannot be
+published, by any code path, without a saved, non-empty Visual Concept — the
+database itself refuses to store an active fact without one.
 
 ## How it works
 
@@ -74,6 +80,18 @@ per-fact "what's happening now" (Enriching… → Generating visual ideas… →
 for concept review → Rendering… → Renders ready) and an aggregate view — so a
 moderator never has to guess whether background work is running, done, or stuck.
 
+### Taking a fact down, and bringing it back
+
+An admin can deactivate a live fact at any time from the Facts editor — that
+always works, immediately. Bringing one back is deliberately **not** a
+same-click undo: the Active toggle can't be switched back on directly, because
+doing so would skip the whole review this chapter describes. Instead, an
+inactive fact gets a **"Resubmit for Moderation"** button, which puts it back
+through the same three-gate review under its existing history — it re-enrichs,
+gets a fresh Visual Concept review, and needs production approval again before
+it's live. Nothing about a deactivated fact is ever truly stuck: it's always
+one resubmit away from re-entering the queue.
+
 ### Underneath (plain-language machinery)
 
 A submission becomes a row in a review table with a coarse status
@@ -119,6 +137,13 @@ concept text didn't change.
   render step when this shipped keep working under the old gates; the new concept
   gate only applies if a moderator voluntarily sends one back. No risky
   back-migration of live moderation state.
+
+- **Reactivating a fact always re-earns its way through review.** A direct
+  "flip it back on" toggle would let a fact go live again without anyone
+  re-checking its Visual Concept still holds up — so bringing a deactivated
+  fact back always means resubmitting it through the same gates a brand-new
+  fact goes through, never a shortcut. → [Fact lifecycle closed: one entrance,
+  one exit](../ai-context/decisions.md#2026-07-23--fact-lifecycle-closed-one-entrance-one-exit--activation-is-moderation-only-and-deactivation-is-reversible-through-moderation-not-a-direct-toggle)
 
 ## Boundaries & known limitations
 
