@@ -880,9 +880,12 @@ export default function AdminFacts() {
         headers: { "Content-Type": "application/json" },
         body,
       });
-      const data = (await res.json()) as { imported?: number; error?: string };
+      const data = (await res.json()) as { queued?: number; skipped?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Import failed");
-      setImportResult({ type: "success", message: `Successfully imported ${data.imported} fact(s).` });
+      // Bulk import now LOADS the moderation queue — facts appear only after they
+      // pass triage → enrichment → activation, not immediately.
+      const skippedNote = data.skipped ? ` (${data.skipped} skipped as duplicates)` : "";
+      setImportResult({ type: "success", message: `Queued ${data.queued ?? 0} fact(s) for moderation${skippedNote}. They'll appear after review.` });
       setImportText("");
       setPage(1);
       setDebouncedSearch("");

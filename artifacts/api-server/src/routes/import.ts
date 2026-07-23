@@ -1,14 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
-import { eq, sql, inArray } from "drizzle-orm";
+import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { and, inArray } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
-import { embedFactAsync } from "../lib/embeddings";
-import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
-
-// Infer the transaction type directly from the db.transaction callback parameter
-type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { createTriageReview } from "../lib/moderationStaging";
+import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -28,46 +26,10 @@ const ImportFactItemSchema = z.object({
     .default([]),
 });
 
-type ImportFactItem = z.infer<typeof ImportFactItemSchema>;
-
 type FailedItem = {
   index: number;
   errors: { field: string; message: string }[];
 };
-
-/**
- * Upsert a hashtag within a transaction. All DB operations go through `tx` so
- * they remain fully atomic with the surrounding bulk import transaction.
- */
-async function upsertHashtagInTx(tx: DbTx, name: string): Promise<number> {
-  const normalised = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  if (!normalised) throw new Error(`Invalid hashtag after normalisation: "${name}"`);
-
-  let [ht] = await tx
-    .select({ id: hashtagsTable.id })
-    .from(hashtagsTable)
-    .where(eq(hashtagsTable.name, normalised))
-    .limit(1);
-
-  if (!ht) {
-    [ht] = await tx
-      .insert(hashtagsTable)
-      .values({ name: normalised })
-      .onConflictDoNothing()
-      .returning({ id: hashtagsTable.id });
-
-    // Handle concurrent insert winning the race
-    if (!ht) {
-      [ht] = await tx
-        .select({ id: hashtagsTable.id })
-        .from(hashtagsTable)
-        .where(eq(hashtagsTable.name, normalised))
-        .limit(1);
-    }
-  }
-
-  return ht!.id;
-}
 
 // POST /admin/import/facts
 // Accepts a JSON array of ImportFactItem objects (or { facts: [...] }) and bulk-inserts them.
@@ -104,13 +66,7 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
     return;
   }
 
-  const validItems: {
-    index: number;
-    data: ImportFactItem;
-    canonicalText: string;
-    splitTokenIndex: number;
-    hasPronouns: boolean;
-  }[] = [];
+  const validItems: { index: number; text: string; hashtags: string[] }[] = [];
   const failed: FailedItem[] = [];
 
   for (let i = 0; i < rawItems.length; i++) {
@@ -123,12 +79,12 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
       failed.push({ index: i, errors });
       continue;
     }
-    // Run the full deterministic grammar cleanup at ingress (done before the
-    // duplicate pre-check so dedupe compares the same text that is stored),
-    // then validate — a submission that bypassed the tokenize route may still
-    // carry a {NAME}-subject pair, an unexpanded {Subj}'s contraction, or a
-    // missed person-subject verb.
-    const normalized = normalizeFactTemplateForStorage(parsed.data.text);
+    // Route bulk rows through the SAME normalizer user submissions use
+    // (normalizeFactTemplateForPendingReview), so an imported fact normalizes
+    // identically to a manually-submitted one. Storage-derived fields
+    // (canonicalText/splitTokenIndex/hasPronouns) are NOT computed here — the
+    // review→staging→approval pipeline derives them at its proper stage.
+    const normalized = normalizeFactTemplateForPendingReview(parsed.data.text);
     if (!normalized.valid) {
       failed.push({
         index: i,
@@ -138,89 +94,59 @@ router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Resp
       });
       continue;
     }
-    validItems.push({
-      index: i,
-      data: { ...parsed.data, text: normalized.text },
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-    });
+    validItems.push({ index: i, text: normalized.text, hashtags: parsed.data.hashtags });
   }
 
   if (dryRun) {
-    res.json({
-      dryRun: true,
-      wouldCreate: validItems.length,
-      failed,
-    });
+    res.json({ dryRun: true, wouldQueue: validItems.length, failed });
     return;
   }
 
-  let created = 0;
+  let queued = 0;
   let skipped = 0;
 
-  // Pre-fetch which texts already exist so we can skip exact-text duplicates.
+  // Dedup by exact text against BOTH existing facts AND existing UNRESOLVED
+  // reviews, so bulk import can't flood the triage queue with duplicates.
   // (facts.text has no unique constraint, so ON CONFLICT would not fire.)
-  const textsToCheck = validItems.map(({ data }) => data.text);
-  const existingRows = textsToCheck.length
-    ? await db
-        .select({ text: factsTable.text })
-        .from(factsTable)
-        .where(inArray(factsTable.text, textsToCheck))
-    : [];
-  const existingTexts = new Set(existingRows.map((r) => r.text));
+  const textsToCheck = validItems.map((v) => v.text);
+  const [existingFactRows, existingReviewRows] = textsToCheck.length
+    ? await Promise.all([
+        db.select({ text: factsTable.text }).from(factsTable).where(inArray(factsTable.text, textsToCheck)),
+        db
+          .select({ text: pendingReviewsTable.submittedText })
+          .from(pendingReviewsTable)
+          .where(
+            and(
+              inArray(pendingReviewsTable.submittedText, textsToCheck),
+              inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+            ),
+          ),
+      ])
+    : [[], []];
+  const seen = new Set<string>([
+    ...existingFactRows.map((r) => r.text),
+    ...existingReviewRows.map((r) => r.text),
+  ]);
 
-  // Collect newly-inserted facts for post-commit embedding generation
-  const insertedFacts: Array<{ id: number; text: string; canonicalText: string }> = [];
-
-  // All fact + hashtag writes are inside a single transaction for full atomicity.
+  // The API-key endpoint has no req.user — these are SYSTEM imports
+  // (submittedById = null, the same nullable-submitter shape refresh reviews use:
+  // no user to notify, no activity-feed entry). Each row becomes a Stage-1 triage
+  // review, NOT an active fact — bulk import loads the moderation queue, it does
+  // not publish. Enrichment/embeddings/hashtag-upsert are deferred to the pipeline.
   await db.transaction(async (tx) => {
-    for (const { data, canonicalText, splitTokenIndex, hasPronouns } of validItems) {
-      if (existingTexts.has(data.text)) {
-        skipped++;
-        continue;
-      }
-
-      const [inserted] = await tx
-        .insert(factsTable)
-        .values({ text: data.text, canonicalText, splitTokenIndex, hasPronouns, isActive: true })
-        .returning({ id: factsTable.id });
-
-      if (!inserted) {
-        skipped++;
-        continue;
-      }
-
-      // Track so the same text appearing multiple times in the payload is skipped
-      existingTexts.add(data.text);
-      created++;
-      insertedFacts.push({ id: inserted.id, text: data.text, canonicalText });
-
-      for (const tag of data.hashtags) {
-        const hashtagId = await upsertHashtagInTx(tx, tag);
-        const [joined] = await tx
-          .insert(factHashtagsTable)
-          .values({ factId: inserted.id, hashtagId })
-          .onConflictDoNothing()
-          .returning();
-        if (joined) {
-          await tx
-            .update(hashtagsTable)
-            .set({ factCount: sql`${hashtagsTable.factCount} + 1` })
-            .where(eq(hashtagsTable.id, hashtagId));
-        }
-      }
+    for (const item of validItems) {
+      if (seen.has(item.text)) { skipped++; continue; }
+      seen.add(item.text);
+      await createTriageReview(tx, {
+        submittedText: item.text,
+        submittedById: null,
+        hashtags: item.hashtags,
+      });
+      queued++;
     }
   });
 
-  // Fire off embedding generation for all newly-inserted facts (non-blocking).
-  // Embed from canonicalText so duplicate checks work against plain-English
-  // queries, same as the other create paths.
-  for (const fact of insertedFacts) {
-    void embedFactAsync(fact.id, fact.text, fact.canonicalText);
-  }
-
-  res.status(201).json({ created, skipped, failed });
+  res.status(201).json({ queued, skipped, failed });
 });
 
 export default router;

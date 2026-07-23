@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -32,6 +32,7 @@ import {
   OVERRIDABLE_PATH_KEYS,
   pathToField,
   FACT_TEXT_EDIT_CODES,
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
@@ -40,7 +41,8 @@ import {
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
+import { normalizeFactTemplateForStorage, normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { createTriageReview } from "../lib/moderationStaging";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -1466,6 +1468,45 @@ export const FactsImportBody = z.object({
   ])).min(1).max(1000),
 });
 
+/**
+ * Shared bulk-ingestion funnel (Phase 2 fact-lifecycle closure) for the two
+ * session-admin import endpoints. Dedups each text against existing facts AND
+ * unresolved reviews, then creates a Stage-1 triage review per new text
+ * (submittedById = the acting admin). Bulk import LOADS the moderation queue — it
+ * does NOT publish — so nothing here inserts an active fact; enrichment/hashtags/
+ * embeddings are deferred to the pipeline. Returns queued/skipped counts.
+ */
+async function queueTextsForTriage(
+  submittedById: string | null,
+  texts: string[],
+): Promise<{ queued: number; skipped: number }> {
+  if (texts.length === 0) return { queued: 0, skipped: 0 };
+  const [factRows, reviewRows] = await Promise.all([
+    db.select({ text: factsTable.text }).from(factsTable).where(inArray(factsTable.text, texts)),
+    db
+      .select({ text: pendingReviewsTable.submittedText })
+      .from(pendingReviewsTable)
+      .where(
+        and(
+          inArray(pendingReviewsTable.submittedText, texts),
+          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+        ),
+      ),
+  ]);
+  const seen = new Set<string>([...factRows.map((r) => r.text), ...reviewRows.map((r) => r.text)]);
+  let queued = 0;
+  let skipped = 0;
+  await db.transaction(async (tx) => {
+    for (const text of texts) {
+      if (seen.has(text)) { skipped++; continue; }
+      seen.add(text);
+      await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
+      queued++;
+    }
+  });
+  return { queued, skipped };
+}
+
 router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
   const parsed = FactsImportBody.safeParse(req.body);
   if (!parsed.success) {
@@ -1489,29 +1530,24 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported`/`facts` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row through the SAME normalizer user submissions
+  // use, then QUEUE valid rows for moderation (Stage-1 triage reviews) rather
+  // than inserting active facts. Partial success: invalid rows are reported in
+  // `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   texts.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, facts: inserted, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // Cap the raw CSV size (≤2 MB) so an unbounded string can't exhaust memory.
@@ -1540,29 +1576,23 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row, then QUEUE valid rows for moderation (Stage-1
+  // triage reviews) rather than inserting active facts. Partial success: invalid
+  // rows are reported in `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   lines.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation
