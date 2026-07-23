@@ -917,6 +917,23 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
     const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
       if (reparentStaysActive) {
+        // Lock `id`'s own row BEFORE checking its active children —
+        // assertReparentAllowed's contract requires the target already locked
+        // by the caller (confirmedFactTextEdit's text-edit path satisfies this
+        // incidentally, since it locks the fact row for its own CAS first; this
+        // branch didn't). Without it, a concurrent activateFact activating a
+        // variant UNDER `id` (which locks `id` as the parent via the same
+        // FOR UPDATE primitive) can interleave between this check and the
+        // reparent UPDATE below: whichever side loses the race for `id`'s lock
+        // sees the other's committed result — either `id` already has a new
+        // parent (so activateFact's own parent-revalidation then correctly
+        // fails), or `id` already has the newly-active child (so the
+        // active-children check below, now running after the lock, correctly
+        // rejects) — instead of both proceeding on stale reads.
+        const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
+        if (!targetLock) {
+          return { kind: "guard", status: 404, body: { error: "Fact not found" } };
+        }
         const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
         if (failure) {
           return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
