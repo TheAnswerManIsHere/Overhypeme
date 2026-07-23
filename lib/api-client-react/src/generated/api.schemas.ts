@@ -527,20 +527,22 @@ export interface BulkImportFactsFailedItem {
 }
 
 /**
- * Result of a bulk import. When `dryRun` is true, `wouldCreate` is present
-instead of `created`/`skipped`.
+ * Result of a bulk import. Valid rows are QUEUED as Stage-1 moderation
+reviews, not inserted as facts directly (Phase 2 fact-lifecycle closure —
+bulk import loads the moderation queue, it does not publish). When
+`dryRun` is true, `wouldQueue` is present instead of `queued`/`skipped`.
 
  */
 export interface BulkImportFactsResponse {
   /** Present and true when the request was a dry run. */
   dryRun?: boolean;
-  /** Number of facts successfully inserted (absent in dry-run mode). */
-  created?: number;
-  /** Number of valid facts skipped due to exact-text duplicates (absent in dry-run mode). */
+  /** Number of facts queued as Stage-1 triage reviews (absent in dry-run mode). */
+  queued?: number;
+  /** Number of valid facts skipped as exact-text duplicates against existing facts or unresolved reviews (absent in dry-run mode). */
   skipped?: number;
-  /** Number of facts that would be created (dry-run mode only). */
-  wouldCreate?: number;
-  /** Items that failed schema validation and were not inserted. */
+  /** Number of facts that would be queued for moderation (dry-run mode only). */
+  wouldQueue?: number;
+  /** Items that failed schema validation and were not queued. */
   failed: BulkImportFactsFailedItem[];
 }
 

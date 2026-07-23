@@ -3078,11 +3078,13 @@ export function useGetAffiliateStats<
 }
 
 /**
- * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
-them in bulk. Protected by the `X-API-Key` header (ADMIN_API_KEY secret).
-Supports `?dryRun=true` to validate without writing.
+ * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and queues
+each valid one as a Stage-1 moderation review (a system import — this
+loads the moderation queue, it does not publish facts directly). Protected
+by the `X-API-Key` header (ADMIN_API_KEY secret). Supports `?dryRun=true`
+to validate without writing.
 
- * @summary Bulk-import facts (API key required)
+ * @summary Bulk-import facts for moderation (API key required)
  */
 export const getBulkImportFactsUrl = (params?: BulkImportFactsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -3158,7 +3160,7 @@ export type BulkImportFactsMutationBody = BodyType<BulkImportFactsBody>;
 export type BulkImportFactsMutationError = ErrorType<ErrorEnvelope>;
 
 /**
- * @summary Bulk-import facts (API key required)
+ * @summary Bulk-import facts for moderation (API key required)
  */
 export const useBulkImportFacts = <
   TError = ErrorType<ErrorEnvelope>,

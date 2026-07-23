@@ -485,6 +485,37 @@ describe("PATCH /admin/facts/:id", () => {
     assert.equal(row.parentId, rootId);
   });
 
+  it("rejects reparenting an active fact that itself has active variants", async () => {
+    const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} would-be new parent`);
+    const rootWithChild = await createTestFact(`${FACT_PREFIX}${randomUUID()} root with a child`);
+    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} its active child`, { parentId: rootWithChild });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootWithChild}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: newParent });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "HAS_ACTIVE_VARIANTS");
+
+    const rows = await db.select({ id: factsTable.id, parentId: factsTable.parentId, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootWithChild, childId]));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    assert.equal(byId.get(rootWithChild)?.parentId, null, "reparent must not have been written");
+    assert.equal(byId.get(childId)?.isActive, true, "the child must still be active and unaffected");
+  });
+
+  it("allows reparenting an active fact once its active variants are deactivated first", async () => {
+    const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} eligible new parent`);
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root, child now inactive`);
+    await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive child`, { parentId: rootId, isActive: false });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: newParent });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, rootId));
+    assert.equal(row.parentId, newParent);
+  });
+
   it("allows an inactive fact's parentId to be set freely (activateFact revalidates later)", async () => {
     const inactiveFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive edit`, { isActive: false });
     const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive parent target`, { isActive: false });

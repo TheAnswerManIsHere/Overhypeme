@@ -897,6 +897,23 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
         });
         return;
       }
+      // Variants are one level deep (a root's parentId is always null) — the
+      // feed/detail variant queries assume this. If `id` is itself a root with
+      // active children and this PATCH turns it into a variant (non-null
+      // parentId), those children would become active-but-orphaned "variants of
+      // a variant." Reject rather than silently strand them.
+      const [activeChild] = await db
+        .select({ id: factsTable.id })
+        .from(factsTable)
+        .where(and(eq(factsTable.parentId, id), eq(factsTable.isActive, true)))
+        .limit(1);
+      if (activeChild) {
+        res.status(400).json({
+          error: "This fact has active variants of its own — reparenting it would strand them. Deactivate or reparent its variants first.",
+          code: "HAS_ACTIVE_VARIANTS",
+        });
+        return;
+      }
     }
   }
 
