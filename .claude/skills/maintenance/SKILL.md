@@ -49,6 +49,23 @@ retried.
   and paste anything that looks alarming into the chat for triage. Never
   silently skip the section, and never retry a 403 policy denial.
 
+**Verified working recipe (2026-07-23).** Org slug is `overhypeme`. The
+token is scoped **Issue & Event: Read only** (least privilege), which is
+enough for the one endpoint this section needs:
+
+```
+GET https://sentry.io/api/0/organizations/overhypeme/issues/?statsPeriod=7d&query=is:unresolved
+    Authorization: Bearer $SENTRY_AUTH_TOKEN
+```
+
+Each returned issue carries `title`, `culprit`, `count`, `permalink`, and
+a `shortId` whose prefix identifies the project. **A `403` from the
+list-projects (`/organizations/{org}/projects/`) or org-detail
+(`/organizations/{org}/`) endpoints is EXPECTED and not a failure** — those
+need `org:read`, which the token intentionally lacks. Do not read that 403
+as "no access" and fall back; only a failure on the issues endpoint above
+triggers the manual path.
+
 ## 3. CI health on main
 
 - Pull recent workflow runs on `main` (`mcp__github__actions_list`).
