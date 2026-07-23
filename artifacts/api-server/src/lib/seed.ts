@@ -52,8 +52,12 @@ export async function ensureSchema(): Promise<void> {
       ddl: `CREATE INDEX IF NOT EXISTS "IDX_prt_token_hash" ON password_reset_tokens (token_hash)`,
     },
     {
+      // Facts are born INACTIVE (Phase 2 fact-lifecycle closure) — activation is
+      // moderation-only. Kept in sync with the schema default + migration 0091.
+      // (ADD COLUMN IF NOT EXISTS is a no-op on any existing DB, so this only
+      // governs a from-scratch bootstrap; migrations own the live column.)
       label: "facts.is_active",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT false`,
     },
     {
       label: "users.is_active",
