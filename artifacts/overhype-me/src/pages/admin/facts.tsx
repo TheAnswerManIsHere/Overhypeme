@@ -761,14 +761,15 @@ export default function AdminFacts() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newVariantText.trim(), useCase: newVariantUseCase || null }),
       });
-      const data = (await res.json()) as { success?: boolean; variant?: FactVariant; error?: string };
+      const data = (await res.json()) as { success?: boolean; queued?: boolean; reviewId?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to add variant");
-      setVariants((prev) => [...prev, data.variant!]);
+      // A variant is now a normal moderated submission: it enters the triage
+      // queue instead of appearing immediately, and shows up nested under its
+      // parent only once it's approved through moderation.
       setNewVariantText("");
       setNewVariantUseCase("");
       setShowAddVariant(false);
-      setRefreshNonce((n) => n + 1); // refresh the list so the new variant nests under its parent
-      if (selectedFact) setExpandedRoots((prev) => new Set(prev).add(selectedFact.id));
+      alert("Variant queued for review. It'll appear under this fact once it's approved through moderation.");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add variant");
     } finally {

@@ -41,7 +41,7 @@ import {
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { normalizeFactTemplateForStorage, normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
@@ -1425,26 +1425,27 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(and(eq(factsTable.id, rootId), eq(factsTable.isActive, true))).limit(1);
   if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
   if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
-  const { text, useCase } = req.body as Record<string, unknown>;
+  const { text } = req.body as Record<string, unknown>;
   if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
-  // Not a bulk path — a single invalid variant is a normal validation error.
-  const normalized = normalizeFactTemplateForStorage(text.trim());
+  // A variant is a normal fact that happens to have a parent (Phase 2
+  // fact-lifecycle closure): it enters moderation at Stage 1 like any other
+  // submission, carrying its parent linkage on the review. It earns its own
+  // triage/enrichment/concept and only becomes an active variant on production
+  // approval (where activateFact revalidates the parent as an active root).
+  const normalized = normalizeFactTemplateForPendingReview(text.trim());
   if (!normalized.valid) {
     res.status(422).json({
       error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
     });
     return;
   }
-  const [variant] = await db.insert(factsTable).values({
-    text: normalized.text,
-    canonicalText: normalized.canonicalText,
-    splitTokenIndex: normalized.splitTokenIndex,
-    hasPronouns: normalized.hasPronouns,
-    parentId: rootId,
-    useCase: useCase ? String(useCase) : null,
-    isActive: true,
-  } as typeof factsTable.$inferInsert).returning();
-  res.status(201).json({ success: true, variant });
+  const review = await createTriageReview(db, {
+    submittedText: normalized.text,
+    submittedById: (req as AuthenticatedRequest).user!.id,
+    hashtags: [],
+    parentFactId: rootId,
+  });
+  res.status(201).json({ success: true, queued: true, reviewId: review.id });
 });
 
 // DELETE /admin/facts/variants/:variantId — soft-delete a single variant

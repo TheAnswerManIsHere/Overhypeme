@@ -874,10 +874,16 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 
   const bodyParsed = ProvisionalApproveBody.safeParse(req.body);
   if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
-  const { parentFactId, adminNote = null } = bodyParsed.data;
+  const { adminNote = null } = bodyParsed.data;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  // Variant parent: an explicit body override wins; otherwise default to the
+  // parent the review has carried since ingestion (createTriageReview). This is
+  // how a variant submission threads its parent from Stage 1 into the staging
+  // fact (and on to activation, where activateFact revalidates it as an active root).
+  const parentFactId = bodyParsed.data.parentFactId ?? review.parentFactId ?? undefined;
 
   // Idempotent re-click while prep is already running: DON'T just return
   // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
