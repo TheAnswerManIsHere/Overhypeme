@@ -741,10 +741,14 @@ async function approveForProduction(
   try {
     await db.transaction(async (tx) => {
       // Sole activation chokepoint: re-reads the concept + revalidates the parent
-      // (active root) in-tx and does the compare-and-set flip. Throws
+      // (active root) in-tx and does the compare-and-set flip. `expectedEnrichment`
+      // CASes on the RAW staging-fact enrichment the render gate validated above
+      // (not the Zod-normalized `enrichment` variable), so a concurrent Visual
+      // Concept edit between the render gate and this activation is caught rather
+      // than silently publishing unreviewed enrichment. Throws
       // ConceptMissingError / ParentNotActiveError / ActivationConflictError —
       // never activates on failure.
-      await activateFact(tx, { factId: stagingFact.id, parentId, expectedText: validatedText });
+      await activateFact(tx, { factId: stagingFact.id, parentId, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",

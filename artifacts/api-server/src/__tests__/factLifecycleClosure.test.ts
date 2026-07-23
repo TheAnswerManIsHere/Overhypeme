@@ -141,6 +141,28 @@ describe("activateFact — the sole activation chokepoint", () => {
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.isActive, false);
   });
+
+  it("throws ActivationConflictError when the enrichment changed under it (concurrent Visual Concept edit)", async () => {
+    const text = `${PREFIX}activate-enrichment-cas`;
+    const id = await insertInactive(text);
+    const [row] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, id));
+    const staleEnrichment = { ...(row.enrichment as object), taxonomyConfidence: 0.01 };
+    await assert.rejects(
+      () => db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text, expectedEnrichment: staleEnrichment })),
+      (err: unknown) => err instanceof ActivationConflictError,
+    );
+    const [after] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(after.isActive, false, "must remain inactive — the row's enrichment no longer matches what was reviewed");
+  });
+
+  it("activates normally when expectedEnrichment matches the row's current enrichment exactly", async () => {
+    const text = `${PREFIX}activate-enrichment-match`;
+    const id = await insertInactive(text);
+    const [row] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, id));
+    await db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text, expectedEnrichment: row.enrichment }));
+    const [after] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(after.isActive, true);
+  });
 });
 
 describe("cascadeDeactivateActiveChildren", () => {

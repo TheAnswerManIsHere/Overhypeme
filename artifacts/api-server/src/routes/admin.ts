@@ -882,49 +882,22 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // closes. Only matters when the target fact IS (or remains) active: a fact
   // that's inactive, or being deactivated by this same request, can point
   // anywhere (activateFact will revalidate whenever it's next activated).
-  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null) {
-    // A fact can never be its own parent, active or not — this is a structural
-    // invariant, not just an active-root one. Reject BEFORE the parent lookup:
-    // that query below reads the row's PRE-mutation state (parent_id still
-    // null), so a self-reference would otherwise validate against itself and
-    // the update would then write parent_id = id on the same row.
-    if (nonTextUpdates.parentId === id) {
-      res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
-      return;
-    }
-    const staysActive = current!.isActive && nonTextUpdates.isActive !== false;
-    if (staysActive) {
-      const [parent] = await db
-        .select({ id: factsTable.id })
-        .from(factsTable)
-        .where(and(eq(factsTable.id, nonTextUpdates.parentId as number), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
-        .limit(1);
-      if (!parent) {
-        res.status(400).json({
-          error: `Fact #${nonTextUpdates.parentId} is not an active root, so this active fact can't be pointed at it as a variant.`,
-          code: "PARENT_NOT_ACTIVE",
-        });
-        return;
-      }
-      // Variants are one level deep (a root's parentId is always null) — the
-      // feed/detail variant queries assume this. If `id` is itself a root with
-      // active children and this PATCH turns it into a variant (non-null
-      // parentId), those children would become active-but-orphaned "variants of
-      // a variant." Reject rather than silently strand them.
-      const [activeChild] = await db
-        .select({ id: factsTable.id })
-        .from(factsTable)
-        .where(and(eq(factsTable.parentId, id), eq(factsTable.isActive, true)))
-        .limit(1);
-      if (activeChild) {
-        res.status(400).json({
-          error: "This fact has active variants of its own — reparenting it would strand them. Deactivate or reparent its variants first.",
-          code: "HAS_ACTIVE_VARIANTS",
-        });
-        return;
-      }
-    }
+  //
+  // A fact can never be its own parent, active or not — this is a structural
+  // invariant, not just an active-root one, and cheap to check up front.
+  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId === id) {
+    res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
+    return;
   }
+  // The active-root lookup + active-children check, however, MUST run inside
+  // the same transaction as the write, with the parent row locked (`FOR
+  // UPDATE`) — otherwise a concurrent deactivate/delete of that parent (or a
+  // concurrent variant created under `id`) between this check and the write
+  // below could still land an active variant under an inactive/missing root,
+  // exactly mirroring the TOCTOU `activateFact` itself guards against. See the
+  // transaction below.
+  const reparenting = nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null;
+  const reparentStaysActive = reparenting && current!.isActive && nonTextUpdates.isActive !== false;
 
   // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
   if (text === undefined) {
@@ -939,15 +912,50 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     // the same transaction (no-op if there's nothing to cascade — see
     // cascadeDeactivateActiveChildren).
     const deactivating = nonTextUpdates.isActive === false;
-    const updated = await db.transaction(async (tx) => {
+    type PatchTxResult =
+      | { kind: "guard"; status: number; body: Record<string, unknown> }
+      | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
+    const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
+      if (reparentStaysActive) {
+        const [parent] = await tx
+          .select({ id: factsTable.id })
+          .from(factsTable)
+          .where(and(eq(factsTable.id, nonTextUpdates.parentId as number), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+          .for("update")
+          .limit(1);
+        if (!parent) {
+          return {
+            kind: "guard",
+            status: 400,
+            body: { error: `Fact #${nonTextUpdates.parentId} is not an active root, so this active fact can't be pointed at it as a variant.`, code: "PARENT_NOT_ACTIVE" },
+          };
+        }
+        // Variants are one level deep (a root's parentId is always null) — the
+        // feed/detail variant queries assume this. If `id` is itself a root
+        // with active children and this write turns it into a variant, those
+        // children would become active-but-orphaned "variants of a variant."
+        const [activeChild] = await tx
+          .select({ id: factsTable.id })
+          .from(factsTable)
+          .where(and(eq(factsTable.parentId, id), eq(factsTable.isActive, true)))
+          .limit(1);
+        if (activeChild) {
+          return {
+            kind: "guard",
+            status: 400,
+            body: { error: "This fact has active variants of its own — reparenting it would strand them. Deactivate or reparent its variants first.", code: "HAS_ACTIVE_VARIANTS" },
+          };
+        }
+      }
       const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
       if (row && deactivating) {
         await cascadeDeactivateActiveChildren(tx, id);
       }
-      return row;
+      return { kind: "ok", row };
     });
-    if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-    respondFactUpdate(res, updated);
+    if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
+    if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
+    respondFactUpdate(res, result.row);
     return;
   }
 

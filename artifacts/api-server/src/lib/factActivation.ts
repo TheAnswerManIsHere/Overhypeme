@@ -26,7 +26,7 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { overrideValuesEqual, type FactEnrichment } from "@workspace/api-zod";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -71,14 +71,23 @@ function coreScene(enrichment: unknown): string | null {
  * atomic. Throws `ConceptMissingError` / `ParentNotActiveError` /
  * `ActivationConflictError` — never activates on any failure.
  *
- * @param tx           the enclosing transaction executor
- * @param factId       the staging fact to flip active
- * @param parentId     the variant parent to record + revalidate, or null/undefined for a root
- * @param expectedText the exact wording the production gate validated (CAS guard)
+ * @param tx                 the enclosing transaction executor
+ * @param factId             the staging fact to flip active
+ * @param parentId           the variant parent to record + revalidate, or null/undefined for a root
+ * @param expectedText       the exact wording the production gate validated (CAS guard)
+ * @param expectedEnrichment the exact stored enrichment blob the render gate validated
+ *   (the RAW value read from the row, not a Zod-normalized copy — pass it
+ *   verbatim). When given, activation requires the row's enrichment to still
+ *   match it exactly, closing the race where a concurrent edit changes the
+ *   Visual Concept between the render gate and this activation — otherwise the
+ *   fact would go live with enrichment nobody actually reviewed, while
+ *   `pending_reviews.enrichment` records the older, reviewed blob. Optional so
+ *   callers with no separately-validated snapshot (e.g. none today, but future
+ *   ones) aren't forced to supply it.
  */
 export async function activateFact(
   tx: DbExecutor,
-  { factId, parentId, expectedText }: { factId: number; parentId?: number | null; expectedText: string },
+  { factId, parentId, expectedText, expectedEnrichment }: { factId: number; parentId?: number | null; expectedText: string; expectedEnrichment?: unknown },
 ): Promise<{ id: number }> {
   // 1. Re-read the row inside the tx and assert the concept is still present.
   const [row] = await tx
@@ -88,6 +97,9 @@ export async function activateFact(
     .limit(1);
   if (!row || coreScene(row.enrichment) == null) {
     throw new ConceptMissingError(factId);
+  }
+  if (expectedEnrichment !== undefined && !overrideValuesEqual(row.enrichment, expectedEnrichment)) {
+    throw new ActivationConflictError(factId);
   }
 
   // 2. Variant parent revalidation — must still be an ACTIVE ROOT at commit time.
