@@ -13,6 +13,60 @@
 
 ---
 
+### 2026-07-23 · Fact lifecycle closed: one entrance, one exit — activation is moderation-only, and deactivation is reversible through moderation, not a direct toggle
+- **Decision:** Two invariants, now enforced end-to-end (Phase 2 fact-lifecycle
+  closure):
+  - **One exit.** A fact can only become `is_active = true` through a single
+    chokepoint, `activateFact` (`artifacts/api-server/src/lib/factActivation.ts`),
+    called from exactly one place (`approveForProduction`). It re-validates, inside
+    the activating transaction, that the fact carries a non-empty Visual Concept and
+    that a variant's parent is still an active root — backstopped by a DB CHECK
+    constraint (`facts_active_requires_concept`) so no writer, present or future,
+    can create a live fact without a concept even by mistake. David, verbatim: "in
+    order for the fact to be released into production, it must have a Visual
+    Concept so that the image and video engines have something to work with when
+    we make memes."
+  - **One entrance.** Every way a fact enters the system — manual submission, bulk
+    import, and variant creation — funnels through one primitive,
+    `createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`), so a
+    fact can never be born active or already enriched; it always starts at Stage 1
+    (triage). `facts.is_active` defaults to `false` now (was `true`). David,
+    verbatim: "there should only be two ways that a fact gets into the system...
+    manual path where a user submits a fact... [and] a bulk import. In both those
+    cases, the ingestion of the fact should put it on stage 1 of the moderation
+    flow where it needs to be triaged, then enriched, then activated."
+  - **The admin Active toggle is deactivate-only, and activation is
+    moderation-only** (David-confirmed: "There's no point in having a fact in the
+    database if it hasn't gone through moderation"). Deactivating a fact — directly,
+    cascaded from a deactivated parent, or swept by the one-time grandfather
+    backfill for pre-existing facts with no valid concept — is enforced for its
+    *lifetime*, not just at activation: `cascadeDeactivateActiveChildren` runs on
+    every write path that can flip a root inactive (PATCH, DELETE soft/hard,
+    approved-text edits), so an active variant can never be stranded under an
+    inactive/missing root.
+  - **Deactivation is not a dead end.** Closing the direct-reactivate toggle
+    initially left no path back for a deactivated fact at all (Codex found this
+    gap in review — `sendFactBackToReview`, the only "send back to review"
+    primitive, requires the fact to already be active). David asked for the fix
+    rather than deferring it:
+    `POST /admin/facts/:id/resubmit-for-moderation` re-enters an inactive fact at
+    `prep_pending`, exactly like a first-time staging fact, reusing its existing
+    id/history (no duplicate row) and riding the same pipeline back to production
+    approval.
+- **Why:** without both invariants closed together, a fact could still reach
+  production without ever being triaged (a direct `POST /facts`, now removed) or
+  without a Visual Concept (a stale enrichment, a hand-edit, a future writer that
+  forgets the check) — the DB CHECK and the single chokepoint make both
+  structurally impossible rather than merely policy.
+- **Reference:** PR #242. Spec:
+  [`moderation-workflow.md`](./moderation-workflow.md). Manual:
+  [`moderation.md`](../manual/moderation.md).
+- **Revisit if:** a future ingestion path is added (e.g. a partner API) — it must
+  funnel through `createTriageReview` too, or this invariant silently breaks for
+  that path alone.
+
+---
+
 ### 2026-07-23 · Recurring failure patterns become CI guards, not just doc updates
 - **Decision:** When a mistake already recorded in `known-failure-patterns.md`
   happens a **second** time, the default response is a deterministic CI check
