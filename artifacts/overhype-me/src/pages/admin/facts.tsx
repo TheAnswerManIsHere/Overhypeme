@@ -1279,19 +1279,28 @@ export default function AdminFacts() {
               </div>
             )}
 
-            {/* Active toggle */}
+            {/* Active toggle — deactivate-only. Activation is moderation-only
+                (Phase 2 fact-lifecycle closure): the server rejects any
+                false→true PATCH, so this toggle can only ever turn a fact off,
+                never back on — disabled + explained rather than a control that
+                always errors. */}
             <div className="flex items-center justify-between py-2 border border-border rounded-md px-3">
               <div>
                 <p className="text-sm font-medium">Active</p>
-                <p className="text-xs text-muted-foreground">Inactive facts are hidden from the public.</p>
+                <p className="text-xs text-muted-foreground">
+                  {draft.isActive
+                    ? "Inactive facts are hidden from the public."
+                    : "Deactivated facts can only go live again through moderation."}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => editForm.setValue((d) => d ? { ...d, isActive: !d.isActive } : d)}
+                disabled={!draft.isActive}
+                onClick={() => draft.isActive && editForm.setValue((d) => d ? { ...d, isActive: false } : d)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30"
+                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30 cursor-not-allowed opacity-60"
                 }`}
-                title={draft.isActive ? "Click to deactivate" : "Click to activate"}
+                title={draft.isActive ? "Click to deactivate" : "Deactivated — re-moderate to reactivate"}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   draft.isActive ? "translate-x-6" : "translate-x-1"

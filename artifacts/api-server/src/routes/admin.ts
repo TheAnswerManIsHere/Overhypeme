@@ -883,6 +883,15 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // that's inactive, or being deactivated by this same request, can point
   // anywhere (activateFact will revalidate whenever it's next activated).
   if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null) {
+    // A fact can never be its own parent, active or not — this is a structural
+    // invariant, not just an active-root one. Reject BEFORE the parent lookup:
+    // that query below reads the row's PRE-mutation state (parent_id still
+    // null), so a self-reference would otherwise validate against itself and
+    // the update would then write parent_id = id on the same row.
+    if (nonTextUpdates.parentId === id) {
+      res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
+      return;
+    }
     const staysActive = current!.isActive && nonTextUpdates.isActive !== false;
     if (staysActive) {
       const [parent] = await db

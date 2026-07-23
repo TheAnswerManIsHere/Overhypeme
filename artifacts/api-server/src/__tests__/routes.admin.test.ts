@@ -485,6 +485,19 @@ describe("PATCH /admin/facts/:id", () => {
     assert.equal(row.parentId, rootId);
   });
 
+  it("rejects a fact being set as its own parent", async () => {
+    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} self-parent attempt`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${activeFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: activeFact });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "SELF_PARENT");
+
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
+    assert.equal(row.parentId, null, "self-parent must not have been written");
+  });
+
   it("rejects reparenting an active fact that itself has active variants", async () => {
     const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} would-be new parent`);
     const rootWithChild = await createTestFact(`${FACT_PREFIX}${randomUUID()} root with a child`);
