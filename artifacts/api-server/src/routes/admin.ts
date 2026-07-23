@@ -43,6 +43,7 @@ import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } fr
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
+import { cascadeDeactivateActiveChildren } from "../lib/factActivation";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -867,7 +868,18 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, current);
       return;
     }
-    const [updated] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+    // Deactivating a fact that's an active root with active children would
+    // strand those children active under a now-inactive parent, so cascade in
+    // the same transaction (no-op if there's nothing to cascade — see
+    // cascadeDeactivateActiveChildren).
+    const deactivating = nonTextUpdates.isActive === false;
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+      if (row && deactivating) {
+        await cascadeDeactivateActiveChildren(tx, id);
+      }
+      return row;
+    });
     if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
     respondFactUpdate(res, updated);
     return;

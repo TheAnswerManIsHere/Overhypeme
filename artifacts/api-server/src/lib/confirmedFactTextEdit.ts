@@ -38,6 +38,7 @@ import {
   hasNonterminalPrepJobs,
 } from "./factTextEditProtection";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "./firstTimeStagingPrep";
+import { cascadeDeactivateActiveChildren } from "./factActivation";
 
 type FactRow = typeof factsTable.$inferSelect;
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -136,6 +137,12 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
       // audit / signature clear / prep restart / side effects.
       if (Object.keys(args.nonTextUpdates).length > 0) {
         const [updated] = await tx.update(factsTable).set(args.nonTextUpdates).where(eq(factsTable.id, fact.id)).returning();
+        // The admin editor combines text + Active-toggle edits in one PATCH, so a
+        // deactivation can arrive here via nonTextUpdates — cascade the same as
+        // the direct PATCH path (no-op if there's nothing to cascade).
+        if (args.nonTextUpdates.isActive === false) {
+          await cascadeDeactivateActiveChildren(tx, fact.id);
+        }
         return { kind: "no_text_change", fact: updated! };
       }
       return { kind: "no_text_change", fact };
@@ -186,6 +193,10 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
         .set({ ...textColumns, lastProcessedSignature: null, ...args.nonTextUpdates })
         .where(eq(factsTable.id, fact.id))
         .returning();
+      // See the no-op branch above: a combined text+deactivate PATCH must cascade too.
+      if (args.nonTextUpdates.isActive === false) {
+        await cascadeDeactivateActiveChildren(tx, fact.id);
+      }
 
       const [audit] = await tx
         .insert(factTextEditHistoryTable)
@@ -212,6 +223,10 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
       .set({ ...textColumns, lastProcessedSignature: null, ...args.nonTextUpdates })
       .where(eq(factsTable.id, fact.id))
       .returning();
+    // See the no-op branch above: a combined text+deactivate PATCH must cascade too.
+    if (args.nonTextUpdates.isActive === false) {
+      await cascadeDeactivateActiveChildren(tx, fact.id);
+    }
     await prepareFirstTimeStagingPrep(tx, {
       review: { id: protection.reviewId, submittedText: "", submittedById: null, stagingFactId: fact.id },
       parentFactId: fact.parentId ?? null,

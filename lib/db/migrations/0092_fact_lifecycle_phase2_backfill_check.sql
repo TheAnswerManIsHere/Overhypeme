@@ -35,13 +35,24 @@ BEGIN
     AND ("primary_archetype" IS NULL OR "enrichment" IS NULL);
   GET DIAGNOSTICS v_deactivated = ROW_COUNT;
 
-  -- 2. Orphan sweep (atomic + rerunnable): deactivate any active fact whose parent
-  --    is now inactive, so no live variant is stranded under an inactive root.
-  --    Variants are one level deep (parent is always a root); a single pass covers
-  --    the model and re-runs to a no-op once none remain.
-  UPDATE "facts" SET "is_active" = false
-  WHERE "is_active" = true
-    AND "parent_id" IN (SELECT "id" FROM "facts" WHERE "is_active" = false);
+  -- 2. Orphan sweep (atomic + rerunnable): deactivate any active fact whose
+  --    parent is not an active root, so no live variant is stranded under an
+  --    inactive/missing root. Uses NOT EXISTS (an active-root parent match)
+  --    rather than "parent_id IN (inactive facts)": facts.parent_id carries no
+  --    FK, so a hard-deleted or otherwise nonexistent parent row would never
+  --    appear in an "inactive facts" set either — IN would silently never match
+  --    and leave the orphan active. NOT EXISTS catches both "parent is inactive"
+  --    and "parent row is gone" uniformly, and the parent_id IS NULL check on the
+  --    parent mirrors the same "active ROOT" definition activateFact enforces.
+  --    Variants are one level deep (parent is always a root); a single pass
+  --    covers the model and re-runs to a no-op once none remain.
+  UPDATE "facts" AS f SET "is_active" = false
+  WHERE f."is_active" = true
+    AND f."parent_id" IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM "facts" AS p
+      WHERE p."id" = f."parent_id" AND p."is_active" = true AND p."parent_id" IS NULL
+    );
   GET DIAGNOSTICS v_orphans = ROW_COUNT;
 
   -- 3. Grandfather sentinel: stamp the placeholder Visual Concept into remaining

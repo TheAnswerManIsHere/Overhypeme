@@ -91,11 +91,20 @@ export async function activateFact(
   }
 
   // 2. Variant parent revalidation — must still be an ACTIVE ROOT at commit time.
+  // `FOR UPDATE` locks the parent row for the rest of this transaction: without
+  // it, a plain SELECT doesn't block a concurrent deactivate (e.g. the admin
+  // PATCH) from flipping the parent inactive between this check and the child's
+  // activation UPDATE below (read-committed doesn't re-check the WHERE after the
+  // read) — the child could still activate under an about-to-be-inactive root.
+  // Locking forces any concurrent writer of this row to wait for this
+  // transaction to commit/rollback, so the check and the activation are atomic
+  // with respect to the parent's active-root state.
   if (parentId != null) {
     const [parent] = await tx
       .select({ id: factsTable.id })
       .from(factsTable)
       .where(and(eq(factsTable.id, parentId), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+      .for("update")
       .limit(1);
     if (!parent) {
       throw new ParentNotActiveError(parentId);
@@ -113,4 +122,31 @@ export async function activateFact(
     throw new ActivationConflictError(factId);
   }
   return activated[0];
+}
+
+/**
+ * Cascade-deactivate a fact's currently-active children (Phase 2 fact-lifecycle
+ * closure). The invariant "an active variant's parent is an active root" must
+ * hold not just at activation time (enforced above) but for the LIFETIME of the
+ * variant — so every path that can flip a fact `true → false` (the admin PATCH
+ * deactivate, a text edit that also deactivates) must close this: deactivating a
+ * root while it still has active children would otherwise strand them, active,
+ * under a now-inactive parent (they'd vanish from the public `/facts` feed, which
+ * only returns active roots, while `parent_id`-based detail/variant lookups still
+ * treat the root as canonical).
+ *
+ * A single guarded UPDATE, not a SELECT-then-loop, so it's atomic within the
+ * caller's transaction and a no-op (0 rows) when there's nothing to cascade —
+ * safe to call unconditionally after any `is_active` write that might have just
+ * deactivated a root. `factId` may be a root or a variant; a variant has no
+ * children by construction (variants are one level deep — creating a variant of
+ * a variant is rejected), so calling this on a variant is always a harmless no-op.
+ */
+export async function cascadeDeactivateActiveChildren(tx: DbExecutor, factId: number): Promise<number> {
+  const deactivated = await tx
+    .update(factsTable)
+    .set({ isActive: false })
+    .where(and(eq(factsTable.parentId, factId), eq(factsTable.isActive, true)))
+    .returning({ id: factsTable.id });
+  return deactivated.length;
 }

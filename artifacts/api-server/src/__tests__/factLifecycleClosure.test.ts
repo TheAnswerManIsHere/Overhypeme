@@ -20,6 +20,7 @@ import { eq, inArray, like, sql } from "drizzle-orm";
 
 import {
   activateFact,
+  cascadeDeactivateActiveChildren,
   ConceptMissingError,
   ParentNotActiveError,
   ActivationConflictError,
@@ -89,6 +90,15 @@ async function insertInactive(text: string, opts: { concept?: string | null; par
   return row.id;
 }
 
+async function insertActive(text: string, opts: { parentId?: number } = {}): Promise<number> {
+  const [row] = await db
+    .insert(factsTable)
+    .values({ text, isActive: true, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() })
+    .returning({ id: factsTable.id });
+  ids.push(row.id);
+  return row.id;
+}
+
 describe("activateFact — the sole activation chokepoint", () => {
   it("activates an inactive fact that has a concept + matching text", async () => {
     const text = `${PREFIX}activate-ok`;
@@ -130,5 +140,104 @@ describe("activateFact — the sole activation chokepoint", () => {
     );
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.isActive, false);
+  });
+});
+
+describe("cascadeDeactivateActiveChildren", () => {
+  it("deactivates only the currently-active children of the given fact", async () => {
+    const rootId = await insertActive(`${PREFIX}cascade-root`);
+    const activeChild = await insertActive(`${PREFIX}cascade-active-child`, { parentId: rootId });
+    const alreadyInactiveChild = await insertInactive(`${PREFIX}cascade-inactive-child`, { parentId: rootId });
+    const unrelated = await insertActive(`${PREFIX}cascade-unrelated`);
+
+    const count = await db.transaction((tx) => cascadeDeactivateActiveChildren(tx, rootId));
+    assert.equal(count, 1, "only the one active child should be reported deactivated");
+
+    const rows = await db
+      .select({ id: factsTable.id, isActive: factsTable.isActive })
+      .from(factsTable)
+      .where(inArray(factsTable.id, [rootId, activeChild, alreadyInactiveChild, unrelated]));
+    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
+    assert.equal(byId.get(rootId), true, "the root itself is untouched by the cascade call");
+    assert.equal(byId.get(activeChild), false, "the active child is deactivated");
+    assert.equal(byId.get(alreadyInactiveChild), false, "the already-inactive child is unaffected (still false)");
+    assert.equal(byId.get(unrelated), true, "an unrelated active fact is untouched");
+  });
+
+  it("is a harmless no-op when called on a variant (which has no children)", async () => {
+    const rootId = await insertActive(`${PREFIX}cascade-noop-root`);
+    const variantId = await insertActive(`${PREFIX}cascade-noop-variant`, { parentId: rootId });
+    const count = await db.transaction((tx) => cascadeDeactivateActiveChildren(tx, variantId));
+    assert.equal(count, 0);
+  });
+});
+
+describe("PATCH /admin/facts/:id — deactivating a root cascades to active variants", () => {
+  it("cascades: deactivating an active root also deactivates its active children", async () => {
+    const rootId = await insertActive(`${PREFIX}patch-cascade-root`);
+    const childId = await insertActive(`${PREFIX}patch-cascade-child`, { parentId: rootId });
+
+    // Exercise the exact write shape the admin.ts PATCH branch uses: update the
+    // target then cascade in the same transaction when isActive is set false.
+    await db.transaction(async (tx) => {
+      await tx.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, rootId));
+      await cascadeDeactivateActiveChildren(tx, rootId);
+    });
+
+    const rows = await db
+      .select({ id: factsTable.id, isActive: factsTable.isActive })
+      .from(factsTable)
+      .where(inArray(factsTable.id, [rootId, childId]));
+    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
+    assert.equal(byId.get(rootId), false);
+    assert.equal(byId.get(childId), false, "the variant must not be left active under an inactive root");
+  });
+});
+
+describe("Migration 0092 orphan sweep — NOT EXISTS(active root parent)", () => {
+  const sweepSql = sql`
+    UPDATE "facts" AS f SET "is_active" = false
+    WHERE f."is_active" = true
+      AND f."parent_id" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "facts" AS p
+        WHERE p."id" = f."parent_id" AND p."is_active" = true AND p."parent_id" IS NULL
+      )
+  `;
+
+  it("deactivates an active variant whose parent row no longer exists (hard-deleted)", async () => {
+    const rootId = await insertInactive(`${PREFIX}sweep-deleted-root`);
+    const variantId = await insertActive(`${PREFIX}sweep-orphan-variant`, { parentId: rootId });
+    // Hard-delete the parent, orphaning the variant's parent_id (no FK enforces referential integrity here).
+    await db.delete(factsTable).where(eq(factsTable.id, rootId));
+    ids.splice(ids.indexOf(rootId), 1);
+
+    await db.execute(sweepSql);
+
+    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId));
+    assert.equal(row.isActive, false, "an orphaned (parent-deleted) active variant must be swept inactive");
+  });
+
+  it("deactivates an active variant whose parent is inactive", async () => {
+    const rootId = await insertInactive(`${PREFIX}sweep-inactive-root`);
+    const variantId = await insertActive(`${PREFIX}sweep-inactive-parent-variant`, { parentId: rootId });
+
+    await db.execute(sweepSql);
+
+    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId));
+    assert.equal(row.isActive, false);
+  });
+
+  it("leaves an active variant under an active root untouched", async () => {
+    const rootId = await insertActive(`${PREFIX}sweep-active-root`);
+    const variantId = await insertActive(`${PREFIX}sweep-active-variant`, { parentId: rootId });
+
+    await db.execute(sweepSql);
+
+    const rows = await db
+      .select({ id: factsTable.id, isActive: factsTable.isActive })
+      .from(factsTable)
+      .where(inArray(factsTable.id, [rootId, variantId]));
+    for (const r of rows) assert.equal(r.isActive, true);
   });
 });
