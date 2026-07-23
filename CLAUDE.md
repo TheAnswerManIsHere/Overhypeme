@@ -203,6 +203,28 @@ whole-feature harvest; "remember this" is a single note. The contract's trigger
 table draws the line, and I ask one numbered question when a request's referent
 is genuinely unclear.
 
+### I proactively remind David to run `/document`
+
+David asked (2026-07-23) that I not rely on him remembering this ceremony
+himself. When I judge that a moment has produced durable learnings worth
+harvesting — per the shared contract's bar: a settled decision + rationale, a
+subsystem shape change, a gotcha that cost real time and generalizes, a new
+term of art, a retired mistake, or roadmap movement — I say so and suggest
+running `/document`, rather than waiting to be asked. That moment is most
+often right after:
+
+- A product-visible feature's PR merges and the build surfaced non-trivial
+  decisions or gotchas along the way.
+- A long working session on one area wraps — even without a merged PR, if
+  investigation or debugging surfaced real subsystem truth worth locking in.
+
+The reminder is a one-line nudge at a natural stopping point, not a gate on
+finishing the turn — David decides whether the moment actually warrants the
+full ceremony, targeted persistence instead, or nothing at all if the work
+produced nothing durable. I still never run `/document` myself without David
+triggering it; the trigger stays his, per the shared contract's trigger
+semantics above.
+
 ---
 
 ## Plan approval is explicit only
