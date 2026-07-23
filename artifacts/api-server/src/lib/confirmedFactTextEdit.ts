@@ -38,7 +38,7 @@ import {
   hasNonterminalPrepJobs,
 } from "./factTextEditProtection";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "./firstTimeStagingPrep";
-import { cascadeDeactivateActiveChildren } from "./factActivation";
+import { cascadeDeactivateActiveChildren, assertReparentAllowed, type ReparentGuardFailure } from "./factActivation";
 
 type FactRow = typeof factsTable.$inferSelect;
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -53,6 +53,7 @@ export type FactTextEditOutcome =
   | { kind: "invalid_confirmation"; message: string }
   | { kind: "dependent_variant_in_progress"; blockingVariants: BlockingVariant[]; affectedVariantCount: number }
   | { kind: "staging_prep_in_progress" }
+  | { kind: "reparent_rejected"; failure: ReparentGuardFailure }
   | { kind: "protected_committed"; fact: FactRow; auditRowId: number; affectedVariantCount: number }
   | { kind: "staging_restarted"; fact: FactRow; prepDispatch: PrepDispatchState };
 
@@ -124,6 +125,23 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
     // 2. Lock the fact row; compare normalized-proposed vs locked-stored text.
     const [fact] = await tx.select().from(factsTable).where(eq(factsTable.id, args.factId)).for("update").limit(1);
     if (!fact) return { kind: "not_found" };
+
+    // Active-root parent invariant (Phase 2 fact-lifecycle closure): a PATCH
+    // that carries BOTH `text` and `parentId` reaches this service instead of
+    // the non-text branch in admin.ts, which is the only other place this
+    // guard is enforced — so it must be repeated here, or a text-edit request
+    // could reparent an active fact under an inactive/missing root or strand
+    // its own active variants. `fact.isActive` is the just-locked, authoritative
+    // read (unlike admin.ts's non-text branch, which decides whether to guard
+    // from a pre-transaction SELECT) — self-parenting is already rejected by
+    // admin.ts before this service is called, since it's a request-scoped
+    // comparison with no TOCTOU risk.
+    const reparenting = args.nonTextUpdates.parentId !== undefined && args.nonTextUpdates.parentId !== null;
+    const reparentStaysActive = reparenting && fact.isActive && args.nonTextUpdates.isActive !== false;
+    if (reparentStaysActive) {
+      const failure = await assertReparentAllowed(tx, { factId: fact.id, parentId: args.nonTextUpdates.parentId as number });
+      if (failure) return { kind: "reparent_rejected", failure };
+    }
 
     const textColumns = {
       text: normalized.text,

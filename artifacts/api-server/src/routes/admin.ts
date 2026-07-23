@@ -43,7 +43,7 @@ import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } fr
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
-import { cascadeDeactivateActiveChildren } from "../lib/factActivation";
+import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
@@ -917,34 +917,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
     const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
       if (reparentStaysActive) {
-        const [parent] = await tx
-          .select({ id: factsTable.id })
-          .from(factsTable)
-          .where(and(eq(factsTable.id, nonTextUpdates.parentId as number), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
-          .for("update")
-          .limit(1);
-        if (!parent) {
-          return {
-            kind: "guard",
-            status: 400,
-            body: { error: `Fact #${nonTextUpdates.parentId} is not an active root, so this active fact can't be pointed at it as a variant.`, code: "PARENT_NOT_ACTIVE" },
-          };
-        }
-        // Variants are one level deep (a root's parentId is always null) — the
-        // feed/detail variant queries assume this. If `id` is itself a root
-        // with active children and this write turns it into a variant, those
-        // children would become active-but-orphaned "variants of a variant."
-        const [activeChild] = await tx
-          .select({ id: factsTable.id })
-          .from(factsTable)
-          .where(and(eq(factsTable.parentId, id), eq(factsTable.isActive, true)))
-          .limit(1);
-        if (activeChild) {
-          return {
-            kind: "guard",
-            status: 400,
-            body: { error: "This fact has active variants of its own — reparenting it would strand them. Deactivate or reparent its variants first.", code: "HAS_ACTIVE_VARIANTS" },
-          };
+        const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
+        if (failure) {
+          return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
         }
       }
       const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
@@ -992,6 +967,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       return;
     case "staging_prep_in_progress":
       res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
+      return;
+    case "reparent_rejected":
+      res.status(400).json({ error: outcome.failure.message, code: outcome.failure.code });
       return;
     case "no_text_change":
       respondFactUpdate(res, outcome.fact);

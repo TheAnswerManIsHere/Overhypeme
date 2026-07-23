@@ -90,10 +90,19 @@ export async function activateFact(
   { factId, parentId, expectedText, expectedEnrichment }: { factId: number; parentId?: number | null; expectedText: string; expectedEnrichment?: unknown },
 ): Promise<{ id: number }> {
   // 1. Re-read the row inside the tx and assert the concept is still present.
+  // `FOR UPDATE` locks the fact row for the rest of this transaction: without
+  // it, a concurrent admin edit to the enrichment could commit between this
+  // read and the activation UPDATE below (which never re-checks enrichment,
+  // only is_active/text) — the expectedEnrichment comparison would pass
+  // against a blob that's no longer what actually gets activated. Locking
+  // forces any concurrent writer of this row to wait for this transaction to
+  // commit/rollback, so the read, the comparison, and the activation are all
+  // atomic with respect to the row's enrichment.
   const [row] = await tx
     .select({ enrichment: factsTable.enrichment })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
+    .for("update")
     .limit(1);
   if (!row || coreScene(row.enrichment) == null) {
     throw new ConceptMissingError(factId);
@@ -134,6 +143,62 @@ export async function activateFact(
     throw new ActivationConflictError(factId);
   }
   return activated[0];
+}
+
+/** A PATCH reparent of an active fact was rejected — the caller maps this to a 400. */
+export type ReparentGuardFailure =
+  | { code: "PARENT_NOT_ACTIVE"; message: string }
+  | { code: "HAS_ACTIVE_VARIANTS"; message: string };
+
+/**
+ * Validate (and lock) a new parent for a fact that IS or WILL REMAIN active
+ * (Phase 2 fact-lifecycle closure). Must run inside the caller's transaction,
+ * with the target fact's own row already locked, so this check and the write
+ * that follows are atomic. Returns `null` when the reparent is allowed, or a
+ * failure to surface as a 400 — never throws, since both call sites (the
+ * admin PATCH's non-text branch, and the text-edit lock service for a PATCH
+ * that also carries `text`) need to map it to their own response shape.
+ *
+ * Mirrors `activateFact`'s own parent revalidation exactly (same active-root
+ * definition, same `FOR UPDATE` lock) so that editing an active fact's
+ * `parentId` can't reintroduce the orphan/stranded-variant states activation
+ * itself already prevents. Two call sites exist because `PATCH
+ * /admin/facts/:id` forks into two independent write paths depending on
+ * whether `text` is present (see confirmedFactTextEdit.ts) — this is the one
+ * piece of PATCH validation both paths must share.
+ */
+export async function assertReparentAllowed(
+  tx: DbExecutor,
+  { factId, parentId }: { factId: number; parentId: number },
+): Promise<ReparentGuardFailure | null> {
+  const [parent] = await tx
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, parentId), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+    .for("update")
+    .limit(1);
+  if (!parent) {
+    return {
+      code: "PARENT_NOT_ACTIVE",
+      message: `Fact #${parentId} is not an active root, so this active fact can't be pointed at it as a variant.`,
+    };
+  }
+  // Variants are one level deep (a root's parentId is always null) — the
+  // feed/detail variant queries assume this. If `factId` is itself a root
+  // with active children and this write turns it into a variant, those
+  // children would become active-but-orphaned "variants of a variant."
+  const [activeChild] = await tx
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(and(eq(factsTable.parentId, factId), eq(factsTable.isActive, true)))
+    .limit(1);
+  if (activeChild) {
+    return {
+      code: "HAS_ACTIVE_VARIANTS",
+      message: "This fact has active variants of its own — reparenting it would strand them. Deactivate or reparent its variants first.",
+    };
+  }
+  return null;
 }
 
 /**
