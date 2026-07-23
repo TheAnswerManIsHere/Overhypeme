@@ -94,7 +94,8 @@ Two structured recon passes (activation paths + design details) covered:
   (`submit-review`).
 - Codegen contract: `lib/api-spec/openapi.yaml`, generated `@workspace/api-zod`
   and `@workspace/api-client-react`, `artifacts/overhype-me/src/hooks/use-mutations.ts`.
-- Seed/scripts: `lib/seed.ts`, `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`.
+- Seed/scripts: `artifacts/api-server/src/lib/seed.ts` (`seedIfEmpty()`),
+  `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`.
 - Docs: `docs/ai-context/moderation-workflow.md`, `visual-pipeline.md`,
   `decisions.md`, `docs/engineering/migrations-and-backfills.md`.
 
@@ -104,10 +105,14 @@ Two structured recon passes (activation paths + design details) covered:
 - **Manual submit** (`POST /facts/submit-review`) → creates a `pendingReviews`
   row at `workflowStage: "triage_pending"`, `enrichment: null`. No fact row yet
   (cost gate). Correct.
-- **Activation** happens at exactly one place: `approveForProduction`
-  (`reviews.ts:741-748`) flips a pre-existing inactive staging fact to
-  `isActive: true` and sets `parentId`. It is concept-gated (`reviews.ts:687`,
-  `CONCEPT_MISSING`), hashtags-gated, and render-gated.
+- **Activation** — the intended path is `approveForProduction`
+  (`reviews.ts:741-748`), which flips a pre-existing inactive staging fact to
+  `isActive: true` and sets `parentId`, concept-gated (`reviews.ts:687`,
+  `CONCEPT_MISSING`), hashtags-gated, and render-gated. **But it is NOT the only
+  false→true writer today:** `PATCH /admin/facts/:id` (`admin.ts`) also copies the
+  body's `isActive` straight into `factsTable` (`nonTextUpdates`), so the admin
+  "Active" toggle can flip a fact live outside moderation. Phase 2 closes that
+  (route its false→true through `activateFact`) — see Design A.2.
 - **`parentId`** is carried on the *staging fact* (`facts.parent_id`), set at
   provisional-approve from the request body → `ensureStagingFact` →
   `approveForProduction`. `pendingReviews` has **no parent column**.
@@ -150,10 +155,11 @@ Stage-1 review.**
 1. **Invert the storage default:** `facts.is_active` → `.notNull().default(false)`.
    Facts are born inactive; activation is now an explicit, opt-in act. Make **every
    seed/reseed script** that inserts active facts explicit *and* concept-valid —
-   `scripts/src/seed.ts` (relies on the old default), `scripts/src/reseed-facts.ts`
-   and `lib/seed.ts` (explicitly insert `isActive: true` with no concept, Codex P2
-   round 3) — either seed a valid enrichment with a concept or insert inactive, or
-   they'll violate the CHECK.
+   `scripts/src/seed.ts` (relies on the old default), `scripts/src/reseed-facts.ts`,
+   and **`artifacts/api-server/src/lib/seed.ts`** (`seedIfEmpty()`, the production
+   startup seed — explicitly inserts `isActive: true` with no concept; the earlier
+   draft's `lib/seed.ts` path was wrong, Codex P3 round 4) — either seed a valid
+   enrichment with a concept or insert inactive, or they'll violate the CHECK.
 2. **Single `false → true` writer — audit ALL activation writers, not just inserts.**
    A shared helper `activateFact(tx, { factId, parentId, expectedText })` in
    `lib/factActivation.ts` (new). It performs the guarded update currently inline
@@ -316,7 +322,8 @@ added VALID.
 
 ## Data Model and Migration Impact
 
-Three schema/data changes, sequenced in one migration series:
+Four schema/data changes, sequenced in one migration series (after the code that
+closes the bypass writers has shipped — see the ordering note below):
 
 1. **`facts.is_active` default `true` → `false`** (schema change; affects future
    inserts only — no existing row changes).
@@ -331,9 +338,14 @@ Three schema/data changes, sequenced in one migration series:
 4. **`facts_active_requires_concept` CHECK constraint**, added **VALID after** the
    backfill.
 
-**Ordering (must hold):** default-flip + column-add → backfill → add CHECK VALID.
-If the CHECK is added before the backfill it rejects the grandfathered rows and
-the migration fails.
+**Ordering (must hold):** default-flip + column-add → **close every ingestion/
+activation writer** (bulk import, variants, `POST /facts`, admin-PATCH
+false→true) → backfill → add CHECK VALID. Two reasons the writer-closure must come
+*before* backfill+CHECK: (1) if the CHECK is added before the backfill it rejects
+the grandfathered rows and the migration fails; (2) if a live writer is still open
+during a rolling deploy, it can insert a fresh `is_active=true, enrichment=NULL`
+violator between the backfill scan and `ADD CONSTRAINT` (Codex round 3). See the
+Implementation Steps for the full order.
 
 **Idempotency / observability / rollback** (per
 `docs/engineering/migrations-and-backfills.md`):
@@ -471,8 +483,9 @@ produce a violator.
    revalidation wired but inert until variants carry a parent in step 6); route
    `approveForProduction` through it. Test 2. (Tree stays green; behavior identical.)
 2. **Default flip + seed/reseed fix:** flip `is_active` default; make
-   `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`, and `lib/seed.ts`
-   explicit + concept-valid (or inactive). Test 3.
+   `scripts/src/seed.ts`, `scripts/src/reseed-facts.ts`, and
+   `artifacts/api-server/src/lib/seed.ts` (`seedIfEmpty()`) explicit +
+   concept-valid (or inactive). Test 3.
 3. **Close the ingestion/activation writers (all before the constraint):**
    - `createTriageReview` extraction; refactor manual submit onto it (identical).
    - Bulk import reroute (×3) → `createTriageReview`; dedup; normalizer reconcile;
