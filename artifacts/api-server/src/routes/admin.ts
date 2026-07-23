@@ -831,6 +831,32 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
+  // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
+  // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
+  // ACTIVATE one: a false→true flip here would bypass the entire production gate
+  // that approveForProduction/activateFact enforce (Visual Concept check,
+  // active-root parent revalidation, the pending_reviews transition,
+  // production-approval recording, submitter notification). To bring a
+  // deactivated fact back, re-moderate it. So: reject any false→true request;
+  // asserting isActive=true on an already-active fact is a harmless no-op that we
+  // simply drop.
+  if (nonTextUpdates.isActive === true) {
+    const [current] = await db
+      .select({ isActive: factsTable.isActive })
+      .from(factsTable)
+      .where(eq(factsTable.id, id))
+      .limit(1);
+    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+    if (current.isActive === false) {
+      res.status(400).json({
+        error: "A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
+        code: "ACTIVATION_REQUIRES_MODERATION",
+      });
+      return;
+    }
+    delete nonTextUpdates.isActive;
+  }
+
   // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
   if (text === undefined) {
     if (Object.keys(nonTextUpdates).length === 0) {
