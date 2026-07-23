@@ -30,7 +30,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, factTextEditHistoryTable, pendingReviewsTable } from "@workspace/db/schema";
-import { like, eq } from "drizzle-orm";
+import { like, eq, inArray } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
@@ -457,6 +457,59 @@ describe("PATCH /admin/facts/:id", () => {
     assert.ok(row);
     assert.equal(row.text, original, "text must not change on grammar-invalid update");
   });
+
+  it("rejects pointing an ACTIVE fact's parentId at a fact that isn't an active root", async () => {
+    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} stays active`);
+    const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive target`, { isActive: false });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${activeFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: inactiveTarget });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "PARENT_NOT_ACTIVE");
+
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
+    assert.equal(row.parentId, null, "parentId must not have been written");
+  });
+
+  it("allows pointing an ACTIVE fact's parentId at a genuine active root", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} genuine root`);
+    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} becomes a variant`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${activeFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: rootId });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
+    assert.equal(row.parentId, rootId);
+  });
+
+  it("allows an inactive fact's parentId to be set freely (activateFact revalidates later)", async () => {
+    const inactiveFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive edit`, { isActive: false });
+    const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive parent target`, { isActive: false });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${inactiveFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: inactiveTarget });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, inactiveFact));
+    assert.equal(row.parentId, inactiveTarget);
+  });
+
+  it("deactivating a root via this PATCH cascades to its active variants", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} cascade-patch root`);
+    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} cascade-patch child`, { parentId: rootId });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: false });
+    assert.equal(res.status, 200);
+
+    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootId, childId]));
+    for (const r of rows) assert.equal(r.isActive, false);
+  });
 });
 
 // ── POST /admin/facts/:id/variants ────────────────────────────────────────────
@@ -587,6 +640,34 @@ describe("DELETE /admin/facts/:id", () => {
       .set("authorization", `Bearer ${userSid}`);
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
+  });
+
+  it("soft-delete of a root cascades to its active variants", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete root`);
+    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete child`, { parentId: rootId });
+    const res = await request(makeApp())
+      .delete(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deleted, false);
+
+    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootId, childId]));
+    for (const r of rows) assert.equal(r.isActive, false, "both root and its variant must be inactive");
+  });
+
+  it("hard-delete of a root cascades to its active variants (never left orphaned+active)", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete root`);
+    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete child`, { parentId: rootId });
+    const res = await request(makeApp())
+      .delete(`/admin/facts/${rootId}?hard=true`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deleted, true);
+
+    const [rootRow] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, rootId));
+    assert.equal(rootRow, undefined, "root should be hard-deleted");
+    const [childRow] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, childId));
+    assert.equal(childRow.isActive, false, "the orphaned variant must be deactivated, not left active");
   });
 });
 

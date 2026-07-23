@@ -21,7 +21,7 @@ import request from "supertest";
 import { db, factsTable, usersTable } from "@workspace/db";
 import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -47,6 +47,7 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
+    visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
     ...overrides,
   };
 }
@@ -76,7 +77,11 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   ): Promise<number> {
     const [r] = await db
       .insert(factsTable)
-      .values({ text, submittedById: adminUserId, enrichment, ...cols })
+      // A fully-missing enrichment blob can no longer satisfy the DB's
+      // facts_active_requires_concept CHECK, so this fixture models it as an
+      // inactive (never-activated) fact — matching the new invariant that an
+      // active fact always carries a concept.
+      .values({ text, submittedById: adminUserId, enrichment, isActive: enrichment != null, ...cols })
       .returning({ id: factsTable.id });
     factIds.push(r!.id);
     return r!.id;
@@ -136,7 +141,14 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   });
 
   it("missing_enrichment / stale / projection filters select the right rows", async () => {
-    assert.ok((await listIds("missing_enrichment")).includes(missingId));
+    // The missing-enrichment fixture is necessarily INACTIVE (Phase 2's
+    // facts_active_requires_concept CHECK makes an active fact with no
+    // enrichment impossible), and /admin/taxonomy-health/facts scopes to active
+    // facts only — so "active + missing_enrichment" can no longer occur via the
+    // real system. The filter itself is unchanged (out of scope for this PR);
+    // assert it correctly returns nothing for this now-unreachable case rather
+    // than asserting an impossible inclusion.
+    assert.ok(!(await listIds("missing_enrichment")).includes(missingId));
     assert.ok((await listIds("stale_enrichment_version")).includes(adminStaleId));
     assert.ok((await listIds("projection_mismatch")).includes(mismatchId));
   });
@@ -251,6 +263,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
       .values({
         text: TEXT("stale not reprocess"),
         submittedById: adminUserId,
+        isActive: true,
         enrichment: validEnrichment({ classificationPromptVersion: "v0-prehistoric" }),
         lastProcessedSignature: currentSig,
         ...MATCHING_COLS,
@@ -273,7 +286,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   it("refreshInReview is true for a fact with an in-flight refresh candidate, false otherwise", async () => {
     const [f] = await db
       .insert(factsTable)
-      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
       .returning({ id: factsTable.id });
     factIds.push(f!.id);
     await db.insert(factEnrichmentVersionsTable).values({

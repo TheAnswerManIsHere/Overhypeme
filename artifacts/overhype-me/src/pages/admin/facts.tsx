@@ -493,7 +493,6 @@ export default function AdminFacts() {
   const [variants, setVariants] = useState<FactVariant[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [newVariantText, setNewVariantText] = useState("");
-  const [newVariantUseCase, setNewVariantUseCase] = useState("");
   const [addingVariant, setAddingVariant] = useState(false);
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -682,7 +681,6 @@ export default function AdminFacts() {
     setSaveResult(null);
     setShowAddVariant(false);
     setNewVariantText("");
-    setNewVariantUseCase("");
     setPipelineResult(null);
     // Fetch variants for root facts
     if (fact.parentId === null) {
@@ -759,17 +757,18 @@ export default function AdminFacts() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: newVariantText.trim(), useCase: newVariantUseCase || null }),
+        body: JSON.stringify({ text: newVariantText.trim() }),
       });
       const data = (await res.json()) as { success?: boolean; queued?: boolean; reviewId?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to add variant");
       // A variant is now a normal moderated submission: it enters the triage
       // queue instead of appearing immediately, and shows up nested under its
-      // parent only once it's approved through moderation.
+      // parent only once it's approved through moderation. use_case has no home
+      // pre-moderation (createTriageReview carries no such field, and the fact
+      // doesn't exist yet) — set it via the normal fact editor once approved.
       setNewVariantText("");
-      setNewVariantUseCase("");
       setShowAddVariant(false);
-      alert("Variant queued for review. It'll appear under this fact once it's approved through moderation.");
+      alert("Variant queued for review. It'll appear under this fact once it's approved through moderation. Set its use case afterward from the fact editor.");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add variant");
     } finally {
@@ -1405,20 +1404,10 @@ export default function AdminFacts() {
                       className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
                     />
                     <div className="flex gap-2">
-                      <input
-                        list="use-case-options-new"
-                        value={newVariantUseCase}
-                        onChange={(e) => setNewVariantUseCase(e.target.value)}
-                        placeholder="use_case (e.g. one_line)"
-                        className="flex-1 h-8 px-2 bg-background border border-border rounded-sm text-xs font-mono focus:outline-none focus:border-primary"
-                      />
-                      <datalist id="use-case-options-new">
-                        {USE_CASE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
-                      </datalist>
                       <Button size="sm" onClick={addVariant} isLoading={addingVariant} disabled={!newVariantText.trim()}>
                         Add
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); setNewVariantUseCase(""); }}>
+                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); }}>
                         Cancel
                       </Button>
                     </div>

@@ -779,12 +779,26 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   const hard = req.query["hard"] === "true";
 
   try {
+    // Removing a root (soft or hard) that still has active variants would leave
+    // them active under an inactive/missing parent — the same orphan state
+    // cascadeDeactivateActiveChildren exists to prevent elsewhere. facts.parent_id
+    // has no FK/ON DELETE behavior, so a hard delete in particular would strand
+    // them indefinitely (nothing else ever revisits them). Cascade in the same
+    // transaction as the removal for both paths.
     if (hard) {
-      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+      const deleted = await db.transaction(async (tx) => {
+        await cascadeDeactivateActiveChildren(tx, id);
+        const [row] = await tx.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+        return row;
+      });
       if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
       res.json({ success: true, deleted: true });
     } else {
-      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
+        return row;
+      });
       if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
       res.json({ success: true, deleted: false });
     }
@@ -834,6 +848,13 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
+  // Fetch current state once if either guard below needs it.
+  let current: { isActive: boolean } | undefined;
+  if (nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
+    [current] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+  }
+
   // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
   // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
   // ACTIVATE one: a false→true flip here would bypass the entire production gate
@@ -844,13 +865,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // asserting isActive=true on an already-active fact is a harmless no-op that we
   // simply drop.
   if (nonTextUpdates.isActive === true) {
-    const [current] = await db
-      .select({ isActive: factsTable.isActive })
-      .from(factsTable)
-      .where(eq(factsTable.id, id))
-      .limit(1);
-    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
-    if (current.isActive === false) {
+    if (current!.isActive === false) {
       res.status(400).json({
         error: "A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
         code: "ACTIVATION_REQUIRES_MODERATION",
@@ -858,6 +873,31 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       return;
     }
     delete nonTextUpdates.isActive;
+  }
+
+  // Active-root parent invariant: this PATCH's parentId field is otherwise
+  // unguarded, so an admin could point an ACTIVE fact at an inactive/missing/
+  // non-root parent, bypassing the same active-root revalidation activateFact
+  // performs at activation time — reintroducing exactly the orphan state Phase 2
+  // closes. Only matters when the target fact IS (or remains) active: a fact
+  // that's inactive, or being deactivated by this same request, can point
+  // anywhere (activateFact will revalidate whenever it's next activated).
+  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null) {
+    const staysActive = current!.isActive && nonTextUpdates.isActive !== false;
+    if (staysActive) {
+      const [parent] = await db
+        .select({ id: factsTable.id })
+        .from(factsTable)
+        .where(and(eq(factsTable.id, nonTextUpdates.parentId as number), eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+        .limit(1);
+      if (!parent) {
+        res.status(400).json({
+          error: `Fact #${nonTextUpdates.parentId} is not an active root, so this active fact can't be pointed at it as a variant.`,
+          code: "PARENT_NOT_ACTIVE",
+        });
+        return;
+      }
+    }
   }
 
   // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────

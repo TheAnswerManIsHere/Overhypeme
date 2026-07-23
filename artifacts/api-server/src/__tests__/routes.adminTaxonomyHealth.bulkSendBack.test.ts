@@ -22,7 +22,7 @@ import request from "supertest";
 import { db, factsTable, usersTable } from "@workspace/db";
 import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -48,6 +48,7 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
+    visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
     ...overrides,
   };
 }
@@ -135,7 +136,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     const rootId = await insertStaleFact(TEXT("variant root excluded"));
     const [variant] = await db
       .insert(factsTable)
-      .values({ text: TEXT("variant child"), submittedById: adminUserId, isActive: true, parentId: rootId })
+      .values({ text: TEXT("variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
       .returning({ id: factsTable.id });
     factIds.push(variant!.id);
     const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
@@ -222,7 +223,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     const rootId = await insertStaleFact(TEXT("selected variant root"));
     const [variant] = await db
       .insert(factsTable)
-      .values({ text: TEXT("selected variant child"), submittedById: adminUserId, isActive: true, parentId: rootId })
+      .values({ text: TEXT("selected variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
       .returning({ id: factsTable.id });
     factIds.push(variant!.id);
     const res = await request(app)
