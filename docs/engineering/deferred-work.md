@@ -118,8 +118,16 @@ re-gather it when the work is scheduled.
     packaging/typings, not API usage.
   - **Cost of waiting.** Low today — 0.34.5 works and has no known CVE. Grows
     if a security advisory lands on 0.34.x or we need a 0.35-only feature.
-  - **Revisit trigger.** sharp ships a typings-resolution fix (watch its
-    releases) **OR** a security advisory hits 0.34.x **OR** we schedule a
+  - **Update (2026-07-24).** The typings-resolution bug is already fixed —
+    sharp v0.35.1 (2026-06-11) shipped "Ensure type definitions are published
+    for both ESM and CJS" ([#4537](https://github.com/lovell/sharp/issues/4537),
+    per the [v0.35.1 changelog](https://sharp.pixelplumbing.com/changelog/v0.35.1/)).
+    That leg of the original trigger has fired — noted here so it isn't
+    re-discovered as a fresh trigger — but it isn't sufficient on its own: the
+    breaking-change surface and the Node ≥ 20.9.0 floor are still real, so this
+    stays parked pending a deliberate visual-pipeline upgrade. If/when we pick
+    this up, target **0.35.1+**, not raw 0.35.0.
+  - **Revisit trigger.** A security advisory hits 0.34.x **OR** we schedule a
     visual-pipeline dependency upgrade with UAT (Opus-tier). *The safe patches
     bundled in that same PR (drizzle-orm 0.45.2, vite 7.3.x, postcss 8.5.x) are
     **not** deferred — they re-land on their own via the next Dependabot group.*
@@ -134,17 +142,27 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** Next time we do meaningful charts work, or a security
     advisory on recharts v2, or the weekly maintenance sweep judges it overdue.
 
-- **GitHub Actions still targeting Node 20.**
+- **GitHub Actions still targeting Node 20 — READY, trigger fired.**
   - **What.** CI actions (`actions/checkout@v4`, `actions/setup-node@v4`,
     `pnpm/action-setup@v4`, `dependency-review-action@v4`) target Node 20;
     GitHub is deprecating Node 20 on runners and currently force-runs them on
     Node 24 with a warning.
-  - **Why deferred now.** Warnings only — the actions still run. Bumping to
-    majors purely for Node 24 support is low-value churn right now.
+  - **Why deferred (originally).** Warnings only — the actions still run.
+    Bumping to majors purely for Node 24 support was low-value churn while no
+    Node 24-native major existed yet.
+  - **Update (2026-07-24).** That's no longer true — verified against each
+    action's published `action.yml`: `actions/checkout` is at **v7** (Node 24
+    native; even ahead of the v5 first checked), `actions/setup-node`'s latest
+    major declares `using: node24`, `actions/dependency-review-action`'s latest
+    major declares `using: node24`, and `pnpm/action-setup@v6` declares
+    `using: node24`. The original trigger has fired for all four.
   - **Cost of waiting.** Bounded by GitHub's timeline: once the Node 20 fallback
-    is removed, un-updated actions break CI.
-  - **Revisit trigger.** When the action maintainers ship Node 24-native
-    majors, or GitHub announces a hard cutoff date — bump then.
+    is removed, un-updated actions break CI. No longer just a future risk —
+    the fix is available now.
+  - **Revisit trigger.** None remaining — this is ready to action. Bump all
+    four to their latest majors across `.github/workflows/*.yml` (mechanical,
+    self-verifying via this repo's own CI) next `/maintenance` pass, or sooner
+    as a small standalone PR.
 
 ## Code-level tech debt
 
