@@ -1,17 +1,16 @@
-# Meme Builder Consolidation (Image) — Store-the-Preview Fix + Privacy + One Builder
+# Meme Builder Consolidation (Image) — One Shared Renderer, Stored Master + Privacy + One Builder
 
-> **Approach decided by David (2026-07-24): store the user's preview image.**
-> Root cause of the reported bugs is a regression: the old builder saved the
-> *exact preview bitmap* the user saw (`previewImageBase64`); the new wizard
-> dropped that and instead lets the server **re-draw** the meme from stored
-> fields via `generateMemeBuffer` — a separate, unfaithful reimplementation of
-> the client canvas. That re-draw is missing token substitution (the reported
-> `{NAME}` bug), the orange name-highlight, `textColor`, and vertical position.
-> Rather than re-implement the canvas on the server (the path rounds 3–7 of
-> review kept finding new gaps in), we **restore the store-the-preview path**:
-> the wizard sends the full-resolution rendered bitmap, the server stores and
-> serves it. Saved = served = exported = exactly what the user saw, by
-> construction. **Video is split to a separate rebuild** (appendix).
+> **Final architecture (David, 2026-07-24):** the client sends **parameters
+> only**; the server renders the meme **once at save time** using the **same
+> shared rendering module the preview uses**, and stores the result as a
+> **capped high-resolution master (~2400px long edge)**. The gallery, every
+> share/permalink, and print/merch all serve that frozen stored file. This
+> supersedes both prior approaches from earlier review rounds (patching the
+> divergent server renderer; uploading the client preview bitmap). Rationale:
+> merch/print is a launch requirement (needs re-derivable high-res), mobile
+> uplinks must not carry multi-MB uploads (the save payload stays tiny), and
+> the seven review rounds showed the true root cause was **two renderers that
+> drift** — so there will be exactly **one**.
 
 ## Concrete symptoms (David's reports)
 
@@ -19,97 +18,111 @@
 2. Screenshot: a saved meme's image reads `{NAME} ONCE THREW A GRENADE...`
    literally, while the sidebar text on the same page renders correctly.
 
-## Product intent
+## Product requirements (David, verbatim intent)
 
-- The saved/downloaded/permalinked meme image must be **exactly what the user
-  saw in the builder preview** — correct name/pronoun text (no raw tokens),
-  orange name highlight, chosen colors, and text position.
-- Legendary users can mark an image meme private again (unchanged behavior;
-  `docs/PR213_PRIVATE_MEME_ACCESS_UAT.md`).
-- One image builder: the wizard.
+1. **Stored for immediate retrieval.** Once generated, the meme bitmap is
+   stored and served directly in galleries — no on-demand re-render for
+   display.
+2. **Shares are frozen.** A shared meme renders exactly as it was when
+   created, forever. A later name change does **not** update it.
+3. **Explicit re-render creates a NEW meme.** If the user changes their name
+   and re-renders, that produces a new meme; the original is untouched (old
+   links/shares stay as-created).
+4. **Print-grade but bounded.** The stored master must be high-res enough for
+   any use including merch print, but capped — no storing huge images beyond
+   what print needs. **Decision: ~2400px long edge (~4–5MP), JPEG.**
+5. **Watermark is tier-gated.** Whether a meme carries the overhype.me
+   watermark is a **tier benefit**, wired into the tier plan matrix as a
+   feature flag (like `meme_private_visibility`). Which tiers get
+   watermark-free is **deliberately undecided** — the flag ships wired but
+   David sets the tier mapping later. Since masters are frozen snapshots, the
+   watermark state is baked at render time from the creator's tier at save.
 
 ## Repo context inspected
 
-- **The two pipelines.** `createMemeRecord.ts:302-359`: when the save payload
-  carries `previewImageBase64`, the server NSFW-classifies that bitmap and
-  uploads it as the meme image (`storedImageSource = null`). When it does NOT,
-  the image is produced later by `generateMemeBuffer`. The **serve/export
-  routes already prefer the stored bitmap**: `routes/memes.ts:622-624`,
-  `761-763`, `891-893` try `memeKey(slug,"jpg")`/`png` first and only fall
-  through to a `generateMemeBuffer` re-render (`:703`, `:818`, `:951`) when no
-  stored bitmap exists. So the store-the-bitmap path is fully supported
-  end-to-end; the wizard simply stopped using it.
-- **Only the dead builder still sends it.** `previewImageBase64` is sent by
-  exactly one component — the dead legacy `components/MemeBuilder.tsx`. The flat
-  builder and the wizard don't, which is why wizard memes hit the unfaithful
-  server re-draw and show raw tokens.
-- **Privacy toggle** — still fully wired server-side, never migrated into the
-  new UI: `memes.is_public` (`schema/memes.ts:23`), `meme_private_visibility`
-  flag (`0013_feature_flags.sql:25-40`), `createMemeRecord.ts:170-175`
-  (`canPrivate`/`isPublic`, currently always `true` because no client sends it),
-  `memeBuilder.ts:159` (`isPublic` optional). Reference UI: dead
-  `MemeBuilder.tsx:2116-2134`.
-- **Remix/cold-permalink** — `MemePage.tsx:209-239` jumps into editing with the
-  original's stock photo via `initialStockImageId`; the wizard has no
-  equivalent prop.
+- **Root cause of the reported token bug:** two divergent renderers. The
+  wizard preview draws client-side via `render-fact.ts` +
+  `LivePreview.tsx:153-216` (token substitution, orange name-highlight,
+  full styling); the saved image is re-drawn server-side by
+  `generateMemeBuffer` (`memeGenerator.ts`), which draws `topText`/`bottomText`
+  **verbatim** (`:378-380`, the `{NAME}` bug), fills one flat color (no
+  name-highlight), and reads a drifted options contract (`color` vs the
+  client's `textColor`; `verticalPosition` vs the client's `topY`/`bottomY`).
+  Server pronoun forms also diverge (`resolvedIdentityForms.ts:82-88` collapses
+  neopronouns to they-forms; client `render-fact.ts` has full `xe`/`ze` maps).
+- **Serve/export paths already prefer a stored bitmap** (`routes/memes.ts:
+  622-624, 761-763, 891-893`) and only fall back to `generateMemeBuffer` when
+  none exists — so "store at save, serve the file" fits the existing routes.
+- **Current save-time bitmap path is unusable for high-res**: 
+  `previewImageBase64` is capped at 700K chars (`memeBuilder.ts:160`) with a
+  2MB JSON body cap — one of the reasons the client-upload approach was
+  rejected (Codex round 8).
+- **Privacy** — fully wired server-side, no UI: `memes.is_public`
+  (`schema/memes.ts:23`), `meme_private_visibility` flag
+  (`0013_feature_flags.sql:25-40`), `createMemeRecord.ts:170-175`,
+  `memeBuilder.ts:159`. Reference toggle UI in dead `MemeBuilder.tsx:2116-2134`.
+- **Remix/cold-permalink** — `MemePage.tsx:209-239` pre-seeds the original's
+  stock photo via `initialStockImageId`; the wizard lacks the prop.
+- **Builder sprawl** — dead `components/MemeBuilder.tsx`, live flat
+  `meme-builder/MemeBuilder.tsx` (+`MemeStudio.tsx`/`BuilderOverlay.tsx`), and
+  the wizard behind `VITE_MBFO_WIZARD` (a no-rollout-flag violation).
 
 ## Settled decisions
 
-1. The **wizard is the one image builder**, everywhere.
-2. **Delete the legacy/duplicate builder frontend** (verified orphaned via
-   import graph): `components/MemeBuilder.tsx` (dead), `meme-builder/MemeBuilder.tsx`
-   (flat), `MemeStudio.tsx`, `pages/memePage/BuilderOverlay.tsx`, and the video-UI
-   frontend orphaned by `MemeStudio`'s deletion (`MemeStudioVideoTab.tsx`,
-   `MemeMagicVideo.tsx`, `VideoBuilder.tsx`), plus now-orphaned tests. **No video
-   backend is touched** (appendix). An `rg` sweep is a gating acceptance check:
-   no live import of any deleted component survives; the caller-less legacy
-   `POST /api/videos/generate` route is documented as a known deferred orphan.
-3. Remove the `VITE_MBFO_WIZARD` flag — the wizard ships on-by-default.
-4. `FactDetail.tsx` and `MemePage.tsx` both mount `MemeBuilderWizard` directly.
-5. Add `initialStockImageId` to the wizard so remix/cold-permalink keep their
-   one-tap UX.
-6. **PRIMARY FIX — the wizard sends the rendered bitmap.** On save, the wizard
-   renders the final meme to a bitmap at **full output resolution** (the aspect
-   ratio's real output dimensions, not the smaller on-screen preview canvas) and
-   includes it as `previewImageBase64` in the `POST /api/memes` payload — the
-   same mechanism the old builder used. The server already classifies and stores
-   it, and the serve/export routes already prefer it. Result: the saved, served,
-   and exported image is byte-identical to the preview — tokens, orange
-   name-highlight, colors, and position all correct by construction, with **no
-   server-side canvas re-implementation required.**
-   - **Full-resolution render.** The wizard's compositing (today in
-     `LivePreview`) must be reusable to produce the export-resolution bitmap, not
-     just the preview canvas — so stored image quality matches the download the
-     user expects. Reuse one client compositor for both preview and export.
-   - **Moderation retained.** The uploaded bitmap stays NSFW-classified server-
-     side (`createMemeRecord.ts:317-347`) — client bytes remain untrusted.
-   - **Snapshot semantics (intended).** The meme is a fixed snapshot of what the
-     user made; it does not re-render if the creator later edits their name/
-     pronouns. This is the correct behavior for a shared meme.
-7. **Idempotency key must include effective identity (kept from earlier review).**
-   Independent of the store-the-bitmap fix: `createMemeRecord`'s idempotency key
-   (`createMemeRecord.ts:229-237`) excludes name/pronouns, so two rapid saves of
-   the same fact differing only by name/pronouns dedupe — the second saver would
-   receive the first's meme (now the first's *bitmap*). Add `effectiveName` and
-   `effectivePronouns` (resolved: request → profile fallback → `"___"`) as
-   dedicated key fields. Test: two saves differing only by name/pronouns yield
-   two distinct memes; byte-identical repeats still dedupe.
-8. **Restore the legendary-gated Public/Private toggle** in the wizard's Step 2
-   image flow (mirroring the dead builder's UX); add `isPublic` to
-   `SaveMemePayload`/`buildSaveMemePayload()` so it reaches the existing
-   `createMemeRecord` path.
-9. **Server re-render (`generateMemeBuffer`) is now only a rare fallback** — it
-   fires if the bitmap upload fails at save (`createMemeRecord.ts:356-358`) or
-   when serving a meme that has no stored bitmap. Its fidelity gaps (unfaithful
-   neopronoun forms, `textColor`/`topY`/`bottomY` schema drift, no orange
-   name-highlight) are **documented as known degraded-mode limitations, not
-   fixed here** — the stored bitmap is the source of truth, so these paths are
-   effectively unreached for new wizard memes. (Hardening or retiring the server
-   re-render is a possible future cleanup, out of scope.)
+1. **One shared rendering module.** Extract the wizard preview's compositing
+   (token substitution via the client's full pronoun maps, orange
+   name-highlight segments, text styling/layout) into a shared, dependency-
+   light module that runs in the browser (preview) AND on the server via
+   `@napi-rs/canvas` (save-time master render). The preview and the master are
+   the same code — drift becomes impossible. The shared pronoun-form table
+   lives with it (folds in the earlier neopronoun-parity decision; parity
+   scope = the 5 allowlisted presets; `PronounsSchema`'s allowlist is a
+   deliberate security boundary, unchanged).
+2. **Save flow:** wizard POSTs parameters (fact, source image ref, name/
+   pronouns, styling, split, framing, aspect) → `createMemeRecord` resolves
+   the effective identity, renders the master **once** with the shared module
+   at ~2400px long edge, NSFW-classifies the rendered output, stores it, and
+   persists the render parameters + `renderedFactText` snapshot alongside.
+   `previewImageBase64` is **removed from the save schema** (no client bitmap
+   path remains; the field dies with the dead builder).
+3. **Serve flow:** gallery/permalink/OG/export/Zazzle all serve the stored
+   master (downscaling on the fly where a smaller variant is needed).
+   `generateMemeBuffer`'s at-request re-render path is **deleted, not
+   demoted** — with the master guaranteed at save, a bitmap-less meme is an
+   invariant violation, not a mode. (Kills Codex round-8's fallback-identity
+   and cleanup-predicate hazards: no fallback exists to misrepresent, and a
+   failed master render **fails the save** rather than persisting a
+   degraded row.)
+4. **Re-render = new meme.** A user can re-render after a profile change;
+   it creates a new meme row + master; the original is untouched.
+5. **Watermark tier flag.** Add a watermark feature flag to the tier plan
+   matrix (wired like `meme_private_visibility`); the shared renderer applies
+   or omits the watermark at save based on the creator's tier. Tier mapping
+   left for David to set later; current default: watermark on for all tiers
+   (today's behavior).
+6. **Privacy toggle restored** in the wizard Step 2 image flow (legendary-
+   gated, mirroring the dead builder's UX); `isPublic` added to
+   `SaveMemePayload`/`buildSaveMemePayload()`.
+7. **Idempotency key carries effective identity** — `effectiveName` and
+   `effectivePronouns` as dedicated mandatory fields (resolved request →
+   profile → `"___"`), computed before the key; rendered text is not an
+   acceptable substitute. Two saves differing only by name or pronouns never
+   collapse; byte-identical repeats still dedupe.
+8. **One image builder.** Wizard mounted from `FactDetail.tsx` and
+   `MemePage.tsx`; `VITE_MBFO_WIZARD` removed; delete the legacy island
+   (`components/MemeBuilder.tsx`, flat `meme-builder/MemeBuilder.tsx`,
+   `MemeStudio.tsx`, `BuilderOverlay.tsx`, and the orphaned video-UI trio
+   `MemeStudioVideoTab.tsx`/`MemeMagicVideo.tsx`/`VideoBuilder.tsx`) plus
+   orphaned tests. Gating `rg` sweep: no live import of any deleted component;
+   the caller-less legacy `POST /api/videos/generate` route is documented as a
+   deferred orphan (video backend untouched — appendix).
+9. **`initialStockImageId`** added to the wizard for remix/cold-permalink
+   one-tap parity.
 
 ## What must NOT change
 
-- Private-meme access-control (404-not-403, no social preview, no public cache).
+- Private-meme access control (404-not-403, no social preview, no public
+  cache) — PR213 behavior.
 - The split-slider UX.
 - Video creation capability and all video backend (appendix).
 
@@ -117,87 +130,104 @@
 
 | Concept | Source of truth |
 |---|---|
-| The saved meme image | The client-rendered bitmap (`previewImageBase64`) stored at save and served directly — not a server re-render |
-| Whether an image meme is public | `memes.is_public` + `meme_private_visibility` flag (unchanged) |
-| Idempotency | Key includes `effectiveName` + `effectivePronouns`, so name/pronoun differences never collapse |
+| The meme image | The stored master rendered once at save by the shared renderer — never re-derived at request time |
+| Rendering semantics (tokens, highlight, styling, pronoun forms) | ONE shared rendering module used by both the browser preview and the server master render |
+| Rendered text snapshot | `renderedFactText` persisted at save (frozen; profile edits don't touch it) |
+| Whether an image meme is public | `memes.is_public` + `meme_private_visibility` (unchanged) |
+| Watermark on a meme | Tier feature flag in the plan matrix, evaluated at save, baked into the master |
+| Idempotency | Key includes `effectiveName` + `effectivePronouns` as dedicated fields |
 | Which image builder is mounted | `MemeBuilderWizard`, unconditionally |
 | Video backend | Unchanged by this PR (appendix) |
 
 ## Migration/backfill impact
 
-Existing wizard memes saved through the server-re-render path have **no stored
-bitmap**, so their permalink/export still re-renders (broken tokens). Pre-launch
-(no real data to preserve): a one-time, idempotent cleanup **deletes image-meme
-rows that have no stored bitmap and whose `text_options` carry an unresolved
-token** (`hasUnresolvedFactTokens`). Safe to re-run. New saves all store bitmaps.
+Pre-launch, no real data to preserve. One-time cleanup: **delete image-meme
+rows that have no stored master** (these are exactly the pre-pivot wizard
+saves whose permalinks re-render with raw tokens). Predicate is
+"no stored bitmap object exists for the slug" — post-deploy rows always have a
+master (a failed render fails the save), so re-running cannot touch fresh
+memes (addresses Codex round-8's cutoff concern structurally, no date cutoff
+needed). Idempotent; log counts.
 
 ## Testing plan
 
-- Save→serve→export end-to-end: a wizard meme with a name token, a neopronoun
-  set, a non-default text color, and a moved vertical position produces a stored
-  bitmap; `GET /api/memes/:slug/image` and the export routes return **that
-  bitmap** (byte-identical), not a re-render — so tokens, orange highlight,
-  color, and position all match the preview.
-- Full-resolution: the stored bitmap is at output resolution, not the smaller
-  preview canvas size.
-- Moderation: an NSFW preview bitmap is rejected at save (classifier path).
-- Idempotency: two saves differing only by name/pronouns → two distinct memes;
-  identical repeats dedupe.
-- `buildSaveMemePayload` includes `isPublic` when private is chosen; e2e re-run
-  of the PR213 private-meme UAT (image).
-- `initialStockImageId`: Step 1 skipped, Step 2 mounts with that photo selected.
-- Stale-row cleanup: a bitmap-less raw-token meme row is deleted; a row with a
-  stored bitmap is untouched; re-run is a no-op.
-- `rg` deletion sweep: no live import of any deleted builder component remains.
+- **Preview/master parity (the general invariant):** for a matrix of pronoun
+  sets (all 5 presets) × styling options (non-default color, moved vertical
+  position, effect, caps) × a name-token fact, the shared module's browser
+  output and the server master render produce identical text layout/content —
+  and the master contains no unresolved token (`hasUnresolvedFactTokens`).
+- **Save→serve e2e:** saved wizard meme stores a master at ~2400px long edge;
+  gallery/permalink/export/Zazzle routes return bytes of that stored master
+  (not a re-render); dimensions asserted.
+- **Frozen semantics:** creator renames after save → permalink bytes
+  unchanged. Explicit re-render → new meme row + master; original untouched.
+- **Failed render fails the save:** forced render/storage error → 5xx, no row
+  persisted (no bitmap-less rows can exist post-deploy).
+- **Moderation:** NSFW rendered output rejected at save (classifier runs on
+  the master).
+- **Idempotency:** two saves differing only by name/pronouns → two memes
+  (incl. pronouns-only and token-free-fact cases); identical repeats dedupe.
+- **Watermark flag:** flag on → master carries watermark; flag off → clean
+  master; wired through the tier matrix.
+- **Privacy:** `buildSaveMemePayload` carries `isPublic`; PR213 UAT table
+  re-run for a wizard-created private meme.
+- **`initialStockImageId`:** Step 1 skipped, photo pre-selected.
+- **Cleanup:** master-less row deleted; row with master untouched; re-run
+  no-op.
+- **`rg` deletion sweep** clean.
 
 ## Risks
 
-- **Full-resolution client render.** The wizard must render the export bitmap at
-  true output dimensions (the old builder did this; reuse that approach). If it
-  only captured the on-screen canvas, downloads would be low-res — call this out
-  in implementation and test the stored bitmap's dimensions.
-- Deleting the builder frontend touches every importer — the `rg` sweep guards it.
-- `initialStockImageId` is new code in the well-tested `useWizardState`/
-  `wizardStorage` area — needs its own coverage.
+- **The shared renderer is the load-bearing build item.** Extracting the
+  canvas logic to run identically in browser and `@napi-rs/canvas` (fonts,
+  text metrics, wrapping) is where fidelity bugs would hide — the parity test
+  matrix above is the guard. Font registration server-side must match the
+  preview's fonts (`ensureFontsRegistered`).
+- **Save latency:** rendering ~4-5MP + NSFW classification at save adds
+  seconds; the wizard already has async loading UX (PuLID takeover) to reuse
+  if needed.
+- **`lib/api-zod`/shared-module codegen discipline** (`patch-generated.mjs` +
+  `check:codegen-drift`) if shared exports change — the twice-hit trap.
+- Deleting the builder island touches every importer — `rg` sweep guards.
+- `initialStockImageId` is new state code — needs its own tests.
 
 ## Definition of done
 
-- One image builder (wizard) mounted from `FactDetail.tsx` and `MemePage.tsx`;
-  `VITE_MBFO_WIZARD` removed; builder frontend deleted; `rg` sweep clean.
-- A meme saved through any image entry flow stores a **full-resolution bitmap**
-  that the serve/export routes return directly — so the saved image is exactly
-  the preview (tokens, orange highlight, color, position all correct).
-- Two saves differing only by name/pronouns yield two distinct memes.
-- Legendary users can toggle Public/Private on image memes (per PR213).
-- Remix/cold-permalink jump to the pre-selected stock photo.
-- Bitmap-less raw-token memes cleaned up.
-- Video backend unchanged; video creation still works via the wizard.
-- `check:docs` + relevant suites pass; TEST_RUN + UAT docs shipped with the PR.
+- One image builder (wizard), flag removed, legacy island deleted, sweep clean.
+- Saving any image meme stores a ~2400px master rendered by the shared
+  module; gallery/share/export/print serve exactly that file; preview ==
+  saved, including tokens, orange name-highlight, colors, position, pronoun
+  forms (all 5 presets).
+- Renames never mutate existing memes; explicit re-render makes a new one.
+- Watermark flag wired into the tier matrix (mapping TBD by David).
+- Legendary Public/Private toggle works per PR213.
+- Identity-aware idempotency; master-less rows cleaned; failed renders fail
+  the save.
+- Video backend unchanged; `check:docs` + suites pass; TEST_RUN + UAT docs
+  ship with the implementation PR.
 
 ---
 
 ## Carry-forward: video rebuild (findings to inherit — David, 2026-07-24)
 
-Video is split out; this PR touches **zero video backend**. These verified
-findings must shape the rebuild (to be promoted to a durable `docs/ai-context/`
+Video is split out; this PR touches **zero video backend**. Verified findings
+that must shape the rebuild (to be promoted to a durable `docs/ai-context/`
 note during implementation):
 
-1. **Object-ownership IDOR (highest priority; live today).** The wizard route
+1. **Object-ownership IDOR (highest priority; live today).**
    `POST /api/memes/video-jobs` regex-validates `sourceImagePath` only; the
-   runner downloads that `/objects/...` path with no ownership check
-   (`videoJobs.ts:120-138`, `videoPipelineRunner.ts:782,891`) — the legacy
-   route authorized it. The rebuilt path MUST authorize source-object ownership,
-   with a regression test.
-2. **Resource governance.** The legacy route wraps generation in
-   `enforceGovernance`/`completeGovernance` (per-user concurrency, spend/
-   duration/payload caps, fal circuit-breaker); the wizard route has only a
-   budget pre-check. The rebuild needs equivalent governance.
-3. **Async lease lifecycle.** `startVideoJob` schedules the FAL pipeline via
-   `setImmediate` (`videoPipelineRunner.ts:430,544`); a lease completed in the
-   HTTP handler frees before the work runs. Acquire at job start, complete from
-   the pipeline's terminal states.
-4. **TTL/prune is a terminal state.** `stage1_review`/`stage1_no_face_review`
-   jobs dropped by `pruneExpired()` after the 1-hour TTL must also release the
-   governance lease, or the user stays throttled until restart.
-5. **Video privacy.** Wizard video-jobs have no privacy field (`isPrivate:
-   false`); the rebuild should design privacy in (parity with image `is_public`).
+   runner downloads it with no ownership check (`videoJobs.ts:120-138`,
+   `videoPipelineRunner.ts:782,891`). Rebuild MUST authorize source-object
+   ownership with a regression test.
+2. **Resource governance.** Legacy route had `enforceGovernance`/
+   `completeGovernance` (concurrency, spend/duration/payload caps, fal
+   circuit-breaker); wizard route has only a budget pre-check.
+3. **Async lease lifecycle.** `startVideoJob` schedules via `setImmediate`
+   (`videoPipelineRunner.ts:430,544`); the lease must complete from pipeline
+   terminal states, not the HTTP handler.
+4. **TTL/prune is a terminal state** — `pruneExpired()` drops must release
+   the lease.
+5. **Video privacy** — wizard video-jobs hard-code `isPrivate: false`;
+   design privacy in (parity with image `is_public`).
+6. **Renderer reuse** — the rebuilt video captions should consume the same
+   shared rendering module this plan creates.
