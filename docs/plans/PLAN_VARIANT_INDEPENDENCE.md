@@ -57,7 +57,7 @@ enumerated sites), `docs/ai-context/agent-working-rules.md`.
 
 ## Current Behavior
 
-**Confirmed bugs (metadata inheritance / root-only generation) — 9 sites:**
+**Confirmed bugs (metadata inheritance / root-only generation) — 11 sites:**
 
 | # | Site | Current behavior |
 |---|---|---|
@@ -70,6 +70,11 @@ enumerated sites), `docs/ai-context/agent-working-rules.md`.
 | 7 | `routes/admin.ts:1990` (`POST /admin/facts/:id/refresh-images`) | Explicit 400: "Images are only stored on root facts, not variants." |
 | 8 | `routes/admin.ts:1999-2013, 2015-2034, 2077-2091` (`backfill-images`, `backfill-pexels`, `backfill-ai-memes`) | All three filter `isNull(factsTable.parentId)` — variants silently never processed |
 | 9 | `routes/memes.ts:1324-1332`, `routes/pulidJobs.ts:217-233` | Explicit 400: "AI meme generation only supported on root facts" — a legendary user cannot generate an AI visual for a variant today |
+| 10 | `artifacts/overhype-me/src/pages/admin/facts.tsx:1481-1482` (Codex round 1) | Wraps the entire "Pexels Image Pipeline (root facts only)" admin panel in `selectedFact.parentId === null` — a variant has no UI surface to run/see `refresh-images` |
+| 11 | `artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) | Standalone CLI script (separate from the `admin.ts` HTTP route of the same name) also filters `isNull(factsTable.parentId)` |
+
+**Checked, already correct — no fix needed:** `artifacts/api-server/scripts/backfill-ai-memes.ts`
+(queries all active facts with no `parentId` filter at all).
 
 **Legitimate, unchanged (verified structural or display, not inheritance):**
 `facts.ts:110,156,361`, `admin.ts:736,860,866,901,912,1550,1580`, `memes.ts:468`,
@@ -77,7 +82,9 @@ enumerated sites), `docs/ai-context/agent-working-rules.md`.
 `sendBackToReview.ts:107`, `adminTaxonomyHealth.ts:179-184`,
 `moderationStaging.ts:119`, `enrichmentVersioning.ts` (already the *correct*
 pattern — its field-preservation invariant treats `parentId`, `pexelsImages`,
-`aiMemeImages` as variant-owned).
+`aiMemeImages` as variant-owned), `facts.tsx:690` (fetch child variants — only
+meaningful when viewing a root), `facts.tsx:1412` (the "Variants (N)" section —
+a variant can't have its own variants).
 
 ## Source-of-Truth Analysis
 
@@ -125,18 +132,32 @@ implicit one (the root as a variant's de facto metadata source).
   three queries' `where` clauses (per David's decision 2) — `backfill-images`
   becomes "all active facts missing `pexelsImages`" (root or variant), same
   pattern for `backfill-pexels` and `backfill-ai-memes`.
+- **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
+  the standalone CLI script (`pnpm --filter @workspace/api-server run
+  backfill:pexels`), separate from the `admin.ts` HTTP route of the same
+  name, also filters `isNull(factsTable.parentId)`.** Remove it, same fix as
+  the HTTP route. Checked the sibling `backfill-ai-memes.ts` script: it
+  already queries all active facts with no `parentId` filter — already
+  correct, no change needed there.
 - `memes.ts:1324-1332`, `pulidJobs.ts:217-233`: remove the `parentId !== null`
   rejection. AI meme / PuLID generation operates on any fact the caller is
   authorized to generate for (existing tier/ownership checks are untouched —
   this only removes the root-only fact-shape restriction, not any auth check).
 
-**No frontend gating currently mirrors these backend restrictions** (verified:
-the meme-builder wizard, admin Facts Editor, and enrichment UI don't
-conditionally hide these actions for variants — they just get 400s today).
-So this is a backend-only change; no dead-UI risk, and no new UI needs to ship
-for the restriction to lift (ship-the-UI-surface's "don't ship dead controls"
-concern doesn't apply in reverse here — we're removing a silent block, not
-adding a control).
+**D. Frontend — remove the matching admin gate (site 10, Codex round 1: my
+   original "no frontend gating exists" claim was wrong).**
+- `artifacts/overhype-me/src/pages/admin/facts.tsx:1481-1482` wraps the
+  entire "Pexels Image Pipeline" panel in `selectedFact.parentId === null` —
+  an admin selecting a variant in the Facts Editor has no surface to run or
+  even see `refresh-images` status for it. Remove the gate; update the
+  root-only comment/copy (the panel currently labels itself "(root facts
+  only)"). Once `refresh-images` accepts variants (site 7), the UI must show
+  the same panel for a selected variant.
+- Verified two **legitimate** root-only gates in the same file, not bugs:
+  `facts.tsx:690` (fetch child variants — only meaningful when viewing a
+  root) and `facts.tsx:1412` (the "Variants (N)" section — a variant can't
+  have its own variants, per the no-variants-of-variants invariant). Both
+  left unchanged.
 
 ## Data Model and Migration Impact
 
@@ -167,8 +188,9 @@ root already uses — nothing to migrate, nothing destructive.
   expected consequence of removing the fallback — flag in the TEST_RUN/UAT
   docs so David isn't surprised seeing it in QA. Pre-launch, no real user
   impact.
-- No new UI ships (per Proposed Design — no frontend gating existed to
-  remove/add).
+- One existing admin UI gate is removed: the Facts Editor's "Pexels Image
+  Pipeline" panel becomes visible/usable when a variant is selected, not just
+  a root (site 10). Copy changes from "(root facts only)" to reflect that.
 - Admin's confirmed-edit flow for a variant now kicks off a background embed +
   image pipeline, same as a root edit already does — no new UI state needed
   (the root path's existing "processing" signal, if any, already covers this
@@ -202,9 +224,13 @@ prove it with **both** a root and a variant fixture:
   and the picker endpoint. Root behavior unchanged.
 - `refresh-images`: succeeds for a variant id (no more 400); still succeeds for
   a root.
-- Bulk backfill (all three): a variant missing images is included in the
+- Bulk backfill (all three `admin.ts` routes, plus the standalone
+  `backfill-pexels.ts` script): a variant missing images is included in the
   queued/processed set; a root missing images still is too. Idempotency
   (already-has-images facts skipped) holds for both.
+- Admin Facts Editor: selecting a variant shows the Pexels Image Pipeline
+  panel (previously hidden); the panel's status/actions work identically to
+  a root's.
 - AI meme/PuLID generation: a legendary user can generate for a variant fact
   id; existing tier/auth rejections for non-legendary or wrong-owner requests
   are unchanged (negative cases still fire).
@@ -231,13 +257,16 @@ prove it with **both** a root and a variant fixture:
 5. Image/AI generation: remove the `parentId !== null` guard in
    `admin.ts:1990`, `memes.ts:1324-1332`, `pulidJobs.ts:217-233`; remove
    `isNull(factsTable.parentId)` from the three bulk-backfill queries in
-   `admin.ts`.
-6. Update/add tests per the Testing Plan (root + variant fixture for every
+   `admin.ts` and from `scripts/backfill-pexels.ts:38`.
+6. Frontend: remove the `selectedFact.parentId === null` gate around the
+   Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
+   facts only)" copy.
+7. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
-7. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
+8. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
    fix as **done**, not just planned — the entry currently reads as a
    forward-looking "sites to fix"; close the loop once merged.
-8. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
+9. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
    "variants may show no images until backfilled" visible change.
 
 ## Risks and Mitigations
@@ -263,9 +292,10 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
 
 ## Definition of Done
 
-- Repo-wide sweep re-confirmed at implementation time; all 9 listed sites
-  fixed; no other `parentId`-gated images/enrichment/AI-generation site
-  remains (verified by grep, not assumed).
+- Repo-wide sweep re-confirmed at implementation time; all 11 listed sites
+  fixed (including the frontend gate and the standalone backfill script); no
+  other `parentId`-gated images/enrichment/AI-generation site remains
+  (verified by grep, not assumed).
 - A variant can: get its own stock/AI images (via explicit generation, admin
   refresh, or now-inclusive bulk backfill), get its own enrichment classified
   from its own text only, and have its own confirmed text edit trigger its own
