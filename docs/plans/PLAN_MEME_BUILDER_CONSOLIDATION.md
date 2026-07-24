@@ -85,6 +85,25 @@
    persists the render parameters + `renderedFactText` snapshot alongside.
    `previewImageBase64` is **removed from the save schema** (no client bitmap
    path remains; the field dies with the dead builder).
+   - **Authorize uploaded source images before rendering (Codex round 10,
+     P1).** For `imageSource.type === "upload"`, the save must verify the
+     caller may read the referenced object **before** fetching/baking it —
+     via `userCanReadObject` (the existing `objectAccess` guard) or an
+     owner-filtered metadata lookup. Today `createMemeRecord` fetches the
+     `/objects/...` path with no ownership check (`getUploadImageMetadata`
+     filters by `object_path` only — `userImageUpload.ts:310-318`), so an
+     authenticated caller who learns another user's upload path could bake
+     that private media into a public frozen meme. Regression test: a save
+     referencing another user's upload path → 403/404, nothing stored.
+   - **Freeze the stock background source, not just its ID (Codex round 10).**
+     The wizard previews a concrete URL (from `GET /facts/:id/pexels-images`)
+     but the payload sends only `pexelsPhotoId`, and the server re-fetches
+     Pexels by ID — a changed/unavailable Pexels response would make the
+     master differ from the preview or fail the save. The render input must
+     resolve the exact selected image: carry the selected URL in the payload
+     or resolve it from the fact's stored `pexelsImages` by `factId` +
+     photo id (server-side, so it stays authoritative). Parity test covers
+     the background bytes as well as the text.
 3. **Serve flow:** gallery/permalink/OG/export/Zazzle all serve the stored
    master (downscaling on the fly where a smaller variant is needed).
    `generateMemeBuffer`'s at-request re-render path is **deleted, not
@@ -187,6 +206,13 @@ needed). Idempotent; log counts.
   entitlement + params still dedupes.
 - **Hard-delete:** hard-deleting a user removes every stored master for their
   image memes (imageSource null or not); storage summary reflects it.
+- **Upload-source authorization:** a save referencing another user's upload
+  object path is rejected (403/404) with nothing rendered or stored; the
+  owner's own path still works.
+- **Stock background parity:** the master's background bytes match the
+  previewed stock image (resolved from the fact's stored `pexelsImages`, not
+  a live re-fetch that can drift); an unavailable stock source fails the save
+  rather than silently substituting.
 - **Watermark flag:** flag on → master carries watermark; flag off → clean
   master; wired through the tier matrix.
 - **Privacy:** `buildSaveMemePayload` carries `isPublic`; PR213 UAT table
