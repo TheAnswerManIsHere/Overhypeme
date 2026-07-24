@@ -117,6 +117,37 @@ implicit one (the root as a variant's de facto metadata source).
   `embedFactAsync` + `runFactImagePipeline` for **the fact being edited**,
   regardless of `parentId` (root or variant) — per David's decision 1. Drop
   the `outcome.fact.parentId === null` gate.
+- **The shared API contract and admin UI surface built around this behavior
+  must be removed too (Codex round 3) — not just backend logic and tests.**
+  Retiring `loadDirectVariantDependencies`/the signature-clearing makes these
+  dead, but they're a real contract admins currently see, so removal is an
+  implementation step, not incidental cleanup:
+  - `lib/api-zod/src/factTextEdit.ts`: remove the `DEPENDENT_VARIANT_IN_PROGRESS`
+    error code, the `BlockingVariant` type, and the `affectedVariantCount`/
+    `blockingVariants` response fields — the save response for a root edit no
+    longer has a "some variants got marked stale" outcome to report.
+  - `artifacts/overhype-me/src/components/admin/patchFactDraft.ts`: remove the
+    `dependent_variant_in_progress` result kind and its handling.
+  - `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.tsx:44-49`:
+    remove the "N variant(s) were classified against the old wording and will
+    be marked stale for reprocess" / "will be marked stale for reprocess"
+    consequence copy — a root re-word no longer has this consequence to warn
+    about.
+  - `artifacts/overhype-me/src/pages/admin/facts.tsx:591,612`: remove the
+    "Saved. N variant(s) marked stale for review" success-path message and the
+    "Can't re-word this parent: N variant(s) mid-review… Resolve or finish
+    those first" blocking-error message — both describe behavior this fix
+    deletes.
+  - Update `factTextEditProtection.test.ts`, `confirmedFactTextEdit.test.ts`,
+    `ApprovedFactTextEditModal.test.tsx`, `patchFactDraft.test.ts` to match
+    (already named in Implementation Steps' test list — this makes explicit
+    *why*: the contract they assert is gone, not just the backend function).
+  - `lib/api-zod` codegen: per this repo's standing gotcha
+    (`patch-generated.mjs` rewrites `lib/api-zod/src/index.ts` from a
+    hardcoded line list), if any export name changes, update
+    `apiZodIndexLines` and re-run codegen immediately, confirming
+    `git diff --exit-code lib/api-zod/src/index.ts` is clean — before writing
+    any consumer change.
 
 **B. Stock/AI image display (sites 1, 2) — read only the fact's own row.**
 - `facts.ts:233-243`: delete the parent-fallback gap-fill. A variant with no
@@ -229,6 +260,12 @@ prove it with **both** a root and a variant fixture:
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
   or lint that the symbol no longer exists.
+- **Shared contract + admin UI (Codex round 3):** grep confirms
+  `DEPENDENT_VARIANT_IN_PROGRESS`, `blockingVariants`, and
+  `affectedVariantCount` no longer exist anywhere in the repo
+  (`lib/api-zod`, `patchFactDraft.ts`, `ApprovedFactTextEditModal.tsx`,
+  `facts.tsx`, and their tests). A root re-word's success/error UI no longer
+  mentions variants at all.
 - `admin.ts:1012`: confirming a variant's text edit triggers `embedFactAsync`
   + `runFactImagePipeline` for the variant's own id; confirming a root's edit
   still triggers them for the root, unaffected.
@@ -260,11 +297,18 @@ prove it with **both** a root and a variant fixture:
 2. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
-   Update/remove tests that assert the old blocking/clearing behavior
-   (`factTextEditProtection.test.ts`, `confirmedFactTextEdit.test.ts` — check
-   for asserted 409s referencing `DEPENDENT_VARIANT_IN_PROGRESS` and
-   `blockingVariants`/`affectedVariantCount` response fields that no longer
-   apply).
+   **Remove the shared contract and admin UI built on top of it (Codex round
+   3 — this is implementation work, not incidental test cleanup):**
+   `DEPENDENT_VARIANT_IN_PROGRESS`/`BlockingVariant`/`affectedVariantCount`/
+   `blockingVariants` from `lib/api-zod/src/factTextEdit.ts` (re-run codegen
+   per the standing `api-zod` export-drift gotcha if the export surface
+   moves), the `dependent_variant_in_progress` result kind in
+   `patchFactDraft.ts`, the stale-for-reprocess consequence copy in
+   `ApprovedFactTextEditModal.tsx:44-49`, and the two variant-count messages
+   in `facts.tsx:591,612`. Update/remove tests that assert the old
+   blocking/clearing behavior (`factTextEditProtection.test.ts`,
+   `confirmedFactTextEdit.test.ts`, `ApprovedFactTextEditModal.test.tsx`,
+   `patchFactDraft.test.ts`).
 3. `admin.ts:1012`: drop the root-only gate on the confirmed-edit embed/image
    trigger.
 4. Stock/AI image display: remove the parent-fallback in `facts.ts:233-243`
@@ -319,6 +363,9 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
   from its own text only, and have its own confirmed text edit trigger its own
   embed + image pipeline — all independent of its root.
 - A root re-word never touches, blocks on, or invalidates any variant.
+- No trace of `DEPENDENT_VARIANT_IN_PROGRESS`/`blockingVariants`/
+  `affectedVariantCount` remains anywhere (shared contract, admin UI, tests) —
+  a root re-word's success/error messaging no longer mentions variants.
 - Structural invariants (no variants-of-variants, active-root-parent
   enforcement, root-deletion-blocked-by-active-variants) all still hold —
   verified by the existing tests for those, unmodified in behavior.
