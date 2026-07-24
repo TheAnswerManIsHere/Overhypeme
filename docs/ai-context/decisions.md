@@ -66,10 +66,11 @@
   unshipped indefinitely.
 - **Reference:** PR #246 (full CVE list, GHSA links, and verification in the
   PR description); `deferred-work.md`'s "Dependencies & toolchain" section.
-- **Revisit if:** never — this is closed. The ~40 remaining lower-severity
-  alerts (mostly transitive ReDoS/DoS findings in build tooling) are **not**
-  yet individually triaged; proposed as one grouped backlog entry rather than
-  40 individual ones, pending David's call.
+- **Revisit if:** never — this specific decision (the 9-CVE split-and-ship) is
+  closed. The ~40 remaining lower-severity alerts are a **separate, still-open
+  question** — tracked with an actual weekly-checked revisit trigger in
+  `deferred-work.md`'s "Dependencies & toolchain" section, not just mentioned
+  here, so `/maintenance` doesn't lose track of them.
 
 ### 2026-07-23 · Fact lifecycle closed: one entrance, one exit — activation is moderation-only, and deactivation is reversible through moderation, not a direct toggle
 - **Decision:** Two invariants, now enforced end-to-end (Phase 2 fact-lifecycle

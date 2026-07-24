@@ -144,13 +144,31 @@ re-gather it when the work is scheduled.
     fix four disclosed High-severity CVEs, including a **SQL injection in
     drizzle-orm** (our direct production ORM). Split out into **PR #246**
     rather than waiting on sharp or the next Dependabot cycle.
-    **Status: PR #246 open, NOT YET MERGED as of this writing — these CVEs
-    are still live on `main` until it merges.** Anyone (including a
-    `/maintenance` pass) reading this entry before #246 merges should treat
-    drizzle-orm/vite/postcss as still outstanding, not resolved — check the
-    PR's merge state, don't trust this paragraph's tense. Once merged, update
-    this line to say so and drop the "not yet merged" caveat. See #246 for the
-    full CVE list and verification.
+    **Status: PR #246 merged (squash commit `27277ff`) — resolved, no longer
+    outstanding.** drizzle-orm/vite/postcss/esbuild/fast-uri are all patched
+    on `main`. See #246 for the full CVE list and verification.
+
+- **~40 lower-severity Dependabot alerts — not yet individually triaged. OPEN QUESTION, not closed.**
+  - **What.** Of the repo's 54 open Dependabot alerts as of 2026-07-24, 9 CVEs
+    across 5 packages were triaged and fixed (PR #246, see above). The
+    remaining ~40 (mostly Moderate/Low) are still untriaged individually —
+    lodash, ws, undici, picomatch, brace-expansion, path-to-regexp, js-yaml,
+    linkify-it, qs, uuid, markdown-it, and others, mostly transitive
+    ReDoS/DoS-class findings in build tooling rather than a production
+    request path.
+  - **Why deferred now.** The 9 confirmed, high-value CVEs (incl. a SQL
+    injection in the production ORM) were prioritized first. Real severity of
+    the remaining ~40 is unqualified — none has been individually checked
+    against our actual exposure the way the 9 were.
+  - **Cost of waiting.** Unknown until triaged — that's the open question, not
+    a settled "low" like the other entries here.
+  - **Revisit trigger.** Not a one-time fired condition — this is a **standing
+    open question for David**: whether to triage individually (thorough, slow)
+    or accept them as one grouped backlog entry with a sweep-based approach
+    (`pnpm update` + re-check, opportunistic). Surface as an open decision item
+    every `/maintenance` pass until David decides; once decided, replace this
+    entry with the actual outcome (either N individually-triaged entries, or
+    one grouped entry with its own trigger).
 
 - **recharts v2 → v3.**
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
