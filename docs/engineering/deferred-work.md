@@ -128,9 +128,14 @@ re-gather it when the work is scheduled.
     stays parked pending a deliberate visual-pipeline upgrade. If/when we pick
     this up, target **0.35.1+**, not raw 0.35.0.
   - **Revisit trigger.** A security advisory hits 0.34.x **OR** we schedule a
-    visual-pipeline dependency upgrade with UAT (Opus-tier). *The safe patches
-    bundled in that same PR (drizzle-orm 0.45.2, vite 7.3.x, postcss 8.5.x) are
-    **not** deferred — they re-land on their own via the next Dependabot group.*
+    visual-pipeline dependency upgrade with UAT (Opus-tier).
+  - **Update (2026-07-24, continued).** The other three bumps bundled in #243
+    (drizzle-orm 0.45.2, vite 7.3.6, postcss 8.5.12) turned out **not** to be
+    generic hygiene — a Dependabot triage of the repo's open alerts found they
+    fix four disclosed High-severity CVEs, including a **SQL injection in
+    drizzle-orm** (our direct production ORM). Split out and shipped
+    immediately in PR #246 rather than waiting on sharp or the next Dependabot
+    cycle. See that PR for the full CVE list and verification.
 
 - **recharts v2 → v3.**
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
