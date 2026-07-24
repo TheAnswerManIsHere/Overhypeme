@@ -13,6 +13,65 @@
 
 ---
 
+### 2026-07-24 · Deferred engineering work gets one durable backlog, split from the product roadmap
+- **Decision:** Created [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md)
+  as the single home for engineering/security/maintenance work consciously
+  deferred — parked dependency bumps, security-hardening follow-ups, toolchain
+  deprecations, code-level tech debt, infra/operational tuning. Scope is
+  **engineering only**: deferred *product/feature* work stays in
+  [`current-roadmap.md`](./current-roadmap.md)'s "Explicitly deferred work"
+  section, cross-linked, not duplicated. Every entry carries four required
+  fields — **what / why-deferred-now / cost-of-waiting / revisit-trigger** —
+  so an item with an unfired trigger reads as *correctly parked*, not
+  forgotten debt. The weekly `/maintenance` skill gained a step that re-checks
+  every trigger and reports fired ones as decision items (never auto-acts on
+  them — an explicit, narrow exception lets it commit backlog-doc updates
+  directly, since that's docs-only with zero behavior change).
+- **Why:** David asked directly for a way to track deferred maintenance/
+  security/cleanup work without either building up invisible technical debt
+  or blocking launch chasing an idealized codebase — the four-field format is
+  the answer to both failure modes at once (a "why deferred" line gives
+  explicit permission to wait; a "revisit trigger" as a condition, not
+  "someday," keeps it from rotting into a graveyard). Everything security- or
+  maintenance-shaped that had been scattered across the roadmap and
+  `security-model.md` (the C5/C9 hardening follow-ups, the async-jobs pool-max
+  deferral) was consolidated in — "keep everything in one place" (David).
+- **Reference:** PR #245 (the doc + `/maintenance` wiring), PR #246 (the first
+  real use of the process — see below).
+- **Revisit if:** the engineering/product split proves awkward in practice
+  (an item genuinely straddles both), or the four-field format proves too
+  heavy for trivial items — surface either to David rather than quietly
+  drifting the format.
+
+### 2026-07-24 · Dependabot alert triage found the "safe patch" bumps parked in PR #243 were actually 9 disclosed CVEs, including a SQL injection in the production ORM
+- **Decision:** Split `drizzle-orm` (0.45.1→0.45.2), `vite` (7.3.1→7.3.6,
+  fixing 3 dev-server CVEs), `esbuild` (0.27.3→0.28.1, a direct
+  `artifacts/api-server` devDependency), and `fast-uri` (3.1.0→3.1.4 via a
+  pnpm `overrides` entry, fixing 4 CVEs, transitive through `ajv`) out of the
+  parked Dependabot group PR #243 and shipped them immediately in PR #246 —
+  zero code changes, verified via typecheck/build/codegen-drift and PR #243's
+  own already-green `Test`/`Frontend Test`/`E2E Smoke` runs against the same
+  resolved versions. `sharp`/`esbuild`'s original blocker (sharp 0.35's
+  typings regression) stays untouched and parked — see the sharp entry in
+  `deferred-work.md`, which was also corrected: it had claimed sharp 0.34.x
+  "has no known CVE," which was wrong (libvips-inherited CVEs, alert tagged
+  `Direct`).
+- **Why:** A full manual triage of all 54 open Dependabot alerts (screenshots
+  — this environment has no API/tool access to the Dependabot Alerts
+  endpoint) found that three of the four packages bundled in #243 close real,
+  disclosed High-severity CVEs — most importantly
+  [CVE-2026-39356](https://github.com/advisories/GHSA-gpj5-g38j-94v9), a SQL
+  injection in `drizzle-orm`, our direct production ORM. Waiting on the
+  unrelated `sharp` blocker would have left a live SQL-injection fix sitting
+  unshipped indefinitely.
+- **Reference:** PR #246 (full CVE list, GHSA links, and verification in the
+  PR description); `deferred-work.md`'s "Dependencies & toolchain" section.
+- **Revisit if:** never — this specific decision (the 9-CVE split-and-ship) is
+  closed. The ~40 remaining lower-severity alerts are a **separate, still-open
+  question** — tracked with an actual weekly-checked revisit trigger in
+  `deferred-work.md`'s "Dependencies & toolchain" section, not just mentioned
+  here, so `/maintenance` doesn't lose track of them.
+
 ### 2026-07-23 · Fact lifecycle closed: one entrance, one exit — activation is moderation-only, and deactivation is reversible through moderation, not a direct toggle
 - **Decision:** Two invariants, now enforced end-to-end (Phase 2 fact-lifecycle
   closure):
