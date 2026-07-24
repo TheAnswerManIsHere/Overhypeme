@@ -25,11 +25,66 @@ render-time visual-preview phase inside enrichment.** The render-time
 the image model receives — see [`visual-pipeline.md`](./visual-pipeline.md). Do
 not blur these layers.
 
+## Variants are independent facts
+
+**A variant is a fully independent fact.** `facts.parent_id` records that a
+variant expresses **the same concept** as its root (the primary example of that
+concept) in slightly different words — and it exists for exactly two purposes:
+**recording that kinship**, and letting the UI **show or hide** variants. It is
+**not** an inheritance link.
+
+David, verbatim (2026-07-24): *"the only thing that we should be doing with
+variants is tracking them as having a parent-child relationship to the master
+fact… other than being able to show or hide variants I don't want them to be
+dependent upon their parents for any metadata. A variant can have its own memes,
+can have its own visual taxonomy, can have its own enrichment, can have its own
+visual concept."*
+
+So, for **every** metadata layer:
+
+- A variant owns its **own** enrichment/taxonomy, Visual Concept, stock
+  (`pexelsImages`) and AI (`aiMemeImages`) images, memes, and videos.
+- A variant **never displays, borrows, or falls back to** its root's metadata.
+  If a variant has no stock images of its own, it has none — the picker must not
+  substitute the root's.
+- **A variant must be able to GENERATE its own images, not just display them.**
+  Today several endpoints reject or silently skip variants outright —
+  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
+  `backfill-ai-memes`, and, user-facing, AI meme/PuLID generation (`memes.ts`,
+  `pulidJobs.ts`) return "AI meme generation only supported on root facts."
+  That is a direct product gap against *"a variant can have its own visual
+  concept"* — root-only image generation is exactly the constraint to remove,
+  not a display nuance. **Treat any `isNull(factsTable.parentId)`/
+  `parentId !== null` guard on an images/enrichment/AI-generation path as
+  suspect** — the exact list of sites has already been under-enumerated twice
+  in review; a repo-wide sweep is required before calling this fixed, not a
+  checklist of known examples.
+- **Enrichment classifies a variant on its own text only** — the root's wording
+  is not passed as classifier context. Consequence (intended): **re-wording a
+  root does not invalidate or re-enrich its variants.** Their enrichment depends
+  on their own text, nothing else. This retires the dependency machinery that
+  existed only to protect the old model: `factTextEditProtection.ts`'s
+  `loadDirectVariantDependencies` (blocks a root text edit while a variant is
+  mid-cycle) and `confirmedFactTextEdit.ts`'s child-signature clearing on a
+  confirmed root edit — both go away with it, not just go unused.
+- The only legitimate cross-references are **structural, not metadata**: the
+  `parent_id` link itself, show/hide grouping, lifecycle guards that reference
+  kinship (`HAS_ACTIVE_VARIANTS`, "a variant's parent must be an active root"),
+  and excluding self/parent/siblings from "related facts".
+
+**When you find code that makes a variant read its parent's metadata, that is a
+bug, not a feature** — fix it toward independence rather than mirroring it into
+new code paths. (`enrichmentVersioning.ts`'s field-preservation invariant
+already treats `parentId`, `pexelsImages`, and `aiMemeImages` as variant-owned;
+that is the correct pattern.)
+
 ## Source-of-truth boundaries
 
 - **Active fact truth:** the `facts.*` columns. The public feed and runtime read
   `facts.enrichment` (the effective blob). "Option B": `facts.*` is the SOLE
   active truth.
+- **Variant truth:** a variant's own `facts.*` row — never its parent's (see
+  *Variants are independent facts* above).
 - **Archive/candidate:** `fact_enrichment_versions` is an append-only archive +
   in-flight candidate store — **not** active lineage.
 - **Visual source of truth:** the Visual Concept + render-time plan/compiler, not
