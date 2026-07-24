@@ -24,6 +24,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Engineering deferred-work backlog + a 9-CVE dependency patch sweep**
+  (PR #245, #246). New process infrastructure: a single durable backlog for
+  deferred engineering/security/maintenance work
+  ([`deferred-work.md`](./../engineering/deferred-work.md)), wired into the
+  weekly `/maintenance` skill. Its first real use found that three "safe
+  patch" dependency bumps parked in the blocked Dependabot PR #243 actually
+  fixed 9 disclosed CVEs — including a SQL injection in `drizzle-orm`, the
+  production ORM — and shipped them immediately rather than waiting on the
+  unrelated `sharp` blocker. See
+  [`decisions.md`](./decisions.md#2026-07-24--deferred-engineering-work-gets-one-durable-backlog-split-from-the-product-roadmap).
 - **Fact lifecycle closed: one entrance, one exit** (PR #242 — Codex review
   converged after 11 rounds, CI green except one open policy call below; **not
   yet merged**). `facts.is_active` now defaults `false`; `activateFact` is the
@@ -140,6 +150,11 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+> This section holds deferred **product/feature** work. Deferred
+> **engineering** work — parked dependency bumps, security-hardening
+> follow-ups, toolchain deprecations, code-level tech debt — lives in
+> [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md).
+
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);
   end-user wizard exposure (moderator-only for now); `thinking_level: high`
@@ -148,25 +163,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   post-composited/SVG bubble rendering; per-bubble placement, color, and font
   styling; a "Use scene only" partial candidate-pick action; OCR-based
   exactness scoring (PR #229).
-- **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
-  (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
-  unraised — the three lanes' combined handler concurrency (8) fits under it,
-  but only with thin headroom shared with concurrent HTTP traffic. Raise it
-  only if pool-acquisition wait time or provider rate-limit errors actually
-  show up under load; it's an infra/cost decision, not a code change to make
-  proactively. See [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 - Broad public-growth surfaces and free→Legendary conversion optimization.
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."
 - A multi-role admin permission model.
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
-- **Security follow-ups (lower-risk, from the C5/C9 review):** flip CSP from
-  Report-Only to enforcing after UAT confirms zero violations; HSTS
-  `includeSubDomains`/`preload` once all `*.overhype.me` subdomains are HTTPS;
-  the admin field-length validation tidying; `confirm`/`limit` gates on the
-  API-key backfill launchers (needs the `ADMIN_API_KEY` decision first); the
-  git-history purge of the removed prod dump (destructive, rotation is the real
-  mitigation). See [`security-model.md`](./security-model.md#deliberately-out-of-scope--deferred).
 - **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
   (`docs/manual/README.md`) and the `/document` ceremony that grows it
   incrementally are in place; writing the initial set of chapters for the

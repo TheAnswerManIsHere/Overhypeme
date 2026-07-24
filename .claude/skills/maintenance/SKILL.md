@@ -10,7 +10,7 @@ per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
 on a higher tier when invoked, I say so and suggest switching before
 starting, but I don't block on it.
 
-The deliverable is one concise report at the end covering the four areas
+The deliverable is one concise report at the end covering the five areas
 below. If an area has nothing to report, one line ("no open dependency
 PRs") — the discipline stays visible, the report stays short.
 
@@ -74,7 +74,23 @@ triggers the manual path.
   runs. A flaky test that shows up twice across maintenance runs should
   graduate to a fix task, not stay a report line.
 
-## 4. "What shipped" digest
+## 4. Deferred-work backlog triage
+
+Read [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
+and re-check **each entry's revisit trigger**:
+
+- **Any trigger that has fired** (a dated cutoff reached, a dependency shipped
+  its fix, a recurrence count hit, a security advisory landed) → surface it to
+  David as a numbered decision item in the report. Don't act on the underlying
+  bump/change here — see Boundaries.
+- **Newly parked items** discovered this pass (a major bump held in step 1, a
+  deprecation spotted in a lockfile or CI log) → add them to the doc with the
+  four-field entry template, and commit that doc change directly (docs-only,
+  no PR ceremony needed) — the one Boundaries exception, see below.
+- If nothing fired and nothing's new, one line: "deferred-work backlog: N
+  items, no triggers fired."
+
+## 5. "What shipped" digest
 
 - List PRs merged since the last maintenance run (default window: 7 days).
 - Write it **PM-facing**: what changed in product terms, one line per PR,
@@ -82,7 +98,7 @@ triggers the manual path.
 
 ## Report delivery
 
-Single message, four short sections, worst news first. When something needs
+Single message, five short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page (per the
@@ -93,8 +109,16 @@ canonical copy.
 
 - **No feature work, no refactors, no drive-by fixes** — anything
   discovered here that needs real code change becomes a flagged item for
-  David, or a `/bugfix` batch if he says so. Maintenance touches nothing
-  but dependency merges.
+  David, or a `/bugfix` batch if he says so. Maintenance touches nothing but
+  dependency merges, **with one narrow exception**: committing updates to
+  [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
+  (step 4) — recording a newly-parked item or updating an entry's status.
+  That's docs-only, zero behavior/dependency change, no PR ceremony, and
+  matches the tier table's "documentation is Sonnet-always, drift is
+  self-catching" rationale. It is **not** license to fix, refactor, or bump
+  anything the backlog pass turns up — a fired trigger for a *major* bump
+  (dependency or Action) still only ever becomes a reported decision item,
+  never a direct action, per step 4 above.
 - **No scheduled self-wakeups.** David invokes this manually (standing
   no-background-check-ins rule). If he later opts into a scheduled weekly
   routine, that decision changes this section — not before.
