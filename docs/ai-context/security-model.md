@@ -179,6 +179,7 @@ are deferred follow-ups (the latter would break existing API-key automation).
 Enumerated so a later reader knows what this review did *not* do: a full auth
 rewrite, live pentest, Cloudflare WAF/dashboard actions, CSP *enforcement*
 (report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping, the
-git-history purge, and the admin field-bounding follow-up. See the roadmap for
-the live list. (The C1 dev-admin-login hardening — deferred when this doc was
+git-history purge, and the admin field-bounding follow-up. The live list of
+these deferrals is tracked in
+[`docs/engineering/deferred-work.md`](../engineering/deferred-work.md#security--patching). (The C1 dev-admin-login hardening — deferred when this doc was
 first written — shipped in PR #221.)

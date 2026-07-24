@@ -165,13 +165,6 @@ priorities (moderation speed, render/enrichment quality, video). See
 - New content formats beyond "facts."
 - A multi-role admin permission model.
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
-- **Security follow-ups (lower-risk, from the C5/C9 review):** flip CSP from
-  Report-Only to enforcing after UAT confirms zero violations; HSTS
-  `includeSubDomains`/`preload` once all `*.overhype.me` subdomains are HTTPS;
-  the admin field-length validation tidying; `confirm`/`limit` gates on the
-  API-key backfill launchers (needs the `ADMIN_API_KEY` decision first); the
-  git-history purge of the removed prod dump (destructive, rotation is the real
-  mitigation). See [`security-model.md`](./security-model.md#deliberately-out-of-scope--deferred).
 - **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
   (`docs/manual/README.md`) and the `/document` ceremony that grows it
   incrementally are in place; writing the initial set of chapters for the

@@ -58,17 +58,48 @@ we've sequenced for later.
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
 
-> **Note / open question for David.** The roadmap's *"Security follow-ups
-> (lower-risk, from the C5/C9 review)"* — CSP Report-Only → enforcing, HSTS
-> `includeSubDomains`/`preload`, admin field-length tidying, `confirm`/`limit`
-> gates on the API-key backfill launchers, the git-history purge of the removed
-> prod dump — are **engineering** deferrals currently living in
-> [`current-roadmap.md`](../ai-context/current-roadmap.md#explicitly-deferred-work)
-> and detailed in
-> [`security-model.md`](../ai-context/security-model.md). Per the
-> engineering-vs-product split, they are candidates to migrate *here*. Left in
-> place for now to avoid duplicating the security-model context and risking
-> drift; migrate on David's call.
+**Security follow-ups from the C5/C9 review.** Lower-risk hardening the
+security review consciously deferred. Full context lives in
+[`security-model.md`](../ai-context/security-model.md#deliberately-out-of-scope--deferred);
+re-gather it when the work is scheduled.
+
+- **CSP: Report-Only → enforcing.**
+  - **Why deferred.** Flipping to enforcing before UAT confirms zero violations
+    risks breaking real page loads.
+  - **Cost of waiting.** CSP is observe-only until flipped — it reports but
+    doesn't block.
+  - **Revisit trigger.** UAT confirms zero CSP violations in Report-Only.
+
+- **HSTS `includeSubDomains` / `preload`.**
+  - **Why deferred.** Asserting these before every `*.overhype.me` subdomain is
+    HTTPS-only would strand any non-HTTPS subdomain.
+  - **Cost of waiting.** Slightly weaker transport guarantee at the subdomain
+    edge.
+  - **Revisit trigger.** All `*.overhype.me` subdomains are HTTPS.
+
+- **`ADMIN_API_KEY` scoping + `confirm`/`limit` gates on the API-key backfill launchers.**
+  - **Why deferred.** The backfill-launcher gates depend on the `ADMIN_API_KEY`
+    scoping decision, which isn't made yet.
+  - **Cost of waiting.** Backfill launchers lack a belt-and-suspenders
+    confirm/limit guard (they are admin-gated already).
+  - **Revisit trigger.** The `ADMIN_API_KEY` scoping decision is made — then
+    wire the gates.
+
+- **Admin field-length validation tidying.**
+  - **Why deferred.** Cleanup, not a live risk; validation exists, this is
+    tightening bounds.
+  - **Cost of waiting.** Minimal.
+  - **Revisit trigger.** Next time we touch admin input validation, or a
+    quarterly security pass judges it due.
+
+- **Git-history purge of the removed prod dump.**
+  - **Why deferred / won't-do-leaning.** Destructive history rewrite; **secret
+    rotation is the real mitigation** and is the primary control. The purge is
+    cosmetic cleanup on top of that.
+  - **Cost of waiting.** None once rotation is confirmed — the dump's secrets
+    are dead.
+  - **Revisit trigger.** Only if rotation is ever found incomplete; otherwise
+    leave as won't-do.
 
 ## Dependencies & toolchain
 
