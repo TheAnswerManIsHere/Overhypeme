@@ -55,9 +55,19 @@ classified below). Read: `docs/ai-context/taxonomy-and-enrichment.md` (the
 canonical rule, PR #251), `docs/ai-context/decisions.md` (the decision entry +
 enumerated sites), `docs/ai-context/agent-working-rules.md`.
 
+**Correction (Codex round 5): the original sweep's scope was too narrow.**
+Limiting the grep to `artifacts/api-server/src` is exactly why site 12
+(`scripts/backfill-pexels-images.mjs`, at the repo root, outside `artifacts/`
+entirely, using raw SQL rather than the Drizzle query builder so it doesn't
+even match `factsTable.parentId`) was missed for four rounds straight. The
+repo-wide sweep re-run at implementation time (per the Definition of Done)
+must cover the whole repo — `scripts/`, `artifacts/*/scripts/`, and any raw
+SQL (`parent_id IS NULL`), not just `factsTable.parentId`/`isNull(...)`
+call sites under `artifacts/api-server/src`.
+
 ## Current Behavior
 
-**Confirmed bugs (metadata inheritance / root-only generation) — 11 sites:**
+**Confirmed bugs (metadata inheritance / root-only generation) — 12 sites:**
 
 | # | Site | Current behavior |
 |---|---|---|
@@ -72,6 +82,7 @@ enumerated sites), `docs/ai-context/agent-working-rules.md`.
 | 9 | `routes/memes.ts:1324-1332`, `routes/pulidJobs.ts:217-233` | Explicit 400: "AI meme generation only supported on root facts" — a legendary user cannot generate an AI visual for a variant today |
 | 10 | `artifacts/overhype-me/src/pages/admin/facts.tsx:1481-1482` (Codex round 1) | Wraps the entire "Pexels Image Pipeline (root facts only)" admin panel in `selectedFact.parentId === null` — a variant has no UI surface to run/see `refresh-images` |
 | 11 | `artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) | Standalone CLI script (separate from the `admin.ts` HTTP route of the same name) also filters `isNull(factsTable.parentId)` |
+| 12 | `scripts/backfill-pexels-images.mjs:112-113` (Codex round 5) | A THIRD, undocumented-elsewhere standalone script (repo root, raw SQL, its own hand-rolled OpenAI-keyword + Pexels logic — duplicates `pexelsClient.ts`'s pipeline rather than reusing it) filters `parent_id IS NULL AND is_active = true` in both its normal and `--all` modes |
 
 **Checked, already correct — no fix needed:** `artifacts/api-server/scripts/backfill-ai-memes.ts`
 (queries all active facts with no `parentId` filter at all).
@@ -202,6 +213,17 @@ implicit one (the root as a variant's de facto metadata source).
   the HTTP route. Checked the sibling `backfill-ai-memes.ts` script: it
   already queries all active facts with no `parentId` filter — already
   correct, no change needed there.
+- **`scripts/backfill-pexels-images.mjs:112-113` (Codex round 5) — retire it,
+  don't fix it in place.** This is a THIRD implementation of the same
+  operation (repo-root, raw SQL, its own hand-rolled OpenAI keyword-extraction
+  + Pexels-search logic), not found referenced anywhere else in the repo (no
+  `package.json` script, no doc). It already duplicates
+  `artifacts/api-server/scripts/backfill-pexels.ts` and the `admin.ts` HTTP
+  route — maintaining a third parallel copy of this logic (which can silently
+  drift from the real pipeline in `pexelsClient.ts`) is worse than deleting
+  it. Delete the file. **Flagging for David:** if this script is actually used
+  operationally outside what's visible in-repo, say so and it gets the same
+  `parentId`-filter fix as its siblings instead of deletion.
 - `memes.ts:1324-1332`, `pulidJobs.ts:217-233`: remove the `parentId !== null`
   rejection. AI meme / PuLID generation operates on any fact the caller is
   authorized to generate for (existing tier/ownership checks are untouched —
@@ -302,6 +324,8 @@ prove it with **both** a root and a variant fixture:
   (already-has-images facts skipped) holds for both — including
   `backfill-images`, which needs its new `isNull(pexelsImages)` predicate
   (site 8 fix) verified directly, since it has no such check today.
+- `scripts/backfill-pexels-images.mjs` no longer exists in the repo (site 12
+  — deleted, not fixed in place, per the design decision above).
 - Admin Facts Editor: selecting a variant shows the Pexels Image Pipeline
   panel (previously hidden); the panel's status/actions work identically to
   a root's.
@@ -346,10 +370,14 @@ prove it with **both** a root and a variant fixture:
 5. Image/AI generation: remove the `parentId !== null` guard in
    `admin.ts:1990`, `memes.ts:1324-1332`, `pulidJobs.ts:217-233`; remove
    `isNull(factsTable.parentId)` from the three bulk-backfill queries in
-   `admin.ts` and from `scripts/backfill-pexels.ts:38`. For
-   `backfill-images` specifically, also add `isNull(factsTable.pexelsImages)`
-   to its `where` clause (it has no idempotency predicate today) so it
-   doesn't regress into re-triggering the pipeline for every fact.
+   `admin.ts` and from `artifacts/api-server/scripts/backfill-pexels.ts:38`.
+   For `backfill-images` specifically, also add
+   `isNull(factsTable.pexelsImages)` to its `where` clause (it has no
+   idempotency predicate today) so it doesn't regress into re-triggering the
+   pipeline for every fact. Delete `scripts/backfill-pexels-images.mjs`
+   (site 12) — a third, undocumented, duplicate implementation of the same
+   backfill, unless David flags active use of it (see Proposed Design C),
+   in which case fix its `parent_id IS NULL` filter instead.
 6. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
@@ -384,10 +412,13 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
 
 ## Definition of Done
 
-- Repo-wide sweep re-confirmed at implementation time; all 11 listed sites
-  fixed (including the frontend gate and the standalone backfill script); no
-  other `parentId`-gated images/enrichment/AI-generation site remains
-  (verified by grep, not assumed).
+- Repo-wide sweep re-confirmed at implementation time, **including outside
+  `artifacts/`** (site 12 was found in the repo-root `scripts/` directory,
+  not under `artifacts/api-server/src` where the original sweep was scoped —
+  widen the re-sweep accordingly); all 12 listed sites fixed (including the
+  frontend gate and both standalone/duplicate backfill scripts); no other
+  `parentId`-gated images/enrichment/AI-generation site remains anywhere in
+  the repo (verified by grep, not assumed).
 - A variant can: get its own stock/AI images (via explicit generation, admin
   refresh, or now-inclusive bulk backfill), get its own enrichment classified
   from its own text only, and have its own confirmed text edit trigger its own
