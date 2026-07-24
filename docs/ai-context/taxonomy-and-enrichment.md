@@ -49,11 +49,16 @@ So, for **every** metadata layer:
   substitute the root's.
 - **A variant must be able to GENERATE its own images, not just display them.**
   Today several endpoints reject or silently skip variants outright —
-  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`, and,
-  user-facing, AI meme/PuLID generation (`memes.ts`, `pulidJobs.ts`) return
-  "AI meme generation only supported on root facts." That is a direct product
-  gap against *"a variant can have its own visual concept"* — root-only image
-  generation is exactly the constraint to remove, not a display nuance.
+  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
+  `backfill-ai-memes`, and, user-facing, AI meme/PuLID generation (`memes.ts`,
+  `pulidJobs.ts`) return "AI meme generation only supported on root facts."
+  That is a direct product gap against *"a variant can have its own visual
+  concept"* — root-only image generation is exactly the constraint to remove,
+  not a display nuance. **Treat any `isNull(factsTable.parentId)`/
+  `parentId !== null` guard on an images/enrichment/AI-generation path as
+  suspect** — the exact list of sites has already been under-enumerated twice
+  in review; a repo-wide sweep is required before calling this fixed, not a
+  checklist of known examples.
 - **Enrichment classifies a variant on its own text only** — the root's wording
   is not passed as classifier context. Consequence (intended): **re-wording a
   root does not invalidate or re-enrich its variants.** Their enrichment depends

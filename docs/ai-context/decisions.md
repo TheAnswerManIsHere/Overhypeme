@@ -70,7 +70,17 @@
   `memes.ts:1324-1332` and `pulidJobs.ts:217-233` (AI meme/PuLID generation:
   explicit 400, "AI meme generation only supported on root facts"). The
   last two mean a legendary user cannot generate an AI visual for a variant
-  fact **today**, which is the exact capability David asked for.
+  fact **today**, which is the exact capability David asked for. Also
+  `admin.ts:2077-2091` (`POST /admin/facts/backfill-ai-memes` — a separate
+  route from `backfill-pexels`, missed in the first pass of this list; both
+  its `force` and non-`force` branches query `isNull(factsTable.parentId)`
+  only, Codex review round 3).
+  **This enumeration is illustrative, not exhaustive** — two consecutive
+  review rounds each found a root-only site the previous pass missed, which
+  is itself the signal: the follow-up code PR must do its own repo-wide sweep
+  (e.g. every `parentId`/`isNull(factsTable.parentId)` site that touches
+  images, enrichment, or AI generation) rather than trust this list as
+  complete.
 - **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
   That would be a **new explicit entity** (a concept/cluster the root and variants
   both point at), not a revival of parent-inheritance through `parent_id`.
