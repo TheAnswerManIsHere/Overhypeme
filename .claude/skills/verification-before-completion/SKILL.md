@@ -44,7 +44,9 @@ doubt: verify once, report honestly, move on.
 ## The Gate Function
 
 ```
-BEFORE claiming any status or expressing satisfaction:
+BEFORE claiming a task, fix, or verification status is complete or correct
+(not before ordinary acknowledgment or a non-completion positive remark —
+see Scope above):
 
 1. IDENTIFY: What command proves this claim?
 2. RUN: Execute the FULL command (fresh, complete)
@@ -72,7 +74,10 @@ Skip any step = lying, not verifying
 ## Red Flags - STOP
 
 - Using "should", "probably", "seems to"
-- Expressing satisfaction before verification ("Great!", "Perfect!", "Done!", etc.)
+- Expressing satisfaction that implies a completion or correctness claim before
+  verification ("Great, that's fixed!", "Perfect, tests pass", "Done!") — plain
+  acknowledgment with no completion claim ("Great, moving on to the next one")
+  is not gated (see Scope above)
 - About to commit/push/PR without verification
 - Trusting agent success reports
 - Relying on partial verification
