@@ -9,6 +9,15 @@
   rendered on demand for any name/pronoun set. Not stored per-name.
   → [product-brief](./product-brief.md), [token-rendering](./token-rendering-and-grammar.md)
 
+- **Variant (of a fact)** — a fact that expresses **the same concept** as another
+  fact in slightly different words, linked by `facts.parent_id` to the **root**
+  (the primary example of that concept). The link exists for exactly two
+  purposes: recording that kinship, and letting the UI show or hide variants.
+  **A variant is otherwise a fully independent fact** — it owns its own memes,
+  taxonomy/enrichment, Visual Concept, and stock/AI images, and it inherits
+  **no** metadata from its root.
+  → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts)
+
 - **Personalization tokens** — the closed set a template may use: `{NAME}`,
   `{NAME_POSSESSIVE}`, the pronoun tokens (`{SUBJ}`/`{OBJ}`/`{POSS}`/`{POSS_PRO}`/
   `{REFL}` + capitalized variants), and conjugation pairs like `{laughs|laugh}`.

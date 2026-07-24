@@ -13,6 +13,43 @@
 
 ---
 
+### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
+- **Decision:** A variant is a fact expressing **the same concept** as its root in
+  slightly different words. `facts.parent_id` exists for exactly two purposes:
+  recording that kinship, and letting the UI show or hide variants. It is **not**
+  an inheritance link. A variant owns its own memes, taxonomy/enrichment, Visual
+  Concept, and stock/AI images, and **inherits no metadata** from its root.
+  Specifically: **enrichment classifies a variant on its own text only** (the
+  root's wording is *not* passed as classifier context), so **re-wording a root
+  does not invalidate or re-enrich its variants**. David, verbatim: *"the only
+  thing that we should be doing with variants is tracking them as having a
+  parent-child relationship to the master fact… other than being able to show or
+  hide variants I don't want them to be dependent upon their parents for any
+  metadata. A variant can have its own memes, can have its own visual taxonomy,
+  can have its own enrichment, can have its own visual concept."*
+- **Why:** The code had drifted into a partial-inheritance model that was never
+  stated anywhere in the docs, so it kept getting re-derived and deepened —
+  `GET /facts/:factId/pexels-images` **unconditionally replaced** a variant's own
+  stock images with its root's (so a variant could never use its own), fact detail
+  filled in the root's images for whichever kind the variant lacked, and
+  `enrichmentJobs.ts` classified variants with the root's text as context (putting
+  `parentId` + parent text in the staleness fingerprint, which cascaded
+  re-enrichment on a root re-word). Because no canonical statement existed, a
+  reviewer reading only the code asked for the inheritance to be **mirrored into a
+  new save path** — evidence that undocumented drift propagates. Structural
+  cross-references stay legitimate (the link itself, show/hide grouping, lifecycle
+  guards like `HAS_ACTIVE_VARIANTS`, related-facts exclusion); *metadata*
+  cross-references do not.
+- **Reference:** `docs/ai-context/taxonomy-and-enrichment.md` → *Variants are
+  independent facts* (canonical rule) + glossary entry "Variant (of a fact)".
+  Offending sites at
+  decision time: `routes/facts.ts:233-243`, `routes/facts.ts:587-590`,
+  `lib/enrichmentJobs.ts:140-206,354-386`. Correct existing pattern:
+  `enrichmentVersioning.ts`'s field-preservation invariant.
+- **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
+  That would be a **new explicit entity** (a concept/cluster the root and variants
+  both point at), not a revival of parent-inheritance through `parent_id`.
+
 ### 2026-07-23 · Fact lifecycle closed: one entrance, one exit — activation is moderation-only, and deactivation is reversible through moderation, not a direct toggle
 - **Decision:** Two invariants, now enforced end-to-end (Phase 2 fact-lifecycle
   closure):
