@@ -58,6 +58,19 @@
   this dependency-tracking path should be removed, not merely left unfired —
   a currently-blocking guard silently going dead is exactly the kind of drift
   this decision exists to prevent.
+  **Root-only media generation, also to fix (Codex review round 2, PR #251):**
+  several endpoints currently reject or silently skip variants outright, which
+  is a more direct violation than the readers above — a variant can't get its
+  own images at all today, not just "falls back to the root's":
+  `admin.ts:1990` (`POST /admin/facts/:id/refresh-images` — explicit 400,
+  "Images are only stored on root facts, not variants"),
+  `admin.ts:1999-2013` and `2015-2034` (the `backfill-images` /
+  `backfill-pexels` bulk jobs both filter to `isNull(parentId)`, silently
+  never touching variants), and — user-facing, not just admin —
+  `memes.ts:1324-1332` and `pulidJobs.ts:217-233` (AI meme/PuLID generation:
+  explicit 400, "AI meme generation only supported on root facts"). The
+  last two mean a legendary user cannot generate an AI visual for a variant
+  fact **today**, which is the exact capability David asked for.
 - **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
   That would be a **new explicit entity** (a concept/cluster the root and variants
   both point at), not a revival of parent-inheritance through `parent_id`.

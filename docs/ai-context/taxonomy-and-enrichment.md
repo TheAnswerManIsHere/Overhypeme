@@ -47,6 +47,13 @@ So, for **every** metadata layer:
 - A variant **never displays, borrows, or falls back to** its root's metadata.
   If a variant has no stock images of its own, it has none — the picker must not
   substitute the root's.
+- **A variant must be able to GENERATE its own images, not just display them.**
+  Today several endpoints reject or silently skip variants outright —
+  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`, and,
+  user-facing, AI meme/PuLID generation (`memes.ts`, `pulidJobs.ts`) return
+  "AI meme generation only supported on root facts." That is a direct product
+  gap against *"a variant can have its own visual concept"* — root-only image
+  generation is exactly the constraint to remove, not a display nuance.
 - **Enrichment classifies a variant on its own text only** — the root's wording
   is not passed as classifier context. Consequence (intended): **re-wording a
   root does not invalidate or re-enrich its variants.** Their enrichment depends
