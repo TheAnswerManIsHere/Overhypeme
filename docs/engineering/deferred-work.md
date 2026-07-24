@@ -116,8 +116,17 @@ re-gather it when the work is scheduled.
     group bump. Our code does **not** call any of the removed sharp APIs
     (`failOnError`, `format.jp2k`, `paletteBitDepth`), so the break is
     packaging/typings, not API usage.
-  - **Cost of waiting.** Low today — 0.34.5 works and has no known CVE. Grows
-    if a security advisory lands on 0.34.x or we need a 0.35-only feature.
+  - **Cost of waiting.** Real, not zero — sharp 0.34.5 **does** carry a known
+    CVE: it inherits vulnerabilities from its bundled libvips (four CVEs incl.
+    [GHSA-f88m-g3jw-g9cj](https://github.com/lovell/sharp/security/advisories/GHSA-f88m-g3jw-g9cj),
+    High), fixed by the libvips 8.18.3 bump that ships with sharp ≥0.35.0.
+    sharp is a **direct** dependency (`artifacts/api-server/package.json`),
+    confirmed via a Dependabot alert triage on 2026-07-24 (see
+    [`decisions.md`](../ai-context/decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)
+    and [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#security-relevant-dependency-claims-written-from-assumption-not-verification)
+    — this line originally, and wrongly, claimed "no known CVE"). Grows if a
+    further advisory lands on the 0.34.x line, or if we need a 0.35-only
+    feature.
   - **Update (2026-07-24).** The typings-resolution bug is already fixed —
     sharp v0.35.1 (2026-06-11) shipped "Ensure type definitions are published
     for both ESM and CJS" ([#4537](https://github.com/lovell/sharp/issues/4537),

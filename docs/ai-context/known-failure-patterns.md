@@ -571,5 +571,9 @@ prior version "has no known CVE" — false; sharp inherits CVEs from libvips
 (those were a typings regression). Separately, three *other* packages bundled
 in that same PR (`drizzle-orm`, `vite`, `postcss`) were first filed as generic
 "safe patch" hygiene, not worth prioritizing — until a full alert triage found
-they closed 9 disclosed CVEs, including a SQL injection in `drizzle-orm`, the
-production ORM ([`decisions.md`](./decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)).
+each closed a real, disclosed CVE, including a SQL injection in `drizzle-orm`,
+the production ORM. (The same triage separately found and fixed CVEs in
+`esbuild` and `fast-uri` too — not among these three, but part of the same
+PR #246 sweep — bringing the total to 9 disclosed CVEs closed; see
+[`decisions.md`](./decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)
+for the full breakdown.)
