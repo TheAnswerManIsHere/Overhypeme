@@ -136,17 +136,40 @@ re-gather it when the work is scheduled.
     breaking-change surface and the Node ≥ 20.9.0 floor are still real, so this
     stays parked pending a deliberate visual-pipeline upgrade. If/when we pick
     this up, target **0.35.1+**, not raw 0.35.0.
-  - **Revisit trigger.** A security advisory hits 0.34.x **OR** we schedule a
-    visual-pipeline dependency upgrade with UAT (Opus-tier).
+  - **Revisit trigger.** ~~A security advisory hits 0.34.x~~ — **already
+    fired** (see Cost of waiting above: the libvips-inherited CVEs are a
+    known, accepted risk while this stays parked, not an open trigger
+    anymore). The only remaining gate: we schedule a visual-pipeline
+    dependency upgrade with UAT (Opus-tier).
   - **Update (2026-07-24, continued).** The other three bumps bundled in #243
     (drizzle-orm 0.45.2, vite 7.3.6, postcss 8.5.12) turned out **not** to be
     generic hygiene — a Dependabot triage of the repo's open alerts found they
     fix four disclosed High-severity CVEs, including a **SQL injection in
     drizzle-orm** (our direct production ORM). Split out into **PR #246**
     rather than waiting on sharp or the next Dependabot cycle.
-    **Status: PR #246 merged (squash commit `27277ff`) — resolved, no longer
-    outstanding.** drizzle-orm/vite/postcss/esbuild/fast-uri are all patched
-    on `main`. See #246 for the full CVE list and verification.
+    **Status: PR #246 merged (squash commit `27277ff`).** drizzle-orm/vite/
+    postcss/fast-uri are fully resolved on `main`. **esbuild is only
+    *partially* resolved** — #246 patched `artifacts/api-server`'s own
+    **direct** esbuild devDependency (0.28.1, closing the alert anchored to
+    that manifest), but `esbuild@0.27.3` (the CVE-affected version) is still
+    resolved on `main` for three transitive consumers: `tsx`, `@orval/core`,
+    and `wrangler` (confirmed via `pnpm-lock.yaml`). The underlying CVE
+    ([GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr))
+    is specifically about esbuild's **dev-server** feature — `tsx`/`@orval/core`
+    don't invoke it (pure transpile/codegen use), `wrangler dev` plausibly
+    could, so that's the one instance worth more scrutiny, not just noting.
+    None of these three has its own package.json declaring esbuild directly
+    in this repo (all pull it in as *their own* transitive dependency), so
+    there's no direct-specifier fix available the way there was for
+    api-server — bumping would mean waiting on `tsx`/`@orval/core`/`wrangler`
+    to bump their own esbuild pin, or a workspace override (same mechanism as
+    the `fast-uri` fix in #246 — see
+    [`pnpm-override-scope-and-application.md`](../../.agents/memory/pnpm-override-scope-and-application.md)
+    for the gotchas that surfaces). See #246 for the full CVE list and
+    verification of what **is** resolved.
+  - **Revisit trigger (esbuild specifically).** `tsx`, `@orval/core`, or
+    `wrangler` ship a release pinning esbuild ≥0.28.1, **or** we force it via
+    a workspace override and verify no breakage — whichever comes first.
 
 - **~40 lower-severity Dependabot alerts — not yet individually triaged. OPEN QUESTION, not closed.**
   - **What.** Of the repo's 54 open Dependabot alerts as of 2026-07-24, 9 CVEs
