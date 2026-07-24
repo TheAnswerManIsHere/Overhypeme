@@ -11,6 +11,15 @@ Execute plan by dispatching a fresh implementer subagent per task, a task review
 
 **Core principle:** Fresh subagent per task + task review (spec + quality) + broad final review = high quality, fast iteration
 
+**Local calibration (Overhype.me, 2026-07-24):** this skill was written for a
+model that under-delegated; Opus 5 over-delegates. Apply it only to plans whose
+tasks are genuinely substantial and independent — a plan of small, sequential
+edits should be executed directly, not fanned out one subagent per task. Collapse
+the per-task reviewer into your own review when the task is small; the
+whole-branch review at the end plus Codex on the PR is the real safety net, and
+a reviewer subagent per trivial task is pure overhead. Full rules: CLAUDE.md →
+*Subagent delegation is capped*.
+
 **Narration:** between tool calls, narrate at most one short line — the
 ledger and the tool results carry the record.
 

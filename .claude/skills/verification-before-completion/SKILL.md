@@ -21,6 +21,26 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 
 If you haven't run the verification command in this message, you cannot claim it passes.
 
+## Scope: this is a truthfulness rule, not a "verify more" rule
+
+**Local calibration for Opus 5 (Overhype.me, 2026-07-24).** Opus 5 already
+verifies its own work without being told to, and instructions that tell it to
+verify produce redundant re-checking with no gain in correctness. This skill is
+deliberately **not** that instruction. Read it as governing *what you may
+claim*, never as a mandate to add verification work.
+
+| This skill DOES require | This skill does NOT require |
+|---|---|
+| Running the command before claiming its result | Running it a second time to be sure |
+| Reporting failures with the actual output | Adding a verification step to a task that didn't ask for one |
+| Saying plainly when a step was skipped | Re-auditing work you already verified this session |
+| Checking a delegated task actually landed | Spawning a subagent whose job is to double-check you |
+
+The failure this exists to prevent is a *false claim of completion* — David
+cannot read diffs, so my word that something works is the only signal he has
+before UAT. It does not exist to make me cautious, slow, or repetitive. When in
+doubt: verify once, report honestly, move on.
+
 ## The Gate Function
 
 ```
@@ -118,11 +138,13 @@ From 24 failure memories:
 
 **ALWAYS before:**
 - ANY variation of success/completion claims
-- ANY expression of satisfaction
-- ANY positive statement about work state
 - Committing, PR creation, task completion
-- Moving to next task
-- Delegating to agents
+- Reporting a delegated task as done (check the diff, don't trust the report)
+
+**NOT a trigger** (per the scope table above — these caused over-verification):
+- Ordinary positive statements that aren't completion claims
+- Moving to the next task in a plan, when nothing is being claimed complete
+- Dispatching a subagent — brief it well; don't pre-verify to prepare for it
 
 **Rule applies to:**
 - Exact phrases
