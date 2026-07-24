@@ -153,13 +153,6 @@ priorities (moderation speed, render/enrichment quality, video). See
   post-composited/SVG bubble rendering; per-bubble placement, color, and font
   styling; a "Use scene only" partial candidate-pick action; OCR-based
   exactness scoring (PR #229).
-- **Async-jobs DB connection pool `max`.** The fast/render/bulk lane split
-  (PR #216, 2026-07) deliberately left the `pg.Pool` default `max` of 10
-  unraised — the three lanes' combined handler concurrency (8) fits under it,
-  but only with thin headroom shared with concurrent HTTP traffic. Raise it
-  only if pool-acquisition wait time or provider rate-limit errors actually
-  show up under load; it's an infra/cost decision, not a code change to make
-  proactively. See [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 - Broad public-growth surfaces and free→Legendary conversion optimization.
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."

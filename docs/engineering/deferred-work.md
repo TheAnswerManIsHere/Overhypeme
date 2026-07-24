@@ -190,6 +190,23 @@ re-gather it when the work is scheduled.
     actual bump is mechanical and self-verifying via this repo's own CI —
     but it still needs its own approved PR, the same as any other major bump.
 
+## Infra & operational tuning
+
+- **Async-jobs DB connection pool `max`.**
+  - **What.** The fast/render/bulk lane split (PR #216, 2026-07) deliberately
+    left the `pg.Pool` default `max` of 10 unraised — the three lanes'
+    combined handler concurrency (8) fits under it, but only with thin
+    headroom shared with concurrent HTTP traffic.
+  - **Why deferred now.** Raising it is an infra/cost decision, not a code
+    change to make proactively — no evidence yet that the current `max` is
+    actually a bottleneck.
+  - **Cost of waiting.** Thin headroom under load; could show up as
+    pool-acquisition wait time or provider rate-limit errors before anyone
+    notices otherwise.
+  - **Revisit trigger.** Pool-acquisition wait time or provider rate-limit
+    errors actually show up under load. See
+    [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
+
 ## Code-level tech debt
 
 - **`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.**
