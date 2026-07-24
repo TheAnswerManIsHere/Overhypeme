@@ -93,9 +93,15 @@ forward.
      thread replies or the plan/PR artifacts themselves.)
   2. **Every moment I need David's input gets a visually distinct banner** so
      he can spot it while scrolling — a horizontal rule, then
-     `🛑 **NEED YOU** — <one-line ask>`, then the options/question, then a
-     closing rule. Nothing else in my output uses that marker, so a scan for
-     🛑 finds exactly the blocking moments.
+     `🛑 **NEED YOU** — <one-line ask>`, then the decision, then a closing
+     rule. Nothing else in my output uses that marker, so a scan for 🛑 finds
+     exactly the blocking moments. **The banner body is a few short sentences,
+     structured so David can decide fast (David, 2026-07-24):** (a) the
+     **issue** in one or two plain sentences, (b) the **options**, and (c) the
+     **ramifications** of each option — the concrete consequence/trade-off of
+     picking it. Enough for an informed decision at a glance; no more. Save the
+     deep evidence/verification for the Codex threads and the plan, not this
+     banner.
   3. **Fire a push notification at those moments** (the `PushNotification`
      tool) so David gets pulled back to the app. Scope: when I'm **blocked on
      his input/decision**, AND at **major completions** that hand the turn back
