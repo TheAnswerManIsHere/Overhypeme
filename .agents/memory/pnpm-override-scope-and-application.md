@@ -19,24 +19,36 @@ a working override elsewhere in the file) to `pnpm-workspace.yaml`'s
 `overrides:` block. Ran `pnpm install`, then `pnpm install --force`. **The
 resolved version never moved off 3.1.0.**
 
-## Gotcha 1: bare overrides aren't always recorded/applied by plain `install`
+## Gotcha 1: plain `install`/`--force` doesn't re-resolve an already-locked package against a new override — `pnpm update <pkg> -r` does
 
-Checked the regenerated `pnpm-lock.yaml`'s own `overrides:` block (pnpm
-echoes its effective override config there) — it only listed the file's
+Checked the regenerated `pnpm-lock.yaml`'s own `overrides:` block, expecting
+it to echo the new `fast-uri: 3.1.4` entry (pnpm does echo *some* override
+config there). It didn't — and initially read that absence as "the override
+isn't being applied." **That diagnosis was wrong.** Confirmed later: even
+once `fast-uri@3.1.4` was correctly resolved and shipped (PR #246, merged),
+that lockfile `overrides:` block *still* omits both `fast-uri` and the
+pre-existing bare `esbuild: 0.27.3` entry — it only ever echoes
 **selector-style** entries (`esbuild>@esbuild/darwin-arm64: '-'`, etc.), never
-the bare `fast-uri: 3.1.4` entry I'd just added, nor even the pre-existing
-bare `esbuild: 0.27.3` entry. That absence was the tell that `install`
-(even `--force`) wasn't actually re-resolving against the new override.
+bare package-name overrides, regardless of whether they're actually in
+effect. **Don't use that block's contents as a signal for whether a bare
+override is applied — it isn't diagnostic either way.**
+
+The real, reliable check is the package's **actual resolved version**:
+`grep "^  <pkg>@" pnpm-lock.yaml` (or `pnpm why <pkg>`). That's what actually
+showed `fast-uri` stuck at 3.1.0 despite the override being added.
 
 **What worked:** `pnpm update fast-uri --recursive` (equivalently `-r`) —
-explicitly targeting the package for an update across the workspace forced
-the real re-resolution; the version moved to 3.1.4 immediately.
+explicitly targeting the package for an update across the workspace forced a
+real re-resolution; the version moved to 3.1.4 immediately. Plain
+`pnpm install`, even with `--force`, reuses an already-resolved lockfile
+entry for a package rather than re-evaluating it against a newly-added or
+-changed override.
 
-**Takeaway:** after adding/changing a workspace override, don't trust
-`pnpm install`/`--force` alone. Verify the resolved version actually changed
-in `pnpm-lock.yaml` and, if it didn't, run
-`pnpm update <pkg> --recursive` before assuming something is broken or the
-override syntax is wrong.
+**Takeaway:** after adding/changing a workspace override for a package
+that's already resolved in the lockfile, don't trust `pnpm install`/`--force`
+to pick it up, and don't use the lockfile's `overrides:` echo block to
+diagnose whether it did — check the package's actual resolved version
+directly, and run `pnpm update <pkg> --recursive` if it hasn't moved.
 
 ## Gotcha 2: a workspace-wide override does NOT lock a project's own direct dependency
 
