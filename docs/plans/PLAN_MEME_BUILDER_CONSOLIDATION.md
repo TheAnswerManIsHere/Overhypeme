@@ -85,25 +85,34 @@
    persists the render parameters + `renderedFactText` snapshot alongside.
    `previewImageBase64` is **removed from the save schema** (no client bitmap
    path remains; the field dies with the dead builder).
-   - **Authorize uploaded source images before rendering (Codex round 10,
-     P1).** For `imageSource.type === "upload"`, the save must verify the
-     caller may read the referenced object **before** fetching/baking it —
-     via `userCanReadObject` (the existing `objectAccess` guard) or an
-     owner-filtered metadata lookup. Today `createMemeRecord` fetches the
-     `/objects/...` path with no ownership check (`getUploadImageMetadata`
-     filters by `object_path` only — `userImageUpload.ts:310-318`), so an
-     authenticated caller who learns another user's upload path could bake
-     that private media into a public frozen meme. Regression test: a save
-     referencing another user's upload path → 403/404, nothing stored.
-   - **Freeze the stock background source, not just its ID (Codex round 10).**
-     The wizard previews a concrete URL (from `GET /facts/:id/pexels-images`)
-     but the payload sends only `pexelsPhotoId`, and the server re-fetches
-     Pexels by ID — a changed/unavailable Pexels response would make the
-     master differ from the preview or fail the save. The render input must
-     resolve the exact selected image: carry the selected URL in the payload
-     or resolve it from the fact's stored `pexelsImages` by `factId` +
-     photo id (server-side, so it stays authoritative). Parity test covers
-     the background bytes as well as the text.
+   - **Authorize uploaded source images by OWNERSHIP before rendering (Codex
+     rounds 10–11).** For `imageSource.type === "upload"`, the save must
+     verify the caller **owns** the referenced object before fetching/baking
+     it — an **owner-filtered metadata check**
+     (`upload_image_metadata.user_id === caller`, the same rule
+     `/api/render-preview` already enforces) — NOT the read-authorization
+     helper `userCanReadObject`, which passes for public-ACL objects (profile
+     uploads are public), so read-access alone would let a caller bake
+     another user's public profile photo into their own meme. Today
+     `createMemeRecord` fetches the path with no check at all
+     (`getUploadImageMetadata` filters by `object_path` only —
+     `userImageUpload.ts:310-318`). Regression tests: another user's
+     **private** upload path AND another user's **public profile** upload
+     path both → 403/404 with nothing rendered or stored; the owner's own
+     path works.
+   - **Freeze a RENDER-GRADE stock asset, resolved server-side (Codex rounds
+     10–11).** The wizard previews the stored `entry.url` — which
+     `pexelsClient.ts:126` sets to `src.large` (~940px) — while the DB's
+     stored `pexelsImages.src` also carries `large2x` (~1880px) and
+     `original`. A 2400px master must NOT be upscaled from the ~940px preview
+     URL, and must NOT come from a live Pexels re-fetch that can drift or
+     fail. Fix: the server resolves the render source from the fact's stored
+     `pexelsImages` by `factId` + photo id, picking the **render-grade**
+     variant (`original`, falling back `large2x`) of the **same photo** the
+     user previewed. Tests: the master's background is the selected photo
+     (same-asset identity), master dimensions meet the ~2400px target without
+     upscaling beyond the source, and an unavailable stored source fails the
+     save rather than silently substituting.
 3. **Serve flow:** gallery/permalink/OG/export/Zazzle all serve the stored
    master (downscaling on the fly where a smaller variant is needed).
    `generateMemeBuffer`'s at-request re-render path is **deleted, not
@@ -206,12 +215,14 @@ needed). Idempotent; log counts.
   entitlement + params still dedupes.
 - **Hard-delete:** hard-deleting a user removes every stored master for their
   image memes (imageSource null or not); storage summary reflects it.
-- **Upload-source authorization:** a save referencing another user's upload
-  object path is rejected (403/404) with nothing rendered or stored; the
-  owner's own path still works.
-- **Stock background parity:** the master's background bytes match the
-  previewed stock image (resolved from the fact's stored `pexelsImages`, not
-  a live re-fetch that can drift); an unavailable stock source fails the save
+- **Upload-source ownership:** saves referencing another user's upload path —
+  both a private upload AND a public profile upload — are rejected (403/404)
+  with nothing rendered or stored; the owner's own path works. (Owner-filtered
+  check, not read-access.)
+- **Stock background render-grade parity:** the master's background is the
+  same photo the user previewed, rendered from the stored render-grade
+  variant (`original`/`large2x`, not the ~940px preview URL); dimensions meet
+  the target without upscaling; an unavailable stored source fails the save
   rather than silently substituting.
 - **Watermark flag:** flag on → master carries watermark; flag off → clean
   master; wired through the tier matrix.
