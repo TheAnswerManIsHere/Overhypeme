@@ -140,6 +140,11 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Explicitly deferred work
 
+> This section holds deferred **product/feature** work. Deferred
+> **engineering** work — parked dependency bumps, security-hardening
+> follow-ups, toolchain deprecations, code-level tech debt — lives in
+> [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md).
+
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);
   end-user wizard exposure (moderator-only for now); `thinking_level: high`

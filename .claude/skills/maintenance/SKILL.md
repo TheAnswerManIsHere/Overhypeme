@@ -10,7 +10,7 @@ per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
 on a higher tier when invoked, I say so and suggest switching before
 starting, but I don't block on it.
 
-The deliverable is one concise report at the end covering the four areas
+The deliverable is one concise report at the end covering the five areas
 below. If an area has nothing to report, one line ("no open dependency
 PRs") — the discipline stays visible, the report stays short.
 
@@ -74,7 +74,23 @@ triggers the manual path.
   runs. A flaky test that shows up twice across maintenance runs should
   graduate to a fix task, not stay a report line.
 
-## 4. "What shipped" digest
+## 4. Deferred-work backlog triage
+
+Read [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
+and re-check **each entry's revisit trigger**:
+
+- **Any trigger that has fired** (a dated cutoff reached, a dependency shipped
+  its fix, a recurrence count hit, a security advisory landed) → surface it to
+  David as a numbered decision item in the report. Don't act on it here —
+  maintenance touches nothing but dependency merges (see Boundaries).
+- **Newly parked items** discovered this pass (a major bump held in step 1, a
+  deprecation spotted in a lockfile or CI log) → add them to the doc with the
+  four-field entry template, and commit that doc change (docs-only, no PR
+  ceremony needed).
+- If nothing fired and nothing's new, one line: "deferred-work backlog: N
+  items, no triggers fired."
+
+## 5. "What shipped" digest
 
 - List PRs merged since the last maintenance run (default window: 7 days).
 - Write it **PM-facing**: what changed in product terms, one line per PR,
@@ -82,7 +98,7 @@ triggers the manual path.
 
 ## Report delivery
 
-Single message, four short sections, worst news first. When something needs
+Single message, five short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page (per the
