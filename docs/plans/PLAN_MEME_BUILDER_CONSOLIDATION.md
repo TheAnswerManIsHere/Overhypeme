@@ -103,11 +103,16 @@
 6. **Privacy toggle restored** in the wizard Step 2 image flow (legendary-
    gated, mirroring the dead builder's UX); `isPublic` added to
    `SaveMemePayload`/`buildSaveMemePayload()`.
-7. **Idempotency key carries effective identity** — `effectiveName` and
-   `effectivePronouns` as dedicated mandatory fields (resolved request →
-   profile → `"___"`), computed before the key; rendered text is not an
-   acceptable substitute. Two saves differing only by name or pronouns never
-   collapse; byte-identical repeats still dedupe.
+7. **Idempotency key carries effective identity AND the evaluated watermark
+   entitlement** — `effectiveName`, `effectivePronouns` (resolved request →
+   profile → `"___"`), and the watermark decision (the evaluated tier-feature
+   result) as dedicated mandatory fields, all computed before the key;
+   rendered text is not an acceptable substitute. Watermark is in the key
+   because it's baked into the output bytes (Codex round 9): a tier upgrade or
+   a matrix flip within the dedup window must produce a fresh render, not
+   return the old differently-watermarked row. Two saves differing by name,
+   pronouns, or watermark entitlement never collapse; byte-identical repeats
+   still dedupe.
 8. **One image builder.** Wizard mounted from `FactDetail.tsx` and
    `MemePage.tsx`; `VITE_MBFO_WIZARD` removed; delete the legacy island
    (`components/MemeBuilder.tsx`, flat `meme-builder/MemeBuilder.tsx`,
@@ -118,6 +123,13 @@
    deferred orphan (video backend untouched — appendix).
 9. **`initialStockImageId`** added to the wizard for remix/cold-permalink
    one-tap parity.
+10. **User hard-delete cleans stored masters (Codex round 9).** The admin
+   hard-delete path (`admin.ts:260-264`) deletes the stored meme object only
+   when `imageSource === null` — but post-pivot rows keep `imageSource`
+   (the render parameters) *and* have a stored master, which would survive
+   account hard-delete as orphaned media. Fix: delete the master object for
+   every image meme regardless of `imageSource`, and cover it in the
+   hard-delete/storage-summary tests.
 
 ## What must NOT change
 
@@ -163,10 +175,18 @@ needed). Idempotent; log counts.
   unchanged. Explicit re-render → new meme row + master; original untouched.
 - **Failed render fails the save:** forced render/storage error → 5xx, no row
   persisted (no bitmap-less rows can exist post-deploy).
-- **Moderation:** NSFW rendered output rejected at save (classifier runs on
-  the master).
+- **Moderation preserves the existing decision matrix (Codex round 9):** the
+  classifier runs on the rendered master, keeping `classifyAndDecide`'s
+  current contract — above-threshold content is **rejected/quarantined only
+  when the user has NOT opted into NSFW mode**; with `nsfwModeEnabled` the
+  save is **accepted and tagged** (`is_nsfw` + score persisted). Test both
+  branches; the tag/score columns stay live for this flow.
 - **Idempotency:** two saves differing only by name/pronouns → two memes
-  (incl. pronouns-only and token-free-fact cases); identical repeats dedupe.
+  (incl. pronouns-only and token-free-fact cases); identical params with
+  **different watermark entitlement** → two distinct memes; identical
+  entitlement + params still dedupes.
+- **Hard-delete:** hard-deleting a user removes every stored master for their
+  image memes (imageSource null or not); storage summary reflects it.
 - **Watermark flag:** flag on → master carries watermark; flag off → clean
   master; wired through the tier matrix.
 - **Privacy:** `buildSaveMemePayload` carries `isPublic`; PR213 UAT table
