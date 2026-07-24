@@ -133,9 +133,15 @@ re-gather it when the work is scheduled.
     (drizzle-orm 0.45.2, vite 7.3.6, postcss 8.5.12) turned out **not** to be
     generic hygiene — a Dependabot triage of the repo's open alerts found they
     fix four disclosed High-severity CVEs, including a **SQL injection in
-    drizzle-orm** (our direct production ORM). Split out and shipped
-    immediately in PR #246 rather than waiting on sharp or the next Dependabot
-    cycle. See that PR for the full CVE list and verification.
+    drizzle-orm** (our direct production ORM). Split out into **PR #246**
+    rather than waiting on sharp or the next Dependabot cycle.
+    **Status: PR #246 open, NOT YET MERGED as of this writing — these CVEs
+    are still live on `main` until it merges.** Anyone (including a
+    `/maintenance` pass) reading this entry before #246 merges should treat
+    drizzle-orm/vite/postcss as still outstanding, not resolved — check the
+    PR's merge state, don't trust this paragraph's tense. Once merged, update
+    this line to say so and drop the "not yet merged" caveat. See #246 for the
+    full CVE list and verification.
 
 - **recharts v2 → v3.**
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
@@ -164,10 +170,14 @@ re-gather it when the work is scheduled.
   - **Cost of waiting.** Bounded by GitHub's timeline: once the Node 20 fallback
     is removed, un-updated actions break CI. No longer just a future risk —
     the fix is available now.
-  - **Revisit trigger.** None remaining — this is ready to action. Bump all
-    four to their latest majors across `.github/workflows/*.yml` (mechanical,
-    self-verifying via this repo's own CI) next `/maintenance` pass, or sooner
-    as a small standalone PR.
+  - **Revisit trigger.** None remaining on the "does a fix exist" question —
+    but these are **major-version bumps**, which the `/maintenance` skill's
+    own rule never auto-merges. Surface this as a **decision item** for David
+    next `/maintenance` pass (package, old → new, why it matters, recommendation
+    — per that skill's existing major-bump reporting format), not an
+    instruction to bump unilaterally during that pass. If David approves, the
+    actual bump is mechanical and self-verifying via this repo's own CI —
+    but it still needs its own approved PR, the same as any other major bump.
 
 ## Code-level tech debt
 
