@@ -128,6 +128,26 @@ with your name" jump straight into editing with the original's stock photo via
      against the new (sometimes longer) forms, keep `unresolvedSimpleTokens()`
      green, and respect the `lib/api-zod` codegen/export discipline
      (`patch-generated.mjs` + `check:codegen-drift`).
+   - **Unify the text-options contract so EVERY wizard styling option survives
+     save→render (Codex round 6).** The token bug is one instance of a broader
+     disease: the wizard preview renders client-side from the full
+     `MemeTextOptions` (`meme-builder/types.ts:48-61`), but the saved image
+     renders server-side from a *different, drifted* contract
+     (`TextOptionsSchema` in `memeBuilder.ts:60-75` → `generateMemeBuffer`), and
+     Zod silently strips any field the schema doesn't name. Confirmed drift:
+     the wizard sets `textColor` but the schema accepts `color` (so a chosen
+     text color reverts to white on save/permalink/export); and the wizard sets
+     `topY`/`bottomY` (vertical-position sliders) while the schema has only
+     `verticalPosition` and no `topY`/`bottomY` (so vertical positioning is
+     dropped too). Fix the **class**: reconcile the client `MemeTextOptions` and
+     the server `TextOptionsSchema`/renderer into **one shared text-options
+     contract** (rename/translate at the boundary at minimum, ideally a single
+     shared type), and add a test that **every wizard-settable option**
+     (fill color, outline color, vertical position, font family/size, effect,
+     all-caps, bold/italic, opacity) survives save → persist → server render and
+     matches the live preview — not just the two fields found here. This
+     preempts the whole family of "preview shows X, saved image shows default"
+     mismatches.
 7. **Restore the legendary-gated Public/Private toggle** in the wizard's Step 2
    **image** flow (mirroring the dead builder's UX), and add `isPublic` to
    `SaveMemePayload`/`buildSaveMemePayload()` so it reaches the already-functional
@@ -158,6 +178,7 @@ with your name" jump straight into editing with the original's stock photo via
 | Rendered meme text (image + stored options) | Computed once in `createMemeRecord.ts` from `(raw topText/bottomText, effective identity)` — never client-derived, never stored un-rendered |
 | Effective identity for a save | Resolved once in `createMemeRecord.ts` (request → profile → `"___"`) *before* the idempotency key |
 | Pronoun→form derivation (incl. neopronouns) | ONE shared `resolveIdentityForms` in `lib/api-zod` — server render, budget projection, and client preview all use it |
+| Text styling options (color, position, font, effect…) | ONE reconciled text-options contract — the wizard preview and the server render read the same field names, so no wizard-set option is silently stripped |
 | Idempotency | Key always carries `effectiveName` + `effectivePronouns` as dedicated fields (never substituted by rendered text) |
 | Which image builder is mounted | `MemeBuilderWizard`, unconditionally — no env flag |
 | Remix/cold-permalink initial photo | `initialStockImageId` threaded into wizard state |
@@ -204,6 +225,12 @@ safe to re-run. (No such concern for video; video backend is untouched.)
   produce two distinct correctly-rendered memes; **includes a pronouns-only
   difference and an absent-`textOptions` case**; byte-identical repeats still
   dedupe.
+- Text-options survival (Codex round 6): a parameterized test asserting **each
+  wizard-settable styling option** (fill color, outline color, vertical position,
+  font family/size, effect, all-caps, bold/italic, opacity) set to a non-default
+  value survives save → persisted `text_options` → server `generateMemeBuffer`
+  output, so the saved/exported image matches the live preview. Explicitly
+  covers `textColor` (non-white) and a moved vertical position.
 - `buildSaveMemePayload` includes `isPublic` when private is chosen, omits/defaults
   otherwise; e2e re-run of the PR213 private-meme UAT (image).
 - `initialStockImageId`: Step 1 skipped, Step 2 mounts with that photo selected.
@@ -235,6 +262,9 @@ safe to re-run. (No such concern for video; video backend is untouched.)
   `rg` sweep clean; caller-less legacy video route documented as deferred.
 - A meme saved through any image entry flow renders the actual name/pronouns —
   verified across pronoun sets, and byte-matching the preview for all 5 presets.
+- Every wizard-settable text styling option (color, vertical position, font,
+  effect, caps, bold/italic, opacity) survives save/export and matches the
+  preview — no field silently stripped by a drifted schema.
 - Two rapid saves differing only by name/pronouns yield two correct memes;
   identical repeats dedupe.
 - Legendary users can toggle Public/Private on image memes; behavior per PR213.
