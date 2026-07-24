@@ -68,7 +68,7 @@ enumerated sites), `docs/ai-context/agent-working-rules.md`.
 | 5 | `lib/confirmedFactTextEdit.ts:200-204` | Clears every child variant's `lastProcessedSignature` on a confirmed root edit, marking them `stale_for_reprocess` — exists only to protect #3 |
 | 6 | `routes/admin.ts:1012` (`confirmedFactTextEdit` PATCH dispatch, `protected_committed` case) | Only a ROOT's confirmed edit triggers `embedFactAsync` + `runFactImagePipeline`; a variant's edit triggers neither |
 | 7 | `routes/admin.ts:1990` (`POST /admin/facts/:id/refresh-images`) | Explicit 400: "Images are only stored on root facts, not variants." |
-| 8 | `routes/admin.ts:1999-2013, 2015-2034, 2077-2091` (`backfill-images`, `backfill-pexels`, `backfill-ai-memes`) | All three filter `isNull(factsTable.parentId)` — variants silently never processed |
+| 8 | `routes/admin.ts:1999-2013, 2015-2034, 2077-2091` (`backfill-images`, `backfill-pexels`, `backfill-ai-memes`) | All three filter `isNull(factsTable.parentId)` — variants silently never processed. **`backfill-images` (1999-2013) uniquely has no other filter at all** — unlike its two siblings, it re-triggers the pipeline for every root fact regardless of `isActive` or existing `pexelsImages`, every call; the other two already check `isNull(pexelsImages)`/`isNull(aiMemeImages)` |
 | 9 | `routes/memes.ts:1324-1332`, `routes/pulidJobs.ts:217-233` | Explicit 400: "AI meme generation only supported on root facts" — a legendary user cannot generate an AI visual for a variant today |
 | 10 | `artifacts/overhype-me/src/pages/admin/facts.tsx:1481-1482` (Codex round 1) | Wraps the entire "Pexels Image Pipeline (root facts only)" admin panel in `selectedFact.parentId === null` — a variant has no UI surface to run/see `refresh-images` |
 | 11 | `artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) | Standalone CLI script (separate from the `admin.ts` HTTP route of the same name) also filters `isNull(factsTable.parentId)` |
@@ -129,9 +129,22 @@ implicit one (the root as a variant's de facto metadata source).
 - `admin.ts:1990`: remove the `parentId !== null` rejection. `refresh-images`
   operates on whichever fact id it's given, root or variant.
 - `admin.ts` bulk jobs (site 8): remove `isNull(factsTable.parentId)` from all
-  three queries' `where` clauses (per David's decision 2) — `backfill-images`
-  becomes "all active facts missing `pexelsImages`" (root or variant), same
-  pattern for `backfill-pexels` and `backfill-ai-memes`.
+  three queries' `where` clauses (per David's decision 2).
+  **`backfill-images` (Codex round 2) needs more than that:** as written today
+  it has no `pexelsImages`/`isActive` predicate at all, so dropping only the
+  `parentId` filter would turn it into "re-run the pipeline for literally
+  every fact, active or not, already-imaged or not" — the opposite of the
+  idempotent behavior this plan's own Testing Plan requires, and materially
+  more background work once variants are in the pool. Add
+  `isNull(factsTable.pexelsImages)` to its `where` clause (matching the
+  idempotency pattern `backfill-pexels` already has) at the same time the
+  `parentId` filter is removed. `backfill-pexels` and `backfill-ai-memes`
+  already have their own idempotency predicate (`isNull(pexelsImages)` /
+  `isNull(aiMemeImages)` unless `force`); removing only `parentId` from those
+  two is sufficient. **Pre-existing, out of scope:** none of the three routes
+  filter on `isActive` today (they already sweep inactive/staging root facts,
+  unrelated to variants) — that gap is not introduced by this fix and is left
+  as-is.
 - **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
@@ -227,7 +240,9 @@ prove it with **both** a root and a variant fixture:
 - Bulk backfill (all three `admin.ts` routes, plus the standalone
   `backfill-pexels.ts` script): a variant missing images is included in the
   queued/processed set; a root missing images still is too. Idempotency
-  (already-has-images facts skipped) holds for both.
+  (already-has-images facts skipped) holds for both — including
+  `backfill-images`, which needs its new `isNull(pexelsImages)` predicate
+  (site 8 fix) verified directly, since it has no such check today.
 - Admin Facts Editor: selecting a variant shows the Pexels Image Pipeline
   panel (previously hidden); the panel's status/actions work identically to
   a root's.
@@ -257,7 +272,10 @@ prove it with **both** a root and a variant fixture:
 5. Image/AI generation: remove the `parentId !== null` guard in
    `admin.ts:1990`, `memes.ts:1324-1332`, `pulidJobs.ts:217-233`; remove
    `isNull(factsTable.parentId)` from the three bulk-backfill queries in
-   `admin.ts` and from `scripts/backfill-pexels.ts:38`.
+   `admin.ts` and from `scripts/backfill-pexels.ts:38`. For
+   `backfill-images` specifically, also add `isNull(factsTable.pexelsImages)`
+   to its `where` clause (it has no idempotency predicate today) so it
+   doesn't regress into re-triggering the pipeline for every fact.
 6. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
