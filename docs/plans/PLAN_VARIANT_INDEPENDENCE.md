@@ -104,10 +104,29 @@ implicit one (the root as a variant's de facto metadata source).
 **A. Enrichment (sites 3, 4, 5) — stop passing parent context, retire the
    machinery built to protect it.**
 - `enrichmentJobs.ts`: drop `parentText`/`parentId` from the classifier call
-  and from the staleness fingerprint. `status` becomes purely informational
-  (or can stay `"variant"` vs `"new_fact"` as a data point the classifier
-  doesn't need external text for) — the classifier call for a variant looks
-  identical in shape to a root's, just always solo-text.
+  and from the staleness fingerprint.
+  **Correction (Codex round 4): `status` cannot stay as "purely informational"
+  — it is NOT informational today.** `factEnrichment.ts`'s
+  `buildEnrichmentUserMessage` (lines 96-119) renders `input.status` directly
+  into the classifier prompt as an explicit `"Fact status:\nvariant"` /
+  `"...new_fact"` line, plus a separate `"Optional parent fact text:"` line —
+  both are live signals the model sees, so a root and a variant with
+  byte-identical text would still get different prompts (and could get
+  different taxonomy) purely because `parentId` is non-null. That directly
+  violates "classified from its own text only." Remove the `status` and
+  `parentText` fields from `EnrichInput` entirely (not just stop passing
+  `parentText`), and delete the `"Fact status"`/`"Optional parent fact text"`
+  prompt lines and the "If this is a variant, classify it independently"
+  note from `buildEnrichmentUserMessage` — the classifier input becomes
+  byte-for-byte identical in shape for a root and a variant, differing only
+  in `factText`. Every `enrichFact`/`EnrichInput` call site stops
+  passing `status` (the field no longer exists): the two dynamic computations
+  in `enrichmentJobs.ts` (~206, ~384), and the hardcoded `status: "new_fact"`
+  call sites in `enrichmentJobs.ts:108` and `factEnrichmentBackfillJob.ts:68`
+  (both already always pass `"new_fact"`, so behaviorally unaffected — just
+  drop the now-nonexistent field). Update the fixtures in
+  `factEnrichment.test.ts` and `factEnrichmentRepair.test.ts` that construct
+  `EnrichInput` with a `status` field.
 - `factTextEditProtection.ts`: remove `loadDirectVariantDependencies`,
   `VariantDependency`, and the root-edit-blocks-on-in-flight-variant check
   entirely. A root re-word no longer needs to look at its variants at all.
@@ -254,7 +273,10 @@ prove it with **both** a root and a variant fixture:
 
 - Enrichment: classifying a variant never fetches or references its parent's
   text; the staleness fingerprint contains no `parentId`/parent-text
-  component. Re-wording a root does NOT change a variant's
+  component. **`buildEnrichmentUserMessage` produces byte-identical output for
+  a root and a variant given the same `factText` (Codex round 4)** — assert
+  this directly (same input text, `parentId` null vs non-null, identical
+  prompt string) rather than only checking the fingerprint. Re-wording a root does NOT change a variant's
   `lastProcessedSignature` or trigger any job for it (negative case).
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
@@ -293,7 +315,15 @@ prove it with **both** a root and a variant fixture:
 
 1. Enrichment independence: strip parent context from `enrichmentJobs.ts`
    (both the initial classify and the recheck-after-classify paths) and its
-   staleness fingerprint.
+   staleness fingerprint. **Remove the `status`/`parentText` fields from
+   `EnrichInput` and the `"Fact status"`/`"Optional parent fact text"` prompt
+   lines from `buildEnrichmentUserMessage` in `factEnrichment.ts:62-119`
+   (Codex round 4)** — leaving `status` in the prompt keeps a root and a
+   variant with identical text on different classifier inputs, which is the
+   exact bug this plan exists to fix. Update every `enrichFact` call site
+   (`enrichmentJobs.ts:108,206,384`, `factEnrichmentBackfillJob.ts:68`) to
+   stop passing `status`, and the `EnrichInput` fixtures in
+   `factEnrichment.test.ts`/`factEnrichmentRepair.test.ts`.
 2. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
@@ -363,6 +393,10 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
   from its own text only, and have its own confirmed text edit trigger its own
   embed + image pipeline — all independent of its root.
 - A root re-word never touches, blocks on, or invalidates any variant.
+- The enrichment classifier prompt (`buildEnrichmentUserMessage`) is
+  byte-identical in shape for a root and a variant given the same text — no
+  `status`/parent-text signal remains that could make identical text classify
+  differently based on `parentId`.
 - No trace of `DEPENDENT_VARIANT_IN_PROGRESS`/`blockingVariants`/
   `affectedVariantCount` remains anywhere (shared contract, admin UI, tests) —
   a root re-word's success/error messaging no longer mentions variants.
