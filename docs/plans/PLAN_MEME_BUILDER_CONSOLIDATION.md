@@ -109,10 +109,16 @@
      fail. Fix: the server resolves the render source from the fact's stored
      `pexelsImages` by `factId` + photo id, picking the **render-grade**
      variant (`original`, falling back `large2x`) of the **same photo** the
-     user previewed. Tests: the master's background is the selected photo
-     (same-asset identity), master dimensions meet the ~2400px target without
-     upscaling beyond the source, and an unavailable stored source fails the
-     save rather than silently substituting.
+     user previewed. **The resolution must mirror the preview endpoint's
+     parent fallback (Codex round 12):** for variant facts,
+     `GET /facts/:factId/pexels-images` serves the PARENT's images
+     (`facts.ts:587-590`) while the wizard saves with the variant `factId` —
+     so save-time lookup checks the variant's `pexelsImages`, then the
+     parent's, exactly like the preview. Tests: the master's background is
+     the selected photo (same-asset identity), master dimensions meet the
+     ~2400px target without upscaling beyond the source, an unavailable
+     stored source fails the save, and **a variant-fact stock save resolves
+     the parent's photo and matches the preview**.
 3. **Serve flow:** gallery/permalink/OG/export/Zazzle all serve the stored
    master (downscaling on the fly where a smaller variant is needed).
    `generateMemeBuffer`'s at-request re-render path is **deleted, not
