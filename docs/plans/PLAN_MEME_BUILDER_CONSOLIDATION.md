@@ -118,10 +118,14 @@ real UX regression on the meme-detail page.
    rendered/persisted meme. Required order: resolve the **effective identity
    snapshot** (request `name`/`pronouns` → profile fallback → the no-name
    `"___"` placeholder behavior `renderFact` already uses) *first*, render
-   `topText`/`bottomText` against it, and compute the idempotency key on the
-   **rendered** `textOptions` (or equivalently, include the effective identity
-   in the key). Then two saves differing only by name/pronouns can never
-   collapse to a stale rendered meme.
+   `topText`/`bottomText` against it, and include that snapshot in the
+   idempotency key. **The idempotency payload MUST carry `effectiveName` and
+   `effectivePronouns` (or the fully rendered fact text) unconditionally
+   (Codex P2 round 2)** — keying on "rendered `textOptions` only" is not a
+   permitted alternative, because it collides for saves that differ *only by
+   pronouns* (pronouns need not appear in the top/bottom blocks) or when
+   `textOptions` is absent/untokenized. Then two saves differing by name
+   *or* pronouns can never collapse to a stale rendered meme.
 7. Privacy toggle is restored in the wizard's Step 2 **image** flow (Public/
    Private control, gated on `viewerContext.tier === "legendary"`, mirroring
    the dead builder's UX), and `SaveMemePayload`/`buildSaveMemePayload()`
@@ -141,15 +145,18 @@ real UX regression on the meme-detail page.
      no privacy field is threaded through the video payload. The rebuilt video
      builder will design privacy in from the start. (Codex P1 round 1 asked us
      to *decide and record* this rather than leave it conditional — recorded.)
-   - The orphaned legacy `POST /api/videos/generate` **creation** handler
-     (its only callers are the deleted island) is removed as a dead re-entry
-     point, along with the tests that exercise creation via it. **Shared video
+   - **Only the `POST /api/videos/generate` creation handler is removed** —
+     surgically, not the whole `routes/videos.ts` file. Its sibling read
+     handlers in the same file (`GET /api/videos/:factId` for the gallery,
+     `GET /api/video/:videoId` for the detail page) **stay mounted** — deleting
+     the file wholesale would strand every existing completed `video_jobs` row
+     even though the table is preserved. Removed along with the POST handler:
+     only the tests that exercise creation via it. **Shared video
      infrastructure is retained and documented as non-builder infra the
      rebuild will consume:** the `video_jobs` table (incl. its `is_private`
-     column — harmless to keep, and the rebuild uses it), the `GET` video read
-     routes the fact-detail gallery depends on
-     (`FactDetail.tsx` reads `video.isPrivate` for its community/mine split),
-     and the render pipeline (`videoPipelineRunner`).
+     column — harmless to keep, and the rebuild uses it), those `GET` read
+     routes (`FactDetail.tsx` reads `video.isPrivate` for its community/mine
+     split), and the render pipeline (`videoPipelineRunner`).
 
 ## What must NOT change
 
@@ -176,7 +183,7 @@ real UX regression on the meme-detail page.
 | Whether a meme is public | `memes.is_public` column + `meme_private_visibility` feature flag (unchanged) |
 | Rendered meme text (image + stored options) | Computed once in `createMemeRecord.ts` from `(textOptions.topText/bottomText raw template, effective identity)` — never re-derived client-side, never stored un-rendered |
 | Effective identity for a save (name/pronouns) | Resolved once in `createMemeRecord.ts` (request → profile fallback → `"___"` placeholder) *before* the idempotency key; both the render and the dedup key derive from it |
-| Whether two saves are "the same" (idempotency) | Key computed on the **rendered** `textOptions` + effective identity, so name/pronoun differences never collapse |
+| Whether two saves are "the same" (idempotency) | Key **always** includes `effectiveName` + `effectivePronouns` (or the fully rendered fact text), never rendered-`textOptions`-only, so name *or* pronoun differences never collapse |
 | Which builder is mounted | `MemeBuilderWizard`, unconditionally — no env flag |
 | Video creation (interim, pre-rebuild) | Wizard `Step2Video` → `/api/memes/video-jobs`, public-only; legacy `/api/videos/generate` creation route removed |
 | Remix/cold-permalink initial photo | `initialStockImageId` threaded into wizard state at Step 1→2, same as today's flat-builder behavior |
@@ -211,12 +218,15 @@ with stale tokens is needed or planned.
   drawn text both contain the fully-rendered string for a range of
   name/pronoun combinations (not just "Nick Baron"/"he/him") — including a
   plural pronoun set and an anonymous/no-name case (`resolvedName = "___"`).
-- Unit test (idempotency, Codex P1 round 1): two saves from the same user
-  within the idempotency window, identical in every field **except**
+- Unit test (idempotency, Codex P1 round 1 + P2 round 2): two saves from the
+  same user within the idempotency window, identical in every field **except**
   `name`/`pronouns`, must produce two distinct memes with each one's own
   correctly-rendered text — they must NOT dedupe to the first result.
-  Conversely, two byte-identical saves (same effective identity) still dedupe
-  as before.
+  **Must include a pronouns-only difference and a no-token/absent-`textOptions`
+  case** (e.g. same name, `he/him` vs `they/them`; and a save with empty
+  `textOptions`), proving the key never falls back to an identity-blind
+  branch. Conversely, two byte-identical saves (same effective identity) still
+  dedupe as before.
 - Unit test: wizard's `initialStockImageId` path — Step 1 is skipped, Step 2
   mounts with that photo pre-selected, matching the flat builder's prior
   behavior.
@@ -226,6 +236,11 @@ with stale tokens is needed or planned.
   visible to another account/logged-out (re-run of the existing PR213 UAT
   table, which is regression coverage here since we're touching the payload
   path it depends on).
+- API regression (Codex P2 round 2): seed a **completed** `video_jobs` row,
+  delete only the `POST /api/videos/generate` handler, then assert the
+  retained `GET /api/videos/:factId` (gallery) and `GET /api/video/:videoId`
+  (detail) still return that row — proving existing completed videos stay
+  reachable after the creation route is removed.
 - Manual UAT: fact-detail flow, remix flow, cold-permalink flow, video flow
   — each produces a correctly-rendered image (and video); legendary Public/
   Private toggle works on the image flow; non-legendary users don't see the
