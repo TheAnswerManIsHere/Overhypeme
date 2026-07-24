@@ -1,4 +1,15 @@
-# Meme Builder Consolidation — Token Bug + Privacy Toggle + One True Builder
+# Meme Builder Consolidation (Image) — Token Bug + Privacy Toggle + One Builder
+
+> **Scope note (David, 2026-07-24): video is split out of this plan.** Rounds
+> 3–5 of review surfaced a series of *pre-existing* security/cost gaps in the
+> wizard video backend (ungoverned generation, a governance-lease lifecycle
+> problem, a lease-TTL leak, and an object-ownership IDOR) — all live in
+> production today, none created by this change. Hardening that path is its own
+> security workstream, and the video pipeline is slated for a near-from-scratch
+> rebuild. So **this PR touches zero video backend**; it fixes the two reported
+> image bugs and consolidates the image builder. The video findings are
+> preserved in the *Carry-forward: video rebuild* appendix below and will be
+> promoted to a durable `docs/ai-context/` note during implementation.
 
 ## Concrete symptoms (David's reports)
 
@@ -10,391 +21,267 @@
 ## Product intent
 
 - Every meme a user saves must render their actual name/pronouns — never a
-  raw `{NAME}`/`{SUBJ}`/etc. token — in the composited image.
-- Legendary-tier users must be able to mark a meme private again, exactly as
-  before (owner + admin only; 404 to everyone else; no social preview; no
-  public cache — this behavior is unchanged and untouched by this plan, see
+  raw `{NAME}`/`{SUBJ}`/etc. token — in the composited image, and the saved
+  image must match the live preview for **every** allowed pronoun set.
+- Legendary-tier users must be able to mark an (image) meme private again,
+  exactly as before (owner + admin only; 404 to everyone else; no social
+  preview; no public cache — unchanged, see
   `docs/PR213_PRIVATE_MEME_ACCESS_UAT.md`).
-- **There should only be one way to build a meme.** David flagged that the
-  repo has accumulated multiple overlapping builder implementations and
-  wants the dead/duplicate ones removed, not just patched around.
+- **There should only be one way to build a meme.** For images, that is the
+  wizard. (Video creation also runs through the one wizard already; the
+  wizard's video *backend* is left untouched here and hardened in the video
+  rebuild.)
 
 ## Repo context inspected
 
-Three builder implementations exist today:
+Builder implementations today:
 
 | Implementation | Status | Mounted from |
 |---|---|---|
-| `components/MemeBuilder.tsx` (2503 lines) | **Fully dead.** No imports anywhere outside itself/tests. Kept "for reference" per a comment in `MemeStudio.tsx:38-42`, which says Phase 5 will delete it. | Nothing |
-| `meme-builder/MemeBuilder.tsx` ("flat", Phase-3) + `MemeStudio.tsx`/`MemeStudioVideoTab.tsx` | **Live today**, on-by-default. | `FactDetail.tsx` (when `VITE_MBFO_WIZARD` unset), and always from `pages/memePage/BuilderOverlay.tsx` (`MemePage.tsx`, the meme-detail/remix page — no flag check at all) |
-| `meme-builder/wizard/*` (MBFO wizard) | **The active development target** — full-screen, step-based, covers both image and video (`Step1ArtifactType` → `step2-image`/`step2-video`). Gated behind `VITE_MBFO_WIZARD=1`, which is set on the Replit deployment David tested (explaining why he only sees the wizard, and only sees its bugs). | `FactDetail.tsx` only, when the flag is set |
+| `components/MemeBuilder.tsx` (2503 lines) | **Fully dead.** Kept "for reference" per `MemeStudio.tsx:38-42`. | Nothing |
+| `meme-builder/MemeBuilder.tsx` ("flat", Phase-3) + `MemeStudio.tsx` (+ `MemeStudioVideoTab.tsx`) | **Live**, on-by-default. | `FactDetail.tsx` (flag off) and always `pages/memePage/BuilderOverlay.tsx` |
+| `meme-builder/wizard/*` (MBFO wizard, image + video) | Active target, gated behind `VITE_MBFO_WIZARD=1` (set on Replit). | `FactDetail.tsx` when the flag is set |
 
-The flag itself (`FactDetail.tsx:30`) is a **rollout-flag violation** of
-`docs/ai-context/agent-working-rules.md`'s "no rollout-flag gating" rule —
-it's exactly the kind of manual toggle that rule exists to prevent, and it's
-why "the new meme builder" means different things depending on which
-environment David is testing in.
+The `VITE_MBFO_WIZARD` flag (`FactDetail.tsx:30`) is a "no rollout-flag gating"
+violation and is why "the new meme builder" means different things per
+environment.
 
-**Privacy toggle** — confirmed still fully wired server-side, just never
-migrated into either new builder's UI:
-- `lib/db/src/schema/memes.ts:23` — `is_public` column, unchanged.
-- `lib/db/migrations/0013_feature_flags.sql:25-40` — `meme_private_visibility`
-  feature flag, legendary-tier only, unchanged.
-- `artifacts/api-server/src/lib/createMemeRecord.ts:170-175` — `canPrivate`/
-  `isPublic` gating logic, unchanged, currently always resolves to `true`
-  because no client sends `isPublic: false` anymore.
-- `artifacts/api-server/src/lib/validators/memeBuilder.ts:159` —
-  `isPublic: z.boolean().optional()`, unchanged.
-- The dead `components/MemeBuilder.tsx:2116-2134` had the actual toggle UI
-  (Public/Private buttons, Globe/Lock icons, gated on `isLegendary`) — this
-  is the reference implementation to mirror, not resurrect.
+**Privacy toggle** — still fully wired server-side, just never migrated into the
+new builders' UI: `lib/db/src/schema/memes.ts:23` (`is_public`),
+`lib/db/migrations/0013_feature_flags.sql:25-40` (`meme_private_visibility`,
+legendary-only), `createMemeRecord.ts:170-175` (`canPrivate`/`isPublic`, always
+`true` today because no client sends `isPublic`),
+`validators/memeBuilder.ts:159` (`isPublic: z.boolean().optional()`). The dead
+`components/MemeBuilder.tsx:2116-2134` has the reference toggle UI.
 
-**Token-rendering bug** — root cause confirmed as a **write-time gap**, not
-a display bug:
-- `artifacts/overhype-me/src/lib/render-fact.ts` — `renderFact()`/
-  `renderFactSegments()` are the one true tokenizer/renderer. Used correctly
-  by `FactCard.tsx` and `FactDetail.tsx:111,388` (the sidebar text that
-  renders fine).
-- `artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/Step2Image.tsx:197-205`
-  builds `topText`/`bottomText` by splitting the wizard's raw `factText` prop
-  (still `{NAME}`-laden — `MemeBuilderWizard.tsx:20`'s own docblock calls it
-  "Token-laden fact text — passed through to Step 2 internals," confirming
-  this was always meant to be rendered internally, just never implemented).
-  The **live preview looks correct anyway** because `LivePreview.tsx:153-158`
-  independently calls `renderFactSegments(blockText, name, pronouns)` per
-  block for its own canvas draw — so this bug is invisible until you look at
-  the actual saved/downloaded image.
-- `artifacts/api-server/src/lib/memeComposite.ts:164,169` (`composeMeme`) —
-  renders the legacy single-block `factText` via `renderPersonalized()`, but
-  passes `input.textOptions` (containing the client's raw `topText`/
-  `bottomText`) straight through to `generateMemeBuffer()` untouched.
-- `artifacts/api-server/src/lib/memeGenerator.ts:378-380` — draws
-  `options.topText`/`options.bottomText` **verbatim** whenever present (the
-  wizard always sets both), never applying the render pipeline to them.
-- `artifacts/api-server/src/lib/createMemeRecord.ts:141,232` — the request's
-  `textOptions` (still containing the raw `topText`/`bottomText`) is also
-  **persisted as-is** into `memes.text_options`, alongside `name`/`pronouns`
-  which are already resolved in this same function.
+**Token-rendering bug** — a **write-time gap**, not a display bug:
+- `render-fact.ts` `renderFact`/`renderFactSegments` are the client renderer;
+  used correctly by `FactCard.tsx`/`FactDetail.tsx` (the sidebar that renders
+  fine) and by the wizard's own `LivePreview.tsx:153-158` (why the *preview*
+  looks correct).
+- `Step2Image.tsx:197-205` builds `topText`/`bottomText` by splitting the raw
+  `{NAME}`-laden `factText` with no render pass; those raw blocks are sent to
+  `POST /api/memes`.
+- Server: `memeGenerator.ts:378-380` draws `options.topText`/`bottomText`
+  **verbatim** whenever present (the wizard always sets both), never running the
+  render pipeline on them; `createMemeRecord.ts:141,232` also **persists** the
+  raw `textOptions` into `memes.text_options`.
 
-**Remix/cold-permalink parity gap** — `pages/MemePage.tsx:209-239` currently
-lets "Remix this meme" and "See with your name" jump straight into editing
-with the *same stock photo* the original creator used, via
-`initialStockImageId` passed to the flat builder. `MemeBuilderWizard.tsx`
-has no equivalent prop today — it always starts at Step 1 ("choose image or
-video"). Consolidating onto the wizard without addressing this would be a
-real UX regression on the meme-detail page.
+**Remix/cold-permalink parity gap** — `MemePage.tsx:209-239` lets "Remix" / "See
+with your name" jump straight into editing with the original's stock photo via
+`initialStockImageId`; `MemeBuilderWizard` has no equivalent prop.
 
-## Settled decisions (confirmed with David)
+## Settled decisions
 
-1. The **MBFO wizard becomes the one and only meme builder**, everywhere.
-2. Delete entirely the whole legacy builder island — verified via import
-   graph to be reachable only through each other / `MemeStudio`:
-   - Image/shell: `components/MemeBuilder.tsx` (dead legacy),
-     `meme-builder/MemeBuilder.tsx` (flat builder), `MemeStudio.tsx`,
-     `pages/memePage/BuilderOverlay.tsx`.
-   - Legacy video-creation UIs: `MemeStudioVideoTab.tsx`,
-     `components/MemeMagicVideo.tsx`, `components/VideoBuilder.tsx` — all four
-     (incl. dead `MemeBuilder.tsx`) call the legacy `POST /api/videos/generate`
-     route, which becomes orphaned and is therefore also deleted (see decision
-     8). The wizard's video path is separate and unaffected.
-   - Plus all now-orphaned builder-specific tests.
-3. Remove the `VITE_MBFO_WIZARD` flag — the wizard ships on-by-default,
-   unconditionally (per the "no rollout-flag gating" rule).
+1. The **MBFO wizard is the one image builder**, everywhere.
+2. **Delete the legacy/duplicate builder frontend** (verified orphaned via import
+   graph):
+   - Image/shell: `components/MemeBuilder.tsx` (dead), `meme-builder/MemeBuilder.tsx`
+     (flat), `MemeStudio.tsx`, `pages/memePage/BuilderOverlay.tsx`.
+   - The video-UI frontend that is only reachable through `MemeStudio` and thus
+     orphaned by its deletion: `MemeStudioVideoTab.tsx`, `components/MemeMagicVideo.tsx`,
+     `components/VideoBuilder.tsx`. Deleting these removes duplicate video-*UI*
+     entry points (leaving the wizard as the sole video creator UI) **without
+     touching any video backend route** — see decision 8.
+   - Plus now-orphaned builder-specific tests.
+   - **Not deleted here:** the legacy `POST /api/videos/generate` backend route
+     and all other video backend. It becomes caller-less (dead) but is left in
+     place, to be removed as part of the video rebuild after the wizard video
+     path is hardened to parity (decision 8). An `rg` sweep documents it as a
+     known deferred orphan rather than silently leaving it undocumented.
+3. Remove the `VITE_MBFO_WIZARD` flag — the wizard ships on-by-default.
 4. `FactDetail.tsx` and `MemePage.tsx` both mount `MemeBuilderWizard` directly.
-5. Add `initialStockImageId` support to the wizard (Step 1 auto-skips to
-   Step 2 / image mode, pre-seeded with that stock photo) so remix/
-   cold-permalink keep their one-tap UX — no exceptions, no builder kept
-   alive just for this flow.
-6. Token-rendering fix lands in `createMemeRecord.ts` (render `topText`/
-   `bottomText` once, at write time, using the request's `name`/`pronouns`;
-   use the rendered value both for compositing and for what gets persisted
-   in `text_options`) — the one point upstream of every current and future
-   caller of `POST /api/memes`. **Idempotency ordering (Codex P1 round 1):**
-   the current `createMemeRecord` computes its idempotency key
-   (`createMemeRecord.ts:229-237`) *before* the profile fallback and *without*
-   `name`/`pronouns`, and keys on the *raw* `textOptions`. If we render after
-   that key, two rapid saves of the same raw-token fact with *different*
-   names/pronouns would dedupe — the second saver would receive the first's
-   rendered/persisted meme. Required order: resolve the **effective identity
-   snapshot** (request `name`/`pronouns` → profile fallback → the no-name
-   `"___"` placeholder behavior `renderFact` already uses) *first*, render
-   `topText`/`bottomText` against it, and include that snapshot in the
-   idempotency key. **The idempotency payload MUST carry `effectiveName` and
-   `effectivePronouns` as their own dedicated key fields, unconditionally
-   (Codex P2 rounds 2 + 4)** — NOT keying on rendered text (or rendered
-   `textOptions`) as a substitute. Rendered text is an unsafe key because it
-   collides for saves that differ only by pronouns whenever the template has
-   no pronoun-sensitive output — a `{NAME}`-only or token-free fact renders
-   byte-identically for `he/him` and `they/them`, so the second save would
-   still receive the first's meme. Keying on the raw `effectivePronouns`
-   value closes that. Then two saves differing by name *or* pronouns can
-   never collapse to a stale rendered meme.
-   **Renderer parity for neopronouns (Codex P2 round 3 — David: full parity
-   now):** the server render must agree with the wizard preview for *every*
-   allowed pronoun set, not just he/she/they. Today they diverge: the shared
-   `resolveIdentityForms` (`lib/api-zod/src/resolvedIdentityForms.ts:82-88`)
-   special-cases only `he`/`she` and collapses every other subject —
-   including `xe`/`ze` neopronouns — to `their`/`themselves`/`theirs`, while
-   the client `render-fact.ts` `KNOWN_MAPS` carries full neopronoun forms
-   (`xe`→`xyr`/`xemself`, `ze`→`zir`/`zirself`). Fix the divergence at its
-   root: **lift the client's neopronoun form table into the shared
-   `resolveIdentityForms` so there is ONE renderer both sides use** (the
-   client's `renderFactSegments` continues to drive the preview; the server
-   meme render calls the same shared derivation). This makes the saved image
-   agree with the preview and the user's actual pronouns for `{POSS}`/
-   `{POSS_PRO}`/`{REFL}`/`{OBJ}` across all allowed sets. **Parity scope =
-   the 5 allowlisted presets** `he/him`, `she/her`, `they/them`, `xe/xem`,
-   `ze/zir` (Codex P2 round 4). The `/api/memes` `PronounsSchema`
-   (`memeBuilder.ts:35-40`) deliberately restricts pronouns to that enum as a
-   prompt-injection guard, so custom pipe-delimited pronoun strings are
-   rejected at the boundary by design and are **out of scope** here — we do
-   NOT widen that security allowlist as a side effect of the parity fix. (If
-   custom-pronoun meme support is ever wanted, that's a separate, deliberate
-   security-surface decision for David, not a drive-by expansion.) **Ripple
-   to check:**
-   `resolveIdentityForms` also feeds budget projection
-   (`promptIdentityBudget.ts` reserves space per resolved token) — the new
-   (sometimes longer) neopronoun forms must be re-reconciled there, and the
-   `unresolvedSimpleTokens()` cross-check kept green. This touches
-   `lib/api-zod`, so follow the codegen/export discipline (update
-   `patch-generated.mjs` + run `pnpm run check:codegen-drift` if any export
-   surface changes — see CLAUDE.md).
-7. Privacy toggle is restored in the wizard's Step 2 **image** flow (Public/
-   Private control, gated on `viewerContext.tier === "legendary"`, mirroring
-   the dead builder's UX), and `SaveMemePayload`/`buildSaveMemePayload()`
-   gains the `isPublic` field so it reaches the already-functional API path.
-   **Image memes only** — video privacy is explicitly out of scope, see
-   decision 8.
-8. **Video builder scope (David, 2026-07-24): the video builder is slated for
-   a full rebuild once the image generator is perfected, so this plan invests
-   nothing in the interim video path** — threading *privacy* (a feature)
-   through a soon-to-be-replaced path is throwaway work. **The one exception
-   is resource governance (Codex P1 round 3 — David: port it now):** cost/
-   abuse protection is not a feature and is never waived by the pre-launch
-   boldness rule, so we do not ship an ungoverned video path. Concretely:
-   - The wizard's existing video path (`Step1ArtifactType` "video" →
-     `Step2Video` → `POST /api/memes/video-jobs`) stays as the **interim,
-     public-only** video builder. Video creation therefore remains reachable
-     through the one wizard — "one builder" holds for video too.
-   - **Governance is ported onto the surviving wizard video path *before* the
-     legacy route is deleted.** The legacy `POST /api/videos/generate` wraps
-     generation in `enforceGovernance`/`completeGovernance` (fal provider,
-     per-user concurrency, spend/duration/payload caps, circuit-breaking);
-     the wizard's `POST /api/memes/video-jobs` currently has only a
-     per-request budget pre-check.
-     - **The lease must span the async job lifecycle, NOT the HTTP request
-       (Codex P1 round 4).** Critical asymmetry: the legacy route generates
-       synchronously inside the request, but the wizard route returns
-       `{ jobId }` immediately and `startVideoJob` schedules the expensive FAL
-       pipeline via `setImmediate` (`videoPipelineRunner.ts:430,544`). So
-       calling `completeGovernance` in the route `finally` would release the
-       concurrency slot and record success *milliseconds after acquire, before
-       stage 2 runs* — governance in name only (no real concurrency limit, cost
-       recorded before it's incurred, provider failures never seen by the
-       circuit-breaker). Therefore: **acquire the lease at job start and
-       complete it from the pipeline's terminal path** (success / failure /
-       cancel, inside `videoPipelineRunner`), not from the route handler — i.e.
-       enforcement lives in the runner lifecycle, keyed to the job, so the slot
-       stays held for the job's real duration.
-     - Acceptance: an API test proving a second concurrent video job is
-       **rejected while the first is still in a non-terminal phase** (not
-       merely after the first request returned), plus the fal circuit-breaker
-       exercised on a pipeline failure. This is reusing an existing guard
-       correctly for an async job, not building new interim-video functionality.
-   - **Video privacy is dropped for the interim.** Wizard-created videos are
-     public-only; no `isPrivate` toggle is added to the wizard video step and
-     no privacy field is threaded through the video payload. The rebuilt video
-     builder will design privacy in from the start. (Codex P1 round 1 asked us
-     to *decide and record* this rather than leave it conditional — recorded.)
-   - **Only the `POST /api/videos/generate` creation handler is removed** —
-     surgically, not the whole `routes/videos.ts` file. Its sibling read
-     handlers in the same file (`GET /api/videos/:factId` for the gallery,
-     `GET /api/video/:videoId` for the detail page) **stay mounted** — deleting
-     the file wholesale would strand every existing completed `video_jobs` row
-     even though the table is preserved. Removed along with the POST handler:
-     only the tests that exercise creation via it. **Shared video
-     infrastructure is retained and documented as non-builder infra the
-     rebuild will consume:** the `video_jobs` table (incl. its `is_private`
-     column — harmless to keep, and the rebuild uses it), those `GET` read
-     routes (`FactDetail.tsx` reads `video.isPrivate` for its community/mine
-     split), and the render pipeline (`videoPipelineRunner`).
+5. Add `initialStockImageId` to the wizard (Step 1 auto-skips to Step 2 image
+   mode, pre-seeded with that stock photo) so remix/cold-permalink keep their
+   one-tap UX.
+6. **Token-rendering fix lands in `createMemeRecord.ts`** — render
+   `topText`/`bottomText` once, at write time, and use the rendered value both
+   for compositing and for what is persisted in `text_options`; the one point
+   upstream of every current/future caller of `POST /api/memes`.
+   - **Idempotency ordering + identity in the key (Codex rounds 1, 2, 4):** the
+     current idempotency key (`createMemeRecord.ts:229-237`) is computed *before*
+     the profile fallback and keys on the *raw* `textOptions`, excluding
+     name/pronouns. Required: resolve the **effective identity snapshot**
+     (request → profile fallback → the `"___"` no-name placeholder) *first*,
+     render against it, and include `effectiveName` **and** `effectivePronouns`
+     as their own **mandatory dedicated fields** in the idempotency key. Rendered
+     text is NOT an acceptable substitute — a `{NAME}`-only or token-free fact
+     renders identically for `he/him` and `they/them`, so a rendered-text key
+     would let the second save receive the first's meme. Two saves differing by
+     name *or* pronouns must never collapse; two byte-identical saves still dedupe.
+   - **Renderer parity for neopronouns (Codex round 3 — David: full parity now):**
+     the server render must byte-match the wizard preview for every allowed
+     pronoun set. Today they diverge — the shared `resolveIdentityForms`
+     (`lib/api-zod/src/resolvedIdentityForms.ts:82-88`) special-cases only
+     `he`/`she` and collapses everything else (incl. `xe`/`ze`) to
+     `their`/`themselves`, while the client `render-fact.ts` `KNOWN_MAPS` has full
+     neopronoun forms. **Fix at the root: lift the client's neopronoun table into
+     the shared `resolveIdentityForms` so there is ONE renderer** used by the
+     server meme render, budget projection, and the client preview. **Parity
+     scope = the 5 allowlisted presets** `he/him`, `she/her`, `they/them`,
+     `xe/xem`, `ze/zir` (Codex round 4): `PronounsSchema` (`memeBuilder.ts:35-40`)
+     restricts pronouns to that enum as a deliberate prompt-injection guard;
+     custom pipe-delimited pronouns are rejected at the boundary by design and are
+     out of scope — we do NOT widen that security allowlist here. **Ripple to
+     check:** `resolveIdentityForms` also feeds budget projection
+     (`promptIdentityBudget.ts` reserves per resolved token) — reconcile reserves
+     against the new (sometimes longer) forms, keep `unresolvedSimpleTokens()`
+     green, and respect the `lib/api-zod` codegen/export discipline
+     (`patch-generated.mjs` + `check:codegen-drift`).
+7. **Restore the legendary-gated Public/Private toggle** in the wizard's Step 2
+   **image** flow (mirroring the dead builder's UX), and add `isPublic` to
+   `SaveMemePayload`/`buildSaveMemePayload()` so it reaches the already-functional
+   `POST /api/memes` → `createMemeRecord` path. Image memes only.
+8. **Video is split into a separate follow-up (David, 2026-07-24).** This PR
+   makes **no change to any video backend** — the wizard video path
+   (`Step2Video` → `POST /api/memes/video-jobs`) and the legacy
+   `POST /api/videos/generate` route are both left exactly as they are today. We
+   only delete the orphaned video-*UI* frontend (decision 2) so the wizard is the
+   sole video creator UI. All video hardening + the legacy-route deletion move to
+   the video rebuild, which must address the findings in the appendix below. The
+   pre-existing video gaps (IDOR, ungoverned spend) are **not introduced** by
+   this PR but are live today and worth prioritizing on their own.
 
 ## What must NOT change
 
-- The private-meme *access-control* behavior itself (404-not-403 to
-  non-owners, no social preview, no public cache) — untouched, already
-  correct, covered by `docs/PR213_PRIVATE_MEME_ACCESS_UAT.md`.
-- The split-slider UX (word-position semantics, `intelligentSplit`,
-  `factSplitTokenIndex`) — the token fix lands server-side and does not
-  touch how the client computes or displays the split.
-- Video meme *creation capability* — must stay reachable. Verified: the
-  wizard's video path (`Step1ArtifactType` "video" → `Step2Video` →
-  `/api/memes/video-jobs`) is live and independent of the deleted legacy
-  island, so deleting that island does not remove video creation. What *does*
-  change (deliberately, per decision 8) is video **privacy**: interim wizard
-  videos are public-only until the video rebuild.
-- The `video_jobs` table, video read routes, and render pipeline — retained
-  untouched as shared infra; only the orphaned legacy *creation* route is
-  removed.
+- Private-meme access-control (404-not-403, no social preview, no public cache)
+  — untouched, covered by `docs/PR213_PRIVATE_MEME_ACCESS_UAT.md`.
+- The split-slider UX — the token fix is server-side and does not touch it.
+- Video creation capability and all video backend — untouched here. Video
+  creation stays reachable through the wizard exactly as today.
 
 ## Source-of-truth analysis
 
 | Concept | Source of truth after this change |
 |---|---|
-| Whether a meme is public | `memes.is_public` column + `meme_private_visibility` feature flag (unchanged) |
-| Rendered meme text (image + stored options) | Computed once in `createMemeRecord.ts` from `(textOptions.topText/bottomText raw template, effective identity)` — never re-derived client-side, never stored un-rendered |
-| Effective identity for a save (name/pronouns) | Resolved once in `createMemeRecord.ts` (request → profile fallback → `"___"` placeholder) *before* the idempotency key; both the render and the dedup key derive from it |
-| Pronoun→form derivation (all sets incl. neopronouns) | ONE shared `resolveIdentityForms` in `lib/api-zod`, neopronoun-aware, used by the server meme render, budget projection, AND the client preview — no second divergent table |
-| Video-generation governance | `enforceGovernance`/`completeGovernance` on the surviving `POST /api/memes/video-jobs` route (ported from the deleted legacy route) — single governed video path |
-| Whether two saves are "the same" (idempotency) | Key **always** includes `effectiveName` + `effectivePronouns` as dedicated fields (never substituted by rendered text, which collides on token-free/`{NAME}`-only facts), so name *or* pronoun differences never collapse |
-| Video-generation governance lease | Held for the async job's real duration — acquired at job start, completed from the pipeline terminal path in `videoPipelineRunner` (not the HTTP `finally`) |
-| Which builder is mounted | `MemeBuilderWizard`, unconditionally — no env flag |
-| Video creation (interim, pre-rebuild) | Wizard `Step2Video` → `/api/memes/video-jobs`, public-only; legacy `/api/videos/generate` creation route removed |
-| Remix/cold-permalink initial photo | `initialStockImageId` threaded into wizard state at Step 1→2, same as today's flat-builder behavior |
+| Whether an (image) meme is public | `memes.is_public` + `meme_private_visibility` flag (unchanged) |
+| Rendered meme text (image + stored options) | Computed once in `createMemeRecord.ts` from `(raw topText/bottomText, effective identity)` — never client-derived, never stored un-rendered |
+| Effective identity for a save | Resolved once in `createMemeRecord.ts` (request → profile → `"___"`) *before* the idempotency key |
+| Pronoun→form derivation (incl. neopronouns) | ONE shared `resolveIdentityForms` in `lib/api-zod` — server render, budget projection, and client preview all use it |
+| Idempotency | Key always carries `effectiveName` + `effectivePronouns` as dedicated fields (never substituted by rendered text) |
+| Which image builder is mounted | `MemeBuilderWizard`, unconditionally — no env flag |
+| Remix/cold-permalink initial photo | `initialStockImageId` threaded into wizard state |
+| Video backend | **Unchanged by this PR** (hardened in the video rebuild) |
 
 ## Migration/backfill impact
 
-None. Pre-launch, no real users/data (per `agent-working-rules.md`'s
-pre-launch guidance) — no backfill of existing `memes.text_options` rows
-with stale tokens is needed or planned.
+**Stale `text_options` rows (Codex round 5).** The write-time fix only corrects
+*new* saves. `GET /api/memes/:slug/image` and the export paths read
+`meme.textOptions` and hand `topText`/`bottomText` to `generateMemeBuffer`, which
+draws them verbatim — so any *already-saved* wizard meme with raw tokens in
+`memes.text_options` keeps a broken permalink/export after the code fix. Because
+this is pre-launch (no real user data to preserve, per
+`agent-working-rules.md`), the plan includes a **one-time cleanup that deletes
+image-meme rows whose `text_options.topText`/`bottomText` contain an unresolved
+token** (`hasUnresolvedFactTokens`), rather than a compat-reader. Idempotent and
+safe to re-run. (No such concern for video; video backend is untouched.)
 
 ## Runtime + UX behavior
 
-- Every save flow (fact-detail "Make a meme", meme-detail "Remix"/"See with
-  your name"/cold-permalink) goes through the same wizard.
-- Legendary users see a Public/Private toggle in Step 2 of the image flow;
-  everyone else doesn't (matches today's dead-code gating exactly).
-- Saved images never contain a raw token, regardless of entry flow.
+- Every image save flow (fact-detail, remix, cold-permalink) goes through the
+  wizard; saved images never contain a raw token, for any allowed pronoun set.
+- Legendary users see a Public/Private toggle in Step 2 image; others don't.
 
 ## Security / permissions / validation
 
-- No change to auth/tier gating beyond restoring the existing
-  `meme_private_visibility` check to an actually-reachable UI control.
-- Server-side rendering fix closes a latent "stored raw template in
-  `text_options`" data-hygiene gap — nothing user-facing depended on that
-  raw value being present, so no compatibility concern.
+- No auth/tier change beyond restoring the existing `meme_private_visibility`
+  check to a reachable UI control.
+- `PronounsSchema`'s allowlist is left intact (deliberate prompt-injection
+  guard); custom pronouns stay rejected.
+- **No video backend touched** — so this PR neither fixes nor worsens the
+  pre-existing video IDOR/governance gaps (appendix).
 
-## Testing plan (proves the general invariant, not just the screenshot example)
+## Testing plan (proves the general invariant, not one example)
 
-- Unit test: `createMemeRecord` (or the extracted render step) — given a
-  `topText`/`bottomText` containing `{NAME}`, `{SUBJ}`, and a verb-conjugation
-  token, asserts the persisted `text_options` and the composited buffer's
-  drawn text both contain the fully-rendered string for a range of
-  name/pronoun combinations (not just "Nick Baron"/"he/him") — including a
-  plural pronoun set and an anonymous/no-name case (`resolvedName = "___"`).
-- Unit test (idempotency, Codex P1 round 1 + P2 round 2): two saves from the
-  same user within the idempotency window, identical in every field **except**
-  `name`/`pronouns`, must produce two distinct memes with each one's own
-  correctly-rendered text — they must NOT dedupe to the first result.
-  **Must include a pronouns-only difference and a no-token/absent-`textOptions`
-  case** (e.g. same name, `he/him` vs `they/them`; and a save with empty
-  `textOptions`), proving the key never falls back to an identity-blind
-  branch. Conversely, two byte-identical saves (same effective identity) still
-  dedupe as before.
-- Unit test (renderer parity, Codex P2 rounds 3 + 4): for **every one of the
-  5 allowlisted pronoun sets** — `he/him`, `she/her`, `they/them`, `xe/xem`,
-  `ze/zir` — the server meme render of a template containing
-  `{SUBJ}`/`{OBJ}`/`{POSS}`/`{POSS_PRO}`/`{REFL}` must byte-match the client
-  `renderFactSegments` output. General-invariant test (per the token-rendering
-  skill), not a single neopronoun example. (Custom pipe-delimited pronouns are
-  intentionally excluded — `PronounsSchema` rejects them at the boundary; a
-  test asserts that rejection stays a clean 4xx, not a 500.)
-- Unit test (budget-projection ripple): `promptIdentityBudget` reserves still
-  cover the new neopronoun forms; `unresolvedSimpleTokens()` cross-check stays
-  green after the shared-renderer change.
-- API test (video governance, Codex P1 rounds 3 + 4): a second concurrent
-  video job for the same user is rejected **while the first is still in a
-  non-terminal pipeline phase** (proving the lease is held for the job's real
-  duration, not released when the start request returned), and the fal
-  circuit-breaker path is exercised on a pipeline failure — matching the
-  protection the deleted legacy route had.
-- Unit test: wizard's `initialStockImageId` path — Step 1 is skipped, Step 2
-  mounts with that photo pre-selected, matching the flat builder's prior
-  behavior.
-- Unit test: `buildSaveMemePayload` includes `isPublic` when the wizard's
-  toggle is set to private, omits/defaults otherwise.
-- Integration/e2e: legendary user saves a private meme via the wizard → not
-  visible to another account/logged-out (re-run of the existing PR213 UAT
-  table, which is regression coverage here since we're touching the payload
-  path it depends on).
-- API regression (Codex P2 round 2): seed a **completed** `video_jobs` row,
-  delete only the `POST /api/videos/generate` handler, then assert the
-  retained `GET /api/videos/:factId` (gallery) and `GET /api/video/:videoId`
-  (detail) still return that row — proving existing completed videos stay
-  reachable after the creation route is removed.
-- Manual UAT: fact-detail flow, remix flow, cold-permalink flow, video flow
-  — each produces a correctly-rendered image (and video); legendary Public/
-  Private toggle works on the image flow; non-legendary users don't see the
-  toggle; the wizard video flow still creates a (public) video.
-- **Deletion-completeness acceptance check (Codex P2 round 1):** after the
-  deletions, a repo-wide `rg` sweep must show **no** remaining imports of any
-  deleted builder component (`MemeBuilder`, `MemeStudio`, `MemeStudioVideoTab`,
-  `MemeMagicVideo`, `VideoBuilder`, `BuilderOverlay`) from live code, and
-  **no** remaining caller of `POST /api/videos/generate`. Any retained video
-  API/helper must be explicitly documented in-code as non-builder
-  infrastructure. This sweep is a gating check, not a spot-check of the entry
-  points already found.
+- `createMemeRecord` render: given `{NAME}`/`{SUBJ}`/verb-conjugation tokens,
+  the persisted `text_options` and the composited buffer both contain the fully
+  rendered string across a range of name/pronoun combos, incl. a plural set and
+  the anonymous `"___"` case.
+- Renderer parity (Codex rounds 3–4): for **each of the 5 allowlisted pronoun
+  sets** the server render byte-matches the client `renderFactSegments`; a custom
+  pipe-delimited value stays a clean 4xx (not a 500).
+- Idempotency (Codex rounds 1, 2, 4): two saves differing only by name/pronouns
+  produce two distinct correctly-rendered memes; **includes a pronouns-only
+  difference and an absent-`textOptions` case**; byte-identical repeats still
+  dedupe.
+- `buildSaveMemePayload` includes `isPublic` when private is chosen, omits/defaults
+  otherwise; e2e re-run of the PR213 private-meme UAT (image).
+- `initialStockImageId`: Step 1 skipped, Step 2 mounts with that photo selected.
+- Stale-row cleanup: a seeded image-meme row with a raw `{NAME}` in `text_options`
+  is removed by the cleanup; a clean row is untouched; re-running is a no-op.
+- Deletion-completeness `rg` sweep (Codex round 1): no live import of any deleted
+  builder component (`MemeBuilder`, `MemeStudio`, `MemeStudioVideoTab`,
+  `MemeMagicVideo`, `VideoBuilder`, `BuilderOverlay`) remains; the caller-less
+  legacy `POST /api/videos/generate` route is documented as a known deferred
+  orphan (not silently left).
 
 ## Risks
 
-- Deleting the full builder island (seven components/pages plus a backend
-  route) touches every place that imports them — the `rg` sweep above is the
-  guard, covering tests and demo harnesses (e.g. `__demo__/MatrixHarness.tsx`),
-  not just the entry points already found.
-- The wizard's `initialStockImageId` addition is new code in a currently
-  well-tested area (`useWizardState`, `wizardStorage` schema version) —
-  needs its own test coverage, not just "it compiles."
-- The idempotency reorder touches a subtle correctness path (dedup window).
-  The two-saves-differ-by-identity test above is the guard; the change must
-  preserve genuine dedup for byte-identical repeat saves.
-- Removing the legacy `/api/videos/generate` creation route must not touch the
-  video **read** routes or `video_jobs` rows the gallery depends on — verified
-  the two are separable (creation handler vs. read handlers in the same route
-  file). Pre-launch, no real video data to preserve regardless. **The legacy
-  route is deleted only *after* governance is confirmed live on the wizard
-  route** — order matters so there is never a window with no governed path.
-- The neopronoun-parity fix touches the **shared `lib/api-zod` identity
-  module**, which feeds budget projection and (via codegen) `api-zod/src/index.ts`.
-  Two guards: re-reconcile `promptIdentityBudget` reserves against the new
-  forms (a longer resolved form must not blow a reserve), and respect the
-  codegen/export discipline (`patch-generated.mjs` + `check:codegen-drift`) so
-  the export surface can't be silently reverted — a trap CLAUDE.md calls out
-  as hit twice before.
-
-## Questions for David
-
-None outstanding — the two open decisions (consolidation target, remix
-parity) were already resolved in conversation.
+- Deleting the builder frontend touches every importer — the `rg` sweep (incl.
+  tests and `__demo__/MatrixHarness.tsx`) is the guard.
+- `initialStockImageId` is new code in the well-tested `useWizardState`/
+  `wizardStorage` area — needs its own coverage.
+- The neopronoun-parity fix touches shared `lib/api-zod` (budget projection +
+  codegen export surface) — reconcile `promptIdentityBudget` reserves and respect
+  the codegen/export discipline (a trap CLAUDE.md flags as hit twice).
+- Idempotency reorder is a subtle dedup-window change — the two-saves-differ-by-
+  identity test is the guard; byte-identical repeats must still dedupe.
 
 ## Definition of done
 
-- One builder (`MemeBuilderWizard`) mounted from both `FactDetail.tsx` and
-  `MemePage.tsx`; `VITE_MBFO_WIZARD` flag removed.
-- The full legacy builder island deleted — `components/MemeBuilder.tsx`,
-  `meme-builder/MemeBuilder.tsx`, `MemeStudio.tsx`, `MemeStudioVideoTab.tsx`,
-  `MemeMagicVideo.tsx`, `VideoBuilder.tsx`,
-  `pages/memePage/BuilderOverlay.tsx`, the orphaned `POST /api/videos/generate`
-  creation route — along with now-orphaned tests; `rg` sweep confirms no
-  live imports/callers remain.
-- A meme saved through any image entry flow (fact-detail, remix,
-  cold-permalink) renders the actual name/pronouns in the final image —
-  verified by test across multiple name/pronoun combos, not just the one
-  reported example.
-- The server meme render byte-matches the client preview for **every** allowed
-  pronoun set including neopronouns (`xe`/`ze`), via one shared
-  `resolveIdentityForms`; budget projection stays correct.
-- The surviving wizard video path enforces the same governance the deleted
-  legacy route had (concurrency, spend/duration/payload caps, fal
-  circuit-breaker), with the lease held across the async job lifecycle — a
-  second job is rejected while the first is non-terminal. No ungoverned video
-  path ships.
-- Two rapid saves differing only by name/pronouns produce two correctly
-  rendered memes (no stale idempotent dedup); byte-identical repeats still
-  dedupe.
-- Legendary users can toggle Public/Private on **image** memes in the wizard;
-  the meme's visibility behaves per the existing PR213 UAT table.
-- Wizard video creation still works and produces a (public-only) video;
-  video privacy is documented as deferred to the video rebuild.
-- Remix/cold-permalink still jump straight to the pre-selected stock photo.
-- `pnpm run check:docs` and the relevant test suites pass; TEST_RUN + UAT
-  docs shipped with the PR per the standing ceremony.
+- One image builder (`MemeBuilderWizard`) mounted from `FactDetail.tsx` and
+  `MemePage.tsx`; `VITE_MBFO_WIZARD` removed.
+- Builder frontend deleted (image builders + orphaned video-UI components);
+  `rg` sweep clean; caller-less legacy video route documented as deferred.
+- A meme saved through any image entry flow renders the actual name/pronouns —
+  verified across pronoun sets, and byte-matching the preview for all 5 presets.
+- Two rapid saves differing only by name/pronouns yield two correct memes;
+  identical repeats dedupe.
+- Legendary users can toggle Public/Private on image memes; behavior per PR213.
+- Remix/cold-permalink still jump to the pre-selected stock photo.
+- Stale image-meme rows with raw tokens are cleaned; permalinks/exports render
+  correctly.
+- **Video backend unchanged**; video creation still works via the wizard.
+- `check:docs` + relevant suites pass; TEST_RUN + UAT docs shipped with the PR.
+
+---
+
+## Carry-forward: video rebuild (findings to inherit — David, 2026-07-24)
+
+David: "we're going to be rebuilding the video process almost from scratch but
+we should take all the learnings from the investigations so far into account."
+These are the verified findings from this review; they are **out of scope for
+this PR** but must shape the video rebuild. (To be promoted to a durable
+`docs/ai-context/` note during implementation so they survive to the rebuild.)
+
+1. **Object-ownership authorization (IDOR) — highest priority, live today.** The
+   wizard route `POST /api/memes/video-jobs` only regex-validates
+   `sourceImagePath`; `startVideoJob`/`videoPipelineRunner` then download that
+   `/objects/...` path with **no ownership/ACL check**. The legacy
+   `/api/videos/generate` performed the ownership check (via
+   `uploadPrivateImageToFalCdn` /`userCanReadObject`/`userOwnsAiReferenceImage`)
+   before rehosting. The rebuilt path MUST authorize source-object ownership
+   server-side (a user may only reference objects they own/may read), with a
+   regression test. Verified against `videoJobs.ts:120-138` +
+   `videoPipelineRunner.ts:782,891`.
+2. **Resource governance.** The legacy route wraps generation in
+   `enforceGovernance`/`completeGovernance` (per-user concurrency, spend/duration/
+   payload caps, fal circuit-breaker); the wizard route has only a per-request
+   budget pre-check. The rebuilt path must carry equivalent governance.
+3. **Governance lease must span the async job lifecycle.** `startVideoJob`
+   returns `{ jobId }` immediately and schedules the FAL pipeline via
+   `setImmediate` (`videoPipelineRunner.ts:430,544`). A lease completed in the
+   HTTP `finally` frees the slot before the work runs. The lease must be acquired
+   at job start and completed from the pipeline's terminal states.
+4. **Terminal states include TTL/prune expiry.** Jobs parked in `stage1_review`/
+   `stage1_no_face_review` can be dropped by `pruneExpired()` after the 1-hour
+   TTL without passing success/failure/cancel — so TTL expiry must ALSO release
+   the governance lease, or an abandoned job throttles the user until process
+   restart. Cover in the concurrency test.
+5. **Video privacy.** The legacy `/api/videos/generate` accepts/persists
+   `isPrivate`; the wizard `/api/memes/video-jobs` has no privacy field and
+   `startVideoJob` persists `isPrivate: false`. The rebuild should design privacy
+   in from the start (parity with image `is_public`).
+6. **Renderer reuse.** The rebuilt video text rendering should use the same
+   shared `resolveIdentityForms` (post neopronoun-parity fix from this PR) so
+   video captions can't re-introduce the client/server pronoun divergence.
