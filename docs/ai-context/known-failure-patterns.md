@@ -548,3 +548,28 @@ the fix landed. Fixed with a mandatory pre-open disclosure check that keeps such
 plans off the public channel (see
 [`decisions.md`](./decisions.md#2026-07-22--plan-review-automated-via-a-codex-draft-pr-loop-replaces-the-manual-chatgpt-paste)).
 Compare PR #217 — a production DB dump that sat committed on public `main`.
+
+## Security-relevant dependency claims written from assumption, not verification
+
+**Looks like:** writing something confident and specific about a dependency's
+security status into a durable doc — "no known CVE," "just a safe hygiene
+bump," "these three patches are generic maintenance" — without actually
+checking the package's changelog or advisory database first. **Dangerous:**
+these claims read as authoritative once committed, so a later reader (a
+`/maintenance` pass, a future agent, David) trusts them instead of re-checking,
+and a real, disclosed CVE stays effectively invisible — mis-triaged as
+low-priority precisely because the doc says it's safe. It compounds: an
+unverified "safe" claim can gate a genuinely urgent fix behind an unrelated,
+lower-priority blocker. **Avoid:** for any claim of the shape "no known
+issue," "safe to defer," or "just hygiene," actually check — the package's own
+changelog/GHSA/CVE listing, not memory or a plausible-sounding assumption — and
+cite what was checked. Re-verify an existing claim before trusting it, same as
+any other unverified product truth. **Overhype:** the original
+`deferred-work.md` entry for the parked sharp bump (PR #243) asserted the
+prior version "has no known CVE" — false; sharp inherits CVEs from libvips
+(alert tagged `Direct`), just not the ones actually blocking the upgrade
+(those were a typings regression). Separately, three *other* packages bundled
+in that same PR (`drizzle-orm`, `vite`, `postcss`) were first filed as generic
+"safe patch" hygiene, not worth prioritizing — until a full alert triage found
+they closed 9 disclosed CVEs, including a SQL injection in `drizzle-orm`, the
+production ORM ([`decisions.md`](./decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)).
