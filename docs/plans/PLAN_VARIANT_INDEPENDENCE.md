@@ -132,12 +132,39 @@ implicit one (the root as a variant's de facto metadata source).
   byte-for-byte identical in shape for a root and a variant, differing only
   in `factText`. Every `enrichFact`/`EnrichInput` call site stops
   passing `status` (the field no longer exists): the two dynamic computations
-  in `enrichmentJobs.ts` (~206, ~384), and the hardcoded `status: "new_fact"`
+  in `enrichmentJobs.ts` (~206, ~384), the hardcoded `status: "new_fact"`
   call sites in `enrichmentJobs.ts:108` and `factEnrichmentBackfillJob.ts:68`
   (both already always pass `"new_fact"`, so behaviorally unaffected — just
-  drop the now-nonexistent field). Update the fixtures in
-  `factEnrichment.test.ts` and `factEnrichmentRepair.test.ts` that construct
-  `EnrichInput` with a `status` field.
+  drop the now-nonexistent field), and **`admin.ts:2145-2148` (Codex round 6
+  — a caller my "complete list" missed): `POST /admin/facts/backfill-enrichment`
+  calls `enrichFact({ factText, status: fact.parentId ? "variant" : "new_fact" })`**,
+  the same root/variant prompt distinction being retired everywhere else —
+  drop the `status` field and its now-unused `parentId` read here too. Update
+  the fixtures in `factEnrichment.test.ts` and `factEnrichmentRepair.test.ts`
+  that construct `EnrichInput` with a `status` field.
+- **Version the prompt change and specify the reprocessing path (Codex round
+  6, P1) — this is not optional cleanup, it's how already-classified facts
+  stop carrying parent-influenced metadata.** Removing `status`/`parentText`
+  changes what the classifier actually sees, which by this repo's own
+  established convention (`lib/api-zod/src/taxonomy.ts:279-291` — see the v4/
+  v6 history comments) means bumping `CLASSIFICATION_PROMPT_VERSION` from
+  `"v6"` to `"v7"` with a one-line history comment describing the change.
+  Without the bump, every fact already classified under the old prompt
+  (roots AND variants — the prompt changed for everyone, not just variants)
+  keeps reporting as "current" to Taxonomy Health forever, and a
+  parent-influenced variant classification would never surface for
+  re-processing. **No new reprocessing mechanism needs to be built** — the
+  version bump makes `evaluateFactTaxonomyHealth` (which already compares
+  `enrichment.classificationPromptVersion` against the live constant) flag
+  every fact as `stale_only`, and the existing
+  `POST /admin/taxonomy-health/actions/backfill-enrichment` bulk action
+  (`mode: "stale_only"` or `"missing_or_stale"`) already re-enriches exactly
+  those facts, already protecting admin-edited rows by default
+  (`forceOverwriteAdminEdited`) — this is the override-preserving
+  reprocessing path Codex asked for; it already exists, it just needs to be
+  *run* post-deploy. Update the hardcoded assertion in
+  `redundantMechanism.test.ts:269` (`assert.equal(CLASSIFICATION_PROMPT_VERSION,
+  "v6")`) to `"v7"`.
 - `factTextEditProtection.ts`: remove `loadDirectVariantDependencies`,
   `VariantDependency`, and the root-edit-blocks-on-in-flight-variant check
   entirely. A root re-word no longer needs to look at its variants at all.
@@ -264,6 +291,11 @@ root already uses — nothing to migrate, nothing destructive.
   which, for existing variants that were never independently populated, may
   now show **no images** where they previously (incorrectly) showed the
   root's. This is intended per the decision — see UX note below.
+- **The `CLASSIFICATION_PROMPT_VERSION` bump (v6→v7) marks every existing
+  fact — root and variant — as `stale_only` in Taxonomy Health**, since the
+  classifier prompt changed for everyone (not just variants). This is
+  expected and matches how prior prompt changes (v4, v6) were handled; it's
+  a one-time bulk-reprocess trigger, not a bug.
 
 ## Admin/User UX Impact
 
@@ -280,6 +312,14 @@ root already uses — nothing to migrate, nothing destructive.
   image pipeline, same as a root edit already does — no new UI state needed
   (the root path's existing "processing" signal, if any, already covers this
   shape of async work).
+- **Taxonomy Health will show every fact as `stale_only` immediately after
+  deploy** (the prompt-version bump above). David/an admin runs the existing
+  `POST /admin/taxonomy-health/actions/backfill-enrichment` bulk action
+  (`mode: "stale_only"`) to reprocess; admin-edited rows are protected by
+  default (already-built behavior, `forceOverwriteAdminEdited` opts in to
+  overwrite them). Call this out prominently in the TEST_RUN/UAT docs — it's
+  the single largest visible consequence of this fix and needs a deliberate
+  post-deploy action, not a surprise.
 
 ## Security, Permissions, and Validation
 
@@ -300,6 +340,12 @@ prove it with **both** a root and a variant fixture:
   this directly (same input text, `parentId` null vs non-null, identical
   prompt string) rather than only checking the fingerprint. Re-wording a root does NOT change a variant's
   `lastProcessedSignature` or trigger any job for it (negative case).
+- **Prompt versioning (Codex round 6, P1):** `CLASSIFICATION_PROMPT_VERSION`
+  is `"v7"`; a fact fixture stamped with the old `"v6"` (root or variant)
+  evaluates as `stale_only` under `evaluateFactTaxonomyHealth`, proving a
+  pre-change fact is surfaced for reprocessing rather than silently remaining
+  "current" with parent-influenced metadata. `admin.ts:2145-2148`
+  (`backfill-enrichment`) no longer computes or passes `status`.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -345,10 +391,22 @@ prove it with **both** a root and a variant fixture:
    (Codex round 4)** — leaving `status` in the prompt keeps a root and a
    variant with identical text on different classifier inputs, which is the
    exact bug this plan exists to fix. Update every `enrichFact` call site
-   (`enrichmentJobs.ts:108,206,384`, `factEnrichmentBackfillJob.ts:68`) to
-   stop passing `status`, and the `EnrichInput` fixtures in
-   `factEnrichment.test.ts`/`factEnrichmentRepair.test.ts`.
-2. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
+   (`enrichmentJobs.ts:108,206,384`, `factEnrichmentBackfillJob.ts:68`,
+   `admin.ts:2145-2148` — Codex round 6) to stop passing `status`, and the
+   `EnrichInput` fixtures in `factEnrichment.test.ts`/
+   `factEnrichmentRepair.test.ts`.
+2. **Version the prompt change (Codex round 6, P1):** bump
+   `CLASSIFICATION_PROMPT_VERSION` from `"v6"` to `"v7"` in
+   `lib/api-zod/src/taxonomy.ts:291`, with a one-line history comment
+   (matching the existing v4/v6 comments) describing the status/parentText
+   removal. Update the hardcoded `"v6"` assertion in
+   `redundantMechanism.test.ts:269`. No new reprocessing mechanism needed —
+   the existing `stale_only`/`missing_or_stale` bulk re-enrich action
+   (`POST /admin/taxonomy-health/actions/backfill-enrichment`) already
+   handles version-mismatch reprocessing with admin-edit protection built
+   in; note running it as a required post-deploy step (Testing Plan +
+   TEST_RUN doc).
+3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
    **Remove the shared contract and admin UI built on top of it (Codex round
@@ -363,11 +421,11 @@ prove it with **both** a root and a variant fixture:
    blocking/clearing behavior (`factTextEditProtection.test.ts`,
    `confirmedFactTextEdit.test.ts`, `ApprovedFactTextEditModal.test.tsx`,
    `patchFactDraft.test.ts`).
-3. `admin.ts:1012`: drop the root-only gate on the confirmed-edit embed/image
+4. `admin.ts:1012`: drop the root-only gate on the confirmed-edit embed/image
    trigger.
-4. Stock/AI image display: remove the parent-fallback in `facts.ts:233-243`
+5. Stock/AI image display: remove the parent-fallback in `facts.ts:233-243`
    and the parent-substitution in `facts.ts:587-590`.
-5. Image/AI generation: remove the `parentId !== null` guard in
+6. Image/AI generation: remove the `parentId !== null` guard in
    `admin.ts:1990`, `memes.ts:1324-1332`, `pulidJobs.ts:217-233`; remove
    `isNull(factsTable.parentId)` from the three bulk-backfill queries in
    `admin.ts` and from `artifacts/api-server/scripts/backfill-pexels.ts:38`.
@@ -378,16 +436,18 @@ prove it with **both** a root and a variant fixture:
    (site 12) — a third, undocumented, duplicate implementation of the same
    backfill, unless David flags active use of it (see Proposed Design C),
    in which case fix its `parent_id IS NULL` filter instead.
-6. Frontend: remove the `selectedFact.parentId === null` gate around the
+7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
-7. Update/add tests per the Testing Plan (root + variant fixture for every
+8. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
-8. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
+9. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
    fix as **done**, not just planned — the entry currently reads as a
    forward-looking "sites to fix"; close the loop once merged.
-9. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
-   "variants may show no images until backfilled" visible change.
+10. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
+    "variants may show no images until backfilled" visible change, and the
+    "every fact goes `stale_only` in Taxonomy Health, run the bulk re-enrich
+    action" post-deploy step.
 
 ## Risks and Mitigations
 
@@ -431,6 +491,10 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
 - No trace of `DEPENDENT_VARIANT_IN_PROGRESS`/`blockingVariants`/
   `affectedVariantCount` remains anywhere (shared contract, admin UI, tests) —
   a root re-word's success/error messaging no longer mentions variants.
+- `CLASSIFICATION_PROMPT_VERSION` is `"v7"`; every fact classified under the
+  old prompt is surfaced as `stale_only` by Taxonomy Health, and the
+  post-deploy bulk re-enrich step is documented in TEST_RUN, not silently
+  left for someone to discover.
 - Structural invariants (no variants-of-variants, active-root-parent
   enforcement, root-deletion-blocked-by-active-variants) all still hold —
   verified by the existing tests for those, unmodified in behavior.
