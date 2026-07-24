@@ -24,6 +24,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Engineering deferred-work backlog + a 9-CVE dependency patch sweep**
+  (PR #245, #246). New process infrastructure: a single durable backlog for
+  deferred engineering/security/maintenance work
+  ([`deferred-work.md`](./../engineering/deferred-work.md)), wired into the
+  weekly `/maintenance` skill. Its first real use found that three "safe
+  patch" dependency bumps parked in the blocked Dependabot PR #243 actually
+  fixed 9 disclosed CVEs — including a SQL injection in `drizzle-orm`, the
+  production ORM — and shipped them immediately rather than waiting on the
+  unrelated `sharp` blocker. See
+  [`decisions.md`](./decisions.md#2026-07-24--deferred-engineering-work-gets-one-durable-backlog-split-from-the-product-roadmap).
 - **Fact lifecycle closed: one entrance, one exit** (PR #242 — Codex review
   converged after 11 rounds, CI green except one open policy call below; **not
   yet merged**). `facts.is_active` now defaults `false`; `activateFact` is the

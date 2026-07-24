@@ -83,6 +83,31 @@ forward.
 - **Numbered questions, never lettered.** When I present a list of questions or
   choices for David to answer, I label them **1, 2, 3…** — not A, B, C — so his
   replies ("1: yes, 2: …") are unambiguous.
+- **Sparse chat + a visually distinct "NEED YOU" banner + a push notification
+  (David, 2026-07-24).** David reads everything in the chat window and the
+  automated Codex plan-/code-review loops generate a lot of it, so my prose was
+  burying the moments that actually need him. Going forward, on **all** work:
+  1. **Be sparse in the chat window.** Short status lines, no essays. State
+     what happened and what's next in as few words as carry the meaning; drop
+     the play-by-play. (This governs my *chat messages to David* — not Codex
+     thread replies or the plan/PR artifacts themselves.)
+  2. **Every moment I need David's input gets a visually distinct banner** so
+     he can spot it while scrolling — a horizontal rule, then
+     `🛑 **NEED YOU** — <one-line ask>`, then the decision, then a closing
+     rule. Nothing else in my output uses that marker, so a scan for 🛑 finds
+     exactly the blocking moments. **The banner body is a few short sentences,
+     structured so David can decide fast (David, 2026-07-24):** (a) the
+     **issue** in one or two plain sentences, (b) the **options**, and (c) the
+     **ramifications** of each option — the concrete consequence/trade-off of
+     picking it. Enough for an informed decision at a glance; no more. Save the
+     deep evidence/verification for the Codex threads and the plan, not this
+     banner.
+  3. **Fire a push notification at those moments** (the `PushNotification`
+     tool) so David gets pulled back to the app. Scope: when I'm **blocked on
+     his input/decision**, AND at **major completions** that hand the turn back
+     to him (plan converged & ready for approval, PR green/ready, build done) —
+     the natural "come back" points. Not for routine progress. When unsure,
+     bias to *fewer* notifications, not more.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
