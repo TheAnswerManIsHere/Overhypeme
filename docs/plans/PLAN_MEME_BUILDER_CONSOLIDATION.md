@@ -126,6 +126,27 @@ real UX regression on the meme-detail page.
    pronouns* (pronouns need not appear in the top/bottom blocks) or when
    `textOptions` is absent/untokenized. Then two saves differing by name
    *or* pronouns can never collapse to a stale rendered meme.
+   **Renderer parity for neopronouns (Codex P2 round 3 — David: full parity
+   now):** the server render must agree with the wizard preview for *every*
+   allowed pronoun set, not just he/she/they. Today they diverge: the shared
+   `resolveIdentityForms` (`lib/api-zod/src/resolvedIdentityForms.ts:82-88`)
+   special-cases only `he`/`she` and collapses every other subject —
+   including `xe`/`ze` neopronouns — to `their`/`themselves`/`theirs`, while
+   the client `render-fact.ts` `KNOWN_MAPS` carries full neopronoun forms
+   (`xe`→`xyr`/`xemself`, `ze`→`zir`/`zirself`). Fix the divergence at its
+   root: **lift the client's neopronoun form table into the shared
+   `resolveIdentityForms` so there is ONE renderer both sides use** (the
+   client's `renderFactSegments` continues to drive the preview; the server
+   meme render calls the same shared derivation). This makes the saved image
+   agree with the preview and the user's actual pronouns for `{POSS}`/
+   `{POSS_PRO}`/`{REFL}`/`{OBJ}` across all allowed sets. **Ripple to check:**
+   `resolveIdentityForms` also feeds budget projection
+   (`promptIdentityBudget.ts` reserves space per resolved token) — the new
+   (sometimes longer) neopronoun forms must be re-reconciled there, and the
+   `unresolvedSimpleTokens()` cross-check kept green. This touches
+   `lib/api-zod`, so follow the codegen/export discipline (update
+   `patch-generated.mjs` + run `pnpm run check:codegen-drift` if any export
+   surface changes — see CLAUDE.md).
 7. Privacy toggle is restored in the wizard's Step 2 **image** flow (Public/
    Private control, gated on `viewerContext.tier === "legendary"`, mirroring
    the dead builder's UX), and `SaveMemePayload`/`buildSaveMemePayload()`
@@ -134,12 +155,25 @@ real UX regression on the meme-detail page.
    decision 8.
 8. **Video builder scope (David, 2026-07-24): the video builder is slated for
    a full rebuild once the image generator is perfected, so this plan invests
-   nothing in the interim video path** — threading privacy through a
-   soon-to-be-replaced path is throwaway work. Concretely:
+   nothing in the interim video path** — threading *privacy* (a feature)
+   through a soon-to-be-replaced path is throwaway work. **The one exception
+   is resource governance (Codex P1 round 3 — David: port it now):** cost/
+   abuse protection is not a feature and is never waived by the pre-launch
+   boldness rule, so we do not ship an ungoverned video path. Concretely:
    - The wizard's existing video path (`Step1ArtifactType` "video" →
      `Step2Video` → `POST /api/memes/video-jobs`) stays as the **interim,
      public-only** video builder. Video creation therefore remains reachable
      through the one wizard — "one builder" holds for video too.
+   - **Governance is ported onto the surviving wizard video route *before* the
+     legacy route is deleted.** The legacy `POST /api/videos/generate` wraps
+     generation in `enforceGovernance`/`completeGovernance` (fal provider,
+     per-user concurrency, spend/duration/payload caps, circuit-breaking);
+     the wizard's `POST /api/memes/video-jobs` currently has only a
+     per-request budget pre-check. Wrap the wizard start route in the same
+     `enforceGovernance`/`completeGovernance` (provider `"fal"`, matching
+     path/cost params) so no concurrency/circuit-breaker/spend-cap protection
+     is lost when the legacy route goes. This is reusing an existing guard,
+     not building new interim-video functionality.
    - **Video privacy is dropped for the interim.** Wizard-created videos are
      public-only; no `isPrivate` toggle is added to the wizard video step and
      no privacy field is threaded through the video payload. The rebuilt video
@@ -183,6 +217,8 @@ real UX regression on the meme-detail page.
 | Whether a meme is public | `memes.is_public` column + `meme_private_visibility` feature flag (unchanged) |
 | Rendered meme text (image + stored options) | Computed once in `createMemeRecord.ts` from `(textOptions.topText/bottomText raw template, effective identity)` — never re-derived client-side, never stored un-rendered |
 | Effective identity for a save (name/pronouns) | Resolved once in `createMemeRecord.ts` (request → profile fallback → `"___"` placeholder) *before* the idempotency key; both the render and the dedup key derive from it |
+| Pronoun→form derivation (all sets incl. neopronouns) | ONE shared `resolveIdentityForms` in `lib/api-zod`, neopronoun-aware, used by the server meme render, budget projection, AND the client preview — no second divergent table |
+| Video-generation governance | `enforceGovernance`/`completeGovernance` on the surviving `POST /api/memes/video-jobs` route (ported from the deleted legacy route) — single governed video path |
 | Whether two saves are "the same" (idempotency) | Key **always** includes `effectiveName` + `effectivePronouns` (or the fully rendered fact text), never rendered-`textOptions`-only, so name *or* pronoun differences never collapse |
 | Which builder is mounted | `MemeBuilderWizard`, unconditionally — no env flag |
 | Video creation (interim, pre-rebuild) | Wizard `Step2Video` → `/api/memes/video-jobs`, public-only; legacy `/api/videos/generate` creation route removed |
@@ -227,6 +263,20 @@ with stale tokens is needed or planned.
   `textOptions`), proving the key never falls back to an identity-blind
   branch. Conversely, two byte-identical saves (same effective identity) still
   dedupe as before.
+- Unit test (renderer parity, Codex P2 round 3): for **every allowed pronoun
+  set** — he/she/they *and* each neopronoun (`xe`, `ze`, and any custom
+  pipe-delimited set) — the server meme render of a template containing
+  `{SUBJ}`/`{OBJ}`/`{POSS}`/`{POSS_PRO}`/`{REFL}` must byte-match the client
+  `renderFactSegments` output. This is the general-invariant test (per the
+  token-rendering skill), not a single neopronoun example.
+- Unit test (budget-projection ripple): `promptIdentityBudget` reserves still
+  cover the new neopronoun forms; `unresolvedSimpleTokens()` cross-check stays
+  green after the shared-renderer change.
+- API test (video governance, Codex P1 round 3): the wizard
+  `POST /api/memes/video-jobs` route now enforces governance — e.g. a second
+  concurrent job for the same user is rejected/queued per the per-user
+  concurrency cap, and the fal circuit-breaker path is exercised — matching
+  the protection the deleted legacy route had.
 - Unit test: wizard's `initialStockImageId` path — Step 1 is skipped, Step 2
   mounts with that photo pre-selected, matching the flat builder's prior
   behavior.
@@ -269,7 +319,16 @@ with stale tokens is needed or planned.
 - Removing the legacy `/api/videos/generate` creation route must not touch the
   video **read** routes or `video_jobs` rows the gallery depends on — verified
   the two are separable (creation handler vs. read handlers in the same route
-  file). Pre-launch, no real video data to preserve regardless.
+  file). Pre-launch, no real video data to preserve regardless. **The legacy
+  route is deleted only *after* governance is confirmed live on the wizard
+  route** — order matters so there is never a window with no governed path.
+- The neopronoun-parity fix touches the **shared `lib/api-zod` identity
+  module**, which feeds budget projection and (via codegen) `api-zod/src/index.ts`.
+  Two guards: re-reconcile `promptIdentityBudget` reserves against the new
+  forms (a longer resolved form must not blow a reserve), and respect the
+  codegen/export discipline (`patch-generated.mjs` + `check:codegen-drift`) so
+  the export surface can't be silently reverted — a trap CLAUDE.md calls out
+  as hit twice before.
 
 ## Questions for David
 
@@ -290,6 +349,12 @@ parity) were already resolved in conversation.
   cold-permalink) renders the actual name/pronouns in the final image —
   verified by test across multiple name/pronoun combos, not just the one
   reported example.
+- The server meme render byte-matches the client preview for **every** allowed
+  pronoun set including neopronouns (`xe`/`ze`), via one shared
+  `resolveIdentityForms`; budget projection stays correct.
+- The surviving wizard video route (`POST /api/memes/video-jobs`) enforces the
+  same governance the deleted legacy route had (concurrency, spend/duration/
+  payload caps, fal circuit-breaker) — no ungoverned video path ships.
 - Two rapid saves differing only by name/pronouns produce two correctly
   rendered memes (no stale idempotent dedup); byte-identical repeats still
   dedupe.
