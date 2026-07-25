@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import {
   runFactPexelsJob,
@@ -37,6 +38,8 @@ async function seedFact(overrides: Partial<typeof factsTable.$inferInsert> = {})
       text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
       submittedById: submitterId,
       isActive: true,
+      // Active facts require a non-empty Visual Concept (facts_active_requires_concept CHECK).
+      enrichment: buildPlaceholderFactEnrichment(),
       ...overrides,
     } as typeof factsTable.$inferInsert)
     .returning({ id: factsTable.id });
