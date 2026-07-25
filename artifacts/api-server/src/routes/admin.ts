@@ -1930,7 +1930,7 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
 // POST /admin/facts/backfill-embeddings
 // One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
 // Accepts either an authenticated admin session OR the ADMIN_API_KEY header.
-async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
   const apiKey = req.headers["x-api-key"];
   const adminApiKey = process.env.ADMIN_API_KEY;
   if (adminApiKey && apiKey === adminApiKey) {

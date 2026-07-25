@@ -43,7 +43,7 @@ import {
   type TaxonomyHealthSkipReason,
   TAXONOMY_HEALTH_SKIP_REASON_VALUES,
 } from "@workspace/api-zod";
-import { requireAdmin } from "./admin";
+import { requireAdmin, requireAdminOrApiKey } from "./admin";
 import { evaluateFactTaxonomyHealth, isEnrichmentAdminEdited } from "../lib/taxonomyHealth";
 import { currentProcessingSignatureFromConfig, ENGINE_REVISION_CONFIG_KEY } from "../lib/processingSignature";
 import { bustConfigCache } from "../lib/adminConfig";
@@ -727,9 +727,17 @@ function parseJobSkipResult(result: unknown): TaxonomyHealthSkipReason | null {
     : null;
 }
 
+// Accepts the ADMIN_API_KEY header too (not just an admin session): the
+// bulk-backfill routes this endpoint polls for (backfill-images,
+// backfill-ai-memes) already accept that same key (requireAdminOrApiKey,
+// admin.ts), and since converting them to enqueue-then-poll (variant-
+// independence, PR #256) an API-key caller otherwise has no way at all to
+// learn whether an enqueued job succeeded, failed, or skipped — job-status
+// is read-only queue metadata, no more sensitive than what that key already
+// reaches elsewhere (Codex review, PR #256).
 router.post(
   "/admin/taxonomy-health/job-status",
-  requireAdmin,
+  requireAdminOrApiKey,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const body = (req.body && typeof req.body === "object" ? req.body : {}) as JobStatusRequestBody;

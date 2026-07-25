@@ -353,3 +353,41 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.equal(row?.repeatedFailure, false, "a later success within the most recent 3 clears the flag");
   });
 });
+
+describe("POST /admin/taxonomy-health/job-status — accepts the ADMIN_API_KEY header (Codex review, PR #256)", () => {
+  // Same env-var-mutation caution as routes.admin.auth.test.ts: capture the
+  // previous value inside before(), not at module-load time, since other test
+  // files' top-level before() hooks can mutate ADMIN_API_KEY first under
+  // shared-process test isolation.
+  let previousKey: string | undefined;
+  const TEST_KEY = "test-tth-job-status-api-key-do-not-use-elsewhere";
+
+  before(() => {
+    previousKey = process.env.ADMIN_API_KEY;
+    process.env.ADMIN_API_KEY = TEST_KEY;
+  });
+  after(() => {
+    if (previousKey === undefined) delete process.env.ADMIN_API_KEY;
+    else process.env.ADMIN_API_KEY = previousKey;
+  });
+
+  it("an unauthenticated request bearing the valid api key can poll job-status — the backfill-images/backfill-ai-memes automation this key already authenticates otherwise has no way to learn job outcomes", async () => {
+    const unauthedApp = buildTestApp({ kind: "unauthenticated" }, adminTaxonomyHealthRouter);
+    const res = await request(unauthedApp)
+      .post("/api/admin/taxonomy-health/job-status")
+      .set("x-api-key", TEST_KEY)
+      .send({ jobs: [{ jobId: 2_147_482_999 }] });
+    assert.notEqual(res.status, 401, "valid api key should not return 401");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.jobs, []);
+  });
+
+  it("an unauthenticated request with a wrong api key is still rejected", async () => {
+    const unauthedApp = buildTestApp({ kind: "unauthenticated" }, adminTaxonomyHealthRouter);
+    const res = await request(unauthedApp)
+      .post("/api/admin/taxonomy-health/job-status")
+      .set("x-api-key", "wrong-key")
+      .send({ jobs: [] });
+    assert.equal(res.status, 401);
+  });
+});
