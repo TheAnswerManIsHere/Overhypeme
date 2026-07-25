@@ -595,18 +595,45 @@ implicit one (the root as a variant's de facto metadata source).
   `pending` forever with the script having already exited looking
   "done." This is exactly the async-status rule (`AGENTS.md:126-127`)
   applied to a CLI surface instead of an HTTP one — enqueue is not
-  completion here either. Fix: after enqueueing, each script polls the
-  enqueued facts' status column (`pexelsStatus`/`ai_meme_backfill_status`)
-  at a short interval until every fact reaches a terminal value
-  (`ok`/`failed`/`skipped` for AI-memes; `ok`/`failed` for Pexels, per
-  the existing enum) or a bounded timeout elapses, logging each fact's
-  outcome as it resolves (matching the current per-fact log lines) and a
-  final summary (`succeeded`/`failed`/`skipped` counts), exiting nonzero
-  if any failed — preserving today's `process.exit(failed > 0 ? 1 : 0)`
-  contract. Update each script's header docstring to state the API
-  server's async-jobs worker must be running for enqueued jobs to
-  process (a new requirement — the old synchronous calls didn't need a
-  separate worker process).
+  completion here either. Fix: after enqueueing, each script polls —
+  **the returned `async_jobs` rows by their `jobId` (`EnqueueJobResult.jobId`,
+  returned whether the enqueue inserted a fresh row or deduped onto an
+  existing one), not the fact-level status column (Codex round 29,
+  P1 — corrects the round-28 design)**. Polling the fact column is wrong
+  on two counts, both already documented elsewhere in this plan: the
+  execution-time Pexels inactive-skip deliberately writes
+  `pexelsStatus: "failed"` at the DB layer even though the job's own
+  structured result is `{ skipped: true, reason: "not_active" }` (Pexels
+  queue point above), so the script would misreport a legitimate skip as
+  a failure; and the documented late-dedupe race (Proposed Design, AI-meme
+  queue point 3) can leave `ai_meme_backfill_status` stuck at `"pending"`
+  even after its job has genuinely reached `done`, so the script would
+  wait out the full timeout on a job that already finished. Polling
+  `async_jobs.status`/`result` directly by the concrete job id sidesteps
+  both — it reads the queue's own authoritative terminal record instead
+  of a marker that two other, already-documented mechanisms can leave
+  stale or coarser than the real outcome.
+
+  Poll each job id at a short interval until its `status` is `done` or
+  `failed`, or a bounded timeout elapses. On `done`, classify the fact
+  from the job's `result`: a structured `{ skipped: true, ... }` result
+  logs as skipped, anything else logs as succeeded. On `failed`, log the
+  failure (with `lastError` if present). **(Codex round 29, P1) Track
+  unresolved jobs distinctly and fail loudly on timeout, not just on
+  explicit failure:** if the API worker isn't running (or is stuck), every
+  job stays `pending`/`processing` through the whole poll window with zero
+  jobs ever reaching `failed` — a naive `process.exit(failed > 0 ? 1 : 0)`
+  would then exit `0`, recreating exactly the false-success behavior this
+  whole fix exists to remove. Track a separate `unresolved` count (jobs
+  still non-terminal when the timeout elapses), log those facts
+  explicitly (e.g. "N fact(s) still pending after Ns — is the async-jobs
+  worker running?"), and exit nonzero if `failed > 0 OR unresolved > 0`,
+  not `failed > 0` alone. Log each fact's outcome as it resolves (matching
+  the current per-fact log lines) and a final summary
+  (`succeeded`/`skipped`/`failed`/`unresolved` counts). Update each
+  script's header docstring to state the API server's async-jobs worker
+  must be running for enqueued jobs to process (a new requirement — the
+  old synchronous calls didn't need a separate worker process).
   **Root-only copy left behind (Codex round 12) — update alongside the
   query, not just the filter:** the script's header docstring
   (`backfill-pexels.ts:1-2`) and two `console.log` lines (`:33,44`) all
@@ -1015,12 +1042,22 @@ prove it with **both** a root and a variant fixture:
   share the same dedupe surface as the HTTP routes instead of bypassing
   it. **(Codex round 28, P1):** running either script end-to-end against
   a small fixture set (with the worker active in-process for the test)
-  asserts the process doesn't exit until every enqueued fact reaches a
-  terminal status, the final summary's `succeeded`/`failed`/`skipped`
-  counts match the fixtures' actual outcomes (including a forced-failure
-  fixture), and the exit code is nonzero when any fact failed —
-  preserving the original scripts' reporting contract instead of
-  silently dropping it at the enqueue point.
+  asserts the process doesn't exit until every enqueued job reaches a
+  terminal status, the final summary's
+  `succeeded`/`skipped`/`failed`/`unresolved` counts match the fixtures'
+  actual outcomes (including a forced-failure fixture), and the exit
+  code is nonzero when any fact failed — preserving the original
+  scripts' reporting contract instead of silently dropping it at the
+  enqueue point. **(Codex round 29, P1):** an inactive-fact fixture
+  routed through the execution-time skip path (whose `pexelsStatus`
+  lands at the DB layer as `"failed"` but whose job `result` is
+  `{ skipped: true, reason: "not_active" }`) is summarized as `skipped`,
+  not `failed` — proving the script reads the job's structured result,
+  not the coarser fact-level column. Separately, run the script with no
+  worker active at all (or the worker paused) against a small fixture
+  set — assert the process logs the still-unresolved facts by name/id,
+  exits nonzero, and does not report `succeeded`/`failed: 0` as if
+  nothing were wrong.
   **Corrected, then reversed (Codex rounds 16 and 18, both P1):** round 16
   caught that "included in the queued/processed set" overclaimed what was
   observable given the routes' original fire-and-forget shape (verified
