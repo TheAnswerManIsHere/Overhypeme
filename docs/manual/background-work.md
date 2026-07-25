@@ -42,7 +42,9 @@ pattern rather than inventing a new one. The full contract, including why
 "skipped" and "still running" are first-class states and why the UI never
 imposes a timeout on a legitimately long job, is
 [`async-ui-status.md`](../ai-context/async-ui-status.md) — this chapter
-doesn't restate it.
+doesn't restate it. The **Bulk Media Backfill** panel (Admin → Taxonomy
+Health) is a second reference implementation of the same two-altitude
+contract, for the corpus-wide stock-image and AI-meme backfill queues.
 
 ### The machinery
 
@@ -53,10 +55,10 @@ Using one real database table — not an in-memory queue or a separate
 pub/sub system — means a crash or redeploy never loses queued work, and the
 state is always inspectable with a normal SQL query.
 
-**Three independent scheduling lanes** claim and run those rows. Each lane —
-`fast`, `render`, `bulk` — has its own poll timer, its own concurrency limit,
-and (crucially) its own re-entrancy guard, so none of them can ever be delayed
-by another:
+**Five independent scheduling lanes** claim and run those rows. Each lane —
+`fast`, `render`, `bulk`, `pexels`, `ai_meme_backfill` — has its own poll
+timer, its own concurrency limit, and (crucially) its own re-entrancy guard,
+so none of them can ever be delayed by another:
 
 - **`fast`** — pure-database admin actions with no AI/image call in the path
   (e.g. "Send back to review," a projection repair). Polls every 2 seconds;
@@ -69,6 +71,14 @@ by another:
   — background batches nobody's watching in real time: re-enrichment,
   large backfills, stock-photo search, visual-concept drafting, transactional
   email. Polls every 5 seconds.
+- **`pexels`** — stock-image search/prep for a fact (root or variant),
+  concurrency capped at 1 so requests to the photo API stay paced the same
+  way the old direct-call code did.
+- **`ai_meme_backfill`** — AI-generated meme backgrounds for a fact (root or
+  variant), also capped at concurrency 1 for the same paid-API pacing reason —
+  and, unlike most queues, never retried automatically: a partial failure part
+  way through generating a fact's image set would otherwise re-pay for the
+  slots that already succeeded.
 
 A queue's lane is a one-line registration choice
 (`registerJobHandler(queue, handler, { lane: "fast" })`); nothing about
@@ -138,4 +148,7 @@ elsewhere.
 - Code entry points: `lib/db/src/schema/asyncJobs.ts` (the table),
   `artifacts/api-server/src/lib/asyncJobs.ts` (the worker + lanes),
   `artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts` (the
-  reference UI polling pattern).
+  reference UI polling pattern), `artifacts/api-server/src/lib/factPexelsJobs.ts`
+  / `aiMemeBackfillJobs.ts` (the `pexels` / `ai_meme_backfill` queue handlers),
+  `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
+  (the Bulk Media Backfill panel's polling hook).

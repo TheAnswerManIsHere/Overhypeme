@@ -55,6 +55,10 @@ preview and the Playwright e2e admin flows keep working; production
   cookie-session unsafe methods; origin allowlist enforced except for the
   intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback,
   route-stats, and — for now — dev-admin-login).
+- **CodeQL doesn't recognize either hand-rolled control** as satisfying its
+  `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
+  see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
+  before treating a new alert on either as a real gap.
 
 ## Authorization — objects, media, and memes
 
