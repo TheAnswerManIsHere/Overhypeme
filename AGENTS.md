@@ -144,6 +144,14 @@ and the repo, return a **complete** assessment even when nothing is critical, us
 review-status labels (never approval language — only David approves), and never
 implement anything on that PR.
 
+**On a re-review, the diff is not the scope.** Round 2 onward you are shown a
+markdown diff of the plan — re-read the *whole* plan and re-verify it against the
+repo anyway, reconcile every finding you raised earlier (Resolved / Still open /
+Superseded, where "the wording changed" is never Resolved), attack from a lens
+you haven't used yet, and report what you actually inspected — including the
+searches you ran — plus what you could not verify and why. The contract's
+*Re-reviews* and *Report what you verified* sections are the full rules.
+
 ## Setup, verification, and the CI gate
 
 Full commands, DB isolation, and the production guard are in

@@ -379,6 +379,14 @@ have a draft plan, and the disclosure check passes:
 
    ## Plan file
    `docs/plans/PLAN_<SLUG>.md`
+   **Re-reviews: read the whole file, not the diff.** Reconcile every prior
+   finding (Resolved / Still open / Superseded) and attack from a lens not yet
+   applied. See the contract's *Re-reviews* section.
+
+   ## Findings ledger
+   <Round-by-round, maintained by me: each finding, its status, and the lens
+   each round applied. Cross-round state lives here so it survives whatever
+   Codex does or doesn't carry between rounds.>
    ```
 2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
    tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
@@ -399,12 +407,23 @@ have a draft plan, and the disclosure check passes:
    and request the next round with a fresh explicit `@codex review` comment.
    Codex has authority on plan *substance*, **none** on branch/PR/devops
    mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
-5. **Convergence: no substantive objections, minimum 3 rounds (David,
-   2026-07-22).** I do not stop before three completed Codex review rounds, even
-   if an early round comes back clean — in that case I request the re-review
-   through a different lens (edge cases, data integrity/migrations,
-   source-of-truth risks, failure modes) instead of manufacturing plan churn.
-   From round 3 on, I stop as soon as a round produces no substantive objections.
+   Two things I own each round: I **update the findings ledger** in the PR body
+   (every finding, its status, the lens applied), and I **clear the review's
+   *Unable to verify* list** before requesting the next round — the genuinely
+   unobservable ones (external APIs, production data, runtime timing) are mine
+   to resolve, and a repo-observable one going unanswered means Codex's round
+   was incomplete and I say so on the thread rather than absorbing it.
+5. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
+   I do not stop before three completed Codex review rounds, even if an early
+   round comes back clean — in that case I request the re-review through a
+   different lens (edge cases, data integrity/migrations, source-of-truth risks,
+   failure modes) instead of manufacturing plan churn. From round 3 on, I stop
+   only when **all three** hold: (a) no substantive new objections, (b) the
+   round's *Previous findings* section lists **zero Still Open**, and (c) that
+   round applied a **fresh lens** and named it. A silent round is otherwise
+   ambiguous between *converged* and *the reviewer stopped looking* — (b) and
+   (c) are what tell the difference, since consistency across rounds is not
+   evidence of quality.
 6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
@@ -686,7 +705,13 @@ since none was armed). While watching:
   substantive findings just follow the rules above (fix the mechanical,
   escalate real decisions, break after ~2 non-converging rounds). Only
   exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
-  one — anything touching product code or test logic does.
+  one — anything touching product code or test logic does. **The re-request
+  says what to reconcile.** A bare `@codex review` on a fix round invites a
+  review of just the new commits, so I state in the comment which findings the
+  round was meant to close and ask Codex to confirm each is actually resolved
+  in the code — not merely responded to. Same principle as the plan loop's
+  *Re-reviews*, in miniature: a reply on a thread is not evidence the defect is
+  gone.
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real
