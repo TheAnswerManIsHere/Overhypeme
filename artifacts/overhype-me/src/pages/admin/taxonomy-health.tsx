@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
-  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send,
+  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send, Image as ImageIcon, Images, Sparkles,
 } from "lucide-react";
 import {
   currentTaxonomyVersions,
@@ -20,6 +20,10 @@ import {
   useTaxonomyHealthActions,
   type UiOpState,
 } from "@/components/admin/useTaxonomyHealthActions";
+import {
+  useBulkMediaBackfillActions,
+  type BulkBackfillActionKey,
+} from "@/components/admin/useBulkMediaBackfillActions";
 import { MarkMajorUpdateModal } from "@/components/admin/MarkMajorUpdateModal";
 
 /**
@@ -216,6 +220,101 @@ function RowSendBack({
     <Button variant="secondary" size="sm" disabled={busy} onClick={onSend} data-testid="send-back-to-review">
       <Send className="w-3 h-3 mr-1" /> Send back to review
     </Button>
+  );
+}
+
+const BULK_BACKFILL_ACTIONS: Array<{
+  key: BulkBackfillActionKey;
+  label: string;
+  url: string;
+  icon: typeof ImageIcon;
+  confirmMessage: string;
+  testId: string;
+}> = [
+  {
+    key: "backfill_images",
+    label: "Backfill images",
+    url: "/api/admin/facts/backfill-images",
+    icon: ImageIcon,
+    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
+    testId: "bulk-backfill-images",
+  },
+  {
+    key: "backfill_pexels",
+    label: "Backfill Pexels",
+    url: "/api/admin/backfill-pexels",
+    icon: Images,
+    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
+    testId: "bulk-backfill-pexels",
+  },
+  {
+    key: "backfill_ai_memes",
+    label: "Backfill AI memes",
+    url: "/api/admin/facts/backfill-ai-memes",
+    icon: Sparkles,
+    confirmMessage: "Enqueue AI meme background generation for every active fact (root or variant) missing them? This calls paid OpenAI/fal.ai APIs.",
+    testId: "bulk-backfill-ai-memes",
+  },
+];
+
+/**
+ * Corpus-wide media bulk-backfill controls (site 8/15/16 of the variant-
+ * independence fix): the three admin.ts routes now widen their selection to
+ * every active fact (root or variant), not just roots, and enqueue durable
+ * jobs instead of blocking the request — but had no frontend caller at all
+ * before this panel (a "no dead UI, no invisible backend" gap independent of
+ * the async-status rule). Each button fires its route and polls the returned
+ * jobs to a terminal state via the shared `/admin/taxonomy-health/job-status`
+ * endpoint (queue-agnostic — already used by the Taxonomy Health actions
+ * above).
+ */
+function BulkMediaBackfillPanel() {
+  const { submit, counts, busy, error } = useBulkMediaBackfillActions();
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2" data-testid="bulk-media-backfill-panel">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-bold">Bulk Media Backfill</h3>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Corpus-wide: each button enqueues durable jobs for every eligible active fact (root or variant). Safe to
+        re-run — already-in-flight facts dedupe onto their existing job.
+      </p>
+      {error && (
+        <p className="text-xs text-red-600 dark:text-red-400" role="alert">{error}</p>
+      )}
+      <div className="flex flex-wrap gap-3">
+        {BULK_BACKFILL_ACTIONS.map(({ key, label, url, icon: Icon, confirmMessage, testId }) => {
+          const c = counts(key);
+          const isBusy = busy(key);
+          return (
+            <div key={key} className="flex items-center gap-2" data-testid={testId}>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => {
+                  if (!window.confirm(confirmMessage)) return;
+                  void submit(key, url);
+                }}
+                data-testid={`${testId}-button`}
+              >
+                {isBusy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Icon className="w-3 h-3 mr-1" />}
+                {label}
+              </Button>
+              {c && (
+                <span className="text-xs text-muted-foreground" data-testid={`${testId}-status`}>
+                  {c.requested === 0
+                    ? "no matching facts"
+                    : `${c.done} of ${c.queued} done${c.failed > 0 ? ` · ${c.failed} failed` : ""}${c.stillRunning > 0 ? ` · ${c.stillRunning} still running` : ""}${c.skipped > 0 ? ` · ${c.skipped} skipped (inactive)` : ""}`}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -456,6 +555,8 @@ export default function TaxonomyHealth() {
             }}
           />
         )}
+
+        <BulkMediaBackfillPanel />
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
