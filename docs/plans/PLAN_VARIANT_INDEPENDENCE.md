@@ -367,23 +367,37 @@ implicit one (the root as a variant's de facto metadata source).
        `enqueueJob` commits the `async_jobs` row (immediately claimable)
        as part of its own insert, so a write placed after it can race a
        worker that already claimed and set `processing`, clobbering it
-       back to `pending`. **The two writes must be one transaction, not
-       two sequential statements (Codex round 24, P1):** writing status
-       first and then calling `enqueueJob` separately closes the
-       fast-worker race but opens a new one — if the `enqueueJob` insert
-       throws (a transient DB error) after the status write already
-       committed, the fact is left permanently `pending` with no job that
-       will ever resolve it. `enqueueJob` accepts a `dbOverride` for
-       exactly this kind of composition — wrap both statements in one
-       `db.transaction(async (tx) => { ...conditional status write via
-       tx...; await enqueueJob({...}, tx); })`. Either both commit
-       together or neither does; a failed insert leaves the fact's status
-       exactly as it was before the call, never orphaned at `pending`.
-       `enqueueFactAiMemeBackfill`'s write, inside that transaction:
-       conditional (`UPDATE facts SET ai_meme_backfill_status = 'pending'
-       WHERE id = ? AND ai_meme_backfill_status IS DISTINCT FROM
-       'processing'` — a no-op if a prior invocation is genuinely
-       mid-flight, preserving the guard), then `enqueueJob`.
+       back to `pending`. `enqueueFactAiMemeBackfill`'s write: conditional
+       (`UPDATE facts SET ai_meme_backfill_status = 'pending' WHERE id = ?
+       AND ai_meme_backfill_status IS DISTINCT FROM 'processing'` — a
+       no-op if a prior invocation is genuinely mid-flight, preserving the
+       guard), committed as its own statement, THEN a plain `enqueueJob`
+       call (not composed inside a shared transaction).
+       **Known, deliberately deferred limitation (Codex round 24 raised
+       wrapping both statements in one `db.transaction` via `enqueueJob`'s
+       `dbOverride`; Codex round 25 then found that composition unsafe —
+       `enqueueJob`'s own dedupe-conflict recovery does its fallback
+       `SELECT` against `defaultDb`, not the caller's transaction handle,
+       so a dedupe hit inside a caller-managed transaction aborts the
+       whole outer transaction on Postgres, silently breaking the exact
+       race `enqueueJob` is supposed to handle gracefully). Making this
+       truly atomic requires changing `enqueueJob` itself — shared,
+       cross-cutting infrastructure used by every queue in the repo — which
+       is out of scope for this plan.** Per David's explicit direction
+       (2026-07-25), that hardening is deferred to a separate,
+       independently-tracked plan/PR
+       (`docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md`); this plan ships the
+       sequential (non-atomic) write-then-enqueue order instead. The
+       residual risk is narrow: if the `enqueueJob` insert throws
+       *after* the status write already committed (a transient DB error,
+       not the common dedupe-hit case), the fact is left at `pending`
+       with no job to resolve it. This is the same class of gap
+       `factPexelsJobs.ts`'s existing `enqueueFactPexels` already ships
+       with today (unconditional pre-write, no transaction) — not a
+       regression this plan introduces — and it's the same shape a
+       Taxonomy Health operator already investigates manually via
+       `lastError`/stuck-status rows, so it's operationally recoverable,
+       not silent data loss.
     4. **Concurrency safety — a dedicated serialized lane:**
        `admin.ts:2097-2102` deliberately `await`s facts one at a time
        ("Process sequentially so we don't hammer OpenAI rate limits"). An
@@ -467,7 +481,16 @@ implicit one (the root as a variant's de facto metadata source).
     needs — the admin UI surfaces the granular reason from the job's own
     structured result, not the raw column value). Staging-prep jobs
     (`bulkBackfill` unset) are unaffected — they keep using
-    `isStagingImagePrepActive` exactly as today.
+    `isStagingImagePrepActive` exactly as today. **Set on every bulk
+    producer, not just the HTTP route (Codex round 25, P1):**
+    `scripts/backfill-fact-pexels.ts` (the standalone CLI script, Current
+    Behavior site above) is a second, independent bulk producer calling
+    `enqueueFactPexels` directly — it must also pass `bulkBackfill: true`,
+    or facts it enqueues silently skip the execution-time inactive
+    recheck the same way the HTTP route did before this fix. It has no
+    staging-review caller to protect (unlike `firstTimeStagingPrep.ts`),
+    so setting the flag there is safe with no semantic change to guard
+    against.
   - **A new frontend surface is required, not an addition to an existing
     one.** A repo-wide search finds no frontend caller for any of the
     three bulk routes today — the Facts Editor's `facts.tsx:728-748`
@@ -1206,12 +1229,15 @@ prove it with **both** a root and a variant fixture:
      the `fact_pexels` handler must also sleep 1 second after finishing,
      before returning — `maxConcurrency: 1` only prevents overlap, it
      doesn't insert a gap between one job finishing and the next starting.
-   - **(Codex round 24, P1) Execution-time inactive recheck, discriminated
-     per caller:** extend `FactPexelsJobPayload` with `bulkBackfill?: boolean`
-     (set only by the bulk-route enqueuer); when set, the handler does an
-     additional direct `isActive` check (not `isStagingImagePrepActive`'s
-     OR-with-review logic, which must stay unchanged for
-     `firstTimeStagingPrep.ts`) and skips with a structured
+   - **(Codex round 24, P1; extended round 25, P1) Execution-time inactive
+     recheck, discriminated per caller:** extend `FactPexelsJobPayload`
+     with `bulkBackfill?: boolean`, set `true` by **every** bulk producer
+     — the `admin.ts` HTTP route enqueuer **and**
+     `scripts/backfill-fact-pexels.ts` (the standalone CLI script, a
+     second independent producer missed in round 24's fix); when set, the
+     handler does an additional direct `isActive` check (not
+     `isStagingImagePrepActive`'s OR-with-review logic, which must stay
+     unchanged for `firstTimeStagingPrep.ts`) and skips with a structured
      `{ skipped: true, reason: "not_active" }` result if inactive, rather
      than silently no-opping and leaving `pexelsStatus` stuck at `pending`.
    - `backfill-ai-memes`: add a new `fact_ai_meme_backfill` queue with:
@@ -1250,20 +1276,28 @@ prove it with **both** a root and a variant fixture:
        pipeline (not any earlier — setting it before the `isActive`
        recheck would leave the marker stuck at `processing` on the
        inactive-skip path).
-     - **Enqueue-side write, atomically ordered before the job becomes
-       claimable, and inside one transaction (Codex rounds 23-24, P1):**
-       `enqueueFactAiMemeBackfill` writes the fact's status FIRST
-       (conditionally — `UPDATE ... SET ai_meme_backfill_status =
-       'pending' WHERE id = ? AND ai_meme_backfill_status IS DISTINCT
-       FROM 'processing'`), THEN calls `enqueueJob` — writing after
-       `enqueueJob` leaves a window where a worker claims the row and
-       sets `processing` before the enqueuer's write runs, clobbering it.
-       Both statements run inside one `db.transaction`, with `enqueueJob`
-       called via its `dbOverride` param — sequential-but-separate
-       statements would leave the fact orphaned at `pending` forever if
-       `enqueueJob`'s insert throws after the status write already
-       committed; the transaction ensures both commit together or neither
-       does.
+     - **Enqueue-side write, ordered before the job becomes claimable
+       (Codex round 23, P1), sequential rather than transactional
+       (Codex round 24 proposed a transaction wrap; Codex round 25 found
+       it unsafe; deferred per David, 2026-07-25 — see Proposed Design
+       above for the full reasoning):** `enqueueFactAiMemeBackfill`
+       writes the fact's status FIRST (conditionally — `UPDATE ... SET
+       ai_meme_backfill_status = 'pending' WHERE id = ? AND
+       ai_meme_backfill_status IS DISTINCT FROM 'processing'`), committed
+       as its own statement, THEN calls `enqueueJob` — writing after
+       `enqueueJob` leaves a window where a worker claims the row and sets
+       `processing` before the enqueuer's write runs, clobbering it. The
+       two statements are **not** wrapped in a shared `db.transaction`:
+       `enqueueJob`'s dedupe-conflict recovery reads via `defaultDb`, not
+       a caller-supplied transaction handle, so composing it inside an
+       outer transaction aborts that transaction on a dedupe hit — a
+       shared-infrastructure fix out of scope here, tracked in
+       `docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md`. The accepted residual
+       risk: an `enqueueJob` insert that throws *after* the status write
+       commits (transient DB error, not the common dedupe case) leaves
+       the fact orphaned at `pending` — the same class of gap
+       `enqueueFactPexels` already ships with today, recoverable via the
+       existing Taxonomy Health investigation path.
      - Check `isActive` before enqueueing too (route-level, explicit
        `not_active` skip outcome, no enqueue at all) — the execution-time
        recheck above is the narrow race-window backstop, not a substitute.
@@ -1299,7 +1333,12 @@ prove it with **both** a root and a variant fixture:
      calling the pipeline and reports `{skipped: true, reason:
      "not_active"}`, while an equivalent staging-prep job (no
      `bulkBackfill` flag) on an inactive-but-unresolved-review fact still
-     proceeds exactly as today.
+     proceeds exactly as today. **(Codex round 25, P1):** a fact enqueued
+     via `scripts/backfill-fact-pexels.ts` (not just the `admin.ts` HTTP
+     route) also carries `bulkBackfill: true` — assert this directly
+     (e.g. inspect the enqueued job's payload after invoking the script's
+     enqueue path) so the standalone script gets the same inactive-skip
+     coverage as the route.
 
      **`fact_ai_meme_backfill` (Codex rounds 20-22 — converged test list):**
      - A job whose handler throws is NOT retried: assert exactly one
@@ -1337,12 +1376,14 @@ prove it with **both** a root and a variant fixture:
        crash-recovery test above) — assert `generateAndStoreImage` is
        still called only once total, proving the dedupe path can't
        silently disarm the crash-recovery guard.
-     - **(Codex round 24, P1) Enqueue failure never orphans a `pending`
-       marker:** force the `enqueueJob` call inside
-       `enqueueFactAiMemeBackfill`'s transaction to throw after the
-       status write would otherwise have committed — assert the fact's
-       `ai_meme_backfill_status` is unchanged from before the call (not
-       left at `pending`), and no `async_jobs` row was created.
+     - **Not tested — accepted, documented limitation (Codex round 24
+       proposed an orphan-proof transactional guarantee; deferred per
+       David, 2026-07-25, see Proposed Design):** an `enqueueJob` insert
+       that throws after the conditional status write already committed
+       can leave a fact at `pending` with no job to resolve it. No test
+       asserts atomicity here — the sequential, non-transactional order
+       is the accepted design for this plan, tracked for hardening in
+       `docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md`.
      - Migration: the `ai_meme_backfill_status` column exists after
        running migrations, defaults to `NULL` on existing rows, and the
        `ADD COLUMN IF NOT EXISTS` migration is safe to run twice.
@@ -1431,6 +1472,23 @@ prove it with **both** a root and a variant fixture:
    silently excluded, still `staleForReprocess` and potentially
    parent-influenced, which is exactly the outcome this whole
    reprocessing-completeness thread (rounds 14-19) exists to prevent.
+   **(Codex round 25, P1) Wire it through the full stack, not just the
+   backend response:** `totalStale`/`eligibleRemaining`/`batchLimit`
+   already exist as optional fields on the shared
+   `TaxonomyHealthActionResponse` interface
+   (`lib/api-zod/src/taxonomyHealth.ts`) and are threaded through
+   `useTaxonomyHealthActions.ts`'s parsed result
+   (`totalStale`/`eligibleRemaining`/`batchLimit`, `useTaxonomyHealthActions.ts:88-90,376-378`)
+   into `taxonomy-health.tsx`'s aggregate status line
+   (`taxonomy-health.tsx:397-398`, the "N eligible stale facts remain"
+   message). Add `repeatedFailureCount?: number` to
+   `TaxonomyHealthActionResponse` alongside those three fields, thread it
+   through the same `useTaxonomyHealthActions.ts` parsing step, and add it
+   to `taxonomy-health.tsx`'s aggregate status line (e.g. "N fact(s)
+   excluded after repeated failures — investigate before considering the
+   migration complete") — a nonzero count must be visible in the same
+   place an operator already reads `eligibleRemaining`, not only
+   discoverable by scrolling row-by-row.
 9. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
 10. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
@@ -1438,9 +1496,15 @@ prove it with **both** a root and a variant fixture:
     forward-looking "sites to fix"; close the loop once merged.
 11. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
     "variants may show no images until backfilled" visible change, and the
-    post-deploy reprocess (`bulk-send-back`, run repeatedly until
-    `eligibleRemaining` is 0 — covers every v6→v7-affected fact, `stale_only`
-    is not involved).
+    post-deploy reprocess (`bulk-send-back`, run repeatedly until the full
+    three-part stop condition from step 8a holds — `queued: 0`, `failed: 0`,
+    **and** `eligibleRemaining: 0` **and** `repeatedFailureCount: 0` (or
+    each flagged fact explicitly investigated via `scope: "selected"`) —
+    covers every v6→v7-affected fact, `stale_only` is not involved).
+    **(Codex round 25, P1 — corrects step 11's earlier
+    `eligibleRemaining`-only phrasing, which round 24 already established
+    as an incomplete stop condition in step 8a but left uncorrected here):**
+    the doc must not restate the old two-part condition.
 
 ## Risks and Mitigations
 
