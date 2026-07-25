@@ -411,15 +411,21 @@ have a draft plan, and the disclosure check passes:
    against this repo's own PR history, its top-level review body is always
    fixed connector boilerplate, never custom text. So it cannot itself post a
    status label, a lens declaration, or a ledger; that synthesis is **mine**,
-   not something to wait for from Codex. Two things I own each round: I
-   **derive the round's status and update the findings ledger** in the PR body
-   by reading Codex's individual inline findings (their category tags, and any
-   explicit overall-status note inside one of them), and I **clear the
-   review's *Unable to verify* list** before requesting the next round — the
-   genuinely unobservable ones (external APIs, production data, runtime
-   timing) are mine to resolve, and a repo-observable one going unanswered
-   means Codex's round was incomplete and I say so on the thread rather than
-   absorbing it.
+   not something to wait for from Codex. **The trigger comment states the lens
+   and names what to reconcile — Codex reviews against that, it doesn't declare
+   its own framing afterward.** Every re-review comment (round 2+) names the
+   angle I want this round to attack from and lists the specific prior findings
+   to check as resolved; a round that comes back empty against that named list
+   is the "zero Still Open" signal for convergence, not something Codex has to
+   restate. Three things I own each round: I **write that framing into the
+   trigger comment**, I **derive the round's status and update the findings
+   ledger** in the PR body by reading Codex's individual inline findings (their
+   category tags, plus my own trigger text as the record of that round's lens),
+   and I **clear the review's *Unable to verify* list** before requesting the
+   next round — the genuinely unobservable ones (external APIs, production
+   data, runtime timing) are mine to resolve, and a repo-observable one going
+   unanswered means Codex's round was incomplete and I say so on the thread
+   rather than absorbing it.
 5. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
    I do not stop before three completed Codex review rounds, even if an early
    round comes back clean — in that case I request the re-review through a

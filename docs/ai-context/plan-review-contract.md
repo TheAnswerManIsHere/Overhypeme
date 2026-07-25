@@ -388,13 +388,20 @@ On this surface, every piece of information above six-shape output is carried
   Product Decision, Verified, Unable to Verify (repo-resolvable / not
   observable — say which), or Reconciliation (Resolved / Still Open /
   Superseded, naming the prior finding it addresses).
-- **State the lens inside at least one finding each round** (or, on a clean
-  round, in the sole finding you post explaining why you're posting nothing
-  else) — round 2 onward.
-- **A clean round is an empty findings list** — post nothing and let the
-  connector's own default (a 👍 reaction) stand. That is the only way this
-  surface can represent "no new objections," and it is sufficient: it does not
-  need to additionally say so in words it cannot post.
+- **The lens is not something you attest to — it's something you're asked to
+  apply.** A round where you post nothing gives you no comment to declare it
+  in, so declaring it after the fact is not this surface's job. Instead, the
+  `@codex review` trigger comment states the lens for that round and names the
+  specific prior findings to reconcile (see *Automated plan review* in
+  `CLAUDE.md`) — review under that stated lens, don't invent your own framing
+  for it.
+- **A clean round is an empty findings list against a stated request.** If the
+  trigger comment named specific prior findings to reconcile and you post
+  nothing, that silence is read as "those findings are Resolved" — so if any
+  named finding is *not* actually resolved, you must say so as a Reconciliation
+  finding; don't let silence pass for a check you didn't do. Absent a named
+  request, an empty list means only "no new objections" — post nothing and let
+  the connector's default (a 👍 reaction) stand.
 - **You do not compute or post the overall review-status label or the
   round-level ledger on this surface.** Whoever is driving the loop (Claude
   Code) reads your findings after each round and derives the status and
