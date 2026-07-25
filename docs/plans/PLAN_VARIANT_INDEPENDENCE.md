@@ -278,6 +278,10 @@ implicit one (the root as a variant's de facto metadata source).
   per-fact or aggregate completed/failed signal, root or variant, before or
   after this fix. Same gap, same out-of-scope disposition — fixing it means
   the same durable-queue rearchitecture already flagged above.
+  **Round 17 pushed back a third time, asking this be built into this plan
+  rather than deferred — escalated to David as Question 2 in Questions for
+  David** rather than settled unilaterally after three rounds of Codex
+  insistence on the same point.
 - **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
@@ -486,13 +490,14 @@ root already uses — nothing to migrate, nothing destructive.
   stale again if the candidate predates the v7 deploy, so the TEST_RUN doc
   must instruct a second `bulk-send-back` pass once any pending reviews
   resolve. **Nor is it the finish line if a target failed to enqueue or its
-  job later exhausted retries (Codex rounds 15-16, P1 — see Implementation
-  Step 2):** the TEST_RUN doc's stop condition is `eligibleRemaining: 0`
-  AND `failed: 0` on the same response, AND no fact's *latest*
-  `fact_send_back` job is terminally `failed` (a per-fact, latest-attempt
-  query — not "no failed row ever exists," which a superseding retry or an
-  unrelated historical failure would make permanently unsatisfiable) — not
-  `eligibleRemaining: 0` alone.
+  job later exhausted retries (Codex rounds 15-17, P1 — see Implementation
+  Step 2):** the TEST_RUN doc's stop condition is not any single response
+  field — it's looping `bulk-send-back` (`all_stale`) until one call
+  returns `queued: 0`, `failed: 0`, **and** `eligibleRemaining: 0`
+  together, then doing one more loop after any pending reviews from
+  condition (1) resolve. A separate async-jobs-table inspection (tried in
+  rounds 15-16) isn't needed and isn't campaign-scoped — the loop-until-
+  clean condition is driven entirely by current staleness/active state.
 
 ## Security, Permissions, and Validation
 
@@ -569,26 +574,31 @@ prove it with **both** a root and a variant fixture:
   `all_stale` `bulk-send-back` call — assert the response reports that fact
   in `outcomes` with `status: "failed"` (and a nonzero `failed` count) while
   `eligibleRemaining` still reflects the batch as consumed, proving
-  `eligibleRemaining` alone can't be the stop signal. Then assert a
-  follow-up `bulk-send-back` call (enqueue succeeding this time) selects
-  and successfully queues that same fact — proving the documented
-  check-`failed`-and-retry step actually recovers it. Separately, assert a
-  `fact_send_back` job that exhausts its retries lands in terminal `failed`
-  status in the async-jobs table with no candidate row created for that
-  fact, and that the fact still evaluates `staleForReprocess` — i.e. it's
-  neither "done" nor "in review," so it can only be caught by checking job
-  status, not by the response body or the in-flight-review check alone.
-- **The failed-job check must be per-fact/latest-attempt, not "no failed
-  row ever" (Codex round 16, P1):** for one fact, create an OLDER
-  `fact_send_back` job row in terminal `failed` status, then a NEWER row
-  for the same fact in `done` status (simulating a successful retry after
-  an earlier failure). Assert the per-fact latest-attempt query does NOT
-  flag this fact (the later success supersedes). Separately, assert it DOES
-  flag a fact whose only/latest `fact_send_back` row is `failed`. This
-  proves the stop condition can actually be satisfied after a real-world
-  retry, unlike a bare "no failed rows exist" check, which the 30-day
-  retention on terminal rows (`purgeTerminalJobs`) would keep failing
-  indefinitely.
+  `eligibleRemaining` alone can't be the stop signal.
+- **The stop condition is a loop-until-clean invariant, not any single
+  response field (Codex rounds 15-17, P1 — replaces the per-fact
+  async-jobs-table approach tried in rounds 15-16, which round 17 showed
+  wasn't campaign-scoped and didn't cover in-flight jobs):** simulate a
+  fact whose `enqueueJob` fails on the first `all_stale` call (still
+  stale afterward, no job created) — assert the very next `all_stale` call
+  re-selects it (proving the retry is automatic, not something the
+  operator must separately detect via job history). Simulate a fact with a
+  still-`pending`/`processing` `fact_send_back` job (job accepted, not yet
+  run) — assert an `all_stale` call in that window still re-selects/
+  re-attaches to it (`queued` stays nonzero, `enqueueJob`'s dedupe key
+  returns `inserted: false`), proving a call can't report a false-clean
+  `queued: 0` while work is genuinely still in flight. Then let that job
+  resolve successfully (candidate created) — assert the *next* `all_stale`
+  call excludes it (round 14's in-flight check takes over) and, with no
+  other stale facts left, returns `queued: 0`, `failed: 0`, and
+  `eligibleRemaining: 0` together — proving that specific combination,
+  not `eligibleRemaining: 0` alone, is what "done" actually looks like.
+  Separately, simulate a fact whose only `fact_send_back` job is long-past
+  and terminally `failed`, with the fact NOW inactive (no longer part of
+  the live cohort) — assert it does NOT block a clean `all_stale` response
+  for the currently-stale-and-active population, proving the condition is
+  scoped to current state and can't be blocked by irrelevant history the
+  way a raw job-table query could.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -746,33 +756,56 @@ prove it with **both** a root and a variant fixture:
    ever surfaces it, and because `sendFactBackToReview` never ran to
    completion, no candidate row exists — the fact is invisible to round
    14's in-flight-review check too. Both failure modes leave the fact
-   `staleForReprocess` with nothing tracking it as pending. **Correction
-   (Codex round 16, P1): condition (2) as originally written here —
-   "no `fact_send_back` jobs in terminal `failed` status" — can never
-   become true and is the wrong check.** Verified `enqueueJob`
-   (`asyncJobs.ts:233-240`) deliberately lets a fresh job through after a
-   prior terminal row for the same fact (the dedupe index only covers
-   non-terminal rows) — so retrying a failed fact successfully still leaves
-   its earlier failed row sitting in the table, by default for 30 days
-   (`purgeTerminalJobs`, `asyncJobs.ts:603-643`). "No failed rows exist"
-   would flag a fact that already succeeded on retry, and would flag
-   long-past, unrelated historical failures too — a table-wide check, not a
-   campaign-scoped one. The correct check is **per-fact, latest-attempt-wins**:
-   query `fact_send_back` jobs grouped by `factId`, take each fact's most
-   recent row by `createdAt`, and flag only facts whose *latest* attempt is
-   `failed` — a later success (or a still-pending retry) supersedes an
-   earlier failure for that fact, so this can't be blocked by history the
-   way a bare "any failed row" check would be. Operator guidance, three
-   conditions must ALL hold before the reprocess is actually done: (1) a
-   `bulk-send-back` (`all_stale`) response with `eligibleRemaining: 0`
-   **and** `failed: 0`; (2) no fact's *latest* `fact_send_back` job is in
-   terminal `failed` status (the per-fact latest-attempt query above) — if
-   any exist, re-run `bulk-send-back` targeting those fact ids
-   (`scope: "selected"`) since the underlying fact is still stale and
-   uncaptured, so the picker will select it again; (3) round 14's
-   in-flight-review resolution + re-run. Document all three as the actual
-   stop condition in the TEST_RUN doc — "`eligibleRemaining` hits 0" alone
-   is necessary but not sufficient.
+   `staleForReprocess` with nothing tracking it as pending.
+   **Rounds 16-17, P1 — the per-fact "async-jobs table" check I built to
+   catch this was itself broken twice, so it's replaced entirely.** Round
+   16 caught that a bare "no failed `fact_send_back` rows" check is
+   table-wide, not campaign-scoped (terminal rows persist up to 30 days —
+   `purgeTerminalJobs`, `asyncJobs.ts:603-643` — so a superseded or
+   unrelated historical failure blocks forever). My "fix," a per-fact
+   latest-attempt-wins query, still had two more holes round 17 caught: (a)
+   it only excludes `failed`, so a fact whose latest attempt is still
+   `pending`/`processing` passes it even though the job hasn't resolved
+   yet and could still fail; (b) grouping by `factId` alone still isn't
+   campaign-scoped — a fact whose latest-ever attempt failed long ago, with
+   no later retry, stays flagged forever even if it's since gone inactive
+   or is no longer `staleForReprocess` by any other path, and the
+   documented `scope: "selected"` recovery can't even re-enqueue such a
+   fact (`pickSendBackTargets`'s `selected` path requires
+   `staleIdSet.has(id)`). **Dropping the separate job-table inspection
+   entirely — the actual correct stop condition needs no query beyond
+   `bulk-send-back` itself:** repeatedly call `bulk-send-back`
+   (`scope: "all_stale"`) until a SINGLE response returns `queued: 0`
+   **and** `failed: 0` **and** `eligibleRemaining: 0` together — i.e. a
+   call that finds nothing eligible to select, attempts nothing new, and
+   fails at nothing. This is self-correcting by construction, driven
+   entirely by current state rather than job history: a still-stale fact
+   with a pending/processing job is NOT yet excluded from `eligibleStaleIds`
+   (only an in-flight *candidate*, not a pending job, is excluded — see
+   round 14), so it keeps getting re-selected on every call, and
+   `enqueueJob`'s dedupe key (`fact_send_back:${factId}`) just re-attaches
+   to the still-running job — `queued` stays nonzero for that fact on every
+   call until the job actually resolves, keeping the loop "dirty" the
+   entire time it's genuinely in flight. Once it resolves: success creates
+   a candidate, which round 14's in-flight-review exclusion then takes over
+   tracking; failure leaves the fact stale-and-not-in-flight, so the next
+   call re-attempts it fresh (dedupe only blocks non-terminal rows) and
+   `failed`/`queued` stays nonzero until it genuinely stops failing. A
+   long-past, unrelated, or now-irrelevant historical failure has zero
+   effect on this condition, since nothing here queries job history at
+   all — only current staleness/active state, exactly what the picker
+   itself uses. Operator guidance, two conditions must hold before the
+   reprocess is actually done: (1) a `bulk-send-back` (`all_stale`) call
+   that returns `queued: 0`, `failed: 0`, **and** `eligibleRemaining: 0`
+   together, obtained by looping the call and re-checking, not by reading
+   one response in isolation; (2) round 14's in-flight-review resolution +
+   one more re-run afterward (a resolved review can revert a fact to
+   `staleForReprocess`, which condition (1)'s next loop iteration would
+   then naturally pick up — but only if the operator actually loops again
+   after resolving pending reviews, not just once at the start). Document
+   both as the actual stop condition, and the loop-until-clean mechanic
+   itself, in the TEST_RUN doc — "`eligibleRemaining` hits 0" on one
+   response, alone, is never sufficient.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
@@ -879,15 +912,33 @@ prove it with **both** a root and a variant fixture:
 
 ## Questions for David
 
-**One outstanding (Codex round 11, P2 — my "none outstanding" claim was
-wrong; this genuinely needs your answer, not an in-repo assumption):**
+**Two outstanding:**
 
-1. `scripts/backfill-pexels-images.mjs` (site 12) is not referenced anywhere
+1. **(Codex round 11, P2 — my "none outstanding" claim was wrong; this
+   genuinely needs your answer, not an in-repo assumption)**
+   `scripts/backfill-pexels-images.mjs` (site 12) is not referenced anywhere
    else in this repo, but that only tells me it's unused *in-repo* — I can't
    see whether you or anyone else runs it manually/operationally outside
    what's visible here. **Do you use this script?** If no → delete it (the
    plan's default). If yes → it gets the same `parentId`-filter fix as its
    siblings instead of deletion, and stays.
+2. **(Codex rounds 10/16/17 — a genuine scope fork, not something I should
+   settle unilaterally after three escalations)** The three admin bulk-
+   backfill routes (`backfill-images`/`backfill-pexels`/`backfill-ai-memes`)
+   have no durable per-fact or aggregate completion status today — fire-
+   and-forget, initial count only, no way for an operator to know which
+   facts actually finished, failed, or need retrying. This predates this
+   fix and affects root facts today too; this plan just makes variants
+   subject to the same (already-live, already-imperfect) behavior, not a
+   new or worse one. **My recommendation: keep this out of scope** —
+   fixing it means rearchitecting all three onto the durable
+   `enqueueFactPexels`/`FACT_PEXELS_QUEUE` infrastructure plus a new
+   per-item/aggregate admin status surface, which is a substantial second
+   project layered onto what's meant to be a targeted metadata-inheritance
+   bug fix, and nothing about variant-independence makes the existing gap
+   worse. **If you'd rather have it folded into this plan instead of
+   filed as separate follow-up work, say so** and I'll design that
+   rearchitecture as additional Implementation Steps before this ships.
 
 The three other judgment calls from this session (variant re-word parity,
 bulk-backfill scope, curation-spot scope) were resolved and are reflected
