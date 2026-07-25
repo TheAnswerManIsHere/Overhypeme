@@ -255,7 +255,12 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
   });
 
   it("classifies a variant from its OWN text only — no parent text or parentId reaches the classifier (variant independence, site 3)", async () => {
-    const { columns: rootColumns } = materializeFromBaseline(AI);
+    // Active facts require a non-empty Visual Concept (facts_active_requires_concept
+    // CHECK) — AI deliberately never carries visualPromptStrategyOverride (see
+    // its own comment above), so this must supply SAVED_CONCEPT directly, same
+    // as seedFact() does for every other test in this file.
+    const withConcept = { ...AI, visualPromptStrategyOverride: SAVED_CONCEPT };
+    const { columns: rootColumns } = materializeFromBaseline(withConcept);
     const [rootRow] = await db
       .insert(factsTable)
       .values({ text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER`, isActive: true, ...rootColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
@@ -263,7 +268,7 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
     insertedFactIds.push(rootRow.id);
 
     const variantText = `${TEXT_PREFIX}${randomUUID()} VARIANT_DISTINCTIVE_MARKER`;
-    const { columns: variantColumns } = materializeFromBaseline(AI);
+    const { columns: variantColumns } = materializeFromBaseline(withConcept);
     const [variantRow] = await db
       .insert(factsTable)
       .values({ text: variantText, isActive: true, parentId: rootRow.id, ...variantColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)

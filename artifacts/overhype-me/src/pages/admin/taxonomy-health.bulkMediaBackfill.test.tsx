@@ -20,12 +20,12 @@ import TaxonomyHealth from "./taxonomy-health";
 
 interface Call { url: string; method: string; body?: unknown }
 
-function mockFetch() {
+function mockFetch(opts: { backfillResponse?: unknown; jobStatusResponse?: unknown } = {}) {
   const calls: Call[] = [];
-  const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    const method = opts?.method ?? "GET";
-    const body = opts?.body ? JSON.parse(opts.body as string) : undefined;
+    const method = init?.method ?? "GET";
+    const body = init?.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ url: u, method, body });
     if (u.includes("/summary")) {
       return new Response(
@@ -38,9 +38,22 @@ function mockFetch() {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
+    if (u.includes("/job-status")) {
+      return new Response(
+        JSON.stringify(opts.jobStatusResponse ?? { jobs: [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (u.includes("/backfill-images") || u.includes("/backfill-pexels") || u.includes("/backfill-ai-memes")) {
       return new Response(
-        JSON.stringify({ success: true, jobs: [{ factId: 1, jobId: 501, deduped: false }], outcomes: [], summary: { requested: 1, queued: 1, skipped: 0 } }),
+        JSON.stringify(
+          opts.backfillResponse ?? {
+            success: true,
+            jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }],
+            outcomes: [],
+            summary: { requested: 1, queued: 1, skipped: 0 },
+          },
+        ),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
@@ -126,5 +139,29 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     btn.click();
     await waitFor(() => expect(screen.getByTestId("bulk-backfill-images-status").textContent).toContain("of 1 done"));
     confirmSpy.mockRestore();
+  });
+
+  it("shows a labeled per-item list for failed/skipped facts — never a raw factId", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetch({
+      backfillResponse: {
+        success: true,
+        jobs: [{ factId: 42, jobId: 501, label: "the fact that keeps failing", deduped: false }],
+        outcomes: [{ factId: 43, status: "skipped", reason: "not_active", label: "an inactive fact" }],
+        summary: { requested: 2, queued: 1, skipped: 1 },
+      },
+      jobStatusResponse: { jobs: [{ jobId: 501, status: "failed", error: "fal.ai boom" }] },
+    });
+    renderPage();
+    const btn = await screen.findByTestId("bulk-backfill-images-button");
+    btn.click();
+    await waitFor(
+      () => expect(screen.getByTestId("bulk-backfill-images-items").textContent).toContain("the fact that keeps failing"),
+      { timeout: 3000 },
+    );
+    const itemsText = screen.getByTestId("bulk-backfill-images-items").textContent ?? "";
+    expect(itemsText).toContain("an inactive fact");
+    expect(itemsText).not.toContain("42");
+    expect(itemsText).not.toContain("43");
   });
 });

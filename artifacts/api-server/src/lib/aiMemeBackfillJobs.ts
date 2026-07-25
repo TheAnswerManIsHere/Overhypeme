@@ -21,8 +21,15 @@
  * the marker is already "processing" OR already a terminal value, this run is
  * a `recoverStuckProcessing` replay of a job whose write already landed but
  * whose `async_jobs` row wasn't finalized — short-circuit without calling the
- * pipeline again, resolving with the result that matches the existing marker
- * (never re-running paid work). Only past that guard, and an execution-time
+ * pipeline again (never re-running paid work). A pre-existing terminal marker
+ * (ok/failed/skipped) resolves with the result that matches it. A
+ * pre-existing "processing" marker is different: its outcome is genuinely
+ * unconfirmed (the crashed attempt may or may not have finished), so this
+ * moves it to "failed" rather than leaving it at "processing" — a stuck
+ * "processing" marker is never reset by `enqueueFactAiMemeBackfill`'s
+ * conditional write (deliberately, to protect a truly in-flight job), so
+ * leaving it untouched here would strand the fact forever with no retry path
+ * (Codex review, PR #256). Only past that guard, and an execution-time
  * `isActive` recheck, does the handler set "processing" immediately before
  * calling the pipeline.
  *
@@ -121,6 +128,15 @@ export async function runFactAiMemeBackfillJob(
   // job row just wasn't finalized) — resolve without repeating paid work.
   const existing = factRow.aiMemeBackfillStatus;
   if (existing === "processing") {
+    // Conservatively resolve to "failed", not left at "processing": since
+    // enqueueFactAiMemeBackfill's conditional write deliberately never resets
+    // a "processing" marker (to protect a genuinely in-flight job), leaving it
+    // untouched here would strand the fact forever — every future re-enqueue
+    // preserves "processing", so every future run would hit this exact branch
+    // again, permanently unretriable without manual DB intervention (Codex
+    // review, PR #256). "failed" never claims unconfirmed success, but does
+    // make the fact retryable again.
+    await db.update(factsTable).set({ aiMemeBackfillStatus: "failed" }).where(eq(factsTable.id, factId));
     return { ok: false, error: "recovered replay: prior attempt's outcome is unconfirmed" };
   }
   if (existing === "ok") {

@@ -2,10 +2,11 @@
  * useBulkMediaBackfillActions — bulk media backfill (task 17) coverage.
  *
  * Focus: submit posts to the given route and seeds jobs as "pending"; polling
- * moves counts from queued into done/failed/still-running; a skip outcome
- * counts toward `skipped` without ever being polled; and independent action
- * keys (backfill_images/backfill_pexels/backfill_ai_memes) don't clobber each
- * other's state.
+ * moves counts from queued into done/failed/still-running; a route-level skip
+ * outcome counts toward `skipped` without ever being polled; a handler-level
+ * skip (done + {skipped:true}) counts toward `skipped`, NOT `done`; large
+ * batches poll in chunks; itemOutcomes exposes labeled failed/skipped items;
+ * independent action keys don't clobber each other's state.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
@@ -44,7 +45,7 @@ describe("useBulkMediaBackfillActions", () => {
     const { calls } = mockFetch(
       {
         success: true,
-        jobs: [{ factId: 1, jobId: 501, deduped: false }, { factId: 2, jobId: 502, deduped: true }],
+        jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }, { factId: 2, jobId: 502, label: "fact two", deduped: true }],
         outcomes: [],
         summary: { requested: 2, queued: 2, skipped: 0 },
       },
@@ -66,7 +67,7 @@ describe("useBulkMediaBackfillActions", () => {
     mockFetch(
       {
         success: true,
-        jobs: [{ factId: 1, jobId: 501, deduped: false }, { factId: 2, jobId: 502, deduped: false }],
+        jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }, { factId: 2, jobId: 502, label: "fact two", deduped: false }],
         outcomes: [],
         summary: { requested: 2, queued: 2, skipped: 0 },
       },
@@ -87,14 +88,17 @@ describe("useBulkMediaBackfillActions", () => {
       requested: 2, queued: 2, done: 1, failed: 1, skipped: 0, running: 0, stillRunning: 0,
     });
     expect(result.current.busy("backfill_pexels")).toBe(false);
+    expect(result.current.itemOutcomes("backfill_pexels")).toEqual([
+      { label: "fact two", status: "failed", error: "boom" },
+    ]);
   });
 
-  it("a skip outcome counts toward skipped and is never polled", async () => {
+  it("a route-level skip outcome counts toward skipped and is never polled", async () => {
     const { calls } = mockFetch(
       {
         success: true,
-        jobs: [{ factId: 1, jobId: 501, deduped: false }],
-        outcomes: [{ factId: 2, status: "skipped", reason: "not_active" }],
+        jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }],
+        outcomes: [{ factId: 2, status: "skipped", reason: "not_active", label: "fact two" }],
         summary: { requested: 2, queued: 1, skipped: 1 },
       },
       [{ jobs: [{ jobId: 501, status: "processing", error: null }] }],
@@ -106,6 +110,7 @@ describe("useBulkMediaBackfillActions", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
 
     expect(result.current.counts("backfill_ai_memes")?.skipped).toBe(1);
+    expect(result.current.itemOutcomes("backfill_ai_memes")).toEqual([{ label: "fact two", status: "skipped" }]);
     const jobStatusCalls = calls.filter((c) => c.url.includes("/job-status"));
     for (const c of jobStatusCalls) {
       const ids = (c.body as { jobs: Array<{ jobId: number }> }).jobs.map((j) => j.jobId);
@@ -113,11 +118,57 @@ describe("useBulkMediaBackfillActions", () => {
     }
   });
 
+  it("a handler-level skip (done + skipped:true) counts toward skipped, not done", async () => {
+    mockFetch(
+      {
+        success: true,
+        jobs: [{ factId: 1, jobId: 501, label: "deactivated mid-flight", deduped: false }],
+        outcomes: [],
+        summary: { requested: 1, queued: 1, skipped: 0 },
+      },
+      [{ jobs: [{ jobId: 501, status: "done", error: null, skipped: true }] }],
+    );
+    const { result } = renderHook(() => useBulkMediaBackfillActions());
+    await act(async () => {
+      await result.current.submit("backfill_images", "/api/admin/facts/backfill-images");
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
+
+    const counts = result.current.counts("backfill_images");
+    expect(counts?.done).toBe(0);
+    expect(counts?.skipped).toBe(1);
+    expect(result.current.itemOutcomes("backfill_images")).toEqual([
+      { label: "deactivated mid-flight", status: "skipped", error: null },
+    ]);
+  });
+
+  it("polls a large batch in chunks rather than one unbounded request", async () => {
+    const jobs = Array.from({ length: 450 }, (_, i) => ({ factId: i, jobId: 1000 + i, label: `fact ${i}`, deduped: false }));
+    const { calls } = mockFetch(
+      { success: true, jobs, outcomes: [], summary: { requested: 450, queued: 450, skipped: 0 } },
+      [{ jobs: jobs.map((j) => ({ jobId: j.jobId, status: "pending", error: null })) }],
+    );
+    const { result } = renderHook(() => useBulkMediaBackfillActions());
+    await act(async () => {
+      await result.current.submit("backfill_ai_memes", "/api/admin/facts/backfill-ai-memes");
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
+
+    const jobStatusCalls = calls.filter((c) => c.url.includes("/job-status"));
+    expect(jobStatusCalls.length).toBeGreaterThan(1);
+    for (const c of jobStatusCalls) {
+      const ids = (c.body as { jobs: Array<{ jobId: number }> }).jobs;
+      expect(ids.length).toBeLessThanOrEqual(200);
+    }
+    const totalPolled = jobStatusCalls.reduce((n, c) => n + (c.body as { jobs: unknown[] }).jobs.length, 0);
+    expect(totalPolled).toBe(450);
+  });
+
   it("independent action keys track state separately", async () => {
     mockFetch(
       {
         success: true,
-        jobs: [{ factId: 1, jobId: 501, deduped: false }],
+        jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }],
         outcomes: [],
         summary: { requested: 1, queued: 1, skipped: 0 },
       },

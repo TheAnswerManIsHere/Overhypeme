@@ -269,7 +269,7 @@ const BULK_BACKFILL_ACTIONS: Array<{
  * above).
  */
 function BulkMediaBackfillPanel() {
-  const { submit, counts, busy, error } = useBulkMediaBackfillActions();
+  const { submit, counts, itemOutcomes, busy, error } = useBulkMediaBackfillActions();
 
   return (
     <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2" data-testid="bulk-media-backfill-panel">
@@ -284,31 +284,47 @@ function BulkMediaBackfillPanel() {
       {error && (
         <p className="text-xs text-red-600 dark:text-red-400" role="alert">{error}</p>
       )}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-col gap-3">
         {BULK_BACKFILL_ACTIONS.map(({ key, label, url, icon: Icon, confirmMessage, testId }) => {
           const c = counts(key);
           const isBusy = busy(key);
+          const items = itemOutcomes(key);
           return (
-            <div key={key} className="flex items-center gap-2" data-testid={testId}>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={isBusy}
-                onClick={() => {
-                  if (!window.confirm(confirmMessage)) return;
-                  void submit(key, url);
-                }}
-                data-testid={`${testId}-button`}
-              >
-                {isBusy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Icon className="w-3 h-3 mr-1" />}
-                {label}
-              </Button>
-              {c && (
-                <span className="text-xs text-muted-foreground" data-testid={`${testId}-status`}>
-                  {c.requested === 0
-                    ? "no matching facts"
-                    : `${c.done} of ${c.queued} done${c.failed > 0 ? ` · ${c.failed} failed` : ""}${c.stillRunning > 0 ? ` · ${c.stillRunning} still running` : ""}${c.skipped > 0 ? ` · ${c.skipped} skipped (inactive)` : ""}`}
-                </span>
+            <div key={key} className="flex flex-col gap-1" data-testid={testId}>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={isBusy}
+                  onClick={() => {
+                    if (!window.confirm(confirmMessage)) return;
+                    void submit(key, url);
+                  }}
+                  data-testid={`${testId}-button`}
+                >
+                  {isBusy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Icon className="w-3 h-3 mr-1" />}
+                  {label}
+                </Button>
+                {c && (
+                  <span className="text-xs text-muted-foreground" data-testid={`${testId}-status`}>
+                    {c.requested === 0
+                      ? "no matching facts"
+                      : `${c.done} of ${c.queued} done${c.failed > 0 ? ` · ${c.failed} failed` : ""}${c.stillRunning > 0 ? ` · ${c.stillRunning} still running` : ""}${c.skipped > 0 ? ` · ${c.skipped} skipped (inactive)` : ""}`}
+                  </span>
+                )}
+              </div>
+              {items.length > 0 && (
+                <ul className="pl-5 space-y-0.5" data-testid={`${testId}-items`}>
+                  {items.map((item, i) => (
+                    <li key={i} className="text-xs text-muted-foreground list-disc">
+                      <span className={item.status === "failed" ? "text-red-600 dark:text-red-400" : ""}>
+                        {item.status === "failed" ? "Failed" : "Skipped"}:
+                      </span>{" "}
+                      {item.label}
+                      {item.error ? ` — ${item.error}` : ""}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           );

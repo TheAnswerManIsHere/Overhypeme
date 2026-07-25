@@ -145,13 +145,18 @@ describe("runFactAiMemeBackfillJob — execution-time inactive recheck", () => {
 });
 
 describe("runFactAiMemeBackfillJob — crash-recovery entry guard", () => {
-  it("a pre-existing 'processing' marker is treated as an unconfirmed replay — resolves failure without calling the pipeline again", async () => {
+  it("a pre-existing 'processing' marker is treated as an unconfirmed replay — resolves failure without calling the pipeline again, and moves the marker to 'failed' so the fact isn't stranded forever", async () => {
     const factId = await seedFact({ aiMemeBackfillStatus: "processing" });
     const { generate, callCount } = stubGenerate(async () => {});
     const result = await runFactAiMemeBackfillJob(factId, { generate });
     assert.equal(result.ok, false);
     assert.equal(callCount(), 0, "a recovered replay must never repeat the paid call");
-    assert.equal(await statusOf(factId), "processing", "the guard doesn't touch the marker — it's the entry state itself");
+    // A stuck "processing" marker is never reset by enqueueFactAiMemeBackfill's
+    // conditional write (it deliberately preserves "processing" to protect a
+    // genuinely in-flight job) — so if this branch left it untouched, every
+    // future re-enqueue would hit this exact branch forever, permanently
+    // unretriable. "failed" unblocks retries without claiming unconfirmed success.
+    assert.equal(await statusOf(factId), "failed", "the marker must become retryable, not stay stuck at processing");
   });
 
   it("a pre-existing 'ok' marker short-circuits to success without repeating paid work", async () => {

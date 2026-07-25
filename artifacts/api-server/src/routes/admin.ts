@@ -1994,11 +1994,14 @@ interface BulkBackfillJob {
   factId: number;
   jobId: number;
   deduped: boolean;
+  /** Bounded text preview for admin-UI display — never render factId raw. */
+  label: string;
 }
 interface BulkBackfillSkip {
   factId: number;
   status: "skipped";
   reason: "not_active";
+  label: string;
 }
 interface BulkBackfillResponse {
   success: true;
@@ -2006,6 +2009,8 @@ interface BulkBackfillResponse {
   outcomes: BulkBackfillSkip[];
   summary: { requested: number; queued: number; skipped: number };
 }
+
+const BULK_BACKFILL_LABEL_MAX = 60;
 
 /**
  * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
@@ -2022,12 +2027,13 @@ async function enqueueBulkBackfill(
   const jobs: BulkBackfillJob[] = [];
   const outcomes: BulkBackfillSkip[] = [];
   for (const fact of facts) {
+    const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
     if (!fact.isActive) {
-      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active" });
+      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
       continue;
     }
     const result = await enqueue(fact.id);
-    jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted });
+    jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
   }
   return {
     success: true,
