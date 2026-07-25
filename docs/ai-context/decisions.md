@@ -19,11 +19,13 @@
   review:
   1. **The PR body carries an oracle.** The PR template's new **Approved-plan
      oracle** section holds the approved plan's Product Intent / Must Not
-     Change / Settled Decisions verbatim (copied from the `[PLAN REVIEW]` PR
-     body) for any PR built from a plan; "n/a — no plan" for bugfix mode or a
-     trivial change. `code-review.md` now instructs reviewers to check the
-     diff against that oracle and flag a dropped or narrowed requirement even
-     if the code itself never mentions it.
+     Change / Settled Decisions verbatim — from the `[PLAN REVIEW]` PR body
+     for the normal automated loop, or from the final approved plan document
+     when the plan went through the manual/private review path instead — for
+     any PR built from a plan; "n/a — no plan" for bugfix mode or a trivial
+     change. `code-review.md` now instructs reviewers to check the diff
+     against that oracle and flag a dropped or narrowed requirement even if
+     the code itself never mentions it.
   2. **Fix-round re-reviews request the cumulative diff after round 2+.** A
      per-round `@codex review` only shows the new commits since the last
      pass; a fix in file A can silently break something in file B from the
