@@ -206,6 +206,16 @@ implicit one (the root as a variant's de facto metadata source).
     "Can't re-word this parent: N variant(s) mid-review… Resolve or finish
     those first" blocking-error message — both describe behavior this fix
     deletes.
+  - **`ApprovedFactTextEditImpact.isRoot` (`lib/api-zod/src/factTextEdit.ts:68`)
+    becomes dead too (Codex round 12) — its only live consumer is the exact
+    `impact.isRoot && impact.affectedVariantCount > 0` branch in
+    `ApprovedFactTextEditModal.tsx:44` being removed above.** Remove the
+    `isRoot` field from the interface, and its two computation sites in
+    `confirmedFactTextEdit.ts:88,170` (`const isRoot = fact.parentId === null`)
+    — both already sit inside the dependent-variant logic sites 4/5 are
+    deleting, so this isn't new surgery, just not leaving the field behind
+    once its producers and consumer are both gone. Update
+    `ApprovedFactTextEditModal.test.tsx:18`'s fixture accordingly.
   - Update `factTextEditProtection.test.ts`, `confirmedFactTextEdit.test.ts`,
     `ApprovedFactTextEditModal.test.tsx`, `patchFactDraft.test.ts` to match
     (already named in Implementation Steps' test list — this makes explicit
@@ -269,6 +279,13 @@ implicit one (the root as a variant's de facto metadata source).
   the HTTP route. Checked the sibling `backfill-ai-memes.ts` script: it
   already queries all active facts with no `parentId` filter — already
   correct, no change needed there.
+  **Root-only copy left behind (Codex round 12) — update alongside the
+  query, not just the filter:** the script's header docstring
+  (`backfill-pexels.ts:1-2`) and two `console.log` lines (`:33,44`) all
+  describe/log "root facts"; the `admin.ts` HTTP route has the same gap in
+  its route comment (`admin.ts:2016`) and a log line (`:2030`). An operator
+  reading either would be told only roots were processed when variants are
+  now included too. Update all of them to drop the root-only framing.
 - **`scripts/backfill-pexels-images.mjs:112-113` (Codex round 5) — retire it,
   don't fix it in place.** This is a THIRD implementation of the same
   operation (repo-root, raw SQL, its own hand-rolled OpenAI keyword-extraction
@@ -366,6 +383,15 @@ implicit one (the root as a variant's de facto metadata source).
        removed as part of the code fix, and that `factActivation.ts`'s
        differently-motivated `HAS_ACTIVE_VARIANTS` (reparenting) remains the
        only surviving guard by that name.
+     - **Also correct `docs/ai-context/taxonomy-and-enrichment.md:213-216`
+       (Codex round 12) — a separate, pre-existing staleness in the same
+       doc, unrelated to the `HAS_ACTIVE_VARIANTS` mischaracterization
+       above.** It hardcodes `CLASSIFICATION_PROMPT_VERSION` as `"v5"` in
+       prose — already wrong *today* (the live constant is `"v6"` before
+       this fix even lands) and would become wrong again at `"v7"` after
+       step 2. Either update the value to `"v7"` or rewrite the sentence to
+       not hardcode a volatile version number at all (point at the source
+       file instead), so this doesn't go stale a third time.
      - Accept only when a repo-wide search for `HAS_ACTIVE_VARIANTS`/
        `has_active_variants` leaves exactly the unrelated
        `factActivation.ts` structural path.
@@ -597,12 +623,15 @@ prove it with **both** a root and a variant fixture:
    **Remove the shared contract and admin UI built on top of it (Codex round
    3 — this is implementation work, not incidental test cleanup):**
    `DEPENDENT_VARIANT_IN_PROGRESS`/`BlockingVariant`/`affectedVariantCount`/
-   `blockingVariants` from `lib/api-zod/src/factTextEdit.ts` (re-run codegen
-   per the standing `api-zod` export-drift gotcha if the export surface
-   moves), the `dependent_variant_in_progress` result kind in
-   `patchFactDraft.ts`, the stale-for-reprocess consequence copy in
-   `ApprovedFactTextEditModal.tsx:44-49`, and the two variant-count messages
-   in `facts.tsx:591,612`. Update/remove tests that assert the old
+   `blockingVariants`/**`isRoot`** (Codex round 12 — dead once its only
+   consumer, the modal branch below, is gone) from
+   `lib/api-zod/src/factTextEdit.ts` (re-run codegen per the standing
+   `api-zod` export-drift gotcha if the export surface moves), the
+   `dependent_variant_in_progress` result kind in `patchFactDraft.ts`, the
+   stale-for-reprocess consequence copy in
+   `ApprovedFactTextEditModal.tsx:44-49`, the two variant-count messages in
+   `facts.tsx:591,612`, and `isRoot`'s two computation sites in
+   `confirmedFactTextEdit.ts:88,170`. Update/remove tests that assert the old
    blocking/clearing behavior (`factTextEditProtection.test.ts`,
    `confirmedFactTextEdit.test.ts`, `ApprovedFactTextEditModal.test.tsx`,
    `patchFactDraft.test.ts`).
@@ -620,7 +649,12 @@ prove it with **both** a root and a variant fixture:
    pipeline for every fact. Delete `scripts/backfill-pexels-images.mjs`
    (site 12) — a third, undocumented, duplicate implementation of the same
    backfill, unless David flags active use of it (see Proposed Design C),
-   in which case fix its `parent_id IS NULL` filter instead.
+   in which case fix its `parent_id IS NULL` filter instead. **Update the
+   root-only copy left behind (Codex round 12):**
+   `backfill-pexels.ts`'s header docstring (`:1-2`) and two `console.log`
+   lines (`:33,44`), plus `admin.ts`'s `backfill-pexels` route comment
+   (`:2016`) and log line (`:2030`) — all still describe/log "root facts"
+   after the query itself is widened.
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
@@ -646,8 +680,13 @@ prove it with **both** a root and a variant fixture:
    `sendBackToReview.test.ts`. Correct `docs/ai-context/taxonomy-and-enrichment.md`
    and `docs/ai-context/decisions.md` (both from PR #251) — they currently
    mischaracterize this guard as legitimate/structural; state it was removed
-   as this bug's 13th site. Leave `factActivation.ts`'s separate
-   `HAS_ACTIVE_VARIANTS` reparenting guard untouched.
+   as this bug's 13th site. **Also fix `taxonomy-and-enrichment.md:213-216`
+   (Codex round 12)** — a separate, pre-existing error in the same file:
+   it hardcodes `CLASSIFICATION_PROMPT_VERSION` as `"v5"` in prose, already
+   wrong before this fix (live constant is `"v6"`) and would go stale again
+   at `"v7"`; update to `"v7"` or stop hardcoding the value. Leave
+   `factActivation.ts`'s separate `HAS_ACTIVE_VARIANTS` reparenting guard
+   untouched.
 9. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
 10. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
