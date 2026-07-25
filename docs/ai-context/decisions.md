@@ -13,6 +13,40 @@
 
 ---
 
+### 2026-07-25 · Stripe plan selection classifies by each price's own `recurring` field, and only from membership-tagged products
+- **Decision:** The customer-facing pricing page (and any future code that
+  turns Stripe's product/price catalog into "which plan is this?") must
+  classify **each price** by its own `recurring` field (`null`/absent →
+  one-time/lifetime, `interval: "month"` → monthly, `interval: "year"` →
+  annual) — never by guessing a whole **product's** plan type from its name
+  or defaulting to only its first price. It must also filter to prices
+  belonging to a product tagged `overhype_membership=true` (the same
+  allowlist `/stripe/checkout` and the grant layer already enforce, see
+  [`security-model.md`](./security-model.md#payment-trust--membership-grants-c6))
+  **before** classifying — display must not advertise a plan the grant layer
+  will refuse.
+- **Why:** `Pricing.tsx` classified a whole Stripe *product* into
+  monthly/annual/lifetime by sniffing its name, falling back to only its
+  cheapest price's interval when the name didn't match. Stripe's natural
+  dashboard setup is **one product, several price points** (e.g. a single
+  "Legendary" product carrying monthly, annual, and one-time prices) —
+  classifying by product silently collapsed all three onto one bucket and
+  dropped the other two, which is what made the upgrade screen show only the
+  "Forever" (lifetime) option. Fixing that surfaced a second, adjacent gap in
+  Codex review: `/api/stripe/plans` returns every active product in the
+  catalog, not just membership ones, so once selection stopped being
+  name-gated it would have started flattening prices from **any** future
+  non-membership product (render credits, merch, tips) straight onto the
+  pricing page — advertising a plan that `/stripe/checkout`'s
+  `overhype_membership` allowlist would then reject.
+- **Reference:** PR #255. `artifacts/overhype-me/src/pages/pricingPlans.ts`
+  (`selectPlanPrices`) is now the single place this classification happens;
+  `Pricing.tsx` consumes it. See the retired mistake in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
+- **Revisit if:** a future plan-selection surface (e.g. an admin "which plan
+  is this user on" view) is added — it should reuse or mirror
+  `selectPlanPrices`, not re-derive its own product-name heuristic.
+
 ### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
 - **Decision:** A variant is a fact expressing **the same concept** as its root in
   slightly different words. `facts.parent_id` exists for exactly two purposes:

@@ -119,6 +119,18 @@ single-sourced and enforced at **every** grant surface:
   can't downgrade a still-active member. Everything fails closed: anything not
   positively confirmed as a tagged, non-deleted membership product is treated as
   non-membership.
+- **The display/selection layer must apply the same filter, even though it
+  isn't a grant surface.** `/api/stripe/plans` returns every active product in
+  the catalog (render credits, merch, tips, ...), not just membership ones —
+  so code that turns that list into "which plan should the customer see?"
+  (the pricing page's `selectPlanPrices()` in
+  `artifacts/overhype-me/src/pages/pricingPlans.ts`) filters to
+  `overhype_membership=true` products before picking a price. Skipping this
+  filter here isn't a grant-bypass risk (checkout still rejects a
+  non-membership price), but it does mean the pricing page could advertise a
+  plan checkout will then refuse — caught in Codex review on PR #255. See the
+  decision in
+  [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
 
 Webhook signature verification is delegated to `stripe-replit-sync` (Replit's
 fork of Supabase's stripe-sync-engine); it sits in the payment-critical path and
