@@ -21,15 +21,22 @@ David says otherwise.
 
 ## Output
 
+This is the contract's **full-document delivery** surface (see the contract's
+*Output* section) — I'm posting one document, not diff-anchored GitHub review
+comments, so the full skeleton applies without the constraints that bind the
+Codex GitHub transport:
+
 ```markdown
 # Plan Review: <Plan Title>
 
 ## Review Status
 <one status label — no approval language>
+## Lens Applied This Round
+<the angle attacked from — round 2 onward>
 
 ## Context Checked
 - Repository files inspected:
-- External docs checked:
+- External docs / searches run:
 - Product clarifications needed from David before plan revision:
 
 ## Executive Summary
@@ -40,7 +47,18 @@ David says otherwise.
 
 ## Strong Disagreements or Glaring Mistakes
 
+## Product Decisions for David
+
 ## Recommended Improvements
+
+## Verified Claims
+<what was checked against the repo, and how — not just the conclusion>
+
+## Unable to Verify
+<repo-resolvable (still mine to close) vs. not observable from the repo>
+
+## Previous Findings          (round 2 onward)
+Resolved / Still Open / Superseded — never "Resolved" on wording alone
 
 ## Implementation Sequencing Guidance
 

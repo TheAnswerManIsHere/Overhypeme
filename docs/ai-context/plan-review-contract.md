@@ -337,7 +337,13 @@ revising, include it as a required revision instead of blocking on David.
 
 ## Output
 
-Post one complete assessment per round, in this shape:
+**Two delivery surfaces exist, and they do not support the same shape.** Use
+whichever applies to how you were asked to review.
+
+### Full-document delivery (Claude Code's review skill, a pasted/uploaded plan)
+
+When you are free to post one document — no diff, no per-line constraint — post
+one complete assessment per round, in this shape:
 
 ```
 **Review status:** <one of the six labels above>
@@ -358,10 +364,52 @@ the *Non-negotiables* above. Where a section is genuinely empty, write "none"
 rather than deleting the heading; a missing section should read as an omission,
 not as a pass.
 
+### GitHub structured review (the `@codex review` transport)
+
+**This surface does not support a freestanding top-level write-up.** Confirmed
+against this repo's own review history (PR #252, 20+ rounds): every round's
+top-level review body was the connector's fixed boilerplate, never custom text.
+The only content surface is a **set of findings, each anchored to a location in
+the current diff** — there is no channel for a status label, a lens
+declaration, or a ledger that isn't attached to a line. Do not attempt the
+skeleton above here; it cannot be posted, and a contract that asks for the
+impossible gets silently half-followed instead of visibly refused.
+
+On this surface, every piece of information above six-shape output is carried
+**inside individual findings**, not as a separate post:
+
+- **Each finding is its own inline comment**, anchored to the most relevant
+  line. For a finding that doesn't map to one line (a missing product
+  decision, an omission), anchor it to the most defensible nearby line (e.g.
+  the section it should have appeared under) rather than skipping it for lack
+  of a perfect anchor.
+- **Lead each finding with a category tag**, extending the severity-badge
+  convention already in use: Required Revision, Recommended Improvement,
+  Product Decision, Verified, Unable to Verify (repo-resolvable / not
+  observable — say which), or Reconciliation (Resolved / Still Open /
+  Superseded, naming the prior finding it addresses).
+- **State the lens inside at least one finding each round** (or, on a clean
+  round, in the sole finding you post explaining why you're posting nothing
+  else) — round 2 onward.
+- **A clean round is an empty findings list** — post nothing and let the
+  connector's own default (a 👍 reaction) stand. That is the only way this
+  surface can represent "no new objections," and it is sufficient: it does not
+  need to additionally say so in words it cannot post.
+- **You do not compute or post the overall review-status label or the
+  round-level ledger on this surface.** Whoever is driving the loop (Claude
+  Code) reads your findings after each round and derives the status and
+  ledger from them — that is not extra work assigned to you, and duplicating
+  it here would go nowhere. If you believe the *overall* status is something
+  stronger than any individual finding conveys (e.g., **Strong disagreement on
+  direction**), say so explicitly inside one finding's text so it isn't lost
+  in translation.
+
+### Both surfaces
+
 Keep it specific and grounded in the repo you actually inspected. If you lack
 the repo context to review responsibly, say so and stop rather than reviewing
-from the plan text alone — use the **Repo context required** label and state
-exactly what you need.
+from the plan text alone — use the **Repo context required** label (full-document
+surface) or state it plainly in a finding (GitHub surface).
 
 ## If you cannot do all of this in one pass
 

@@ -407,12 +407,19 @@ have a draft plan, and the disclosure check passes:
    and request the next round with a fresh explicit `@codex review` comment.
    Codex has authority on plan *substance*, **none** on branch/PR/devops
    mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
-   Two things I own each round: I **update the findings ledger** in the PR body
-   (every finding, its status, the lens applied), and I **clear the review's
-   *Unable to verify* list** before requesting the next round — the genuinely
-   unobservable ones (external APIs, production data, runtime timing) are mine
-   to resolve, and a repo-observable one going unanswered means Codex's round
-   was incomplete and I say so on the thread rather than absorbing it.
+   Codex's GitHub review posts only diff-anchored inline findings — confirmed
+   against this repo's own PR history, its top-level review body is always
+   fixed connector boilerplate, never custom text. So it cannot itself post a
+   status label, a lens declaration, or a ledger; that synthesis is **mine**,
+   not something to wait for from Codex. Two things I own each round: I
+   **derive the round's status and update the findings ledger** in the PR body
+   by reading Codex's individual inline findings (their category tags, and any
+   explicit overall-status note inside one of them), and I **clear the
+   review's *Unable to verify* list** before requesting the next round — the
+   genuinely unobservable ones (external APIs, production data, runtime
+   timing) are mine to resolve, and a repo-observable one going unanswered
+   means Codex's round was incomplete and I say so on the thread rather than
+   absorbing it.
 5. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
    I do not stop before three completed Codex review rounds, even if an early
    round comes back clean — in that case I request the re-review through a
