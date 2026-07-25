@@ -117,6 +117,34 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.ok(res.body.jobs.length <= 50, "server-enforced cap never exceeded");
   });
 
+  it("all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)", async () => {
+    const repeatedFailId = await insertStaleFact(TEXT("repeated failure excluded"));
+    for (let i = 0; i < 3; i++) {
+      const [row] = await db
+        .insert(asyncJobsTable)
+        .values({ queue: "fact_send_back", payload: { factId: repeatedFailId }, status: "failed", dedupeKey: `fact_send_back:${repeatedFailId}` })
+        .returning({ id: asyncJobsTable.id });
+      jobIds.push(row!.id);
+    }
+
+    const allStaleRes = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
+    assert.equal(allStaleRes.status, 200);
+    const allStaleFactIds = (allStaleRes.body.jobs as Array<{ jobId: number; factId: number }>).map((j) => {
+      jobIds.push(j.jobId);
+      return j.factId;
+    });
+    assert.ok(!allStaleFactIds.includes(repeatedFailId), "a 3-strike fact must never be enqueued by all_stale");
+    assert.ok(allStaleRes.body.repeatedFailureCount >= 1, "repeatedFailureCount must reflect the excluded fact");
+
+    const selectedRes = await request(app)
+      .post("/api/admin/taxonomy-health/actions/bulk-send-back")
+      .send({ scope: "selected", factIds: [repeatedFailId] });
+    assert.equal(selectedRes.status, 200);
+    assert.equal(selectedRes.body.jobs.length, 1, "scope:selected must still enqueue a 3-strike fact — the deliberate manual-retry escape hatch");
+    jobIds.push(selectedRes.body.jobs[0].jobId);
+    assert.equal(selectedRes.body.outcomes.length, 0, "no skip/reject outcome — a normal queued enqueue");
+  });
+
   it("all_stale: an in-flight fact is NEVER enqueued and produces NO skip outcome (silent exclusion)", async () => {
     const inFlightId = await insertStaleFact(TEXT("in-flight excluded"));
     await db.insert(factEnrichmentVersionsTable).values({

@@ -40,6 +40,8 @@ interface HealthRow {
   updatedAt: string | null;
   /** True when a refresh candidate is already in flight — pre-disables send-back. */
   refreshInReview: boolean;
+  /** True when this fact's last 3 send-back attempts all failed — excluded from "Send next 50 stale" until manually retried. */
+  repeatedFailure: boolean;
 }
 
 interface ListResponse {
@@ -396,7 +398,14 @@ export default function TaxonomyHealth() {
       op.action === "send_back_to_review" && op.eligibleRemaining != null
         ? ` — ${op.eligibleRemaining} eligible stale fact${op.eligibleRemaining === 1 ? "" : "s"} remain in the corpus.`
         : "";
-    if (c.requested === 0) return { text: `${label}: no matching facts.${eligibleTrailer}`, done: true };
+    // A nonzero repeatedFailureCount means the migration is NOT complete even
+    // once queued/failed/eligibleRemaining all read clean — surface it in the
+    // same place, not only discoverable by scrolling row-by-row.
+    const repeatedFailureTrailer =
+      op.action === "send_back_to_review" && !!op.repeatedFailureCount
+        ? ` ${op.repeatedFailureCount} fact${op.repeatedFailureCount === 1 ? "" : "s"} excluded after repeated failures — investigate before considering the migration complete.`
+        : "";
+    if (c.requested === 0) return { text: `${label}: no matching facts.${eligibleTrailer}${repeatedFailureTrailer}`, done: true };
     const segs: string[] = [];
     if (c.running > 0) segs.push(`${c.running} in progress`);
     if (c.failed > 0) segs.push(`${c.failed} failed`);
@@ -404,7 +413,7 @@ export default function TaxonomyHealth() {
     if (c.stillRunning > 0) segs.push(`${c.stillRunning} still running`);
     const detail = segs.length > 0 ? ` · ${segs.join(" · ")}` : "";
     const allDone = c.running === 0 && c.stillRunning === 0;
-    return { text: `${label}: ${c.done} of ${c.requested} done${detail}${eligibleTrailer}`, done: allDone };
+    return { text: `${label}: ${c.done} of ${c.requested} done${detail}${eligibleTrailer}${repeatedFailureTrailer}`, done: allDone };
   }, [actions]);
 
   const isBulkMode = filter !== "any";
@@ -661,6 +670,15 @@ export default function TaxonomyHealth() {
                             busy={rowBusy}
                             onSend={() => runRowSendBack(row.factId)}
                           />
+                        )}
+                        {row.repeatedFailure && (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
+                            title="Last 3 send-back attempts all failed — excluded from &quot;Send next 50 stale&quot; until manually retried here."
+                            data-testid="send-back-repeated-failure"
+                          >
+                            <AlertTriangle className="w-3 h-3" /> 3 failed attempts
+                          </span>
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>

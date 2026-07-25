@@ -87,6 +87,8 @@ export interface OperationState {
   totalStale?: number;
   eligibleRemaining?: number;
   batchLimit?: number;
+  /** Bulk send-back `all_stale` only: facts currently circuit-broken by repeated failures. */
+  repeatedFailureCount?: number;
 }
 
 export interface OpCounts {
@@ -375,6 +377,7 @@ export function useTaxonomyHealthActions(
             totalStale: data.totalStale,
             eligibleRemaining: data.eligibleRemaining,
             batchLimit: data.batchLimit,
+            repeatedFailureCount: data.repeatedFailureCount,
           },
         }));
         // Inline-only (no queued jobs) is terminal right away — refresh now.

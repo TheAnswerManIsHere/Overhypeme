@@ -165,6 +165,63 @@ export async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<n
   return new Set(results.flat().map((r) => r.factId));
 }
 
+/**
+ * Bounded repeated-failure circuit breaker: flags a fact whose `streak` most
+ * recent `fact_send_back` jobs are ALL terminally `failed`. Bounded by
+ * construction — only ever looks at the most recent `streak` rows regardless
+ * of how much job history exists — and self-clears the moment a single
+ * success lands anywhere in that window (a fact that fails twice then
+ * succeeds is never flagged).
+ *
+ * Why this needs to exist server-side: once a `fact_send_back` job exhausts
+ * `maxAttempts` and goes terminally `failed`, it drops out of `enqueueJob`'s
+ * dedupe index (which only covers non-terminal rows), so the next
+ * `all_stale` call doesn't retry it — it inserts a BRAND-NEW job with a
+ * fresh attempt budget. A persistently-failing fact would otherwise get an
+ * unbounded number of full `maxAttempts` cycles, one per operator loop
+ * iteration, forever, with no bounded signal that it needs investigation.
+ *
+ * `all_stale` uses this to silently exclude the fact (matching the
+ * `factsWithInFlightRefresh` convention) so the rest of the corpus keeps
+ * progressing. `scope: "selected"` is deliberately NOT gated by this — a
+ * manual retry after investigating `lastError` on the terminal rows is the
+ * only path that ever clears the streak; gating it too would make the streak
+ * permanently unclearable.
+ */
+export async function factsWithRepeatedSendBackFailures(
+  factIds: number[],
+  streak = 3,
+): Promise<Set<number>> {
+  if (factIds.length === 0) return new Set();
+  const results = await Promise.all(
+    chunkIds(factIds, GUARD_QUERY_CHUNK_SIZE).map(async (batch) => {
+      const dedupeKeys = batch.map((id) => `fact_send_back:${id}`);
+      const result = await db.execute(sql`
+        SELECT dedupe_key
+        FROM (
+          SELECT dedupe_key, status,
+                 row_number() OVER (PARTITION BY dedupe_key ORDER BY created_at DESC) AS rn
+          FROM async_jobs
+          WHERE queue = ${FACT_SEND_BACK_QUEUE}
+            AND dedupe_key IN ${dedupeKeys}
+        ) ranked
+        WHERE rn <= ${streak}
+        GROUP BY dedupe_key
+        HAVING count(*) = ${streak} AND bool_and(status = 'failed')
+      `);
+      return result.rows as Array<{ dedupe_key: string }>;
+    }),
+  );
+  const flagged = new Set<number>();
+  for (const rows of results) {
+    for (const row of rows) {
+      const factId = Number(row.dedupe_key.slice("fact_send_back:".length));
+      if (Number.isInteger(factId)) flagged.add(factId);
+    }
+  }
+  return flagged;
+}
+
 // ─── GET /admin/taxonomy-health/summary ──────────────────────────────────
 
 router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
@@ -274,6 +331,7 @@ router.get("/admin/taxonomy-health/facts", requireAdmin, async (req: Request, re
       taxonomyConfidence: number | null;
       health: FactTaxonomyHealth;
       refreshInReview: boolean;
+      repeatedFailure: boolean;
       updatedAt: string | null;
     }> = [];
 
@@ -291,15 +349,24 @@ router.get("/admin/taxonomy-health/facts", requireAdmin, async (req: Request, re
         taxonomyConfidence: health.summary.taxonomyConfidence,
         health,
         refreshInReview: false, // filled for the returned slice below
+        repeatedFailure: false, // filled for the returned slice below
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
       });
     }
 
     const total = matching.length;
     const slice = matching.slice(q.offset ?? 0, (q.offset ?? 0) + (q.limit ?? DEFAULT_LIMIT));
-    // In-flight-refresh lookup only for the returned page (not the whole match set).
-    const inFlight = await factsWithInFlightRefresh(slice.map((r) => r.factId));
-    for (const r of slice) r.refreshInReview = inFlight.has(r.factId);
+    // In-flight-refresh / repeated-failure lookups only for the returned page
+    // (not the whole match set).
+    const sliceFactIds = slice.map((r) => r.factId);
+    const [inFlight, repeatedFailures] = await Promise.all([
+      factsWithInFlightRefresh(sliceFactIds),
+      factsWithRepeatedSendBackFailures(sliceFactIds),
+    ]);
+    for (const r of slice) {
+      r.refreshInReview = inFlight.has(r.factId);
+      r.repeatedFailure = repeatedFailures.has(r.factId);
+    }
     res.json({ rows: slice, total, limit: q.limit ?? DEFAULT_LIMIT, offset: q.offset ?? 0 });
   } catch (err) {
     logger.error({ err }, "[adminTaxonomyHealth/facts] failed");
@@ -530,6 +597,7 @@ router.post(
         totalStale: targets.totalStale,
         eligibleRemaining: targets.eligibleRemaining,
         batchLimit: BULK_SEND_BACK_BATCH_LIMIT,
+        repeatedFailureCount: targets.repeatedFailureCount,
       };
       res.json(response);
     } catch (err) {
@@ -782,6 +850,8 @@ interface SendBackTargetPick {
   totalStale: number;
   /** Corpus-wide eligible-to-send stale facts NOT enqueued by this request. */
   eligibleRemaining: number;
+  /** Corpus-wide count of stale facts currently excluded by the repeated-failure circuit breaker. */
+  repeatedFailureCount: number;
 }
 
 /**
@@ -816,11 +886,17 @@ async function pickSendBackTargets(
   const totalStale = staleIds.length;
 
   const inFlight = await factsWithInFlightRefresh(staleIds);
-  const eligibleStaleIds = staleIds.filter((id) => !inFlight.has(id));
+  const repeatedFailures = await factsWithRepeatedSendBackFailures(staleIds);
+  const repeatedFailureCount = repeatedFailures.size;
+  const eligibleStaleIds = staleIds.filter((id) => !inFlight.has(id) && !repeatedFailures.has(id));
 
   if (scope === "all_stale") {
     const toEnqueue = eligibleStaleIds.slice(0, batchLimit);
-    return { toEnqueue, skipOutcomes: [], totalStale, eligibleRemaining: eligibleStaleIds.length - toEnqueue.length };
+    return {
+      toEnqueue, skipOutcomes: [], totalStale,
+      eligibleRemaining: eligibleStaleIds.length - toEnqueue.length,
+      repeatedFailureCount,
+    };
   }
 
   // scope === "selected" — classify every id explicitly.
@@ -854,10 +930,19 @@ async function pickSendBackTargets(
       });
       continue;
     }
+    // Deliberately NOT gated by factsWithRepeatedSendBackFailures: an admin
+    // targeting a 3-strike fact via `scope: "selected"` is the manual retry
+    // that's the only way the streak ever clears (see that function's
+    // docstring). Gating it here too would make the streak permanently
+    // unclearable.
     if (toEnqueue.length < batchLimit) toEnqueue.push(id);
     // else: batch-cap overflow — silently excluded from this request (see doc comment above).
   }
-  return { toEnqueue, skipOutcomes, totalStale, eligibleRemaining: eligibleStaleIds.length - toEnqueue.length };
+  return {
+    toEnqueue, skipOutcomes, totalStale,
+    eligibleRemaining: eligibleStaleIds.length - toEnqueue.length,
+    repeatedFailureCount,
+  };
 }
 
 async function pickProjectionRepairTargets(

@@ -307,4 +307,49 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     const other = rows.find((r) => r.factId === healthyId);
     assert.equal(other?.refreshInReview, false, "a fact with no candidate is not marked in-review");
   });
+
+  it("repeatedFailure is true after 3 consecutive terminal fact_send_back failures, false once a later success clears the streak", async () => {
+    const [f] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("repeated failure fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .returning({ id: factsTable.id });
+    factIds.push(f!.id);
+
+    // dedupeKey uniqueness only applies to non-terminal (pending/processing)
+    // rows, so multiple done/failed rows can share the same key — exactly
+    // like real job history for one fact accumulates over repeated retries.
+    async function insertTerminalJob(status: "failed" | "done"): Promise<void> {
+      const [row] = await db
+        .insert(asyncJobsTable)
+        .values({ queue: "fact_send_back", payload: { factId: f!.id }, status, dedupeKey: `fact_send_back:${f!.id}` })
+        .returning({ id: asyncJobsTable.id });
+      jobIds.push(row!.id);
+    }
+
+    await insertTerminalJob("failed");
+    await insertTerminalJob("failed");
+
+    let res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    assert.equal(res.status, 200);
+    let row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, false, "only 2 failures — streak not yet at 3");
+
+    await insertTerminalJob("failed");
+
+    res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, true, "3 consecutive terminal failures flags the fact");
+
+    await insertTerminalJob("done");
+
+    res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, false, "a later success within the most recent 3 clears the flag");
+  });
 });
