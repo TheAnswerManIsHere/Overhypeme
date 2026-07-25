@@ -64,8 +64,10 @@ how he wants to be worked with.
 
 ## Non-negotiables
 
-- **You do not approve plans. David does.** Use the review-status labels below —
-  never "approved / LGTM / ship it." Only David approves a plan.
+- **You do not approve plans. David does.** On the full-document surface, use
+  the review-status labels below; on the GitHub surface, you don't compute or
+  post a status at all (see *Output*) — either way, never "approved / LGTM /
+  ship it." Only David approves a plan.
 - **Inspect the repo before concluding.** Read the actual code and the relevant
   [`docs/ai-context/`](.) and [`docs/engineering/`](../engineering/) files for
   the subsystem the plan touches, plus the plan template in
@@ -334,7 +336,12 @@ instances and anchors):
   into the immediate fix.
 - Creating admin UI noise instead of clearer state modeling.
 
-## Review-status labels (pick one)
+## Review-status labels (pick one) — full-document surface only
+
+On the GitHub structured-review surface you don't pick or post one of these
+(see *Output*) — the loop driver derives status from your findings. These
+labels are for the full-document surface: Claude's review skill and
+ChatGPT's manual-upload path.
 
 ```
 No major technical disagreement

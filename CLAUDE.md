@@ -421,7 +421,10 @@ have a draft plan, and the disclosure check passes:
    and names what to reconcile — Codex reviews against that, it doesn't declare
    its own framing afterward.** Every re-review comment (round 2+) names the
    angle I want this round to attack from and lists the specific prior findings
-   to check as resolved. Codex confirmed directly on PR #254 that its connector
+   to reconcile — asking Codex to re-check each one, not asking it to confirm
+   they're resolved; Still Open and Superseded are equally valid answers, and
+   the wording shouldn't pre-judge which. Codex confirmed directly on PR #254
+   that its connector
    has no non-blocking/informational finding category and no freestanding
    channel — only schema-validated defect findings — so **an empty result
    against a named list is the accepted, confirmed ceiling of evidence this
