@@ -2003,11 +2003,19 @@ interface BulkBackfillSkip {
   reason: "not_active";
   label: string;
 }
+/** A per-fact enqueue call rejected — the job was never created for this fact. */
+interface BulkBackfillEnqueueFailure {
+  factId: number;
+  status: "failed";
+  error: string;
+  label: string;
+}
+type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
 interface BulkBackfillResponse {
   success: true;
   jobs: BulkBackfillJob[];
-  outcomes: BulkBackfillSkip[];
-  summary: { requested: number; queued: number; skipped: number };
+  outcomes: BulkBackfillOutcome[];
+  summary: { requested: number; queued: number; skipped: number; failed: number };
 }
 
 const BULK_BACKFILL_LABEL_MAX = 60;
@@ -2017,29 +2025,39 @@ const BULK_BACKFILL_LABEL_MAX = 60;
  * per fact (route-level skip, no enqueue at all — the selection query itself
  * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
  * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
- * the queued job descriptors + skip outcomes for the frontend to poll via
- * the existing `/admin/taxonomy-health/job-status` endpoint (queue-agnostic).
+ * the queued job descriptors + skip/failure outcomes for the frontend to poll
+ * via the existing `/admin/taxonomy-health/job-status` endpoint
+ * (queue-agnostic). A single fact's enqueue rejecting is caught and recorded
+ * as a failure outcome rather than aborting the request — earlier facts in
+ * the same loop already committed durable (potentially paid) jobs, and those
+ * descriptors must still reach the caller (Codex review, PR #256).
  */
-async function enqueueBulkBackfill(
+export async function enqueueBulkBackfill(
   facts: { id: number; text: string; isActive: boolean }[],
   enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
 ): Promise<BulkBackfillResponse> {
   const jobs: BulkBackfillJob[] = [];
-  const outcomes: BulkBackfillSkip[] = [];
+  const outcomes: BulkBackfillOutcome[] = [];
   for (const fact of facts) {
     const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
     if (!fact.isActive) {
       outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
       continue;
     }
-    const result = await enqueue(fact.id);
-    jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
+    try {
+      const result = await enqueue(fact.id);
+      jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
+    } catch (err) {
+      logger.error({ err, factId: fact.id }, "[admin] bulk-backfill enqueue failed for fact");
+      outcomes.push({ factId: fact.id, status: "failed", error: "Could not queue the job.", label });
+    }
   }
+  const failed = outcomes.filter((o) => o.status === "failed").length;
   return {
     success: true,
     jobs,
     outcomes,
-    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length },
+    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
   };
 }
 

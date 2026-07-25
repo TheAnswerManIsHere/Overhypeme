@@ -33,6 +33,19 @@
  * after finishing, before returning, to restore that spacing (a harmless 1s
  * tail latency on `firstTimeStagingPrep.ts`'s single-fact enqueue too — already
  * best-effort/non-blocking).
+ *
+ * Known, deliberately deferred limitation (David, 2026-07-25 — same call as
+ * `aiMemeBackfillJobs.ts`'s identical note): the pacing sleep above widens a
+ * narrow race between this handler's `pexels_status` write and its
+ * `async_jobs` row's finalization. If a second enqueue lands in that window,
+ * `enqueueFactPexels`'s unconditional status write resets the fact to
+ * "pending" and then dedupes onto this still-`processing` row — finalizing it
+ * never repairs the fact's status, leaving it stuck at "pending". Closing this
+ * needs `enqueueJob`'s dedupe-conflict handling to compose inside a
+ * caller-managed transaction, which it doesn't today; the underlying
+ * `pexelsImages` data is unaffected either way, only the status marker can go
+ * stale. Tracked as the same class of gap as `aiMemeBackfillJobs.ts` (Codex
+ * review, PR #256), not fixed here.
  */
 
 import { eq } from "drizzle-orm";

@@ -30,11 +30,19 @@ interface BulkBackfillSkip {
   reason: "not_active";
   label: string;
 }
+/** A per-fact enqueue call rejected route-side — the job was never created. */
+interface BulkBackfillEnqueueFailure {
+  factId: number;
+  status: "failed";
+  error: string;
+  label: string;
+}
+type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
 interface BulkBackfillResponse {
   success: true;
   jobs: BulkBackfillJob[];
-  outcomes: BulkBackfillSkip[];
-  summary: { requested: number; queued: number; skipped: number };
+  outcomes: BulkBackfillOutcome[];
+  summary: { requested: number; queued: number; skipped: number; failed: number };
 }
 
 type PollableStatus = "pending" | "processing" | "done" | "failed" | "still_running";
@@ -57,7 +65,7 @@ interface JobView {
 
 interface OpState {
   jobs: JobView[];
-  outcomes: BulkBackfillSkip[];
+  outcomes: BulkBackfillOutcome[];
   posting: boolean;
   startedAt: number;
 }
@@ -93,8 +101,10 @@ function countsOf(op: OpState | undefined): BulkBackfillCounts | null {
   const running = op.jobs.filter((j) => j.status === "pending" || j.status === "processing").length;
   const stillRunning = op.jobs.filter((j) => j.status === "still_running").length;
   const done = op.jobs.filter((j) => j.status === "done" && !j.skipped).length;
-  const failed = op.jobs.filter((j) => j.status === "failed").length;
-  const skipped = op.jobs.filter((j) => j.status === "done" && j.skipped).length + op.outcomes.length;
+  const outcomeFailed = op.outcomes.filter((o) => o.status === "failed").length;
+  const outcomeSkipped = op.outcomes.filter((o) => o.status === "skipped").length;
+  const failed = op.jobs.filter((j) => j.status === "failed").length + outcomeFailed;
+  const skipped = op.jobs.filter((j) => j.status === "done" && j.skipped).length + outcomeSkipped;
   return {
     requested: op.jobs.length + op.outcomes.length,
     queued: op.jobs.length,
@@ -111,7 +121,9 @@ function itemOutcomesOf(op: OpState | undefined): BulkBackfillItemOutcome[] {
   const fromJobs: BulkBackfillItemOutcome[] = op.jobs
     .filter((j) => j.status === "failed" || (j.status === "done" && j.skipped))
     .map((j) => ({ label: j.label, status: j.status === "failed" ? "failed" : "skipped", error: j.error }));
-  const fromOutcomes: BulkBackfillItemOutcome[] = op.outcomes.map((o) => ({ label: o.label, status: "skipped" }));
+  const fromOutcomes: BulkBackfillItemOutcome[] = op.outcomes.map((o) =>
+    o.status === "failed" ? { label: o.label, status: "failed", error: o.error } : { label: o.label, status: "skipped" },
+  );
   return [...fromJobs, ...fromOutcomes];
 }
 
