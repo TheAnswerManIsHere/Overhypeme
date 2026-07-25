@@ -48,6 +48,25 @@ copied verbatim into `.claude/skills/`: `brainstorming`,
 `using-superpowers`, `verification-before-completion`, `writing-plans`,
 `writing-skills`. MIT licensed, copyright Jesse Vincent.
 
+**Local modifications (2026-07-24) — these three are no longer verbatim.** All
+three were tuned for a model generation that *under*-delegated and *under*-
+verified; Opus 5 has the opposite bias, so each gained a clearly-marked local
+calibration block. Upstream content is otherwise untouched, and each block is
+labelled so a future re-vendor can spot and re-apply it:
+
+- `verification-before-completion` — added a **Scope** section ("truthfulness
+  rule, not a verify-more rule") and narrowed the *When To Apply* triggers.
+  Keeps the Iron Law; drops the framing that made every positive statement a
+  verification gate.
+- `dispatching-parallel-agents` — added a **Local calibration** section capping
+  delegation (do it yourself under ~a handful of tool calls, prefer one agent to
+  several, 20-agent ceiling, announce expensive-model dispatches).
+- `subagent-driven-development` — added a **Local calibration** paragraph
+  limiting fan-out to substantial independent tasks.
+
+Rationale and the full policy live in `CLAUDE.md` → *Token / cost discipline*.
+MIT permits modification; attribution above is unchanged.
+
 Not vendored: the plugin's `hooks/` (a SessionStart hook that auto-loads
 skill docs at session start) — this repo already has its own SessionStart
 hook (test DB setup) and adding a second one wasn't part of the ask. The

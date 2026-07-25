@@ -47,6 +47,60 @@
   is this user on" view) is added — it should reuse or mirror
   `selectPlanPrices`, not re-derive its own product-name heuristic.
 
+### 2026-07-24 · Model policy rebuilt for Opus 5 + Fable 5: `opusplan` by default, effort as a second dial, Fable reached by subagent — and delegation capped
+- **Decision:** Four changes to how Claude Code is configured and steered, after
+  Opus 5's release:
+  - **`.claude/settings.json` default model → `opusplan`** (was pinned
+    `claude-sonnet-5`). Ops-shaped turns still run Sonnet; plan mode auto-upgrades
+    to Opus with no ask. **Known gap, accepted:** `opusplan` upgrades *plan-mode
+    turns only*, and most of our planning cycle happens outside plan mode — the
+    pre-plan conversation, and the Codex plan-review loop, which **cannot** run in
+    plan mode because it commits, pushes, and opens a PR. Claude must speak up and
+    ask for Opus at those two moments.
+  - **Effort (`low`…`max`, default `high`) is adopted as a second dial** alongside
+    model tier. Opus 5 at `low`/`medium` is strong enough that "Opus is too
+    expensive for this" is no longer automatically true.
+  - **Fable 5 is reached via subagents (`model: fable`), not session switches** —
+    a deliberate escalation for ambiguous/root-cause/multi-sitting work that has
+    already resisted a cheaper tier. It is **not** the session default, and the
+    `best` alias is explicitly rejected as a persisted default because it would
+    put every ops turn on the most expensive model.
+  - **Subagent delegation is capped**, and the three vendored skills that
+    encouraged fan-out (`dispatching-parallel-agents`,
+    `subagent-driven-development`, `verification-before-completion`) carry local
+    calibration blocks.
+- **Why:** Opus 5 inverts two of its predecessor's biases. It **over**-delegates
+  where 4.8 under-delegated, and it **self-verifies** where 4.8 needed reminding —
+  so guidance tuned for 4.8 now amplifies the wrong behavior and spends quota with
+  no product-visible symptom for David to catch in UAT. Separately, much of the
+  recommended Opus 5 prompt tuning (scope discipline, corrections, parallel-agent
+  guidance) is **already applied by the Claude Code harness itself**, so
+  duplicating it into `CLAUDE.md` would be redundant — only the repo-specific caps
+  were added.
+- **The verification split is the subtle one:** Anthropic's guidance is to delete
+  verification instructions on Opus 5. We kept the skill's *truthfulness* core
+  (no completion claim without fresh evidence — David can't read diffs, so
+  Claude's word is his only pre-UAT signal) and dropped only the *verify-more*
+  framing (every positive statement a gate, re-checking verified work, verifier
+  subagents). Deleting the whole skill would have removed a guard David actually
+  depends on.
+- **Settled by verification, not recall:** hooks **cannot** switch the session
+  model — `SessionStart` can *read* a `model` field, but no hook output, skill
+  field, or env var writes it. Only David switches the session model. Don't
+  relitigate this.
+- **Reference:** `CLAUDE.md` → *Token / cost discipline* (the `opusplan` default,
+  the effort dial, Fable routing, the delegation cap, and the
+  what-can-switch-models note); `.claude/skills/VENDORED_SKILLS_NOTICE.md` records
+  the three upstream deviations.
+- **Revisit if:** (a) **Fable becomes available as an advisor** — Claude Code
+  currently rejects `/advisor fable` and shows it as `temporarily unavailable`
+  pending a rollout; a Fable advisor would automate mid-task escalation and is the
+  single change that would most replace this manual policy; (b) `opusplan`'s
+  plan-mode-only boundary proves too leaky in practice, in which case pin Opus for
+  whole planning cycles instead; (c) an effort sweep shows Opus at `medium` is a
+  strict improvement over Sonnet at `high`, which would simplify the tier table
+  considerably.
+
 ### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
 - **Decision:** A variant is a fact expressing **the same concept** as its root in
   slightly different words. `facts.parent_id` exists for exactly two purposes:

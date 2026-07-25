@@ -4,6 +4,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, Sparkles, Clapperboard, UserCircle, Crown, CalendarDays } from "lucide-react";
+import { selectPlanPrices, type StripePlan } from "./pricingPlans";
 
 // Pricing framing: "cost-as-gate"
 //   Free  = anything that doesn't cost us money to run for you
@@ -26,32 +27,6 @@ const LEGENDARY_FEATURES = [
   { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
   { icon: <CalendarDays className="w-4 h-4" />, text: "Fact of the Day email" },
 ];
-
-interface StripePlan {
-  id: string;
-  name: string;
-  description: string | null;
-  metadata: Record<string, string>;
-  prices: Array<{
-    id: string;
-    unit_amount: number;
-    currency: string;
-    recurring: { interval: string; interval_count: number } | null;
-  }>;
-}
-
-/** Classify a plan by its product name */
-function classifyPlan(plan: StripePlan): "monthly" | "annual" | "lifetime" | "other" {
-  const n = plan.name.toLowerCase();
-  if (n.includes("legendary for life") || n.includes("lifetime") || n.includes("one-time") || n.includes("forever")) return "lifetime";
-  if (n.includes("annual") || n.includes("year") || n.includes("yearly")) return "annual";
-  if (n.includes("month")) return "monthly";
-  // Fall back to Stripe interval on the first price
-  const interval = plan.prices[0]?.recurring?.interval;
-  if (!interval) return "lifetime";
-  if (interval === "year") return "annual";
-  return "monthly";
-}
 
 interface PricingCardProps {
   label: string;
@@ -139,14 +114,9 @@ export default function Pricing() {
     }
   }
 
-  // Classify plans from Stripe
-  const monthlyPlan = plans.find(p => classifyPlan(p) === "monthly");
-  const annualPlan  = plans.find(p => classifyPlan(p) === "annual");
-  const lifetimePlan = plans.find(p => classifyPlan(p) === "lifetime");
-
-  const monthlyPrice = monthlyPlan?.prices[0];
-  const annualPrice  = annualPlan?.prices[0];
-  const lifetimePrice = lifetimePlan?.prices[0];
+  // Classify Stripe's active prices into the three plan slots by each
+  // price's own `recurring` field (see pricingPlans.ts).
+  const { monthlyPrice, annualPrice, lifetimePrice } = selectPlanPrices(plans);
 
   // Effective monthly cost for savings badge
   const monthlyPerMonth = monthlyPrice ? monthlyPrice.unit_amount / 100 : null;
@@ -222,7 +192,7 @@ export default function Pricing() {
             </div>
           ) : (
             <div className="space-y-3 mb-6">
-              {monthlyPlan && monthlyPrice && (
+              {monthlyPrice && (
                 <button
                   onClick={() => handleSelect(monthlyPrice.id)}
                   disabled={loadingPriceId === monthlyPrice.id}
@@ -238,7 +208,7 @@ export default function Pricing() {
                   </div>
                 </button>
               )}
-              {lifetimePlan && lifetimePrice && (
+              {lifetimePrice && (
                 <button
                   onClick={() => handleSelect(lifetimePrice.id)}
                   disabled={loadingPriceId === lifetimePrice.id}
@@ -254,7 +224,7 @@ export default function Pricing() {
                   </div>
                 </button>
               )}
-              {annualPlan && annualPrice && (
+              {annualPrice && (
                 <button
                   onClick={() => handleSelect(annualPrice.id)}
                   disabled={loadingPriceId === annualPrice.id}
@@ -277,7 +247,7 @@ export default function Pricing() {
                   </div>
                 </button>
               )}
-              {!monthlyPlan && !annualPlan && !lifetimePlan && (
+              {!monthlyPrice && !annualPrice && !lifetimePrice && (
                 <p className="text-center text-muted-foreground py-8">No plans available right now.</p>
               )}
             </div>
@@ -383,8 +353,8 @@ export default function Pricing() {
         {plansLoading ? (
           <div className="text-center text-muted-foreground py-6 text-sm">Loading plans…</div>
         ) : (
-          <div className={`grid gap-2 mb-4 ${[monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 1 ? "max-w-xs mx-auto" : [monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 2 ? "grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto" : "grid-cols-1 md:grid-cols-3"}`}>
-            {monthlyPlan && monthlyPrice && (
+          <div className={`grid gap-2 mb-4 ${[monthlyPrice, annualPrice, lifetimePrice].filter(Boolean).length === 1 ? "max-w-xs mx-auto" : [monthlyPrice, annualPrice, lifetimePrice].filter(Boolean).length === 2 ? "grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto" : "grid-cols-1 md:grid-cols-3"}`}>
+            {monthlyPrice && (
               <PricingCard
                 label="Monthly"
                 price={fmt(monthlyPrice.unit_amount)}
@@ -394,7 +364,7 @@ export default function Pricing() {
                 onSelect={handleSelect}
               />
             )}
-            {annualPlan && annualPrice && (
+            {annualPrice && (
               <PricingCard
                 label="Annual"
                 sublabel={annualPerMonth !== null ? `$${annualPerMonth.toFixed(2)}/mo — billed yearly` : undefined}
@@ -407,7 +377,7 @@ export default function Pricing() {
                 onSelect={handleSelect}
               />
             )}
-            {lifetimePlan && lifetimePrice && (
+            {lifetimePrice && (
               <PricingCard
                 label="Legendary for Life"
                 price={fmt(lifetimePrice.unit_amount)}
@@ -419,7 +389,7 @@ export default function Pricing() {
               />
             )}
             {/* Fallback if Stripe returned no plans */}
-            {!monthlyPlan && !annualPlan && !lifetimePlan && (
+            {!monthlyPrice && !annualPrice && !lifetimePrice && (
               <div className="col-span-3 text-center text-muted-foreground py-8">
                 No plans available right now — please check back soon.
               </div>
