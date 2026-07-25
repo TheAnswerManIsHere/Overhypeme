@@ -36,7 +36,6 @@ const SKIP_REASON_MESSAGE: Record<TaxonomyHealthSkipReason, string> = {
   already_current: "Already current.",
   missing_required_data: "Missing required data.",
   already_in_review: "Refresh already in review.",
-  has_active_variants: "This fact has active variants; refresh those individually.",
   not_active: "Only active facts can be sent back.",
 };
 

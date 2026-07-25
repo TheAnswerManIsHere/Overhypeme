@@ -2,10 +2,10 @@
  * POST /admin/taxonomy-health/actions/bulk-send-back (PR4 bulk send-back).
  *
  * Covers `pickSendBackTargets` classification (selected scope: dedupe,
- * not_active, has_active_variants, already_in_review, not_applicable for both
- * "not found" and "not stale"), the all_stale silent-exclusion contract, the
- * response's extra count fields, zod validation, and the job-status skip
- * metadata surfaced by WI2.
+ * not_active, already_in_review, not_applicable for both "not found" and "not
+ * stale"), the all_stale silent-exclusion contract, the response's extra
+ * count fields, zod validation, and the job-status skip metadata surfaced by
+ * WI2.
  *
  * Note: enqueuing a job does NOT run it — `sendFactBackToReview` (and thus a
  * fact becoming "in review") only happens when the worker actually processes
@@ -132,8 +132,8 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.equal(outcomeForFact, undefined, "all_stale silently excludes — no skip outcome for a pre-skipped row");
   });
 
-  it("all_stale: a fact with an active variant is NEVER enqueued (silent exclusion)", async () => {
-    const rootId = await insertStaleFact(TEXT("variant root excluded"));
+  it("all_stale: a stale root with an active variant is eligible — variants classify from their own text, so a root refresh can't invalidate them", async () => {
+    const rootId = await insertStaleFact(TEXT("variant root eligible"));
     const [variant] = await db
       .insert(factsTable)
       .values({ text: TEXT("variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
@@ -141,10 +141,11 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     factIds.push(variant!.id);
     const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
     assert.equal(res.status, 200);
-    (res.body.jobs as Array<{ jobId: number; factId: number }>).forEach((j) => {
+    const jobFactIds = (res.body.jobs as Array<{ jobId: number; factId: number }>).map((j) => {
       jobIds.push(j.jobId);
-      assert.notEqual(j.factId, rootId, "a root with an active variant must never be enqueued");
+      return j.factId;
     });
+    assert.ok(jobFactIds.includes(rootId), "a root with an active variant must be enqueued like any other stale fact");
   });
 
   // ─── selected scope classification ─────────────────────────────────────
@@ -219,7 +220,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.equal(res.body.outcomes[0].reason, "already_in_review");
   });
 
-  it("selected: a stale fact with an active variant → has_active_variants", async () => {
+  it("selected: a stale root with an active variant still enqueues — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const rootId = await insertStaleFact(TEXT("selected variant root"));
     const [variant] = await db
       .insert(factsTable)
@@ -230,8 +231,9 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
       .post("/api/admin/taxonomy-health/actions/bulk-send-back")
       .send({ scope: "selected", factIds: [rootId] });
     assert.equal(res.status, 200);
-    assert.equal(res.body.outcomes[0].status, "skipped");
-    assert.equal(res.body.outcomes[0].reason, "has_active_variants");
+    assert.equal(res.body.jobs.length, 1);
+    jobIds.push(res.body.jobs[0].jobId);
+    assert.equal(res.body.outcomes.length, 0);
   });
 
   it("selected: an eligible stale fact enqueues with the fact_send_back dedupe key", async () => {

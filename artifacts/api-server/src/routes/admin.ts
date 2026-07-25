@@ -1433,8 +1433,8 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
   } catch (err) {
     if (err instanceof SendBackToReviewError) {
       if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // NOT_ACTIVE / HAS_ACTIVE_VARIANTS / REFRESH_ALREADY_IN_PROGRESS — the
-      // in-progress case names the in-flight cycle so the UI can link to it.
+      // NOT_ACTIVE / REFRESH_ALREADY_IN_PROGRESS — the in-progress case names
+      // the in-flight cycle so the UI can link to it.
       res.status(409).json({
         error: err.message,
         code: err.code,

@@ -362,7 +362,6 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "missing_required_data",
   // Bulk send-back guard skips (mirror SendBackToReviewError codes 1:1).
   "already_in_review",
-  "has_active_variants",
   "not_active",
 ] as const;
 export type TaxonomyHealthSkipReason =

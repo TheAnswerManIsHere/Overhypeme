@@ -165,25 +165,6 @@ export async function factsWithInFlightRefresh(factIds: number[]): Promise<Set<n
   return new Set(results.flat().map((r) => r.factId));
 }
 
-/**
- * Which of the given fact ids are roots with an active child variant —
- * `sendFactBackToReview` rejects those (`HAS_ACTIVE_VARIANTS`), and
- * `loadAllApprovedFactsForHealth()` doesn't carry variant data, so the bulk
- * send-back picker needs its own query to pre-skip them.
- */
-export async function factsWithActiveVariants(factIds: number[]): Promise<Set<number>> {
-  if (factIds.length === 0) return new Set();
-  const results = await Promise.all(
-    chunkIds(factIds, GUARD_QUERY_CHUNK_SIZE).map((batch) =>
-      db
-        .select({ parentId: factsTable.parentId })
-        .from(factsTable)
-        .where(and(inArray(factsTable.parentId, batch), eq(factsTable.isActive, true))),
-    ),
-  );
-  return new Set(results.flat().map((r) => r.parentId).filter((id): id is number => id != null));
-}
-
 // ─── GET /admin/taxonomy-health/summary ──────────────────────────────────
 
 router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
@@ -810,10 +791,10 @@ interface SendBackTargetPick {
  * also consider stale.
  *
  * `all_stale`: bounded fan-out — sort stale ids ascending and collect up to
- * `batchLimit` ELIGIBLE targets. Ineligible rows (already in review / active
- * variants) are silently excluded, NOT emitted as skip outcomes — the response
- * stays bounded regardless of backlog size, and those rows already show their
- * own state (e.g. "Refresh in review") from their row data.
+ * `batchLimit` ELIGIBLE targets. Ineligible rows (already in review) are
+ * silently excluded, NOT emitted as skip outcomes — the response stays
+ * bounded regardless of backlog size, and those rows already show their own
+ * state (e.g. "Refresh in review") from their row data.
  *
  * `selected`: the admin deliberately chose these facts, so every ineligible id
  * gets an explicit, reasoned skip outcome. An id beyond the batch cap (once
@@ -835,8 +816,7 @@ async function pickSendBackTargets(
   const totalStale = staleIds.length;
 
   const inFlight = await factsWithInFlightRefresh(staleIds);
-  const withVariants = await factsWithActiveVariants(staleIds);
-  const eligibleStaleIds = staleIds.filter((id) => !inFlight.has(id) && !withVariants.has(id));
+  const eligibleStaleIds = staleIds.filter((id) => !inFlight.has(id));
 
   if (scope === "all_stale") {
     const toEnqueue = eligibleStaleIds.slice(0, batchLimit);
@@ -871,13 +851,6 @@ async function pickSendBackTargets(
       skipOutcomes.push({
         factId: id, reason: "already_in_review",
         message: sendBackGuardToSkip("REFRESH_ALREADY_IN_PROGRESS")!.message,
-      });
-      continue;
-    }
-    if (withVariants.has(id)) {
-      skipOutcomes.push({
-        factId: id, reason: "has_active_variants",
-        message: sendBackGuardToSkip("HAS_ACTIVE_VARIANTS")!.message,
       });
       continue;
     }

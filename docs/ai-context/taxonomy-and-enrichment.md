@@ -141,7 +141,11 @@ job. That job classifies into the version row and advances the review to
 active as a `superseded` row, rematerializes the candidate into `facts.*`
 (including the signature — see above), and marks it `promoted`; **reject**
 retains the candidate as `rejected` history (never hard-deleted). Guards:
-`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`, `HAS_ACTIVE_VARIANTS`.
+`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`. (A prior `HAS_ACTIVE_VARIANTS`
+guard here — "refreshing a root could invalidate its variants' classification"
+— was removed once variants stopped classifying from the root's text; see
+*Variants are independent facts* above. `factActivation.ts` has its own,
+unrelated `HAS_ACTIVE_VARIANTS` code for reparenting, which still stands.)
 
 **A refresh is initiation, not completion.** Sending a fact back only starts
 the cycle — it still has to clear **both** human gates (Visual Concept at Step
@@ -157,11 +161,11 @@ out across many stale facts via the `fact_send_back` async-jobs queue
 Two scopes: `all_stale` (server picks up to a **50-per-request cap**,
 `BULK_SEND_BACK_BATCH_LIMIT`, from the corpus-wide stale set) and `selected`
 (an explicit admin-chosen id list). `all_stale` **silently excludes** ineligible
-facts (already in review / active variants) to keep the response bounded
-regardless of corpus size — `selected` gives each chosen fact an explicit,
-reasoned skip outcome instead, since the admin picked it deliberately.
+facts (already in review) to keep the response bounded regardless of corpus
+size — `selected` gives each chosen fact an explicit, reasoned skip outcome
+instead, since the admin picked it deliberately.
 
-A guard rejection (`NOT_ACTIVE` / `HAS_ACTIVE_VARIANTS` / already in review) is a
+A guard rejection (`NOT_ACTIVE` / already in review) is a
 **terminal skip, not a retry** — that's what makes re-running a batch
 idempotent. `REFRESH_ALREADY_IN_PROGRESS` gets extra handling: the primitive
 commits the candidate/review, then enqueues candidate enrichment in a

@@ -159,7 +159,6 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
       const label =
         reason === "admin_edited" ? "Skipped — admin-edited"
         : reason === "already_in_review" ? "Skipped — already in review"
-        : reason === "has_active_variants" ? "Skipped — has active variants"
         : reason === "not_active" ? "Skipped — not active"
         : reason === "not_applicable" ? "Skipped — not applicable"
         : "Skipped";
@@ -368,7 +367,7 @@ export default function TaxonomyHealth() {
   // know the exact eligible count before POST (that's computed server-side).
   const runSendBackAllStale = useCallback(() => {
     const msg =
-      "Queue up to 50 eligible stale facts for refresh? Facts already in review or blocked by active variants are left out of this batch. Every refresh still needs Visual Concept + Test Render approval before it goes live.";
+      "Queue up to 50 eligible stale facts for refresh? Facts already in review are left out of this batch. Every refresh still needs Visual Concept + Test Render approval before it goes live.";
     if (!window.confirm(msg)) return;
     void actions.submit("bulk", "send_back_to_review", BULK_SEND_BACK_URL, { scope: "all_stale" });
   }, [actions]);
