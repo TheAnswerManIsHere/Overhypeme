@@ -41,11 +41,6 @@ export function ApprovedFactTextEditModal({
       `${impact.liveMemeCount} live meme${impact.liveMemeCount === 1 ? "" : "s"} (${impact.persistedMemeCount} total ever rendered) keep the OLD wording baked into their images — they will not update.`,
     );
   }
-  if (impact.isRoot && impact.affectedVariantCount > 0) {
-    consequences.push(
-      `${impact.affectedVariantCount} variant${impact.affectedVariantCount === 1 ? "" : "s"} were classified against the old wording and will be marked stale for reprocess.`,
-    );
-  }
   consequences.push("This fact's taxonomy was classified from the old wording; it will be marked stale for reprocess (send it back to review to refresh it).");
   if (impact.refreshInFlight) {
     consequences.push("A refresh is in flight for this fact — this edit will block its promotion until it is re-prepared.");

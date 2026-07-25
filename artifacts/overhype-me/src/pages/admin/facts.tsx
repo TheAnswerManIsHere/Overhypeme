@@ -588,7 +588,6 @@ export default function AdminFacts() {
           setTextEditModalError(null);
           let message = "Saved successfully.";
           if (result.prepDispatch) message = "Saved. Prep restarted — enrichment and images are regenerating; re-approve the concept when ready.";
-          else if (result.affectedVariantCount && result.affectedVariantCount > 0) message = `Saved. ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? "" : "s"} marked stale for review.`;
           setSaveResult({ type: "success", message });
           // Adopt the server-normalized row as the new baseline (kills a phantom
           // "unsaved change" from normalization).
@@ -606,10 +605,6 @@ export default function AdminFacts() {
           setSelectedFact({ ...sf, text: result.impact.currentStoredText });
           setTextEditModal({ impact: result.impact });
           setTextEditModalError(confirmation ? "The stored text changed since you opened this — review the updated diff and confirm again." : null);
-          throw new CommitInterruption();
-        case "dependent_variant_in_progress":
-          setTextEditModal(null);
-          setSaveResult({ type: "error", message: `Can't re-word this parent: ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? " is" : "s are"} mid-review (e.g. fact #${result.blockingVariants[0]?.factId}). Resolve or finish those first.` });
           throw new CommitInterruption();
         case "staging_prep_in_progress":
           setTextEditModal(null);

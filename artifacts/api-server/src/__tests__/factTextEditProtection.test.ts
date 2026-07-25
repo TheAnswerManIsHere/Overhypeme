@@ -1,5 +1,5 @@
 /**
- * DB-backed tests for the approved-fact-text protection + dependency loader.
+ * DB-backed tests for the approved-fact-text protection predicate.
  *
  * The predicate FAILS CLOSED — only a single, unresolved, first-time staging
  * cycle on an inactive fact is unprotected; every other shape (live, ever-
@@ -19,7 +19,6 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import {
   resolveFactTextProtection,
-  loadDirectVariantDependencies,
   hasNonterminalPrepJobs,
 } from "../lib/factTextEditProtection.js";
 
@@ -124,39 +123,6 @@ describe("resolveFactTextProtection — fail-closed matrix", () => {
     const s = await resolveFactTextProtection(id, await activeOf(id));
     assert.equal(s.protected, false);
     assert.equal(s.reason, "single_first_time_staging");
-  });
-});
-
-describe("loadDirectVariantDependencies", () => {
-  it("lists direct children and flags none when all idle", async () => {
-    const root = await seedFact({ isActive: true });
-    const c1 = await seedFact({ isActive: true, parentId: root });
-    const c2 = await seedFact({ isActive: true, parentId: root });
-    const dep = await loadDirectVariantDependencies(root);
-    assert.deepEqual(dep.childFactIds.sort((a, b) => a - b), [c1, c2].sort((a, b) => a - b));
-    assert.equal(dep.blockingChildren.length, 0);
-  });
-
-  it("flags a child with an unresolved review as blocking", async () => {
-    const root = await seedFact({ isActive: true });
-    const child = await seedFact({ isActive: false, parentId: root });
-    await seedReview({ stagingFactId: child, workflowStage: "concept_review", candidateVersionId: null });
-    const dep = await loadDirectVariantDependencies(root);
-    assert.deepEqual(dep.blockingChildren, [{ factId: child, reason: "unresolved_review" }]);
-  });
-
-  it("flags a child with a nonterminal enrichment job as blocking", async () => {
-    const root = await seedFact({ isActive: true });
-    const child = await seedFact({ isActive: true, parentId: root });
-    await db.insert(asyncJobsTable).values({ queue: "enrichment", payload: {}, dedupeKey: `enrichment:fact:${child}`, status: "processing" } as typeof asyncJobsTable.$inferInsert);
-    const dep = await loadDirectVariantDependencies(root);
-    assert.deepEqual(dep.blockingChildren, [{ factId: child, reason: "active_enrichment_job" }]);
-  });
-
-  it("no children → empty", async () => {
-    const root = await seedFact({ isActive: true });
-    const dep = await loadDirectVariantDependencies(root);
-    assert.deepEqual(dep, { childFactIds: [], blockingChildren: [] });
   });
 });
 

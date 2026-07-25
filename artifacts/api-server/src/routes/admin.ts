@@ -992,9 +992,6 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     case "stale_baseline":
       res.status(409).json({ error: "The stored wording changed since you opened this — review the new diff.", code: FACT_TEXT_EDIT_CODES.STALE_BASELINE, impact: outcome.impact });
       return;
-    case "dependent_variant_in_progress":
-      res.status(409).json({ error: "A variant of this fact is mid-review. Resolve or finish those before re-wording the parent.", code: FACT_TEXT_EDIT_CODES.DEPENDENT_VARIANT_IN_PROGRESS, blockingVariants: outcome.blockingVariants, affectedVariantCount: outcome.affectedVariantCount });
-      return;
     case "staging_prep_in_progress":
       res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
       return;
@@ -1005,15 +1002,12 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, outcome.fact);
       return;
     case "protected_committed":
-      // Root re-word: re-embed + re-seed stock photos (variants inherit the
-      // parent's images and aren't embedded). Checked against the UPDATED row's
-      // parentId (not a pre-update flag) so a PATCH that also promotes a variant
-      // to root in the same request still seeds these root-only artifacts.
-      if (outcome.fact.parentId === null) {
-        void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
-        void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
-      }
-      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId, affectedVariantCount: outcome.affectedVariantCount });
+      // Confirmed edit: re-embed + re-seed stock photos for the fact being
+      // edited, root or variant (variant independence — a variant generates
+      // its own images/embedding too, not just a root).
+      void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
+      void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
+      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId });
       return;
     case "staging_restarted":
       respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
@@ -2127,7 +2121,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
+      .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -2142,10 +2136,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
       let failed = 0;
       for (const fact of rows) {
         try {
-          const enrichment = await enrichFact({
-            factText: fact.text,
-            status: fact.parentId ? "variant" : "new_fact",
-          });
+          const enrichment = await enrichFact({ factText: fact.text });
           // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
           // from the EXISTING row: fresh classifier output never carries a VSO, so
           // materializing from it alone would strip the human concept (breaking

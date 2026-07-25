@@ -213,7 +213,9 @@ generated under, so a fact processed under old assumptions reads as stale.
 - **`stale_enrichment_version`** — the older, narrower lens: per fact,
   `enrichment.classificationPromptVersion` is stamped at classify time; when it
   differs from the current `CLASSIFICATION_PROMPT_VERSION` constant
-  (`lib/api-zod/src/taxonomy.ts`, currently `"v5"`) the fact is flagged stale.
+  (`lib/api-zod/src/taxonomy.ts` — check the constant itself for the live
+  value rather than trusting a hardcoded version number in prose, which has
+  already gone stale here once) the fact is flagged stale.
   `VISUAL_STRATEGY_VERSION` (`lib/api-zod/src/visualPromptStrategies.ts`) is
   surfaced for visibility but not separately gated on.
 - **`stale_for_reprocess`** (PR3) — the `ProcessingSignature`-based lens

@@ -2,10 +2,11 @@
  * Core behavior tests for the approved-fact-text lock service.
  *
  * Covers the branch matrix: protected confirmation gate (missing / invalid /
- * stale / valid), the no-op normalized-text short-circuit, root→variant
- * signature invalidation + dependent-cycle blocking, and the staging restart
- * (incl. the durable prep-in-progress rejection). Signature-preservation and
- * audit-row invariants are asserted directly against the DB.
+ * stale / valid), the no-op normalized-text short-circuit, variant
+ * independence (a root edit never touches or blocks on its variants), and the
+ * staging restart (incl. the durable prep-in-progress rejection).
+ * Signature-preservation and audit-row invariants are asserted directly
+ * against the DB.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -112,24 +113,24 @@ describe("confirmedFactTextEdit — protected branch", () => {
   });
 });
 
-describe("confirmedFactTextEdit — root → variant dependency", () => {
-  it("clears child variant signatures on a confirmed root edit and reports the count", async () => {
+describe("confirmedFactTextEdit — variant independence", () => {
+  it("does NOT clear child variant signatures on a confirmed root edit", async () => {
     const root = await seedFact(`${PREFIX}${randomUUID()} root.`);
     const c1 = await seedFact("child one.", { parentId: root });
     const c2 = await seedFact("child two.", { parentId: root });
     const old = (await rowOf(root)).text;
     const out = await confirmedFactTextEdit({ factId: root, rawText: "root reworded.", performedBy: adminId, nonTextUpdates: {}, confirmation: goodConfirm(old) });
     assert.equal(out.kind, "protected_committed");
-    if (out.kind === "protected_committed") assert.equal(out.affectedVariantCount, 2);
-    assert.equal((await rowOf(c1)).lastProcessedSignature, null);
-    assert.equal((await rowOf(c2)).lastProcessedSignature, null);
+    assert.equal((await rowOf(root)).lastProcessedSignature, null, "the root's OWN signature still clears");
+    assert.deepEqual((await rowOf(c1)).lastProcessedSignature, SIG, "a variant's signature is untouched by a root edit");
+    assert.deepEqual((await rowOf(c2)).lastProcessedSignature, SIG, "a variant's signature is untouched by a root edit");
   });
 
   it("returns the UPDATED parentId when a variant is promoted to root in the same PATCH (Codex #228 P2)", async () => {
     // A variant is protected (it was ever-approved, per its own history) and the
     // same PATCH both re-words it AND clears parentId (promoting it to root).
-    // The route decides root-only side effects from outcome.fact.parentId, so
-    // this MUST reflect the post-update state, not the pre-update isRoot flag.
+    // The route decides embed/image side effects from outcome.fact.parentId —
+    // this must reflect the post-update state.
     const parent = await seedFact(`${PREFIX}${randomUUID()} parent.`);
     const variant = await seedFact("variant text.", { parentId: parent });
     const old = (await rowOf(variant)).text;
@@ -147,14 +148,14 @@ describe("confirmedFactTextEdit — root → variant dependency", () => {
     }
   });
 
-  it("blocks (dependent_variant_in_progress) when a child is mid-review — no write", async () => {
+  it("does NOT block a root edit when a child is mid-review", async () => {
     const root = await seedFact(`${PREFIX}${randomUUID()} root2.`);
     const child = await seedFact("child.", { parentId: root, isActive: false });
     await db.insert(pendingReviewsTable).values({ submittedText: "x", status: "pending", stagingFactId: child, workflowStage: "concept_review", candidateVersionId: null } as typeof pendingReviewsTable.$inferInsert);
     const old = (await rowOf(root)).text;
     const out = await confirmedFactTextEdit({ factId: root, rawText: "root reworded.", performedBy: adminId, nonTextUpdates: {}, confirmation: goodConfirm(old) });
-    assert.equal(out.kind, "dependent_variant_in_progress");
-    assert.equal((await rowOf(root)).text, old, "root text unchanged while blocked");
+    assert.equal(out.kind, "protected_committed", "a mid-review variant never blocks a root edit");
+    assert.equal((await rowOf(root)).text, "root reworded.");
   });
 });
 
