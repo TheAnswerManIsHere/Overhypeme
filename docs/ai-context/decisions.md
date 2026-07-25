@@ -94,6 +94,15 @@
 - **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
   That would be a **new explicit entity** (a concept/cluster the root and variants
   both point at), not a revival of parent-inheritance through `parent_id`.
+- **Status: DONE (PR #256).** Every site enumerated above is fixed, plus the
+  bulk-backfill routes converted to a durable async queue (new `fact_pexels`
+  and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
+  breaker added to bulk-send-back so a persistently-failing fact can't create
+  an unbounded number of retry cycles nor be silently declared "migration
+  complete" while still excluded. See `docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md`
+  and `docs/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  This entry was a forward-looking "sites to fix" list at decision time — it
+  now describes fixed behavior, not a plan.
 
 ### 2026-07-24 · Deferred engineering work gets one durable backlog, split from the product roadmap
 - **Decision:** Created [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md)
