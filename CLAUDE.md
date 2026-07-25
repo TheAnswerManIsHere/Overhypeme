@@ -638,11 +638,15 @@ this."
 because Codex reviewing an implementation PR otherwise has no way to check
 the code against what David actually approved — only against itself, which
 can't catch a well-built PR that quietly narrowed or dropped part of the
-approved scope. So whenever this PR implements a plan that went through
-Codex plan-review (feature mode), I paste that plan's Product Intent / Must
-Not Change / Settled Decisions verbatim from the `[PLAN REVIEW]` PR body into
-this PR's oracle section before requesting the first review. Bugfix mode or a
-trivial change with no plan gets "n/a — no plan" there. See
+approved scope. So whenever this PR implements a **David-approved feature
+plan** (feature mode) I paste that plan's Product Intent / Must Not Change /
+Settled Decisions verbatim into this PR's oracle section before requesting
+the first review — from the `[PLAN REVIEW]` PR body for the normal automated
+loop, or straight from the final approved plan document when the plan went
+through the manual/private review path instead (the disclosure carve-out or a
+broken-loop fallback, per *Automated plan review* above — there's no
+`[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
+Bugfix mode or a trivial change with no plan gets "n/a — no plan" there. See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
