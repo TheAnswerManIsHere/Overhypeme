@@ -362,7 +362,18 @@ implicit one (the root as a variant's de facto metadata source).
        past both checks does the handler set `processing`, **immediately
        before** calling the pipeline (not any earlier — setting it before
        the `isActive` recheck would leave the marker stuck at
-       `processing` on the inactive-skip path). The enqueue side must
+       `processing` on the inactive-skip path). **Terminal transition on
+       exit (Codex round 26, P1 — the state machine was left incomplete):**
+       when `generateAiMemeBackgrounds` returns successfully, set
+       `ai_meme_backfill_status = "ok"` before the handler returns; when it
+       throws (an ordinary, non-crash-recovery failure —
+       `maxAttempts: 1` means this is also the terminal attempt), set
+       `failed`. Without this, a successful run leaves the marker stuck at
+       `processing` forever, so any later non-deduped backfill for the
+       same fact (e.g. a second admin-triggered `backfill-ai-memes` call
+       after the job row has aged out) misreads an ordinary prior success
+       as a crash-recovery replay and aborts it as `failed` instead of
+       running normally. The enqueue side must
        write the status BEFORE calling `enqueueJob`, not after —
        `enqueueJob` commits the `async_jobs` row (immediately claimable)
        as part of its own insert, so a write placed after it can race a
@@ -866,9 +877,17 @@ prove it with **both** a root and a variant fixture:
   STILL attempts it (the deliberate-retry escape hatch), and that a single
   later success for that fact (a `done` row within its most recent 3)
   clears the flag — the next `all_stale` call selects it again normally.
-  Assert the new `repeated_failure` skip reason is wired through
-  `lib/api-zod/src/taxonomyHealth.ts`,
-  `useTaxonomyHealthActions.ts`, and `taxonomy-health.tsx` row state.
+  Assert the new `repeated_failure` skip reason exists in
+  `lib/api-zod/src/taxonomyHealth.ts` and its message-map entry in
+  `useTaxonomyHealthActions.ts` (surfaced when `scope: "selected"` rejects
+  a flagged fact). **(Codex round 26, P1) Separately assert the
+  list-level fix, since the skip reason above is not itself sufficient:**
+  with that fact flagged (3 consecutive terminal failures), a `GET
+  /admin/taxonomy-health/facts` call returns that fact's row with
+  `repeatedFailure: true`, and after a single later success clears the
+  flag, the same row's next fetch returns `repeatedFailure: false` — this
+  is the actual discoverability mechanism (see Proposed Design/step 8a),
+  independent of whether any `all_stale`/`selected` action has run.
 - **A 3-strike fact can't produce a false-clean campaign result (Codex
   round 24, P1):** with that same 3-strike fact excluded and no other
   stale facts left, assert an `all_stale` call returns `queued: 0`,
@@ -1275,7 +1294,14 @@ prove it with **both** a root and a variant fixture:
        handler set `processing`, **immediately before** calling the
        pipeline (not any earlier — setting it before the `isActive`
        recheck would leave the marker stuck at `processing` on the
-       inactive-skip path).
+       inactive-skip path). **(Codex round 26, P1) Terminal transition on
+       exit — the state machine was left incomplete:** on a successful
+       `generateAiMemeBackgrounds` call, set `ai_meme_backfill_status =
+       "ok"` before returning; on an ordinary (non-crash-recovery) thrown
+       failure, set `failed`. Without this the marker stays at
+       `processing` after every successful run, so a later non-deduped
+       backfill for the same fact would misread that ordinary success as
+       a crash-recovery replay and wrongly abort it as `failed`.
      - **Enqueue-side write, ordered before the job becomes claimable
        (Codex round 23, P1), sequential rather than transactional
        (Codex round 24 proposed a transaction wrap; Codex round 25 found
@@ -1344,6 +1370,16 @@ prove it with **both** a root and a variant fixture:
      - A job whose handler throws is NOT retried: assert exactly one
        `generateAiMemeBackgrounds` call (with `suppressErrors: false`) for
        a forced-failure fixture, and the fact ends `failed`.
+     - **(Codex round 26, P1) Success sets a terminal marker, not a stuck
+       one:** enqueue and run a job to a successful `generateAiMemeBackgrounds`
+       completion, assert `ai_meme_backfill_status` ends `"ok"` (not left at
+       `"processing"`). Then enqueue and run a **second**, independent job
+       for the same fact (simulating an admin re-triggering
+       `backfill-ai-memes` after the first job row has aged out of dedupe
+       relevance) — assert it executes normally (calls
+       `generateAiMemeBackgrounds` again, doesn't mistake the prior `"ok"`
+       for an in-progress crash-recovery replay) and also ends `"ok"`,
+       proving the marker is terminal, not sticky.
      - 4 facts enqueued are processed with at most 1 concurrently in
        flight at any instant (a controllable test double on
        `generateAiMemeBackgrounds` that blocks until released, asserting
@@ -1457,10 +1493,31 @@ prove it with **both** a root and a variant fixture:
    existing `inFlight`/`withVariants` convention), still reachable via
    `scope: "selected"` as a deliberate manual retry. Add a
    `repeated_failure` member to `TaxonomyHealthSkipReason`
-   (`lib/api-zod/src/taxonomyHealth.ts`) with message-map/row-state entries
-   in `useTaxonomyHealthActions.ts` and `taxonomy-health.tsx`, so a flagged
-   fact is discoverable per the existing "ineligible rows show their own
-   state" design instead of silently vanishing from `all_stale` forever.
+   (`lib/api-zod/src/taxonomyHealth.ts`) with a message-map entry in
+   `useTaxonomyHealthActions.ts`, for when a fact is targeted via
+   `scope: "selected"` and rejected with this reason.
+   **(Codex round 26, P1) A `TaxonomyHealthSkipReason` member alone can't
+   make an `all_stale`-excluded fact discoverable — verified
+   `useTaxonomyHealthActions.ts`'s `rowState()`/`factOp()` derive a row's
+   displayed state purely by scanning past actions' own `jobs`/`outcomes`
+   arrays for that fact id; a fact `all_stale` never selects appears in
+   neither, so no action-outcome-driven skip reason ever reaches its row —
+   the "message-map/row-state entries... so a flagged fact is discoverable"
+   claim above doesn't hold for the `all_stale`-exclusion case (it's still
+   correct for the `scope: "selected"` case, where the fact IS the target
+   and an explicit reject outcome comes back).** The actual fix has to live
+   in the row LIST itself, not the action-response-driven display: extend
+   `HealthRow` (`taxonomy-health.tsx`) and its backing `GET
+   /admin/taxonomy-health/facts` handler (`adminTaxonomyHealth.ts`) with a
+   `repeatedFailure: boolean` field, computed per-row the same way the
+   existing `refreshInReview` field already is (a batch check —
+   `factsWithRepeatedSendBackFailures` on the listed page's fact ids —
+   joined onto each row, independent of any action response). Render it in
+   the row UI next to the "Send back to review" button, following
+   `refreshInReview`'s existing "Refresh in review" chip as the direct
+   precedent, so a flagged fact is visibly marked the moment the Taxonomy
+   Health list loads — not only after an `all_stale` call has already run
+   and silently skipped it.
    **(Codex round 24, P1) Surface it in the stop condition itself, not
    just row state:** add a `repeatedFailureCount` field to
    `pickSendBackTargets`'s `all_stale` response (computed alongside
