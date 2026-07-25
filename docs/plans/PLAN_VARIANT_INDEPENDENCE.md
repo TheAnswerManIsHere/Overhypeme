@@ -343,6 +343,11 @@ implicit one (the root as a variant's de facto metadata source).
        remove the `has_active_variants` message-map entry.
      - `artifacts/overhype-me/src/pages/admin/taxonomy-health.tsx:162`: remove
        the `has_active_variants` → "Skipped — has active variants" case.
+     - `artifacts/overhype-me/src/pages/admin/taxonomy-health.tsx:371`
+       (Codex round 11) — the bulk-send-back confirmation dialog's copy
+       ("...Facts already in review or blocked by active variants are left
+       out of this batch...") describes a rejection that no longer happens.
+       Drop the "or blocked by active variants" clause.
      - `artifacts/overhype-me/src/components/admin/sendBackToReview.ts:18`:
        remove `"HAS_ACTIVE_VARIANTS"` from the client's
        `SendBackToReviewCode` union; update `sendBackToReview.test.ts`.
@@ -425,9 +430,12 @@ root already uses — nothing to migrate, nothing destructive.
   reprocessing goes entirely through
   `POST /admin/taxonomy-health/actions/bulk-send-back`, capped at
   50/request — run it repeatedly until `eligibleRemaining` is 0.
-  `backfill-enrichment`'s `stale_only` mode is unaffected by this fix; it
-  only ever catches the pre-existing, unrelated `missing_enrichment` case.
-  Both paths protect admin-edited rows by default. Site 13 (removing
+  `backfill-enrichment`'s `stale_only`/`missing_only` modes are unaffected by
+  this fix — they only ever catch the pre-existing, unrelated
+  invalid-enrichment and missing-enrichment cases respectively (Codex round
+  11 correction — see the Testing Plan for why `stale_only` specifically
+  never reaches `missing_enrichment`). Both bulk-send-back and
+  backfill-enrichment protect admin-edited rows by default. Site 13 (removing
   `sendFactBackToReview`'s `HAS_ACTIVE_VARIANTS` guard) is what makes
   `bulk-send-back` actually reach roots with active variants — without it,
   that population is permanently stuck. Call this reprocess out prominently
@@ -462,12 +470,26 @@ prove it with **both** a root and a variant fixture:
   returns `{ stale: true, reason: "never_processed" }` for an absent
   signature — that's `staleForReprocess`, not `stale_only`, so
   `pickEnrichmentTargets` excludes null-signature facts from `stale_only`
-  too, same as already-processed ones. In practice `stale_only` only ever
-  catches `missing_enrichment`/`invalidEnrichment` facts (a pre-existing,
-  unrelated case) — **every v6→v7-affected fact, signature or not, routes
-  through `bulk-send-back`, not `backfill-enrichment`.** Assert a
-  null-signature `"v6"`-enrichment fixture evaluates as `staleForReprocess`
-  and IS selected by `bulk-send-back`'s picker, not `stale_only`.
+  too, same as already-processed ones — **every fact that had VALID v6
+  enrichment before the bump, signature or not, routes through
+  `bulk-send-back`, not `backfill-enrichment`.**
+  **Further correction (Codex round 11, P2): `stale_only` does NOT catch
+  `missing_enrichment` facts as I claimed above** —
+  `evaluateFactTaxonomyHealth` returns early for both missing enrichment
+  (`fact.enrichment == null`) and invalid enrichment, *before*
+  `staleForReprocess` is ever computed (it stays `false`, the default). So:
+  `missing_enrichment` facts are selected by `missing_only`/`missing_or_stale`
+  (a pre-existing path, entirely unrelated to the v6→v7 bump — a fact with no
+  enrichment never carried parent-influenced metadata to begin with); a fact
+  with genuinely `invalid_enrichment` (fails schema validation) IS still
+  selected by `stale_only` (its `staleForReprocess` defaults `false` since
+  the function returned before computing it), also a pre-existing,
+  unrelated case. Neither of these two populations is what this plan's
+  reprocessing concern is about. Assert a null-signature `"v6"`-enrichment
+  fixture (valid, just old-version) evaluates as `staleForReprocess` and IS
+  selected by `bulk-send-back`'s picker, not `stale_only`; separately assert
+  a missing-enrichment fixture is selected by `missing_only` and an
+  invalid-enrichment fixture by `stale_only`, both unaffected by this fix.
 - **Reprocessing reaches root-with-active-variants facts (Codex round 7, P1):**
   give a fact `"v6"` enrichment PLUS a `"v6"`-stamped processing signature
   under a live `"v7"` — assert it evaluates as `staleForReprocess`. Give
@@ -515,14 +537,26 @@ prove it with **both** a root and a variant fixture:
   id; existing tier/auth rejections for non-legendary or wrong-owner requests
   are unchanged (negative cases still fire).
 - Full suite (Codex round 10 correction — the root `package.json` has no
-  `test` script, so `pnpm test` cannot exercise the API suite):
-  `pnpm --filter @workspace/api-server test` (runs `pretest`'s codegen/
-  migrate step first, then the sharded suite) for the backend;
+  `test` script, so `pnpm test` cannot exercise the API suite; **round 11
+  correction — this list was still missing the repo's required build/
+  typecheck gates**): the standard sequence per `AGENTS.md`/
+  `docs/TESTING.md` — `pnpm --filter @workspace/api-spec run codegen` →
+  `pnpm run typecheck:libs` → `pnpm typecheck` → DB setup
+  (`pnpm --filter @workspace/db push-force` then
+  `pnpm --filter @workspace/db run migrate`) →
+  `pnpm --filter @workspace/api-server test` for the backend;
   `pnpm --filter @workspace/overhype-me test` (Vitest) for the frontend
   changes in `facts.tsx`, `ApprovedFactTextEditModal.tsx`,
   `patchFactDraft.ts`, `sendBackToReview.ts`, `useTaxonomyHealthActions.ts`,
-  `taxonomy-health.tsx`; `pnpm run check:codegen-drift` if any shared type/
-  export surface moves; `pnpm run check:docs`.
+  `taxonomy-health.tsx`; `pnpm run build` (this fix removes members from
+  `lib/api-zod` and touches multiple frontend consumers — Vitest alone
+  doesn't typecheck/build the whole frontend); `pnpm run check:codegen-drift`
+  **unconditionally, not "if"** — the shared `api-zod` export surface
+  definitely changes (`DEPENDENT_VARIANT_IN_PROGRESS`, `BlockingVariant`,
+  `affectedVariantCount`, `blockingVariants`, `has_active_variants`,
+  `HAS_ACTIVE_VARIANTS` all removed); `pnpm run check:docs`. GitHub CI's
+  required `Build` + `Test` checks are the authoritative gate regardless of
+  what runs locally.
 
 ## Implementation Steps
 
@@ -601,8 +635,10 @@ prove it with **both** a root and a variant fixture:
    (round 8, P2):** the `"has_active_variants"` skip-reason member in
    `lib/api-zod/src/taxonomyHealth.ts:365`, the message-map entry in
    `useTaxonomyHealthActions.ts:39`, the switch case in
-   `taxonomy-health.tsx:162`, the `SendBackToReviewCode` union member in the
-   frontend's `sendBackToReview.ts:18`, and `admin.ts:1441`'s comment. Update
+   `taxonomy-health.tsx:162`, the bulk confirmation dialog copy in
+   `taxonomy-health.tsx:371` (round 11 — "or blocked by active variants"),
+   the `SendBackToReviewCode` union member in the frontend's
+   `sendBackToReview.ts:18`, and `admin.ts:1441`'s comment. Update
    `routes.sendBackToReview.test.ts`, `routes.admin.test.ts`,
    `enrichmentVersioning.refresh.test.ts`, `factSendBackJob.test.ts`,
    `adminTaxonomyHealth.guardQueryChunking.test.ts`,
@@ -645,8 +681,19 @@ prove it with **both** a root and a variant fixture:
 
 ## Questions for David
 
-None outstanding — the three genuine judgment calls (variant re-word parity,
-bulk-backfill scope, curation-spot scope) were resolved this session.
+**One outstanding (Codex round 11, P2 — my "none outstanding" claim was
+wrong; this genuinely needs your answer, not an in-repo assumption):**
+
+1. `scripts/backfill-pexels-images.mjs` (site 12) is not referenced anywhere
+   else in this repo, but that only tells me it's unused *in-repo* — I can't
+   see whether you or anyone else runs it manually/operationally outside
+   what's visible here. **Do you use this script?** If no → delete it (the
+   plan's default). If yes → it gets the same `parentId`-filter fix as its
+   siblings instead of deletion, and stays.
+
+The three other judgment calls from this session (variant re-word parity,
+bulk-backfill scope, curation-spot scope) were resolved and are reflected
+throughout the plan above.
 
 ## Definition of Done
 
