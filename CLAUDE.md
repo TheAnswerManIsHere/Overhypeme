@@ -323,9 +323,15 @@ reviewer tuned for serious defects — left to its default persona it may stay
 silent on a plan that merely *looks* sound. So the loop does not rely on that
 persona: Codex reads the shared
 [`plan-review-contract.md`](docs/ai-context/plan-review-contract.md) (routed from
-`AGENTS.md`), which tells it to review the markdown as a *specification*, return a
-**complete** assessment every time, and use review-status labels. That contract
-is the reviewer-side twin of my `overhype-plan-review` skill. (This is the
+`AGENTS.md`), which tells it to review the markdown as a *specification* and
+return a complete assessment every time. On Codex's actual GitHub transport that
+means diff-anchored findings only — no free-form status label or write-up is
+postable there (see the contract's *Output* section) — so "complete" is
+evidenced by the round running against a trigger that states the lens and names
+what to reconcile, not by a status label Codex cannot post. The full skeleton
+with status labels is real, but it belongs to the *other* consumer of this same
+contract — my own `overhype-plan-review` skill and ChatGPT's manual-upload path
+— which aren't diff-anchored and can post one complete document. (This is the
 narrow, correct thing to put in the shared docs — a *review contract Codex
 executes* — as distinct from mirroring my whole workflow ceremony there, which
 stays out per the sync rule.)
@@ -379,6 +385,14 @@ have a draft plan, and the disclosure check passes:
 
    ## Plan file
    `docs/plans/PLAN_<SLUG>.md`
+   **Re-reviews: read the whole file, not the diff.** Reconcile every prior
+   finding (Resolved / Still open / Superseded) and attack from a lens not yet
+   applied. See the contract's *Re-reviews* section.
+
+   ## Findings ledger
+   <Round-by-round, maintained by me: each finding, its status, and the lens
+   each round applied. Cross-round state lives here so it survives whatever
+   Codex does or doesn't carry between rounds.>
    ```
 2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
    tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
@@ -399,12 +413,68 @@ have a draft plan, and the disclosure check passes:
    and request the next round with a fresh explicit `@codex review` comment.
    Codex has authority on plan *substance*, **none** on branch/PR/devops
    mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
-5. **Convergence: no substantive objections, minimum 3 rounds (David,
-   2026-07-22).** I do not stop before three completed Codex review rounds, even
-   if an early round comes back clean — in that case I request the re-review
-   through a different lens (edge cases, data integrity/migrations,
-   source-of-truth risks, failure modes) instead of manufacturing plan churn.
-   From round 3 on, I stop as soon as a round produces no substantive objections.
+   Codex's GitHub review posts only diff-anchored inline findings — confirmed
+   against this repo's own PR history, its top-level review body is always
+   fixed connector boilerplate, never custom text. So it cannot itself post a
+   status label, a lens declaration, or a ledger; that synthesis is **mine**,
+   not something to wait for from Codex. **The trigger comment states the lens
+   and names what to reconcile — Codex reviews against that, it doesn't declare
+   its own framing afterward.** Every re-review comment (round 2+) names the
+   angle I want this round to attack from and lists the specific prior findings
+   to reconcile — asking Codex to re-check each one, not asking it to confirm
+   they're resolved; Still Open and Superseded are equally valid answers, and
+   the wording shouldn't pre-judge which. Codex confirmed directly on PR #254
+   that its connector
+   has no non-blocking/informational finding category and no freestanding
+   channel — only schema-validated defect findings — so **an empty result
+   against a named list is the accepted, confirmed ceiling of evidence this
+   transport can produce**, not a gap to keep re-engineering; a Reconciliation
+   finding only appears for an item that's genuinely **Still Open** (a live
+   defect) — Resolved and Superseded are both "no longer a problem" and both
+   get silence, even though they're conceptually different, because neither
+   is postable on a defect-only schema. Silence from Codex tells me only that
+   a named item isn't Still Open — it does **not** tell me whether it's
+   Resolved or Superseded, and collapsing both into "Resolved" in the ledger
+   would lose that distinction. **I classify Resolved vs. Superseded myself**
+   when updating the ledger: I know what my own fix did — a straight
+   correction is Resolved, a revision that changed the plan's shape enough to
+   make the original concern moot is Superseded — Codex's silence isn't
+   needed to tell them apart, only to confirm neither is still a live
+   objection. Three things I own each round: I **write that framing into the
+   trigger comment**, I **derive the round's status and update the findings
+   ledger** in the PR body by reading Codex's individual inline findings
+   (their category tags, any Still Open Reconciliation findings, plus my own
+   trigger text and fix history as the record of that round's lens, request,
+   and Resolved-vs-Superseded classification),
+   and I **clear the review's *Unable to verify* list** before requesting the
+   next round — the genuinely unobservable ones (external APIs, production
+   data, runtime timing) are mine to resolve, and a repo-observable one going
+   unanswered means Codex's round was incomplete and I say so on the thread
+   rather than absorbing it.
+5. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
+   I do not stop before three completed Codex review rounds, even if an early
+   round comes back clean — in that case I request the re-review through a
+   different lens (edge cases, data integrity/migrations, source-of-truth risks,
+   failure modes) instead of manufacturing plan churn. From round 3 on, I stop
+   only when **all three** hold: (a) no substantive new objections (zero
+   Required Revision findings from Codex), (b) my findings ledger — Codex's
+   Still Open Reconciliation findings tell me what's not yet resolved, and I
+   classify the rest as Resolved or Superseded myself from my own fix history,
+   per the ledger-ownership rule above — shows **zero Still Open**, and (c)
+   the trigger comment for that round named a **fresh lens**.
+   A round with no evidence trail at all — no ledger discipline, no fresh
+   lens each round — is ambiguous between *converged* and *the reviewer
+   stopped looking on round 1 and never adjusted*; (b) and (c) rule out that
+   failure mode, which is real value. **What they do not rule out, and I
+   accept as a known risk of this transport rather than a solved problem:** an
+   individual round that runs short and emits no defect is indistinguishable
+   from one that ran a genuinely complete pass — both look like zero Required
+   Revision, zero Still Open. The GitHub surface gives no way to independently
+   confirm depth beyond the connector's own reviewed-commit confirmation, and
+   that's already established as the ceiling (*Non-negotiables*, *Output*).
+   Multiple rounds across different stated lenses is the actual mitigation —
+   a review that's shallow on one lens is less likely to be shallow the same
+   way on all three-plus — not a guarantee any single round was complete.
 6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
@@ -686,7 +756,13 @@ since none was armed). While watching:
   substantive findings just follow the rules above (fix the mechanical,
   escalate real decisions, break after ~2 non-converging rounds). Only
   exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
-  one — anything touching product code or test logic does.
+  one — anything touching product code or test logic does. **The re-request
+  says what to reconcile.** A bare `@codex review` on a fix round invites a
+  review of just the new commits, so I state in the comment which findings the
+  round was meant to close and ask Codex to confirm each is actually resolved
+  in the code — not merely responded to. Same principle as the plan loop's
+  *Re-reviews*, in miniature: a reply on a thread is not evidence the defect is
+  gone.
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real
