@@ -43,9 +43,20 @@
   (`selectPlanPrices`) is now the single place this classification happens;
   `Pricing.tsx` consumes it. See the retired mistake in
   [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
-- **Revisit if:** a future plan-selection surface (e.g. an admin "which plan
-  is this user on" view) is added — it should reuse or mirror
-  `selectPlanPrices`, not re-derive its own product-name heuristic.
+- **Known existing exception, not yet migrated (Codex review, PR #258):**
+  `SubscriptionPanel.tsx`'s `findAnnualPriceId()` is a second, pre-existing
+  plan-selection surface (the "switch to annual" upgrade flow) that predates
+  this decision and does not yet follow it — its fallback path (current price
+  not found in the synced `plans` list) returns the **first** annual-recurring
+  price across *all* products with no `overhype_membership` check. In that
+  stale-sync scenario it can select a non-membership product's annual price;
+  `switch-preview`/`switch-plan` still reject it at the grant layer, so this
+  is a broken-UX gap, not a membership-bypass. Not fixed here — this is a
+  docs-only PR; flagged to David to decide whether it's fixed now or
+  deferred.
+- **Revisit if:** any plan-selection surface — including migrating
+  `SubscriptionPanel.tsx` above — is added or touched; it should reuse or
+  mirror `selectPlanPrices`, not re-derive its own heuristic.
 
 ### 2026-07-24 · Model policy rebuilt for Opus 5 + Fable 5: `opusplan` by default, effort as a second dial, Fable reached by subagent — and delegation capped
 - **Decision:** Four changes to how Claude Code is configured and steered, after
