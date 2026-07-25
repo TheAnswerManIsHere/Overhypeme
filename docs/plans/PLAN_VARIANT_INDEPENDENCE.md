@@ -166,10 +166,12 @@ implicit one (the root as a variant's de facto metadata source).
   every fact as stale. Update the hardcoded assertion in
   `redundantMechanism.test.ts:269` (`assert.equal(CLASSIFICATION_PROMPT_VERSION,
   "v6")`) to `"v7"`.
-  **Correction (Codex round 7, P1): the reprocessing path is NOT just the
-  `stale_only` bulk action as round 6 claimed — see site 13 / section E
-  below.** `stale_only` only reaches facts with no stamped processing
-  signature yet; everything already processed needs `bulk-send-back`, which
+  **Correction (Codex rounds 7-9): the reprocessing path is `stale_only`
+  NEVER — see site 13 / section E below.** `stale_only`/`missing_or_stale`
+  exclude any fact with `staleForReprocess` set, and both an already-processed
+  fact AND a never-processed one land on `staleForReprocess` (a missing
+  signature evaluates as `"never_processed"`, itself a form of staleness) —
+  so every single v6→v7-affected fact routes through `bulk-send-back`, which
   today hard-blocks any root with an active variant. Both halves are
   required together: the version bump (so staleness is detected at all) and
   removing `sendFactBackToReview`'s `HAS_ACTIVE_VARIANTS` guard (so
@@ -242,6 +244,24 @@ implicit one (the root as a variant's de facto metadata source).
   filter on `isActive` today (they already sweep inactive/staging root facts,
   unrelated to variants) — that gap is not introduced by this fix and is left
   as-is.
+  **Pre-existing, out of scope (Codex round 10, P1) — a real concurrency gap,
+  not fixed here:** `isNull(pexelsImages)` makes `backfill-images`/
+  `backfill-pexels` idempotent across sequential re-runs (a completed fact is
+  excluded next time), but NOT safe against two overlapping invocations —
+  both fire-and-forget `void runFactImagePipeline(...)` per fact with no
+  dedup key or durable per-fact status, unlike the existing
+  `enqueueFactPexels`/`FACT_PEXELS_QUEUE` infrastructure
+  (`factPexelsJobs.ts`) that already solves exactly this for other call
+  sites. Two overlapping bulk-triggers can both select the same
+  not-yet-updated row and duplicate OpenAI/Pexels API calls for it. This gap
+  predates this fix and affects roots today; widening the pool to variants
+  doesn't change the *likelihood* of a double-trigger, only the blast radius
+  if one happens. Rearchitecting these two routes onto the durable queue (and
+  building an equivalent for `backfill-ai-memes`, which has the same
+  fire-and-forget shape) is real, separate scope — a technical-debt item for
+  David to prioritize on its own, not folded into this PR. The Testing Plan
+  below is corrected to claim only sequential-re-run idempotency, not
+  concurrent-invocation safety.
 - **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
@@ -281,16 +301,20 @@ implicit one (the root as a variant's de facto metadata source).
   left unchanged.
 
 **E. Unblock reprocessing for roots with active variants (site 13, Codex
-   round 7, P1) — correcting round 6's reprocessing-path claim.** Round 6
-   said the existing `stale_only` bulk re-enrich action was sufficient to
-   reprocess pre-v7 facts; that's only true for facts with no stamped
-   `last_processed_signature` yet. `currentProcessingSignature()` bakes in
-   `CLASSIFICATION_PROMPT_VERSION`, so the v7 bump also flags every
-   already-processed fact `staleForReprocess`, and `pickEnrichmentTargets()`
-   *deliberately* excludes that overlap from `stale_only`/`missing_or_stale`
+   rounds 7-9) — correcting round 6's reprocessing-path claim.** Round 6 said
+   the existing `stale_only` bulk re-enrich action was sufficient to
+   reprocess pre-v7 facts. **That was wrong for every affected fact, not just
+   already-processed ones (round 9 correction — round 7 only fixed half the
+   claim):** `currentProcessingSignature()` bakes in
+   `CLASSIFICATION_PROMPT_VERSION`, and `computeProcessingSignatureStaleness`
+   treats a MISSING signature as stale too (`"never_processed"`) — so both an
+   already-processed fact AND a never-processed one land on
+   `staleForReprocess`, and `pickEnrichmentTargets()` *deliberately* excludes
+   `staleForReprocess` facts from `stale_only`/`missing_or_stale`
    (direct re-enrich never stamps a fresh signature, so including them would
    leave `stale_for_reprocess` stuck forever — correct existing behavior, not
-   a bug). The actual path for those facts is `bulk-send-back`
+   a bug). `stale_only` is not involved in this fix at all — the actual path
+   for every v6→v7-affected fact is `bulk-send-back`
    (`POST /admin/taxonomy-health/actions/bulk-send-back`) — but
    `sendFactBackToReview` (`lib/sendBackToReview.ts:102-114`) rejects any
    root with an active variant, and its own comment says exactly why: *"Variants
@@ -473,10 +497,15 @@ prove it with **both** a root and a variant fixture:
   a root.
 - Bulk backfill (all three `admin.ts` routes, plus the standalone
   `backfill-pexels.ts` script): a variant missing images is included in the
-  queued/processed set; a root missing images still is too. Idempotency
-  (already-has-images facts skipped) holds for both — including
-  `backfill-images`, which needs its new `isNull(pexelsImages)` predicate
-  (site 8 fix) verified directly, since it has no such check today.
+  queued/processed set; a root missing images still is too.
+  **Sequential-re-run idempotency** (already-has-images facts skipped on a
+  second, non-overlapping call) holds for both — including `backfill-images`,
+  which needs its new `isNull(pexelsImages)` predicate (site 8 fix) verified
+  directly, since it has no such check today. **Correction (Codex round 10,
+  P1): this is NOT concurrent-invocation safety** — two overlapping
+  bulk-triggers can still duplicate work per fact (pre-existing gap, out of
+  scope, documented above). Do not test or claim overlapping-invocation
+  idempotency; that's a separate rearchitect.
 - `scripts/backfill-pexels-images.mjs` no longer exists in the repo (site 12
   — deleted, not fixed in place, per the design decision above).
 - Admin Facts Editor: selecting a variant shows the Pexels Image Pipeline
@@ -485,8 +514,15 @@ prove it with **both** a root and a variant fixture:
 - AI meme/PuLID generation: a legendary user can generate for a variant fact
   id; existing tier/auth rejections for non-legendary or wrong-owner requests
   are unchanged (negative cases still fire).
-- Full suite: `pnpm test` (api-server), `pnpm run check:codegen-drift` if any
-  shared type/export surface moves, `pnpm run check:docs`.
+- Full suite (Codex round 10 correction — the root `package.json` has no
+  `test` script, so `pnpm test` cannot exercise the API suite):
+  `pnpm --filter @workspace/api-server test` (runs `pretest`'s codegen/
+  migrate step first, then the sharded suite) for the backend;
+  `pnpm --filter @workspace/overhype-me test` (Vitest) for the frontend
+  changes in `facts.tsx`, `ApprovedFactTextEditModal.tsx`,
+  `patchFactDraft.ts`, `sendBackToReview.ts`, `useTaxonomyHealthActions.ts`,
+  `taxonomy-health.tsx`; `pnpm run check:codegen-drift` if any shared type/
+  export surface moves; `pnpm run check:docs`.
 
 ## Implementation Steps
 
@@ -596,8 +632,12 @@ prove it with **both** a root and a variant fixture:
   table — if anything shifted since the docs PR merged, catch it here.
 - Removing `loadDirectVariantDependencies` touches tests that assert the old
   blocking behavior — must update, not just delete, so we don't lose coverage
-  of whatever *does* still need to hold (e.g., root deletion still can't
-  proceed with active variants — a different, still-valid guard).
+  of whatever *does* still need to hold. **Corrected example (Codex round 10,
+  P2 — my original example here named a guard that doesn't exist):** root
+  deletion does NOT block on active variants — `DELETE /admin/facts/:id`
+  (soft and hard) atomically cascades via `cascadeDeactivateActiveChildren`
+  instead, and that cascade is the still-valid, unmodified behavior to keep
+  covered, not a block.
 - Bulk-backfill jobs now processing variants too increases their fact count
   (and therefore external API cost/duration) — expected per David's decision,
   not a regression, but worth a one-line note in TEST_RUN so Replit isn't
