@@ -473,7 +473,13 @@ root already uses — nothing to migrate, nothing destructive.
   that population is permanently stuck. Call this reprocess out prominently
   in the TEST_RUN/UAT docs — it's the single largest visible consequence of
   this fix and needs a
-  deliberate post-deploy action, not a surprise.
+  deliberate post-deploy action, not a surprise. **`eligibleRemaining: 0` is
+  not the finish line if any fact has an in-flight review candidate (Codex
+  round 14, P1 — see Implementation Step 2 for the full mechanism):**
+  promoting or rejecting such a review after that point can leave the fact
+  stale again if the candidate predates the v7 deploy, so the TEST_RUN doc
+  must instruct a second `bulk-send-back` pass once any pending reviews
+  resolve.
 
 ## Security, Permissions, and Validation
 
@@ -531,6 +537,20 @@ prove it with **both** a root and a variant fixture:
   variants, not enqueue zero jobs. `factActivation.ts`'s separate
   `HAS_ACTIVE_VARIANTS` reparenting guard is unaffected — its own tests still
   pass unchanged.
+- **`eligibleRemaining: 0` doesn't mean every fact is refreshed when a
+  review is in flight (Codex round 14, P1):** give a fact `"v6"` enrichment
+  plus a `"v6"`-stamped processing signature under a live `"v7"`, and an
+  in-flight review candidate (`factEnrichmentVersionsTable` row,
+  `status: "candidate"`, also classified pre-deploy). Assert
+  `pickSendBackTargets` excludes it from the eligible set (so
+  `eligibleRemaining` can reach 0 while it's still pending). Promote that
+  candidate via `promoteCandidateEnrichmentVersion` — assert the fact's
+  resulting `lastProcessedSignature` is the candidate's (pre-v7) signature,
+  and that it now evaluates as `staleForReprocess` again. Assert a
+  subsequent `bulk-send-back` call selects it — proving the documented
+  two-pass operator flow (finish in-flight reviews, re-run) actually
+  refreshes it, rather than `eligibleRemaining: 0` being mistaken for
+  corpus-complete.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -628,6 +648,24 @@ prove it with **both** a root and a variant fixture:
    post-deploy (until `eligibleRemaining` is 0) in the Testing Plan +
    TEST_RUN doc. `backfill-enrichment`'s `stale_only` mode is unrelated to
    this fix — do not reference it as a reprocessing step for this change.
+   **`eligibleRemaining: 0` does not prove every affected fact is done
+   (Codex round 14, P1):** `pickSendBackTargets` excludes facts with an
+   in-flight review candidate (`factsWithInFlightRefresh` — a `candidate`
+   row in `factEnrichmentVersionsTable`) from the eligible set, and
+   `promoteCandidateEnrichmentVersion` writes that candidate's classify-time
+   signature — not a fresh one — onto the fact when the review is later
+   approved (`enrichmentVersioning.ts:250-252`, "permissive staleness: if
+   the world moved on mid-review, the fact stays stale"). If that candidate
+   was classified before the v7 deploy, promoting (or leaving unresolved and
+   rejecting) it after `eligibleRemaining` hits 0 leaves that fact
+   `staleForReprocess` again — outside the pass an operator just declared
+   complete. This is not a code gap, it's an operational step the plan was
+   missing: once `eligibleRemaining` reaches 0, check for facts still
+   showing an in-progress review; after each such review resolves
+   (promoted or rejected), re-run `bulk-send-back` once more — Taxonomy
+   Health correctly re-flags any fact that reverted to stale, so a second
+   pass catches it. Document this as a required operator step, not an
+   optional follow-up, in the TEST_RUN doc.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
