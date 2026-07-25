@@ -443,6 +443,27 @@ describe("PATCH /admin/facts/:id", () => {
     assert.equal(typeof row.splitTokenIndex, "number");
   });
 
+  it("a confirmed edit on a VARIANT (parentId set) commits normally — the embed/image-pipeline dispatch is no longer root-only (variant independence, site 6)", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant-edit root`);
+    const original = `${FACT_PREFIX}${randomUUID()} variant original text`;
+    const variantId = await createTestFact(original, { parentId: rootId });
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${variantId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({
+        text: "{Subj} keeps it locked as a variant.",
+        confirmTextEdit: {
+          phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
+          reason: "verifying the confirmed-edit dispatch runs for a variant too.",
+          expectedOldTextHash: hashFactText(original),
+        },
+      });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, variantId));
+    assert.equal(row?.parentId, rootId, "still a variant — the dispatch decision is no longer gated on this");
+  });
+
   it("validates before updating — rejects grammar-invalid text with 422 and does not write it", async () => {
     const original = `${FACT_PREFIX}${randomUUID()} original text`;
     const factId = await createTestFact(original);
@@ -765,6 +786,21 @@ describe("DELETE /admin/facts/:id", () => {
     assert.equal(rootRow, undefined, "root should be hard-deleted");
     const [childRow] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, childId));
     assert.equal(childRow.isActive, false, "the orphaned variant must be deactivated, not left active");
+  });
+});
+
+// ── POST /admin/facts/:id/refresh-images ──────────────────────────────────────
+
+describe("POST /admin/facts/:id/refresh-images", () => {
+  it("a variant (parentId set) is accepted — images are no longer root-only (variant independence)", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} refresh-images root`);
+    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} refresh-images variant`, { parentId: rootId });
+    const res = await request(makeApp())
+      .post(`/admin/facts/${variantId}/refresh-images`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.skipped, false);
   });
 });
 

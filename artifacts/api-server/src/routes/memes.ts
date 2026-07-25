@@ -1322,13 +1322,12 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
     rawGender === "female" ? "female" : "neutral";
 
   const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
+    .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
     .from(factsTable)
     .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
     .limit(1);
 
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "AI meme generation only supported on root facts" }); return; }
 
   // Check storage limit before firing pipeline
   if (req.user?.id && await isUserAtImageLimit(req.user.id)) {

@@ -362,7 +362,6 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "missing_required_data",
   // Bulk send-back guard skips (mirror SendBackToReviewError codes 1:1).
   "already_in_review",
-  "has_active_variants",
   "not_active",
 ] as const;
 export type TaxonomyHealthSkipReason =
@@ -415,6 +414,15 @@ export interface TaxonomyHealthActionResponse {
   eligibleRemaining?: number;
   /** Bulk send-back only: the server-enforced per-request enqueue cap. */
   batchLimit?: number;
+  /**
+   * Bulk send-back `all_stale` only: count of stale facts currently excluded
+   * by the repeated-failure circuit breaker (their 3 most recent
+   * `fact_send_back` jobs are all terminally `failed`). Nonzero means the
+   * migration is NOT complete even if `queued`/`failed`/`eligibleRemaining`
+   * all read clean — each flagged fact needs `scope: "selected"` manual
+   * investigation, the only path that clears the streak.
+   */
+  repeatedFailureCount?: number;
 }
 
 // ─── Job-status polling (poll by concrete async_jobs.id) ───────────────────

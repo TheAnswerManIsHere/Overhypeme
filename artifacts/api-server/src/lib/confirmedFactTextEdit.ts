@@ -10,33 +10,29 @@
  *      still apply). This is why request-field presence is never the signal.
  *   3. resolve protection from the locked row + review history.
  *   4. PROTECTED branch → require the phrase+reason+expected-hash confirmation;
- *      block if a direct variant is mid-cycle; write text, clear the fact's +
- *      its direct variants' signatures, PRESERVE enrichment, insert one audit
- *      row — all atomically.
+ *      write text, clear the fact's own signature, PRESERVE enrichment, insert
+ *      one audit row — all atomically. A root re-word never touches its
+ *      variants (variant independence — a variant's enrichment depends only on
+ *      its own text).
  *   5. STAGING branch (single first-time cycle) → no confirmation/audit; reject
  *      if prep is durably in flight; write text, clear signature, set
  *      enrichmentStatus=pending, move the review to prep_pending, then ensure
  *      fresh prep jobs after commit.
  */
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, factTextEditHistoryTable, memesTable } from "@workspace/db/schema";
 import {
   confirmTextEditSchema,
   FACT_TEXT_MAX_CHARS,
   type ApprovedFactTextEditImpact,
-  type BlockingVariant,
   type FactTextProtectionReason,
   type PrepDispatchState,
 } from "@workspace/api-zod";
 import { normalizeFactTemplateForStorage } from "./normalizeFactTemplateForStorage";
 import { hashFactText, findInFlightRefreshCandidate } from "./enrichmentVersioning";
-import {
-  resolveFactTextProtection,
-  loadDirectVariantDependencies,
-  hasNonterminalPrepJobs,
-} from "./factTextEditProtection";
+import { resolveFactTextProtection, hasNonterminalPrepJobs } from "./factTextEditProtection";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "./firstTimeStagingPrep";
 import { cascadeDeactivateActiveChildren, assertReparentAllowed, type ReparentGuardFailure } from "./factActivation";
 
@@ -51,10 +47,9 @@ export type FactTextEditOutcome =
   | { kind: "confirmation_required"; impact: ApprovedFactTextEditImpact }
   | { kind: "stale_baseline"; impact: ApprovedFactTextEditImpact }
   | { kind: "invalid_confirmation"; message: string }
-  | { kind: "dependent_variant_in_progress"; blockingVariants: BlockingVariant[]; affectedVariantCount: number }
   | { kind: "staging_prep_in_progress" }
   | { kind: "reparent_rejected"; failure: ReparentGuardFailure }
-  | { kind: "protected_committed"; fact: FactRow; auditRowId: number; affectedVariantCount: number }
+  | { kind: "protected_committed"; fact: FactRow; auditRowId: number }
   | { kind: "staging_restarted"; fact: FactRow; prepDispatch: PrepDispatchState };
 
 export interface ConfirmedFactTextEditArgs {
@@ -85,25 +80,14 @@ async function buildImpact(
   protectionReason: FactTextProtectionReason,
   tx: DbTx,
 ): Promise<ApprovedFactTextEditImpact> {
-  const isRoot = fact.parentId === null;
   const memes = await countMemes(fact.id, tx);
   const refresh = await findInFlightRefreshCandidate(fact.id, tx);
-  let affectedVariantCount = 0;
-  let blockingVariants: BlockingVariant[] = [];
-  if (isRoot) {
-    const dep = await loadDirectVariantDependencies(fact.id, tx);
-    affectedVariantCount = dep.childFactIds.length;
-    blockingVariants = dep.blockingChildren;
-  }
   return {
     protected: true,
     protectionReason,
     currentStoredText: fact.text,
     normalizedProposedText,
     expectedOldTextHash: hashFactText(fact.text),
-    isRoot,
-    affectedVariantCount,
-    blockingVariants,
     persistedMemeCount: memes.persisted,
     liveMemeCount: memes.live,
     refreshInFlight: refresh != null,
@@ -167,7 +151,6 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
     }
 
     const protection = await resolveFactTextProtection(fact.id, fact.isActive, tx);
-    const isRoot = fact.parentId === null;
 
     // ── PROTECTED branch ────────────────────────────────────────────────────
     if (protection.protected) {
@@ -184,28 +167,10 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
         return { kind: "stale_baseline", impact: await buildImpact(fact, proposed, protection.reason, tx) };
       }
 
-      // Root dependency: block (don't strand) a re-word while a variant is mid-cycle.
-      let affectedVariantCount = 0;
-      if (isRoot) {
-        const dep = await loadDirectVariantDependencies(fact.id, tx);
-        if (dep.blockingChildren.length > 0) {
-          return {
-            kind: "dependent_variant_in_progress",
-            blockingVariants: dep.blockingChildren,
-            affectedVariantCount: dep.childFactIds.length,
-          };
-        }
-        affectedVariantCount = dep.childFactIds.length;
-        // Invalidate direct variants: their enrichment was classified against
-        // the OLD parent wording. Clear only their signatures (Taxonomy Health
-        // then shows them stale_for_reprocess) — never their text/enrichment.
-        if (dep.childFactIds.length > 0) {
-          await tx.update(factsTable).set({ lastProcessedSignature: null }).where(inArray(factsTable.id, dep.childFactIds));
-        }
-      }
-
       // Write text + clear THIS fact's signature; PRESERVE enrichmentStatus/
-      // enrichment/overrides. Apply any non-text deltas in the same write.
+      // enrichment/overrides. Apply any non-text deltas in the same write. A
+      // root re-word never touches its variants — their enrichment depends
+      // only on their own text (variant independence).
       const [updated] = await tx
         .update(factsTable)
         .set({ ...textColumns, lastProcessedSignature: null, ...args.nonTextUpdates })
@@ -225,7 +190,6 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
         kind: "protected_committed",
         fact: updated!,
         auditRowId: audit!.id,
-        affectedVariantCount,
       };
     }
 

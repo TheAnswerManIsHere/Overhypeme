@@ -427,7 +427,7 @@ describe("sendFactBackToReview", () => {
     );
   });
 
-  it("rejects an inactive fact (NOT_ACTIVE) and a root with active variants", async () => {
+  it("rejects an inactive fact (NOT_ACTIVE)", async () => {
     const [inactive] = await db.insert(factsTable)
       .values({ text: "{NAME} inactive", submittedById: submitterId, isActive: false })
       .returning();
@@ -436,16 +436,16 @@ describe("sendFactBackToReview", () => {
       sendFactBackToReview({ factId: inactive.id, adminId }),
       (err: unknown) => err instanceof SendBackToReviewError && err.code === "NOT_ACTIVE",
     );
+  });
 
+  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const root = await seedActiveFact();
     const [variant] = await db.insert(factsTable)
       .values({ text: "{NAME} variant", submittedById: submitterId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
       .returning();
     insertedFactIds.push(variant.id);
-    await assert.rejects(
-      sendFactBackToReview({ factId: root.id, adminId }),
-      (err: unknown) => err instanceof SendBackToReviewError && err.code === "HAS_ACTIVE_VARIANTS",
-    );
+    const result = await sendFactBackToReview({ factId: root.id, adminId });
+    assert.equal(typeof result.candidateVersionId, "number");
   });
 });
 

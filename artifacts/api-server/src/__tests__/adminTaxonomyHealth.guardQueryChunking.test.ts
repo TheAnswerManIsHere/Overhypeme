@@ -1,13 +1,12 @@
 /**
  * Guard-query chunking (Codex P2 on PR205).
  *
- * `factsWithInFlightRefresh` / `factsWithActiveVariants` back the bulk
- * send-back picker, which can pass EVERY stale-for-reprocess fact id — on a
- * legacy corpus (or right after a "Mark major update" bump) that can be
- * thousands of ids, well past a safe single `inArray(...)` parameter list.
- * These tests prove chunking preserves correctness across a chunk boundary
- * (not just under it), padding with synthetic nonexistent ids rather than
- * seeding thousands of real rows.
+ * `factsWithInFlightRefresh` backs the bulk send-back picker, which can pass
+ * EVERY stale-for-reprocess fact id — on a legacy corpus (or right after a
+ * "Mark major update" bump) that can be thousands of ids, well past a safe
+ * single `inArray(...)` parameter list. These tests prove chunking preserves
+ * correctness across a chunk boundary (not just under it), padding with
+ * synthetic nonexistent ids rather than seeding thousands of real rows.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -23,7 +22,6 @@ import {
   chunkIds,
   GUARD_QUERY_CHUNK_SIZE,
   factsWithInFlightRefresh,
-  factsWithActiveVariants,
 } from "../routes/adminTaxonomyHealth.js";
 
 describe("chunkIds", () => {
@@ -108,28 +106,6 @@ describe("factsWithInFlightRefresh — cross-chunk correctness", () => {
     const result = await factsWithInFlightRefresh(ids);
     assert.ok(result.has(firstChunkFact), "match in the first chunk must be detected");
     assert.ok(result.has(laterChunkFact), "match in a later chunk must be detected");
-    assert.equal(result.size, 2, "no false positives from the synthetic padding");
-  });
-});
-
-describe("factsWithActiveVariants — cross-chunk correctness", () => {
-  it("detects a root's active variant whether the root lands in the first or a later chunk", async () => {
-    const firstChunkRoot = await seedFact();
-    await seedFact({ parentId: firstChunkRoot });
-    const laterChunkRoot = await seedFact();
-    await seedFact({ parentId: laterChunkRoot });
-
-    const ids = [
-      firstChunkRoot,
-      ...syntheticIds(GUARD_QUERY_CHUNK_SIZE, 0),
-      laterChunkRoot,
-      ...syntheticIds(200, GUARD_QUERY_CHUNK_SIZE + 1000),
-    ];
-    assert.ok(ids.length > GUARD_QUERY_CHUNK_SIZE, "the id list must actually span more than one chunk");
-
-    const result = await factsWithActiveVariants(ids);
-    assert.ok(result.has(firstChunkRoot), "a root in the first chunk must be detected");
-    assert.ok(result.has(laterChunkRoot), "a root in a later chunk must be detected");
     assert.equal(result.size, 2, "no false positives from the synthetic padding");
   });
 });

@@ -59,15 +59,9 @@ export class EnrichmentError extends Error {
   }
 }
 
-export type EnrichmentFactStatus = "new_fact" | "variant";
-
 export interface EnrichInput {
   /** The fact (template) text to classify. */
   factText: string;
-  /** Whether this is a brand-new fact or a variant of an existing one. */
-  status: EnrichmentFactStatus;
-  /** Parent fact text when status is "variant" (classified independently). */
-  parentText?: string | null;
 }
 
 type UserMessage = { role: "user"; content: string };
@@ -94,8 +88,6 @@ function filterParsedHashtags(parsed: unknown): unknown {
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
 export function buildEnrichmentUserMessage(input: EnrichInput): string {
-  const statusLabel = input.status === "variant" ? "variant" : "new_fact";
-  const parent = input.parentText?.trim() ? input.parentText.trim() : "";
   return [
     "Classify this submitted Overhype.me fact.",
     "",
@@ -104,16 +96,9 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
     "factTextExact:",
     input.factText,
     "",
-    "Fact status:",
-    statusLabel,
-    "",
-    "Optional parent fact text:",
-    parent,
-    "",
     "Notes:",
     "- The fact text has been rendered to canonical plain English (identity tokens resolved).",
     "- Classify the joke mechanism of the fact itself.",
-    "- If this is a variant, classify it independently. Do not assume it has the same taxonomy as the parent.",
     "- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.",
     "- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
   ].join("\n");

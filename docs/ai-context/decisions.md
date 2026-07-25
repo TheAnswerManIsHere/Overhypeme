@@ -165,14 +165,24 @@
   re-enrichment on a root re-word). Because no canonical statement existed, a
   reviewer reading only the code asked for the inheritance to be **mirrored into a
   new save path** — evidence that undocumented drift propagates. Structural
-  cross-references stay legitimate (the link itself, show/hide grouping, lifecycle
-  guards like `HAS_ACTIVE_VARIANTS`, related-facts exclusion); *metadata*
-  cross-references do not.
+  cross-references stay legitimate (the link itself, show/hide grouping,
+  `factActivation.ts`'s reparenting `HAS_ACTIVE_VARIANTS` guard, related-facts
+  exclusion); *metadata* cross-references do not.
 - **Reference:** `docs/ai-context/taxonomy-and-enrichment.md` → *Variants are
   independent facts* (canonical rule) + glossary entry "Variant (of a fact)".
   Offending sites at decision time: `routes/facts.ts:233-243`,
   `routes/facts.ts:587-590`, `lib/enrichmentJobs.ts:140-206,354-386`. Correct
   existing pattern: `enrichmentVersioning.ts`'s field-preservation invariant.
+  **`sendFactBackToReview`'s `HAS_ACTIVE_VARIANTS` guard, also removed:** it
+  rejected sending a root back to review while it had an active variant,
+  justified by the same now-fixed assumption ("refreshing a root out from
+  under active variants could silently invalidate them"). Once variants
+  classify from their own text only, that justification no longer holds, so
+  the guard — and the bulk-picker pre-skip, the skip-reason surface, and the
+  client-side error code that mirrored it — were removed too. The
+  differently-motivated `HAS_ACTIVE_VARIANTS` on `factActivation.ts`
+  (reparenting a fact that itself has active children) is unrelated and
+  still stands; it shares the error-code name, not the reasoning.
   **Root-edit invalidation mechanism, also to remove (Codex review, PR #251):**
   the parent-context classification model spawned its own machinery to protect
   it, which becomes dead weight once enrichment stops using parent text —
@@ -212,6 +222,15 @@
 - **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
   That would be a **new explicit entity** (a concept/cluster the root and variants
   both point at), not a revival of parent-inheritance through `parent_id`.
+- **Status: DONE (PR #256).** Every site enumerated above is fixed, plus the
+  bulk-backfill routes converted to a durable async queue (new `fact_pexels`
+  and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
+  breaker added to bulk-send-back so a persistently-failing fact can't create
+  an unbounded number of retry cycles nor be silently declared "migration
+  complete" while still excluded. See `docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md`
+  and `docs/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  This entry was a forward-looking "sites to fix" list at decision time — it
+  now describes fixed behavior, not a plan.
 
 ### 2026-07-24 · Deferred engineering work gets one durable backlog, split from the product roadmap
 - **Decision:** Created [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md)

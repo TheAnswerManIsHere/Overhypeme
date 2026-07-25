@@ -41,7 +41,8 @@ import {
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
-import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
+import { enqueueFactPexels } from "../lib/factPexelsJobs";
+import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
@@ -992,9 +993,6 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     case "stale_baseline":
       res.status(409).json({ error: "The stored wording changed since you opened this — review the new diff.", code: FACT_TEXT_EDIT_CODES.STALE_BASELINE, impact: outcome.impact });
       return;
-    case "dependent_variant_in_progress":
-      res.status(409).json({ error: "A variant of this fact is mid-review. Resolve or finish those before re-wording the parent.", code: FACT_TEXT_EDIT_CODES.DEPENDENT_VARIANT_IN_PROGRESS, blockingVariants: outcome.blockingVariants, affectedVariantCount: outcome.affectedVariantCount });
-      return;
     case "staging_prep_in_progress":
       res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
       return;
@@ -1005,15 +1003,12 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, outcome.fact);
       return;
     case "protected_committed":
-      // Root re-word: re-embed + re-seed stock photos (variants inherit the
-      // parent's images and aren't embedded). Checked against the UPDATED row's
-      // parentId (not a pre-update flag) so a PATCH that also promotes a variant
-      // to root in the same request still seeds these root-only artifacts.
-      if (outcome.fact.parentId === null) {
-        void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
-        void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
-      }
-      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId, affectedVariantCount: outcome.affectedVariantCount });
+      // Confirmed edit: re-embed + re-seed stock photos for the fact being
+      // edited, root or variant (variant independence — a variant generates
+      // its own images/embedding too, not just a root).
+      void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
+      void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
+      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId });
       return;
     case "staging_restarted":
       respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
@@ -1438,8 +1433,8 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
   } catch (err) {
     if (err instanceof SendBackToReviewError) {
       if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // NOT_ACTIVE / HAS_ACTIVE_VARIANTS / REFRESH_ALREADY_IN_PROGRESS — the
-      // in-progress case names the in-flight cycle so the UI can link to it.
+      // NOT_ACTIVE / REFRESH_ALREADY_IN_PROGRESS — the in-progress case names
+      // the in-flight cycle so the UI can link to it.
       res.status(409).json({
         error: err.message,
         code: err.code,
@@ -1935,7 +1930,7 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
 // POST /admin/facts/backfill-embeddings
 // One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
 // Accepts either an authenticated admin session OR the ADMIN_API_KEY header.
-async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
   const apiKey = req.headers["x-api-key"];
   const adminApiKey = process.env.ADMIN_API_KEY;
   if (adminApiKey && apiKey === adminApiKey) {
@@ -1984,10 +1979,9 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
   const force = req.query["force"] === "true";
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, pexelsImages: factsTable.pexelsImages })
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, pexelsImages: factsTable.pexelsImages })
     .from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
   if (!force && fact.pexelsImages !== null) {
     res.json({ success: true, skipped: true, message: "Fact already has images. Pass force=true to overwrite." });
     return;
@@ -1996,112 +1990,124 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   res.json({ success: true, skipped: false, message: "Image pipeline started. Results will appear shortly." });
 });
 
+interface BulkBackfillJob {
+  factId: number;
+  jobId: number;
+  deduped: boolean;
+  /** Bounded text preview for admin-UI display — never render factId raw. */
+  label: string;
+}
+interface BulkBackfillSkip {
+  factId: number;
+  status: "skipped";
+  reason: "not_active";
+  label: string;
+}
+/** A per-fact enqueue call rejected — the job was never created for this fact. */
+interface BulkBackfillEnqueueFailure {
+  factId: number;
+  status: "failed";
+  error: string;
+  label: string;
+}
+type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
+interface BulkBackfillResponse {
+  success: true;
+  jobs: BulkBackfillJob[];
+  outcomes: BulkBackfillOutcome[];
+  summary: { requested: number; queued: number; skipped: number; failed: number };
+}
+
+const BULK_BACKFILL_LABEL_MAX = 60;
+
+/**
+ * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
+ * per fact (route-level skip, no enqueue at all — the selection query itself
+ * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
+ * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
+ * the queued job descriptors + skip/failure outcomes for the frontend to poll
+ * via the existing `/admin/taxonomy-health/job-status` endpoint
+ * (queue-agnostic). A single fact's enqueue rejecting is caught and recorded
+ * as a failure outcome rather than aborting the request — earlier facts in
+ * the same loop already committed durable (potentially paid) jobs, and those
+ * descriptors must still reach the caller (Codex review, PR #256).
+ */
+export async function enqueueBulkBackfill(
+  facts: { id: number; text: string; isActive: boolean }[],
+  enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
+): Promise<BulkBackfillResponse> {
+  const jobs: BulkBackfillJob[] = [];
+  const outcomes: BulkBackfillOutcome[] = [];
+  for (const fact of facts) {
+    const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
+    if (!fact.isActive) {
+      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
+      continue;
+    }
+    try {
+      const result = await enqueue(fact.id);
+      jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
+    } catch (err) {
+      logger.error({ err, factId: fact.id }, "[admin] bulk-backfill enqueue failed for fact");
+      outcomes.push({ factId: fact.id, status: "failed", error: "Could not queue the job.", label });
+    }
+  }
+  const failed = outcomes.filter((o) => o.status === "failed").length;
+  return {
+    success: true,
+    jobs,
+    outcomes,
+    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
+  };
+}
+
+// POST /admin/facts/backfill-images — enqueue durable Pexels image prep
+// (FACT_PEXELS_QUEUE) for every active fact (root or variant) missing images.
 router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {
-    const rootFacts = await db.select({ id: factsTable.id, text: factsTable.text })
-      .from(factsTable).where(isNull(factsTable.parentId));
-    let triggered = 0;
-    for (const fact of rootFacts) {
-      void runFactImagePipeline(fact.id, fact.text);
-      triggered++;
-    }
-    res.json({ success: true, triggered });
+    const facts = await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+      .from(factsTable).where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill images error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
-// POST /admin/backfill-pexels
-// Backfill Pexels images for all root facts that currently have NULL pexelsImages.
+// POST /admin/backfill-pexels — enqueue durable Pexels image prep for every
+// active fact (root or variant) that currently has NULL pexelsImages.
 // Idempotent: skips facts that already have images.
-// Returns 202 immediately with the count of facts queued; processes sequentially in the background.
 router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    const nullFacts = await db
-      .select({ id: factsTable.id, text: factsTable.text })
+    const facts = await db
+      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
       .from(factsTable)
-      .where(and(isNull(factsTable.parentId), isNull(factsTable.pexelsImages)));
-
-    const queued = nullFacts.length;
-    res.status(202).json({ success: true, queued, message: `Backfilling Pexels images for ${queued} fact(s) in the background.` });
-
-    if (queued === 0) {
-      logger.info("[admin] backfill-pexels: all root facts already have images, nothing to do.");
-      return;
-    }
-
-    void (async () => {
-      logger.info({ queued }, "[admin] backfill-pexels: starting");
-      let succeeded = 0;
-      let failed = 0;
-
-      for (let i = 0; i < nullFacts.length; i++) {
-        const fact = nullFacts[i]!;
-        logger.info(
-          { index: i + 1, queued, factId: fact.id, preview: fact.text.slice(0, 60) },
-          "[admin] backfill-pexels: processing",
-        );
-
-        await runFactImagePipeline(fact.id, fact.text);
-
-        // runFactImagePipeline catches all errors internally — verify success via DB
-        const [updated] = await db
-          .select({ pexelsImages: factsTable.pexelsImages })
-          .from(factsTable)
-          .where(eq(factsTable.id, fact.id))
-          .limit(1);
-
-        if (updated?.pexelsImages != null) {
-          succeeded++;
-          logger.info({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: OK");
-        } else {
-          failed++;
-          logger.error({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: FAILED (pexelsImages still null)");
-        }
-
-        // 1-second delay between requests to respect Pexels rate limits
-        if (i < nullFacts.length - 1) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
-        }
-      }
-
-      logger.info({ succeeded, failed, queued }, "[admin] backfill-pexels: done");
-    })();
+      .where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] backfill-pexels error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
+// POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
+// (fact_ai_meme_backfill queue) for every active fact (root or variant)
+// missing AI-meme images (or every active fact with ?force=true).
 router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
   try {
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
-    let rootFacts;
-    if (force) {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(isNull(factsTable.parentId));
-    } else {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(and(isNull(factsTable.parentId), isNull(factsTable.aiMemeImages)));
-    }
+    const facts = force
+      ? await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive }).from(factsTable)
+      : await db
+          .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+          .from(factsTable)
+          .where(isNull(factsTable.aiMemeImages));
 
-    const total = rootFacts.length;
-    res.json({ success: true, queued: total, message: `Processing ${total} facts sequentially in the background.` });
-
-    // Process sequentially so we don't hammer OpenAI rate limits
-    void (async () => {
-      logger.info({ total, force }, "[admin] backfill-ai-memes: starting");
-      for (const fact of rootFacts) {
-        await generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
-      }
-      logger.info({ total }, "[admin] backfill-ai-memes: done");
-    })();
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactAiMemeBackfill(factId));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill AI memes error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
@@ -2127,7 +2133,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
+      .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -2142,10 +2148,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
       let failed = 0;
       for (const fact of rows) {
         try {
-          const enrichment = await enrichFact({
-            factText: fact.text,
-            status: fact.parentId ? "variant" : "new_fact",
-          });
+          const enrichment = await enrichFact({ factText: fact.text });
           // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
           // from the EXISTING row: fresh classifier output never carries a VSO, so
           // materializing from it alone would strip the human concept (breaking

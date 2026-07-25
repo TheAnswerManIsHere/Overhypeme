@@ -218,7 +218,6 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
     .select({
       id: factsTable.id,
       text: factsTable.text,
-      parentId: factsTable.parentId,
       aiScenePrompts: factsTable.aiScenePrompts,
     })
     .from(factsTable)
@@ -226,10 +225,6 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
     .limit(1);
   if (!fact) {
     res.status(404).json({ error: "Fact not found" });
-    return;
-  }
-  if (fact.parentId !== null) {
-    res.status(400).json({ error: "AI meme generation only supported on root facts" });
     return;
   }
 

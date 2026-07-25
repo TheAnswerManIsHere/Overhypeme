@@ -21,7 +21,7 @@
  * fact TEXT, which a refresh never changes (decision 10).
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
 import type { EnrichmentOverrides } from "@workspace/api-zod";
@@ -32,7 +32,6 @@ import { logger } from "./logger";
 export type SendBackToReviewErrorCode =
   | "FACT_NOT_FOUND"
   | "NOT_ACTIVE"
-  | "HAS_ACTIVE_VARIANTS"
   | "REFRESH_ALREADY_IN_PROGRESS";
 
 /** Typed failure from `sendFactBackToReview`; callers map codes to HTTP (409s). */
@@ -97,19 +96,6 @@ export async function sendFactBackToReview(args: {
         throw new SendBackToReviewError(
           "NOT_ACTIVE",
           "Only an active (live) fact can be sent back to review — this one is inactive.",
-        );
-      }
-      // Variants are classified WITH their parent's text as context; refreshing a
-      // root out from under active variants could silently invalidate them.
-      const [variant] = await tx
-        .select({ id: factsTable.id })
-        .from(factsTable)
-        .where(and(eq(factsTable.parentId, factId), eq(factsTable.isActive, true)))
-        .limit(1);
-      if (variant) {
-        throw new SendBackToReviewError(
-          "HAS_ACTIVE_VARIANTS",
-          "This fact has active variants. Refresh the variants individually instead of the root.",
         );
       }
       const existing = await findInFlightRefreshCandidate(factId, tx);

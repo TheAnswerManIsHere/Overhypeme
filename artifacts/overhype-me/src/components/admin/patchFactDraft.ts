@@ -1,7 +1,6 @@
 import {
   FACT_TEXT_EDIT_CODES,
   type ApprovedFactTextEditImpact,
-  type BlockingVariant,
   type ConfirmTextEdit,
   type PrepDispatchState,
 } from "@workspace/api-zod";
@@ -14,10 +13,9 @@ import {
  * can open the right modal instead of flashing a red "Save failed".
  */
 export type PatchFactDraftResult<F> =
-  | { kind: "saved"; fact: F; auditRowId?: number; affectedVariantCount?: number; prepDispatch?: PrepDispatchState }
+  | { kind: "saved"; fact: F; auditRowId?: number; prepDispatch?: PrepDispatchState }
   | { kind: "confirmation_required"; impact: ApprovedFactTextEditImpact }
   | { kind: "stale_baseline"; impact: ApprovedFactTextEditImpact }
-  | { kind: "dependent_variant_in_progress"; blockingVariants: BlockingVariant[]; affectedVariantCount: number }
   | { kind: "staging_prep_in_progress" }
   | { kind: "error"; message: string };
 
@@ -41,10 +39,8 @@ export async function patchFactDraft<F>(
   const data = (await res.json().catch(() => ({}))) as {
     fact?: F;
     auditRowId?: number;
-    affectedVariantCount?: number;
     prepDispatch?: PrepDispatchState;
     impact?: ApprovedFactTextEditImpact;
-    blockingVariants?: BlockingVariant[];
     code?: string;
     error?: string;
   };
@@ -54,7 +50,6 @@ export async function patchFactDraft<F>(
       kind: "saved",
       fact: data.fact,
       auditRowId: data.auditRowId,
-      affectedVariantCount: data.affectedVariantCount,
       prepDispatch: data.prepDispatch,
     };
   }
@@ -66,8 +61,6 @@ export async function patchFactDraft<F>(
     case FACT_TEXT_EDIT_CODES.STALE_BASELINE:
       if (data.impact) return { kind: "stale_baseline", impact: data.impact };
       break;
-    case FACT_TEXT_EDIT_CODES.DEPENDENT_VARIANT_IN_PROGRESS:
-      return { kind: "dependent_variant_in_progress", blockingVariants: data.blockingVariants ?? [], affectedVariantCount: data.affectedVariantCount ?? 0 };
     case FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS:
       return { kind: "staging_prep_in_progress" };
   }

@@ -39,19 +39,12 @@ export type FactTextProtectionReason =
 export const FACT_TEXT_EDIT_CODES = {
   REQUIRES_CONFIRMATION: "TEXT_EDIT_REQUIRES_CONFIRMATION",
   STALE_BASELINE: "TEXT_EDIT_STALE_BASELINE",
-  DEPENDENT_VARIANT_IN_PROGRESS: "DEPENDENT_VARIANT_IN_PROGRESS",
   STAGING_PREP_IN_PROGRESS: "STAGING_PREP_IN_PROGRESS",
   INVALID_CONFIRMATION: "TEXT_EDIT_INVALID_CONFIRMATION",
   GRAMMAR_INVALID: "TEXT_EDIT_GRAMMAR_INVALID",
   TOO_LONG: "TEXT_EDIT_TOO_LONG",
 } as const;
 export type FactTextEditCode = (typeof FACT_TEXT_EDIT_CODES)[keyof typeof FACT_TEXT_EDIT_CODES];
-
-/** A direct child variant blocking a root re-word (mid-cycle). */
-export interface BlockingVariant {
-  factId: number;
-  reason: "unresolved_review" | "active_enrichment_job";
-}
 
 /** Everything the confirmation modal needs to render a truthful diff +
  *  consequences. Returned with both the REQUIRES_CONFIRMATION and the
@@ -65,11 +58,6 @@ export interface ApprovedFactTextEditImpact {
   normalizedProposedText: string;
   /** sha256 of currentStoredText; echo back in the confirmation envelope. */
   expectedOldTextHash: string;
-  isRoot: boolean;
-  /** Direct child variants whose enrichment a re-word invalidates. */
-  affectedVariantCount: number;
-  /** Subset of the above that are mid-cycle and BLOCK the edit. */
-  blockingVariants: BlockingVariant[];
   /** Memes that permanently keep the old wording (persisted vs currently live). */
   persistedMemeCount: number;
   liveMemeCount: number;

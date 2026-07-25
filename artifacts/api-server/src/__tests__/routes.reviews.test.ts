@@ -518,7 +518,7 @@ describe("fact_pexels durable image-prep queue", () => {
     }).returning();
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, {
+    const result = await runFactPexelsJob(fact.id, false, {
       seed: async (id) => {
         seedCalled = true;
         // Mirror seedFactPexelsImagesOnce's terminal write so the assertion is real.
@@ -544,7 +544,7 @@ describe("fact_pexels durable image-prep queue", () => {
     });
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, { seed: async () => { seedCalled = true; } });
+    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { seedCalled = true; } });
     assert.equal(result.ok, true);
     assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review is resolved");
   });
@@ -558,7 +558,7 @@ describe("fact_pexels durable image-prep queue", () => {
     }).returning();
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, {
+    const result = await runFactPexelsJob(fact.id, false, {
       seed: async (id) => {
         seedCalled = true;
         await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
@@ -581,7 +581,7 @@ describe("fact_pexels durable image-prep queue", () => {
       workflowStage: "prep_pending", stagingFactId: fact.id,
     });
 
-    const result = await runFactPexelsJob(fact.id, { seed: async () => { throw new Error("pexels 503"); } });
+    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { throw new Error("pexels 503"); } });
     assert.equal(result.ok, false);
 
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));

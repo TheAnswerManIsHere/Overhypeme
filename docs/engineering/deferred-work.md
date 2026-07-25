@@ -259,6 +259,30 @@ re-gather it when the work is scheduled.
 
 ## Code-level tech debt
 
+- **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**
+  - **What.** `factPexelsJobs.ts`'s `enqueueFactPexels` and
+    `aiMemeBackfillJobs.ts`'s `enqueueFactAiMemeBackfill` each write the
+    fact's status field to `"pending"` (or a handler writes a terminal value)
+    as a separate statement from the `enqueueJob` insert/dedupe call — the two
+    aren't composed inside one transaction. Two related races follow: (1) a
+    late enqueue landing between a handler's terminal-marker write and its
+    `async_jobs` row's finalization can reset the marker back to `"pending"`
+    and then dedupe onto the still-`processing` row, which never repairs it;
+    (2) `factPexelsJobs.ts`'s 1s post-success pacing sleep widens that same
+    window further. In both cases the underlying `pexelsImages`/`aiMemeImages`
+    data is unaffected — only the status marker can go stale.
+  - **Why deferred now.** Closing this needs `enqueueJob`'s dedupe-conflict
+    recovery to compose inside a caller-managed transaction, which it doesn't
+    support today — a real fix is a small piece of `asyncJobs.ts` transaction
+    hardening, not a one-line change in either queue file.
+  - **Cost of waiting.** A rare concurrent-enqueue race can leave a fact's
+    Pexels/AI-meme status display stuck at "pending" after the underlying job
+    actually completed. No data loss; a moderator/admin can force a re-enqueue
+    to clear it.
+  - **Revisit trigger.** Next time `asyncJobs.ts`'s enqueue/dedupe machinery is
+    touched for another reason, or this race is observed in production status
+    data (not just theoretically), fold in transactional composition then.
+
 - **`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.**
   - **What.** Rows are re-queued with `signature: null` because per-row
     processing signatures aren't stamped at send-back time; the comment defers
