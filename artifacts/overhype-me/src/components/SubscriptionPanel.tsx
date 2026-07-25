@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
-import { formatAmount } from "@/components/subscriptionHelpers";
+import { formatAmount, findAnnualPriceId, getAnnualSavingsPercent } from "@/components/subscriptionHelpers";
 import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle, CheckCircle2 } from "lucide-react";
 
 interface Subscription {
@@ -252,7 +252,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     setProrationPreview(null);
 
     // Find annual price from plans
-    const annualPriceId = findAnnualPriceId();
+    const annualPriceId = findAnnualPriceId(plans, price?.id);
     if (!annualPriceId) {
       setError("Annual plan not available");
       return;
@@ -307,62 +307,6 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     }
   }
 
-  function findAnnualPriceId(): string | null {
-    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
-
-    // Find the product containing the current monthly price, then return its annual price
-    if (currentPriceId) {
-      for (const product of plans) {
-        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
-        if (hasCurrentPrice) {
-          const annualPrice = product.prices.find(p => p.recurring?.interval === "year");
-          if (annualPrice) return annualPrice.id;
-        }
-      }
-    }
-
-    // Fallback: if current price not found in plans (e.g., synced from webhook but not in plans list),
-    // return the first annual price across all plans
-    for (const product of plans) {
-      for (const price of product.prices) {
-        if (price.recurring?.interval === "year") return price.id;
-      }
-    }
-    return null;
-  }
-
-  function getAnnualSavingsPercent(): number | null {
-    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
-    let monthlyAmount: number | null = null;
-    let annualAmount: number | null = null;
-
-    // Find amounts from the same product as current subscription
-    if (currentPriceId) {
-      for (const product of plans) {
-        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
-        if (hasCurrentPrice) {
-          monthlyAmount = product.prices.find(p => p.recurring?.interval === "month")?.unit_amount ?? null;
-          annualAmount = product.prices.find(p => p.recurring?.interval === "year")?.unit_amount ?? null;
-          break;
-        }
-      }
-    }
-
-    // Fallback to global search
-    if (!monthlyAmount || !annualAmount) {
-      for (const product of plans) {
-        for (const price of product.prices) {
-          if (price.recurring?.interval === "month") monthlyAmount = price.unit_amount;
-          if (price.recurring?.interval === "year") annualAmount = price.unit_amount;
-        }
-      }
-    }
-
-    if (!monthlyAmount || !annualAmount) return null;
-    const annualEquivMonthly = annualAmount / 12;
-    return Math.round((1 - annualEquivMonthly / monthlyAmount) * 100);
-  }
-
   const sub = subData?.subscription ?? null;
   const appSub = subData?.appSubscription ?? null;
   const membershipTier = subData?.membershipTier ?? "unregistered";
@@ -403,8 +347,8 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     price?.recurring?.interval === "month" ||
     (!price?.recurring && appSub?.plan === "monthly")
   );
-  const annualPriceAvailable = findAnnualPriceId() !== null;
-  const savingsPercent = getAnnualSavingsPercent();
+  const annualPriceAvailable = findAnnualPriceId(plans, price?.id) !== null;
+  const savingsPercent = getAnnualSavingsPercent(plans, price?.id);
 
   // Show the portal button for any paid member or anyone with payment history
   const showPortalButton = history.length > 0 || isLegendary;
