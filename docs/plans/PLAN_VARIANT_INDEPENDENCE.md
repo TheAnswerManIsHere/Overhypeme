@@ -479,7 +479,11 @@ root already uses — nothing to migrate, nothing destructive.
   promoting or rejecting such a review after that point can leave the fact
   stale again if the candidate predates the v7 deploy, so the TEST_RUN doc
   must instruct a second `bulk-send-back` pass once any pending reviews
-  resolve.
+  resolve. **Nor is it the finish line if a target failed to enqueue or its
+  job later exhausted retries (Codex round 15, P1 — see Implementation Step
+  2):** the TEST_RUN doc's stop condition is `eligibleRemaining: 0` AND
+  `failed: 0` on the same response AND no terminally-`failed`
+  `fact_send_back` jobs — not `eligibleRemaining: 0` alone.
 
 ## Security, Permissions, and Validation
 
@@ -551,6 +555,20 @@ prove it with **both** a root and a variant fixture:
   two-pass operator flow (finish in-flight reviews, re-run) actually
   refreshes it, rather than `eligibleRemaining: 0` being mistaken for
   corpus-complete.
+- **A failed send-back must not be masked by `eligibleRemaining: 0` (Codex
+  round 15, P1):** force `enqueueJob` to throw for one target in an
+  `all_stale` `bulk-send-back` call — assert the response reports that fact
+  in `outcomes` with `status: "failed"` (and a nonzero `failed` count) while
+  `eligibleRemaining` still reflects the batch as consumed, proving
+  `eligibleRemaining` alone can't be the stop signal. Then assert a
+  follow-up `bulk-send-back` call (enqueue succeeding this time) selects
+  and successfully queues that same fact — proving the documented
+  check-`failed`-and-retry step actually recovers it. Separately, assert a
+  `fact_send_back` job that exhausts its retries lands in terminal `failed`
+  status in the async-jobs table with no candidate row created for that
+  fact, and that the fact still evaluates `staleForReprocess` — i.e. it's
+  neither "done" nor "in review," so it can only be caught by checking job
+  status, not by the response body or the in-flight-review check alone.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -666,6 +684,35 @@ prove it with **both** a root and a variant fixture:
    Health correctly re-flags any fact that reverted to stale, so a second
    pass catches it. Document this as a required operator step, not an
    optional follow-up, in the TEST_RUN doc.
+   **`eligibleRemaining: 0` also survives enqueue and job failures (Codex
+   round 15, P1) — a second, independent way the stop condition can lie.**
+   `pickSendBackTargets` computes `eligibleRemaining` as
+   `eligibleStaleIds.length - toEnqueue.length` — a count of what was
+   *selected*, before any enqueue is attempted
+   (`adminTaxonomyHealth.ts:515-550`). If `enqueueJob` throws for a
+   selected fact, that fact is recorded in `outcomes` with
+   `status: "failed"` and counted in the route's `failed` tally, but it
+   still counts against `eligibleRemaining` as if handled — a response can
+   read `eligibleRemaining: 0, failed: 3` and an operator watching only
+   `eligibleRemaining` would stop with those 3 facts never queued.
+   Separately, a job that *does* enqueue successfully can still exhaust its
+   retries and land in terminal `status: "failed"` in the async-jobs table
+   (`asyncJobs.ts:443-459`, `abandoned = newAttempts >= effectiveMax`) —
+   this happens after the HTTP response already returned, so no response
+   ever surfaces it, and because `sendFactBackToReview` never ran to
+   completion, no candidate row exists — the fact is invisible to round
+   14's in-flight-review check too. Both failure modes leave the fact
+   `staleForReprocess` with nothing tracking it as pending. Operator
+   guidance, three conditions must ALL hold before the reprocess is
+   actually done: (1) a `bulk-send-back` (`all_stale`) response with
+   `eligibleRemaining: 0` **and** `failed: 0`; (2) no `fact_send_back`
+   queue jobs in terminal `failed` status (check the async-jobs table/admin
+   view) — if any exist, re-run `bulk-send-back` targeting those fact ids
+   (`scope: "selected"`) since the underlying fact is still stale and
+   uncaptured, so the picker will select it again; (3) round 14's
+   in-flight-review resolution + re-run. Document all three as the actual
+   stop condition in the TEST_RUN doc — "`eligibleRemaining` hits 0" alone
+   is necessary but not sufficient.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
