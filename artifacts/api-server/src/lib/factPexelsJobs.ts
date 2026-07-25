@@ -34,7 +34,8 @@
  * tail latency on `firstTimeStagingPrep.ts`'s single-fact enqueue too — already
  * best-effort/non-blocking).
  *
- * Known, deliberately deferred limitation (David, 2026-07-25 — same call as
+ * Known, deliberately deferred limitation (David, 2026-07-25 — same call, and
+ * tracked in the same docs/engineering/deferred-work.md entry, as
  * `aiMemeBackfillJobs.ts`'s identical note): the pacing sleep above widens a
  * narrow race between this handler's `pexels_status` write and its
  * `async_jobs` row's finalization. If a second enqueue lands in that window,
@@ -105,11 +106,21 @@ export async function enqueueFactPexels(
     .update(factsTable)
     .set({ pexelsStatus: "pending" })
     .where(eq(factsTable.id, factId));
-  return enqueueJob({
-    queue: FACT_PEXELS_QUEUE,
-    payload: { factId, ...(opts?.bulkBackfill ? { bulkBackfill: true } : {}) },
-    dedupeKey: factPexelsDedupeKey(factId),
-  });
+  try {
+    return await enqueueJob({
+      queue: FACT_PEXELS_QUEUE,
+      payload: { factId, ...(opts?.bulkBackfill ? { bulkBackfill: true } : {}) },
+      dedupeKey: factPexelsDedupeKey(factId),
+    });
+  } catch (err) {
+    // The "pending" write above already landed; if enqueueJob's insert itself
+    // rejects (a real DB error, not the dedupe-conflict path — that's caught
+    // internally and never throws), no job row exists to ever finalize this
+    // fact's status. Repair it to "failed" rather than stranding it at
+    // "pending" forever with nothing left to run (Codex review, PR #256).
+    await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId));
+    throw err;
+  }
 }
 
 /**

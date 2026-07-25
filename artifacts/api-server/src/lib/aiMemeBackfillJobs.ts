@@ -33,16 +33,17 @@
  * `isActive` recheck, does the handler set "processing" immediately before
  * calling the pipeline.
  *
- * Known, deliberately deferred limitation (David, 2026-07-25 — see
- * docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md): the enqueue-side status write and
- * the `enqueueJob` call are sequential, not transactional — `enqueueJob`'s own
- * dedupe-conflict recovery isn't composable inside a caller-managed
- * transaction. A second, narrower race (a late enqueue landing between this
- * handler's terminal-marker write and its job row's finalization) can also
- * leave the marker orphaned at "pending" after the job is already `done` —
- * the underlying `aiMemeImages` data is unaffected either way; only the
- * status marker can go stale. Both are tracked in that hardening plan, not
- * fixed here.
+ * Known, deliberately deferred limitation (David, 2026-07-25 — tracked in
+ * docs/engineering/deferred-work.md's "Async-queue enqueue-side status write
+ * isn't transactional with enqueueJob" entry): the enqueue-side status write
+ * and the `enqueueJob` call are sequential, not transactional —
+ * `enqueueJob`'s own dedupe-conflict recovery isn't composable inside a
+ * caller-managed transaction. A second, narrower race (a late enqueue landing
+ * between this handler's terminal-marker write and its job row's
+ * finalization) can also leave the marker orphaned at "pending" after the job
+ * is already `done` — the underlying `aiMemeImages` data is unaffected either
+ * way; only the status marker can go stale. Both are tracked in that
+ * deferred-work entry, not fixed here.
  */
 
 import { and, eq, sql } from "drizzle-orm";
@@ -93,12 +94,22 @@ export async function enqueueFactAiMemeBackfill(factId: number): Promise<Enqueue
       // skips the write on every fact's first-ever enqueue.
       sql`${factsTable.aiMemeBackfillStatus} IS DISTINCT FROM 'processing'`,
     ));
-  return enqueueJob({
-    queue: FACT_AI_MEME_BACKFILL_QUEUE,
-    payload: { factId },
-    dedupeKey: factAiMemeBackfillDedupeKey(factId),
-    maxAttempts: 1,
-  });
+  try {
+    return await enqueueJob({
+      queue: FACT_AI_MEME_BACKFILL_QUEUE,
+      payload: { factId },
+      dedupeKey: factAiMemeBackfillDedupeKey(factId),
+      maxAttempts: 1,
+    });
+  } catch (err) {
+    // The "pending" write above already landed; if enqueueJob's insert itself
+    // rejects (a real DB error, not the dedupe-conflict path — that's caught
+    // internally and never throws), no job row exists to ever finalize this
+    // fact's status. Repair it to "failed" rather than stranding it at
+    // "pending" forever with nothing left to run (Codex review, PR #256).
+    await db.update(factsTable).set({ aiMemeBackfillStatus: "failed" }).where(eq(factsTable.id, factId));
+    throw err;
+  }
 }
 
 /**
