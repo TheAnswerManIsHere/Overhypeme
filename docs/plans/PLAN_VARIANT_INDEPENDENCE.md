@@ -361,9 +361,21 @@ implicit one (the root as a variant's de facto metadata source).
        P1 — a recovered replay of a job whose marker write already
        landed but whose `async_jobs` row wasn't yet finalized), this is a
        crash-recovery replay — short-circuit without calling the
-       pipeline (matching the existing marker for a terminal value; set
-       `failed` for `"processing"`, since that state can't confirm what
-       happened). Else, re-check `isActive` execution-time (point 5). Only
+       pipeline, resolving with the handler result that matches the
+       existing marker (Codex round 28, P1 — the round-27 fix said
+       "short-circuit" without specifying what the handler returns, so an
+       implementation could resolve every replay as generic success,
+       silently losing failure/skip information from per-item and
+       aggregate polling): marker `"ok"` → resolve success (job row ends
+       `done`); marker `"failed"` → resolve failure (job row ends
+       `failed`, not `done`); marker `"skipped"` → resolve success
+       carrying the same structured skip result the inactive-skip path
+       produces (`{ skipped: true, reason: "not_active" }` — the only
+       skip reason this queue has, so it's safe to reconstruct on replay)
+       so per-item status still reports `skipped`, not a plain success,
+       even though the job row itself is `done`; marker `"processing"` →
+       resolve failure (unconfirmed outcome, per the existing rule). Else,
+       re-check `isActive` execution-time (point 5). Only
        past both checks does the handler set `processing`, **immediately
        before** calling the pipeline (not any earlier — setting it before
        the `isActive` recheck would leave the marker stuck at
@@ -567,12 +579,34 @@ implicit one (the root as a variant's de facto metadata source).
   instead of `runFactImagePipeline`; `backfill-ai-memes.ts` calls
   `enqueueFactAiMemeBackfill(fact.id)` instead of
   `generateAiMemeBackgrounds` directly. Both scripts keep their own
-  selection query and console-logged summary (enqueued vs. deduped counts,
-  matching `backfill-fact-pexels.ts`'s existing pattern) — the worker
-  drains the queue after the script exits, same as the HTTP routes; the
-  scripts' current per-fact `sleep(DELAY_MS)` pacing becomes unnecessary
-  once the dedicated `"pexels"`/`"ai_meme_backfill"` lanes provide it and
-  is removed.
+  selection query. The scripts' current per-fact `sleep(DELAY_MS)` pacing
+  becomes unnecessary once the dedicated `"pexels"`/`"ai_meme_backfill"`
+  lanes provide it and is removed.
+  **(Codex round 28, P1) The scripts must keep reporting terminal
+  outcomes, not just enqueue and exit:** the original scripts run the
+  pipeline synchronously per fact and log a per-fact OK/FAILED result
+  plus a final `succeeded`/`failed` summary
+  (`backfill-pexels.ts`'s post-call `pexelsImages` re-fetch is exactly
+  this). Converting to enqueue-only and exiting after printing
+  enqueued/deduped counts (`backfill-fact-pexels.ts`'s existing pattern)
+  silently drops that reporting — an operator watching the terminal gets
+  no indication of eventual success/failure, and if no API worker
+  happens to be running concurrently the enqueued jobs simply sit
+  `pending` forever with the script having already exited looking
+  "done." This is exactly the async-status rule (`AGENTS.md:126-127`)
+  applied to a CLI surface instead of an HTTP one — enqueue is not
+  completion here either. Fix: after enqueueing, each script polls the
+  enqueued facts' status column (`pexelsStatus`/`ai_meme_backfill_status`)
+  at a short interval until every fact reaches a terminal value
+  (`ok`/`failed`/`skipped` for AI-memes; `ok`/`failed` for Pexels, per
+  the existing enum) or a bounded timeout elapses, logging each fact's
+  outcome as it resolves (matching the current per-fact log lines) and a
+  final summary (`succeeded`/`failed`/`skipped` counts), exiting nonzero
+  if any failed — preserving today's `process.exit(failed > 0 ? 1 : 0)`
+  contract. Update each script's header docstring to state the API
+  server's async-jobs worker must be running for enqueued jobs to
+  process (a new requirement — the old synchronous calls didn't need a
+  separate worker process).
   **Root-only copy left behind (Codex round 12) — update alongside the
   query, not just the filter:** the script's header docstring
   (`backfill-pexels.ts:1-2`) and two `console.log` lines (`:33,44`) all
@@ -979,7 +1013,14 @@ prove it with **both** a root and a variant fixture:
   same job (asserted by driving both enqueue paths for the same fact id
   and checking exactly one job row exists), proving the CLI scripts now
   share the same dedupe surface as the HTTP routes instead of bypassing
-  it.
+  it. **(Codex round 28, P1):** running either script end-to-end against
+  a small fixture set (with the worker active in-process for the test)
+  asserts the process doesn't exit until every enqueued fact reaches a
+  terminal status, the final summary's `succeeded`/`failed`/`skipped`
+  counts match the fixtures' actual outcomes (including a forced-failure
+  fixture), and the exit code is nonzero when any fact failed —
+  preserving the original scripts' reporting contract instead of
+  silently dropping it at the enqueue point.
   **Corrected, then reversed (Codex rounds 16 and 18, both P1):** round 16
   caught that "included in the queued/processed set" overclaimed what was
   observable given the routes' original fire-and-forget shape (verified
@@ -1360,9 +1401,17 @@ prove it with **both** a root and a variant fixture:
        to `pending` and reschedules — without this check, the recovered
        run would call `generateAiMemeBackgrounds` again and repeat every
        paid image call despite already having a terminal result).
-       Short-circuit: don't call the pipeline, just resolve the job with
-       the outcome matching the existing marker (`"ok"` → success,
-       `"failed"`/`"skipped"` → the matching failure/skip result). Else,
+       Short-circuit: don't call the pipeline. **(Codex round 28, P1 —
+       specify the exact mapping; "matching outcome" alone left room to
+       resolve every replay as generic success, silently losing
+       failure/skip information from polling)** Resolve the job per the
+       existing marker: `"ok"` → resolve success (job row ends `done`);
+       `"failed"` → resolve failure (job row ends `failed`); `"skipped"`
+       → resolve success carrying the same `{ skipped: true, reason:
+       "not_active" }` structured result the inactive-skip path below
+       produces (the only skip reason this queue has, so reconstructible
+       on replay) — the job row still ends `done`, but per-item status
+       correctly reports `skipped`, not a plain success. Else,
        re-check `isActive` execution-time (an enqueue-time check alone
        misses a queue-wait deactivation race now that the lane is
        serialized) — on failure, set the terminal `skipped` value and
@@ -1509,6 +1558,15 @@ prove it with **both** a root and a variant fixture:
        marker was `"failed"`/`"skipped"` at the time of the same
        interrupted finalization — assert the recovered run doesn't call
        the pipeline and the marker is unchanged.
+       **(Codex round 28, P1) Assert the specific handler-result mapping,
+       not just "no pipeline call":** for the `"ok"`-marker replay above,
+       assert the `async_jobs` row itself ends `done` (not left
+       `processing`/`failed`). For the `"failed"`-marker replay, assert
+       the job row ends `failed`, NOT `done` — a naive "resolve success"
+       implementation would misreport it. For the `"skipped"`-marker
+       replay, assert the job row ends `done` **and** the per-item
+       result carries `{ skipped: true, reason: "not_active" }` (not a
+       bare success with the skip information lost).
      - Execution-time inactive skip: enqueue an active fact, deactivate it
        before the worker tick runs (simulating a queue-wait race), run the
        tick — assert zero calls to `generateAndStoreImage`/

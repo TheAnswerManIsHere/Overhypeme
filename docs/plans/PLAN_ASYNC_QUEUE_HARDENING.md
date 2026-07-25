@@ -113,6 +113,53 @@ design):
   scope true atomicity only to queues where an orphaned `pending` marker
   has real operational cost.
 
+## A second failure mode — late dedupe during the marker/job-finalization gap
+
+Found in PR #252 round 27, while hardening `fact_ai_meme_backfill`'s own
+crash-recovery entry guard (a narrower, related problem to the core
+finding above, but distinct — it doesn't require composing `enqueueJob`
+inside a transaction at all, so it's a separate mechanism to fix).
+
+**The gap:** a queue job's *fact-level* status marker (e.g.
+`ai_meme_backfill_status = "ok"`) is written by the handler as its own
+statement, separately from the *job-level* `async_jobs` row being
+finalized to `done` by the worker framework after the handler returns.
+There is a real, if narrow, window between these two writes. If a second
+enqueue call for the same fact lands in that window:
+
+1. The enqueue-side conditional write (`UPDATE facts SET
+   ai_meme_backfill_status = 'pending' WHERE ... IS DISTINCT FROM
+   'processing'`) fires, because the current value is `"ok"` (distinct
+   from `'processing`'), clobbering the fresh `"ok"` back to `"pending"`.
+2. `enqueueJob` is then called — the previous job's `async_jobs` row is
+   still `processing` (not yet finalized), so its dedupe key is still
+   active; the new enqueue call dedupes onto that job instead of
+   creating a new one.
+3. The original handler has already returned and will never run again.
+   Nothing is left to transition the marker back to `"ok"`.
+4. Net result: the marker is permanently stuck at `"pending"` despite
+   the underlying work having genuinely succeeded.
+
+**Bounded impact, not data loss:** the underlying business data
+(`facts.aiMemeImages`, written by the pipeline independently of the
+status column) is correct either way — only the polling/observability
+marker goes stale. PR #252 ships with this documented as an accepted,
+deliberately deferred limitation rather than fixed (Codex round 27
+found it, Codex round 28 flagged that this document needed to actually
+name it, which this section does).
+
+**Why it's the same family as the core finding, not a duplicate:**
+closing this fully needs a way to distinguish "the marker is terminal
+because a genuinely new job should now proceed" from "the marker is
+terminal because THIS exact job already finished" — i.e. a discriminator
+beyond the current status enum (e.g. a per-fact monotonic generation
+counter written alongside each enqueue, checked by both the
+enqueue-side conditional write and the handler's entry guard). That's
+new design surface, not a corollary of fixing `enqueueJob` itself — a
+follow-up plan should treat it as a second, separate scope item, not
+assume fixing `enqueueJob`'s transaction-composability automatically
+resolves it too.
+
 ## Scope for the follow-up plan
 
 At minimum, when this becomes an active plan it should:
@@ -129,13 +176,24 @@ At minimum, when this becomes an active plan it should:
 4. Re-run PR #252's dedupe-conflict test ("two overlapping bulk-trigger
    calls for the same fact dedupe onto one job") against the fixed
    `enqueueJob` to confirm the fix doesn't regress it.
+5. Design and fix the late-dedupe/marker-orphaning race described above
+   (a per-fact generation discriminator or equivalent), for both queues
+   that carry a fact-level status marker — treat this as a distinct
+   scope item from #1, not something #1's fix incidentally resolves.
+6. Add a regression test for the late-dedupe scenario itself: a second
+   enqueue landing between a handler's terminal marker write and its
+   job row's finalization to `done` must not leave the marker orphaned
+   at `"pending"`.
 
 ## Cross-references
 
 - PR #252, `docs/plans/PLAN_VARIANT_INDEPENDENCE.md` — rounds 18-25 of
-  Codex review, where this was discovered. The plan's Proposed Design
-  section (AI-meme queue point 3) documents the accepted non-atomic
-  order and cites this document.
+  Codex review, where the core `enqueueJob` finding was discovered;
+  round 27 found the second, late-dedupe race while hardening the
+  crash-recovery guard; round 28 required this document to explicitly
+  capture that second race rather than only gesture at it. The plan's
+  Proposed Design section (AI-meme queue point 3) documents both
+  accepted-limitation notes and cites this document.
 - `artifacts/api-server/src/lib/asyncJobs.ts:242-317` — `enqueueJob`
   itself.
 - `artifacts/api-server/src/lib/factPexelsJobs.ts:57-66` —
