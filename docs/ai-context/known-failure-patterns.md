@@ -204,6 +204,31 @@ while `visual_concept_status = "pending"` for the same reason. See
 [`moderation-workflow.md`](./moderation-workflow.md) and the PR #179 decision in
 [`decisions.md`](./decisions.md).
 
+## Repairing state on a caught async error races the thing it's repairing
+
+**Looks like:** an enqueue helper writes optimistic status (e.g. `"pending"`)
+before calling `enqueueJob`, then on a caught error rewrites that status to a
+terminal value (e.g. `"failed"`) so the UI doesn't strand at "working."
+**Dangerous:** `enqueueJob` can throw even when a job genuinely got created —
+its own dedupe-conflict recovery has a narrow insert-retry race of its own — so
+a caught error doesn't reliably mean "no job exists." An unconditional
+repair-write can clobber a legitimately in-flight (or already-finished) job's
+real status before it's ever observed. Even a "check first, then repair" fix
+(SELECT for an in-flight job, then UPDATE only if none found) has its own
+TOCTOU gap: the job can go terminal, or another writer can write its own
+terminal status, in the window between the SELECT and the UPDATE. **Avoid:**
+fold every condition the repair depends on into **one atomic UPDATE** — the
+state is still what you last wrote AND no non-terminal row exists for the
+dedupe key — evaluated in the same statement's `WHERE` clause (a `NOT EXISTS`
+subquery), not a prior read. **Overhype:** `enqueueFactPexels`/
+`enqueueFactAiMemeBackfill` (`artifacts/api-server/src/lib/factPexelsJobs.ts`,
+`aiMemeBackfillJobs.ts`, PR #256) took three rounds of review to converge on
+this: round 1 added an unconditional repair (wrong — clobbers a concurrent
+success), round 2 added a SELECT-then-UPDATE (still racy), round 3 replaced
+both with a single `UPDATE ... WHERE status = 'pending' AND NOT EXISTS
+(SELECT 1 FROM async_jobs WHERE queue=? AND dedupe_key=? AND status IN
+('pending','processing'))`.
+
 ## One-example bug fixes
 
 **Looks like:** patching only the exact reported sentence/case instead of the

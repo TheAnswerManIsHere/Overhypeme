@@ -36,6 +36,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products)
   and
   [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
+- **Variant independence: `parent_id` is kinship, never metadata inheritance**
+  (PR #256). A variant now classifies from its own text only, owns its own
+  stock/AI images (generation included, not just display), and the three
+  bulk-backfill routes run through a new durable async queue (`fact_pexels` /
+  `fact_ai_meme_backfill` lanes) instead of blocking the request. A bounded
+  repeated-failure circuit breaker protects bulk-send-back from an unbounded
+  retry loop on a persistently-failing fact. New Bulk Media Backfill admin
+  panel. See
+  [`decisions.md`](./decisions.md#2026-07-24--variants-are-independent-facts--parent_id-is-kinship--showhide-only-never-metadata-inheritance),
+  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#variants-are-independent-facts),
+  and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Engineering deferred-work backlog + a 9-CVE dependency patch sweep**
   (PR #245, #246). New process infrastructure: a single durable backlog for
   deferred engineering/security/maintenance work

@@ -47,18 +47,20 @@ So, for **every** metadata layer:
 - A variant **never displays, borrows, or falls back to** its root's metadata.
   If a variant has no stock images of its own, it has none — the picker must not
   substitute the root's.
-- **A variant must be able to GENERATE its own images, not just display them.**
-  Today several endpoints reject or silently skip variants outright —
+- **A variant can GENERATE its own images, not just display them (PR #256).**
   `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
   `backfill-ai-memes`, and, user-facing, AI meme/PuLID generation (`memes.ts`,
-  `pulidJobs.ts`) return "AI meme generation only supported on root facts."
-  That is a direct product gap against *"a variant can have its own visual
-  concept"* — root-only image generation is exactly the constraint to remove,
-  not a display nuance. **Treat any `isNull(factsTable.parentId)`/
-  `parentId !== null` guard on an images/enrichment/AI-generation path as
-  suspect** — the exact list of sites has already been under-enumerated twice
-  in review; a repo-wide sweep is required before calling this fixed, not a
-  checklist of known examples.
+  `pulidJobs.ts`) all now operate on any active fact, root or variant — the
+  root-only 400s ("AI meme generation only supported on root facts") are
+  removed. The three bulk-backfill routes also converted from blocking/
+  direct-call to a durable async queue (`fact_pexels` / `fact_ai_meme_backfill`
+  lanes — see [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)).
+  **Still treat any new `isNull(factsTable.parentId)` / `parentId !== null`
+  guard on an images/enrichment/AI-generation path as suspect** — the exact
+  list of root-only sites was under-enumerated twice during PR #256's review
+  before a repo-wide sweep found them all; the same blind spot can recur if a
+  future feature adds a new generation path and copies an old root-only
+  pattern instead of checking this doc first.
 - **Enrichment classifies a variant on its own text only** — the root's wording
   is not passed as classifier context. Consequence (intended): **re-wording a
   root does not invalidate or re-enrich its variants.** Their enrichment depends
