@@ -133,7 +133,14 @@ Resolved. Restating a concern as a reassurance is the most common way a plan
 review gets defeated.
 
 Never drop a previous finding silently. If you no longer believe something you
-raised, say so and give the reason.
+raised, say so and give the reason. **On the GitHub structured-review surface,
+this classification still happens — it just isn't always posted.** You still
+work through Resolved / Still Open / Superseded for every prior finding before
+writing anything new; only **Still Open** gets a posted Reconciliation finding
+(see *Output*). Resolved and Superseded are silent there, and "silently" in
+this paragraph means *without having done the classification*, not "without
+posting a comment about it" — the GitHub surface's silence is a transport
+limitation you've confirmed, not the failure this paragraph is warning against.
 
 **3. Apply at least one lens you have not applied yet.** Convergence measures
 *consistency*, not *quality* — a reviewer that missed a major issue in round 1
@@ -439,14 +446,16 @@ On this surface, every piece of information above six-shape output is carried
   difference. Only **Still Open** genuinely is a live defect and gets posted
   as a Reconciliation finding, same as any other finding. When a named prior
   finding is Resolved or Superseded, **post nothing about it** — do not
-  manufacture a comment to prove you checked, and accept that the specific
-  *reason* it's Superseded (as opposed to Resolved) is lost on this surface;
-  that is the same evidence-ceiling tradeoff already accepted for Resolved,
-  not a new one. An empty result against a trigger that named specific items
-  is read as "all Resolved or Superseded" — that reading is the accepted
-  ceiling of what this transport can prove, not a gap to close. Absent a named
-  request, an empty list means only "no new objections" — post nothing and
-  let the connector's default (a 👍 reaction) stand.
+  manufacture a comment to prove you checked. You don't need to distinguish
+  Resolved from Superseded here: whoever drives the loop already knows which
+  is which from their own fix history and records that distinction in the
+  ledger independently — your silence only tells them "not Still Open," it
+  isn't the source of that split. An empty result against a trigger that
+  named specific items is read as "all Resolved or Superseded" — that reading
+  is the accepted ceiling of what *this surface* can prove, not a gap to
+  close. Absent a named request, an empty list means only "no new
+  objections" — post nothing and let the connector's default (a 👍 reaction)
+  stand.
 - **You do not compute or post the overall review-status label or the
   round-level ledger on this surface.** Whoever is driving the loop (Claude
   Code) reads your findings after each round and derives the status and
