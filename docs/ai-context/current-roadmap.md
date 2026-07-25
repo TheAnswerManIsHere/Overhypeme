@@ -24,6 +24,18 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Pricing page showed only one upgrade plan** (PR #255). Root cause: the
+  page classified a whole Stripe *product* into monthly/annual/lifetime by
+  its name (or defaulted to only its cheapest price), which collapses onto
+  one bucket when a single product carries multiple price points — Stripe's
+  natural "one product, several prices" dashboard setup. Fixed by classifying
+  each price independently by its own `recurring` field, and (per Codex
+  review on the same PR) filtering to `overhype_membership`-tagged products
+  first so a future non-membership SKU can't get advertised as a Legendary
+  plan. See
+  [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products)
+  and
+  [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
 - **Variant independence: `parent_id` is kinship, never metadata inheritance**
   (PR #256). A variant now classifies from its own text only, owns its own
   stock/AI images (generation included, not just display), and the three

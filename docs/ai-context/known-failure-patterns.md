@@ -602,3 +602,36 @@ the production ORM. (The same triage separately found and fixed CVEs in
 PR #246 sweep — bringing the total to 9 disclosed CVEs closed; see
 [`decisions.md`](./decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)
 for the full breakdown.)
+
+## Stripe plan selection: classify by price identity, not product identity
+
+**Looks like:** turning Stripe's product/price catalog into "which plan is
+this?" by inspecting the **product** — its name (string-matching "monthly" /
+"annual" / "lifetime" / "forever" keywords) or just its first/cheapest price —
+instead of inspecting **each price's own `recurring` field**. **Dangerous:**
+Stripe's natural dashboard setup is one product with several price points
+(e.g. a single "Legendary" product carrying monthly, annual, and one-time
+prices together), so classifying by product collapses all of them into
+whichever single bucket the product's name or first price happens to match,
+silently dropping the others — a customer-facing plan picker can end up
+showing only one price option even though the catalog has three. **Avoid:**
+classify each price independently (`!recurring` → one-time, `recurring.interval
+=== "month"` → monthly, `=== "year"` → annual) and never group by the parent
+product. A second, adjacent trap: don't stop at classifying — also filter to
+prices whose product carries the membership allowlist tag before doing so.
+`/api/stripe/plans` returns **every** active product in the catalog (not just
+membership ones), and the grant layer (`/stripe/checkout`, the confirm
+endpoint, the webhook — see
+[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6))
+already enforces `overhype_membership=true` as the sole gate; a display/
+selection surface that skips the same filter can advertise a future
+non-membership SKU (render credits, merch, tips) as a Legendary plan, which
+then gets rejected at checkout. **Overhype:** `Pricing.tsx`'s `classifyPlan()`
+did the product-name/first-price version of this (PR #255) — a single
+"Legendary" product with three attached prices showed only its "Forever"
+one-time price, hiding monthly/annual. Codex review on the same PR caught the
+missing-membership-filter half before it shipped. Both are now centralized in
+`artifacts/overhype-me/src/pages/pricingPlans.ts`'s `selectPlanPrices()` —
+filter to `overhype_membership` first, then classify each remaining price by
+its own `recurring` field. See the decision in
+[`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
