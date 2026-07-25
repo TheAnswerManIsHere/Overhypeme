@@ -19,11 +19,13 @@
   review:
   1. **The PR body carries an oracle.** The PR template's new **Approved-plan
      oracle** section holds the approved plan's Product Intent / Must Not
-     Change / Settled Decisions verbatim (copied from the `[PLAN REVIEW]` PR
-     body) for any PR built from a plan; "n/a — no plan" for bugfix mode or a
-     trivial change. `code-review.md` now instructs reviewers to check the
-     diff against that oracle and flag a dropped or narrowed requirement even
-     if the code itself never mentions it.
+     Change / Settled Decisions verbatim — from the `[PLAN REVIEW]` PR body
+     for the normal automated loop, or from the final approved plan document
+     when the plan went through the manual/private review path instead — for
+     any PR built from a plan; "n/a — no plan" for bugfix mode or a trivial
+     change. `code-review.md` now instructs reviewers to check the diff
+     against that oracle and flag a dropped or narrowed requirement even if
+     the code itself never mentions it.
   2. **Fix-round re-reviews request the cumulative diff after round 2+.** A
      per-round `@codex review` only shows the new commits since the last
      pass; a fix in file A can silently break something in file B from the
@@ -37,6 +39,22 @@
      write-up) for the `@codex review` transport. Unlike the plan contract, a
      clean round *is* treated as sufficient evidence on code — it's backed by
      compiling, passing tests, and CI, which a plan has none of.
+
+  Two follow-up gaps surfaced by Codex's own review of this change (real
+  findings, not rubber-stamped) and fixed in the same PR:
+  - The oracle-source paragraph in `CLAUDE.md` named only the `[PLAN REVIEW]`
+    PR body, but a plan can also reach approval via the manual/private review
+    path (the disclosure carve-out or a broken-loop fallback) with no such PR
+    to copy from. Broadened to name both sources — the PR template already
+    did.
+  - `agent-working-rules.md`'s "reviewers use review-status labels" rule was
+    stated flat, with no carve-out for the GitHub structured-review transport
+    that `code-review.md` and `plan-review-contract.md` both already document
+    as having no label channel at all. Qualified it to point at both.
+  - `.agents/PLANS.md` (the canonical plan template) had only a combined
+    Product Intent section, so the manual-fallback oracle path had nowhere
+    to paste a distinct Must Not Change / Settled Decisions from. Split into
+    three sections, matching the `[PLAN REVIEW]` PR body template's shape.
 - **Why:** a code diff can be internally sound — well-tested, correctly
   scoped, cleanly reviewed — and still be the wrong PR, because it quietly
   narrowed or dropped part of what David approved. Reviewing the diff against
@@ -46,13 +64,20 @@
   The output-format split closes a gap `code-review.md` had that
   `plan-review-contract.md` already fixed for itself in PR #254: asking a
   transport for a shape it cannot post degrades into silent partial
-  compliance rather than a visible refusal.
-- **Reference:** this change (docs-only). Companion contract:
+  compliance rather than a visible refusal. The three follow-up gaps are the
+  same class of problem one level down: a policy refined in one shared doc
+  needs its other statements (a template, a second doc's flatter restatement
+  of the same rule) checked for the same refinement, not just the doc it was
+  first written in — Codex's own review of this PR is the concrete evidence
+  that check doesn't yet happen by default and is worth staying alert for.
+- **Reference:** PR #257 (docs-only; a same-session second Codex round caught
+  the three follow-up gaps above before merge). Companion contract:
   [`plan-review-contract.md`](./plan-review-contract.md#the-review-oracle-the-pr-body);
   full checklist: [`code-review.md`](../engineering/code-review.md); template:
   [`pull_request_template.md`](../../.github/pull_request_template.md);
-  ceremony: `CLAUDE.md`'s *Always open a PR when work is done* and *Watching
-  the PRs I open* sections.
+  canonical plan template: [`PLANS.md`](../../.agents/PLANS.md); ceremony:
+  `CLAUDE.md`'s *Always open a PR when work is done* and *Watching the PRs I
+  open* sections.
 - **Revisit if:** the oracle section proves to add PR-body overhead without
   catching real scope drift after a few real plan-derived PRs, or Codex's
   GitHub connector gains a channel that makes the two-surface split
