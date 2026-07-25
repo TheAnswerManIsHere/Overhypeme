@@ -285,6 +285,29 @@ implicit one (the root as a variant's de facto metadata source).
     Pexels/OpenAI). The route returns the enqueued job ids immediately
     (`202`, matching `backfill-pexels`'s existing status code) instead of
     waiting on completion.
+    **Correction (Codex round 19, P2): the queue isn't a drop-in
+    replacement for an inactive fact.** Verified `factPexelsJobs.ts:92-98`:
+    `runFactPexelsJob`'s cost guard checks `isStagingImagePrepActive`,
+    which returns `false` for a fact with no unresolved staging review AND
+    `isActive === false` — and on `false` the handler returns a
+    *successful* no-op that explicitly leaves `pexelsStatus` untouched
+    (stuck at the `"pending"` `enqueueFactPexels` already set it to,
+    forever — never `"ok"`, never `"failed"`). Since these two bulk routes
+    have no `isActive` predicate (a pre-existing, out-of-scope gap
+    documented above), an inactive fact they select would enqueue
+    "successfully," silently do nothing, and remain perpetually
+    `pexelsImages: null` — reappearing as eligible on every future run,
+    while the new durable-status UI shows it stuck at "pending" forever
+    instead of a clear terminal state. Fix: before enqueueing, check
+    `fact.isActive` (already selected alongside `id`/`text` in these
+    queries) and skip inactive facts with an explicit outcome (reusing the
+    `not_active` skip-reason vocabulary already established for
+    `bulk-send-back`) rather than handing them to a queue whose cost guard
+    will silently swallow them. This doesn't add an `isActive` predicate to
+    the selection query itself (still out of scope, per the note above) —
+    it just makes the existing gap terminate visibly instead of stalling
+    invisibly once routed through a queue that behaves differently for
+    inactive facts than the old direct pipeline call did.
   - `backfill-ai-memes`: no equivalent durable queue exists yet for AI-meme
     generation (`generateAiMemeBackgrounds`/`aiMemePipeline.ts` are called
     directly, synchronously-within-the-fire-and-forget-loop, from both
@@ -631,10 +654,21 @@ prove it with **both** a root and a variant fixture:
   `maxAttempts` gets reset every loop iteration rather than being honored
   across calls) while `summary.failed` stays 0 throughout (proving handler
   failures are invisible to that field, unlike synchronous enqueue
-  failures). Assert the documented 3-strike circuit breaker flags this
-  fact for manual investigation rather than a 4th automatic loop, and that
-  a targeted lookup of its `fact_send_back` job history surfaces the
-  repeated `lastError`.
+  failures).
+- **The circuit breaker must actually stop server-side selection, not just
+  guide the operator (Codex round 19, P1 — a test for the previous bullet's
+  scenario, continued):** after that same fact's 3rd consecutive terminal
+  failure, assert `factsWithRepeatedSendBackFailures` flags it and a 4th
+  `all_stale` call does NOT select/enqueue it (no new `jobs` entry for that
+  fact id) while OTHER still-stale facts in the same call continue to be
+  selected and enqueued normally — proving the exclusion is per-fact, not a
+  global halt. Assert `scope: "selected"` targeting that exact fact id
+  STILL attempts it (the deliberate-retry escape hatch), and that a single
+  later success for that fact (a `done` row within its most recent 3)
+  clears the flag — the next `all_stale` call selects it again normally.
+  Assert the new `repeated_failure` skip reason is wired through
+  `lib/api-zod/src/taxonomyHealth.ts`,
+  `useTaxonomyHealthActions.ts`, and `taxonomy-health.tsx` row state.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -858,21 +892,41 @@ prove it with **both** a root and a variant fixture:
    condition still correctly refuses to go "clean" while this is
    happening (so it won't falsely declare done), but it gives the operator
    no bounded, visible signal that a specific fact needs human
-   investigation rather than more looping. **Fix: a bounded circuit
-   breaker in the operator procedure, not new engineering.** While looping
-   `bulk-send-back` (`all_stale`), track which fact ids appear in that
-   call's `jobs` list (freshly enqueued, `deduped: false`) across
-   consecutive calls. If the SAME fact id appears freshly-enqueued in 3
-   consecutive calls (meaning its prior attempt resolved to a fresh
-   terminal failure each time, not a still-pending job), stop looping for
-   it automatically — that fact needs a targeted, single-fact lookup of
-   its `fact_send_back` job history (`lastError` on the terminal rows) to
-   diagnose the persistent cause, not another automatic retry. This is
-   deliberately narrower than the campaign-wide job-table query dropped
-   earlier in this section: a bounded, single-fact diagnostic triggered
-   only on non-convergence, not a primary completeness gate. Document the
-   3-strike threshold and the manual-investigation trigger in the TEST_RUN
-   doc alongside the stop condition.
+   investigation rather than more looping.
+   **Correction (Codex round 19, P1): an "operator procedure" circuit
+   breaker doesn't actually work — nothing stops the SERVER from
+   re-selecting the fact.** A human tracking "3 strikes, stop looping for
+   this one" doesn't change what `pickSendBackTargets` selects: the very
+   next `all_stale` call (needed to keep progressing the rest of the
+   corpus) still finds this fact `staleForReprocess` and not in-flight, and
+   enqueues a 4th fresh job regardless of what the operator privately
+   decided. The only way to actually stop it is server-side. **Fix: a new,
+   bounded exclusion query in `pickSendBackTargets`, same shape as
+   `factsWithInFlightRefresh`/`factsWithActiveVariants`:**
+   `factsWithRepeatedSendBackFailures(factIds, streak = 3)` — for each
+   fact, look at only its `streak` most recent `fact_send_back` jobs
+   (ordered by `createdAt DESC`, `LIMIT streak`); flag it only if there are
+   at least `streak` rows and **all** of them are terminally `failed`. This
+   stays bounded by construction (never looks past the most recent 3 rows,
+   regardless of how much history exists) and self-clears the moment a
+   single success lands anywhere in that window — unlike the campaign-wide
+   "any failed row ever" check dropped in round 17, a fact that fails twice
+   then succeeds is never flagged. Wire it into `eligibleStaleIds` in
+   `pickSendBackTargets` (`all_stale` silently excludes it, matching the
+   existing convention for `inFlight`/`withVariants`; `selected` scope
+   still allows it through — a deliberate single-fact retry after an admin
+   has investigated and fixed the cause — with its own outcome, `queued`
+   or another guard, unaffected by this exclusion) so `all_stale` stops
+   creating a 4th job while the rest of the corpus keeps progressing
+   normally. Add a new `TaxonomyHealthSkipReason` member (e.g.
+   `repeated_failure`) to `lib/api-zod/src/taxonomyHealth.ts`, surfaced via
+   `useTaxonomyHealthActions.ts`/`taxonomy-health.tsx` row state — per
+   `pickSendBackTargets`'s own design ("ineligible rows already show their
+   own state"), so a flagged fact is discoverable in the Taxonomy Health
+   list even though `all_stale` stops surfacing it as a skip outcome.
+   Document the 3-streak threshold and the `scope: "selected"` manual-retry
+   path (after investigating `lastError` on the terminal rows) in the
+   TEST_RUN doc alongside the loop-until-clean stop condition.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
@@ -922,7 +976,14 @@ prove it with **both** a root and a variant fixture:
      `enqueueFactPexels`/`FACT_PEXELS_QUEUE` (`factPexelsJobs.ts`) — durable
      job rows, a dedupe key per fact (closing round 10's concurrency gap as
      a side effect), return the enqueued job ids in the `202` response
-     instead of only an initial count.
+     instead of only an initial count. **Skip inactive facts explicitly
+     before enqueueing (Codex round 19, P2)** — `factPexelsJobs.ts`'s
+     `isStagingImagePrepActive` cost guard silently no-ops for
+     `isActive === false` facts, leaving `pexelsStatus` stuck at `pending`
+     forever instead of reaching a terminal state, unlike the old direct
+     `runFactImagePipeline` call which didn't care about `isActive` at all.
+     Check `fact.isActive` (already in the selected columns) before
+     enqueueing; record an explicit `not_active` skip outcome instead.
    - `backfill-ai-memes`: add a new `fact_ai_meme_backfill` queue
      (`registerJobHandler`, dedupe key per fact) wrapping
      `generateAiMemeBackgrounds`, following `factPexelsJobs.ts`'s exact
@@ -934,7 +995,13 @@ prove it with **both** a root and a variant fixture:
    - Update/add tests: durable job row created per selected fact (root and
      variant); two overlapping bulk-trigger calls for the same fact dedupe
      onto one job, no duplicate external API calls; per-fact/aggregate
-     status queryable to a terminal state.
+     status queryable to a terminal state. **(Codex round 19, P2):** an
+     inactive fact selected by `backfill-images`/`backfill-pexels` gets an
+     explicit `not_active` skip outcome, is never enqueued onto
+     `FACT_PEXELS_QUEUE`, and — if it somehow were enqueued — assert the
+     queue's own cost-guard no-op behavior (`pexelsStatus` stuck at
+     `pending`) is exactly why the route-level skip is required, not
+     optional cleanup.
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
@@ -967,6 +1034,20 @@ prove it with **both** a root and a variant fixture:
    at `"v7"`; update to `"v7"` or stop hardcoding the value. Leave
    `factActivation.ts`'s separate `HAS_ACTIVE_VARIANTS` reparenting guard
    untouched.
+8a. **Bounded repeated-failure circuit breaker for `bulk-send-back` (Codex
+   round 19, P1 — a server-side mechanism, not just an operator habit):**
+   add `factsWithRepeatedSendBackFailures(factIds, streak = 3)` to
+   `adminTaxonomyHealth.ts` (same shape as `factsWithInFlightRefresh`) —
+   flags a fact only when its 3 most recent `fact_send_back` jobs are all
+   terminally `failed`. Wire into `pickSendBackTargets`'s `eligibleStaleIds`
+   computation: excluded silently in `all_stale` scope (matching the
+   existing `inFlight`/`withVariants` convention), still reachable via
+   `scope: "selected"` as a deliberate manual retry. Add a
+   `repeated_failure` member to `TaxonomyHealthSkipReason`
+   (`lib/api-zod/src/taxonomyHealth.ts`) with message-map/row-state entries
+   in `useTaxonomyHealthActions.ts` and `taxonomy-health.tsx`, so a flagged
+   fact is discoverable per the existing "ineligible rows show their own
+   state" design instead of silently vanishing from `all_stale` forever.
 9. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
 10. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
