@@ -356,9 +356,14 @@ implicit one (the root as a variant's de facto metadata source).
        incrementing `attempts`**, bypassing `maxAttempts` entirely — a
        worker crash mid-run would otherwise replay the whole thing on
        recovery. Handler order: on entry, if
-       `ai_meme_backfill_status === "processing"`, this is a
-       crash-recovery replay — set `failed` and abort without calling the
-       pipeline. Else, re-check `isActive` execution-time (point 5). Only
+       `ai_meme_backfill_status === "processing"` OR the marker is already
+       a terminal value (`"ok"`/`"failed"`/`"skipped"`, Codex round 27,
+       P1 — a recovered replay of a job whose marker write already
+       landed but whose `async_jobs` row wasn't yet finalized), this is a
+       crash-recovery replay — short-circuit without calling the
+       pipeline (matching the existing marker for a terminal value; set
+       `failed` for `"processing"`, since that state can't confirm what
+       happened). Else, re-check `isActive` execution-time (point 5). Only
        past both checks does the handler set `processing`, **immediately
        before** calling the pipeline (not any earlier — setting it before
        the `isActive` recheck would leave the marker stuck at
@@ -373,7 +378,16 @@ implicit one (the root as a variant's de facto metadata source).
        same fact (e.g. a second admin-triggered `backfill-ai-memes` call
        after the job row has aged out) misreads an ordinary prior success
        as a crash-recovery replay and aborts it as `failed` instead of
-       running normally. The enqueue side must
+       running normally. **A second, narrower race remains — accepted and
+       deferred, not fixed (Codex round 27, P1; full reasoning in
+       Implementation Steps):** a second enqueue landing between the
+       handler's `"ok"` write and the job row's finalization to `done`
+       can still clobber the marker to `"pending"` and dedupe onto the
+       already-finished job, orphaning the marker (not the underlying
+       data — `aiMemeImages` is written independently and is correct
+       either way). Fully closing this needs a discriminator beyond the
+       status enum and is folded into
+       `docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md`. The enqueue side must
        write the status BEFORE calling `enqueueJob`, not after —
        `enqueueJob` commits the `async_jobs` row (immediately claimable)
        as part of its own insert, so a write placed after it can race a
@@ -529,9 +543,36 @@ implicit one (the root as a variant's de facto metadata source).
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
   name, also filters `isNull(factsTable.parentId)`.** Remove it, same fix as
-  the HTTP route. Checked the sibling `backfill-ai-memes.ts` script: it
-  already queries all active facts with no `parentId` filter — already
-  correct, no change needed there.
+  the HTTP route. `backfill-ai-memes.ts` (`pnpm --filter @workspace/api-server
+  run backfill:ai-memes`) already queries all active facts with no
+  `parentId` filter — already correct on that question, no change needed
+  there.
+  **Both scripts also bypass the new durable queues entirely (Codex round
+  27, P2) — a fifth and sixth bulk producer missed by the queue-routing
+  work above.** Verified: `backfill-pexels.ts:56` calls
+  `runFactImagePipeline` directly and `backfill-ai-memes.ts` calls
+  `generateAiMemeBackgrounds` directly — both fire-and-forget-style,
+  synchronous-in-the-script calls with no dedupe key, no serialized lane,
+  no crash-recovery guard, unlike the `admin.ts` routes this plan is
+  converting to `FACT_PEXELS_QUEUE`/`fact_ai_meme_backfill`. Since these
+  are documented, still-runnable entry points (`package.json`'s
+  `backfill:pexels`/`backfill:ai-memes` scripts) to the identical bulk
+  operation, leaving them on the old direct-call path reintroduces the
+  exact duplicate-paid-call risk the queues exist to close — an operator
+  running the CLI script while the admin UI's equivalent bulk action is
+  also in flight (or vice versa) issues duplicate OpenAI/Pexels calls.
+  Convert both to enqueue through the same queues: `backfill-pexels.ts`
+  calls `enqueueFactPexels(fact.id, { bulkBackfill: true })` per fact
+  (same discriminator as the HTTP route and `backfill-fact-pexels.ts`)
+  instead of `runFactImagePipeline`; `backfill-ai-memes.ts` calls
+  `enqueueFactAiMemeBackfill(fact.id)` instead of
+  `generateAiMemeBackgrounds` directly. Both scripts keep their own
+  selection query and console-logged summary (enqueued vs. deduped counts,
+  matching `backfill-fact-pexels.ts`'s existing pattern) — the worker
+  drains the queue after the script exits, same as the HTTP routes; the
+  scripts' current per-fact `sleep(DELAY_MS)` pacing becomes unnecessary
+  once the dedicated `"pexels"`/`"ai_meme_backfill"` lanes provide it and
+  is removed.
   **Root-only copy left behind (Codex round 12) — update alongside the
   query, not just the filter:** the script's header docstring
   (`backfill-pexels.ts:1-2`) and two `console.log` lines (`:33,44`) all
@@ -877,11 +918,13 @@ prove it with **both** a root and a variant fixture:
   STILL attempts it (the deliberate-retry escape hatch), and that a single
   later success for that fact (a `done` row within its most recent 3)
   clears the flag — the next `all_stale` call selects it again normally.
-  Assert the new `repeated_failure` skip reason exists in
-  `lib/api-zod/src/taxonomyHealth.ts` and its message-map entry in
-  `useTaxonomyHealthActions.ts` (surfaced when `scope: "selected"` rejects
-  a flagged fact). **(Codex round 26, P1) Separately assert the
-  list-level fix, since the skip reason above is not itself sufficient:**
+  **(Codex round 27, P1 — corrects a round-26 contradiction) There is no
+  `repeated_failure` skip/reject outcome to assert:** `scope: "selected"`
+  targeting a 3-strike fact must enqueue it normally (a standard `queued`
+  outcome), not reject it — rejecting would remove the only path that can
+  ever produce the success that clears the streak. Discoverability is a
+  list-level concern instead: **(Codex round 26, P1) assert the
+  list-level fix:**
   with that fact flagged (3 consecutive terminal failures), a `GET
   /admin/taxonomy-health/facts` call returns that fact's row with
   `repeatedFailure: true`, and after a single later success clears the
@@ -929,7 +972,14 @@ prove it with **both** a root and a variant fixture:
   `enqueueFactPexels`/`FACT_PEXELS_QUEUE` and the new AI-meme queue (see
   Proposed Design), assert this directly: two overlapping `backfill-pexels`
   (or `-images`/`-ai-memes`) calls for the same fact dedupe onto the same
-  job — no duplicate OpenAI/Pexels calls.
+  job — no duplicate OpenAI/Pexels calls. **(Codex round 27, P2):** the
+  same dedupe holds across producers, not just within one — a
+  `backfill-pexels.ts`/`backfill-ai-memes.ts` CLI run enqueuing a fact
+  concurrently with the matching `admin.ts` HTTP route dedupes onto the
+  same job (asserted by driving both enqueue paths for the same fact id
+  and checking exactly one job row exists), proving the CLI scripts now
+  share the same dedupe surface as the HTTP routes instead of bypassing
+  it.
   **Corrected, then reversed (Codex rounds 16 and 18, both P1):** round 16
   caught that "included in the queued/processed set" overclaimed what was
   observable given the routes' original fire-and-forget shape (verified
@@ -1218,6 +1268,18 @@ prove it with **both** a root and a variant fixture:
    names too (Codex round 13):** `admin.ts:2001`/`:2081`'s `rootFacts`
    collections (`backfill-images`/`backfill-ai-memes`) to a neutral name;
    `backfill-pexels`'s `nullFacts` is already fine.
+   **(Codex round 27, P2) Route both CLI scripts through the queues too:**
+   `backfill-pexels.ts` replaces its direct `runFactImagePipeline` call
+   with `enqueueFactPexels(fact.id, { bulkBackfill: true })`;
+   `backfill-ai-memes.ts` replaces its direct `generateAiMemeBackgrounds`
+   call with `enqueueFactAiMemeBackfill(fact.id)`. Both drop their
+   per-fact `sleep()` pacing (now provided by the dedicated
+   `"pexels"`/`"ai_meme_backfill"` lanes) and log enqueued/deduped counts
+   on exit, matching `backfill-fact-pexels.ts`'s existing pattern —
+   otherwise these two documented, still-runnable `package.json` entry
+   points keep bypassing the dedupe/crash-recovery/serialization the
+   queues exist to provide, risking duplicate paid calls against a
+   concurrently-running admin-UI bulk trigger.
 6a. **Durable per-fact/aggregate status for the three bulk-backfill routes
    (Codex round 18, P1 — required by `AGENTS.md`'s standing async-status
    rule since step 6 touches these routes, not optional scope). Converged
@@ -1287,10 +1349,24 @@ prove it with **both** a root and a variant fixture:
        crash-recovery replay (`recoverStuckProcessing` resets a stuck job
        back to `pending` without incrementing `attempts`, bypassing
        `maxAttempts` entirely) — set `failed` and abort without calling the
-       pipeline. Else, re-check `isActive` execution-time (an enqueue-time
-       check alone misses a queue-wait deactivation race now that the lane
-       is serialized) — on failure, set the terminal `skipped` value and
-       return a `not_active` skip result. Only past both checks does the
+       pipeline. **(Codex round 27, P1 — extends the round-26 fix below)
+       ALSO check for a pre-existing terminal value at entry:** if
+       `ai_meme_backfill_status` is already `"ok"`, `"failed"`, or
+       `"skipped"` when the handler starts, this run is itself a
+       crash-recovery replay of a job whose fact-level marker write
+       already completed but whose `async_jobs` row finalization to
+       `done` did not (a worker crash in that narrow gap leaves the job
+       row stuck in `processing`, which `recoverStuckProcessing` resets
+       to `pending` and reschedules — without this check, the recovered
+       run would call `generateAiMemeBackgrounds` again and repeat every
+       paid image call despite already having a terminal result).
+       Short-circuit: don't call the pipeline, just resolve the job with
+       the outcome matching the existing marker (`"ok"` → success,
+       `"failed"`/`"skipped"` → the matching failure/skip result). Else,
+       re-check `isActive` execution-time (an enqueue-time check alone
+       misses a queue-wait deactivation race now that the lane is
+       serialized) — on failure, set the terminal `skipped` value and
+       return a `not_active` skip result. Only past all checks does the
        handler set `processing`, **immediately before** calling the
        pipeline (not any earlier — setting it before the `isActive`
        recheck would leave the marker stuck at `processing` on the
@@ -1302,6 +1378,34 @@ prove it with **both** a root and a variant fixture:
        `processing` after every successful run, so a later non-deduped
        backfill for the same fact would misread that ordinary success as
        a crash-recovery replay and wrongly abort it as `failed`.
+       **(Codex round 27, P1 — a second, narrower race; documented as an
+       accepted limitation, not fixed) Late dedupe can still orphan the
+       marker at `pending`:** if a second enqueue call for the same fact
+       lands in the gap between the handler writing `"ok"` and the
+       `async_jobs` row finalizing to `done`, `enqueueFactAiMemeBackfill`'s
+       conditional write (`WHERE ai_meme_backfill_status IS DISTINCT FROM
+       'processing'`) still fires (current value is `"ok"`, which is
+       distinct from `'processing'`) and resets the marker to `"pending"`;
+       `enqueueJob` then dedupes onto the still-`processing` job row
+       (whose handler has already returned and will never run again), so
+       nothing ever transitions the marker back to `"ok"` — it's left
+       stuck at `"pending"` despite the generation having genuinely
+       succeeded. Closing this fully requires distinguishing "the marker
+       is terminal because a new job should proceed" from "the marker is
+       terminal because THIS job already finished" — which needs a
+       discriminator beyond the current status enum (e.g. a per-fact
+       generation counter) and starts to resemble the same class of
+       marker/job-consistency hardening already deferred to
+       `docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md` (David, 2026-07-25).
+       Folded into that document rather than fixed here. **Bounded
+       impact, not silent data loss:** `facts.aiMemeImages` itself is
+       written by the pipeline independently of this status column, so a
+       fact hitting this race still has its images correctly generated
+       and stored — only the polling/observability marker goes stale,
+       not the underlying result. The window is narrow (between a
+       handler's pipeline call returning and the worker framework
+       finalizing its job row) and only matters for a `force`-triggered
+       re-run landing in that exact gap.
      - **Enqueue-side write, ordered before the job becomes claimable
        (Codex round 23, P1), sequential rather than transactional
        (Codex round 24 proposed a transaction wrap; Codex round 25 found
@@ -1393,6 +1497,18 @@ prove it with **both** a root and a variant fixture:
        `ai_meme_backfill_status === "processing"`, aborts without calling
        `generateAndStoreImage` again, and the fact ends `failed` — the
        paid call from the first attempt is never repeated.
+     - **(Codex round 27, P1) Recovered replay after a post-success crash
+       doesn't repeat paid work:** run a job to a successful
+       `generateAiMemeBackgrounds` completion (`ai_meme_backfill_status`
+       set to `"ok"`), then simulate the job row itself never having been
+       finalized to `done` (leave it `processing`) and call
+       `recoverStuckProcessing`. Re-run the worker tick on the recovered
+       job — assert zero further calls to `generateAiMemeBackgrounds`
+       (the entry guard sees the pre-existing `"ok"` and short-circuits)
+       and the fact's status remains `"ok"`. Repeat for a fact whose
+       marker was `"failed"`/`"skipped"` at the time of the same
+       interrupted finalization — assert the recovered run doesn't call
+       the pipeline and the marker is unchanged.
      - Execution-time inactive skip: enqueue an active fact, deactivate it
        before the worker tick runs (simulating a queue-wait race), run the
        tick — assert zero calls to `generateAndStoreImage`/
@@ -1491,21 +1607,36 @@ prove it with **both** a root and a variant fixture:
    terminally `failed`. Wire into `pickSendBackTargets`'s `eligibleStaleIds`
    computation: excluded silently in `all_stale` scope (matching the
    existing `inFlight`/`withVariants` convention), still reachable via
-   `scope: "selected"` as a deliberate manual retry. Add a
-   `repeated_failure` member to `TaxonomyHealthSkipReason`
-   (`lib/api-zod/src/taxonomyHealth.ts`) with a message-map entry in
-   `useTaxonomyHealthActions.ts`, for when a fact is targeted via
-   `scope: "selected"` and rejected with this reason.
-   **(Codex round 26, P1) A `TaxonomyHealthSkipReason` member alone can't
+   `scope: "selected"` as a deliberate manual retry — targeting a
+   3-strike fact via `scope: "selected"` must genuinely enqueue it
+   (normal `queued` outcome, not a skip/reject), since that path succeeding
+   is the *only* way the streak ever clears.
+   **(Codex round 27, P1 — corrects a contradiction my own round-26 edit
+   introduced) `repeated_failure` is not a rejection reason and must not
+   gate `scope: "selected"`:** an earlier revision of this plan said a
+   `scope: "selected"` target gets "rejected" with a `repeated_failure`
+   skip reason — that directly contradicts the line above it (the
+   deliberate-retry escape hatch) and, if implemented, would make the
+   streak permanently unclearable (no path left to create the success
+   that resets it). There is no longer a `TaxonomyHealthSkipReason`
+   member for this at all: `all_stale` excludes silently (no outcome, so
+   no skip reason is ever attached, matching the `inFlight`/`withVariants`
+   convention exactly), and `scope: "selected"` always attempts the
+   send-back normally. Discoverability is handled entirely by the
+   row-level `repeatedFailure` flag below, not by any action-outcome skip
+   reason.
+   **(Codex round 26, P1) A skip-reason/row-state pairing alone can't
    make an `all_stale`-excluded fact discoverable — verified
    `useTaxonomyHealthActions.ts`'s `rowState()`/`factOp()` derive a row's
    displayed state purely by scanning past actions' own `jobs`/`outcomes`
    arrays for that fact id; a fact `all_stale` never selects appears in
    neither, so no action-outcome-driven skip reason ever reaches its row —
    the "message-map/row-state entries... so a flagged fact is discoverable"
-   claim above doesn't hold for the `all_stale`-exclusion case (it's still
-   correct for the `scope: "selected"` case, where the fact IS the target
-   and an explicit reject outcome comes back).** The actual fix has to live
+   claim above doesn't hold for the `all_stale`-exclusion case. (Codex
+   round 27 corrected the round-26 text further: `scope: "selected"`
+   doesn't reject with a skip reason either — see above — so there is no
+   longer any case where this skip-reason mechanism actually fires; it's
+   dropped from the design entirely.)** The actual fix has to live
    in the row LIST itself, not the action-response-driven display: extend
    `HealthRow` (`taxonomy-health.tsx`) and its backing `GET
    /admin/taxonomy-health/facts` handler (`adminTaxonomyHealth.ts`) with a
