@@ -1,7 +1,7 @@
 /**
  * Async-job handler for the `fact_enrichment_backfill` queue.
  *
- * Re-enriches an approved fact by calling `enrichFact({factText, status:"new_fact"})`,
+ * Re-enriches an approved fact by calling `enrichFact({factText})`,
  * validating the result, and writing both the JSONB blob + the promoted
  * columns back to `facts`. Admin-edited rows (per `isEnrichmentAdminEdited`)
  * are skipped unless `forceOverwriteAdminEdited: true` is in the payload.
@@ -65,7 +65,7 @@ export const factEnrichmentBackfillHandler: JobHandler = {
 
     let next: FactEnrichment;
     try {
-      next = await enrichFact({ factText: renderedText, status: "new_fact" });
+      next = await enrichFact({ factText: renderedText });
     } catch (err) {
       const msg = err instanceof EnrichmentError ? err.message : err instanceof Error ? err.message : String(err);
       logger.warn({ err, factId: p.factId }, "[fact_enrichment_backfill] enrichFact failed");

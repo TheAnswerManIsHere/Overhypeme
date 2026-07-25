@@ -108,7 +108,7 @@ describe("enrichFactWithModel — repair + provenance integration", () => {
   it("repairs the injected bad grenade output and stamps prompt diagnostics", async () => {
     const bad = buildTemporal();
     const result = await enrichFactWithModel(
-      { factText: GRENADE_TEXT, status: "new_fact" },
+      { factText: GRENADE_TEXT },
       async () => JSON.stringify(bad),
       {
         promptDiagnostics: {
@@ -130,7 +130,7 @@ describe("enrichFactWithModel — repair + provenance integration", () => {
 
   it("works without promptDiagnostics (back-compat 2-arg call)", async () => {
     const result = await enrichFactWithModel(
-      { factText: "David counted to infinity twice.", status: "new_fact" },
+      { factText: "David counted to infinity twice." },
       async () =>
         JSON.stringify(
           buildTemporal({

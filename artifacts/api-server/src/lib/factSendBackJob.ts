@@ -1,10 +1,10 @@
 /**
  * Async-job handler for the `fact_send_back` queue — the bulk-initiation half
  * of the stale-fact refresh feature (PR4). Fans `sendFactBackToReview` out
- * across many facts. A guard rejection (fact not active / has active variants
- * / already in review) is a terminal SKIP, not a retryable failure — that is
- * what makes re-running a batch idempotent. Any other error is retried by the
- * async-jobs worker like any other job.
+ * across many facts. A guard rejection (fact not active / already in review)
+ * is a terminal SKIP, not a retryable failure — that is what makes re-running
+ * a batch idempotent. Any other error is retried by the async-jobs worker
+ * like any other job.
  */
 
 import type { TaxonomyHealthSkipReason } from "@workspace/api-zod";
@@ -35,8 +35,6 @@ export function sendBackGuardToSkip(
   switch (code) {
     case "NOT_ACTIVE":
       return { reason: "not_active", message: "Only active facts can be sent back." };
-    case "HAS_ACTIVE_VARIANTS":
-      return { reason: "has_active_variants", message: "This fact has active variants; refresh those individually." };
     case "REFRESH_ALREADY_IN_PROGRESS":
       return { reason: "already_in_review", message: "Refresh already in review." };
     case "FACT_NOT_FOUND":

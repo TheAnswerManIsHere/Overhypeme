@@ -105,7 +105,7 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
 
   let enrichment: FactEnrichment;
   try {
-    enrichment = await enrichFact({ factText: renderedText, status: "new_fact" });
+    enrichment = await enrichFact({ factText: renderedText });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db
@@ -137,14 +137,13 @@ export async function runEnrichmentForFact(
   factId: number,
   deps: FactEnrichmentDeps = { classify: enrichFact },
 ): Promise<HandlerResult> {
-  // Load the fact text + parentId so a variant is classified with its parent
-  // context (same shape the approve-variant path uses), plus the override layers
-  // so re-classification stays STICKY: a fresh AI baseline is computed but the
-  // manual overrides (and the moderator visual override) are preserved.
+  // Load the fact text (a variant is classified from its own text only, same
+  // as a root) plus the override layers so re-classification stays STICKY: a
+  // fresh AI baseline is computed but the manual overrides (and the moderator
+  // visual override) are preserved.
   const [factRow] = await db
     .select({
       text: factsTable.text,
-      parentId: factsTable.parentId,
       enrichment: factsTable.enrichment,
       enrichmentAiDerived: factsTable.enrichmentAiDerived,
       enrichmentOverrides: factsTable.enrichmentOverrides,
@@ -167,29 +166,18 @@ export async function runEnrichmentForFact(
     return { ok: true };
   }
 
-  let parentText: string | null = null;
-  if (factRow.parentId != null) {
-    const [parent] = await db
-      .select({ text: factsTable.text })
-      .from(factsTable)
-      .where(eq(factsTable.id, factRow.parentId))
-      .limit(1);
-    parentText = parent?.text ?? null;
-  }
-
   // Render template tokens ({NAME}/{SUBJ}/…) to the canonical identity ("Alex",
   // they/them) before passing to the classifier.
   const renderedFactText = renderCanonical(factRow.text);
-  const renderedParentText = parentText != null ? renderCanonical(parentText) : null;
 
-  // Full classifier-input fingerprint (Plan v4 §E). A variant is classified WITH
-  // its parent's text as context, so the identity is the fact's own raw text,
-  // its parentId, AND the raw parent text — not just its own text. If ANY of
-  // these changed during the (slow) classify call (a staging edit re-worded the
-  // fact, or a root re-word changed a variant's parent context), the result is
-  // stale and must be discarded, even though the edit-side guards normally block
-  // an edit while this job is non-terminal. This is the authoritative backstop.
-  const classifiedInputKey = JSON.stringify([factRow.text, factRow.parentId ?? null, parentText]);
+  // Classifier-input fingerprint (Plan v4 §E, narrowed for variant
+  // independence). A fact — root or variant — is classified from its own text
+  // only, so the identity is the fact's own raw text alone. If it changed
+  // during the (slow) classify call (a staging edit re-worded the fact), the
+  // result is stale and must be discarded, even though the edit-side guards
+  // normally block an edit while this job is non-terminal. This is the
+  // authoritative backstop.
+  const classifiedInputKey = factRow.text;
 
   // Capture the processing signature BEFORE the (slow) classify call. It is
   // stamped onto facts.last_processed_signature only for FIRST-TIME staging
@@ -201,11 +189,7 @@ export async function runEnrichmentForFact(
 
   let freshAiDerived: FactEnrichment;
   try {
-    freshAiDerived = await deps.classify({
-      factText: renderedFactText,
-      status: factRow.parentId != null ? "variant" : "new_fact",
-      parentText: renderedParentText,
-    });
+    freshAiDerived = await deps.classify({ factText: renderedFactText });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db
@@ -245,7 +229,7 @@ export async function runEnrichmentForFact(
   // send-back waits and seeds its candidate from the freshly-written active.
   const wrote = await db.transaction(async (tx) => {
     const [locked] = await tx
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+      .select({ id: factsTable.id, text: factsTable.text })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("update")
@@ -261,21 +245,11 @@ export async function runEnrichmentForFact(
     }
 
     // Full-input drift guard: re-derive the classifier input from the LOCKED
-    // fact (+ current parent text) and discard if it no longer matches what we
-    // classified. A fresh job for the new wording is guaranteed by the edit that
-    // changed it (a staging restart re-enqueues; a root re-word clears + is
-    // re-prepped), so dropping this stale result never loses coverage.
-    let currentParentText: string | null = null;
-    if (locked.parentId != null) {
-      const [parentNow] = await tx
-        .select({ text: factsTable.text })
-        .from(factsTable)
-        .where(eq(factsTable.id, locked.parentId))
-        .limit(1);
-      currentParentText = parentNow?.text ?? null;
-    }
-    const currentInputKey = JSON.stringify([locked.text, locked.parentId ?? null, currentParentText]);
-    if (currentInputKey !== classifiedInputKey) {
+    // fact's own text and discard if it no longer matches what we classified.
+    // A fresh job for the new wording is guaranteed by the edit that changed
+    // it (a staging restart re-enqueues), so dropping this stale result never
+    // loses coverage.
+    if (locked.text !== classifiedInputKey) {
       logger.info(
         { factId },
         "[enrichment] generic fact result discarded at recheck (classifier input drifted mid-classify)",
@@ -355,20 +329,11 @@ export async function runEnrichmentForCandidateVersion(
   if (rev0?.stage !== "prep_pending") return { ok: true }; // cycle resolved → no-op
 
   const [factRow] = await db
-    .select({ text: factsTable.text, parentId: factsTable.parentId })
+    .select({ text: factsTable.text })
     .from(factsTable)
     .where(eq(factsTable.id, v0.factId))
     .limit(1);
   if (!factRow) return { ok: false, error: `fact ${v0.factId} not found for candidate ${versionId}` };
-  let parentText: string | null = null;
-  if (factRow.parentId != null) {
-    const [parent] = await db
-      .select({ text: factsTable.text })
-      .from(factsTable)
-      .where(eq(factsTable.id, factRow.parentId))
-      .limit(1);
-    parentText = parent?.text ?? null;
-  }
   const factTextHash = hashFactText(factRow.text);
 
   // Capture the processing signature the candidate is being classified UNDER,
@@ -379,11 +344,7 @@ export async function runEnrichmentForCandidateVersion(
   // ── Phase 2: LLM classification (no locks held) ──
   let freshAiDerived: FactEnrichment;
   try {
-    freshAiDerived = await deps.classify({
-      factText: renderCanonical(factRow.text),
-      status: factRow.parentId != null ? "variant" : "new_fact",
-      parentText: parentText != null ? renderCanonical(parentText) : null,
-    });
+    freshAiDerived = await deps.classify({ factText: renderCanonical(factRow.text) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Reflect failure on the live fact's pill; leave the cycle prep_pending so

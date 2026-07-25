@@ -83,6 +83,18 @@ export const factsTable = pgTable("facts", {
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
   aiMemeImages: jsonb("ai_meme_images"),
   /**
+   * AI-meme backfill lifecycle for the durable `fact_ai_meme_backfill` queue:
+   * "pending" | "processing" | "ok" | "failed" | "skipped". Mirrors
+   * `pexels_status` exactly, with two extra values this queue's crash-recovery
+   * design needs: "processing" (set immediately before the paid pipeline call,
+   * so a worker crash mid-run is distinguishable from a queued-but-not-started
+   * job) and "skipped" (a terminal, non-error outcome — the fact was
+   * deactivated before its handler ran). Null on facts that never ran AI-meme
+   * generation through this queue (legacy rows; live-fact generation via
+   * `memes.ts`/`pulidJobs.ts`, which don't use this queue).
+   */
+  aiMemeBackfillStatus: varchar("ai_meme_backfill_status", { length: 16 }),
+  /**
    * Full visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod).
    * Populated when a fact is approved from an enriched review, or via backfill.
    * Nullable until enriched. The four columns below are promoted, indexed

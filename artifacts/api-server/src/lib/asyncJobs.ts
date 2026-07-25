@@ -76,11 +76,16 @@ const HANDLERS = new Map<string, JobHandler>();
  * Scheduling lane a queue runs in. Each lane is drained by its own independent
  * worker loop (own timer, own re-entrancy guard, own concurrency bound), so a
  * busy lane can never block another lane's progress:
- *   • `fast`   — short, DB-oriented admin actions with no model/image wait.
- *   • `render` — single-item, moderator-watched external-API renders.
- *   • `bulk`   — background/batch work nobody's watching a spinner for (default).
+ *   • `fast`            — short, DB-oriented admin actions with no model/image wait.
+ *   • `render`          — single-item, moderator-watched external-API renders.
+ *   • `bulk`             — background/batch work nobody's watching a spinner for (default).
+ *   • `pexels`           — `fact_pexels`, serialized (maxConcurrency 1) to preserve
+ *     the 1-second Pexels rate-limit pacing the direct-call path used to provide.
+ *   • `ai_meme_backfill` — `fact_ai_meme_backfill`, serialized (maxConcurrency 1)
+ *     to preserve the "process sequentially" OpenAI rate-limit pacing the
+ *     direct-call bulk route used to provide.
  */
-export type JobLane = "fast" | "render" | "bulk";
+export type JobLane = "fast" | "render" | "bulk" | "pexels" | "ai_meme_backfill";
 
 /** Per-queue lane assignment. Kept in lockstep with HANDLERS (same replace/reset). */
 const LANE_OF_QUEUE = new Map<string, JobLane>();
@@ -670,6 +675,8 @@ export async function purgeTerminalJobs(
 const DEFAULT_FAST_INTERVAL_MS = 2_000;
 const DEFAULT_RENDER_INTERVAL_MS = 5_000;
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
+const DEFAULT_PEXELS_INTERVAL_MS = 5_000;
+const DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
 /**
@@ -817,6 +824,18 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
       intervalMs: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
       maxConcurrency: ASYNC_JOBS_MAX_CONCURRENCY,
       maintenance: true,
+    },
+    {
+      lane: "pexels",
+      intervalMs: intervalEnv("ASYNC_JOBS_PEXELS_INTERVAL_MS", DEFAULT_PEXELS_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_PEXELS_MAX_CONCURRENCY", 1)),
+      maintenance: false,
+    },
+    {
+      lane: "ai_meme_backfill",
+      intervalMs: intervalEnv("ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS", DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_AI_MEME_BACKFILL_MAX_CONCURRENCY", 1)),
+      maintenance: false,
     },
   ];
 

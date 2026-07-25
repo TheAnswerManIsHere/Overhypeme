@@ -36,7 +36,6 @@ const SKIP_REASON_MESSAGE: Record<TaxonomyHealthSkipReason, string> = {
   already_current: "Already current.",
   missing_required_data: "Missing required data.",
   already_in_review: "Refresh already in review.",
-  has_active_variants: "This fact has active variants; refresh those individually.",
   not_active: "Only active facts can be sent back.",
 };
 
@@ -88,6 +87,8 @@ export interface OperationState {
   totalStale?: number;
   eligibleRemaining?: number;
   batchLimit?: number;
+  /** Bulk send-back `all_stale` only: facts currently circuit-broken by repeated failures. */
+  repeatedFailureCount?: number;
 }
 
 export interface OpCounts {
@@ -376,6 +377,7 @@ export function useTaxonomyHealthActions(
             totalStale: data.totalStale,
             eligibleRemaining: data.eligibleRemaining,
             batchLimit: data.batchLimit,
+            repeatedFailureCount: data.repeatedFailureCount,
           },
         }));
         // Inline-only (no queued jobs) is terminal right away — refresh now.

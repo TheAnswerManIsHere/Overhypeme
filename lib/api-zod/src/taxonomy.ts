@@ -288,7 +288,10 @@ export const TAXONOMY_VERSION = "v1";
 // RETIRED_TEXT_MODIFIERS. The AI no longer emits blanket text bans; incidental
 // text is owned by the compiler's supporting-text rules and full bans by the
 // moderator override.
-export const CLASSIFICATION_PROMPT_VERSION = "v6";
+// v7: variant independence — the classifier no longer receives a fact-status
+// label or parent-fact text; a variant is classified from its own text only,
+// identically to a root (`docs/ai-context/decisions.md`).
+export const CLASSIFICATION_PROMPT_VERSION = "v7";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────

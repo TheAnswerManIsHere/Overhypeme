@@ -4,6 +4,28 @@
 > human). Priorities match the root [`AGENTS.md`](../../AGENTS.md). Reviewers use
 > **review-status labels, not approval language** — only David approves.
 
+## The review oracle: the PR body
+
+A code diff can be internally sound — well-tested, correctly implemented,
+sensibly scoped — and still be the wrong PR, because it quietly narrowed or
+dropped part of what David actually approved. Reviewing the diff against
+itself can't catch that; it needs an oracle outside the diff, same principle
+as the [plan-review contract](../ai-context/plan-review-contract.md#the-review-oracle-the-pr-body).
+
+For a PR built from a David-approved plan, the PR body's **Approved-plan
+oracle** section (see the
+[PR template](../../.github/pull_request_template.md)) carries that plan's
+Product Intent / Must Not Change / Settled Decisions verbatim. Check the code
+against that, not only against internal consistency: does it implement
+everything the intent called for, does it touch anything the plan marked
+must-not-change, does it match the settled decisions rather than a plausible
+alternative. Flag a dropped or narrowed requirement even if the code itself
+never mentions it — the absence is the finding.
+
+If a PR has no plan (bugfix mode, a trivial change) the oracle section reads
+"n/a — no plan," and this check doesn't apply; review the diff on its own
+terms as usual.
+
 ## Review priorities (in order)
 
 1. Runtime correctness
@@ -88,11 +110,32 @@ style nit.
 
 ## Review output format
 
+**Two delivery surfaces exist; they don't support the same shape** — same split
+as the [plan-review contract's *Output*](../ai-context/plan-review-contract.md#output),
+adapted for a code diff instead of a markdown plan.
+
+### Full-document delivery (a human reviewer, or an agent free to post one document)
+
 Produce concise, prioritized feedback. Label overall status (no approval
 language) — e.g. *No major technical disagreement · Directionally good, revisions
 needed · Substantive technical concerns · Strong disagreement on direction · Human
 clarification required · Repo context required.* For each finding: what, why (tied
 to a priority above), and a concrete suggestion. Separate **must-fix** from
 **nice-to-have**. Escalate design/architecture/trade-off calls to David rather than
-deciding them. (The `overhype-plan-review` skill defines the full plan-review
-format.)
+deciding them.
+
+### GitHub structured review (the `@codex review` transport)
+
+Same confirmed limitation as the plan-review contract: this surface has no
+freestanding top-level write-up, only diff-anchored inline findings, and no
+status-label or ledger channel. Don't ask this surface for the full-document
+shape above — it can't post it. Each finding is its own inline comment,
+anchored to the relevant line (or, for an oracle-driven finding with no single
+line — a dropped requirement, a touched must-not-change area — the most
+defensible nearby line). A clean round is an empty findings list; on a diff
+this is stronger evidence than on a plan (compiling, passing tests, and CI back
+it up), so — unlike the plan contract — silence here is a real, sufficient
+result, not a transport limitation to work around.
+
+(The `overhype-plan-review` skill defines the full plan-review format; this
+section is the code-review analog.)

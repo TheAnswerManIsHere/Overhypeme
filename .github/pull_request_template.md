@@ -8,6 +8,19 @@
 
 <!-- What changed and the intent it serves. Link the plan/issue if there is one. -->
 
+## Approved-plan oracle
+
+<!-- If this PR implements a plan David approved (feature mode), paste that
+     plan's Product Intent / Must Not Change / Settled Decisions verbatim —
+     from the plan-review PR body or the final approved plan doc — so the
+     reviewer can check this diff against what was actually approved, not
+     just against itself (see docs/engineering/code-review.md#the-review-oracle-the-pr-body).
+     For bugfix mode or a trivial change with no plan, write "n/a — no plan." -->
+
+**Product intent:**
+**Must not change:**
+**Settled decisions:**
+
 ## Verification
 
 <!-- Exact commands run + results. Separate valid failures from environment/

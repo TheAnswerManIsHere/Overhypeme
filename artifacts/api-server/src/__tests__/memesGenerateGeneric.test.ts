@@ -140,6 +140,28 @@ describe("POST /memes/ai/:factId/generate — generic branch (new engine)", () =
     assert.equal(factRow?.p ?? null, null);
   });
 
+  it("a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)", async () => {
+    const rootId = await seedFact();
+    const [variant] = await db
+      .insert(factsTable)
+      .values({
+        text: `${FACT_PREFIX}{NAME} does a variant thing.`,
+        isActive: true,
+        parentId: rootId,
+        enrichment: VALID_ENRICHMENT as FactEnrichment,
+      })
+      .returning({ id: factsTable.id });
+    insertedFactIds.push(variant!.id);
+
+    const res = await request(makeApp())
+      .post(`/memes/ai/${variant!.id}/generate`)
+      .set("Authorization", `Bearer ${bearer}`)
+      .send({ scope: "gendered", aspectRatio: "square" });
+
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    assert.equal(typeof res.body.attemptId, "number");
+  });
+
   it("abstract scope uses the neutral fallback gender", async () => {
     const factId = await seedFact();
     const res = await request(makeApp())

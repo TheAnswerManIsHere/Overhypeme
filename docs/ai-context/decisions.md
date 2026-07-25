@@ -58,6 +58,80 @@
   `SubscriptionPanel.tsx` above — is added or touched; it should reuse or
   mirror `selectPlanPrices`, not re-derive its own heuristic.
 
+---
+
+### 2026-07-25 · Code review gets an oracle too: implementation PRs carry the approved plan's intent, not just the diff
+- **Decision:** Three additions to code review, extending the same "review
+  against an oracle, not just the artifact" principle already applied to plan
+  review:
+  1. **The PR body carries an oracle.** The PR template's new **Approved-plan
+     oracle** section holds the approved plan's Product Intent / Must Not
+     Change / Settled Decisions verbatim — from the `[PLAN REVIEW]` PR body
+     for the normal automated loop, or from the final approved plan document
+     when the plan went through the manual/private review path instead — for
+     any PR built from a plan; "n/a — no plan" for bugfix mode or a trivial
+     change. `code-review.md` now instructs reviewers to check the diff
+     against that oracle and flag a dropped or narrowed requirement even if
+     the code itself never mentions it.
+  2. **Fix-round re-reviews request the cumulative diff after round 2+.** A
+     per-round `@codex review` only shows the new commits since the last
+     pass; a fix in file A can silently break something in file B from the
+     *original* diff that isn't re-shown. Past the first fix round, the
+     re-request explicitly asks Codex to check the full branch diff against
+     `main`, not only the incremental commits.
+  3. **`code-review.md`'s output section gets the same two-surface split as
+     the plan-review contract** — a full-document shape for a human reviewer
+     or an agent free to post one document, and a GitHub-structured-review
+     shape (diff-anchored findings only, no status label, no top-level
+     write-up) for the `@codex review` transport. Unlike the plan contract, a
+     clean round *is* treated as sufficient evidence on code — it's backed by
+     compiling, passing tests, and CI, which a plan has none of.
+
+  Two follow-up gaps surfaced by Codex's own review of this change (real
+  findings, not rubber-stamped) and fixed in the same PR:
+  - The oracle-source paragraph in `CLAUDE.md` named only the `[PLAN REVIEW]`
+    PR body, but a plan can also reach approval via the manual/private review
+    path (the disclosure carve-out or a broken-loop fallback) with no such PR
+    to copy from. Broadened to name both sources — the PR template already
+    did.
+  - `agent-working-rules.md`'s "reviewers use review-status labels" rule was
+    stated flat, with no carve-out for the GitHub structured-review transport
+    that `code-review.md` and `plan-review-contract.md` both already document
+    as having no label channel at all. Qualified it to point at both.
+  - `.agents/PLANS.md` (the canonical plan template) had only a combined
+    Product Intent section, so the manual-fallback oracle path had nowhere
+    to paste a distinct Must Not Change / Settled Decisions from. Split into
+    three sections, matching the `[PLAN REVIEW]` PR body template's shape.
+- **Why:** a code diff can be internally sound — well-tested, correctly
+  scoped, cleanly reviewed — and still be the wrong PR, because it quietly
+  narrowed or dropped part of what David approved. Reviewing the diff against
+  itself can't catch that; only an external oracle can, same reasoning
+  already applied to plan review's PR-body oracle. The cumulative-diff fix
+  closes the equivalent "diff is not the scope" gap on the fix-round loop.
+  The output-format split closes a gap `code-review.md` had that
+  `plan-review-contract.md` already fixed for itself in PR #254: asking a
+  transport for a shape it cannot post degrades into silent partial
+  compliance rather than a visible refusal. The three follow-up gaps are the
+  same class of problem one level down: a policy refined in one shared doc
+  needs its other statements (a template, a second doc's flatter restatement
+  of the same rule) checked for the same refinement, not just the doc it was
+  first written in — Codex's own review of this PR is the concrete evidence
+  that check doesn't yet happen by default and is worth staying alert for.
+- **Reference:** PR #257 (docs-only; a same-session second Codex round caught
+  the three follow-up gaps above before merge). Companion contract:
+  [`plan-review-contract.md`](./plan-review-contract.md#the-review-oracle-the-pr-body);
+  full checklist: [`code-review.md`](../engineering/code-review.md); template:
+  [`pull_request_template.md`](../../.github/pull_request_template.md);
+  canonical plan template: [`PLANS.md`](../../.agents/PLANS.md); ceremony:
+  `CLAUDE.md`'s *Always open a PR when work is done* and *Watching the PRs I
+  open* sections.
+- **Revisit if:** the oracle section proves to add PR-body overhead without
+  catching real scope drift after a few real plan-derived PRs, or Codex's
+  GitHub connector gains a channel that makes the two-surface split
+  unnecessary.
+
+---
+
 ### 2026-07-24 · Model policy rebuilt for Opus 5 + Fable 5: `opusplan` by default, effort as a second dial, Fable reached by subagent — and delegation capped
 - **Decision:** Four changes to how Claude Code is configured and steered, after
   Opus 5's release:
@@ -112,6 +186,8 @@
   strict improvement over Sonnet at `high`, which would simplify the tier table
   considerably.
 
+---
+
 ### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
 - **Decision:** A variant is a fact expressing **the same concept** as its root in
   slightly different words. `facts.parent_id` exists for exactly two purposes:
@@ -136,14 +212,24 @@
   re-enrichment on a root re-word). Because no canonical statement existed, a
   reviewer reading only the code asked for the inheritance to be **mirrored into a
   new save path** — evidence that undocumented drift propagates. Structural
-  cross-references stay legitimate (the link itself, show/hide grouping, lifecycle
-  guards like `HAS_ACTIVE_VARIANTS`, related-facts exclusion); *metadata*
-  cross-references do not.
+  cross-references stay legitimate (the link itself, show/hide grouping,
+  `factActivation.ts`'s reparenting `HAS_ACTIVE_VARIANTS` guard, related-facts
+  exclusion); *metadata* cross-references do not.
 - **Reference:** `docs/ai-context/taxonomy-and-enrichment.md` → *Variants are
   independent facts* (canonical rule) + glossary entry "Variant (of a fact)".
   Offending sites at decision time: `routes/facts.ts:233-243`,
   `routes/facts.ts:587-590`, `lib/enrichmentJobs.ts:140-206,354-386`. Correct
   existing pattern: `enrichmentVersioning.ts`'s field-preservation invariant.
+  **`sendFactBackToReview`'s `HAS_ACTIVE_VARIANTS` guard, also removed:** it
+  rejected sending a root back to review while it had an active variant,
+  justified by the same now-fixed assumption ("refreshing a root out from
+  under active variants could silently invalidate them"). Once variants
+  classify from their own text only, that justification no longer holds, so
+  the guard — and the bulk-picker pre-skip, the skip-reason surface, and the
+  client-side error code that mirrored it — were removed too. The
+  differently-motivated `HAS_ACTIVE_VARIANTS` on `factActivation.ts`
+  (reparenting a fact that itself has active children) is unrelated and
+  still stands; it shares the error-code name, not the reasoning.
   **Root-edit invalidation mechanism, also to remove (Codex review, PR #251):**
   the parent-context classification model spawned its own machinery to protect
   it, which becomes dead weight once enrichment stops using parent text —
@@ -183,6 +269,15 @@
 - **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
   That would be a **new explicit entity** (a concept/cluster the root and variants
   both point at), not a revival of parent-inheritance through `parent_id`.
+- **Status: DONE (PR #256).** Every site enumerated above is fixed, plus the
+  bulk-backfill routes converted to a durable async queue (new `fact_pexels`
+  and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
+  breaker added to bulk-send-back so a persistently-failing fact can't create
+  an unbounded number of retry cycles nor be silently declared "migration
+  complete" while still excluded. See `docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md`
+  and `docs/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  This entry was a forward-looking "sites to fix" list at decision time — it
+  now describes fixed behavior, not a plan.
 
 ### 2026-07-24 · Deferred engineering work gets one durable backlog, split from the product roadmap
 - **Decision:** Created [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md)

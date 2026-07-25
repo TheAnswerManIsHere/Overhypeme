@@ -15,9 +15,6 @@ function impact(over: Partial<ApprovedFactTextEditImpact> = {}): ApprovedFactTex
     currentStoredText: "OLD wording.",
     normalizedProposedText: "NEW wording.",
     expectedOldTextHash: "hash-of-old",
-    isRoot: true,
-    affectedVariantCount: 0,
-    blockingVariants: [],
     persistedMemeCount: 0,
     liveMemeCount: 0,
     refreshInFlight: false,
@@ -57,13 +54,11 @@ describe("ApprovedFactTextEditModal", () => {
     expect(onConfirm).toHaveBeenCalledWith({ phrase: APPROVED_FACT_TEXT_EDIT_PHRASE, reason: "a properly long reason", expectedOldTextHash: "hash-of-old" });
   });
 
-  it("shows variant + meme consequences only when they apply", () => {
-    const { rerender } = render(<ApprovedFactTextEditModal impact={impact({ affectedVariantCount: 0, persistedMemeCount: 0 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.queryByText(/variant/i)).toBeNull();
+  it("shows the meme consequence only when persisted memes exist", () => {
+    const { rerender } = render(<ApprovedFactTextEditModal impact={impact({ persistedMemeCount: 0 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByText(/keep the OLD wording/i)).toBeNull();
 
-    rerender(<ApprovedFactTextEditModal impact={impact({ affectedVariantCount: 3, persistedMemeCount: 5, liveMemeCount: 4 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.getByText(/3 variants/i)).toBeTruthy();
+    rerender(<ApprovedFactTextEditModal impact={impact({ persistedMemeCount: 5, liveMemeCount: 4 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByText(/keep the OLD wording/i)).toBeTruthy();
   });
 });

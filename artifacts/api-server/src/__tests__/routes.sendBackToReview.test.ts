@@ -187,7 +187,7 @@ describe("POST /admin/facts/:id/send-back-to-review", () => {
     assert.deepEqual(f.enrichmentOverrides, MANUAL_OVERRIDES, "fact-level overrides untouched");
   });
 
-  it("404 for a missing fact; 409 NOT_ACTIVE; 409 HAS_ACTIVE_VARIANTS", async () => {
+  it("404 for a missing fact; 409 NOT_ACTIVE", async () => {
     const missing = await request(makeApp())
       .post("/admin/facts/999999999/send-back-to-review")
       .set("authorization", `Bearer ${adminSid}`)
@@ -204,18 +204,20 @@ describe("POST /admin/facts/:id/send-back-to-review", () => {
       .send({});
     assert.equal(notActive.status, 409);
     assert.equal(notActive.body.code, "NOT_ACTIVE");
+  });
 
+  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const root = await seedActiveFact();
     const [variant] = await db.insert(factsTable)
       .values({ text: "{NAME} variant", submittedById: adminId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
       .returning();
     insertedFactIds.push(variant.id);
-    const withVariants = await request(makeApp())
+    const res = await request(makeApp())
       .post(`/admin/facts/${root.id}/send-back-to-review`)
       .set("authorization", `Bearer ${adminSid}`)
       .send({});
-    assert.equal(withVariants.status, 409);
-    assert.equal(withVariants.body.code, "HAS_ACTIVE_VARIANTS");
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.candidateVersionId, "number");
   });
 
   it("pre-check duplicate → 409 REFRESH_ALREADY_IN_PROGRESS naming the in-flight cycle", async () => {

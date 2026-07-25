@@ -43,12 +43,12 @@ describe("sendFactBackToReview", () => {
     expect(calls[0]!.body).toEqual({ clearOverrides: true });
   });
 
-  it("surfaces a 409 HAS_ACTIVE_VARIANTS with its code and message", async () => {
-    mockFetch(409, { error: "This fact has active variants.", code: "HAS_ACTIVE_VARIANTS" });
+  it("surfaces a 409 NOT_ACTIVE with its code and message", async () => {
+    mockFetch(409, { error: "Only an active fact can be sent back to review.", code: "NOT_ACTIVE" });
     const result = await sendFactBackToReview(7);
     expect(result.success).toBe(false);
-    expect(result.code).toBe("HAS_ACTIVE_VARIANTS");
-    expect(result.error).toBe("This fact has active variants.");
+    expect(result.code).toBe("NOT_ACTIVE");
+    expect(result.error).toBe("Only an active fact can be sent back to review.");
   });
 
   it("surfaces a 409 REFRESH_ALREADY_IN_PROGRESS with its code", async () => {

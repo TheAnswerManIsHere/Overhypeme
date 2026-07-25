@@ -588,7 +588,6 @@ export default function AdminFacts() {
           setTextEditModalError(null);
           let message = "Saved successfully.";
           if (result.prepDispatch) message = "Saved. Prep restarted — enrichment and images are regenerating; re-approve the concept when ready.";
-          else if (result.affectedVariantCount && result.affectedVariantCount > 0) message = `Saved. ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? "" : "s"} marked stale for review.`;
           setSaveResult({ type: "success", message });
           // Adopt the server-normalized row as the new baseline (kills a phantom
           // "unsaved change" from normalization).
@@ -606,10 +605,6 @@ export default function AdminFacts() {
           setSelectedFact({ ...sf, text: result.impact.currentStoredText });
           setTextEditModal({ impact: result.impact });
           setTextEditModalError(confirmation ? "The stored text changed since you opened this — review the updated diff and confirm again." : null);
-          throw new CommitInterruption();
-        case "dependent_variant_in_progress":
-          setTextEditModal(null);
-          setSaveResult({ type: "error", message: `Can't re-word this parent: ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? " is" : "s are"} mid-review (e.g. fact #${result.blockingVariants[0]?.factId}). Resolve or finish those first.` });
           throw new CommitInterruption();
         case "staging_prep_in_progress":
           setTextEditModal(null);
@@ -1478,14 +1473,14 @@ export default function AdminFacts() {
               </div>
             )}
 
-            {/* Pexels Image Pipeline (root facts only) */}
-            {selectedFact.parentId === null && (
-              <div className="border border-border rounded-sm overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    Pexels Image Pipeline
-                  </span>
+            {/* Pexels Image Pipeline — every fact generates its own images,
+                root or variant (variant independence). */}
+            <div className="border border-border rounded-sm overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Pexels Image Pipeline
+                </span>
                   <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-sm border ${
                     selectedFact.hasPexelsImages
                       ? "bg-green-500/10 text-green-600 border-green-500/30"
@@ -1545,7 +1540,6 @@ export default function AdminFacts() {
                   <AdminFactPexelsGallery factId={selectedFact.id} refreshNonce={pexelsGalleryRefreshNonce} />
                 </div>
               </div>
-            )}
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or

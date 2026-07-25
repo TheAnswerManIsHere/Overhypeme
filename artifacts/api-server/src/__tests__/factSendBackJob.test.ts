@@ -124,13 +124,14 @@ describe("factSendBackHandler", () => {
     assert.deepEqual(result.result, { skipped: true, reason: "not_active" });
   });
 
-  it("HAS_ACTIVE_VARIANTS guard → terminal skip", async () => {
+  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const root = await seedActiveFact();
     await seedActiveFact({ parentId: root });
     const result = await factSendBackHandler.run({ factId: root }, {} as never);
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
-    assert.deepEqual(result.result, { skipped: true, reason: "has_active_variants" });
+    const r = result.result as { reviewId: number; candidateVersionId: number; versionNo: number };
+    assert.equal(typeof r.candidateVersionId, "number");
   });
 
   it("missing factId payload → ok:false", async () => {
@@ -170,7 +171,6 @@ describe("factSendBackHandler", () => {
 describe("sendBackGuardToSkip", () => {
   it("maps each guard code to a reason; FACT_NOT_FOUND is not a guard skip", () => {
     assert.equal(sendBackGuardToSkip("NOT_ACTIVE")?.reason, "not_active");
-    assert.equal(sendBackGuardToSkip("HAS_ACTIVE_VARIANTS")?.reason, "has_active_variants");
     assert.equal(sendBackGuardToSkip("REFRESH_ALREADY_IN_PROGRESS")?.reason, "already_in_review");
     assert.equal(sendBackGuardToSkip("FACT_NOT_FOUND"), null);
   });
