@@ -22,9 +22,13 @@ independently of its root. The **only** legitimate root↔variant
 cross-references are structural: the `parent_id` link itself, show/hide
 grouping, and lifecycle invariants (no variants-of-variants, a variant's parent
 must be an active root, `factActivation.ts`'s `HAS_ACTIVE_VARIANTS` blocking
-root reparenting/deletion mid-cycle — **not** to be confused with
+root **reparenting** mid-cycle — **not** to be confused with
 `sendBackToReview.ts`'s same-named but unrelated `HAS_ACTIVE_VARIANTS`,
-which site 13 removes).
+which site 13 removes. **Correction (Codex round 9, P1): deleting a root does
+NOT block on active variants** — `DELETE /admin/facts/:id` (both soft and
+hard) atomically cascades via `cascadeDeactivateActiveChildren` instead of
+rejecting; that cascade is the actual structural invariant here, not a
+block, and this plan doesn't touch it).
 
 **What must NOT change:**
 - Structural invariants: no variants-of-variants (`admin.ts:1550`), can't
@@ -369,8 +373,9 @@ root already uses — nothing to migrate, nothing destructive.
   now show **no images** where they previously (incorrectly) showed the
   root's. This is intended per the decision — see UX note below.
 - **The `CLASSIFICATION_PROMPT_VERSION` bump (v6→v7) marks every existing
-  fact — root and variant — as `stale_only` in Taxonomy Health**, since the
-  classifier prompt changed for everyone (not just variants). This is
+  fact — root and variant — as `staleForReprocess` in Taxonomy Health**
+  (Codex round 9 correction: not `stale_only` — see the Testing Plan), since
+  the classifier prompt changed for everyone (not just variants). This is
   expected and matches how prior prompt changes (v4, v6) were handled; it's
   a one-time bulk-reprocess trigger, not a bug.
 
@@ -502,12 +507,20 @@ prove it with **both** a root and a variant fixture:
    `lib/api-zod/src/taxonomy.ts:291`, with a one-line history comment
    (matching the existing v4/v6 comments) describing the status/parentText
    removal. Update the hardcoded `"v6"` assertion in
-   `redundantMechanism.test.ts:269`. No new reprocessing mechanism needed —
-   the existing `stale_only`/`missing_or_stale` bulk re-enrich action
-   (`POST /admin/taxonomy-health/actions/backfill-enrichment`) already
-   handles version-mismatch reprocessing with admin-edit protection built
-   in; note running it as a required post-deploy step (Testing Plan +
-   TEST_RUN doc).
+   `redundantMechanism.test.ts:269`. **Reprocessing (corrected Codex round
+   9, P1 — this step previously pointed at the wrong action): every
+   v6→v7-affected fact, with or without a prior processing signature,
+   evaluates as `staleForReprocess`, not `stale_only` —
+   `pickEnrichmentTargets` deliberately excludes `staleForReprocess` facts
+   from `backfill-enrichment`'s `stale_only`/`missing_or_stale` modes. The
+   only path that reaches this population is
+   `POST /admin/taxonomy-health/actions/bulk-send-back`** (step 8 below
+   makes it actually reach roots with active variants too). No new
+   reprocessing mechanism needs to be built — `bulk-send-back` already
+   protects admin-edited rows by default; note running it repeatedly
+   post-deploy (until `eligibleRemaining` is 0) in the Testing Plan +
+   TEST_RUN doc. `backfill-enrichment`'s `stale_only` mode is unrelated to
+   this fix — do not reference it as a reprocessing step for this change.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
@@ -616,8 +629,16 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
   `status`/parent-text signal remains that could make identical text classify
   differently based on `parentId`.
 - No trace of `DEPENDENT_VARIANT_IN_PROGRESS`/`blockingVariants`/
-  `affectedVariantCount` remains anywhere (shared contract, admin UI, tests) —
-  a root re-word's success/error messaging no longer mentions variants.
+  `affectedVariantCount` remains in **live** source (shared contract, admin
+  UI, tests) — a root re-word's success/error messaging no longer mentions
+  variants. **Scope note (Codex round 9, P2):** this check excludes
+  historical `docs/PR<N>_*_TEST_RUN.md` snapshots (e.g.
+  `docs/PR228_APPROVED_FACT_TEXT_LOCK_TEST_RUN.md:87,95`, which still
+  references both terms) — per this repo's standing convention those docs
+  are transient, point-in-time records of what a past PR tested, not live
+  contracts kept in sync going forward (CLAUDE.md: "the TEST_RUN doc is
+  transient — David deletes it once Replit has run it"). Not scheduled for
+  edit or retirement as part of this fix.
 - `CLASSIFICATION_PROMPT_VERSION` is `"v7"`; every fact classified under the
   old prompt is surfaced as `staleForReprocess` by Taxonomy Health (with or
   without a prior signature), and the `bulk-send-back` post-deploy reprocess
@@ -631,8 +652,10 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
   guard. The canonical docs no longer describe the send-back variant guard
   as legitimate.
 - Structural invariants (no variants-of-variants, active-root-parent
-  enforcement, root-deletion-blocked-by-active-variants) all still hold —
-  verified by the existing tests for those, unmodified in behavior.
+  enforcement, `factActivation.ts`'s reparenting guard, and root deletion's
+  atomic cascade-deactivate-children via `cascadeDeactivateActiveChildren` —
+  not a block) all still hold — verified by the existing tests for those,
+  unmodified in behavior.
 - Full test suite green; `check:docs`/`check:codegen-drift` clean.
 - The decision-log entry is updated to reflect this is shipped.
 - David can exercise it: create a variant, generate its own AI meme, confirm
