@@ -13,6 +13,53 @@
 
 ---
 
+### 2026-07-25 · Stripe plan selection classifies by each price's own `recurring` field, and only from membership-tagged products
+- **Decision:** The customer-facing pricing page (and any future code that
+  turns Stripe's product/price catalog into "which plan is this?") must
+  classify **each price** by its own `recurring` field (`null`/absent →
+  one-time/lifetime, `interval: "month"` → monthly, `interval: "year"` →
+  annual) — never by guessing a whole **product's** plan type from its name
+  or defaulting to only its first price. It must also filter to prices
+  belonging to a product tagged `overhype_membership=true` (the same
+  allowlist `/stripe/checkout` and the grant layer already enforce, see
+  [`security-model.md`](./security-model.md#payment-trust--membership-grants-c6))
+  **before** classifying — display must not advertise a plan the grant layer
+  will refuse.
+- **Why:** `Pricing.tsx` classified a whole Stripe *product* into
+  monthly/annual/lifetime by sniffing its name, falling back to only its
+  cheapest price's interval when the name didn't match. Stripe's natural
+  dashboard setup is **one product, several price points** (e.g. a single
+  "Legendary" product carrying monthly, annual, and one-time prices) —
+  classifying by product silently collapsed all three onto one bucket and
+  dropped the other two, which is what made the upgrade screen show only the
+  "Forever" (lifetime) option. Fixing that surfaced a second, adjacent gap in
+  Codex review: `/api/stripe/plans` returns every active product in the
+  catalog, not just membership ones, so once selection stopped being
+  name-gated it would have started flattening prices from **any** future
+  non-membership product (render credits, merch, tips) straight onto the
+  pricing page — advertising a plan that `/stripe/checkout`'s
+  `overhype_membership` allowlist would then reject.
+- **Reference:** PR #255. `artifacts/overhype-me/src/pages/pricingPlans.ts`
+  (`selectPlanPrices`) is now the single place this classification happens;
+  `Pricing.tsx` consumes it. See the retired mistake in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
+- **Known existing exception, not yet migrated (Codex review, PR #258):**
+  `SubscriptionPanel.tsx`'s `findAnnualPriceId()` is a second, pre-existing
+  plan-selection surface (the "switch to annual" upgrade flow) that predates
+  this decision and does not yet follow it — its fallback path (current price
+  not found in the synced `plans` list) returns the **first** annual-recurring
+  price across *all* products with no `overhype_membership` check. In that
+  stale-sync scenario it can select a non-membership product's annual price;
+  `switch-preview`/`switch-plan` still reject it at the grant layer, so this
+  is a broken-UX gap, not a membership-bypass. Not fixed here — this is a
+  docs-only PR; flagged to David to decide whether it's fixed now or
+  deferred.
+- **Revisit if:** any plan-selection surface — including migrating
+  `SubscriptionPanel.tsx` above — is added or touched; it should reuse or
+  mirror `selectPlanPrices`, not re-derive its own heuristic.
+
+---
+
 ### 2026-07-25 · Code review gets an oracle too: implementation PRs carry the approved plan's intent, not just the diff
 - **Decision:** Three additions to code review, extending the same "review
   against an oracle, not just the artifact" principle already applied to plan
