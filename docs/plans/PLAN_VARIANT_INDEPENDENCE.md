@@ -286,6 +286,12 @@ implicit one (the root as a variant's de facto metadata source).
   its route comment (`admin.ts:2016`) and a log line (`:2030`). An operator
   reading either would be told only roots were processed when variants are
   now included too. Update all of them to drop the root-only framing.
+  **Also rename the misleading variable names (Codex round 13):**
+  `admin.ts:2001` (`backfill-images`) and `admin.ts:2081` (`backfill-ai-memes`)
+  both name their query result `rootFacts` — live code, not just a comment,
+  falsely describing a now-mixed root/variant collection. Rename both (e.g.
+  `facts`/`targetFacts`); `backfill-pexels`'s `nullFacts` (`admin.ts:2021`)
+  is already neutral and doesn't need changing.
 - **`scripts/backfill-pexels-images.mjs:112-113` (Codex round 5) — retire it,
   don't fix it in place.** This is a THIRD implementation of the same
   operation (repo-root, raw SQL, its own hand-rolled OpenAI keyword-extraction
@@ -554,8 +560,13 @@ prove it with **both** a root and a variant fixture:
   bulk-triggers can still duplicate work per fact (pre-existing gap, out of
   scope, documented above). Do not test or claim overlapping-invocation
   idempotency; that's a separate rearchitect.
-- `scripts/backfill-pexels-images.mjs` no longer exists in the repo (site 12
-  — deleted, not fixed in place, per the design decision above).
+- **`scripts/backfill-pexels-images.mjs` (site 12) — conditional on David's
+  answer to the Questions-for-David item (Codex round 13 correction: my
+  claim here was unconditional, contradicting the plan's own default vs.
+  override):** if unused → the file no longer exists in the repo. If David
+  flags active use → the file still exists, its `parent_id IS NULL` filter
+  is removed from both the default and `--all` query modes, and both now
+  include variants.
 - Admin Facts Editor: selecting a variant shows the Pexels Image Pipeline
   panel (previously hidden); the panel's status/actions work identically to
   a root's.
@@ -654,7 +665,10 @@ prove it with **both** a root and a variant fixture:
    `backfill-pexels.ts`'s header docstring (`:1-2`) and two `console.log`
    lines (`:33,44`), plus `admin.ts`'s `backfill-pexels` route comment
    (`:2016`) and log line (`:2030`) — all still describe/log "root facts"
-   after the query itself is widened.
+   after the query itself is widened. **Rename the misleading variable
+   names too (Codex round 13):** `admin.ts:2001`/`:2081`'s `rootFacts`
+   collections (`backfill-images`/`backfill-ai-memes`) to a neutral name;
+   `backfill-pexels`'s `nullFacts` is already fine.
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
