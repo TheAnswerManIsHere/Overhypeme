@@ -49,9 +49,9 @@
  * review, PR #256), not fixed here.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { factsTable, type AsyncJobRow } from "@workspace/db/schema";
+import { factsTable, asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { seedFactPexelsImagesOnce } from "./factImagePipeline";
 import { isStagingImagePrepActive } from "./moderationStaging";
 import {
@@ -113,12 +113,27 @@ export async function enqueueFactPexels(
       dedupeKey: factPexelsDedupeKey(factId),
     });
   } catch (err) {
-    // The "pending" write above already landed; if enqueueJob's insert itself
-    // rejects (a real DB error, not the dedupe-conflict path — that's caught
-    // internally and never throws), no job row exists to ever finalize this
-    // fact's status. Repair it to "failed" rather than stranding it at
-    // "pending" forever with nothing left to run (Codex review, PR #256).
-    await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId));
+    // The "pending" write above already landed. `enqueueJob` can still throw
+    // even when a job genuinely got created: its own dedupe-conflict recovery
+    // has a narrow retry-insert race (asyncJobs.ts's "Rare race" comment) that
+    // can itself throw a fresh conflict if a concurrent caller's insert lands
+    // between its SELECT and its retry INSERT — in that case a real,
+    // not-yet-claimed job DOES exist for this fact. Only repair the status to
+    // "failed" if no non-terminal job actually exists for this dedupe key;
+    // otherwise this would clobber a legitimately in-flight job's marker
+    // before it even runs (Codex review, PR #256).
+    const [inFlight] = await db
+      .select({ id: asyncJobsTable.id })
+      .from(asyncJobsTable)
+      .where(and(
+        eq(asyncJobsTable.queue, FACT_PEXELS_QUEUE),
+        eq(asyncJobsTable.dedupeKey, factPexelsDedupeKey(factId)),
+        or(eq(asyncJobsTable.status, "pending"), eq(asyncJobsTable.status, "processing")),
+      ))
+      .limit(1);
+    if (!inFlight) {
+      await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId));
+    }
     throw err;
   }
 }
