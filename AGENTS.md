@@ -149,8 +149,11 @@ markdown diff of the plan — re-read the *whole* plan and re-verify it against 
 repo anyway, reconcile every finding you raised earlier (Resolved / Still open /
 Superseded, where "the wording changed" is never Resolved), attack from a lens
 you haven't used yet, and report what you actually inspected — including the
-searches you ran — plus what you could not verify and why. The contract's
-*Re-reviews* and *Report what you verified* sections are the full rules.
+searches you ran — plus what you could not verify and why. **On your actual
+GitHub review transport, most of this is carried inside individual findings,
+not a separate report** — the contract's *Re-reviews*, *Report what you
+verified*, and *Output* sections are the full, surface-scoped rules; this
+paragraph is a summary, not the authority.
 
 ## Setup, verification, and the CI gate
 

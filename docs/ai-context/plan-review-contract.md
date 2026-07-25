@@ -481,6 +481,16 @@ order → the required review checks → external claims → verification report
 and reconciliation → the status label and output shape.** The failure-pattern
 list is the first thing to sample rather than sweep.
 
-**Say when you did this.** A review that ran short is useful; a review that ran
-short and presents as complete is worse than no review, because the loop treats
-it as coverage. Name what you did not get to.
+**Say when you did this — on the full-document surface, where you have
+somewhere to say it.** A review that ran short is useful; a review that ran
+short and presents as complete is worse than no review, because the loop
+treats it as coverage. Name what you did not get to.
+
+**On the GitHub structured-review surface, this has no dedicated channel
+either, for the same confirmed reason as everything else in *Output*: there is
+no non-defect finding to post it in.** A short-but-genuinely-clean pass and a
+short-and-incomplete pass that happened to find nothing both look identical
+from outside — an empty findings list. Don't manufacture a finding to flag
+incompleteness; that's the same mistake as manufacturing one to prove
+verification. This ambiguity is already inside the accepted evidence ceiling
+this surface operates under — it isn't a new gap to close.
