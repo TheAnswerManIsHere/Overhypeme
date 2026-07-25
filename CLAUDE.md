@@ -399,24 +399,66 @@ have a draft plan, and the disclosure check passes:
    and request the next round with a fresh explicit `@codex review` comment.
    Codex has authority on plan *substance*, **none** on branch/PR/devops
    mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
-5. **Convergence: no substantive objections, minimum 3 rounds (David,
+5. **Target the trigger comment once a specific subsystem is the live risk
+   (David, 2026-07-25).** A generic "@codex review" re-reads the whole plan
+   with even attention every round. Once findings cluster on one section (a
+   newly-added mechanism, a rearchitected piece), I say so explicitly in the
+   trigger comment — name the section and the failure-mode categories worth
+   stress-testing (idempotency, concurrency, retry/crash-recovery semantics,
+   execution-time races, whatever fits) — instead of a bare "this is round
+   N." Proven in the variant-independence plan (PR #252): once I started
+   directing Codex at the newest mechanism, each round's findings narrowed
+   to that mechanism's real remaining edges instead of re-scattering.
+6. **Consolidate, don't just accrete, once a subsystem's history gets long
+   (David, 2026-07-25).** A subsection that's absorbed several rounds of
+   "Correction (Codex round N): my previous claim was wrong" ends up
+   carrying its whole revision history forever — Codex re-reads all of it
+   every round for no benefit, and it's most of what makes replies/diffs
+   balloon. Once a subsystem's design has actually changed shape (not just
+   picked up one more caveat), I rewrite that section into one coherent
+   final version — keep the reasoning that explains a genuinely non-obvious
+   decision, drop the blow-by-blow "I was wrong, then wrong again" narrative
+   once it's served its purpose. This is a prose/structure pass, not a
+   technical change, so it doesn't reopen anything Codex already confirmed.
+7. **Convergence: no substantive objections, minimum 3 rounds (David,
    2026-07-22).** I do not stop before three completed Codex review rounds, even
    if an early round comes back clean — in that case I request the re-review
    through a different lens (edge cases, data integrity/migrations,
    source-of-truth risks, failure modes) instead of manufacturing plan churn.
    From round 3 on, I stop as soon as a round produces no substantive objections.
-6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
+8. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
-7. **Break non-convergence.** If substantive objections are still coming after
-   ~6 rounds, or Codex and I flatly disagree on a point of substance, I stop and
-   bring David the disagreement instead of churning.
-8. **Close out.** When converged: close the draft PR **without merging**
-   (`update_pull_request`, state `closed`) with a closing comment recording the
-   final review status, unsubscribe, then deliver the final plan via
-   `SendUserFile` and ask for David's approval per the ritual above. **Codex
-   convergence is NOT plan approval** — *Plan approval is explicit only* still
-   governs; only David approves.
+9. **Soft cap at ~20 rounds — check in, don't silently stop or silently keep
+   going (David, 2026-07-25, superseding the old ~6-round break rule).**
+   Genuinely substantive, narrowing findings can legitimately run past a
+   handful of rounds — a single plan-review PR reached round 23+ in practice
+   (PR #252) while still surfacing real bugs each round, because each round
+   was catching something the previous fix had actually gotten wrong. So I
+   don't treat "many rounds" alone as a signal to stop. At ~20 rounds
+   (or sooner if the SAME category of finding keeps resurfacing without
+   narrowing, or Codex and I flatly disagree on a point of substance), I
+   pause and bring David the state via the NEED YOU banner — status, what's
+   still open, my recommendation — rather than deciding unilaterally either
+   way. If he says keep going, I do, without re-asking at the next
+   milestone unless the shape of the problem changes.
+10. **Split foreseeably multi-subsystem plans into parallel review PRs
+    up front, not retroactively (David, 2026-07-25).** If I can tell before
+    opening the review PR that a plan spans genuinely independent
+    subsystems (e.g. a bug-fix site enumeration *and* a new infrastructure
+    piece neither depends on the other's outcome), I open one plan-review
+    PR per subsystem and run their Codex loops in parallel, then compile
+    the converged pieces into one final plan document for David's approval.
+    I do **not** retroactively fork a PR mid-loop once a subsystem turns out
+    to need its own attention — by then Codex's context on the existing PR
+    is already established and cheaper to keep using than to rebuild fresh
+    on a new one; the upfront split only pays off when decided upfront.
+11. **Close out.** When converged: close the draft PR **without merging**
+    (`update_pull_request`, state `closed`) with a closing comment recording the
+    final review status, unsubscribe, then deliver the final plan via
+    `SendUserFile` and ask for David's approval per the ritual above. **Codex
+    convergence is NOT plan approval** — *Plan approval is explicit only* still
+    governs; only David approves.
 
 **Calibration (first ~3 real plans).** This is a pilot, not a proven
 replacement. For the first few plans I run the Codex loop *and* note where its
