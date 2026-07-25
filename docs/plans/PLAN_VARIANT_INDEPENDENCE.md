@@ -21,8 +21,10 @@ own enrichment/taxonomy, Visual Concept, stock (`pexelsImages`) and AI
 independently of its root. The **only** legitimate root↔variant
 cross-references are structural: the `parent_id` link itself, show/hide
 grouping, and lifecycle invariants (no variants-of-variants, a variant's parent
-must be an active root, `HAS_ACTIVE_VARIANTS` blocking root deletion/moderation
-mid-cycle).
+must be an active root, `factActivation.ts`'s `HAS_ACTIVE_VARIANTS` blocking
+root reparenting/deletion mid-cycle — **not** to be confused with
+`sendBackToReview.ts`'s same-named but unrelated `HAS_ACTIVE_VARIANTS`,
+which site 13 removes).
 
 **What must NOT change:**
 - Structural invariants: no variants-of-variants (`admin.ts:1550`), can't
@@ -67,7 +69,7 @@ call sites under `artifacts/api-server/src`.
 
 ## Current Behavior
 
-**Confirmed bugs (metadata inheritance / root-only generation) — 12 sites:**
+**Confirmed bugs (metadata inheritance / root-only generation) — 13 sites:**
 
 | # | Site | Current behavior |
 |---|---|---|
@@ -83,6 +85,7 @@ call sites under `artifacts/api-server/src`.
 | 10 | `artifacts/overhype-me/src/pages/admin/facts.tsx:1481-1482` (Codex round 1) | Wraps the entire "Pexels Image Pipeline (root facts only)" admin panel in `selectedFact.parentId === null` — a variant has no UI surface to run/see `refresh-images` |
 | 11 | `artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) | Standalone CLI script (separate from the `admin.ts` HTTP route of the same name) also filters `isNull(factsTable.parentId)` |
 | 12 | `scripts/backfill-pexels-images.mjs:112-113` (Codex round 5) | A THIRD, undocumented-elsewhere standalone script (repo root, raw SQL, its own hand-rolled OpenAI-keyword + Pexels logic — duplicates `pexelsClient.ts`'s pipeline rather than reusing it) filters `parent_id IS NULL AND is_active = true` in both its normal and `--all` modes |
+| 13 | `lib/sendBackToReview.ts:102-114` (Codex round 7) | `sendFactBackToReview` rejects a root with any active variant (`HAS_ACTIVE_VARIANTS`) — its own comment says why: *"Variants are classified WITH their parent's text as context; refreshing a root out from under active variants could silently invalidate them."* That justification IS the bug this plan fixes. Left in place, it structurally blocks the v6→v7 prompt-version reprocessing (via `POST /admin/taxonomy-health/actions/bulk-send-back`, and the single-fact send-back path) for exactly the population — roots with active variants — this whole fix is about |
 
 **Checked, already correct — no fix needed:** `artifacts/api-server/scripts/backfill-ai-memes.ts`
 (queries all active facts with no `parentId` filter at all).
@@ -156,15 +159,17 @@ implicit one (the root as a variant's de facto metadata source).
   re-processing. **No new reprocessing mechanism needs to be built** — the
   version bump makes `evaluateFactTaxonomyHealth` (which already compares
   `enrichment.classificationPromptVersion` against the live constant) flag
-  every fact as `stale_only`, and the existing
-  `POST /admin/taxonomy-health/actions/backfill-enrichment` bulk action
-  (`mode: "stale_only"` or `"missing_or_stale"`) already re-enriches exactly
-  those facts, already protecting admin-edited rows by default
-  (`forceOverwriteAdminEdited`) — this is the override-preserving
-  reprocessing path Codex asked for; it already exists, it just needs to be
-  *run* post-deploy. Update the hardcoded assertion in
+  every fact as stale. Update the hardcoded assertion in
   `redundantMechanism.test.ts:269` (`assert.equal(CLASSIFICATION_PROMPT_VERSION,
   "v6")`) to `"v7"`.
+  **Correction (Codex round 7, P1): the reprocessing path is NOT just the
+  `stale_only` bulk action as round 6 claimed — see site 13 / section E
+  below.** `stale_only` only reaches facts with no stamped processing
+  signature yet; everything already processed needs `bulk-send-back`, which
+  today hard-blocks any root with an active variant. Both halves are
+  required together: the version bump (so staleness is detected at all) and
+  removing `sendFactBackToReview`'s `HAS_ACTIVE_VARIANTS` guard (so
+  send-back can actually reach the roots this fix is about).
 - `factTextEditProtection.ts`: remove `loadDirectVariantDependencies`,
   `VariantDependency`, and the root-edit-blocks-on-in-flight-variant check
   entirely. A root re-word no longer needs to look at its variants at all.
@@ -271,6 +276,48 @@ implicit one (the root as a variant's de facto metadata source).
   have its own variants, per the no-variants-of-variants invariant). Both
   left unchanged.
 
+**E. Unblock reprocessing for roots with active variants (site 13, Codex
+   round 7, P1) — correcting round 6's reprocessing-path claim.** Round 6
+   said the existing `stale_only` bulk re-enrich action was sufficient to
+   reprocess pre-v7 facts; that's only true for facts with no stamped
+   `last_processed_signature` yet. `currentProcessingSignature()` bakes in
+   `CLASSIFICATION_PROMPT_VERSION`, so the v7 bump also flags every
+   already-processed fact `staleForReprocess`, and `pickEnrichmentTargets()`
+   *deliberately* excludes that overlap from `stale_only`/`missing_or_stale`
+   (direct re-enrich never stamps a fresh signature, so including them would
+   leave `stale_for_reprocess` stuck forever — correct existing behavior, not
+   a bug). The actual path for those facts is `bulk-send-back`
+   (`POST /admin/taxonomy-health/actions/bulk-send-back`) — but
+   `sendFactBackToReview` (`lib/sendBackToReview.ts:102-114`) rejects any
+   root with an active variant, and its own comment says exactly why: *"Variants
+   are classified WITH their parent's text as context; refreshing a root out
+   from under active variants could silently invalidate them."* That's the
+   inheritance bug this plan eliminates everywhere else — once variants
+   never depend on a root's text, refreshing the root can't invalidate them,
+   so this guard has no remaining justification. Remove it:
+   - `lib/sendBackToReview.ts:102-114`: delete the active-variant check and
+     the `HAS_ACTIVE_VARIANTS` branch of `SendBackToReviewError`.
+   - `routes/adminTaxonomyHealth.ts`: remove the `factsWithActiveVariants()`
+     pre-skip (lines ~170-174, ~838) and its `HAS_ACTIVE_VARIANTS` skip-outcome
+     branch (~880) in `pickSendBackTargets` — the bulk picker no longer needs
+     to pre-filter for a guard that no longer exists.
+   - `lib/factSendBackJob.ts:38-39`: remove the `HAS_ACTIVE_VARIANTS` case
+     from `sendBackGuardToSkip` (dead once the error code can't be thrown).
+   - Update tests asserting the old behavior: `routes.sendBackToReview.test.ts`,
+     `routes.admin.test.ts` (two 409 assertions), `enrichmentVersioning.refresh.test.ts`,
+     `factSendBackJob.test.ts`, `adminTaxonomyHealth.guardQueryChunking.test.ts`.
+   - **Do NOT touch `factActivation.ts:151,197`'s separate `HAS_ACTIVE_VARIANTS`
+     code** — that one blocks reparenting a fact that itself has active
+     children (the no-variants-of-variants structural invariant), an entirely
+     different concern already listed in "What must NOT change." Same error
+     code name, unrelated guard, unrelated fix.
+   - **Not a code fix, an operational note:** `bulk-send-back` is capped at
+     `BULK_SEND_BACK_BATCH_LIMIT = 50` per request — expected, pre-existing
+     behavior, not a bug. An admin runs it repeatedly (`eligibleRemaining`
+     tells them when to stop), same as any other prompt-version-bump
+     reprocess. With site 13 fixed, this now actually reaches every stale
+     fact, root-with-variants included.
+
 ## Data Model and Migration Impact
 
 None. No schema change. No backfill: this changes *behavior going forward*,
@@ -312,14 +359,21 @@ root already uses — nothing to migrate, nothing destructive.
   image pipeline, same as a root edit already does — no new UI state needed
   (the root path's existing "processing" signal, if any, already covers this
   shape of async work).
-- **Taxonomy Health will show every fact as `stale_only` immediately after
-  deploy** (the prompt-version bump above). David/an admin runs the existing
-  `POST /admin/taxonomy-health/actions/backfill-enrichment` bulk action
-  (`mode: "stale_only"`) to reprocess; admin-edited rows are protected by
-  default (already-built behavior, `forceOverwriteAdminEdited` opts in to
-  overwrite them). Call this out prominently in the TEST_RUN/UAT docs — it's
-  the single largest visible consequence of this fix and needs a deliberate
-  post-deploy action, not a surprise.
+- **Taxonomy Health will show every fact as stale immediately after deploy**
+  (the prompt-version bump above), via **two different flags depending on
+  processing history (Codex round 7 correction)**: a fact with no stamped
+  processing signature shows `stale_only` (reprocess via
+  `POST /admin/taxonomy-health/actions/backfill-enrichment`,
+  `mode: "stale_only"`); a fact that's already been processed shows
+  `staleForReprocess` instead (reprocess via
+  `POST /admin/taxonomy-health/actions/bulk-send-back`, capped at 50/request
+  — run it repeatedly until `eligibleRemaining` is 0). Both paths protect
+  admin-edited rows by default. Site 13 (removing `sendFactBackToReview`'s
+  `HAS_ACTIVE_VARIANTS` guard) is what makes `bulk-send-back` actually reach
+  roots with active variants — without it, that population is permanently
+  stuck. Call this two-step reprocess out prominently in the TEST_RUN/UAT
+  docs — it's the single largest visible consequence of this fix and needs a
+  deliberate post-deploy action, not a surprise.
 
 ## Security, Permissions, and Validation
 
@@ -341,11 +395,19 @@ prove it with **both** a root and a variant fixture:
   prompt string) rather than only checking the fingerprint. Re-wording a root does NOT change a variant's
   `lastProcessedSignature` or trigger any job for it (negative case).
 - **Prompt versioning (Codex round 6, P1):** `CLASSIFICATION_PROMPT_VERSION`
-  is `"v7"`; a fact fixture stamped with the old `"v6"` (root or variant)
-  evaluates as `stale_only` under `evaluateFactTaxonomyHealth`, proving a
-  pre-change fact is surfaced for reprocessing rather than silently remaining
-  "current" with parent-influenced metadata. `admin.ts:2145-2148`
+  is `"v7"`; a fact fixture stamped with the old `"v6"` enrichment but NO
+  processing signature evaluates as `stale_only`. `admin.ts:2145-2148`
   (`backfill-enrichment`) no longer computes or passes `status`.
+- **Reprocessing reaches root-with-active-variants facts (Codex round 7, P1):**
+  give a fact `"v6"` enrichment PLUS a `"v6"`-stamped processing signature
+  under a live `"v7"` — assert it evaluates as `staleForReprocess` (not
+  `stale_only`, per `pickEnrichmentTargets`'s deliberate exclusion). Give
+  that fact an active variant, call `sendFactBackToReview`/`bulk-send-back` —
+  it must succeed (no `HAS_ACTIVE_VARIANTS` rejection), proving the
+  documented operator action can actually refresh a root with active
+  variants, not enqueue zero jobs. `factActivation.ts`'s separate
+  `HAS_ACTIVE_VARIANTS` reparenting guard is unaffected — its own tests still
+  pass unchanged.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -439,15 +501,27 @@ prove it with **both** a root and a variant fixture:
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
-8. Update/add tests per the Testing Plan (root + variant fixture for every
+8. **Unblock send-back reprocessing for roots with active variants (site 13,
+   Codex round 7, P1):** remove the active-variant check in
+   `lib/sendBackToReview.ts:102-114` and the `HAS_ACTIVE_VARIANTS` branch of
+   `SendBackToReviewError`; remove `adminTaxonomyHealth.ts`'s now-unnecessary
+   `factsWithActiveVariants()` pre-skip and its `HAS_ACTIVE_VARIANTS`
+   skip-outcome branch in `pickSendBackTargets`; remove the
+   `HAS_ACTIVE_VARIANTS` case from `factSendBackJob.ts`'s
+   `sendBackGuardToSkip`. Update `routes.sendBackToReview.test.ts`,
+   `routes.admin.test.ts`, `enrichmentVersioning.refresh.test.ts`,
+   `factSendBackJob.test.ts`, `adminTaxonomyHealth.guardQueryChunking.test.ts`.
+   Leave `factActivation.ts`'s separate `HAS_ACTIVE_VARIANTS` reparenting
+   guard untouched.
+9. Update/add tests per the Testing Plan (root + variant fixture for every
    changed site).
-9. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
-   fix as **done**, not just planned — the entry currently reads as a
-   forward-looking "sites to fix"; close the loop once merged.
-10. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
+10. Update the decision-log entry (`docs/ai-context/decisions.md`) to mark this
+    fix as **done**, not just planned — the entry currently reads as a
+    forward-looking "sites to fix"; close the loop once merged.
+11. TEST_RUN + UAT docs (per the standing PR ritual), calling out the
     "variants may show no images until backfilled" visible change, and the
-    "every fact goes `stale_only` in Taxonomy Health, run the bulk re-enrich
-    action" post-deploy step.
+    two-step post-deploy reprocess (`stale_only` bulk re-enrich, then
+    `bulk-send-back` run repeatedly for already-processed facts).
 
 ## Risks and Mitigations
 
@@ -475,10 +549,12 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
 - Repo-wide sweep re-confirmed at implementation time, **including outside
   `artifacts/`** (site 12 was found in the repo-root `scripts/` directory,
   not under `artifacts/api-server/src` where the original sweep was scoped —
-  widen the re-sweep accordingly); all 12 listed sites fixed (including the
-  frontend gate and both standalone/duplicate backfill scripts); no other
-  `parentId`-gated images/enrichment/AI-generation site remains anywhere in
-  the repo (verified by grep, not assumed).
+  widen the re-sweep accordingly); all 13 listed sites fixed (including the
+  frontend gate, both standalone/duplicate backfill scripts, and the
+  send-back active-variant guard); no other `parentId`-gated images/
+  enrichment/AI-generation site, and no other guard whose justification is
+  parent-inheritance, remains anywhere in the repo (verified by grep, not
+  assumed).
 - A variant can: get its own stock/AI images (via explicit generation, admin
   refresh, or now-inclusive bulk backfill), get its own enrichment classified
   from its own text only, and have its own confirmed text edit trigger its own
@@ -492,9 +568,14 @@ bulk-backfill scope, curation-spot scope) were resolved this session.
   `affectedVariantCount` remains anywhere (shared contract, admin UI, tests) —
   a root re-word's success/error messaging no longer mentions variants.
 - `CLASSIFICATION_PROMPT_VERSION` is `"v7"`; every fact classified under the
-  old prompt is surfaced as `stale_only` by Taxonomy Health, and the
-  post-deploy bulk re-enrich step is documented in TEST_RUN, not silently
-  left for someone to discover.
+  old prompt is surfaced as stale by Taxonomy Health (`stale_only` or
+  `staleForReprocess` depending on processing history), and the two-step
+  post-deploy reprocess is documented in TEST_RUN, not silently left for
+  someone to discover.
+- A root with an active variant can be sent back to review /
+  bulk-reprocessed like any other fact — `sendFactBackToReview` no longer
+  rejects it, proven by an actual root-with-active-variant fixture
+  succeeding through `bulk-send-back`, not just a claim that it should work.
 - Structural invariants (no variants-of-variants, active-root-parent
   enforcement, root-deletion-blocked-by-active-variants) all still hold —
   verified by the existing tests for those, unmodified in behavior.
