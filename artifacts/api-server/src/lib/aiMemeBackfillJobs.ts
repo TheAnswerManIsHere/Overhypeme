@@ -38,7 +38,7 @@
  * fixed here.
  */
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { generateAiMemeBackgrounds } from "./aiMemePipeline";
@@ -79,7 +79,13 @@ export async function enqueueFactAiMemeBackfill(factId: number): Promise<Enqueue
   await db
     .update(factsTable)
     .set({ aiMemeBackfillStatus: "pending" })
-    .where(and(eq(factsTable.id, factId), ne(factsTable.aiMemeBackfillStatus, "processing")));
+    .where(and(
+      eq(factsTable.id, factId),
+      // NULL-safe "not processing": plain `ne()` compiles to `<> 'processing'`,
+      // which is NULL on a never-enqueued fact (status NULL) and so silently
+      // skips the write on every fact's first-ever enqueue.
+      sql`${factsTable.aiMemeBackfillStatus} IS DISTINCT FROM 'processing'`,
+    ));
   return enqueueJob({
     queue: FACT_AI_MEME_BACKFILL_QUEUE,
     payload: { factId },
