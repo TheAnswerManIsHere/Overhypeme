@@ -633,6 +633,19 @@ default is "ship for review." The only exceptions: pure exploration
 with no commits, or David has explicitly said "don't open a PR for
 this."
 
+**The PR body carries the approved plan as the reviewer's oracle
+(David, 2026-07-25).** The template's **Approved-plan oracle** section exists
+because Codex reviewing an implementation PR otherwise has no way to check
+the code against what David actually approved — only against itself, which
+can't catch a well-built PR that quietly narrowed or dropped part of the
+approved scope. So whenever this PR implements a plan that went through
+Codex plan-review (feature mode), I paste that plan's Product Intent / Must
+Not Change / Settled Decisions verbatim from the `[PLAN REVIEW]` PR body into
+this PR's oracle section before requesting the first review. Bugfix mode or a
+trivial change with no plan gets "n/a — no plan" there. See
+[`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
+for what the reviewer does with it.
+
 ### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
 For **every** PR that has product-visible or testable behavior, I ship two
@@ -805,6 +818,16 @@ since none was armed). While watching:
   in the code — not merely responded to. Same principle as the plan loop's
   *Re-reviews*, in miniature: a reply on a thread is not evidence the defect is
   gone.
+- **After 2+ fix rounds, ask for the cumulative diff, not just the latest
+  commits (David, 2026-07-25).** A per-round `@codex review` only shows Codex
+  the new commits since its last pass — fine for round 1's fix, but a fix in
+  file A can silently break something in file B that was part of the
+  *original* diff and isn't re-shown on round 2+. Once a PR has gone through
+  more than one fix round, I say so explicitly in the re-request and ask
+  Codex to check the branch's full diff against `main`
+  (`git diff origin/main...HEAD --stat` gives me the file list to reference),
+  not only the incremental commits — same "the diff is not the scope"
+  principle as the plan loop's re-reviews, applied to code.
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real

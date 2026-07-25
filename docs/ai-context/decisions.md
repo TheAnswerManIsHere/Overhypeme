@@ -13,6 +13,53 @@
 
 ---
 
+### 2026-07-25 · Code review gets an oracle too: implementation PRs carry the approved plan's intent, not just the diff
+- **Decision:** Three additions to code review, extending the same "review
+  against an oracle, not just the artifact" principle already applied to plan
+  review:
+  1. **The PR body carries an oracle.** The PR template's new **Approved-plan
+     oracle** section holds the approved plan's Product Intent / Must Not
+     Change / Settled Decisions verbatim (copied from the `[PLAN REVIEW]` PR
+     body) for any PR built from a plan; "n/a — no plan" for bugfix mode or a
+     trivial change. `code-review.md` now instructs reviewers to check the
+     diff against that oracle and flag a dropped or narrowed requirement even
+     if the code itself never mentions it.
+  2. **Fix-round re-reviews request the cumulative diff after round 2+.** A
+     per-round `@codex review` only shows the new commits since the last
+     pass; a fix in file A can silently break something in file B from the
+     *original* diff that isn't re-shown. Past the first fix round, the
+     re-request explicitly asks Codex to check the full branch diff against
+     `main`, not only the incremental commits.
+  3. **`code-review.md`'s output section gets the same two-surface split as
+     the plan-review contract** — a full-document shape for a human reviewer
+     or an agent free to post one document, and a GitHub-structured-review
+     shape (diff-anchored findings only, no status label, no top-level
+     write-up) for the `@codex review` transport. Unlike the plan contract, a
+     clean round *is* treated as sufficient evidence on code — it's backed by
+     compiling, passing tests, and CI, which a plan has none of.
+- **Why:** a code diff can be internally sound — well-tested, correctly
+  scoped, cleanly reviewed — and still be the wrong PR, because it quietly
+  narrowed or dropped part of what David approved. Reviewing the diff against
+  itself can't catch that; only an external oracle can, same reasoning
+  already applied to plan review's PR-body oracle. The cumulative-diff fix
+  closes the equivalent "diff is not the scope" gap on the fix-round loop.
+  The output-format split closes a gap `code-review.md` had that
+  `plan-review-contract.md` already fixed for itself in PR #254: asking a
+  transport for a shape it cannot post degrades into silent partial
+  compliance rather than a visible refusal.
+- **Reference:** this change (docs-only). Companion contract:
+  [`plan-review-contract.md`](./plan-review-contract.md#the-review-oracle-the-pr-body);
+  full checklist: [`code-review.md`](../engineering/code-review.md); template:
+  [`pull_request_template.md`](../../.github/pull_request_template.md);
+  ceremony: `CLAUDE.md`'s *Always open a PR when work is done* and *Watching
+  the PRs I open* sections.
+- **Revisit if:** the oracle section proves to add PR-body overhead without
+  catching real scope drift after a few real plan-derived PRs, or Codex's
+  GitHub connector gains a channel that makes the two-surface split
+  unnecessary.
+
+---
+
 ### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
 - **Decision:** A variant is a fact expressing **the same concept** as its root in
   slightly different words. `facts.parent_id` exists for exactly two purposes:
