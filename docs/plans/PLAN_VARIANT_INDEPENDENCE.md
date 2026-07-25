@@ -271,7 +271,13 @@ implicit one (the root as a variant's de facto metadata source).
   fire-and-forget shape) is real, separate scope — a technical-debt item for
   David to prioritize on its own, not folded into this PR. The Testing Plan
   below is corrected to claim only sequential-re-run idempotency, not
-  concurrent-invocation safety.
+  concurrent-invocation safety. **The same missing durable per-fact status
+  also means no route can report completion, not just concurrency safety
+  (Codex round 16, P1 — see the Testing Plan's Bulk backfill bullet):** an
+  operator gets an initial triggered/queued count and nothing else: no
+  per-fact or aggregate completed/failed signal, root or variant, before or
+  after this fix. Same gap, same out-of-scope disposition — fixing it means
+  the same durable-queue rearchitecture already flagged above.
 - **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
@@ -480,10 +486,13 @@ root already uses — nothing to migrate, nothing destructive.
   stale again if the candidate predates the v7 deploy, so the TEST_RUN doc
   must instruct a second `bulk-send-back` pass once any pending reviews
   resolve. **Nor is it the finish line if a target failed to enqueue or its
-  job later exhausted retries (Codex round 15, P1 — see Implementation Step
-  2):** the TEST_RUN doc's stop condition is `eligibleRemaining: 0` AND
-  `failed: 0` on the same response AND no terminally-`failed`
-  `fact_send_back` jobs — not `eligibleRemaining: 0` alone.
+  job later exhausted retries (Codex rounds 15-16, P1 — see Implementation
+  Step 2):** the TEST_RUN doc's stop condition is `eligibleRemaining: 0`
+  AND `failed: 0` on the same response, AND no fact's *latest*
+  `fact_send_back` job is terminally `failed` (a per-fact, latest-attempt
+  query — not "no failed row ever exists," which a superseding retry or an
+  unrelated historical failure would make permanently unsatisfiable) — not
+  `eligibleRemaining: 0` alone.
 
 ## Security, Permissions, and Validation
 
@@ -569,6 +578,17 @@ prove it with **both** a root and a variant fixture:
   fact, and that the fact still evaluates `staleForReprocess` — i.e. it's
   neither "done" nor "in review," so it can only be caught by checking job
   status, not by the response body or the in-flight-review check alone.
+- **The failed-job check must be per-fact/latest-attempt, not "no failed
+  row ever" (Codex round 16, P1):** for one fact, create an OLDER
+  `fact_send_back` job row in terminal `failed` status, then a NEWER row
+  for the same fact in `done` status (simulating a successful retry after
+  an earlier failure). Assert the per-fact latest-attempt query does NOT
+  flag this fact (the later success supersedes). Separately, assert it DOES
+  flag a fact whose only/latest `fact_send_back` row is `failed`. This
+  proves the stop condition can actually be satisfied after a real-world
+  retry, unlike a bare "no failed rows exist" check, which the 30-day
+  retention on terminal rows (`purgeTerminalJobs`) would keep failing
+  indefinitely.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -598,6 +618,30 @@ prove it with **both** a root and a variant fixture:
   bulk-triggers can still duplicate work per fact (pre-existing gap, out of
   scope, documented above). Do not test or claim overlapping-invocation
   idempotency; that's a separate rearchitect.
+  **Correction (Codex round 16, P1): "included in the queued/processed set"
+  overclaims what's actually observable.** Verified `admin.ts:1999-2104`:
+  `backfill-images` returns only `{ success, triggered }` (an initial count,
+  nothing about outcome); `backfill-pexels` logs per-fact succeeded/failed
+  only to server logs, never returned to the caller; `backfill-ai-memes`
+  returns only an initial `queued` count with no per-fact outcome logged or
+  returned at all. None of the three gives a durable per-fact or aggregate
+  completed/failed/skipped signal — this is the same underlying gap as the
+  round-10 concurrency finding above (no durable per-fact status, full stop),
+  just surfacing as an observability problem instead of a double-trigger
+  risk. **What's actually testable:** a variant with missing images appears
+  in the route's initial query/`triggered`/`queued` count (provable directly
+  against the `where` clause); true completion is verifiable only by
+  re-querying the fact's own `pexelsImages`/`aiMemeImages` column after
+  waiting for the background work, not via any response field or durable
+  status — because none exists today for any of the three routes, root or
+  variant, before or after this fix. Do not write a test or Testing Plan
+  claim implying the response proves completion. **Not building the durable
+  per-fact status here** — rearchitecting these routes onto
+  `enqueueFactPexels`/`FACT_PEXELS_QUEUE` (round 10's fix) would also solve
+  this observability gap as a side effect; it's the same pre-existing,
+  out-of-scope technical-debt item, not a second one, and stays flagged for
+  David to prioritize separately rather than folded into this already-large
+  plan.
 - **`scripts/backfill-pexels-images.mjs` (site 12) — conditional on David's
   answer to the Questions-for-David item (Codex round 13 correction: my
   claim here was unconditional, contradicting the plan's own default vs.
@@ -702,12 +746,28 @@ prove it with **both** a root and a variant fixture:
    ever surfaces it, and because `sendFactBackToReview` never ran to
    completion, no candidate row exists — the fact is invisible to round
    14's in-flight-review check too. Both failure modes leave the fact
-   `staleForReprocess` with nothing tracking it as pending. Operator
-   guidance, three conditions must ALL hold before the reprocess is
-   actually done: (1) a `bulk-send-back` (`all_stale`) response with
-   `eligibleRemaining: 0` **and** `failed: 0`; (2) no `fact_send_back`
-   queue jobs in terminal `failed` status (check the async-jobs table/admin
-   view) — if any exist, re-run `bulk-send-back` targeting those fact ids
+   `staleForReprocess` with nothing tracking it as pending. **Correction
+   (Codex round 16, P1): condition (2) as originally written here —
+   "no `fact_send_back` jobs in terminal `failed` status" — can never
+   become true and is the wrong check.** Verified `enqueueJob`
+   (`asyncJobs.ts:233-240`) deliberately lets a fresh job through after a
+   prior terminal row for the same fact (the dedupe index only covers
+   non-terminal rows) — so retrying a failed fact successfully still leaves
+   its earlier failed row sitting in the table, by default for 30 days
+   (`purgeTerminalJobs`, `asyncJobs.ts:603-643`). "No failed rows exist"
+   would flag a fact that already succeeded on retry, and would flag
+   long-past, unrelated historical failures too — a table-wide check, not a
+   campaign-scoped one. The correct check is **per-fact, latest-attempt-wins**:
+   query `fact_send_back` jobs grouped by `factId`, take each fact's most
+   recent row by `createdAt`, and flag only facts whose *latest* attempt is
+   `failed` — a later success (or a still-pending retry) supersedes an
+   earlier failure for that fact, so this can't be blocked by history the
+   way a bare "any failed row" check would be. Operator guidance, three
+   conditions must ALL hold before the reprocess is actually done: (1) a
+   `bulk-send-back` (`all_stale`) response with `eligibleRemaining: 0`
+   **and** `failed: 0`; (2) no fact's *latest* `fact_send_back` job is in
+   terminal `failed` status (the per-fact latest-attempt query above) — if
+   any exist, re-run `bulk-send-back` targeting those fact ids
    (`scope: "selected"`) since the underlying fact is still stale and
    uncaptured, so the picker will select it again; (3) round 14's
    in-flight-review resolution + re-run. Document all three as the actual
