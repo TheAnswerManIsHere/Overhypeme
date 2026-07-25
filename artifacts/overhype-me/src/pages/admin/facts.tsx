@@ -1473,14 +1473,14 @@ export default function AdminFacts() {
               </div>
             )}
 
-            {/* Pexels Image Pipeline (root facts only) */}
-            {selectedFact.parentId === null && (
-              <div className="border border-border rounded-sm overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    Pexels Image Pipeline
-                  </span>
+            {/* Pexels Image Pipeline — every fact generates its own images,
+                root or variant (variant independence). */}
+            <div className="border border-border rounded-sm overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Pexels Image Pipeline
+                </span>
                   <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-sm border ${
                     selectedFact.hasPexelsImages
                       ? "bg-green-500/10 text-green-600 border-green-500/30"
@@ -1540,7 +1540,6 @@ export default function AdminFacts() {
                   <AdminFactPexelsGallery factId={selectedFact.id} refreshNonce={pexelsGalleryRefreshNonce} />
                 </div>
               </div>
-            )}
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or

@@ -1978,10 +1978,9 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
   const force = req.query["force"] === "true";
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, pexelsImages: factsTable.pexelsImages })
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, pexelsImages: factsTable.pexelsImages })
     .from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
   if (!force && fact.pexelsImages !== null) {
     res.json({ success: true, skipped: true, message: "Fact already has images. Pass force=true to overwrite." });
     return;
