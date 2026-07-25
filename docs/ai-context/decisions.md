@@ -67,6 +67,78 @@
   strict improvement over Sonnet at `high`, which would simplify the tier table
   considerably.
 
+### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
+- **Decision:** A variant is a fact expressing **the same concept** as its root in
+  slightly different words. `facts.parent_id` exists for exactly two purposes:
+  recording that kinship, and letting the UI show or hide variants. It is **not**
+  an inheritance link. A variant owns its own memes, taxonomy/enrichment, Visual
+  Concept, and stock/AI images, and **inherits no metadata** from its root.
+  Specifically: **enrichment classifies a variant on its own text only** (the
+  root's wording is *not* passed as classifier context), so **re-wording a root
+  does not invalidate or re-enrich its variants**. David, verbatim: *"the only
+  thing that we should be doing with variants is tracking them as having a
+  parent-child relationship to the master fact… other than being able to show or
+  hide variants I don't want them to be dependent upon their parents for any
+  metadata. A variant can have its own memes, can have its own visual taxonomy,
+  can have its own enrichment, can have its own visual concept."*
+- **Why:** The code had drifted into a partial-inheritance model that was never
+  stated anywhere in the docs, so it kept getting re-derived and deepened —
+  `GET /facts/:factId/pexels-images` **unconditionally replaced** a variant's own
+  stock images with its root's (so a variant could never use its own), fact detail
+  filled in the root's images for whichever kind the variant lacked, and
+  `enrichmentJobs.ts` classified variants with the root's text as context (putting
+  `parentId` + parent text in the staleness fingerprint, which cascaded
+  re-enrichment on a root re-word). Because no canonical statement existed, a
+  reviewer reading only the code asked for the inheritance to be **mirrored into a
+  new save path** — evidence that undocumented drift propagates. Structural
+  cross-references stay legitimate (the link itself, show/hide grouping, lifecycle
+  guards like `HAS_ACTIVE_VARIANTS`, related-facts exclusion); *metadata*
+  cross-references do not.
+- **Reference:** `docs/ai-context/taxonomy-and-enrichment.md` → *Variants are
+  independent facts* (canonical rule) + glossary entry "Variant (of a fact)".
+  Offending sites at decision time: `routes/facts.ts:233-243`,
+  `routes/facts.ts:587-590`, `lib/enrichmentJobs.ts:140-206,354-386`. Correct
+  existing pattern: `enrichmentVersioning.ts`'s field-preservation invariant.
+  **Root-edit invalidation mechanism, also to remove (Codex review, PR #251):**
+  the parent-context classification model spawned its own machinery to protect
+  it, which becomes dead weight once enrichment stops using parent text —
+  `factTextEditProtection.ts`'s `loadDirectVariantDependencies` (blocks a
+  root text edit while any direct variant has an unresolved review or an
+  active enrichment job, "since their enrichment was classified with the
+  parent's text as context") and `confirmedFactTextEdit.ts:200-204`
+  (clears every child variant's `lastProcessedSignature` on a confirmed root
+  edit, marking them `stale_for_reprocess`). Once classification is
+  independent, a root re-word has nothing left to invalidate in a variant, so
+  this dependency-tracking path should be removed, not merely left unfired —
+  a currently-blocking guard silently going dead is exactly the kind of drift
+  this decision exists to prevent.
+  **Root-only media generation, also to fix (Codex review round 2, PR #251):**
+  several endpoints currently reject or silently skip variants outright, which
+  is a more direct violation than the readers above — a variant can't get its
+  own images at all today, not just "falls back to the root's":
+  `admin.ts:1990` (`POST /admin/facts/:id/refresh-images` — explicit 400,
+  "Images are only stored on root facts, not variants"),
+  `admin.ts:1999-2013` and `2015-2034` (the `backfill-images` /
+  `backfill-pexels` bulk jobs both filter to `isNull(parentId)`, silently
+  never touching variants), and — user-facing, not just admin —
+  `memes.ts:1324-1332` and `pulidJobs.ts:217-233` (AI meme/PuLID generation:
+  explicit 400, "AI meme generation only supported on root facts"). The
+  last two mean a legendary user cannot generate an AI visual for a variant
+  fact **today**, which is the exact capability David asked for. Also
+  `admin.ts:2077-2091` (`POST /admin/facts/backfill-ai-memes` — a separate
+  route from `backfill-pexels`, missed in the first pass of this list; both
+  its `force` and non-`force` branches query `isNull(factsTable.parentId)`
+  only, Codex review round 3).
+  **This enumeration is illustrative, not exhaustive** — two consecutive
+  review rounds each found a root-only site the previous pass missed, which
+  is itself the signal: the follow-up code PR must do its own repo-wide sweep
+  (e.g. every `parentId`/`isNull(factsTable.parentId)` site that touches
+  images, enrichment, or AI generation) rather than trust this list as
+  complete.
+- **Revisit if:** we ever want a deliberate "concept-level" shared-metadata layer.
+  That would be a **new explicit entity** (a concept/cluster the root and variants
+  both point at), not a revival of parent-inheritance through `parent_id`.
+
 ### 2026-07-24 · Deferred engineering work gets one durable backlog, split from the product roadmap
 - **Decision:** Created [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md)
   as the single home for engineering/security/maintenance work consciously
