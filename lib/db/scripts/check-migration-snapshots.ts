@@ -290,6 +290,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // then the facts_active_requires_concept CHECK. Pure DML + one CHECK — no
   // column/table shape delta. Source of truth: this migration + reviews.ts.
   "0092_fact_lifecycle_phase2_backfill_check",
+
+  // Adds facts.ai_meme_backfill_status for the new fact_ai_meme_backfill
+  // queue (variant independence — bulk AI-meme backfill routed through a
+  // durable queue). Hand-authored idempotent DDL mirroring 0075's own
+  // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
+  "0093_facts_ai_meme_backfill_status",
 ]);
 
 interface JournalEntry {

@@ -41,7 +41,8 @@ import {
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
-import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
+import { enqueueFactPexels } from "../lib/factPexelsJobs";
+import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
@@ -1989,112 +1990,100 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   res.json({ success: true, skipped: false, message: "Image pipeline started. Results will appear shortly." });
 });
 
+interface BulkBackfillJob {
+  factId: number;
+  jobId: number;
+  deduped: boolean;
+}
+interface BulkBackfillSkip {
+  factId: number;
+  status: "skipped";
+  reason: "not_active";
+}
+interface BulkBackfillResponse {
+  success: true;
+  jobs: BulkBackfillJob[];
+  outcomes: BulkBackfillSkip[];
+  summary: { requested: number; queued: number; skipped: number };
+}
+
+/**
+ * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
+ * per fact (route-level skip, no enqueue at all — the selection query itself
+ * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
+ * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
+ * the queued job descriptors + skip outcomes for the frontend to poll via
+ * the existing `/admin/taxonomy-health/job-status` endpoint (queue-agnostic).
+ */
+async function enqueueBulkBackfill(
+  facts: { id: number; text: string; isActive: boolean }[],
+  enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
+): Promise<BulkBackfillResponse> {
+  const jobs: BulkBackfillJob[] = [];
+  const outcomes: BulkBackfillSkip[] = [];
+  for (const fact of facts) {
+    if (!fact.isActive) {
+      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active" });
+      continue;
+    }
+    const result = await enqueue(fact.id);
+    jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted });
+  }
+  return {
+    success: true,
+    jobs,
+    outcomes,
+    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length },
+  };
+}
+
+// POST /admin/facts/backfill-images — enqueue durable Pexels image prep
+// (FACT_PEXELS_QUEUE) for every active fact (root or variant) missing images.
 router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {
-    const rootFacts = await db.select({ id: factsTable.id, text: factsTable.text })
-      .from(factsTable).where(isNull(factsTable.parentId));
-    let triggered = 0;
-    for (const fact of rootFacts) {
-      void runFactImagePipeline(fact.id, fact.text);
-      triggered++;
-    }
-    res.json({ success: true, triggered });
+    const facts = await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+      .from(factsTable).where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill images error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
-// POST /admin/backfill-pexels
-// Backfill Pexels images for all root facts that currently have NULL pexelsImages.
+// POST /admin/backfill-pexels — enqueue durable Pexels image prep for every
+// active fact (root or variant) that currently has NULL pexelsImages.
 // Idempotent: skips facts that already have images.
-// Returns 202 immediately with the count of facts queued; processes sequentially in the background.
 router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    const nullFacts = await db
-      .select({ id: factsTable.id, text: factsTable.text })
+    const facts = await db
+      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
       .from(factsTable)
-      .where(and(isNull(factsTable.parentId), isNull(factsTable.pexelsImages)));
-
-    const queued = nullFacts.length;
-    res.status(202).json({ success: true, queued, message: `Backfilling Pexels images for ${queued} fact(s) in the background.` });
-
-    if (queued === 0) {
-      logger.info("[admin] backfill-pexels: all root facts already have images, nothing to do.");
-      return;
-    }
-
-    void (async () => {
-      logger.info({ queued }, "[admin] backfill-pexels: starting");
-      let succeeded = 0;
-      let failed = 0;
-
-      for (let i = 0; i < nullFacts.length; i++) {
-        const fact = nullFacts[i]!;
-        logger.info(
-          { index: i + 1, queued, factId: fact.id, preview: fact.text.slice(0, 60) },
-          "[admin] backfill-pexels: processing",
-        );
-
-        await runFactImagePipeline(fact.id, fact.text);
-
-        // runFactImagePipeline catches all errors internally — verify success via DB
-        const [updated] = await db
-          .select({ pexelsImages: factsTable.pexelsImages })
-          .from(factsTable)
-          .where(eq(factsTable.id, fact.id))
-          .limit(1);
-
-        if (updated?.pexelsImages != null) {
-          succeeded++;
-          logger.info({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: OK");
-        } else {
-          failed++;
-          logger.error({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: FAILED (pexelsImages still null)");
-        }
-
-        // 1-second delay between requests to respect Pexels rate limits
-        if (i < nullFacts.length - 1) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
-        }
-      }
-
-      logger.info({ succeeded, failed, queued }, "[admin] backfill-pexels: done");
-    })();
+      .where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] backfill-pexels error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
+// POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
+// (fact_ai_meme_backfill queue) for every active fact (root or variant)
+// missing AI-meme images (or every active fact with ?force=true).
 router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
   try {
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
-    let rootFacts;
-    if (force) {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(isNull(factsTable.parentId));
-    } else {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(and(isNull(factsTable.parentId), isNull(factsTable.aiMemeImages)));
-    }
+    const facts = force
+      ? await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive }).from(factsTable)
+      : await db
+          .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+          .from(factsTable)
+          .where(isNull(factsTable.aiMemeImages));
 
-    const total = rootFacts.length;
-    res.json({ success: true, queued: total, message: `Processing ${total} facts sequentially in the background.` });
-
-    // Process sequentially so we don't hammer OpenAI rate limits
-    void (async () => {
-      logger.info({ total, force }, "[admin] backfill-ai-memes: starting");
-      for (const fact of rootFacts) {
-        await generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
-      }
-      logger.info({ total }, "[admin] backfill-ai-memes: done");
-    })();
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactAiMemeBackfill(factId));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill AI memes error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
