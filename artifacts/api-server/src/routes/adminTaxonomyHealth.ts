@@ -54,6 +54,7 @@ import { FACT_ENRICHMENT_BACKFILL_QUEUE } from "../lib/factEnrichmentBackfillJob
 import { FACT_SEND_BACK_QUEUE, sendBackGuardToSkip } from "../lib/factSendBackJob";
 import { PROJECTION_REPAIR_QUEUE } from "../lib/projectionRepairJob";
 import { logger } from "../lib/logger";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 
 const router: IRouter = Router();
 
@@ -740,6 +741,19 @@ router.post(
   requireAdminOrApiKey,
   async (req: Request, res: Response): Promise<void> => {
     try {
+      // Rate-limited (CodeQL: an authorization-gated route with no rate limit
+      // is flagged as a vulnerability) — this route is now reachable via the
+      // static ADMIN_API_KEY, not just a session, so it needs the same
+      // brute-force/abuse bound the codebase's other rate-limited routes use.
+      // Generous enough for legitimate polling: Taxonomy Health actions poll
+      // every 1s and the Bulk Media Backfill panel every 2s, both possibly
+      // concurrent on one page.
+      const rateLimit = await checkSharedRateLimit(
+        { endpoint: "admin.taxonomy-health.job-status", ip: req.ip ?? null, userId: req.user?.id ?? null },
+        { limit: 120, windowMs: 60_000 },
+      );
+      if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
       const body = (req.body && typeof req.body === "object" ? req.body : {}) as JobStatusRequestBody;
       const ids = Array.from(
         new Set(
