@@ -49,7 +49,7 @@
  * review, PR #256), not fixed here.
  */
 
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { seedFactPexelsImagesOnce } from "./factImagePipeline";
@@ -117,23 +117,28 @@ export async function enqueueFactPexels(
     // even when a job genuinely got created: its own dedupe-conflict recovery
     // has a narrow retry-insert race (asyncJobs.ts's "Rare race" comment) that
     // can itself throw a fresh conflict if a concurrent caller's insert lands
-    // between its SELECT and its retry INSERT — in that case a real,
-    // not-yet-claimed job DOES exist for this fact. Only repair the status to
-    // "failed" if no non-terminal job actually exists for this dedupe key;
-    // otherwise this would clobber a legitimately in-flight job's marker
-    // before it even runs (Codex review, PR #256).
-    const [inFlight] = await db
-      .select({ id: asyncJobsTable.id })
-      .from(asyncJobsTable)
+    // between its SELECT and its retry INSERT. A separate SELECT-then-UPDATE
+    // here would have its own TOCTOU gap (a job can go terminal, or a fast
+    // worker can write its own terminal marker, between the check and the
+    // write), so both conditions are folded into ONE atomic UPDATE: only
+    // repair to "failed" if the marker is STILL "pending" (nothing else wrote
+    // a terminal value first) AND no non-terminal `async_jobs` row exists for
+    // this dedupe key (no legitimately in-flight job to clobber) — both
+    // evaluated as part of the same statement, not a prior read (Codex
+    // review, PR #256).
+    await db
+      .update(factsTable)
+      .set({ pexelsStatus: "failed" })
       .where(and(
-        eq(asyncJobsTable.queue, FACT_PEXELS_QUEUE),
-        eq(asyncJobsTable.dedupeKey, factPexelsDedupeKey(factId)),
-        or(eq(asyncJobsTable.status, "pending"), eq(asyncJobsTable.status, "processing")),
-      ))
-      .limit(1);
-    if (!inFlight) {
-      await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId));
-    }
+        eq(factsTable.id, factId),
+        eq(factsTable.pexelsStatus, "pending"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${asyncJobsTable}
+          WHERE ${asyncJobsTable.queue} = ${FACT_PEXELS_QUEUE}
+            AND ${asyncJobsTable.dedupeKey} = ${factPexelsDedupeKey(factId)}
+            AND ${asyncJobsTable.status} IN ('pending', 'processing')
+        )`,
+      ));
     throw err;
   }
 }
