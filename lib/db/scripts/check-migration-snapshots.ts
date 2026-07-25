@@ -278,6 +278,22 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // look_styles' copy (§14). No schema delta. Source of truth:
   // artifacts/api-server/src/config/imageStyles.ts.
   "0088_trim_global_look_style_copy",
+
+  // Hand-written DDL: adds fact_text_edit_history (audit table for the rare,
+  // dire-warning-gated edit of an ALREADY-APPROVED fact's text) plus the
+  // pending_reviews.approved_fact_id lookup index the protection predicate
+  // needs. drizzle-kit generate is broken on the pre-existing malformed 0063
+  // snapshot, so this ships without a generated snapshot. Source of truth:
+  // lib/db/src/schema/{factTextEditHistory,reviews}.ts.
+  "0089_fact_text_edit_history",
+
+  // Hand-authored DML replacing the seeded fact_visual_concepts_system prompt
+  // with the v2 bubbles contract (each concept's speech/thought bubble
+  // proposal as a REQUIRED structured "bubbles" array). Each UPDATE is gated
+  // on the target actually containing the retired shape text, so the migration
+  // is idempotent. No schema delta means no snapshot. Sources of truth:
+  // lib/db/src/schema/visualConceptsConfig.ts + admin_config.value.
+  "0090_visual_concepts_bubble_contract",
 ]);
 
 interface JournalEntry {
