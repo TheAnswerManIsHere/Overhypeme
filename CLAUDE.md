@@ -421,12 +421,15 @@ have a draft plan, and the disclosure check passes:
    and names what to reconcile — Codex reviews against that, it doesn't declare
    its own framing afterward.** Every re-review comment (round 2+) names the
    angle I want this round to attack from and lists the specific prior findings
-   to check as resolved; a round that comes back empty against that named list
-   is the "zero Still Open" signal for convergence, not something Codex has to
-   restate. Three things I own each round: I **write that framing into the
-   trigger comment**, I **derive the round's status and update the findings
-   ledger** in the PR body by reading Codex's individual inline findings (their
-   category tags, plus my own trigger text as the record of that round's lens),
+   to check as resolved; Codex posts a **Reconciliation finding per named
+   item** (Resolved / Still Open / Superseded, with what it checked) even when
+   every one is Resolved — "clean" means zero Required Revision findings, not
+   zero comments, so the ledger gets real evidence rather than inferring
+   "resolved" from silence. Three things I own each round: I **write that
+   framing into the trigger comment**, I **derive the round's status and
+   update the findings ledger** in the PR body by reading Codex's individual
+   inline findings (their category tags, the Reconciliation verdicts, plus my
+   own trigger text as the record of that round's lens),
    and I **clear the review's *Unable to verify* list** before requesting the
    next round — the genuinely unobservable ones (external APIs, production
    data, runtime timing) are mine to resolve, and a repo-observable one going
@@ -437,12 +440,13 @@ have a draft plan, and the disclosure check passes:
    round comes back clean — in that case I request the re-review through a
    different lens (edge cases, data integrity/migrations, source-of-truth risks,
    failure modes) instead of manufacturing plan churn. From round 3 on, I stop
-   only when **all three** hold: (a) no substantive new objections, (b) the
-   round's *Previous findings* section lists **zero Still Open**, and (c) that
-   round applied a **fresh lens** and named it. A silent round is otherwise
-   ambiguous between *converged* and *the reviewer stopped looking* — (b) and
-   (c) are what tell the difference, since consistency across rounds is not
-   evidence of quality.
+   only when **all three** hold: (a) no substantive new objections (zero
+   Required Revision findings from Codex), (b) my findings ledger — built from
+   Codex's Reconciliation findings, not from silence — shows **zero Still
+   Open**, and (c) the trigger comment for that round named a **fresh lens**.
+   A round with no evidence trail is otherwise ambiguous between *converged*
+   and *the reviewer stopped looking* — (b) and (c) are what tell the
+   difference, since consistency across rounds is not evidence of quality.
 6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.

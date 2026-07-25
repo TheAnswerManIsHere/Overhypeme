@@ -135,9 +135,11 @@ raised, say so and give the reason.
 and keeps missing it will converge cleanly on a broken plan. So every re-review
 makes one fresh attempt to invalidate the plan from an angle the earlier rounds
 did not take (failure modes, data integrity, concurrency, operator experience,
-security, scale, what happens on the second run). **Name the lens you used** in
-your output, so the loop can see which angles have and haven't been tried. This
-applies even when — especially when — the previous round was clean.
+security, scale, what happens on the second run). This applies even when —
+especially when — the previous round was clean. **How the lens gets recorded
+depends on delivery surface** (see *Output*): on full-document delivery, name
+it in your own output; on the GitHub structured-review transport, the lens is
+stated in the trigger comment that requested this round, not by you.
 
 ## Review priority order
 
@@ -397,19 +399,29 @@ On this surface, every piece of information above six-shape output is carried
   observable — say which), or Reconciliation (Resolved / Still Open /
   Superseded, naming the prior finding it addresses).
 - **The lens is not something you attest to — it's something you're asked to
-  apply.** A round where you post nothing gives you no comment to declare it
-  in, so declaring it after the fact is not this surface's job. Instead, the
-  `@codex review` trigger comment states the lens for that round and names the
-  specific prior findings to reconcile (see *Automated plan review* in
-  `CLAUDE.md`) — review under that stated lens, don't invent your own framing
-  for it.
-- **A clean round is an empty findings list against a stated request.** If the
-  trigger comment named specific prior findings to reconcile and you post
-  nothing, that silence is read as "those findings are Resolved" — so if any
-  named finding is *not* actually resolved, you must say so as a Reconciliation
-  finding; don't let silence pass for a check you didn't do. Absent a named
-  request, an empty list means only "no new objections" — post nothing and let
-  the connector's default (a 👍 reaction) stand.
+  apply.** The `@codex review` trigger comment states the lens for that round
+  and names the specific prior findings to reconcile (see *Automated plan
+  review* in `CLAUDE.md`) — review under that stated lens, don't invent your
+  own framing for it, and don't re-declare it in a finding (there is no
+  surface-specific requirement that you do — the *Re-reviews* section's lens
+  obligation is satisfied by the full-document surface only, or by this
+  surface's trigger comment, never by you naming it here).
+- **"Clean" means no Required Revision, not no comment.** When the trigger
+  names specific prior findings to reconcile, post one **Reconciliation**
+  finding per named item — Resolved / Still Open / Superseded, each with what
+  you checked to reach that verdict — even when every one of them is Resolved.
+  This is a normal diff-anchored finding like any other category, not the
+  forbidden freestanding write-up; anchor it near the relevant text. A round is
+  "clean" when it produces zero Required Revision findings, and that is
+  compatible with, even expected to include, Verified and Reconciliation
+  findings that carry real evidence. **True silence — genuinely nothing
+  posted, connector default 👍 — is reserved for a round with no named prior
+  findings to reconcile and nothing new to raise** (typically only the very
+  first pass on an already-sound plan). If you find you are structurally
+  unable to post an informational finding when you have no Required Revision
+  to raise — if the connector suppresses it — say so explicitly in whatever
+  comment channel you do have, since that would mean this contract is asking
+  for evidence this transport cannot produce even in the redesigned shape.
 - **You do not compute or post the overall review-status label or the
   round-level ledger on this surface.** Whoever is driving the loop (Claude
   Code) reads your findings after each round and derives the status and
