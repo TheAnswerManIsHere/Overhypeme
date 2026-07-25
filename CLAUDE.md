@@ -421,15 +421,18 @@ have a draft plan, and the disclosure check passes:
    and names what to reconcile — Codex reviews against that, it doesn't declare
    its own framing afterward.** Every re-review comment (round 2+) names the
    angle I want this round to attack from and lists the specific prior findings
-   to check as resolved; Codex posts a **Reconciliation finding per named
-   item** (Resolved / Still Open / Superseded, with what it checked) even when
-   every one is Resolved — "clean" means zero Required Revision findings, not
-   zero comments, so the ledger gets real evidence rather than inferring
-   "resolved" from silence. Three things I own each round: I **write that
+   to check as resolved. Codex confirmed directly on PR #254 that its connector
+   has no non-blocking/informational finding category and no freestanding
+   channel — only schema-validated defect findings — so **an empty result
+   against a named list is the accepted, confirmed ceiling of evidence this
+   transport can produce**, not a gap to keep re-engineering; a Reconciliation
+   finding only appears when an item is Still Open or Superseded, which are
+   naturally defect-shaped. Three things I own each round: I **write that
    framing into the trigger comment**, I **derive the round's status and
    update the findings ledger** in the PR body by reading Codex's individual
-   inline findings (their category tags, the Reconciliation verdicts, plus my
-   own trigger text as the record of that round's lens),
+   inline findings (their category tags, any Reconciliation findings for
+   items that weren't resolved, plus my own trigger text as the record of
+   that round's lens and request),
    and I **clear the review's *Unable to verify* list** before requesting the
    next round — the genuinely unobservable ones (external APIs, production
    data, runtime timing) are mine to resolve, and a repo-observable one going
@@ -441,8 +444,10 @@ have a draft plan, and the disclosure check passes:
    different lens (edge cases, data integrity/migrations, source-of-truth risks,
    failure modes) instead of manufacturing plan churn. From round 3 on, I stop
    only when **all three** hold: (a) no substantive new objections (zero
-   Required Revision findings from Codex), (b) my findings ledger — built from
-   Codex's Reconciliation findings, not from silence — shows **zero Still
+   Required Revision findings from Codex), (b) my findings ledger — updated
+   from Codex's Reconciliation findings for anything Still Open or Superseded,
+   with silence against my named list read as Resolved for the rest, which is
+   the confirmed ceiling of evidence this transport gives — shows **zero Still
    Open**, and (c) the trigger comment for that round named a **fresh lens**.
    A round with no evidence trail is otherwise ambiguous between *converged*
    and *the reviewer stopped looking* — (b) and (c) are what tell the

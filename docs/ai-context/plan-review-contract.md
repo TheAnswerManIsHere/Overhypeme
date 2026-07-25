@@ -76,14 +76,19 @@ how he wants to be worked with.
   to return a full assessment — strengths, required revisions, recommendations —
   every time. Silence on a broadly-sound plan is not an acceptable output; say
   what is strong and what could still be tightened. **This means what it says
-  literally on the full-document surface.** On the GitHub structured-review
-  surface, where a freestanding write-up cannot be posted at all (see *Output*),
-  the transport-specific equivalent is: the round actually runs against the
-  current plan (evidenced by the connector's own reviewed-commit confirmation),
-  and — round 2 onward — an empty findings list is only "complete, not merely
-  silent" when it responds to a trigger that named specific prior findings to
-  check. An unprompted, un-triggered silence is never sufficient evidence of a
-  complete review on either surface.
+  literally on the full-document surface.** The GitHub structured-review surface
+  cannot comply with this the same way, and that gap is a **confirmed,
+  permanent limitation of the transport, not an open problem to keep
+  re-engineering**: the connector exposes only schema-validated defect findings
+  with no non-blocking/informational category and no freestanding-comment
+  channel (confirmed directly by Codex — see *Output*). On that surface,
+  "complete" is evidenced only by the round having actually run (the
+  connector's reviewed-commit confirmation) and, round 2 onward, by an empty
+  result answering a trigger that named specific prior findings — which is
+  weaker evidence than the full-document surface gives and is accepted as such.
+  Do not ask this surface for a way to positively confirm a clean round; there
+  isn't one, and further clever workarounds have twice produced a contradiction
+  instead of a fix.
 - **Never implement anything on a plan-review PR.** No commits, no code, no
   "fixed it for you." The PR is a review channel that will be closed unmerged.
 
@@ -406,22 +411,20 @@ On this surface, every piece of information above six-shape output is carried
   surface-specific requirement that you do — the *Re-reviews* section's lens
   obligation is satisfied by the full-document surface only, or by this
   surface's trigger comment, never by you naming it here).
-- **"Clean" means no Required Revision, not no comment.** When the trigger
-  names specific prior findings to reconcile, post one **Reconciliation**
-  finding per named item — Resolved / Still Open / Superseded, each with what
-  you checked to reach that verdict — even when every one of them is Resolved.
-  This is a normal diff-anchored finding like any other category, not the
-  forbidden freestanding write-up; anchor it near the relevant text. A round is
-  "clean" when it produces zero Required Revision findings, and that is
-  compatible with, even expected to include, Verified and Reconciliation
-  findings that carry real evidence. **True silence — genuinely nothing
-  posted, connector default 👍 — is reserved for a round with no named prior
-  findings to reconcile and nothing new to raise** (typically only the very
-  first pass on an already-sound plan). If you find you are structurally
-  unable to post an informational finding when you have no Required Revision
-  to raise — if the connector suppresses it — say so explicitly in whatever
-  comment channel you do have, since that would mean this contract is asking
-  for evidence this transport cannot produce even in the redesigned shape.
+- **A clean round is an empty findings list — confirmed, not merely assumed.**
+  Codex has confirmed directly on this PR that the connector exposes only
+  schema-validated defect findings: there is no non-blocking, informational, or
+  "Resolved-with-no-defect" category, and no freestanding-comment channel to
+  fall back to. Posting a finding for a genuinely resolved item would
+  misclassify it as a defect. So: when a named prior finding is actually
+  Resolved, **post nothing about it** — do not manufacture a Reconciliation
+  comment to prove you checked. Only post a Reconciliation finding when a named
+  item is **Still Open** or **Superseded**, which are naturally defect-shaped
+  and belong in this schema like any other finding. An empty result against a
+  trigger that named specific items is read as "all Resolved" — that reading is
+  the accepted ceiling of what this transport can prove, not a gap to close.
+  Absent a named request, an empty list means only "no new objections" — post
+  nothing and let the connector's default (a 👍 reaction) stand.
 - **You do not compute or post the overall review-status label or the
   round-level ledger on this surface.** Whoever is driving the loop (Claude
   Code) reads your findings after each round and derives the status and
