@@ -5,8 +5,11 @@ function price(overrides: Partial<StripePlanPrice> & { id: string; unit_amount: 
   return { currency: "usd", recurring: null, ...overrides };
 }
 
+// Defaults to a membership-tagged product, since most fixtures in this file
+// represent genuine Legendary plans; the non-membership regression test
+// overrides metadata explicitly.
 function plan(overrides: Partial<StripePlan> & { id: string; name: string; prices: StripePlanPrice[] }): StripePlan {
-  return { description: null, metadata: {}, ...overrides };
+  return { description: null, metadata: { overhype_membership: "true" }, ...overrides };
 }
 
 describe("selectPlanPrices", () => {
@@ -69,5 +72,38 @@ describe("selectPlanPrices", () => {
     expect(result.monthlyPrice?.id).toBe("price_month");
     expect(result.annualPrice?.id).toBe("price_year");
     expect(result.lifetimePrice?.id).toBe("price_life");
+  });
+
+  // Regression (Codex review, PR #255): /api/stripe/plans returns every
+  // active Stripe product, not just membership ones — checkout enforces the
+  // `overhype_membership` metadata allowlist (see membershipPricing.ts) but
+  // this page didn't, so a non-membership product (render credits, merch,
+  // tips) with a recurring or one-time price could get advertised here as a
+  // Legendary plan and then get rejected at checkout with "Invalid price:
+  // not a membership plan".
+  it("ignores prices from products not tagged as membership products", () => {
+    const plans = [
+      plan({
+        id: "prod_legendary",
+        name: "Legendary",
+        metadata: { overhype_membership: "true" },
+        prices: [price({ id: "price_life", unit_amount: 9900 })],
+      }),
+      plan({
+        id: "prod_render_credits",
+        name: "Render Credits",
+        metadata: {},
+        prices: [
+          price({ id: "price_credits_month", unit_amount: 199, recurring: { interval: "month", interval_count: 1 } }),
+          price({ id: "price_credits_year", unit_amount: 1999, recurring: { interval: "year", interval_count: 1 } }),
+        ],
+      }),
+    ];
+
+    const result = selectPlanPrices(plans);
+
+    expect(result.lifetimePrice?.id).toBe("price_life");
+    expect(result.monthlyPrice).toBeUndefined();
+    expect(result.annualPrice).toBeUndefined();
   });
 });
