@@ -15,8 +15,18 @@
 What problem are we solving? Include the concrete user/admin/runtime symptom.
 
 ## Product Intent
-What outcome does David want? What should **not** change? (If you're unsure of the
-intent, ask David before planning further — don't guess.)
+What outcome does David want? (If you're unsure of the intent, ask David before
+planning further — don't guess.)
+
+## Must Not Change
+Invariants and out-of-scope behavior — what should explicitly stay the same.
+
+## Settled Decisions
+Decisions already made during the pre-plan conversation, and why (design
+choices, trade-offs resolved before writing this plan). These three sections
+— Product Intent, Must Not Change, Settled Decisions — are the oracle a
+reviewer checks the eventual implementation PR against, verbatim (see
+[`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
 ## Repo Context Inspected
 List the actual files, modules, routes, schemas, tests, and docs you inspected.
