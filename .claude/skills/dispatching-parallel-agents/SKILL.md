@@ -13,6 +13,30 @@ When you have multiple unrelated failures (different test files, different subsy
 
 **Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
 
+## Local calibration: delegate less than this skill implies (Overhype.me, 2026-07-24)
+
+This skill was written for a model that **under**-delegated and needed
+encouragement. Opus 5 has the opposite bias — it reaches for subagents readily —
+so read the guidance below as a *ceiling*, not a target. Each subagent
+re-establishes context, re-explores, reports back, and then you re-read the
+report; that cost is invisible to David and lands on his quota.
+
+Before dispatching, the bar is: **would this take me more than a handful of tool
+calls to do directly?** If no, do it yourself.
+
+- **Don't delegate** a few file reads, a handful of edits, or a simple search.
+- **Don't delegate verification or double-checking** — that belongs in your main
+  loop (see `verification-before-completion`).
+- **Prefer one subagent to several.** Parallel dispatch is for genuinely
+  independent tracks, not for splitting one modest job into pieces.
+- **Commit to the delegation.** Don't redo the work or re-derive the findings
+  when the subagent reports back.
+- **Never more than 20 parallel subagents** unless David explicitly asks.
+- **Say what you're doing.** Announce a dispatch and why — especially a subagent
+  pinned to a more expensive model (`fable`), which spends at double the Opus
+  rate with no action from David. See CLAUDE.md → *Reaching Fable 5 without a
+  session switch*.
+
 ## When to Use
 
 ```dot

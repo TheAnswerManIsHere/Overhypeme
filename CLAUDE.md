@@ -892,7 +892,11 @@ calls. Two concrete, durable changes:
   safe. No → Opus, because I'm the only guard.
   - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
   - **Entering plan mode, or any "let's build/design/add X" feature-building
-    request** → I suggest switching to Opus (`claude-opus-4-8`).
+    request** → **`opusplan` now handles the plan-mode half automatically** (see
+    *The `opusplan` default* below), so entering plan mode puts the session on
+    Opus with no ask from either of us. I only prompt when the session is pinned
+    to a specific model instead — and then I ask for **Opus 5** (`claude-opus-5`),
+    **not** `claude-opus-4-8`, which is the previous generation.
   - **Planning stays on Opus end-to-end — no switching back and forth (David,
     2026-07-22).** A planning cycle is *continuous* Opus: the pre-plan
     conversation, the plan itself, **and the whole Codex plan-review loop**
@@ -901,6 +905,19 @@ calls. Two concrete, durable changes:
     during planning — including to watch the plan-review PR, which is planning,
     not ops. David should never have to switch me *back* to Opus for the next
     plan because I bounced to Sonnet mid-cycle.
+    - **`opusplan` does NOT cover this whole cycle — mind the gap (2026-07-24).**
+      `opusplan` upgrades to Opus for **plan-mode turns only**. Most of our
+      planning cycle happens *outside* plan mode: the pre-plan conversation is
+      ordinary conversation, and the **Codex plan-review loop can't run in plan
+      mode at all** (it commits the plan file, pushes a branch, and opens a draft
+      PR — all writes, which plan mode forbids). So under `opusplan` those
+      stretches run on **Sonnet** unless someone intervenes. That someone is me:
+      when a pre-plan conversation gets substantive, or the moment I open a
+      `[PLAN REVIEW]` PR, I say plainly that we're on Sonnet and ask David to put
+      me on Opus for the rest of the cycle. This is the one place the automation
+      makes my "stay vocal about the model in play" duty *more* important, not
+      less — a silent Sonnet plan review is exactly the failure this rule exists
+      to prevent.
   - **The only downshift to Sonnet is to *execute* an approved plan — and only
     when the execution is simple/low-risk (David, 2026-07-22).** Per the
     *Implementing features* row below, simple builds run on Sonnet (Codex's diff
@@ -916,7 +933,8 @@ calls. Two concrete, durable changes:
     |------|-------|-----|
     | Planning new features | **Opus, always** | A plan can match stated intent and still be architecturally wrong — David's product-testing only checks what got built, never the road not taken. |
     | Implementing features | **Sonnet default**, Opus for high-risk subsystems | Codex reviews the diff, so the net holds for most code. Escalate for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
-    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. |
+    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. The **advisor tool** (below) automates this escalation without a model switch. |
+    | **Ambiguous, root-cause, or bigger-than-one-sitting work** (an outage whose cause we can't name, a subsystem-wide architecture call, a debugging thread that already beat Opus) | **Fable 5**, via subagent | Fable's edge is investigating before acting and holding a long thread without losing it. It costs 2× Opus 5, so it's a deliberate escalation for work that has *already* resisted a cheaper tier — never a default. |
     | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
     | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
     | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
@@ -940,10 +958,11 @@ calls. Two concrete, durable changes:
   - Outside the two explicit mode boundaries and the table above, I default to
     treating the session's *current* tier as correct and only flag a mismatch
     if the task shape clearly shifted mid-thread.
-  - `.claude/settings.json` sets Sonnet as the **default starting model** for
-    new sessions, since most turns are ops-shaped per David's usage data —
-    Opus is the explicit upgrade for the tasks in the table above, not the
-    default you have to remember to downgrade from.
+  - `.claude/settings.json` sets **`opusplan`** as the default model for new
+    sessions (it was pinned to `claude-sonnet-5` until 2026-07-24). Ops-shaped
+    turns — most of David's usage — still run on Sonnet; plan mode auto-upgrades
+    to Opus. Opus and Fable remain explicit upgrades for the tasks in the table
+    above, not defaults you have to remember to downgrade from.
 - **Batch PR re-verification into one call; don't reduce how often I check.**
   The *"re-verify on each active turn"* rule under **Watching the PRs I
   open** above stays exactly as-is — webhooks lag and drop events, so silence
@@ -957,3 +976,114 @@ calls. Two concrete, durable changes:
 - I also default to `list_*` over `search_*` for simple retrieval, and
   paginate in small batches (5-10 items), per the GitHub server's own
   guidance — not a cadence change, just cheaper calls for the same coverage.
+
+### What can and cannot switch models (settled — don't relitigate)
+
+David asked (2026-07-24) whether the Opus→Fable switch could be automated. I
+verified this against the Claude Code docs rather than guessing, and the answer
+is stable enough to record so neither of us re-derives it:
+
+- **Nothing can change the session model except David.** Hooks can *read* the
+  active model (`SessionStart` receives a `model` field) but there is **no hook
+  output, skill field, or setting that writes it**, and there is no
+  `$CLAUDE_MODEL` variable. So the "switch me to Opus / Sonnet" ask in this file
+  stays a real ask, and I keep prompting for it.
+- **`opusplan` is the one automatic session-model switch**, and it is
+  mode-triggered, not task-triggered: Opus during plan mode, Sonnet for
+  execution. It is now our default (above). Its blind spots are the pre-plan
+  conversation and the Codex plan-review loop — see the gap note above.
+- **Everything else routes work to a stronger model without moving the
+  session**: subagents pinned to a model, and the advisor tool. Both below.
+
+### Effort is the second dial — and we had never used it
+
+The tier table above is entirely about *which model*. `effort` is a separate
+control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
+5 alike: `low`, `medium`, `high`, `xhigh`, `max`, defaulting to `high`. David
+sets it with `/effort`; I can set it per-subagent via `effort` frontmatter, and
+subagents otherwise inherit the session level.
+
+This matters for quota because **Opus 5 at `low`/`medium` is unusually strong** —
+Anthropic's own guidance is to start at `xhigh` for coding/agentic work and then
+*sweep downward*, because effort defaults carried over from an older model are
+usually wrong. So "Opus is too expensive for this" is no longer automatically
+true; **Opus at `medium` is a real option that we have never tried**, and it may
+beat Sonnet at `high` for less than we'd assume. When a task feels
+between-tiers, I now say so and suggest an effort change rather than only a
+model change. (`max` applies to the current session only. `/effort ultracode` is
+not a model level — it sends `xhigh` *and* turns on workflow orchestration; it
+burns tokens fast and should be a deliberate ask, never something I assume.)
+
+### Reaching Fable 5 without a session switch
+
+Fable 5 is enabled on David's account (confirmed 2026-07-24). It costs
+**$10/$50 per million tokens against Opus 5's $5/$25**, so it is always a
+deliberate escalation.
+
+- **Subagent routing is the mechanism I control.** Subagent `model` frontmatter
+  and the per-invocation `model` parameter both accept the `fable` alias (or a
+  full ID). So I can hand one genuinely hard piece of work — a migration design,
+  a root-cause hunt in the visual pipeline, an architecture call — to Fable while
+  the session stays where it is, with **no action from David**. Resolution order
+  is `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation parameter → frontmatter →
+  the main conversation's model.
+- **I announce it, I don't sneak it.** Because a Fable subagent spends at double
+  rate without David touching anything, I say when I'm dispatching one and why,
+  in the same breath as dispatching it. Silent escalation is the failure mode to
+  avoid here.
+- **Don't make Fable the session default.** The `best` alias resolves to Fable
+  wherever it's available, which would put *every* ops-shaped turn on the most
+  expensive model. `/model fable` for a deliberate Fable session is fine; `best`
+  as a persisted default is not.
+- **Fable falls back on its own when flagged.** Its safety classifiers are
+  tuned for cyber/bio content and occasionally trip on benign security work; a
+  flagged request automatically falls back to Opus rather than hard-failing.
+  Worth knowing before the `/security-review` ritual, so a fallback notice
+  doesn't read as a bug.
+
+### The advisor tool: escalation Claude triggers, mid-task
+
+The advisor is the closest thing to what David actually asked for — a stronger
+model consulted *at decision points* (before committing to an approach, when an
+error keeps recurring, before declaring something done) with **Claude deciding
+when to call it**, not the user. It's set once via `/advisor <model>`, the
+`advisorModel` setting, or `--advisor`, and toggling it does **not** invalidate
+the prompt cache.
+
+Two facts that decide how we use it today:
+
+- **Fable is not currently available as an advisor.** Claude Code shows it as a
+  dimmed `Fable 5 (temporarily unavailable)` row and rejects `/advisor fable`,
+  pending a remote rollout. So the pairing David would most want —
+  Sonnet or Opus main with a Fable advisor — **cannot be configured yet.** This
+  is worth re-checking periodically; it is the single change that would most
+  automate our escalation policy.
+- **What works now is `Sonnet main + Opus advisor`**, which automates the
+  *Debugging new features* row of the table above: Sonnet handles routine work
+  and escalates the hard moments without a model switch. We have not adopted it
+  as a default — it costs advisor-model tokens on top of the main model, and it
+  is experimental — but it is the obvious thing to try the next time a debugging
+  thread starts thrashing.
+
+### Subagent delegation is capped (Opus 5 delegates eagerly)
+
+Opus 5 reaches for subagents **more** readily than Opus 4.8 did — a direction
+change, since 4.8 under-delegated and needed encouragement. Every subagent
+re-establishes context, re-explores, reports back, and then I re-read the
+report, so eager delegation is a direct quota cost with no visible product
+symptom for David to catch. My rules:
+
+- **Don't delegate work I could finish in a handful of tool calls** — a few file
+  reads, a handful of edits, a simple search.
+- **Don't spawn subagents to verify or double-check my own work.** Verification
+  belongs in my main loop (see the verification skill's scope note).
+- **Prefer one subagent to several.** Parallel dispatch is for genuinely
+  independent tracks — unrelated subsystems, a wide multi-file investigation —
+  not for splitting one modest job into pieces.
+- **Commit to a delegation.** If I dispatch, I don't redo the work or re-derive
+  the findings when the subagent reports back.
+- **Never more than 20 parallel subagents** unless David explicitly asks.
+
+This rule lives here rather than in the shared docs because subagent dispatch is
+*my* tool, not something Codex does — per the single-source-of-truth rule at the
+top of this file.
