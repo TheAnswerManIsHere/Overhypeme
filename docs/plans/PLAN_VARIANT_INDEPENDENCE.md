@@ -254,34 +254,58 @@ implicit one (the root as a variant's de facto metadata source).
   filter on `isActive` today (they already sweep inactive/staging root facts,
   unrelated to variants) — that gap is not introduced by this fix and is left
   as-is.
-  **Pre-existing, out of scope (Codex round 10, P1) — a real concurrency gap,
-  not fixed here:** `isNull(pexelsImages)` makes `backfill-images`/
-  `backfill-pexels` idempotent across sequential re-runs (a completed fact is
-  excluded next time), but NOT safe against two overlapping invocations —
-  both fire-and-forget `void runFactImagePipeline(...)` per fact with no
-  dedup key or durable per-fact status, unlike the existing
-  `enqueueFactPexels`/`FACT_PEXELS_QUEUE` infrastructure
-  (`factPexelsJobs.ts`) that already solves exactly this for other call
-  sites. Two overlapping bulk-triggers can both select the same
-  not-yet-updated row and duplicate OpenAI/Pexels API calls for it. This gap
-  predates this fix and affects roots today; widening the pool to variants
-  doesn't change the *likelihood* of a double-trigger, only the blast radius
-  if one happens. Rearchitecting these two routes onto the durable queue (and
-  building an equivalent for `backfill-ai-memes`, which has the same
-  fire-and-forget shape) is real, separate scope — a technical-debt item for
-  David to prioritize on its own, not folded into this PR. The Testing Plan
-  below is corrected to claim only sequential-re-run idempotency, not
-  concurrent-invocation safety. **The same missing durable per-fact status
-  also means no route can report completion, not just concurrency safety
-  (Codex round 16, P1 — see the Testing Plan's Bulk backfill bullet):** an
-  operator gets an initial triggered/queued count and nothing else: no
-  per-fact or aggregate completed/failed signal, root or variant, before or
-  after this fix. Same gap, same out-of-scope disposition — fixing it means
-  the same durable-queue rearchitecture already flagged above.
-  **Round 17 pushed back a third time, asking this be built into this plan
-  rather than deferred — escalated to David as Question 2 in Questions for
-  David** rather than settled unilaterally after three rounds of Codex
-  insistence on the same point.
+  **Reversed (Codex round 18, P1) — this is required scope, not a deferrable
+  judgment call.** Rounds 10 and 16 documented a real concurrency/
+  observability gap here and I scoped it out as pre-existing technical
+  debt; round 17 pushed back a third time and I still treated it as a
+  discretionary call for David (Question 2). **That was wrong: `AGENTS.md`
+  already has a standing, cross-agent, non-negotiable rule for exactly
+  this** — "Async work must show status at two altitudes (per-item +
+  aggregate)" (`AGENTS.md:126-127`), detailed in
+  [`docs/ai-context/async-ui-status.md`](docs/ai-context/async-ui-status.md)
+  ("Whenever you build or touch anything asynchronous... the surface that
+  triggers it must report status at two altitudes"). This plan doesn't just
+  brush past these three routes — it deliberately touches and *widens*
+  their core selection query to include variants, which is exactly the
+  "touch" the rule gates. This was never a fresh product trade-off for
+  David to weigh; it's compliance with an already-settled repo rule I
+  mischaracterized as optional. Removed from Questions for David; folded in
+  as required scope below and in Implementation Steps.
+
+  **What "touched" means the fix must cover — reusing existing
+  infrastructure, not inventing a new status channel (per the doc's own
+  "prefer existing polling helpers" rule):**
+  - `backfill-images` and `backfill-pexels`: stop calling
+    `void runFactImagePipeline(...)` fire-and-forget; route each selected
+    fact through the existing `enqueueFactPexels`/`FACT_PEXELS_QUEUE`
+    infrastructure (`factPexelsJobs.ts`) instead — it already gives durable
+    per-fact job rows with a dedupe key, which is also what closes the
+    round-10 concurrency gap as a side effect (two overlapping bulk
+    triggers now dedupe onto the same job instead of double-calling
+    Pexels/OpenAI). The route returns the enqueued job ids immediately
+    (`202`, matching `backfill-pexels`'s existing status code) instead of
+    waiting on completion.
+  - `backfill-ai-memes`: no equivalent durable queue exists yet for AI-meme
+    generation (`generateAiMemeBackgrounds`/`aiMemePipeline.ts` are called
+    directly, synchronously-within-the-fire-and-forget-loop, from both
+    `admin.ts` and `memes.ts`). Add a new `fact_ai_meme_backfill` queue
+    following the exact same shape as `factPexelsJobs.ts`
+    (`registerJobHandler`, a dedupe key per fact, `factEnrichmentBackfillJob.ts`-
+    style handler wrapping `generateAiMemeBackgrounds`), and route this
+    route's selected facts through it the same way.
+  - Frontend/admin surface: an aggregate tally ("Backfilling images: 7 of 25
+    · 2 failed · 3 still running") plus per-fact terminal state, polling
+    until every item is terminal — following the `useTaxonomyHealthActions.ts`
+    pattern the doc names as the reference implementation, not a new
+    bespoke status mechanism. This can live in the Facts Editor's existing
+    "Pexels Image Pipeline" admin panel (site 10) rather than a new page.
+  - This does **not** require solving generic bulk-observability for every
+    admin action in the repo — scoped strictly to the three routes this
+    plan is already touching.
+  - The Testing Plan below is corrected accordingly: "included in the
+    queued/processed set" now means durable per-fact terminal state is
+    assertable directly (queried from the new job rows), not just inferred
+    by re-querying `pexelsImages`/`aiMemeImages` after an arbitrary wait.
 - **`artifacts/api-server/scripts/backfill-pexels.ts:38` (Codex round 1) —
   the standalone CLI script (`pnpm --filter @workspace/api-server run
   backfill:pexels`), separate from the `admin.ts` HTTP route of the same
@@ -599,6 +623,18 @@ prove it with **both** a root and a variant fixture:
   for the currently-stale-and-active population, proving the condition is
   scoped to current state and can't be blocked by irrelevant history the
   way a raw job-table query could.
+- **The loop-until-clean condition doesn't hide a persistently-failing fact
+  from the operator (Codex round 18, P1):** simulate a fact whose
+  `fact_send_back` handler fails every attempt (a genuine, non-transient
+  bug) across 3 consecutive `all_stale` calls — assert each call shows this
+  fact fresh in `jobs` (`deduped: false`, a NEW job each time, proving
+  `maxAttempts` gets reset every loop iteration rather than being honored
+  across calls) while `summary.failed` stays 0 throughout (proving handler
+  failures are invisible to that field, unlike synchronous enqueue
+  failures). Assert the documented 3-strike circuit breaker flags this
+  fact for manual investigation rather than a 4th automatic loop, and that
+  a targeted lookup of its `fact_send_back` job history surfaces the
+  repeated `lastError`.
 - `factTextEditProtection`/`confirmedFactTextEdit`: a root text edit succeeds
   immediately even with an in-flight variant review/job (previously blocked) —
   `loadDirectVariantDependencies` and its call sites are gone; grep-level test
@@ -623,35 +659,34 @@ prove it with **both** a root and a variant fixture:
   **Sequential-re-run idempotency** (already-has-images facts skipped on a
   second, non-overlapping call) holds for both — including `backfill-images`,
   which needs its new `isNull(pexelsImages)` predicate (site 8 fix) verified
-  directly, since it has no such check today. **Correction (Codex round 10,
-  P1): this is NOT concurrent-invocation safety** — two overlapping
-  bulk-triggers can still duplicate work per fact (pre-existing gap, out of
-  scope, documented above). Do not test or claim overlapping-invocation
-  idempotency; that's a separate rearchitect.
-  **Correction (Codex round 16, P1): "included in the queued/processed set"
-  overclaims what's actually observable.** Verified `admin.ts:1999-2104`:
-  `backfill-images` returns only `{ success, triggered }` (an initial count,
-  nothing about outcome); `backfill-pexels` logs per-fact succeeded/failed
-  only to server logs, never returned to the caller; `backfill-ai-memes`
-  returns only an initial `queued` count with no per-fact outcome logged or
-  returned at all. None of the three gives a durable per-fact or aggregate
-  completed/failed/skipped signal — this is the same underlying gap as the
-  round-10 concurrency finding above (no durable per-fact status, full stop),
-  just surfacing as an observability problem instead of a double-trigger
-  risk. **What's actually testable:** a variant with missing images appears
-  in the route's initial query/`triggered`/`queued` count (provable directly
-  against the `where` clause); true completion is verifiable only by
-  re-querying the fact's own `pexelsImages`/`aiMemeImages` column after
-  waiting for the background work, not via any response field or durable
-  status — because none exists today for any of the three routes, root or
-  variant, before or after this fix. Do not write a test or Testing Plan
-  claim implying the response proves completion. **Not building the durable
-  per-fact status here** — rearchitecting these routes onto
-  `enqueueFactPexels`/`FACT_PEXELS_QUEUE` (round 10's fix) would also solve
-  this observability gap as a side effect; it's the same pre-existing,
-  out-of-scope technical-debt item, not a second one, and stays flagged for
-  David to prioritize separately rather than folded into this already-large
-  plan.
+  directly, since it has no such check today. **Correction, then reversed
+  again (Codex round 10, then round 18, both P1): concurrent-invocation
+  safety was first flagged as a gap, then required to be fixed anyway.**
+  Originally: two overlapping bulk-triggers could both select the same
+  not-yet-updated row and duplicate work (pre-existing, fire-and-forget with
+  no dedup key). Now that these routes route through
+  `enqueueFactPexels`/`FACT_PEXELS_QUEUE` and the new AI-meme queue (see
+  Proposed Design), assert this directly: two overlapping `backfill-pexels`
+  (or `-images`/`-ai-memes`) calls for the same fact dedupe onto the same
+  job — no duplicate OpenAI/Pexels calls.
+  **Corrected, then reversed (Codex rounds 16 and 18, both P1):** round 16
+  caught that "included in the queued/processed set" overclaimed what was
+  observable given the routes' original fire-and-forget shape (verified
+  `admin.ts:1999-2104` — `backfill-images` returned only
+  `{ success, triggered }`, `backfill-pexels` logged per-fact outcomes only
+  to server logs, `backfill-ai-memes` returned only an initial `queued`
+  count). Round 18 established that leaving this unfixed isn't actually an
+  option — `AGENTS.md`'s standing async-status rule applies because this
+  plan touches these routes' selection query, so the routes are being
+  rearchitected onto durable queues (see the Proposed Design section
+  above), not left as-is. **The claim is restored, now made true instead of
+  corrected away:** assert each selected fact (root or variant) gets a
+  durable job row via `enqueueFactPexels`/`FACT_PEXELS_QUEUE` (images/
+  Pexels) or the new `fact_ai_meme_backfill` queue (AI memes), queryable to
+  a terminal `done`/`failed` state — not just inferred by re-querying
+  `pexelsImages`/`aiMemeImages` after an arbitrary wait. Assert the two
+  overlapping bulk-trigger case from round 10 now dedupes onto the same job
+  instead of double-calling the external APIs.
 - **`scripts/backfill-pexels-images.mjs` (site 12) — conditional on David's
   answer to the Questions-for-David item (Codex round 13 correction: my
   claim here was unconditional, contradicting the plan's own default vs.
@@ -806,6 +841,38 @@ prove it with **both** a root and a variant fixture:
    both as the actual stop condition, and the loop-until-clean mechanic
    itself, in the TEST_RUN doc — "`eligibleRemaining` hits 0" on one
    response, alone, is never sufficient.
+   **Correction (Codex round 18, P1): the loop-until-clean mechanic itself
+   silently defeats `maxAttempts`-bounded retry and hides persistent
+   failures from the operator.** Verified: once a `fact_send_back` job
+   exhausts `maxAttempts` and goes terminally `failed`, it drops out of
+   `enqueueJob`'s dedupe index (non-terminal rows only), so the NEXT
+   `all_stale` call doesn't retry that job — it inserts a brand-new job
+   with a FRESH attempt budget. A persistently-failing fact (a genuine bug,
+   not a transient blip) therefore gets an unbounded number of full
+   `maxAttempts` cycles, one per operator loop iteration, forever — and
+   `summary.failed` only counts *synchronous* `enqueueJob` exceptions
+   (`adminTaxonomyHealth.ts:515-550`), not asynchronous handler failures,
+   so this repeated-failure pattern never surfaces as `failed` in any
+   response — it just looks like `queued` going up again on every call,
+   indistinguishable from ordinary transient retry. The loop-until-clean
+   condition still correctly refuses to go "clean" while this is
+   happening (so it won't falsely declare done), but it gives the operator
+   no bounded, visible signal that a specific fact needs human
+   investigation rather than more looping. **Fix: a bounded circuit
+   breaker in the operator procedure, not new engineering.** While looping
+   `bulk-send-back` (`all_stale`), track which fact ids appear in that
+   call's `jobs` list (freshly enqueued, `deduped: false`) across
+   consecutive calls. If the SAME fact id appears freshly-enqueued in 3
+   consecutive calls (meaning its prior attempt resolved to a fresh
+   terminal failure each time, not a still-pending job), stop looping for
+   it automatically — that fact needs a targeted, single-fact lookup of
+   its `fact_send_back` job history (`lastError` on the terminal rows) to
+   diagnose the persistent cause, not another automatic retry. This is
+   deliberately narrower than the campaign-wide job-table query dropped
+   earlier in this section: a bounded, single-fact diagnostic triggered
+   only on non-convergence, not a primary completeness gate. Document the
+   3-strike threshold and the manual-investigation trigger in the TEST_RUN
+   doc alongside the stop condition.
 3. Remove the now-pointless dependency machinery: `loadDirectVariantDependencies`/
    `VariantDependency` from `factTextEditProtection.ts`, the blocking check in
    its caller, and the signature-clearing block in `confirmedFactTextEdit.ts`.
@@ -847,6 +914,27 @@ prove it with **both** a root and a variant fixture:
    names too (Codex round 13):** `admin.ts:2001`/`:2081`'s `rootFacts`
    collections (`backfill-images`/`backfill-ai-memes`) to a neutral name;
    `backfill-pexels`'s `nullFacts` is already fine.
+6a. **Durable per-fact/aggregate status for the three bulk-backfill routes
+   (Codex round 18, P1 — required by `AGENTS.md`'s standing async-status
+   rule since step 6 touches these routes, not optional scope):**
+   - `backfill-images`/`backfill-pexels`: replace the fire-and-forget
+     `void runFactImagePipeline(...)` calls with enqueues onto the existing
+     `enqueueFactPexels`/`FACT_PEXELS_QUEUE` (`factPexelsJobs.ts`) — durable
+     job rows, a dedupe key per fact (closing round 10's concurrency gap as
+     a side effect), return the enqueued job ids in the `202` response
+     instead of only an initial count.
+   - `backfill-ai-memes`: add a new `fact_ai_meme_backfill` queue
+     (`registerJobHandler`, dedupe key per fact) wrapping
+     `generateAiMemeBackgrounds`, following `factPexelsJobs.ts`'s exact
+     shape; route this route's selected facts through it the same way.
+   - Frontend: an aggregate tally + per-fact terminal state, polling until
+     done, added to the Facts Editor's existing Pexels Image Pipeline panel
+     (site 10) — following `useTaxonomyHealthActions.ts` as the reference
+     pattern, not a new bespoke mechanism.
+   - Update/add tests: durable job row created per selected fact (root and
+     variant); two overlapping bulk-trigger calls for the same fact dedupe
+     onto one job, no duplicate external API calls; per-fact/aggregate
+     status queryable to a terminal state.
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
@@ -912,7 +1000,7 @@ prove it with **both** a root and a variant fixture:
 
 ## Questions for David
 
-**Two outstanding:**
+**One outstanding:**
 
 1. **(Codex round 11, P2 — my "none outstanding" claim was wrong; this
    genuinely needs your answer, not an in-repo assumption)**
@@ -922,23 +1010,17 @@ prove it with **both** a root and a variant fixture:
    what's visible here. **Do you use this script?** If no → delete it (the
    plan's default). If yes → it gets the same `parentId`-filter fix as its
    siblings instead of deletion, and stays.
-2. **(Codex rounds 10/16/17 — a genuine scope fork, not something I should
-   settle unilaterally after three escalations)** The three admin bulk-
-   backfill routes (`backfill-images`/`backfill-pexels`/`backfill-ai-memes`)
-   have no durable per-fact or aggregate completion status today — fire-
-   and-forget, initial count only, no way for an operator to know which
-   facts actually finished, failed, or need retrying. This predates this
-   fix and affects root facts today too; this plan just makes variants
-   subject to the same (already-live, already-imperfect) behavior, not a
-   new or worse one. **My recommendation: keep this out of scope** —
-   fixing it means rearchitecting all three onto the durable
-   `enqueueFactPexels`/`FACT_PEXELS_QUEUE` infrastructure plus a new
-   per-item/aggregate admin status surface, which is a substantial second
-   project layered onto what's meant to be a targeted metadata-inheritance
-   bug fix, and nothing about variant-independence makes the existing gap
-   worse. **If you'd rather have it folded into this plan instead of
-   filed as separate follow-up work, say so** and I'll design that
-   rearchitecture as additional Implementation Steps before this ships.
+
+**A second item that WAS here (Codex rounds 10/16/17), now resolved without
+needing your input (Codex round 18):** whether to fold durable per-fact/
+aggregate status into the three bulk-backfill routes turned out not to be a
+product judgment call at all — `AGENTS.md` already has a standing,
+cross-agent rule requiring exactly this whenever an async surface is
+touched (`AGENTS.md:126-127`,
+[`docs/ai-context/async-ui-status.md`](docs/ai-context/async-ui-status.md)),
+and this plan touches these three routes directly. Folded in as required
+scope (see Proposed Design and Implementation Steps) instead of asking you
+to choose between "correct engineering" and "smaller PR."
 
 The three other judgment calls from this session (variant re-word parity,
 bulk-backfill scope, curation-spot scope) were resolved and are reflected
