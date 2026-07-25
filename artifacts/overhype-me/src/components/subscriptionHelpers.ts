@@ -33,3 +33,85 @@ export function eventTone(event: string): EventTone {
 export function formatAmount(amount: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
 }
+
+export interface SubscriptionPlanPrice {
+  id: string;
+  unit_amount: number;
+  currency: string;
+  recurring: { interval: string; interval_count?: number } | null;
+}
+
+export interface SubscriptionPlanProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  metadata: Record<string, string>;
+  prices: SubscriptionPlanPrice[];
+}
+
+/**
+ * Product-metadata key that marks a product as conferring Legendary
+ * membership. Mirrors MEMBERSHIP_PRODUCT_METADATA_KEY in
+ * artifacts/api-server/src/lib/membershipPricing.ts and
+ * artifacts/overhype-me/src/pages/pricingPlans.ts — duplicated here because
+ * the frontend can't import backend code and this file doesn't otherwise
+ * share a module with the pricing page. `/stripe/checkout` and
+ * `/stripe/subscription/switch-plan` enforce this same allowlist, so a plan
+ * selected here without it can be offered and then rejected.
+ */
+const MEMBERSHIP_PRODUCT_METADATA_KEY = "overhype_membership";
+
+function membershipPlans(plans: SubscriptionPlanProduct[]): SubscriptionPlanProduct[] {
+  return plans.filter(p => p.metadata?.[MEMBERSHIP_PRODUCT_METADATA_KEY] === "true");
+}
+
+export function findAnnualPriceId(plans: SubscriptionPlanProduct[], currentPriceId: string | null | undefined): string | null {
+  const candidates = membershipPlans(plans);
+
+  if (currentPriceId) {
+    for (const product of candidates) {
+      const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
+      if (hasCurrentPrice) {
+        const annualPrice = product.prices.find(p => p.recurring?.interval === "year");
+        if (annualPrice) return annualPrice.id;
+      }
+    }
+  }
+
+  for (const product of candidates) {
+    for (const price of product.prices) {
+      if (price.recurring?.interval === "year") return price.id;
+    }
+  }
+  return null;
+}
+
+export function getAnnualSavingsPercent(plans: SubscriptionPlanProduct[], currentPriceId: string | null | undefined): number | null {
+  const candidates = membershipPlans(plans);
+  let monthlyAmount: number | null = null;
+  let annualAmount: number | null = null;
+
+  if (currentPriceId) {
+    for (const product of candidates) {
+      const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
+      if (hasCurrentPrice) {
+        monthlyAmount = product.prices.find(p => p.recurring?.interval === "month")?.unit_amount ?? null;
+        annualAmount = product.prices.find(p => p.recurring?.interval === "year")?.unit_amount ?? null;
+        break;
+      }
+    }
+  }
+
+  if (!monthlyAmount || !annualAmount) {
+    for (const product of candidates) {
+      for (const price of product.prices) {
+        if (price.recurring?.interval === "month") monthlyAmount = price.unit_amount;
+        if (price.recurring?.interval === "year") annualAmount = price.unit_amount;
+      }
+    }
+  }
+
+  if (!monthlyAmount || !annualAmount) return null;
+  const annualEquivMonthly = annualAmount / 12;
+  return Math.round((1 - annualEquivMonthly / monthlyAmount) * 100);
+}
