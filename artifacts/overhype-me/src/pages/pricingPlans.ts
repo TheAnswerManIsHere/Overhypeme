@@ -1,33 +1,12 @@
-export interface StripePlanPrice {
-  id: string;
-  unit_amount: number;
-  currency: string;
-  recurring: { interval: string; interval_count: number } | null;
-}
+import { filterMembershipPlans, type StripePlan } from "@/lib/stripePlans";
 
-export interface StripePlan {
-  id: string;
-  name: string;
-  description: string | null;
-  metadata: Record<string, string>;
-  prices: StripePlanPrice[];
-}
+export type { StripePlan, StripePlanPrice } from "@/lib/stripePlans";
 
 export interface SelectedPlanPrices {
-  monthlyPrice?: StripePlanPrice;
-  annualPrice?: StripePlanPrice;
-  lifetimePrice?: StripePlanPrice;
+  monthlyPrice?: StripePlan["prices"][number];
+  annualPrice?: StripePlan["prices"][number];
+  lifetimePrice?: StripePlan["prices"][number];
 }
-
-/**
- * Product-metadata key that marks a product as conferring Legendary
- * membership. Mirrors MEMBERSHIP_PRODUCT_METADATA_KEY in
- * artifacts/api-server/src/lib/membershipPricing.ts — duplicated here
- * because the frontend can't import backend code. `/stripe/checkout`
- * enforces this same allowlist, so a plan the pricing page advertises
- * without it would be rejected at checkout.
- */
-const MEMBERSHIP_PRODUCT_METADATA_KEY = "overhype_membership";
 
 /**
  * Classify Stripe's active prices into the three plan slots the pricing page
@@ -43,8 +22,7 @@ const MEMBERSHIP_PRODUCT_METADATA_KEY = "overhype_membership";
  * credits, merch, tips, ...), not just membership ones.
  */
 export function selectPlanPrices(plans: StripePlan[]): SelectedPlanPrices {
-  const membershipPlans = plans.filter(p => p.metadata?.[MEMBERSHIP_PRODUCT_METADATA_KEY] === "true");
-  const allPrices = membershipPlans.flatMap(p => p.prices);
+  const allPrices = filterMembershipPlans(plans).flatMap(p => p.prices);
   return {
     monthlyPrice: allPrices.find(p => p.recurring?.interval === "month"),
     annualPrice: allPrices.find(p => p.recurring?.interval === "year"),

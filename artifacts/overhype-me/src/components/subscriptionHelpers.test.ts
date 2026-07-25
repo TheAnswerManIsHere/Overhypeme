@@ -2,18 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   findAnnualPriceId,
   getAnnualSavingsPercent,
-  type SubscriptionPlanProduct,
-  type SubscriptionPlanPrice,
+  type StripePlan,
+  type StripePlanPrice,
 } from "./subscriptionHelpers";
 
-function price(overrides: Partial<SubscriptionPlanPrice> & { id: string; unit_amount: number }): SubscriptionPlanPrice {
+function price(overrides: Partial<StripePlanPrice> & { id: string; unit_amount: number }): StripePlanPrice {
   return { currency: "usd", recurring: null, ...overrides };
 }
 
 // Defaults to a membership-tagged product, since most fixtures here represent
 // genuine Legendary plans; the non-membership regression tests override
 // metadata explicitly.
-function plan(overrides: Partial<SubscriptionPlanProduct> & { id: string; name: string; prices: SubscriptionPlanPrice[] }): SubscriptionPlanProduct {
+function plan(overrides: Partial<StripePlan> & { id: string; name: string; prices: StripePlanPrice[] }): StripePlan {
   return { description: null, metadata: { overhype_membership: "true" }, ...overrides };
 }
 

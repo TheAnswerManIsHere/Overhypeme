@@ -34,39 +34,12 @@ export function formatAmount(amount: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
 }
 
-export interface SubscriptionPlanPrice {
-  id: string;
-  unit_amount: number;
-  currency: string;
-  recurring: { interval: string; interval_count?: number } | null;
-}
+import { filterMembershipPlans, type StripePlan } from "@/lib/stripePlans";
 
-export interface SubscriptionPlanProduct {
-  id: string;
-  name: string;
-  description: string | null;
-  metadata: Record<string, string>;
-  prices: SubscriptionPlanPrice[];
-}
+export type { StripePlan, StripePlanPrice } from "@/lib/stripePlans";
 
-/**
- * Product-metadata key that marks a product as conferring Legendary
- * membership. Mirrors MEMBERSHIP_PRODUCT_METADATA_KEY in
- * artifacts/api-server/src/lib/membershipPricing.ts and
- * artifacts/overhype-me/src/pages/pricingPlans.ts — duplicated here because
- * the frontend can't import backend code and this file doesn't otherwise
- * share a module with the pricing page. `/stripe/checkout` and
- * `/stripe/subscription/switch-plan` enforce this same allowlist, so a plan
- * selected here without it can be offered and then rejected.
- */
-const MEMBERSHIP_PRODUCT_METADATA_KEY = "overhype_membership";
-
-function membershipPlans(plans: SubscriptionPlanProduct[]): SubscriptionPlanProduct[] {
-  return plans.filter(p => p.metadata?.[MEMBERSHIP_PRODUCT_METADATA_KEY] === "true");
-}
-
-export function findAnnualPriceId(plans: SubscriptionPlanProduct[], currentPriceId: string | null | undefined): string | null {
-  const candidates = membershipPlans(plans);
+export function findAnnualPriceId(plans: StripePlan[], currentPriceId: string | null | undefined): string | null {
+  const candidates = filterMembershipPlans(plans);
 
   if (currentPriceId) {
     for (const product of candidates) {
@@ -86,8 +59,8 @@ export function findAnnualPriceId(plans: SubscriptionPlanProduct[], currentPrice
   return null;
 }
 
-export function getAnnualSavingsPercent(plans: SubscriptionPlanProduct[], currentPriceId: string | null | undefined): number | null {
-  const candidates = membershipPlans(plans);
+export function getAnnualSavingsPercent(plans: StripePlan[], currentPriceId: string | null | undefined): number | null {
+  const candidates = filterMembershipPlans(plans);
   let monthlyAmount: number | null = null;
   let annualAmount: number | null = null;
 
