@@ -323,9 +323,15 @@ reviewer tuned for serious defects — left to its default persona it may stay
 silent on a plan that merely *looks* sound. So the loop does not rely on that
 persona: Codex reads the shared
 [`plan-review-contract.md`](docs/ai-context/plan-review-contract.md) (routed from
-`AGENTS.md`), which tells it to review the markdown as a *specification*, return a
-**complete** assessment every time, and use review-status labels. That contract
-is the reviewer-side twin of my `overhype-plan-review` skill. (This is the
+`AGENTS.md`), which tells it to review the markdown as a *specification* and
+return a complete assessment every time. On Codex's actual GitHub transport that
+means diff-anchored findings only — no free-form status label or write-up is
+postable there (see the contract's *Output* section) — so "complete" is
+evidenced by the round running against a trigger that states the lens and names
+what to reconcile, not by a status label Codex cannot post. The full skeleton
+with status labels is real, but it belongs to the *other* consumer of this same
+contract — my own `overhype-plan-review` skill and ChatGPT's manual-upload path
+— which aren't diff-anchored and can post one complete document. (This is the
 narrow, correct thing to put in the shared docs — a *review contract Codex
 executes* — as distinct from mirroring my whole workflow ceremony there, which
 stays out per the sync rule.)

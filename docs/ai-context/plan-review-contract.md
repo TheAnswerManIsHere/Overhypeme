@@ -75,7 +75,15 @@ how he wants to be worked with.
   review that may stay silent absent a serious defect, a plan review is expected
   to return a full assessment — strengths, required revisions, recommendations —
   every time. Silence on a broadly-sound plan is not an acceptable output; say
-  what is strong and what could still be tightened.
+  what is strong and what could still be tightened. **This means what it says
+  literally on the full-document surface.** On the GitHub structured-review
+  surface, where a freestanding write-up cannot be posted at all (see *Output*),
+  the transport-specific equivalent is: the round actually runs against the
+  current plan (evidenced by the connector's own reviewed-commit confirmation),
+  and — round 2 onward — an empty findings list is only "complete, not merely
+  silent" when it responds to a trigger that named specific prior findings to
+  check. An unprompted, un-triggered silence is never sufficient evidence of a
+  complete review on either surface.
 - **Never implement anything on a plan-review PR.** No commits, no code, no
   "fixed it for you." The PR is a review channel that will be closed unmerged.
 
