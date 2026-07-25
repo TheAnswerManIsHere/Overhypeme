@@ -118,12 +118,15 @@ elsewhere.
   (oldest due first); the lane split only isolates *between* lanes, not within
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
-- **All three lanes share one database connection pool.** Their combined
-  worst-case concurrent handler count (currently 8) was deliberately kept
-  under the pool's default limit (10), but that's a conservative starting
-  point, not a guarantee of headroom under heavy simultaneous admin + reader
-  traffic. Raising the pool's connection limit was deliberately left as
-  follow-up work, not done proactively — see
+- **All five lanes share one database connection pool.** Their combined
+  worst-case concurrent handler count (fast 2 + render 3 + bulk 3 + pexels 1 +
+  ai_meme_backfill 1 = 10) now exactly matches the pool's default limit (10) —
+  the `pexels`/`ai_meme_backfill` lanes added for variant independence (PR
+  #256) used up what used to be a small margin. That leaves **no** default
+  spare connection for admin + reader traffic outside these lanes when all
+  five are simultaneously busy, not just thin headroom. Raising the pool's
+  connection limit was deliberately left as follow-up work, not done
+  proactively — see
   [`current-roadmap.md`](../ai-context/current-roadmap.md).
 - **Retention is not an audit log.** Old `done`/`failed` rows are purged after
   a configurable number of days per queue; `async_jobs` is operational state,
