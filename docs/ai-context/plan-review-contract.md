@@ -254,7 +254,16 @@ revision. Do not substitute your own model memory for current documentation.
 
 Inspecting the repository is already required above; **showing that you did is
 required too.** An obligation nobody can check is an obligation that decays.
-Every review reports:
+**This is unconditional on the full-document surface — every review reports it,
+every round.** On the GitHub structured-review surface, this evidence attaches
+to findings that exist (a Required Revision or a genuine Still Open
+Reconciliation states what was checked to reach that verdict) — it is not a
+separate, independent report, and it shares the same accepted ceiling as
+everything else on that surface (see *Non-negotiables* and *Output*): a clean
+round proves nothing was found, not that a search was run. Don't try to
+re-invent a channel for it there; the limitation is already documented and
+accepted. What follows describes the full-document shape and the standard all
+verification is held to, regardless of which surface can fully report it:
 
 - **Verified** — the plan's material claims you independently checked against
   the repository and confirmed. Name *what you inspected*, not just the
@@ -414,17 +423,22 @@ On this surface, every piece of information above six-shape output is carried
 - **A clean round is an empty findings list — confirmed, not merely assumed.**
   Codex has confirmed directly on this PR that the connector exposes only
   schema-validated defect findings: there is no non-blocking, informational, or
-  "Resolved-with-no-defect" category, and no freestanding-comment channel to
-  fall back to. Posting a finding for a genuinely resolved item would
-  misclassify it as a defect. So: when a named prior finding is actually
-  Resolved, **post nothing about it** — do not manufacture a Reconciliation
-  comment to prove you checked. Only post a Reconciliation finding when a named
-  item is **Still Open** or **Superseded**, which are naturally defect-shaped
-  and belong in this schema like any other finding. An empty result against a
-  trigger that named specific items is read as "all Resolved" — that reading is
-  the accepted ceiling of what this transport can prove, not a gap to close.
-  Absent a named request, an empty list means only "no new objections" — post
-  nothing and let the connector's default (a 👍 reaction) stand.
+  "no-longer-a-problem" category, and no freestanding-comment channel to fall
+  back to. Posting a finding for an item that no longer represents a live
+  problem would misclassify it as a defect. This rules out a dedicated
+  Reconciliation finding for **both** Resolved and Superseded — neither is a
+  current defect, so neither is postable, whatever their conceptual
+  difference. Only **Still Open** genuinely is a live defect and gets posted
+  as a Reconciliation finding, same as any other finding. When a named prior
+  finding is Resolved or Superseded, **post nothing about it** — do not
+  manufacture a comment to prove you checked, and accept that the specific
+  *reason* it's Superseded (as opposed to Resolved) is lost on this surface;
+  that is the same evidence-ceiling tradeoff already accepted for Resolved,
+  not a new one. An empty result against a trigger that named specific items
+  is read as "all Resolved or Superseded" — that reading is the accepted
+  ceiling of what this transport can prove, not a gap to close. Absent a named
+  request, an empty list means only "no new objections" — post nothing and
+  let the connector's default (a 👍 reaction) stand.
 - **You do not compute or post the overall review-status label or the
   round-level ledger on this surface.** Whoever is driving the loop (Claude
   Code) reads your findings after each round and derives the status and

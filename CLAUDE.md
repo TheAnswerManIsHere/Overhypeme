@@ -426,13 +426,15 @@ have a draft plan, and the disclosure check passes:
    channel — only schema-validated defect findings — so **an empty result
    against a named list is the accepted, confirmed ceiling of evidence this
    transport can produce**, not a gap to keep re-engineering; a Reconciliation
-   finding only appears when an item is Still Open or Superseded, which are
-   naturally defect-shaped. Three things I own each round: I **write that
-   framing into the trigger comment**, I **derive the round's status and
-   update the findings ledger** in the PR body by reading Codex's individual
-   inline findings (their category tags, any Reconciliation findings for
-   items that weren't resolved, plus my own trigger text as the record of
-   that round's lens and request),
+   finding only appears for an item that's genuinely **Still Open** (a live
+   defect) — Resolved and Superseded are both "no longer a problem" and both
+   get silence, even though they're conceptually different, because neither
+   is postable on a defect-only schema. Three things I own each round: I
+   **write that framing into the trigger comment**, I **derive the round's
+   status and update the findings ledger** in the PR body by reading Codex's
+   individual inline findings (their category tags, any Still Open
+   Reconciliation findings, plus my own trigger text as the record of that
+   round's lens and request),
    and I **clear the review's *Unable to verify* list** before requesting the
    next round — the genuinely unobservable ones (external APIs, production
    data, runtime timing) are mine to resolve, and a repo-observable one going
