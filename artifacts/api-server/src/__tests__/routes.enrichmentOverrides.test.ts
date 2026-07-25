@@ -253,6 +253,34 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
     const hist = await db.select().from(enrichmentOverrideHistoryTable).where(eq(enrichmentOverrideHistoryTable.factId, id));
     assert.equal(hist.some((h) => h.path === "/overhypeFit" && h.action === "baseline_reenriched"), true);
   });
+
+  it("classifies a variant from its OWN text only — no parent text or parentId reaches the classifier (variant independence, site 3)", async () => {
+    const { columns: rootColumns } = materializeFromBaseline(AI);
+    const [rootRow] = await db
+      .insert(factsTable)
+      .values({ text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER`, isActive: true, ...rootColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+      .returning({ id: factsTable.id });
+    insertedFactIds.push(rootRow.id);
+
+    const variantText = `${TEXT_PREFIX}${randomUUID()} VARIANT_DISTINCTIVE_MARKER`;
+    const { columns: variantColumns } = materializeFromBaseline(AI);
+    const [variantRow] = await db
+      .insert(factsTable)
+      .values({ text: variantText, isActive: true, parentId: rootRow.id, ...variantColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+      .returning({ id: factsTable.id });
+    insertedFactIds.push(variantRow.id);
+
+    let capturedFactText: string | undefined;
+    const result = await runEnrichmentForFact(variantRow.id, {
+      classify: async (input) => {
+        capturedFactText = input.factText;
+        return { ...AI, aiGenerationId: "gen-variant" };
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.ok(capturedFactText?.includes("VARIANT_DISTINCTIVE_MARKER"), "the variant's own text must reach the classifier");
+    assert.ok(!capturedFactText?.includes("ROOT_DISTINCTIVE_MARKER"), "the root's text must never be concatenated in");
+  });
 });
 
 describe("human-field survival (visual override + sticky notes)", () => {

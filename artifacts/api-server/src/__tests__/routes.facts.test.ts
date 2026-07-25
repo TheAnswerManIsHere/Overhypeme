@@ -191,6 +191,59 @@ describe("GET /facts/:factId", () => {
     assert.equal(res.body.links.length, 1);
     assert.equal(res.body.links[0].url, "https://example.com/article");
   });
+
+  it("a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)", async () => {
+    const userId = await createTestUser();
+    const rootId = await insertFact("root-with-images", { submittedById: userId });
+    const rootImages = { neutral: [{ id: 1, url: "https://example.com/root.jpg" }], male: [], female: [] };
+    await db.update(factsTable).set({ pexelsImages: rootImages, aiMemeImages: { neutral: ["a.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
+
+    const [variant] = await db.insert(factsTable).values({
+      text: "variant-no-images", canonicalText: "variant-no-images", isActive: true,
+      submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
+    }).returning();
+    insertedFactIds.push(variant.id);
+
+    const res = await request(makeApp()).get(`/facts/${variant.id}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pexelsImages, null, "must not fall back to the root's pexelsImages");
+    assert.equal(res.body.aiMemeImages, null, "must not fall back to the root's aiMemeImages");
+  });
+
+  it("a variant WITH its own images shows exactly those, not the root's", async () => {
+    const userId = await createTestUser();
+    const rootId = await insertFact("root-two", { submittedById: userId });
+    await db.update(factsTable).set({ pexelsImages: { neutral: [{ id: 1, url: "https://example.com/root.jpg" }], male: [], female: [] } }).where(eq(factsTable.id, rootId));
+
+    const variantImages = { neutral: [{ id: 2, url: "https://example.com/variant.jpg" }], male: [], female: [] };
+    const [variant] = await db.insert(factsTable).values({
+      text: "variant-own-images", canonicalText: "variant-own-images", isActive: true,
+      submittedById: userId, parentId: rootId, pexelsImages: variantImages, enrichment: buildPlaceholderFactEnrichment(),
+    }).returning();
+    insertedFactIds.push(variant.id);
+
+    const res = await request(makeApp()).get(`/facts/${variant.id}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pexelsImages.neutral[0].url, "https://example.com/variant.jpg");
+  });
+});
+
+describe("GET /facts/:factId/pexels-images", () => {
+  it("a variant with no images of its own returns an empty page — never the root's photos", async () => {
+    const userId = await createTestUser();
+    const rootId = await insertFact("root-picker", { submittedById: userId });
+    await db.update(factsTable).set({ pexelsImages: { neutral: [{ id: 1, url: "https://example.com/root.jpg" }], male: [], female: [] } }).where(eq(factsTable.id, rootId));
+
+    const [variant] = await db.insert(factsTable).values({
+      text: "variant-picker", canonicalText: "variant-picker", isActive: true,
+      submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
+    }).returning();
+    insertedFactIds.push(variant.id);
+
+    const res = await request(makeApp()).get(`/facts/${variant.id}/pexels-images`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { photos: [], hasMore: false });
+  });
 });
 
 describe("POST /facts/:factId/share", () => {
