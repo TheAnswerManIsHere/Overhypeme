@@ -615,7 +615,20 @@ implicit one (the root as a variant's de facto metadata source).
   stale or coarser than the real outcome.
 
   Poll each job id at a short interval until its `status` is `done` or
-  `failed`, or a bounded timeout elapses. On `done`, classify the fact
+  `failed`, or the ceiling below is hit. **(Codex round 30, P2) The
+  ceiling must be a zero-progress stall, not a fixed total-batch
+  duration:** the AI-meme/Pexels lanes are serialized at
+  `maxConcurrency: 1`, so a large selection is processed strictly one
+  job at a time — a healthy worker steadily clearing a long queue can
+  legitimately take longer than any fixed wall-clock cap sized for a
+  small batch, and a cap sized for a large batch would then wait far too
+  long on a genuinely stuck small one. A single total-duration timeout
+  can't be right for both. Instead: track the last time *any* polled job
+  transitioned to a terminal state, and only give up once that has been
+  stalled past a generous threshold (e.g. no job in the batch has
+  resolved for N minutes) — a steadily-progressing batch of any size
+  never hits this, while a stuck/absent worker (zero jobs ever resolving)
+  hits it quickly. On `done`, classify the fact
   from the job's `result`: a structured `{ skipped: true, ... }` result
   logs as skipped, anything else logs as succeeded. On `failed`, log the
   failure (with `lastError` if present). **(Codex round 29, P1) Track
@@ -855,9 +868,21 @@ the same generation paths a root already uses.
   field — it's looping `bulk-send-back` (`all_stale`) until one call
   returns `queued: 0`, `failed: 0`, **and** `eligibleRemaining: 0`
   together, then doing one more loop after any pending reviews from
-  condition (1) resolve. A separate async-jobs-table inspection (tried in
-  rounds 15-16) isn't needed and isn't campaign-scoped — the loop-until-
-  clean condition is driven entirely by current staleness/active state.
+  condition (1) resolve. **Nor is a three-strike-excluded fact invisible
+  to this condition (Codex round 24, extended round 30, P2 — this
+  passage repeated the pre-round-24 two/three-field condition without the
+  fix applied elsewhere):** that clean-looking response can still occur
+  while a `repeatedFailureCount`-flagged fact sits silently excluded,
+  still carrying v6 metadata — see step 8a's full mechanism. The complete
+  condition, consistently everywhere this plan documents it (this
+  passage, Implementation Step 8a, Implementation Step 11, and the
+  TEST_RUN/UAT docs written from them), is `queued: 0`, `failed: 0`,
+  `eligibleRemaining: 0`, **and** `repeatedFailureCount: 0` (or every
+  flagged fact explicitly investigated via `scope: "selected"`) — never
+  the three-field version alone. A separate async-jobs-table inspection
+  (tried in rounds 15-16) isn't needed and isn't campaign-scoped — the
+  loop-until-clean condition is driven entirely by current
+  staleness/active/repeated-failure state.
 
 ## Security, Permissions, and Validation
 
@@ -1057,7 +1082,15 @@ prove it with **both** a root and a variant fixture:
   worker active at all (or the worker paused) against a small fixture
   set — assert the process logs the still-unresolved facts by name/id,
   exits nonzero, and does not report `succeeded`/`failed: 0` as if
-  nothing were wrong.
+  nothing were wrong. **(Codex round 30, P2):** run the script against a
+  fixture set large enough that a healthy worker (concurrency-1 lane)
+  takes longer than a plausible fixed total-duration timeout would allow,
+  but keeps resolving jobs steadily throughout — assert the process does
+  NOT report any of them `unresolved` (the stall ceiling, not total
+  duration, gates completion). Separately, simulate the worker resolving
+  some jobs and then stalling entirely partway through — assert the
+  still-unresolved facts are reported and the process exits nonzero once
+  the stall ceiling (not the full batch) elapses.
   **Corrected, then reversed (Codex rounds 16 and 18, both P1):** round 16
   caught that "included in the queued/processed set" overclaimed what was
   observable given the routes' original fire-and-forget shape (verified
@@ -1218,18 +1251,24 @@ prove it with **both** a root and a variant fixture:
    long-past, unrelated, or now-irrelevant historical failure has zero
    effect on this condition, since nothing here queries job history at
    all — only current staleness/active state, exactly what the picker
-   itself uses. Operator guidance, two conditions must hold before the
-   reprocess is actually done: (1) a `bulk-send-back` (`all_stale`) call
-   that returns `queued: 0`, `failed: 0`, **and** `eligibleRemaining: 0`
-   together, obtained by looping the call and re-checking, not by reading
-   one response in isolation; (2) round 14's in-flight-review resolution +
-   one more re-run afterward (a resolved review can revert a fact to
-   `staleForReprocess`, which condition (1)'s next loop iteration would
-   then naturally pick up — but only if the operator actually loops again
-   after resolving pending reviews, not just once at the start). Document
-   both as the actual stop condition, and the loop-until-clean mechanic
-   itself, in the TEST_RUN doc — "`eligibleRemaining` hits 0" on one
-   response, alone, is never sufficient.
+   itself uses. Operator guidance, **three** conditions must hold before
+   the reprocess is actually done (Codex round 30, P2 — proactively
+   applying the same fix Codex has now raised twice elsewhere in this
+   plan, to preempt a third occurrence): (1) a `bulk-send-back`
+   (`all_stale`) call that returns `queued: 0`, `failed: 0`, **and**
+   `eligibleRemaining: 0` together, obtained by looping the call and
+   re-checking, not by reading one response in isolation; (2) round 14's
+   in-flight-review resolution + one more re-run afterward (a resolved
+   review can revert a fact to `staleForReprocess`, which condition (1)'s
+   next loop iteration would then naturally pick up — but only if the
+   operator actually loops again after resolving pending reviews, not
+   just once at the start); (3) step 8a's `repeatedFailureCount: 0` (or
+   every flagged fact explicitly investigated via `scope: "selected"`) —
+   condition (1) alone can read clean while a 3-strike fact sits silently
+   excluded. Document all three as the actual stop condition, and the
+   loop-until-clean mechanic itself, in the TEST_RUN doc —
+   "`eligibleRemaining` hits 0" on one response, alone, is never
+   sufficient.
    **Correction (Codex round 18, P1): the loop-until-clean mechanic itself
    silently defeats `maxAttempts`-bounded retry and hides persistent
    failures from the operator.** Verified: once a `fact_send_back` job
@@ -1352,12 +1391,20 @@ prove it with **both** a root and a variant fixture:
    `backfill-ai-memes.ts` replaces its direct `generateAiMemeBackgrounds`
    call with `enqueueFactAiMemeBackfill(fact.id)`. Both drop their
    per-fact `sleep()` pacing (now provided by the dedicated
-   `"pexels"`/`"ai_meme_backfill"` lanes) and log enqueued/deduped counts
-   on exit, matching `backfill-fact-pexels.ts`'s existing pattern —
-   otherwise these two documented, still-runnable `package.json` entry
-   points keep bypassing the dedupe/crash-recovery/serialization the
-   queues exist to provide, risking duplicate paid calls against a
-   concurrently-running admin-UI bulk trigger.
+   `"pexels"`/`"ai_meme_backfill"` lanes) — otherwise these two
+   documented, still-runnable `package.json` entry points keep bypassing
+   the dedupe/crash-recovery/serialization the queues exist to provide,
+   risking duplicate paid calls against a concurrently-running admin-UI
+   bulk trigger. **(Codex round 30, P1 — this step still described the
+   design round 28/29 superseded) Do NOT stop at logging enqueued/deduped
+   counts and exiting:** per the Proposed Design section's converged
+   version (rounds 28-29), each script retains every `EnqueueJobResult.jobId`
+   and polls `async_jobs.status`/`result` by id until every job is
+   terminal or the stall ceiling below is hit, logging a final
+   `succeeded`/`skipped`/`failed`/`unresolved` summary and exiting nonzero
+   on either `failed` or `unresolved` — enqueue-and-exit is exactly the
+   false-success shape this whole redesign exists to remove, so this
+   implementation step can't stop short of it either.
 6a. **Durable per-fact/aggregate status for the three bulk-backfill routes
    (Codex round 18, P1 — required by `AGENTS.md`'s standing async-status
    rule since step 6 touches these routes, not optional scope). Converged
