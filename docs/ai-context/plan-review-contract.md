@@ -407,11 +407,19 @@ On this surface, every piece of information above six-shape output is carried
   decision, an omission), anchor it to the most defensible nearby line (e.g.
   the section it should have appeared under) rather than skipping it for lack
   of a perfect anchor.
-- **Lead each finding with a category tag**, extending the severity-badge
-  convention already in use: Required Revision, Recommended Improvement,
-  Product Decision, Verified, Unable to Verify (repo-resolvable / not
-  observable — say which), or Reconciliation (Resolved / Still Open /
-  Superseded, naming the prior finding it addresses).
+- **Lead each finding with a category tag — only categories that can stand as
+  their own defect-shaped finding on this surface.** That's: Required
+  Revision, Recommended Improvement, Product Decision, or Reconciliation
+  (**Still Open only** — naming the prior finding it addresses; see the
+  clean-round bullet below for why Resolved/Superseded aren't here). Verified
+  and Unable to Verify are **not** standalone tags on this surface — they
+  don't represent a defect, so nothing here would give the connector to post.
+  Fold them into the text of whatever Required Revision or Recommended
+  Improvement finding they support ("Unable to verify: needs prod-DB access —
+  flagging as Required Revision until the plan states how this gets checked").
+  The full six-way taxonomy applies unscoped only on the full-document
+  surface, where each is its own section regardless of whether it accompanies
+  a defect.
 - **The lens is not something you attest to — it's something you're asked to
   apply.** The `@codex review` trigger comment states the lens for that round
   and names the specific prior findings to reconcile (see *Automated plan

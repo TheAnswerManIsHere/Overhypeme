@@ -429,12 +429,20 @@ have a draft plan, and the disclosure check passes:
    finding only appears for an item that's genuinely **Still Open** (a live
    defect) — Resolved and Superseded are both "no longer a problem" and both
    get silence, even though they're conceptually different, because neither
-   is postable on a defect-only schema. Three things I own each round: I
-   **write that framing into the trigger comment**, I **derive the round's
-   status and update the findings ledger** in the PR body by reading Codex's
-   individual inline findings (their category tags, any Still Open
-   Reconciliation findings, plus my own trigger text as the record of that
-   round's lens and request),
+   is postable on a defect-only schema. Silence from Codex tells me only that
+   a named item isn't Still Open — it does **not** tell me whether it's
+   Resolved or Superseded, and collapsing both into "Resolved" in the ledger
+   would lose that distinction. **I classify Resolved vs. Superseded myself**
+   when updating the ledger: I know what my own fix did — a straight
+   correction is Resolved, a revision that changed the plan's shape enough to
+   make the original concern moot is Superseded — Codex's silence isn't
+   needed to tell them apart, only to confirm neither is still a live
+   objection. Three things I own each round: I **write that framing into the
+   trigger comment**, I **derive the round's status and update the findings
+   ledger** in the PR body by reading Codex's individual inline findings
+   (their category tags, any Still Open Reconciliation findings, plus my own
+   trigger text and fix history as the record of that round's lens, request,
+   and Resolved-vs-Superseded classification),
    and I **clear the review's *Unable to verify* list** before requesting the
    next round — the genuinely unobservable ones (external APIs, production
    data, runtime timing) are mine to resolve, and a repo-observable one going
