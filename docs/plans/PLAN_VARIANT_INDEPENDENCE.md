@@ -335,6 +335,36 @@ implicit one (the root as a variant's de facto metadata source).
       backfill run, unchanged by this fix). Making the pipeline itself
       per-slot-idempotent (checkpointing after each image) is a separate,
       larger `aiMemePipeline.ts` change, out of scope here.
+      **Correction (Codex round 21, P1): `maxAttempts: 1` doesn't cover
+      crash recovery, a second, separate replay path.** Verified
+      `asyncJobs.ts:583-591` — `recoverStuckProcessing` (run at startup and
+      periodically per lane) resets any job stuck in `processing` status
+      past a cutoff (default 5 min) back to `pending` **without
+      incrementing `attempts`** — this path never goes through
+      `processClaimedJob`'s finalize step, so the `maxAttempts` check never
+      runs. If the worker process crashes or restarts mid-handler (after
+      some paid slots already generated, before the final
+      `aiMemeImages` write), recovery resets the job as if it were a fresh
+      unstarted attempt, and it reruns all 9 slots from scratch —
+      `maxAttempts: 1` doesn't prevent this at all. Full per-slot
+      resumability is still out of scope (same reasoning as above), but
+      silently re-spending on a recovered job is not acceptable either.
+      **Fix: an explicit fact-level in-progress marker, set BEFORE the
+      paid work starts, checked BEFORE it's called again.** Reuse the
+      durable per-fact status field this section already adds for
+      observability (below) — the handler's first action is to check that
+      field: if it's already `processing` (meaning a prior invocation of
+      *this handler* started but never reached a terminal state — exactly
+      the crash-recovery replay scenario, since `recoverStuckProcessing`
+      only touches `async_jobs`, never `facts`), abort immediately without
+      calling `generateAiMemeBackgrounds` and report a terminal failure
+      requiring manual re-trigger, rather than silently re-running. Only
+      on a genuinely fresh entry (field is `pending`/unset) does the
+      handler set it to `processing` and proceed. This doesn't recover the
+      specific slots that already succeeded (still no per-slot resume),
+      but it does stop the actual harm Codex flagged: the paid pipeline
+      never gets invoked a second time for the same fact from a stuck-job
+      replay.
     - **Not concurrency-safe (P2):** verified `admin.ts:2097-2102` — the
       current route deliberately `await`s facts one at a time ("Process
       sequentially so we don't hammer OpenAI rate limits"). Verified
@@ -360,6 +390,22 @@ implicit one (the root as a variant's de facto metadata source).
       is exactly as pointless here as for Pexels — add the same explicit
       `isActive` check before enqueueing, with a `not_active` skip outcome,
       for consistency and to avoid wasted spend.
+      **Correction (Codex round 21, P2): an enqueue-time-only check leaves
+      a queue-wait race.** With the new dedicated lane serialized to
+      `maxConcurrency: 1` (the concurrency fix above), a job can now sit
+      queued for a real amount of time behind others before its handler
+      actually runs — long enough for an admin to deactivate the fact
+      in between. An enqueue-time-only `isActive` check misses this
+      window entirely and would still pay for generation on a now-invisible
+      fact. **Fix: re-check, inside the handler, immediately before
+      calling `generateAiMemeBackgrounds`** — re-read `facts.isActive` at
+      execution time (not just trust the enqueue-time snapshot), and if
+      false, return a typed skip result (`not_active`) surfaced as
+      *skipped*, not *done*, in both the per-item and aggregate status.
+      This actually makes the design more consistent with
+      `factPexelsJobs.ts`'s own convention, not less — its
+      `isStagingImagePrepActive` cost guard already runs execution-time,
+      inside the handler, for exactly this reason.
   - Frontend/admin surface: an aggregate tally ("Backfilling images: 7 of 25
     · 2 failed · 3 still running") plus per-fact terminal state, polling
     until every item is terminal — following the `useTaxonomyHealthActions.ts`
@@ -1038,6 +1084,19 @@ prove it with **both** a root and a variant fixture:
        (`aiMemePipeline.ts:922-926`), so automatic retry would regenerate
        (and re-pay for) already-succeeded slots on every attempt. Matches
        today's zero-retry behavior exactly.
+     - **Add a fact-level `aiMemeBackfillStatus` field (`pending`/
+       `processing`/`ok`/`failed`, mirroring `pexelsStatus`'s shape) —
+       required for two things, not just admin UI (Codex round 21, P1):**
+       the handler sets it to `processing` *before* calling
+       `generateAiMemeBackgrounds` and only to `ok`/`failed` after; on
+       entry, if it's already `processing`, abort without calling the
+       paid pipeline and report a terminal failure instead. This is what
+       actually stops duplicate spend — `maxAttempts: 1` alone does not:
+       `recoverStuckProcessing` (`asyncJobs.ts:583-591`) resets a job
+       stuck in `processing` back to `pending` **without incrementing
+       `attempts`**, bypassing the `maxAttempts` check entirely, so a
+       worker crash mid-run (after paid slots already generated) would
+       otherwise silently rerun the whole thing from scratch on recovery.
      - Register on a new dedicated `"ai_meme_backfill"` lane
        (`asyncJobs.ts`'s `laneConfigs`, `maxConcurrency: 1`,
        env-overridable per the existing `fast`/`render`/`bulk` pattern) —
@@ -1049,6 +1108,17 @@ prove it with **both** a root and a variant fixture:
        Pexels-queue fix above — this is a freshly-written handler, not a
        reuse of `factPexelsJobs.ts`'s existing cost guard, but paying for
        AI generation on an invisible fact is exactly as pointless.
+       **Also re-check `isActive` a second time, execution-time, inside
+       the handler itself, immediately before calling
+       `generateAiMemeBackgrounds` (Codex round 21, P2):** with the
+       queue now serialized to `maxConcurrency: 1`, a job can sit queued
+       for a real amount of time behind others, long enough for an admin
+       to deactivate the fact after enqueue but before the handler runs —
+       an enqueue-time-only check misses that window. On a stale-inactive
+       fact, return a typed `not_active` skip result surfaced as
+       *skipped*, not *done*. This matches `factPexelsJobs.ts`'s own
+       `isStagingImagePrepActive` guard, which already runs execution-time
+       for the same reason.
      Route this route's selected facts through the new queue.
    - Frontend: an aggregate tally + per-fact terminal state, polling until
      done, added to the Facts Editor's existing Pexels Image Pipeline panel
@@ -1071,7 +1141,24 @@ prove it with **both** a root and a variant fixture:
      test double on `generateAiMemeBackgrounds` that blocks until released,
      asserting the second queued job doesn't start until the first
      finishes); an inactive fact selected by `backfill-ai-memes` gets an
-     explicit `not_active` skip outcome and is never enqueued.
+     explicit `not_active` skip outcome and is never enqueued. **(Codex
+     round 21, P1):** enqueue a job, let the handler set
+     `aiMemeBackfillStatus = "processing"` and call
+     `generateAndStoreImage` at least once (a test double that resolves
+     after being called), then simulate a crash — leave the `async_jobs`
+     row in `processing` past the recovery cutoff and call
+     `recoverStuckProcessing` directly (per the existing pattern in
+     `adminTaxonomyHealth.guardQueryChunking.test.ts`-style tests) rather
+     than waiting on the real timer. Re-run the worker tick — assert the
+     handler sees `aiMemeBackfillStatus === "processing"`, aborts without
+     calling `generateAndStoreImage` again, and the fact ends in a
+     terminal `failed`/needs-manual-retry state — proving the paid call
+     from the first attempt is never repeated. **(Codex round 21, P2):**
+     enqueue an active fact onto `fact_ai_meme_backfill`, deactivate it
+     before the worker tick runs (simulating a queue-wait race), then run
+     the tick — assert zero calls to `generateAndStoreImage`/
+     `generateAiMemeBackgrounds`, and the outcome reports `skipped` with
+     `not_active`, not `done`, in both per-item and aggregate status.
 7. Frontend: remove the `selectedFact.parentId === null` gate around the
    Pexels Image Pipeline panel in `facts.tsx:1481-1482`; update its "(root
    facts only)" copy.
