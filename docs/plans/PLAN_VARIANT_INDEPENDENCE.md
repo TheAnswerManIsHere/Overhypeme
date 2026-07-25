@@ -312,206 +312,133 @@ implicit one (the root as a variant's de facto metadata source).
     it just makes the existing gap terminate visibly instead of stalling
     invisibly once routed through a queue that behaves differently for
     inactive facts than the old direct pipeline call did.
-  - **`backfill-ai-memes` — a new durable queue, designed once and correctly
-    up front, not accreted round-by-round (Codex rounds 20-22 collectively;
-    the full reasoning trail from each round is preserved below only where
-    it explains a non-obvious decision — this is the converged design):**
-    no equivalent durable queue exists yet for AI-meme generation
-    (`generateAiMemeBackgrounds`/`aiMemePipeline.ts` are called directly,
-    fire-and-forget, from both `admin.ts` and `memes.ts`). Add a new
-    `fact_ai_meme_backfill` queue (`registerJobHandler`, dedupe key per
-    fact) wrapping `generateAiMemeBackgrounds` — but deliberately diverging
-    from `factPexelsJobs.ts`'s exact shape in four ways, each forced by a
+  - **`backfill-ai-memes` — a new durable `fact_ai_meme_backfill` queue
+    (converged design, rounds 20-23).** No equivalent durable queue exists
+    yet for AI-meme generation (`generateAiMemeBackgrounds`/
+    `aiMemePipeline.ts` are called directly, fire-and-forget, from both
+    `admin.ts` and `memes.ts`). Add the queue (`registerJobHandler`,
+    dedupe key per fact) wrapping `generateAiMemeBackgrounds` — diverging
+    from `factPexelsJobs.ts`'s shape in several ways, each forced by a
     real property of the wrapped function or the queue framework:
 
     1. **Schema:** add `facts.ai_meme_backfill_status` (`varchar(16)`,
        nullable, no DB-level enum — mirrors `pexels_status` exactly,
-       `lib/db/migrations/0075_facts_pexels_status.sql`), via an idempotent
-       hand-authored migration
-       (`ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "ai_meme_backfill_status" varchar(16);`).
-       Values: `pending | processing | ok | failed | skipped`. Null on
-       every existing fact and on facts whose AI-meme generation goes
-       through the live, non-queued paths (`memes.ts`) — scoped to this
-       queue only, same as `pexels_status`. **A SQL file alone is not
-       enough (Codex round 23, P1):** `lib/db/src/migrate.ts` applies only
-       migrations listed in `lib/db/migrations/meta/_journal.json` — an
-       unjournaled file is silently never run, deploying code that expects
-       a column production never gets. Add the next journal entry
-       (`{"idx": 93, "version": "7", "when": 1782600000000, "tag": "0093_facts_ai_meme_backfill_status", "breakpoints": true}`,
-       following 0092's exact shape) to `_journal.json`. Separately,
-       `lib/db/scripts/check-migration-snapshots.ts` requires either a
-       drizzle-kit-generated snapshot or an explicit `SNAPSHOT_EXEMPT_TAGS`
-       entry for every journaled migration — this is a hand-authored
-       DDL-lite migration with no snapshot, exactly like `0075_facts_pexels_status`
-       (already exempted there), so add `"0093_facts_ai_meme_backfill_status"`
-       to `SNAPSHOT_EXEMPT_TAGS` with a one-line reason comment, mirroring
-       the existing entries.
-    2. **Not retry-safe by default — `maxAttempts: 1`:**
+       `lib/db/migrations/0075_facts_pexels_status.sql`), values
+       `pending | processing | ok | failed | skipped`, null on every
+       existing fact and on facts whose AI-meme generation goes through
+       the live, non-queued paths (`memes.ts`). Ship it as a real,
+       runnable migration, not just a SQL string: add the next journal
+       entry (`{"idx": 93, "version": "7", "when": 1782600000000, "tag":
+       "0093_facts_ai_meme_backfill_status", "breakpoints": true}`,
+       following 0092's shape) to `lib/db/migrations/meta/_journal.json`
+       — `lib/db/src/migrate.ts` only applies journaled migrations — and
+       add the tag to `SNAPSHOT_EXEMPT_TAGS` in
+       `lib/db/scripts/check-migration-snapshots.ts` (a hand-authored
+       DDL-lite migration with no drizzle-kit snapshot, exactly like
+       `0075_facts_pexels_status`, already exempted there).
+    2. **Retry safety — `maxAttempts: 1` + `suppressErrors: false`:**
        `aiMemePipeline.ts:842-935` wraps the entire per-slot loop (up to 9
        paid image calls) in one `try`, writing `facts.aiMemeImages` only
-       once, after every slot succeeds (`:922-926`). A failure on a late
-       slot loses everything from the earlier successful slots — the
-       default async-jobs retry would regenerate (and re-pay for) them on
-       every attempt. Enqueue with `maxAttempts: 1` (matches today's
-       zero-retry behavior; a failed fact requires a fresh manual backfill,
-       unchanged by this fix). **The handler must call
-       `generateAiMemeBackgrounds` with `suppressErrors: false`, not the
-       `true` the current direct call sites use** — `suppressErrors: true`
-       catches internal errors and returns *normally* (no throw), which
-       would make the handler believe a fully-failed run succeeded and
-       mark the job `done`/status `ok`. The handler needs the throw to
-       reach its own `catch` so it can mark the fact `failed` and let
-       `maxAttempts: 1` do its job. Making the pipeline itself
-       per-slot-idempotent (checkpointing after each image) stays out of
-       scope — a separate, larger `aiMemePipeline.ts` change.
-    3. **Not safe against crash-recovery replay — a fact-level in-progress
-       marker, written in careful order:** `recoverStuckProcessing`
-       (`asyncJobs.ts:583-591`) resets a job stuck in `processing` back to
-       `pending` **without incrementing `attempts`**, bypassing
-       `maxAttempts` entirely — a worker crash mid-run (paid slots already
-       generated, final write not yet reached) would otherwise replay the
-       whole thing on recovery. The handler's guard-and-write order,
-       specifically to avoid two further bugs found reviewing this
-       mechanism:
-       - On entry, if `ai_meme_backfill_status === "processing"`, this is a
-         crash-recovery replay (a prior invocation of *this handler*
-         started but never reached a terminal state) — set the status to
-         `failed` and return without calling the pipeline at all.
-       - Only if that passes AND the execution-time `isActive` recheck
-         (next point) passes does the handler set the status to
-         `processing` — **immediately before** calling
-         `generateAiMemeBackgrounds`, not any earlier. Setting it earlier
-         (e.g. as the first action) would leave the marker stuck at
-         `processing` forever on the inactive-skip path, with no defined
-         transition out — ordering it last avoids that without needing a
-         separate reset case.
-       - **The enqueue-side write must happen BEFORE the job becomes
-         claimable, not after (Codex round 23, P1 — corrects the
-         "enqueueJob first, then conditionally write" order from the last
-         round, which still had a race):** verified `enqueueJob` commits
-         the `async_jobs` row (status `pending`, immediately claimable) as
-         part of its own insert — so calling `enqueueJob()` and THEN
-         writing the fact's status afterward leaves a window where a
-         worker can claim the row and set `processing` before that
-         write runs, and the enqueuer's write then clobbers it back to
-         `pending` (or, if the handler is fast enough, even clobbers a
-         freshly-written terminal state). Order matters: the enqueuer
-         must write the fact status FIRST, as its own committed
-         statement, and only THEN call `enqueueJob` — since the job
-         cannot be claimed before it exists in `async_jobs`, no worker
-         can race ahead of a write that happens first. The write itself
-         stays conditional (mirroring the intent from the previous
-         round, now correctly ordered): `UPDATE facts SET
-         ai_meme_backfill_status = 'pending' WHERE id = ? AND
-         ai_meme_backfill_status IS DISTINCT FROM 'processing'` — a
-         fresh trigger (status null/ok/failed/skipped) gets set to
-         `pending`; an overlapping trigger arriving while a prior
-         invocation is genuinely mid-flight (`processing`) is a no-op,
-         preserving the crash-recovery guard above. Then call
-         `enqueueJob` (dedupe handles whether this is a fresh insert or
-         an attach).
-    4. **Not concurrency-safe by default — a dedicated serialized lane:**
+       once, after every slot succeeds (`:922-926`) — a failure on a late
+       slot loses everything from earlier successful slots, so automatic
+       retry would regenerate (and re-pay for) them every attempt.
+       Enqueue with `maxAttempts: 1` (matches today's zero-retry
+       behavior). The handler must call `generateAiMemeBackgrounds` with
+       `suppressErrors: false`, not the `true` other call sites use —
+       `suppressErrors: true` catches internal errors and returns
+       normally (no throw), which would make the handler believe a
+       fully-failed run succeeded. Per-slot idempotency (checkpointing
+       after each image) stays out of scope — a separate, larger
+       `aiMemePipeline.ts` change.
+    3. **Crash-recovery safety — a fact-level in-progress marker, written
+       in careful order:** `recoverStuckProcessing` (`asyncJobs.ts:583-591`)
+       resets a job stuck in `processing` back to `pending` **without
+       incrementing `attempts`**, bypassing `maxAttempts` entirely — a
+       worker crash mid-run would otherwise replay the whole thing on
+       recovery. Handler order: on entry, if
+       `ai_meme_backfill_status === "processing"`, this is a
+       crash-recovery replay — set `failed` and abort without calling the
+       pipeline. Else, re-check `isActive` execution-time (point 5). Only
+       past both checks does the handler set `processing`, **immediately
+       before** calling the pipeline (not any earlier — setting it before
+       the `isActive` recheck would leave the marker stuck at
+       `processing` on the inactive-skip path). The enqueue side must
+       write the status BEFORE calling `enqueueJob`, not after —
+       `enqueueJob` commits the `async_jobs` row (immediately claimable)
+       as part of its own insert, so a write placed after it can race a
+       worker that already claimed and set `processing`, clobbering it
+       back to `pending`. `enqueueFactAiMemeBackfill`'s order: conditional
+       write first (`UPDATE facts SET ai_meme_backfill_status = 'pending'
+       WHERE id = ? AND ai_meme_backfill_status IS DISTINCT FROM
+       'processing'` — a no-op if a prior invocation is genuinely
+       mid-flight, preserving the guard), then `enqueueJob`.
+    4. **Concurrency safety — a dedicated serialized lane:**
        `admin.ts:2097-2102` deliberately `await`s facts one at a time
        ("Process sequentially so we don't hammer OpenAI rate limits"). An
        unlabeled queue registration defaults to the shared `bulk` lane
        (`asyncJobs.ts:345-353,815-819`) at `maxConcurrency: 3`, silently
-       removing that safeguard. Register a new dedicated `"ai_meme_backfill"`
-       lane in `asyncJobs.ts`'s `laneConfigs` with `maxConcurrency: 1`
-       (env-overridable, matching the existing `fast`/`render`/`bulk`
-       pattern) and put `fact_ai_meme_backfill` on it — true one-at-a-time
-       processing, isolated from other `bulk`-lane queues.
+       removing that safeguard. Register a new dedicated
+       `"ai_meme_backfill"` lane in `asyncJobs.ts`'s `laneConfigs` with
+       `maxConcurrency: 1` (env-overridable, matching the existing
+       `fast`/`render`/`bulk` pattern).
     5. **Inactive facts, checked twice, both ending in a real terminal
-       state:** paying for AI generation on an invisible fact is as
-       pointless as it is for Pexels. Check `isActive` before enqueueing
-       (route-level, explicit `not_active` skip outcome, no enqueue at
-       all) — but that alone misses a queue-wait race: with the lane now
-       serialized to 1-at-a-time, a job can sit queued long enough for an
-       admin to deactivate the fact before its handler runs. So the
-       handler *also* re-reads `isActive` at execution time, immediately
-       before setting `processing` (per point 3's ordering) — on failure,
-       set the status to the new terminal `skipped` value (not left at
-       whatever it was, and not `processing`) and return a `not_active`
-       skip result surfaced as *skipped*, not *done*, in both per-item and
-       aggregate status. This matches `factPexelsJobs.ts`'s own
-       `isStagingImagePrepActive` guard, which already runs execution-time
-       for the same reason.
-    6. **Register the handler at server startup (Codex round 23, P1 — a
-       plan that skipped this would ship a queue nothing ever drains):**
-       every existing queue is registered explicitly in
-       `artifacts/api-server/src/index.ts:419-430` (`registerEmailHandler()`,
-       `registerFactPexelsJobHandler()`, etc.) before `runAsyncJobsWorker()`
-       starts — merely defining and exporting a handler doesn't add it to
-       the in-memory `HANDLERS` registry `asyncJobsTick` reads from. Add
-       `registerFactAiMemeBackfillHandler()` to that same block, following
-       the exact existing pattern.
+       state:** check `isActive` before enqueueing (route-level, explicit
+       `not_active` skip, no enqueue at all) — but with the lane
+       serialized, a job can sit queued long enough for an admin to
+       deactivate the fact before its handler runs, so the handler also
+       re-reads `isActive` execution-time, immediately before setting
+       `processing` (point 3's ordering) — on failure, set the terminal
+       `skipped` value and return a `not_active` skip result surfaced as
+       skipped, not done. Matches `factPexelsJobs.ts`'s own
+       `isStagingImagePrepActive` guard, which runs execution-time for
+       the same reason.
+    6. **Startup registration:** every existing queue is registered
+       explicitly in `artifacts/api-server/src/index.ts:419-430`
+       (`registerEmailHandler()`, `registerFactPexelsJobHandler()`, etc.)
+       before `runAsyncJobsWorker()` starts — defining a handler doesn't
+       add it to the `HANDLERS` registry `asyncJobsTick` reads from. Add
+       `registerFactAiMemeBackfillHandler()` to that block.
 
     Route `backfill-ai-memes`'s selected facts through
     `enqueueFactAiMemeBackfill`.
-  - **`FACT_PEXELS_QUEUE`'s existing shared lane doesn't preserve the
-    bulk route's rate-limit pacing either (Codex round 23, P1 — the same
-    concurrency category of finding as the AI-meme queue above, just on
-    the sibling route):** `admin.ts:2039-2065`'s current `backfill-pexels`
-    deliberately processes facts one at a time with an explicit 1-second
-    delay between each, specifically to respect Pexels' rate limit — and
-    each fact's own pipeline already fires 3 parallel Pexels searches
-    (male/female/neutral). `factPexelsJobs.ts` registers on the shared
-    `bulk` lane today (`maxConcurrency: 3`, used by several other queues
-    too), so simply routing `backfill-images`/`backfill-pexels` onto it
-    (this section's own earlier fix) would let a large backfill replace
-    today's paced one-at-a-time traffic with bursts of up to 9 concurrent
-    Pexels calls. **Also discovered in verifying this: a repo-sweep gap
-    from the very first draft of this plan.**
+  - **`FACT_PEXELS_QUEUE` needs its own dedicated `"pexels"` lane too
+    (`maxConcurrency: 1`), not the shared `bulk` lane.** `admin.ts:2039-2065`'s
+    current `backfill-pexels` deliberately processes facts one at a time
+    with a 1-second delay to respect Pexels' rate limit, and each fact's
+    pipeline already fires 3 parallel Pexels searches — routing
+    `backfill-images`/`backfill-pexels` onto `FACT_PEXELS_QUEUE`'s
+    existing shared `bulk` lane (`maxConcurrency: 3`) would silently drop
+    that pacing. Move `FACT_PEXELS_QUEUE` to the new dedicated lane,
+    matching the AI-meme fix. This also affects `firstTimeStagingPrep.ts`'s
+    existing single-fact staging-prep enqueue (the queue's only other
+    consumer) — acceptable, since that flow is per-fact, human-review-paced,
+    and already documented as best-effort/non-blocking
+    (`factPexelsJobs.ts`: "never blocks the gate"). **Repo-sweep addition:**
     `artifacts/api-server/src/scripts/backfill-fact-pexels.ts` is a
-    FOURTH pre-existing bulk-Pexels-backfill implementation, missed by
-    every prior sweep round — it already enqueues onto
-    `FACT_PEXELS_QUEUE` per active fact (no `parentId` filter at all, so
-    it's already correct on the variant-independence question, like
-    `backfill-ai-memes.ts`), and already has this exact same
-    no-extra-pacing shape. So the concurrency-3 profile isn't strictly
-    novel — it's already reachable today via that CLI script — but the
-    admin.ts routes moving onto the same queue makes it reachable from a
-    UI click instead of requiring CLI access, and Codex is right that the
-    move shouldn't silently downgrade the HTTP route's own explicit
-    protection. **Fix, consistent with the AI-meme lane fix above:**
-    register `FACT_PEXELS_QUEUE` on a new dedicated `"pexels"` lane
-    (`maxConcurrency: 1`, env-overridable) instead of the shared `bulk`
-    lane. This also affects `firstTimeStagingPrep.ts`'s existing
-    single-fact staging-prep enqueue (the only other `FACT_PEXELS_QUEUE`
-    consumer besides the newly-discovered CLI script) — acceptable,
-    since that flow is per-fact, human-review-paced (never bursty), and
-    Pexels prep there is already documented as best-effort/non-blocking
-    (`factPexelsJobs.ts`: "never blocks the gate"). Add
-    `artifacts/api-server/src/scripts/backfill-fact-pexels.ts` to the
-    Current Behavior sweep table as a checked-correct site (mirroring
-    `backfill-ai-memes.ts`'s treatment), not a bug to fix.
+    fourth, previously-missed bulk-Pexels-backfill implementation — already
+    enqueues onto `FACT_PEXELS_QUEUE` with no `parentId` filter (already
+    correct on the variant-independence question, like
+    `backfill-ai-memes.ts`, and gets the same pacing fix as a side effect).
+    Added to the Current Behavior sweep table as a checked-correct site.
   - **A new frontend surface is required, not an addition to an existing
-    one (Codex round 23, P1 — corrects a false premise):** verified a
-    repo-wide search finds **no** frontend caller for any of the three
-    bulk routes today — the Facts Editor's `facts.tsx:728-748` action
-    calls only the single-fact `/admin/facts/:id/refresh-images`
-    endpoint. The earlier claim that per-item/aggregate polling "can live
-    in the Facts Editor's existing Pexels Image Pipeline panel" assumed a
-    bulk-trigger UI that doesn't exist — these three routes are curl/CLI-
-    only today, which is itself a violation of `AGENTS.md`'s "ship the
-    surface with the behavior (no dead UI, no invisible backend)"
-    principle, independent of the async-status rule. Specify a genuinely
-    new admin control (bulk-trigger buttons for the three actions, e.g.
-    in a "Bulk Operations" section of the Facts Editor or Taxonomy
-    Health-adjacent admin page) plus the per-item/aggregate polling
-    display, both following `useTaxonomyHealthActions.ts` as the
-    reference pattern — not a bespoke mechanism, and not additive to a
-    panel whose actual scope is the unrelated single-fact action.
+    one.** A repo-wide search finds no frontend caller for any of the
+    three bulk routes today — the Facts Editor's `facts.tsx:728-748`
+    action calls only the single-fact `/admin/facts/:id/refresh-images`
+    endpoint; these three routes are curl/CLI-only, itself a violation of
+    `AGENTS.md`'s "ship the surface with the behavior (no dead UI, no
+    invisible backend)" principle. Add genuinely new admin controls
+    (bulk-trigger buttons for the three actions — e.g. a "Bulk
+    Operations" section in the Facts Editor or an adjacent admin page)
+    plus per-item/aggregate polling status, both following
+    `useTaxonomyHealthActions.ts` as the reference pattern.
   - This does **not** require solving generic bulk-observability for every
     admin action in the repo — scoped strictly to the three routes this
     plan is already touching.
-  - **Canonical architecture doc, corrected too (Codex round 23, P2):**
-    `docs/ai-context/architecture-map.md:88-102` documents exactly three
-    scheduling lanes (`fast`/`render`/`bulk`) and lists `fact_pexels`
-    under `bulk` — both now wrong once `ai_meme_backfill` and `pexels`
-    exist as dedicated lanes and `fact_pexels` moves off `bulk`. Update
-    that doc's lane list and queue membership, and the matching
-    three-lane comments in `asyncJobs.ts`, as part of this fix — not a
-    follow-up.
+  - **Canonical architecture doc:** `docs/ai-context/architecture-map.md:88-102`
+    documents exactly three scheduling lanes (`fast`/`render`/`bulk`) and
+    lists `fact_pexels` under `bulk` — both wrong once `ai_meme_backfill`
+    and `pexels` exist as dedicated lanes. Update that doc's lane list and
+    queue membership, and the matching comments in `asyncJobs.ts`.
   - The Testing Plan below is corrected accordingly: "included in the
     queued/processed set" now means durable per-fact terminal state is
     assertable directly (queried from the new job rows), not just inferred
