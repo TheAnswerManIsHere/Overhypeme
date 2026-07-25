@@ -454,11 +454,11 @@ have a draft plan, and the disclosure check passes:
    different lens (edge cases, data integrity/migrations, source-of-truth risks,
    failure modes) instead of manufacturing plan churn. From round 3 on, I stop
    only when **all three** hold: (a) no substantive new objections (zero
-   Required Revision findings from Codex), (b) my findings ledger — updated
-   from Codex's Reconciliation findings for anything Still Open or Superseded,
-   with silence against my named list read as Resolved for the rest, which is
-   the confirmed ceiling of evidence this transport gives — shows **zero Still
-   Open**, and (c) the trigger comment for that round named a **fresh lens**.
+   Required Revision findings from Codex), (b) my findings ledger — Codex's
+   Still Open Reconciliation findings tell me what's not yet resolved, and I
+   classify the rest as Resolved or Superseded myself from my own fix history,
+   per the ledger-ownership rule above — shows **zero Still Open**, and (c)
+   the trigger comment for that round named a **fresh lens**.
    A round with no evidence trail is otherwise ambiguous between *converged*
    and *the reviewer stopped looking* — (b) and (c) are what tell the
    difference, since consistency across rounds is not evidence of quality.
