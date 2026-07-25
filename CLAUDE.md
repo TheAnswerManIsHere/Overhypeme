@@ -459,9 +459,19 @@ have a draft plan, and the disclosure check passes:
    classify the rest as Resolved or Superseded myself from my own fix history,
    per the ledger-ownership rule above — shows **zero Still Open**, and (c)
    the trigger comment for that round named a **fresh lens**.
-   A round with no evidence trail is otherwise ambiguous between *converged*
-   and *the reviewer stopped looking* — (b) and (c) are what tell the
-   difference, since consistency across rounds is not evidence of quality.
+   A round with no evidence trail at all — no ledger discipline, no fresh
+   lens each round — is ambiguous between *converged* and *the reviewer
+   stopped looking on round 1 and never adjusted*; (b) and (c) rule out that
+   failure mode, which is real value. **What they do not rule out, and I
+   accept as a known risk of this transport rather than a solved problem:** an
+   individual round that runs short and emits no defect is indistinguishable
+   from one that ran a genuinely complete pass — both look like zero Required
+   Revision, zero Still Open. The GitHub surface gives no way to independently
+   confirm depth beyond the connector's own reviewed-commit confirmation, and
+   that's already established as the ceiling (*Non-negotiables*, *Output*).
+   Multiple rounds across different stated lenses is the actual mitigation —
+   a review that's shallow on one lens is less likely to be shallow the same
+   way on all three-plus — not a guarantee any single round was complete.
 6. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.

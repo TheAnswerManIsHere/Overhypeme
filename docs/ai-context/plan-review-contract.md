@@ -469,8 +469,14 @@ On this surface, every piece of information above six-shape output is carried
 
 Keep it specific and grounded in the repo you actually inspected. If you lack
 the repo context to review responsibly, say so and stop rather than reviewing
-from the plan text alone — use the **Repo context required** label (full-document
-surface) or state it plainly in a finding (GitHub surface).
+from the plan text alone. **On the full-document surface**, use the **Repo
+context required** label. **On the GitHub surface, missing repo context is not
+itself a plan defect** — same limitation as an incomplete pass (see *If you
+cannot do all of this in one pass*): there's no finding to hang it on unless
+the gap is narrow enough to state as a concrete Required Revision (e.g., "needs
+David to confirm X — I lack access to verify it against the repo"). A broad
+loss of context has no dedicated channel and falls inside the same accepted
+ceiling; don't manufacture a finding just to report it.
 
 ## If you cannot do all of this in one pass
 

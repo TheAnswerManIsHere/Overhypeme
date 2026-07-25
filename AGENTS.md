@@ -140,9 +140,11 @@ approves the plan.**
 is prefixed **`[PLAN REVIEW]`** (a plan document, not a code diff), apply the
 [plan-review contract](docs/ai-context/plan-review-contract.md): review the
 markdown as an implementation *specification* against the PR body's stated intent
-and the repo, return a **complete** assessment even when nothing is critical, use
-review-status labels (never approval language — only David approves), and never
-implement anything on that PR.
+and the repo, return a **complete** assessment even when nothing is critical, and
+never implement anything on that PR. **Status labels are a full-document-surface
+concept only** (never approval language there either — only David approves); on
+your actual GitHub review transport you don't compute or post one — see the
+contract's *Output* section for what you do instead.
 
 **On a re-review, the diff is not the scope.** Round 2 onward you are shown a
 markdown diff of the plan — re-read the *whole* plan and re-verify it against the
