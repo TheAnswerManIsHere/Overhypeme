@@ -71,6 +71,10 @@ export async function pollJobsToTerminal(
 ): Promise<PollJobsToTerminalResult> {
   const pollIntervalMs = opts.pollIntervalMs ?? 3_000;
   const stallCeilingMs = opts.stallCeilingMs ?? 15 * 60_000;
+  // console.log, not the pino logger: this default only fires when a caller
+  // doesn't supply `log`, and every real caller is a CLI script (which already
+  // uses console.* for human-readable stdout per stdioGuard.ts's convention) —
+  // registered in check-no-console.mjs's ALLOWED list.
   const log = opts.log ?? ((msg: string) => console.log(msg));
 
   const byJobId = new Map(jobs.map((j) => [j.jobId, j]));
