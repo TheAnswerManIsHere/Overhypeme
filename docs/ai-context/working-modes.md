@@ -256,8 +256,10 @@ this miss a caller?*
 - No plan file, no pre-plan ceremony, no plan-review loop.
 - No forced "ship a new UI surface" gate for a pure fix (include UI only if the fix
   genuinely needs it to be testable).
-- No UAT/TEST_RUN docs on **Tier A**. Tier B ships a UAT, and a TEST_RUN only when
-  something truly needs Replit's environment.
+- No UAT/TEST_RUN docs on **Tier A**. On **Tier B**, a UAT ships only if the fix
+  has product-visible behavior (a written verification note otherwise — see the
+  internal/infra-only exception above), and a TEST_RUN only when something
+  truly needs Replit's environment.
 
 **What it KEEPS (non-negotiable):**
 - **Pause-and-ask on real ambiguity.** If a "bug" is actually a behavior change in
