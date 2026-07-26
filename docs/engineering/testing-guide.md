@@ -177,8 +177,11 @@ branch.
 Product-visible behavior needs a click-through check against intent (David tests
 the product, not the diff). "Done" = the intended behavior can be exercised in the
 app. Claude Code additionally ships paired `TEST_RUN` + `UAT` docs per PR (see
-`CLAUDE.md`); Codex should at minimum describe the manual steps to observe the
-change.
+`CLAUDE.md` for when/naming and
+[`test-run-contract.md`](test-run-contract.md) for what the `TEST_RUN` must
+contain — it verifies only what Replit's live environment can verify, not what
+already passed pre-merge); Codex should at minimum describe the manual steps to
+observe the change.
 
 ## What to report after running tests
 

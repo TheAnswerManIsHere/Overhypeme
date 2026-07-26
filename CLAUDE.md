@@ -675,9 +675,21 @@ before merge**; they are **never** a separate later PR.
 The two docs:
 
 1. **`docs/PR<N>_<FEATURE>_TEST_RUN.md`** — the engineering/automated checklist
-   for Replit (the technical safety net). Exact commands, expected
-   pass/fail counts, schema/SQL checks, gotchas, and a "what's
-   deliberately not shipped" section.
+   for Replit (the technical safety net).
+
+   **Its content and shape are governed by
+   [`test-run-contract.md`](docs/engineering/test-run-contract.md)** — the
+   narrow, shared thing (a contract *Replit executes*), same pattern as the
+   Codex plan-review contract. I follow it rather than restating it here. The
+   short version, because I kept getting this wrong: **a TEST_RUN verifies what
+   only Replit's environment can verify** — live-DB migration state, post-merge
+   repo-health gates, behavior against live config/data, and a targeted test
+   list scoped to the touched surfaces. Pre-merge gates (install, typecheck,
+   codegen drift) compress to one line; the **full sharded suite is
+   conditional**, not default — include it only when the PR touches shared
+   infra, and say so explicitly. Replit's own feedback after executing several
+   of these was that roughly half of each checklist was re-verification of
+   things that already passed pre-merge.
 
    **Replit owns the database connection.** Don't include
    `DATABASE_URL=...` exports, test-DB env-var setup, or any other
@@ -699,11 +711,12 @@ The two docs:
    not expect, regression smoke table, a bug-report template, and known
    non-bug limitations.
 
-For **structure, depth, and tone** (not naming), match the existing pair
-(`docs/VIOLENCE_MODERATION_REMOVAL_TEST_RUN.md` +
-`docs/VIOLENCE_MODERATION_REMOVAL_UAT.md`). Those are **historical
-plain-named** files — use them as format/tone examples only; **do not copy
-their names**. New docs use the `PR<N>_…` names above and cross-link each
+**Structure, depth, and tone:** the TEST_RUN follows
+[`test-run-contract.md`](docs/engineering/test-run-contract.md) (which carries
+the template verbatim); for the UAT, match the most recent surviving
+`docs/PR<N>_…_UAT.md` — the UAT half is durable, so there is always a live
+example to match, whereas TEST_RUN examples get deleted (which is why the
+contract, not an example file, is the reference). Both docs cross-link each
 other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
