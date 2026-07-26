@@ -1,8 +1,16 @@
 # Code Review Guide
 
 > A consistent checklist for reviewing Overhype.me changes (Codex, Claude, or
-> human). Priorities match the root [`AGENTS.md`](../../AGENTS.md). Reviewers use
-> **review-status labels, not approval language** — only David approves.
+> human). Priorities match the root [`AGENTS.md`](../../AGENTS.md).
+>
+> **Status language depends on the delivery surface** (see
+> [*Review output format*](#review-output-format)). On the **full assessment**
+> surface — a human reviewer, or an agent free to post one document — reviewers
+> use **review-status labels, not approval language**. On the **structured
+> defect pass** surface (the `@codex review` GitHub transport) reviewers post
+> only concrete diff-anchored findings, never a status label and never approval
+> language; that surface has no status channel at all. Either way, **only David
+> approves.**
 
 ## The review oracle: the PR body
 
@@ -21,6 +29,29 @@ everything the intent called for, does it touch anything the plan marked
 must-not-change, does it match the settled decisions rather than a plausible
 alternative. Flag a dropped or narrowed requirement even if the code itself
 never mentions it — the absence is the finding.
+
+The oracle also carries **Approved-plan source** — the exact final revision
+those words came from (plan-review PR + final plan commit sha, or the plan
+filename + content hash on the private/manual path), plus the date David
+approved it. In a multi-round plan review, an oracle pasted from an earlier
+revision is a plausible failure and an invisible one: the PR looks correctly
+oracled while the code is checked against a plan David never approved. A
+missing source, or one that names only a title or a mutable branch, is itself
+a finding — the oracle can't be trusted until it's pinned.
+
+**On the private/manual path, "pinned" is as far as an independent reviewer
+can verify — and that's accepted, not a gap to close.** That path exists
+specifically because the plan must never be committed anywhere (a
+security-sensitive or embargoed plan disclosed by its own review trail would
+defeat the purpose of keeping it private), so no reviewer — Codex or human —
+has access to the bytes the filename + hash claim to identify, and can't
+recompute the hash to check it. A reviewer on this path confirms the field is
+*present and specific* (a real filename, a real hash, a real date — not "n/a"
+or something vague) and stops there; verifying the hash actually matches the
+approved artifact is David's check alone, made when he compares the
+implementation PR's oracle text against the file he personally approved. Don't
+flag an unresolvable-by-you hash as a finding on this path — that's expected,
+not a defect.
 
 If a PR has no plan (bugfix mode, a trivial change) the oracle section reads
 "n/a — no plan," and this check doesn't apply; review the diff on its own
@@ -46,6 +77,13 @@ style nit.
 - Does it do what the plan/intent says, including edge cases?
 - Async: is a job's **terminal** state used, not enqueue-as-done?
 - Visual/enrichment: does runtime match the admin preview path?
+- When concurrent changes are possible, are validation and mutation tied to the
+  **same authoritative state** — through a transaction, version check,
+  conditional write, or equivalent stale-state guard? Checking one version of
+  state and then mutating a later one is the general shape behind TOCTOU
+  approval races, async results applied to input that has since changed,
+  stale admin actions, and unconditional writes after out-of-transaction
+  validation.
 
 ## Source-of-truth & data durability
 
@@ -108,13 +146,50 @@ style nit.
 - Smallest coherent change for the approved plan? No speculative abstraction, no
   new external vendor, no scope creep beyond intent?
 
+## Re-reviews (round 2 onward)
+
+A code review is a loop too: you review, the author pushes fixes, you review
+again. The plan-review contract's
+[*Re-reviews*](../ai-context/plan-review-contract.md#re-reviews-round-2-onward)
+section is the plan-side analog of this one; these are the code-side
+invariants, and they are the engineering standard regardless of which agent is
+reviewing:
+
+1. **Re-inspect the current code.** An author's reply, explanation, or claimed
+   fix is not evidence that the defect is gone. Read what the branch actually
+   does now.
+2. **Reconcile every specifically named prior finding** against the current
+   branch. A finding is closed only when the engineering defect is absent — not
+   because the thread received a response, and not because a commit message
+   says it was fixed.
+3. **Inspect related callers, invariants, and tests the fix could affect.** A
+   local correction can introduce a regression outside the edited line.
+4. **A regression introduced by the fix is a new finding**, weighted by the
+   priority order above like any other.
+5. **After more than one fix round, review the cumulative branch diff against
+   the base branch**, not only the latest incremental commits. A fix in one
+   file can break something that was part of the original diff and isn't
+   re-shown in the newest commits — the diff is not the scope.
+6. **A clean re-review is an empty findings list** on the structured defect
+   pass surface (see below). Don't manufacture a finding to prove the round
+   ran.
+
+Who posts the re-review trigger, which findings it names, who replies on which
+thread, and the git mechanics around all of it are the implementing agent's
+ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
+section defines only the reviewer's substantive standard.
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split
 as the [plan-review contract's *Output*](../ai-context/plan-review-contract.md#output),
-adapted for a code diff instead of a markdown plan.
+adapted for a code diff instead of a markdown plan. Names for the two, used
+throughout this doc: a **full assessment** (one complete document, with a
+status label) and a **structured defect pass** (diff-anchored findings only, no
+status label). Naming them is terminology, not permission to weaken either —
+the expectations on each surface are unchanged.
 
-### Full-document delivery (a human reviewer, or an agent free to post one document)
+### Full assessment — full-document delivery (a human reviewer, or an agent free to post one document)
 
 Produce concise, prioritized feedback. Label overall status (no approval
 language) — e.g. *No major technical disagreement · Directionally good, revisions
@@ -124,7 +199,7 @@ to a priority above), and a concrete suggestion. Separate **must-fix** from
 **nice-to-have**. Escalate design/architecture/trade-off calls to David rather than
 deciding them.
 
-### GitHub structured review (the `@codex review` transport)
+### Structured defect pass — GitHub structured review (the `@codex review` transport)
 
 Same confirmed limitation as the plan-review contract: this surface has no
 freestanding top-level write-up, only diff-anchored inline findings, and no

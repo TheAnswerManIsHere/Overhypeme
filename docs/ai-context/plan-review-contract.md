@@ -376,9 +376,14 @@ revising, include it as a required revision instead of blocking on David.
 ## Output
 
 **Two delivery surfaces exist, and they do not support the same shape.** Use
-whichever applies to how you were asked to review.
+whichever applies to how you were asked to review. Their short names, shared
+with the [code-review guide](../engineering/code-review.md#review-output-format)
+so both contracts use one vocabulary: a **full assessment** (one complete
+document per round, with a status label) and a **structured defect pass**
+(diff-anchored findings only, no status label). The names are shorthand for the
+two shapes below — they change nothing about what either surface owes.
 
-### Full-document delivery (Claude Code's review skill, a pasted/uploaded plan)
+### Full assessment — full-document delivery (Claude Code's review skill, a pasted/uploaded plan)
 
 When you are free to post one document — no diff, no per-line constraint — post
 one complete assessment per round, in this shape:
@@ -402,7 +407,7 @@ the *Non-negotiables* above. Where a section is genuinely empty, write "none"
 rather than deleting the heading; a missing section should read as an omission,
 not as a pass.
 
-### GitHub structured review (the `@codex review` transport)
+### Structured defect pass — GitHub structured review (the `@codex review` transport)
 
 **This surface does not support a freestanding top-level write-up.** Confirmed
 against this repo's own review history (PR #252, 20+ rounds): every round's
