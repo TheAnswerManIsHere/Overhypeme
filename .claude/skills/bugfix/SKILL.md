@@ -77,13 +77,19 @@ the PR back only delays the review that catches things.
    has never been pushed, so **no rebase is needed or wanted** — see CLAUDE.md's
    git constraints. If the branch later needs current `main`, **merge, don't
    rebase**.
-2. Open the PR with `mcp__github__create_pull_request` (base `main`), using
-   **`.github/pull_request_template.md`** — the repo template applies to bug
-   fixes too. Fill the **Approved-plan oracle** section with the **bugfix
-   oracle** instead of "n/a — no plan":
+2. Open the PR with `mcp__github__create_pull_request` — base `main` normally.
+   **Exception: a stacked fix bases against its parent's branch, not `main`**
+   (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
+   diff carries both bugs' commits until the parent merges, defeating the
+   one-bug-per-PR isolation this whole redesign is for. Retarget to `main`
+   once the parent merges. Use **`.github/pull_request_template.md`** — the
+   repo template applies to bug fixes too. Fill the **Approved-plan oracle**
+   section with the **bugfix oracle** instead of "n/a — no plan":
 
    ```markdown
-   **Fix tier:** A (contained) — <or B, with the trigger that fired>
+   **Fix tier:** <A or B> — <the Q1/Q2 triggers checked: which one fired (B),
+     or which were ruled out (A) — a bare tier letter isn't enough; A is the
+     classification a reviewer most needs to be able to challenge>
    **Reported symptom:** <David's report, quoted verbatim>
    **Intended correct behavior:** <what right looks like>
    **Must not change:** <adjacent behaviors sharing this code path>

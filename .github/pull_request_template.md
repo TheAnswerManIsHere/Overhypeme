@@ -40,7 +40,11 @@
 **Settled decisions:**
 
 <!-- Bugfix mode -->
-**Fix tier:** <!-- A (contained) | B (elevated) — name the trigger that fired -->
+**Fix tier:** <!-- A or B, PLUS the reason either way — for B, the specific Q1/Q2
+     trigger that fired; for A, the triggers you actually checked and ruled out
+     (not just "A (contained)" with no reasoning — A is the classification a
+     reviewer most needs to be able to challenge). See
+     docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake. -->
 **Reported symptom:** <!-- David's report, quoted verbatim -->
 **Intended correct behavior:**
 **Must not change:** <!-- adjacent behaviors sharing this code path -->

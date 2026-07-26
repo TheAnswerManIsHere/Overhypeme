@@ -71,8 +71,15 @@ pick a disambiguated name on a clash, and **never** force/reset onto
 
 > **Dependent bugs.** If a new bug's fix depends on an earlier fix whose PR is
 > still open, say so rather than silently branching from `origin/main` (which
-> wouldn't contain it). Either wait for the merge, or branch from the open PR's
-> head and state in the new PR that it stacks.
+> wouldn't contain it). **Prefer waiting** for the parent to merge, then
+> branching from fresh `origin/main` as normal — the only way to guarantee the
+> new PR's diff contains just the new bug. If the wait is genuinely too
+> costly: branch from the parent PR's head, but **open the new PR with the
+> parent's branch as its base, not `main`.** Basing against `main` while the
+> branch carries the parent's unmerged commits puts both bugs in one diff,
+> which defeats the one-bug-per-PR isolation this section exists for. State
+> the stack order in the new PR body, and retarget its base to `main` once the
+> parent merges (the diff then narrows to just the new bug automatically).
 
 ### The tier is chosen after diagnosis, never at intake
 
@@ -117,8 +124,14 @@ workflows).
 6. **Shaky diagnosis.** No deterministic reproduction, more than one plausible
    root cause, or this symptom has been "fixed" before. Uncertainty at diagnosis
    is the strongest single predictor that the fix is a guess.
-7. **Nothing was guarding this path.** You had to create the test coverage rather
-   than extend it — so no existing test would have caught a regression here.
+7. **The path had no pre-existing tests at all.** Not "this exact regression
+   scenario wasn't covered" — by definition almost no escaped bug's precise
+   scenario was covered, so that reading would send nearly every real fix to
+   Tier B and makes the trigger meaningless. The observable boundary: before
+   this fix, did the touched function/module have **any** test file
+   exercising it, in any scenario? Zero prior coverage of the path itself
+   (you're originating a suite, not extending one) fires this trigger; adding
+   a missed case to an already-tested path does not.
 
 ### Tier A — contained fix
 
@@ -140,14 +153,40 @@ Everything in Tier A, plus:
   what CI already gates is waste.
 - **The strongest model tier available** for the fix itself.
 
+**Internal/infra-only exception on the UAT doc.** If the *only* reason a fix
+landed in Tier B is an infra/no-product-surface Q1 trigger (a CI workflow,
+build tooling, the dev supervisor, Vite/esbuild config, or an internal
+`lib/api-zod`/`lib/api-spec` codegen path) and nothing about the fix is
+product-visible, ship a written verification note in the PR body instead of
+a click-through UAT doc — the same ship-the-UI-surface exception feature mode
+already grants pure infra/refactor changes (see
+[`../engineering/testing-guide.md`](../engineering/testing-guide.md) and
+CLAUDE.md). A click-through script for a fix with no in-app surface to click
+through is manufactured ceremony, not verification. The moment the fix also
+touches anything product-visible — even indirectly, e.g. a codegen change
+that alters generated API types the frontend consumes — the full UAT
+applies.
+
 ### Tier C — this is not a bug fix; leave bugfix mode
 
-Stop and tell David. Any of: the "fix" is a behavior change or a product decision;
-it needs a schema change, migration, or backfill (that has its own ceremony —
-[`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md));
-diagnosis revealed a design flaw rather than a defect; or the fix would need a new
-abstraction or an external vendor. These go to feature mode, or at minimum
-migration ceremony — not through the fast path.
+Stop and tell David. Any of: the "fix" is a behavior change or a product
+decision; diagnosis revealed a design flaw rather than a defect; or the fix
+would need a new abstraction or an external vendor — these go to **feature
+mode** (plan + David's approval).
+
+**A schema change, migration, or backfill is Tier C without exception** —
+there is no size or scope of schema change that stays on bugfix mode's fast
+path. It always runs
+[`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)'s
+ceremony (idempotency, observable counts, human-override preservation,
+rollback for destructive ops), on David's explicit go-ahead. What varies is
+only whether it *also* needs a full feature-mode plan first, decided by the
+same product-consequences line the mode boundary above already draws: a
+schema fix with no product-visible consequence (making stored data match
+what the product already assumes — no new behavior, no new surface) runs
+migration ceremony directly; a schema change with product-visible
+consequences gets a full feature-mode plan before anything runs. If genuinely
+unsure which side of that line it's on, ask rather than guess.
 
 ### Per bug — the loop
 
@@ -193,8 +232,12 @@ The feature oracle's fields map onto a fix directly:
 | Must not change | **Must not change** — the adjacent behaviors sharing this path |
 | Settled decisions | **Root cause** — the mechanism, in one or two lines |
 
-Plus **Blast radius** (from step 5) and the **fix tier with its reason**, so a
-mis-tiered fix is visible rather than silent.
+Plus **Blast radius** (from step 5) and the **fix tier with its reason** —
+**required for Tier A as much as Tier B.** A is the classification reviewers
+most need to be able to challenge, so "A (contained)" alone is not enough:
+name the Q1/Q2 items you checked and ruled out, not just the ones that would
+have fired. A bare tier letter with no reasoning is a mis-tiering risk
+whether or not the letter turns out to be right.
 
 This is cheap to write and it is what lets a reviewer ask the two questions that
 matter most on a fix: *is this the root cause or a symptom-level patch?* and *did
