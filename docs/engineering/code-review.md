@@ -79,9 +79,16 @@ against those, and specifically ask:
   touches, directly or through a shared path.
 - **Does the regression test prove the invariant?** A test that only asserts the
   reported input passes leaves the class open — negative cases required.
-- **Is the tier right?** A fix tagged Tier A that trips a Tier B trigger is
-  under-verified — flag the mis-tier, not just its consequences. Check **both**
-  halves of the checklist in
+- **Is the tier right? Check Tier C first, then A vs. B.** The most
+  consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
+  a behavior/product change, or any schema, migration, or backfill work (see
+  [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)) —
+  because that PR shouldn't be in bugfix mode's fast path at all: it needs a
+  full plan and David's approval before it runs, not just a heavier
+  verification tier. Flag that first. Only once Tier C is ruled out does the
+  A-vs-B question apply: a fix tagged Tier A that trips a Tier B trigger is
+  under-verified — flag the mis-tier, not just its consequences. Check
+  **both** halves of the A/B checklist in
   [`working-modes.md`](../ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake):
   the **subsystem** the fix lands in (payments/auth, tokenizer/grammar, the
   visual pipeline, the async queue, enrichment/moderation, `lib/api-zod`,
