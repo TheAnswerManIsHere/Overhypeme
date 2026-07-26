@@ -10,7 +10,7 @@ import {
   isCustomPronouns,
   parseCustom,
 } from "@/lib/pronouns";
-import { renderFact } from "@/lib/render-fact";
+import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 
 const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
@@ -172,8 +172,6 @@ export function WelcomeModal() {
 
   const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
   const displayName = draftName.trim() || "You";
-  const teaserRendered = renderFact(TEASER_FACT, displayName, draftPronouns);
-  const teaserParts = teaserRendered.split(displayName);
 
   const nameForm = (
     <>
@@ -246,11 +244,7 @@ export function WelcomeModal() {
         <span className="w-5 h-px bg-muted-foreground/40" />
       </div>
       <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
-        {teaserParts.map((p, i) =>
-          i < teaserParts.length - 1
-            ? <span key={i}>{p}<span className="text-primary">{displayName}</span></span>
-            : <span key={i}>{p}</span>
-        )}
+        <HighlightedFactText template={TEASER_FACT} name={displayName} pronouns={draftPronouns} />
       </h1>
       <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
         <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
