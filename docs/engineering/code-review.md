@@ -36,8 +36,22 @@ filename + content hash on the private/manual path), plus the date David
 approved it. In a multi-round plan review, an oracle pasted from an earlier
 revision is a plausible failure and an invisible one: the PR looks correctly
 oracled while the code is checked against a plan David never approved. A
-missing or unresolvable source, or one that names only a title or a mutable
-branch, is itself a finding — the oracle can't be trusted until it's pinned.
+missing source, or one that names only a title or a mutable branch, is itself
+a finding — the oracle can't be trusted until it's pinned.
+
+**On the private/manual path, "pinned" is as far as an independent reviewer
+can verify — and that's accepted, not a gap to close.** That path exists
+specifically because the plan must never be committed anywhere (a
+security-sensitive or embargoed plan disclosed by its own review trail would
+defeat the purpose of keeping it private), so no reviewer — Codex or human —
+has access to the bytes the filename + hash claim to identify, and can't
+recompute the hash to check it. A reviewer on this path confirms the field is
+*present and specific* (a real filename, a real hash, a real date — not "n/a"
+or something vague) and stops there; verifying the hash actually matches the
+approved artifact is David's check alone, made when he compares the
+implementation PR's oracle text against the file he personally approved. Don't
+flag an unresolvable-by-you hash as a finding on this path — that's expected,
+not a defect.
 
 If a PR has no plan (bugfix mode, a trivial change) the oracle section reads
 "n/a — no plan," and this check doesn't apply; review the diff on its own
