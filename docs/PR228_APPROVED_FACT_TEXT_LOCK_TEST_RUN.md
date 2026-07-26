@@ -113,12 +113,31 @@ Let Replit own `DATABASE_URL`. With `$SID` an admin session cookie and `$F` a
   sign-off, no artificial delay (all listed deferred in the plan).
 - No `docs/plans` file lands on main.
 
+## Full sharded suite — shared infra touched: yes
+
+This PR registers a new `lib/api-zod/src/factTextEdit.ts` module in the
+codegen allowlist (`lib/api-spec/patch-generated.mjs`) — the codegen pipeline
+is touched, so the full suite is required here, not deferred to CI.
+
+```bash
+pnpm --filter @workspace/api-server test
+```
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
+
 ## Deferred to CI / not automatable here
 
-- Full DB-backed api-server suite (`pnpm --filter @workspace/api-server test`) — run in CI.
 - **Two-transaction approval-concurrency ordering** test (edit wins vs approval wins):
   the compare-and-set uses conditional `UPDATE … WHERE text=validated AND stage=… RETURNING`
   and is covered by design + the service tests, but a deterministic concurrent-transaction
   harness (advisory locks / barrier) is a CI/manual follow-up. Manual check: start an
   approval, re-word the staging fact via PATCH before committing, confirm approval returns
   `FACT_TEXT_CHANGED_DURING_APPROVAL` and the fact stays inactive.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR228_APPROVED_FACT_TEXT_LOCK_UAT.md`](./PR228_APPROVED_FACT_TEXT_LOCK_UAT.md)
+sibling is the durable half.

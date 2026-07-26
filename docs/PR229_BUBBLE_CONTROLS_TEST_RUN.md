@@ -77,6 +77,9 @@ bash artifacts/api-server/scripts/run-test.sh \
 bash artifacts/api-server/scripts/run-test.sh src/__tests__/imagePromptGeneration.validate.test.ts
 
 # full suite (shared infra touched — see above)
+# Stop the `artifacts/api-server: API Server` workflow first to free test-DB
+# connections, or the pretest chain (push-force -> migrate -> codegen) can
+# stall against the test database.
 pnpm --filter @workspace/api-server test
 ```
 
@@ -149,3 +152,9 @@ pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/fieldD
 - `thinking_level: high` wiring (a separate follow-up experiment).
 - Post-composited/SVG bubbles, per-bubble styling/coordinates, drag reorder,
   OCR exactness scoring, a "Use scene only" partial pick.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR229_BUBBLE_CONTROLS_UAT.md`](./PR229_BUBBLE_CONTROLS_UAT.md) sibling is
+the durable half.

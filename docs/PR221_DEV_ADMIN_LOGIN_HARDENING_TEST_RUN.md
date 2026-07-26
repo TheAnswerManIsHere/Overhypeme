@@ -14,6 +14,12 @@ Sibling doc: [`PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md`](./PR221_DEV_ADMIN_LOGIN_
   CI's `build.yml`). No new exemptions — this PR has no migration.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 
+## Full sharded suite — shared infra touched: no
+
+This PR is scoped to gating the dev-admin-login route — no test runner, DB
+layer, migration runner, codegen pipeline, or shared middleware change. The
+targeted suites below are sufficient; skip the sharded run.
+
 ## Commands
 
 From `artifacts/api-server`:
@@ -83,3 +89,9 @@ Confirm the two things a headers/gate change is most likely to break:
 - **No change to real login/OAuth** — only the dev backdoor is gated.
 - **`security-model.md` note flip** (its ⚠️ "deliberately open" section →
   "hardened") is a docs-only change to the still-open docs PR #220, not here.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md`](./PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md)
+sibling is the durable half.

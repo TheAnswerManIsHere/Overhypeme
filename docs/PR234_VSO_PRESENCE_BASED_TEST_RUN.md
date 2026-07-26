@@ -126,3 +126,9 @@ exports here.)
 
 Both are a recorded pre-launch fast-follow (see `docs/ai-context/decisions.md`),
 not part of this PR.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR234_VSO_PRESENCE_BASED_UAT.md`](./PR234_VSO_PRESENCE_BASED_UAT.md)
+sibling is the durable half.

@@ -56,7 +56,10 @@ Runner: `bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>` (ad
 **Sharded full run — shared infra touched: yes** (this migration flips
 `facts.is_active`'s default, adds a blocking CHECK constraint evaluated on
 every fact, and retires `POST /facts` across every ingestion path — broad
-enough blast radius to warrant the full run): `pnpm --filter @workspace/api-server test`. **Known
+enough blast radius to warrant the full run): `pnpm --filter @workspace/api-server test`.
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain can stall against the test
+database. **Known
 environmental caveat in this container:** the sharded per-schema clone does **not**
 clone the external `stripe` schema, so some shards emit `relation "stripe.prices"
 does not exist` and cascade-cancel siblings. Those are infra, **not** this PR — every
@@ -91,3 +94,9 @@ the stripe issue does not occur.
   this scale.
 - "Invalid enrichment" is detected via the `primary_archetype` projection proxy (a
   real materialized enrichment always has it), not a full Zod re-validation in SQL.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR242_FACT_LIFECYCLE_UAT.md`](./PR242_FACT_LIFECYCLE_UAT.md) sibling is the
+durable half.

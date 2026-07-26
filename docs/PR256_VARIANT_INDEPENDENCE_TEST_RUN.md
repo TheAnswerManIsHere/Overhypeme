@@ -26,8 +26,9 @@ the migration a second time is a no-op (`IF NOT EXISTS`).
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
   CI's `build.yml`; do not substitute `check-migration-snapshots.ts` — it
   reports the **pre-existing**, unrelated `0089`/`0090` gap regardless of this
-  PR). New exemptions this PR added: `0093` is in `SNAPSHOT_EXEMPT_TAGS`
-  (mirrors the `0075_facts_pexels_status` precedent) — not required for
+  PR). New exemptions this PR added: `0093_facts_ai_meme_backfill_status` is
+  in `SNAPSHOT_EXEMPT_TAGS` (mirrors the `0075_facts_pexels_status`
+  precedent) — not required for
   `validate-snapshots` to pass, but confirms the exempt-list entry is present
   if you do run `check-migration-snapshots.ts` directly.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
@@ -43,6 +44,10 @@ the migration a second time is a no-op (`IF NOT EXISTS`).
 New async-queue/circuit-breaker machinery lands in the shared job/queue layer
 (`enqueueJob`, `async_jobs`) — shared infra, so the full run stays required
 alongside the targeted list below.
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
 
 ## 4. Backend test files (run each; expect `# fail 0`)
 
@@ -127,3 +132,9 @@ identically there, unrelated to this change. Everything else: `# fail 0`.
 - **`scripts/backfill-pexels-images.mjs` deleted**, not migrated — a third,
   undocumented standalone script duplicating `pexelsClient.ts`'s pipeline with
   its own hand-rolled logic; unreferenced anywhere in the repo.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR256_VARIANT_INDEPENDENCE_UAT.md`](./PR256_VARIANT_INDEPENDENCE_UAT.md)
+sibling is the durable half.

@@ -29,6 +29,10 @@ pipeline is touched, so the full suite stays required.
 pnpm --filter @workspace/api-server test
 ```
 
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
+
 Expected: **all shards pass, 0 fail.** (A logged
 `OPENAI_API_KEY must be set…` line from the fact-image pipeline is a
 non-failing warning inside a test, not a failure — the shard still reports

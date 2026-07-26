@@ -9,9 +9,12 @@ schema changes plus one config migration — no new async work, no new vendor.
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). New exemption this PR added:
-  `0086_retire_style_integration_add_supporting_text_kind` (hand-authored DML)
-  is in `SNAPSHOT_EXEMPT_TAGS` — confirm the entry is present.
+  CI's `build.yml`). No new exemption from this PR's own diff — this PR
+  introduces migration `0086` but does not touch
+  `check-migration-snapshots.ts`; its `SNAPSHOT_EXEMPT_TAGS` entry was added
+  later, by PR224's follow-up commit (see
+  [`PR224_NB2_PROMPT_HARDENING_TEST_RUN.md`](./PR224_NB2_PROMPT_HARDENING_TEST_RUN.md)).
+  `0086` is exempt today; just not because of this PR.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - Typecheck (`typecheck:libs`, per-package `typecheck`) — pre-merge gates
   assumed green; spot-check only if something below fails.
@@ -39,6 +42,11 @@ keeps the full suite mandatory for.
 ```
 pnpm --filter @workspace/api-server test
 ```
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
+
 Expect: **full suite green** (≈2,334 tests across 4 shards, 0 fail). Key files:
 
 - `promptIdentityBudget.test.ts` — 6 pass. Proves `projectWorstCaseRenderedLength`
@@ -90,3 +98,9 @@ Expect: **full suite green** (≈2,334 tests across 4 shards, 0 fail). Key files
   legacy meme, workbench) migration.
 - The compiler still emits `input.stylePrompt` as-is (no frozen snapshot yet); the
   RENDER STYLE *section* is in place, its resolution hardening is the follow-up.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR222_NB2_PROMPT_RESTRUCTURE_UAT.md`](./PR222_NB2_PROMPT_RESTRUCTURE_UAT.md)
+sibling is the durable half.
