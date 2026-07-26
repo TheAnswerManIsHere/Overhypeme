@@ -34,32 +34,46 @@ silently shrinking the moderator pool.
 
 ---
 
-## Build / typecheck / migration gates
+## Repo-health gates (post-merge state — run always)
 
-```bash
-pnpm install --frozen-lockfile
-pnpm run typecheck:libs
-pnpm --filter @workspace/api-server run typecheck
-pnpm --filter @workspace/db check-snapshots
-node scripts/check-docs-accuracy.mjs
-```
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  exemptions this PR added: `0086_retire_style_integration_add_supporting_text_kind`
+  (hand-authored DML, actually introduced by PR222 but only exempted here),
+  `0087_image_prompt_attempts_error_code` (hand-authored DDL), and
+  `0088_trim_global_look_style_copy` (hand-authored DML) — all three are in
+  `SNAPSHOT_EXEMPT_TAGS` — confirm all three entries are present.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Install/typecheck (`install --frozen-lockfile`, `typecheck:libs`, per-package
+  `typecheck`) — pre-merge gates assumed green; spot-check only if something
+  below fails.
 
-Expected: all clean. `check-snapshots` → "All 89 journal entries have snapshot
-files (or are explicitly exempt)" (0086/0087/0088 are hand-authored, exempt).
+## Full sharded suite — shared infra touched: yes
 
-## Automated tests
+This PR touches the shared async-worker implementation
+(`artifacts/api-server/src/lib/asyncJobs.ts`) and registers a new
+`lib/api-zod/src/promptBudget.ts` module in the codegen allowlist
+(`lib/api-spec/patch-generated.mjs`) — both shared infra, so the full suite
+stays required.
 
 ```bash
 pnpm --filter @workspace/api-server test
 ```
 
-Expected: **all shards pass, 0 fail.** (The logged `OPENAI_API_KEY must be set…`
-line is a non-failing warning inside a test.)
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections — this checklist previously stalled here (the `pretest`
+chain hung against `heliumdb_test` while the dev workflow held connections
+open); that's an operational precondition to fix, not a reason to skip the
+suite the contract requires for a genuine shared-infra touch.
 
-Targeted:
+## Targeted tests
+
+Never raw `node`/`tsx` execution — it bypasses `run-test.sh`'s production-DB
+guard:
 
 ```bash
-pnpm --filter @workspace/api-server exec tsx --test \
+bash artifacts/api-server/scripts/run-test.sh \
   src/__tests__/asyncJobs.test.ts \
   src/__tests__/promptBudget.test.ts \
   src/__tests__/nanoBanana2Compiler.test.ts \

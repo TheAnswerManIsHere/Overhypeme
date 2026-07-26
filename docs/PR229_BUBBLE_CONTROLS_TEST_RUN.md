@@ -41,10 +41,28 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
   stored-candidate `bubbles` field are additive defaulted JSONB shapes; old
   blobs parse to `[]`.
 
+## Repo-health gates (post-merge state — run always)
+
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. `0090` is
+  a DML-only migration (no schema change, per above) and correctly has no
+  snapshot file — confirm `0090_visual_concepts_bubble_contract` is in
+  `SNAPSHOT_EXEMPT_TAGS` (added by a later follow-up commit, not this PR's
+  own diff).
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+
+## Full sharded suite — shared infra touched: yes
+
+`literalPromptString.ts` is a new shared serializer registered in the codegen
+allowlist (`lib/api-spec/patch-generated.mjs`) — the codegen pipeline is
+touched, so the full suite stays required.
+
 ## Commands (`artifacts/api-server`)
 
 ```bash
-# typecheck (tsc -b + cycle check + no-console gate)
+# typecheck (tsc -b + cycle check + no-console gate) — pre-merge gate, assumed
+# green; spot-check only if something below fails
 pnpm --filter @workspace/api-server run typecheck
 
 # the bubble-core suites
@@ -58,7 +76,10 @@ bash artifacts/api-server/scripts/run-test.sh \
 # version pin
 bash artifacts/api-server/scripts/run-test.sh src/__tests__/imagePromptGeneration.validate.test.ts
 
-# full suite sanity (sharded)
+# full suite (shared infra touched — see above)
+# Stop the `artifacts/api-server: API Server` workflow first to free test-DB
+# connections, or the pretest chain (push-force -> migrate -> codegen) can
+# stall against the test database.
 pnpm --filter @workspace/api-server test
 ```
 
@@ -131,3 +152,9 @@ pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/fieldD
 - `thinking_level: high` wiring (a separate follow-up experiment).
 - Post-composited/SVG bubbles, per-bubble styling/coordinates, drag reorder,
   OCR exactness scoring, a "Use scene only" partial pick.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR229_BUBBLE_CONTROLS_UAT.md`](./PR229_BUBBLE_CONTROLS_UAT.md) sibling is
+the durable half.

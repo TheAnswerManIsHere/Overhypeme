@@ -33,9 +33,19 @@ Confirm after migrate:
   `performed_by` (FK → users, **ON DELETE SET NULL**), `created_at`.
 - index `IDX_fteh_fact_created` on `(fact_id, created_at DESC)`.
 - index `idx_pending_reviews_approved_fact` on `pending_reviews(approved_fact_id)`.
-- `0089_fact_text_edit_history` present in `meta/_journal.json` (90 entries) and
-  reported `applied` by the migrate runner. Migration is idempotent
+- `0089_fact_text_edit_history` present in `meta/_journal.json`, reported
+  `applied` by the migrate runner. Migration is idempotent
   (`CREATE TABLE/INDEX IF NOT EXISTS`); re-running `migrate` is a no-op. No backfill.
+
+## Repo-health gates (post-merge state — run always)
+
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. `0089` is
+  real DDL (a new table) generated without a snapshot file — confirm
+  `0089_fact_text_edit_history` is in `SNAPSHOT_EXEMPT_TAGS` (added by a later
+  follow-up commit, not this PR's own diff).
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
 
 ## Automated tests
 
@@ -64,12 +74,12 @@ Expected (local, verified):
 - `routes.reviews` — **55 pass** (provisional-approve rewired to the shared prep service).
 - `enrichmentVersioning.refresh` — **23 pass** (worker recheck still discards on send-back).
 
+Codegen drift + typecheck (`typecheck:libs`, per-package `typecheck`) — pre-merge
+gates assumed green; spot-check only if something below fails.
+
 Frontend:
 
 ```
-pnpm --filter @workspace/api-spec run codegen
-pnpm run typecheck:libs
-pnpm --filter @workspace/overhype-me run typecheck
 pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/ApprovedFactTextEditModal.test.tsx src/components/admin/patchFactDraft.test.ts src/components/admin/useDraftForm.test.tsx
 pnpm --filter @workspace/overhype-me run build
 ```
@@ -103,12 +113,31 @@ Let Replit own `DATABASE_URL`. With `$SID` an admin session cookie and `$F` a
   sign-off, no artificial delay (all listed deferred in the plan).
 - No `docs/plans` file lands on main.
 
+## Full sharded suite — shared infra touched: yes
+
+This PR registers a new `lib/api-zod/src/factTextEdit.ts` module in the
+codegen allowlist (`lib/api-spec/patch-generated.mjs`) — the codegen pipeline
+is touched, so the full suite is required here, not deferred to CI.
+
+```bash
+pnpm --filter @workspace/api-server test
+```
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
+
 ## Deferred to CI / not automatable here
 
-- Full DB-backed api-server suite (`pnpm --filter @workspace/api-server test`) — run in CI.
 - **Two-transaction approval-concurrency ordering** test (edit wins vs approval wins):
   the compare-and-set uses conditional `UPDATE … WHERE text=validated AND stage=… RETURNING`
   and is covered by design + the service tests, but a deterministic concurrent-transaction
   harness (advisory locks / barrier) is a CI/manual follow-up. Manual check: start an
   approval, re-word the staging fact via PATCH before committing, confirm approval returns
   `FACT_TEXT_CHANGED_DURING_APPROVAL` and the fact stays inactive.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR228_APPROVED_FACT_TEXT_LOCK_UAT.md`](./PR228_APPROVED_FACT_TEXT_LOCK_UAT.md)
+sibling is the durable half.

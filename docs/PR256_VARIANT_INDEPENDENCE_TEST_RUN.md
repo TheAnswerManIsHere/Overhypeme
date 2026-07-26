@@ -21,30 +21,38 @@ bulk-backfill routes is sound.
 `varchar(16)`, nullable, no default — every existing row reads `NULL`. Running
 the migration a second time is a no-op (`IF NOT EXISTS`).
 
-## 2. Typechecks (all clean)
+## 2. Repo-health gates (post-merge state — run always)
 
-- `pnpm run typecheck:libs`
-- `cd artifacts/api-server && pnpm exec tsc --noEmit -p .`
-- `cd artifacts/overhype-me && pnpm exec tsc -b`
-- `cd artifacts/api-server && pnpm run typecheck` (runs `tsc -b` +
-  `check:cycles` + `check:no-console` together — all three must report clean;
-  `check:no-console`'s one new allowlisted entry, `cliJobPoller.ts:78`, is
-  intentional, see the file's own comment)
-- `pnpm --filter @workspace/db exec tsx scripts/check-migration-snapshots.ts`
-  — the new `0093` tag is exempted (mirrors the `0075_facts_pexels_status`
-  precedent). The tool will still report the **pre-existing**, unrelated
-  `0089`/`0090` gap — that's expected, not something this PR introduces or
-  should fix.
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  exemption this PR added: `0093_facts_ai_meme_backfill_status` is in
+  `SNAPSHOT_EXEMPT_TAGS` (mirrors the `0075_facts_pexels_status` precedent) —
+  confirm the entry is present.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- `pnpm run check:codegen-drift` — expected: clean (no hand-edited generated
+  files).
+- New `check:no-console` allowlist entry this PR added: `cliJobPoller.ts:78`
+  (intentional, see the file's own comment).
+- Typecheck (`typecheck:libs`, per-package `typecheck`/`tsc -b`) — pre-merge
+  gates assumed green; spot-check only if something below fails.
 
-## 3. Codegen drift
+## 3. Full sharded suite — shared infra touched: yes
 
-- `pnpm run check:codegen-drift` — clean (no hand-edited generated files).
+New async-queue/circuit-breaker machinery lands in the shared job/queue layer
+(`enqueueJob`, `async_jobs`) — shared infra, so the full run stays required
+alongside the targeted list below.
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
 
 ## 4. Backend test files (run each; expect `# fail 0`)
 
-Runner: `node --import tsx/esm --test src/__tests__/<file>` from
-`artifacts/api-server` (set `BCRYPT_SALT_ROUNDS=4
-TEST_DB_ALLOW_EXIT_ON_IDLE=1`). New and touched files:
+Runner: `BCRYPT_SALT_ROUNDS=4 bash artifacts/api-server/scripts/run-test.sh
+src/__tests__/<file>` (never raw `node`/`tsx` execution — it bypasses the
+script's production-DB guard; `run-test.sh` already sets
+`TEST_DB_ALLOW_EXIT_ON_IDLE` internally). New and touched files:
 
 | File | Covers |
 |---|---|
@@ -123,3 +131,9 @@ identically there, unrelated to this change. Everything else: `# fail 0`.
 - **`scripts/backfill-pexels-images.mjs` deleted**, not migrated — a third,
   undocumented standalone script duplicating `pexelsClient.ts`'s pipeline with
   its own hand-rolled logic; unreferenced anywhere in the repo.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR256_VARIANT_INDEPENDENCE_UAT.md`](./PR256_VARIANT_INDEPENDENCE_UAT.md)
+sibling is the durable half.

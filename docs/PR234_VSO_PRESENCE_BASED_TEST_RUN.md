@@ -9,14 +9,29 @@ field is removed from the Advanced Options panel).
 
 Sibling doc: [`PR234_VSO_PRESENCE_BASED_UAT.md`](./PR234_VSO_PRESENCE_BASED_UAT.md).
 
+## Repo-health gates (post-merge state — run always)
+
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. No new
+  exemptions — this PR has no migration (see *Schema / DB* below).
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Typecheck (`typecheck:libs`, per-package `typecheck`) — pre-merge gates
+  assumed green; spot-check only if something below fails.
+
+## Full sharded suite (backend) — shared infra touched: no
+
+No test runner, DB layer, migration runner, codegen pipeline, or shared
+middleware change in this PR. The targeted backend suites below are
+sufficient; skip the backend sharded run. (The frontend suite below is run in
+full regardless — Vitest's whole-repo run is the normal way this repo runs
+frontend tests, not a sharded-suite equivalent.)
+
 ## Commands
 
-Typechecks + builds (from repo root):
+Build (from repo root):
 
 ```bash
-pnpm run typecheck:libs
-pnpm --filter @workspace/api-server run typecheck
-pnpm --filter @workspace/overhype-me run typecheck
 pnpm --filter @workspace/overhype-me run build
 ```
 
@@ -112,3 +127,9 @@ exports here.)
 
 Both are a recorded pre-launch fast-follow (see `docs/ai-context/decisions.md`),
 not part of this PR.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR234_VSO_PRESENCE_BASED_UAT.md`](./PR234_VSO_PRESENCE_BASED_UAT.md)
+sibling is the durable half.
