@@ -26,8 +26,12 @@ The full workflow for building or changing product functionality. In this mode:
 4. **Tests prove the general invariant**, not just the reported example.
 5. **Open a PR** for review.
 
-Any "let's build / add / change X", a behavior change, or a schema change with
-product consequences is feature mode.
+Any "let's build / add / change X", a behavior change, or a schema change is
+feature mode — **not** gated on product consequence: a non-trivial schema
+change of any kind (see *Tier C* below) needs a plan and David's approval
+before anything runs. A schema change is feature mode by default; it stays
+out of the full plan only if it's genuinely trivial, in which case it runs
+migration ceremony directly per Tier C.
 
 ## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
