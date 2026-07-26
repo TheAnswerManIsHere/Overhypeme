@@ -31,14 +31,23 @@ and demote the rest.
    `main`, which the PR author could not see when writing the doc — so a gate
    that was green on the branch can be red here because another PR landed
    first. Always run:
-   - `pnpm --filter @workspace/db check-snapshots`
-     (`lib/db/scripts/check-migration-snapshots.ts`)
+   - `pnpm --filter @workspace/db validate-snapshots`
+     (`lib/db/scripts/validate-migration-snapshots.ts`) — this is the gate
+     CI's `build.yml` actually runs. **Do not substitute
+     `check-snapshots`/`check-migration-snapshots.ts`** — as of this writing
+     it fails on plain `main` for a pre-existing, unrelated reason (migrations
+     `0089`/`0090` predate the exempt-list discipline and aren't in
+     `SNAPSHOT_EXEMPT_TAGS`), so instructing Replit to expect it clean produces
+     a false alarm on every future TEST_RUN regardless of that PR's content.
+     If that baseline gap is ever closed (fixed or exempted), this doc should
+     switch back to `check-snapshots` as the stricter check.
    - `node scripts/check-docs-accuracy.mjs`
-   - plus **any new allow-list / exempt-list entry this PR added** — snapshot
-     exemptions, `artifacts/api-server/scripts/check-no-console.mjs`
-     allowlist entries, `artifacts/api-server/scripts/check-cycles.mjs`
-     allowlist entries. **List them explicitly** so Replit can *verify* the
-     entry rather than *diagnose* an unexplained gate failure.
+   - plus **any new allow-list / exempt-list entry this PR added** — a new
+     `SNAPSHOT_EXEMPT_TAGS` entry in `check-migration-snapshots.ts`,
+     `artifacts/api-server/scripts/check-no-console.mjs` allowlist entries,
+     `artifacts/api-server/scripts/check-cycles.mjs` allowlist entries. **List
+     them explicitly** so Replit can *verify* the entry rather than *diagnose*
+     an unexplained gate failure.
 
 3. **Behavior checks against live config and data.** Anything that exercises
    seeded `admin_config`, real catalogue rows, the real queue, or a real
@@ -108,8 +117,9 @@ Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-chec
 only if something below fails.
 
 ## Repo-health gates (post-merge state — run always)
-- `pnpm --filter @workspace/db check-snapshots` — expected: all entries exempt
-  or snapshotted. New exemptions this PR added: <list, or "none">
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`). New `SNAPSHOT_EXEMPT_TAGS` entries this PR added: <list,
+  or "none">
 - `node scripts/check-docs-accuracy.mjs` — expected: clean
 - Other allow-list entries this PR added: <list, or "none">
 
@@ -118,10 +128,13 @@ only if something below fails.
 Expected: ~N tests, **0 fail**. Known environmental failures: <list or "none">
 Proof tests to note: <name them, or "none">
 
-## Full sharded suite — run ONLY if shared infra touched: <yes/no + why>
+## Full sharded suite — shared infra touched: <yes/no + why>
+<If yes:>
 `pnpm --filter @workspace/api-server test`
 (Stop the `artifacts/api-server: API Server` workflow first to free test-DB
 connections.)
+<If no: omit this section's command entirely — the heading's "no" is the
+answer, do not leave an executable command underneath it.>
 
 ## Manual DB / behavior checks (run always)
 1. Migration <N> applied — confirm <exact column/table/row, type, nullability>
