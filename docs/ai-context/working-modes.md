@@ -78,8 +78,14 @@ pick a disambiguated name on a clash, and **never** force/reset onto
 > parent's branch as its base, not `main`.** Basing against `main` while the
 > branch carries the parent's unmerged commits puts both bugs in one diff,
 > which defeats the one-bug-per-PR isolation this section exists for. State
-> the stack order in the new PR body, and retarget its base to `main` once the
-> parent merges (the diff then narrows to just the new bug automatically).
+> the stack order in the new PR body. **Once the parent merges, retargeting
+> alone does NOT narrow the diff** — David squash-merges, so the parent's
+> commits never become ancestors of `main` and a three-dot diff still compares
+> against the pre-parent merge base. First `git fetch origin main && git merge
+> origin/main` into the child branch (the squash commit becomes an ancestor,
+> per CLAUDE.md's squash-merge-follow-up guidance — merge, never rebase, on an
+> already-pushed branch), push, **then** retarget the PR base to `main`; the
+> diff narrows to just the new bug only after that merge.
 
 ### The tier is chosen after diagnosis, never at intake
 
@@ -153,13 +159,16 @@ Everything in Tier A, plus:
   what CI already gates is waste.
 - **The strongest model tier available** for the fix itself.
 
-**Internal/infra-only exception on the UAT doc.** If the *only* reason a fix
-landed in Tier B is an infra/no-product-surface Q1 trigger (a CI workflow,
-build tooling, the dev supervisor, Vite/esbuild config, or an internal
-`lib/api-zod`/`lib/api-spec` codegen path) and nothing about the fix is
+**Internal/infra-only exception on the UAT doc.** The test is **whether the
+fix has any product-visible behavior at all — not which Q1/Q2 trigger(s)
+fired.** A CI-workflow or dev-supervisor fix routinely trips a Q2 shape
+trigger too (a retry predicate, a dedupe condition) without gaining any
+in-app surface, so gating the exception on "the only trigger was Q1" would
+disqualify exactly the fixes it's meant to cover. If nothing about the fix is
 product-visible, ship a written verification note in the PR body instead of
-a click-through UAT doc — the same ship-the-UI-surface exception feature mode
-already grants pure infra/refactor changes (see
+a click-through UAT doc, regardless of how many or which triggers fired —
+the same ship-the-UI-surface exception feature mode already grants pure
+infra/refactor changes (see
 [`../engineering/testing-guide.md`](../engineering/testing-guide.md) and
 CLAUDE.md). A click-through script for a fix with no in-app surface to click
 through is manufactured ceremony, not verification. The moment the fix also

@@ -81,8 +81,12 @@ the PR back only delays the review that catches things.
    **Exception: a stacked fix bases against its parent's branch, not `main`**
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
-   one-bug-per-PR isolation this whole redesign is for. Retarget to `main`
-   once the parent merges. Use **`.github/pull_request_template.md`** — the
+   one-bug-per-PR isolation this whole redesign is for. **When the parent
+   merges, retargeting alone does not narrow the diff** — squash-merge means
+   the parent's commits never become ancestors of `main`, so `git fetch origin
+   main && git merge origin/main` into this branch first (merge, never
+   rebase, on an already-pushed branch), push, **then** retarget to `main`.
+   Use **`.github/pull_request_template.md`** — the
    repo template applies to bug fixes too. Fill the **Approved-plan oracle**
    section with the **bugfix oracle** instead of "n/a — no plan":
 
@@ -99,7 +103,14 @@ the PR back only delays the review that catches things.
 
    Then **Verification** (exact commands + results, and the click-through steps
    to observe the fix), and the checklist.
-3. **Tier B only — ship the UAT doc on this same PR.** The filename needs the PR
+3. **Tier B, product-visible fix — ship the UAT doc on this same PR.** The
+   test is whether the fix has *any* product-visible behavior, not which
+   Q1/Q2 trigger put it in Tier B — a fix whose only surface is internal
+   (CI, build tooling, `lib/api-zod`/`lib/api-spec` codegen with no
+   frontend-visible type change) takes the **internal/infra-only exception**
+   instead: a written verification note in the PR body, no UAT doc (see
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
+   When a UAT doc is due, the filename needs the PR
    number, so it is PR-first, exactly like feature mode: open the PR with a
    "Docs pending" note, then commit `docs/PR<N>_<FEATURE>_UAT.md` to the **same
    PR before merge** and replace the note with a link. Match the most recent
