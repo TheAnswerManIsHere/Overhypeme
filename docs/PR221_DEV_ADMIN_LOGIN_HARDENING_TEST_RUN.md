@@ -8,6 +8,12 @@ the enabled path.
 
 Sibling doc: [`PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md`](./PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md).
 
+## Repo-health gates (post-merge state — run always)
+
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`). No new exemptions — this PR has no migration.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+
 ## Commands
 
 From `artifacts/api-server`:

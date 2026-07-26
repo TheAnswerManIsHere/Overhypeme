@@ -34,29 +34,31 @@ silently shrinking the moderator pool.
 
 ---
 
-## Build / typecheck / migration gates
+## Repo-health gates (post-merge state — run always)
 
-```bash
-pnpm install --frozen-lockfile
-pnpm run typecheck:libs
-pnpm --filter @workspace/api-server run typecheck
-pnpm --filter @workspace/db check-snapshots
-node scripts/check-docs-accuracy.mjs
-```
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`; do not substitute `check-snapshots` — it fails on plain
+  `main` today for a pre-existing, unrelated gap, see
+  [`test-run-contract.md`](engineering/test-run-contract.md)). New exemptions
+  this PR added: none — `0087`/`0088` are hand-authored and don't need
+  `SNAPSHOT_EXEMPT_TAGS` entries (`validate-snapshots` skips pairs with no
+  snapshot file rather than requiring one).
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Install/typecheck (`install --frozen-lockfile`, `typecheck:libs`, per-package
+  `typecheck`) — pre-merge gates assumed green; spot-check only if something
+  below fails.
 
-Expected: all clean. `check-snapshots` → "All 89 journal entries have snapshot
-files (or are explicitly exempt)" (0086/0087/0088 are hand-authored, exempt).
+## Full sharded suite — shared infra touched: no
 
-## Automated tests
+This PR is §12 async terminal/retryable handling + §10 prompt budget + §14
+style-copy trim — no test runner, DB layer, migration runner, codegen
+pipeline, or shared middleware change. The targeted list below is sufficient;
+skip the sharded run. (Replit's own experience running this checklist: the
+sharded suite never completed here — the `pretest` chain stalled against
+`heliumdb_test` while the api-server dev workflow held connections open. That
+cost is exactly what skipping it here avoids.)
 
-```bash
-pnpm --filter @workspace/api-server test
-```
-
-Expected: **all shards pass, 0 fail.** (The logged `OPENAI_API_KEY must be set…`
-line is a non-failing warning inside a test.)
-
-Targeted:
+## Targeted tests
 
 ```bash
 pnpm --filter @workspace/api-server exec tsx --test \

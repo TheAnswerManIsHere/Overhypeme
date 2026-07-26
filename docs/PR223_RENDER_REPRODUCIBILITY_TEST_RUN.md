@@ -9,32 +9,23 @@ Replit owns the database connection — do **not** add `DATABASE_URL` / test-DB
 env setup here. Where the DB is referenced below, apply the repo's normal
 migration/test flow against Replit's own database.
 
-## Build / typecheck / lint gates
+## Repo-health gates (post-merge state — run always)
 
-```bash
-pnpm install --frozen-lockfile
-pnpm run typecheck:libs
-pnpm --filter @workspace/api-server run typecheck
-pnpm --filter @workspace/overhype-me run typecheck
-node scripts/check-docs-accuracy.mjs
-```
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`). No new exemptions — this PR has no migration.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Install/typecheck (`install --frozen-lockfile`, `typecheck:libs`, per-package
+  `typecheck`) — pre-merge gates assumed green; spot-check only if something
+  below fails. (`check:no-console` / `check:cycles` run inside the api-server
+  typecheck script.)
 
-Expected: all clean. `check-docs-accuracy` → "all relative links resolve and all
-cited repo paths exist." No `check:no-console` / `check:cycles` violations
-(these run inside the api-server typecheck script).
+## Full sharded suite — shared infra touched: no
+
+This PR is scoped to render identity/style reproducibility — no test runner,
+DB layer, migration runner, codegen pipeline, or shared middleware change. The
+targeted list below is sufficient; skip the sharded run.
 
 ## Automated tests
-
-Full sharded suite (per-DB runner):
-
-```bash
-pnpm --filter @workspace/api-server test
-```
-
-Expected: **all shards pass, 0 fail.** (A logged
-`OPENAI_API_KEY must be set…` line from the fact-image pipeline is a
-non-failing warning inside a test, not a failure — the shard still reports
-`result=pass`.)
 
 Targeted new/affected files (single-file runner, faster to iterate):
 

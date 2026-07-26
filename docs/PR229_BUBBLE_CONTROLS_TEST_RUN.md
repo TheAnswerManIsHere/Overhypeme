@@ -41,10 +41,28 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
   stored-candidate `bubbles` field are additive defaulted JSONB shapes; old
   blobs parse to `[]`.
 
+## Repo-health gates (post-merge state — run always)
+
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`). **Known gap, not this PR's to fix:** `0090` is a DML-only
+  migration (no schema change, per above) and correctly has no snapshot file,
+  but it also isn't yet in `check-migration-snapshots.ts`'s
+  `SNAPSHOT_EXEMPT_TAGS` — that gate will report it missing until the tag is
+  added; `validate-snapshots` (the gate that actually matters here) doesn't
+  require one and passes regardless.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+
+## Full sharded suite — shared infra touched: yes
+
+`literalPromptString.ts` is a new shared serializer registered in the codegen
+allowlist (`lib/api-spec/patch-generated.mjs`) — the codegen pipeline is
+touched, so the full suite stays required.
+
 ## Commands (`artifacts/api-server`)
 
 ```bash
-# typecheck (tsc -b + cycle check + no-console gate)
+# typecheck (tsc -b + cycle check + no-console gate) — pre-merge gate, assumed
+# green; spot-check only if something below fails
 pnpm --filter @workspace/api-server run typecheck
 
 # the bubble-core suites
@@ -58,7 +76,7 @@ bash artifacts/api-server/scripts/run-test.sh \
 # version pin
 bash artifacts/api-server/scripts/run-test.sh src/__tests__/imagePromptGeneration.validate.test.ts
 
-# full suite sanity (sharded)
+# full suite (shared infra touched — see above)
 pnpm --filter @workspace/api-server test
 ```
 

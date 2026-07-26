@@ -21,24 +21,28 @@ bulk-backfill routes is sound.
 `varchar(16)`, nullable, no default — every existing row reads `NULL`. Running
 the migration a second time is a no-op (`IF NOT EXISTS`).
 
-## 2. Typechecks (all clean)
+## 2. Repo-health gates (post-merge state — run always)
 
-- `pnpm run typecheck:libs`
-- `cd artifacts/api-server && pnpm exec tsc --noEmit -p .`
-- `cd artifacts/overhype-me && pnpm exec tsc -b`
-- `cd artifacts/api-server && pnpm run typecheck` (runs `tsc -b` +
-  `check:cycles` + `check:no-console` together — all three must report clean;
-  `check:no-console`'s one new allowlisted entry, `cliJobPoller.ts:78`, is
-  intentional, see the file's own comment)
-- `pnpm --filter @workspace/db exec tsx scripts/check-migration-snapshots.ts`
-  — the new `0093` tag is exempted (mirrors the `0075_facts_pexels_status`
-  precedent). The tool will still report the **pre-existing**, unrelated
-  `0089`/`0090` gap — that's expected, not something this PR introduces or
-  should fix.
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`; do not substitute `check-migration-snapshots.ts` — it
+  reports the **pre-existing**, unrelated `0089`/`0090` gap regardless of this
+  PR). New exemptions this PR added: `0093` is in `SNAPSHOT_EXEMPT_TAGS`
+  (mirrors the `0075_facts_pexels_status` precedent) — not required for
+  `validate-snapshots` to pass, but confirms the exempt-list entry is present
+  if you do run `check-migration-snapshots.ts` directly.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- `pnpm run check:codegen-drift` — expected: clean (no hand-edited generated
+  files).
+- New `check:no-console` allowlist entry this PR added: `cliJobPoller.ts:78`
+  (intentional, see the file's own comment).
+- Typecheck (`typecheck:libs`, per-package `typecheck`/`tsc -b`) — pre-merge
+  gates assumed green; spot-check only if something below fails.
 
-## 3. Codegen drift
+## 3. Full sharded suite — shared infra touched: yes
 
-- `pnpm run check:codegen-drift` — clean (no hand-edited generated files).
+New async-queue/circuit-breaker machinery lands in the shared job/queue layer
+(`enqueueJob`, `async_jobs`) — shared infra, so the full run stays required
+alongside the targeted list below.
 
 ## 4. Backend test files (run each; expect `# fail 0`)
 

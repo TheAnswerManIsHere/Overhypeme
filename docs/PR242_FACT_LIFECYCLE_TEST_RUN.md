@@ -22,14 +22,16 @@ test schema so tests see the new shape:
 - CHECK constraint `facts_active_requires_concept` exists on `facts`.
 - Migration `0092` log line: `[0092] fact-lifecycle grandfather backfill: deactivated_no_valid_enrichment=…, orphan_children_deactivated=…, sentinel_concept_stamped=…`.
 
-## 2. Typechecks (all clean)
+## 2. Repo-health gates (post-merge state — run always)
 
-- `pnpm run typecheck:libs`
-- `cd artifacts/api-server && pnpm exec tsc -b`
-- `cd artifacts/overhype-me && pnpm exec tsc -b`
-- `pnpm --filter @workspace/db run validate-snapshots` (migrations are snapshot-exempt, hand-authored per repo convention).
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`). No new exemptions — `0091`/`0092` are plain generated
+  migrations.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Typecheck (`typecheck:libs`, per-package `tsc -b`) — pre-merge gates assumed
+  green; spot-check only if something below fails.
 
-## 3. Codegen drift (POST /facts removal)
+## 3. Codegen drift (POST /facts removal) — run always, not a trivial re-check
 
 - `pnpm --filter @workspace/api-spec run codegen` then `git diff --exit-code lib/api-zod/src/index.ts` is **clean** (the removed `createFact`/`CreateFactBody`/`CreateFactRequest` drop out of the generated modules, not the index line-list).
 
@@ -48,7 +50,10 @@ Runner: `bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>` (ad
 | `routes.resubmitForModeration.test.ts` | 4/4 | **NEW** (round 7 follow-up) — `POST /admin/facts/:id/resubmit-for-moderation`: re-enters an INACTIVE fact at `prep_pending` reusing its existing id (no duplicate fact), preserves a variant's `parentId`, 404 missing / 409 `ALREADY_ACTIVE` / 409 `REVIEW_ALREADY_IN_PROGRESS` |
 | `routes.admin.auth.test.ts` | full suite | the new route is registered in `ADMIN_AUTH_ROUTES` (drift-guard test — fails loudly if a route is added without an entry) |
 
-**Sharded full run:** `pnpm --filter @workspace/api-server test`. **Known
+**Sharded full run — shared infra touched: yes** (this migration flips
+`facts.is_active`'s default, adds a blocking CHECK constraint evaluated on
+every fact, and retires `POST /facts` across every ingestion path — broad
+enough blast radius to warrant the full run): `pnpm --filter @workspace/api-server test`. **Known
 environmental caveat in this container:** the sharded per-schema clone does **not**
 clone the external `stripe` schema, so some shards emit `relation "stripe.prices"
 does not exist` and cascade-cancel siblings. Those are infra, **not** this PR — every
