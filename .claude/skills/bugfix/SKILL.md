@@ -14,15 +14,26 @@ description: Enter bug-fixing mode — fix a bug without the planning ceremony. 
 
 David invokes `/bugfix` explicitly so there is **zero inference** about the mode.
 Since bugfix mode no longer batches, he invokes it **per bug** — though the mode
-stays in force across messages, so a follow-up bug just starts its own branch
-without a re-invocation (see *Exiting bug-fixing mode*).
+stays in force across messages, so a follow-up bug doesn't need a re-invocation
+(see *Exiting bug-fixing mode*). **It does need step 1 run again, explicitly** —
+see the note there. Skipping it is how a second bug lands on the first bug's
+already-pushed branch, silently breaking one-bug-per-PR.
 
 **The one-line summary of what this mode is:** it drops the *planning* ceremony
 (plan file, pre-plan conversation, the multi-round Codex plan-review loop), not
 the *verification*. A small-looking fix can still have wide consequences, so the
 verification scales to what diagnosis reveals the fix actually touches.
 
-## 1. On `/bugfix` — set up the branch
+## 1. Before each bug — set up the branch
+
+**This step runs once per bug, not once per `/bugfix` invocation.** On the
+first bug it runs at `/bugfix`; on every bug after that — sent as a plain
+message with the mode still in force, no re-invocation — it runs again,
+*before* diagnosing that bug. Check state first: if the branch currently
+checked out already has a prior bug's fix pushed to it (its PR is open or
+merged), that branch is spoken for — cut a new one per below. Only skip this
+step if the current branch has no bug on it yet (fresh from `/bugfix`, nothing
+committed).
 
 One bug, one branch, one PR. Cut fresh from current `origin/main` (David
 squash-merges, so a fresh base avoids phantom conflicts), with a **topic** slug:
@@ -72,8 +83,12 @@ As soon as the fix is verified, open the PR. **There is no "create the PR" gate
 anymore** — batching is gone, so nothing is waiting to accumulate, and holding
 the PR back only delays the review that catches things.
 
-1. `git push -u origin claude/bugfix-<topic>` (retry with backoff on network
-   errors; never force-push). The branch was cut from current `origin/main` and
+1. Push the **actual current branch** — `git push -u origin HEAD` (retry with
+   backoff on network errors; never force-push). Don't hardcode the
+   `claude/bugfix-<topic>` name here: on the normal path that *is* the current
+   branch, but the preselected/assigned-branch exception in step 1 means the
+   real name can differ, and pushing a literal wrong name either fails or
+   targets an unrelated ref. The branch was cut from current `origin/main` and
    has never been pushed, so **no rebase is needed or wanted** — see CLAUDE.md's
    git constraints. If the branch later needs current `main`, **merge, don't
    rebase**.
