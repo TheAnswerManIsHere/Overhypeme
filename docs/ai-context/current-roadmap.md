@@ -30,8 +30,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   environment can verify (migration state, post-merge repo-health gates,
   live-config behavior, scoped tests), demotes the full sharded suite to an
   explicit shared-infra-touched verdict instead of a default step, and
-  requires every test command route through `run-test.sh` rather than a raw
-  `node`/`tsx` invocation that bypasses the production-DB guard. Applied to
+  requires every api-server test command route through its wrapper script
+  (`run-test.sh` targeted, `run-tests-sharded.sh` full suite) rather than a
+  raw `node`/`tsx` invocation that bypasses the production-DB guard. Applied to
   the 6 still-live checklists. See
   [`decisions.md`](./decisions.md#2026-07-26--test_run-checklists-are-scoped-to-what-only-replits-live-environment-can-verify).
 - **Pricing page showed only one upgrade plan** (PR #255). Root cause: the

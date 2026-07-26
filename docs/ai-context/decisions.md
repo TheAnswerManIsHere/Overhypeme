@@ -33,9 +33,12 @@
   and PR224's unconditional full-suite run cost ~40 minutes fighting test-DB
   contention for zero new signal. The `check-snapshots`/`validate-snapshots`
   split resolved a real back-and-forth: `check-snapshots` was initially
-  dropped as "currently broken" (migrations `0089`/`0090` predate the
-  exempt-list discipline and weren't tagged, so it failed on plain `main` for
-  reasons unrelated to whatever PR was being checked) — but that failure was
+  dropped as "currently broken" (`SNAPSHOT_EXEMPT_TAGS` already existed with
+  entries through `0088` when PR228 and PR229 each added a migration —
+  `0089`/`0090` — without adding the required exemption tag or a generated
+  snapshot, an omission on their part, not a pre-existing gap in the
+  discipline itself; the check then failed on plain `main` for reasons
+  unrelated to whatever *later* PR was being checked) — but that failure was
   real signal, not noise, and a later commit closed the gap by tagging both.
   Once closed, `check-snapshots` was restored as required alongside
   `validate-snapshots`, since it catches a failure mode
