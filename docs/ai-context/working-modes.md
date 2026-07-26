@@ -6,9 +6,10 @@
 > [`CLAUDE.md`](../../CLAUDE.md) and its `/bugfix` skill; the *distinction* below
 > is the shared truth.)
 
-There are two modes. The default is **feature mode**. **Bugfix mode** is a
-deliberately lightweight path David turns on explicitly for small, well-understood
-fixes.
+There are two modes. The default is **feature mode**. **Bugfix mode** is a path
+David turns on explicitly to fix a bug without the planning ceremony — it drops
+the plan and the plan-review loop, **not** the verification, and it tiers its
+remaining ceremony to what the fix actually turns out to touch.
 
 ## Feature mode (default)
 
@@ -28,54 +29,200 @@ The full workflow for building or changing product functionality. In this mode:
 Any "let's build / add / change X", a behavior change, or a schema change with
 product consequences is feature mode.
 
-## Bugfix mode (explicit, lightweight)
+## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
-A fast fix-and-commit loop for small, well-understood bugs. **David turns it on
-explicitly** (see *How each agent enters/exits a mode* below) — once per bug
-batch, not per bug. While it's on:
+A focused fix-and-ship loop for a bug — restoring behavior that was already
+agreed, not deciding new behavior. **David turns it on explicitly** (see *How each
+agent enters/exits a mode* below).
 
-**Setup — a fresh branch off `origin/main`.** Because David squash-merges, each
-batch starts from current `origin/main` to avoid phantom conflicts from prior
-merges. Use a non-resetting create (fail rather than wipe an existing same-day
-batch), pick a disambiguated name if it already exists, and **never** force/reset
-onto `origin/main` to "fix" a name clash.
+**What bugfix mode saves is the planning ceremony, not the verification.** It
+drops the plan file, the pre-plan conversation, and the multi-round plan-review
+loop — the genuinely expensive parts, and the ones that mitigate a risk a fix
+rarely carries ("we chose the wrong approach before any code existed"). It does
+**not** license thin verification: a small-looking fix can still have wide
+consequences, and several entries in this repo's own
+[`known-failure-patterns.md`](./known-failure-patterns.md) are defects whose
+shipped tests passed and which were caught only in code review.
+
+### One bug, one branch, one PR (David, 2026-07-26)
+
+**Bugfix mode does not batch.** Each bug gets its own branch off current
+`origin/main`, its own commit, and its own PR, opened as soon as the fix is
+verified — no waiting for a "create the PR" signal, no accumulating several bugs
+on one branch.
+
+Batching was costing more than it saved: it kept several half-verified fixes in
+flight at once, and it meant no reviewer saw *any* fix until the whole batch
+landed — so a wrong fix early got built on top of repeatedly and reviewed zero
+times. One bug per PR means every fix is reviewed in isolation, immediately, and
+against a diff that contains nothing else.
+
+Use a **topic** slug, not a date (`…/bugfix-annual-plan-lookup`, not
+`…/bugfix-jul26`) — with one bug per branch, a date collides the moment two bugs
+land the same day. Create non-resettingly (fail rather than wipe existing work),
+pick a disambiguated name on a clash, and **never** force/reset onto
+`origin/main` to resolve one.
 
 > **Exception — a preselected/assigned branch wins.** If you were already invoked
 > on a designated task branch (a preselected branch, a Codex cloud run, an assigned
 > working branch, or a runner that disallows branch creation), **stay on it** — do
 > not create a fresh branch. The fresh-branch step is only for the normal case
-> where David starts a bug batch from scratch with no branch assigned.
+> where David starts a bug from scratch with no branch assigned.
 
-**Per bug — fix, verify, commit:**
-1. Reproduce / locate the cause.
-2. Make the **smallest correct fix**.
-3. **Verify before committing** — run the touched tests + typecheck (see
+> **Dependent bugs.** If a new bug's fix depends on an earlier fix whose PR is
+> still open, say so rather than silently branching from `origin/main` (which
+> wouldn't contain it). Either wait for the merge, or branch from the open PR's
+> head and state in the new PR that it stacks.
+
+### The tier is chosen after diagnosis, never at intake
+
+The old design picked its ceremony level at intake, from the **symptom**. That is
+the wrong moment with the wrong information: every risk that matters is a property
+of the **fix** — what it touches, how many callers share it, whether it crosses
+persisted state — and none of that is knowable until the cause is found.
+"Simple-seeming" describes a bug report; it never described a blast radius.
+
+So: **diagnose first, then classify, then fix.** Run the checklist below once the
+cause is known. **If any item trips, it is Tier B.** With this list, Tier A is the
+exception — that is intended, not a mis-calibration.
+
+**Q1 — Where does the fix land?** Any of these subsystems → **Tier B**:
+payments / auth / permissions / security headers; the tokenizer, grammar, or
+`render-fact`; the visual pipeline (planner, compiler, render policy, Visual
+Concept); the async job queue, worker lanes, or any enqueue helper; enrichment or
+moderation source-of-truth (`facts.*`, `resolveEnrichment`, override layers);
+`lib/api-zod/` or `lib/api-spec/` (the codegen allowlist trap); dev-infra and
+build tooling (Vite/esbuild config, the dev supervisor, retry/reload paths, CI
+workflows).
+
+**Q2 — What shape is the fix?** Any of these → **Tier B**:
+
+1. **Shared, not a leaf.** The edit lands in an exported symbol or a function with
+   more than one caller — so its blast radius is every caller, not this one site.
+2. **A predicate, default, or heuristic.** It changes *when* or *whether*
+   something happens — a condition, a skip check, a fallback, a dedupe key — not
+   just what value comes out. (See *Uniform default over a falsely-ambiguous
+   space*, *Cost-skip heuristic*, *Dedupe key coalesces two distinct intents*.)
+3. **Concurrency, ordering, retry, or async state.** Enqueue paths, job state
+   transitions, races, retries, or anything whose correctness depends on two
+   reads seeing the same state. This is the single densest cluster of real
+   defects in this repo, and each took multiple review rounds to converge.
+4. **Persisted or derived data.** It changes what gets written, the shape it's
+   written in, or how a stored/derived value is read back — even with no
+   migration.
+5. **Generalized past the report.** You concluded the *mechanism* was wrong and
+   widened the fix beyond the reported instance. Correct instinct (see
+   *One-example bug fixes*) and a real risk in the same breath (see *Regex
+   grammar rewrite reaches past a safe anchor*).
+6. **Shaky diagnosis.** No deterministic reproduction, more than one plausible
+   root cause, or this symptom has been "fixed" before. Uncertainty at diagnosis
+   is the strongest single predictor that the fix is a guess.
+7. **Nothing was guarding this path.** You had to create the test coverage rather
+   than extend it — so no existing test would have caught a regression here.
+
+### Tier A — contained fix
+
+Fix + regression test + one commit + PR, with the bugfix oracle and blast-radius
+note below. Verification lives in the PR body ("how to verify" steps), which is
+the miniature UAT. No separate docs.
+
+### Tier B — elevated fix
+
+Everything in Tier A, plus:
+
+- **A real UAT doc** (`docs/PR<N>_<FEATURE>_UAT.md`) — the click-through
+  acceptance script, so David's product-verification net is restored for exactly
+  the fixes that can reach past the reported symptom.
+- **A TEST_RUN doc only when the fix genuinely needs one** — i.e. when something
+  can only be verified in Replit's environment (live DB state, live config/data).
+  Per [`../engineering/test-run-contract.md`](../engineering/test-run-contract.md),
+  a TEST_RUN is not a default; most bug fixes need none, and one that re-verifies
+  what CI already gates is waste.
+- **The strongest model tier available** for the fix itself.
+
+### Tier C — this is not a bug fix; leave bugfix mode
+
+Stop and tell David. Any of: the "fix" is a behavior change or a product decision;
+it needs a schema change, migration, or backfill (that has its own ceremony —
+[`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md));
+diagnosis revealed a design flaw rather than a defect; or the fix would need a new
+abstraction or an external vendor. These go to feature mode, or at minimum
+migration ceremony — not through the fast path.
+
+### Per bug — the loop
+
+1. **Reproduce and find the root cause.** Name the mechanism, not the instance.
+2. **Classify** against the checklist above. State the tier and the reason.
+3. **Write the regression test first** — a test that **fails on current code
+   because of this bug**. This is the difference between fixing a bug once and
+   fixing it forever, and it must prove the **general invariant** with negative
+   cases, not just the reported input (see *One-example bug fixes*).
+4. **Make the smallest correct fix** and confirm the new test passes.
+5. **Establish the blast radius.** What else calls this code, shares this path, or
+   depends on this behavior — and what you checked. Regression tests pin the fixed
+   behavior; they say nothing about the neighbors, which is exactly where a
+   small-looking fix does its damage.
+6. **Verify** — the touched tests + typecheck (see
    [`../engineering/testing-guide.md`](../engineering/testing-guide.md)). A fix
    that breaks the build doesn't get committed.
-4. **One focused commit per bug** — the message names the bug and the fix, so the
-   history is clean and revertable. Don't batch unrelated bugs into one commit.
+7. **One focused commit** — fix + its regression test together, message naming the
+   bug and the fix.
+8. **Open the PR** with the oracle below, and engage the review to convergence.
 
-Accumulate commits as David sends more bugs. **Don't open the PR until David
-explicitly says so** ("create the PR"). Then rebase onto `origin/main`, re-run the
-touched tests, push, and open the PR with a short **one-line-per-bug** body (*what
-was wrong → what changed → how to verify*).
+> **Narrow carve-out on step 3:** if a fix is genuinely untestable at reasonable
+> cost (a pure visual/CSS tweak with no assertable behavior), the regression test
+> may be skipped — but say so explicitly in the commit message and the PR body
+> ("no regression test: <why>"), so the exception is always visible, never silent.
+> "The test is annoying to write" does not qualify; a tokenizer, API, data, logic,
+> or concurrency bug always gets its test.
+
+### The bugfix oracle: what the PR body must carry
+
+A diff can be internally sound and still be the wrong fix — it can make the
+reported symptom disappear while breaking an adjacent behavior nobody wrote down.
+Feature mode solves this by pasting the approved plan into the PR body as the
+reviewer's oracle. **A bug fix has no plan, so it needs its own oracle** — and
+"n/a — no plan" leaves the reviewer checking the diff against nothing but itself.
+
+The feature oracle's fields map onto a fix directly:
+
+| Feature mode | Bugfix mode |
+|---|---|
+| Product intent | **Reported symptom** — David's report, quoted verbatim |
+| *(implicit in the plan)* | **Intended correct behavior** — what right looks like |
+| Must not change | **Must not change** — the adjacent behaviors sharing this path |
+| Settled decisions | **Root cause** — the mechanism, in one or two lines |
+
+Plus **Blast radius** (from step 5) and the **fix tier with its reason**, so a
+mis-tiered fix is visible rather than silent.
+
+This is cheap to write and it is what lets a reviewer ask the two questions that
+matter most on a fix: *is this the root cause or a symptom-level patch?* and *did
+this miss a caller?*
 
 **What bugfix mode turns OFF:**
-- No plan / no plan-approval ceremony (you just fix).
+- No plan file, no pre-plan ceremony, no plan-review loop.
 - No forced "ship a new UI surface" gate for a pure fix (include UI only if the fix
   genuinely needs it to be testable).
-- No heavyweight per-PR test/UAT docs.
+- No UAT/TEST_RUN docs on **Tier A**. Tier B ships a UAT, and a TEST_RUN only when
+  something truly needs Replit's environment.
 
 **What it KEEPS (non-negotiable):**
 - **Pause-and-ask on real ambiguity.** If a "bug" is actually a behavior change in
   disguise, or the correct behavior is genuinely unclear, **stop and ask** — that's
-  feature work, not a fix.
+  Tier C, not a fix.
+- **Root cause over symptom**, and a regression test proving the general invariant.
 - **Verify before committing.**
 - **Source-of-truth discipline** (don't silently overwrite human decisions, don't
   create a duplicate source of truth) — see
   [`known-failure-patterns.md`](./known-failure-patterns.md).
-- **Squash-merge / never-force-push discipline** and **bot-review engagement** once
-  a PR is open.
+- **Squash-merge / never-force-push discipline.**
+- **Bot-review engagement to convergence** once a PR is open — including
+  re-review of every fix round, since a push does not reliably re-trigger a
+  reviewer and reactive fix code is where subtle mistakes hide. Code review is
+  the highest-yield net this repo has: several entries in
+  [`known-failure-patterns.md`](./known-failure-patterns.md) were caught by
+  review *after* the shipped tests passed.
 
 ## How each agent enters / exits a mode
 

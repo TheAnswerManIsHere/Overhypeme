@@ -53,9 +53,39 @@ implementation PR's oracle text against the file he personally approved. Don't
 flag an unresolvable-by-you hash as a finding on this path — that's expected,
 not a defect.
 
-If a PR has no plan (bugfix mode, a trivial change) the oracle section reads
-"n/a — no plan," and this check doesn't apply; review the diff on its own
-terms as usual.
+### The bugfix oracle (a PR with no plan)
+
+A bug fix has no approved plan, but it is **not** therefore oracle-free. Reviewing
+a fix against itself can't catch the characteristic bugfix failure: the diff makes
+the reported symptom disappear while breaking an adjacent behavior nobody wrote
+down, or patches the reported instance while the underlying class survives. Both
+are documented failure patterns here (*One-example bug fixes*, *Uniform default
+over a falsely-ambiguous space*).
+
+So a bugfix PR carries its own oracle in the same body section — see
+[`working-modes.md`](../ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry):
+**Fix tier**, **Reported symptom** (David's words, verbatim), **Intended correct
+behavior**, **Must not change**, **Root cause**, **Blast radius**. Review the diff
+against those, and specifically ask:
+
+- **Is this the root cause or a symptom-level patch?** Does the fix address the
+  stated mechanism, or only the reported instance? If the root-cause line
+  describes a general mechanism but the diff special-cases one input, that gap is
+  the finding.
+- **Did it miss a caller?** Check the blast-radius claim against the code. An
+  incomplete or absent blast-radius note on a fix to shared code is itself a
+  finding.
+- **Did it break a neighbor?** Anything under *Must not change* that the diff
+  touches, directly or through a shared path.
+- **Does the regression test prove the invariant?** A test that only asserts the
+  reported input passes leaves the class open — negative cases required.
+- **Is the tier right?** A fix tagged Tier A that trips a Tier B trigger (shared
+  code, a changed predicate/default, concurrency or async state, persisted data,
+  a generalized fix, a shaky diagnosis, or a previously untested path) is
+  under-verified — flag the mis-tier, not just its consequences.
+
+Only a genuinely trivial change with no plan and no bug behind it (a typo, a
+comment) reads "n/a — no plan"; there, review the diff on its own terms as usual.
 
 ## Review priorities (in order)
 

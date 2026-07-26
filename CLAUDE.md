@@ -164,13 +164,23 @@ contract. David picks the mode explicitly so there's no guessing:
   loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
   gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
-- **Bug-fixing mode is the lightweight path, entered explicitly via the
-  `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
-  small bug), I switch to a fix-and-commit loop: fresh branch off
-  `origin/main`, one focused commit per bug, **no plan file, no plan review
-  (no Codex loop, no ChatGPT), no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
-  only open the PR when he explicitly says "create the PR." The full contract
-  lives in `.claude/skills/bugfix/SKILL.md`.
+- **Bug-fixing mode drops the *planning* ceremony, not the verification** —
+  entered explicitly via the `/bugfix` skill. When David invokes `/bugfix` (or
+  asks me to "just fix" a bug), I switch to a diagnose-classify-fix-ship loop:
+  fresh branch off `origin/main`, **one bug per branch per PR**, opened as soon
+  as the fix is verified. **No plan file and no plan-review loop** — that's the
+  expensive part a fix rarely needs. Everything else scales to what diagnosis
+  reveals: a **Tier A** fix ships with a regression test, a blast-radius note,
+  and the bugfix oracle in the PR body; a **Tier B** fix (sensitive subsystem,
+  or a structurally risky fix shape) adds a UAT doc and moves to Opus;
+  **Tier C** means it isn't a bug fix and leaves the mode. Codex still reviews
+  every bugfix diff and I drive that to convergence. The shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md); my enactment is
+  `.claude/skills/bugfix/SKILL.md`.
+
+  Note this is **not** "no ChatGPT review" — Codex *is* ChatGPT, and its
+  connector auto-reviews every non-draft PR on open. What bugfix mode skips is
+  **plan** review, not **code** review.
 
 What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
 that's really a behavior change is feature work — see the working rules), verify
@@ -627,7 +637,7 @@ Only ever do this to MY feature branch, never `main`. When in doubt,
 `git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
 **Pre-PR quality pass (David, 2026-07-22):** before opening an implementation
-PR (feature mode; bug-fix batches are exempt — they're already minimal), I run
+PR (feature mode; a bugfix PR is exempt — one bug's diff is already minimal), I run
 the `/simplify` pass over my changed code — dead weight, duplication,
 needless complexity — and fold in its fixes. Codex then reviews a cleaner
 diff, which means fewer mechanical review rounds. This is my discipline, not
@@ -665,7 +675,14 @@ loop, or straight from the final approved plan document when the plan went
 through the manual/private review path instead (the disclosure carve-out or a
 broken-loop fallback, per *Automated plan review* above — there's no
 `[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
-Bugfix mode or a trivial change with no plan gets "n/a — no plan" there.
+**A bugfix PR fills the same section with the *bugfix oracle*, not "n/a — no
+plan"** (fix tier, reported symptom verbatim, intended correct behavior, must
+not change, root cause, blast radius — see
+[`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)).
+A fix has no plan, but reviewing it against nothing but itself can't catch the
+one failure that matters most on a fix: the symptom disappears while a neighbor
+breaks. Only a genuinely trivial change with no bug behind it gets "n/a — no
+plan."
 
 **I fill in *Approved-plan source* with the exact revision, not the title.**
 Across a 20-round plan-review loop, copying the oracle out of an earlier
@@ -939,7 +956,14 @@ calls. Two concrete, durable changes:
   question for any task is: **if this goes subtly wrong, will Codex's review or
   David's product-testing catch it before it does damage?** Yes → Sonnet is
   safe. No → Opus, because I'm the only guard.
-  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
+  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`)
+    for triage and diagnosis. **But the tier classification can send it back up:**
+    the moment I classify a fix as **Tier B** (a sensitive subsystem, or a
+    structurally risky fix shape — see
+    [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake)),
+    I say so and ask David to switch me to **Opus** before I write it. Those are
+    precisely the fixes where a subtle error slips both safety nets, which is the
+    deciding question in this whole table.
   - **Entering plan mode, or any "let's build/design/add X" feature-building
     request** → **`opusplan` now handles the plan-mode half automatically** (see
     *The `opusplan` default* below), so entering plan mode puts the session on

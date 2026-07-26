@@ -10,12 +10,14 @@
 
 ## Approved-plan oracle
 
-<!-- If this PR implements a plan David approved (feature mode), paste that
-     plan's Product Intent / Must Not Change / Settled Decisions verbatim —
-     from the plan-review PR body or the final approved plan doc — so the
-     reviewer can check this diff against what was actually approved, not
-     just against itself (see docs/engineering/code-review.md#the-review-oracle-the-pr-body).
-     For bugfix mode or a trivial change with no plan, write "n/a — no plan."
+<!-- Every PR needs an oracle — something OUTSIDE the diff to check it against,
+     so a reviewer can catch a PR that is internally sound but quietly narrowed
+     its scope or broke a neighbor. Which form you fill in depends on the mode;
+     see docs/engineering/code-review.md#the-review-oracle-the-pr-body.
+
+     FEATURE MODE — paste the approved plan's Product Intent / Must Not Change /
+     Settled Decisions verbatim, from the plan-review PR body or the final
+     approved plan doc. Delete the bugfix block.
 
      Approved-plan source identifies the EXACT final revision these words came
      from — not a title or a mutable branch — so a reviewer can tell the
@@ -23,12 +25,27 @@
        Plan-review PR #<N>, final plan commit `<sha>`, approved by David on `YYYY-MM-DD`.
      or, for the private/manual review path (plan never committed):
        `<final-plan-filename>.md`, sha256 `<hash>`, approved by David on `YYYY-MM-DD`.
-     (`shasum -a 256 <file>` on the exact file delivered for approval.) -->
+     (`shasum -a 256 <file>` on the exact file delivered for approval.)
 
+     BUGFIX MODE — fill the bugfix oracle instead; delete the feature block.
+     See docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
+
+     Only a genuinely trivial change with no plan and no bug behind it (a typo,
+     a comment) writes "n/a — no plan" and deletes both blocks. -->
+
+<!-- Feature mode -->
 **Approved-plan source:**
 **Product intent:**
 **Must not change:**
 **Settled decisions:**
+
+<!-- Bugfix mode -->
+**Fix tier:** <!-- A (contained) | B (elevated) — name the trigger that fired -->
+**Reported symptom:** <!-- David's report, quoted verbatim -->
+**Intended correct behavior:**
+**Must not change:** <!-- adjacent behaviors sharing this code path -->
+**Root cause:** <!-- the mechanism, not the instance -->
+**Blast radius:** <!-- what else calls this / shares this path, and what you checked -->
 
 ## Verification
 
