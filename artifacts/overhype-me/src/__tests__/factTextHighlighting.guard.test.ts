@@ -101,8 +101,15 @@ function referencesFlatRenderFact(src: string): boolean {
       // `import * as X from ".../render-fact"` — only an offense if the
       // flat export is actually read off the namespace, so a namespace
       // import used solely for renderFactSegments/tokenizeFact/hasPronouns
-      // doesn't false-positive.
-      if (new RegExp(`\\b${namespaceAlias}\\.renderFact\\b`).test(src)) return true;
+      // doesn't false-positive. Covers direct member access
+      // (`X.renderFact(`) and destructuring off the namespace
+      // (`const { renderFact } = X`), the latter being invisible to a plain
+      // `X.renderFact` search (Codex review, PR #265).
+      const memberAccess = new RegExp(`\\b${namespaceAlias}\\.renderFact\\b`);
+      const destructured = new RegExp(
+        `\\b(?:const|let|var)\\s*\\{[^}]*\\brenderFact\\b[^}]*\\}\\s*=\\s*${namespaceAlias}\\b`,
+      );
+      if (memberAccess.test(src) || destructured.test(src)) return true;
       continue;
     }
 
