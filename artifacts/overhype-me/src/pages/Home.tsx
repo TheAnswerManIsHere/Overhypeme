@@ -11,7 +11,6 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
-import { renderFact } from "@/lib/render-fact";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { PRONOUN_PRESETS, isCustomPronouns, parseCustom, serializeCustom, EMPTY_CUSTOM, type CustomPronounSet } from "@/lib/pronouns";
 
@@ -473,7 +472,7 @@ export default function Home() {
   const [filterMode, setFilterMode] = useState<FilterMode>("default");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showHashtagRail, setShowHashtagRail] = useState(false);
-  const { name, pronouns, setName, setPronouns } = usePersonName();
+  const { name, setName, setPronouns } = usePersonName();
   const prefersReducedMotion = useReducedMotion();
 
   // Two-step cold onboarding: capture name first, then show pronouns sheet.
@@ -503,12 +502,6 @@ export default function Home() {
   // a real hero.  As soon as a name is set we flip to warm mode.
   const isCold = !name && !SHARE_LINK_ACTIVE;
   const { fact: heroFact, isLoading: heroLoading, shuffle: shuffleHero } = useHeroFact();
-
-  const heroRendered = useMemo(() => {
-    if (isCold) return renderFact(COLD_TEASER_FACT, "", pronouns);
-    if (!heroFact) return "";
-    return renderFact(heroFact.text, name, pronouns);
-  }, [isCold, heroFact, name, pronouns]);
 
   const primaryTag = selectedTags[0] ?? undefined;
 
@@ -635,17 +628,13 @@ export default function Home() {
               <div className="rounded-[32px] bg-card border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-10 py-9">
                 <div className="flex items-center gap-2 mb-3 text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display">
                   <span className="w-5 h-px bg-muted-foreground/40" />
-                  ABOUT YOU
+                  About {DEMO_NAME}
                 </div>
                 <h2
                   className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight mb-8 text-foreground"
                   style={{ textWrap: "pretty" } as React.CSSProperties}
                 >
-                  {heroRendered.split("___").map((p, i, arr) =>
-                    i < arr.length - 1
-                      ? <span key={i}>{p}<span className="text-primary">___</span></span>
-                      : <span key={i}>{p}</span>
-                  )}
+                  <HighlightedFactText template={COLD_TEASER_FACT} name={DEMO_NAME} pronouns={DEFAULT_PRONOUNS} />
                 </h2>
                 <p className="text-[14px] text-muted-foreground mb-5">Type your name and every fact in the database becomes about you.</p>
                 <div className="max-w-[420px]">

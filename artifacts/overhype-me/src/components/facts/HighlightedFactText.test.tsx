@@ -65,4 +65,42 @@ describe("HighlightedFactText", () => {
     expect(highlightedSpans(container)).toEqual([]);
     expect(container.textContent).toBe("___'s legend grows");
   });
+
+  /**
+   * Product decision (David, 2026-07-26): a cold visitor is never shown the
+   * bare "___" slot — the hero renders the demo persona "David Franklin" so a
+   * first-time visitor immediately sees what personalization looks like. Both
+   * cold heroes therefore pass DEMO_NAME rather than an empty name, and the
+   * empty-name case above is only a defensive fallback.
+   */
+  it("highlights the demo persona in the cold-visitor teaser", () => {
+    const { container } = render(
+      <HighlightedFactText
+        template="The universe doesn't expand. {NAME} pushes it."
+        name="David Franklin"
+        pronouns="he/him"
+      />,
+    );
+    expect(highlightedSpans(container)).toEqual(["David Franklin"]);
+    expect(container.textContent).toBe(
+      "The universe doesn't expand. David Franklin pushes it.",
+    );
+  });
+
+  /**
+   * WelcomeModal falls back to the second-person "You" while the name field is
+   * still empty — it is asking for *your* name, so the demo persona would be
+   * confusing there. That fallback must still highlight.
+   */
+  it("highlights the 'You' fallback used before a name is typed", () => {
+    const { container } = render(
+      <HighlightedFactText
+        template="The universe doesn't expand. {NAME} pushes it."
+        name="You"
+        pronouns="they/them"
+      />,
+    );
+    expect(highlightedSpans(container)).toEqual(["You"]);
+    expect(container.textContent).toBe("The universe doesn't expand. You pushes it.");
+  });
 });
