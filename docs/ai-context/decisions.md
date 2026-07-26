@@ -25,9 +25,10 @@
   on an explicit shared-infra verdict** — required only when the PR touches
   the test runner, DB layer, migration runner, codegen pipeline
   (`lib/api-spec`, `lib/api-zod`), or shared middleware — not a default step.
-  Every targeted test command must route through
+  Every api-server targeted test command must route through
   `bash artifacts/api-server/scripts/run-test.sh`, never raw
-  `node`/`pnpm exec tsx --test`.
+  `node`/`pnpm exec tsx --test`; frontend Vitest commands aren't DB-backed and
+  have no equivalent wrapper, so they're invoked directly.
 - **Why:** Replit's own feedback after executing the PR223/PR224 checklists:
   roughly half of each one re-verified things that already passed pre-merge,
   and PR224's unconditional full-suite run cost ~40 minutes fighting test-DB
