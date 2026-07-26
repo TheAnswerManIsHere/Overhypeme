@@ -188,14 +188,21 @@ there is no size or scope of schema change that stays on bugfix mode's fast
 path. It always runs
 [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)'s
 ceremony (idempotency, observable counts, human-override preservation,
-rollback for destructive ops), on David's explicit go-ahead. What varies is
-only whether it *also* needs a full feature-mode plan first, decided by the
-same product-consequences line the mode boundary above already draws: a
-schema fix with no product-visible consequence (making stored data match
-what the product already assumes — no new behavior, no new surface) runs
-migration ceremony directly; a schema change with product-visible
-consequences gets a full feature-mode plan before anything runs. If genuinely
-unsure which side of that line it's on, ask rather than guess.
+rollback for destructive ops). Whether it *also* needs a full approved plan
+first is decided by **AGENTS.md's repo-wide planning standard** — non-trivial
+implementation work requires a plan via
+[`.agents/PLANS.md`](../../.agents/PLANS.md) with David's explicit approval
+before anything runs — **not** by product-visibility; a schema/data change
+with zero product surface can still be structurally complex, hard to
+reverse, and exactly what that standard exists to gate. So: a genuinely
+**trivial**, well-scoped schema fix (`PLANS.md`'s own carve-out — e.g. a
+single `ADD COLUMN IF NOT EXISTS` with no data transformation and no
+behavior change) can run migration ceremony directly, on David's explicit
+go-ahead; anything **non-trivial** — multiple steps, a data transformation,
+any risk of irreversibility, anything you're not confident is simple — gets
+a full plan and approval first, regardless of whether it has product
+consequences. If genuinely unsure which side of trivial/non-trivial it's on,
+treat it as non-trivial and ask rather than guess.
 
 ### Per bug — the loop
 

@@ -51,8 +51,15 @@ exists, that is the signal to pick a different slug — never fall back to `-B`,
 `git reset --hard` outright; see CLAUDE.md's *This environment's git
 constraints*.)
 
-> If I was already invoked on a designated working branch, **stay on it** — the
-> fresh-branch step is for the normal case where David starts a bug from scratch.
+> **The assigned-branch exception is scoped to an *unclaimed* branch.** If I was
+> invoked on a designated working branch and it has no bug on it yet, **stay on
+> it** — the fresh-branch step is for the normal case where David starts a bug
+> from scratch. But the "spoken for" check above still applies on every bug: the
+> moment that assigned branch carries a prior bug's pushed fix, it's claimed the
+> same as any other branch, and this exception no longer covers it. If the
+> environment also disallows creating a fresh branch (a runner that assigned
+> exactly one branch), don't put the second bug on the first bug's branch to
+> route around that — stop and ask David for a new assigned branch instead.
 
 Then confirm: branch name + "bug-fixing mode is on."
 
@@ -133,7 +140,11 @@ the PR back only delays the review that catches things.
    CLAUDE.md's plan/UAT delivery ritual). A `TEST_RUN` doc only if something
    genuinely needs Replit's environment — per
    [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md), it
-   is not a default.
+   is not a default. **This UAT commit lands after round 1 already fired on
+   PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
+   so it needs its own explicit `@codex review` once it's pushed, the same as
+   any other fix-round commit. Don't let the PR reach convergence with a
+   commit Codex never actually saw.
 4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
    **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately; on
    Opus (which a Tier B fix will have put me on) → tell David the PR is ready to
