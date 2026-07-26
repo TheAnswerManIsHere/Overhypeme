@@ -9,8 +9,9 @@ schema changes plus one config migration — no new async work, no new vendor.
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). No new exemptions — migration `0086` is a plain generated
-  migration, not exempt-list material.
+  CI's `build.yml`). New exemption this PR added:
+  `0086_retire_style_integration_add_supporting_text_kind` (hand-authored DML)
+  is in `SNAPSHOT_EXEMPT_TAGS` — confirm the entry is present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - Typecheck (`typecheck:libs`, per-package `typecheck`) — pre-merge gates
   assumed green; spot-check only if something below fails.

@@ -40,23 +40,31 @@ silently shrinking the moderator pool.
   CI's `build.yml`; do not substitute `check-snapshots` — it fails on plain
   `main` today for a pre-existing, unrelated gap, see
   [`test-run-contract.md`](engineering/test-run-contract.md)). New exemptions
-  this PR added: none — `0087`/`0088` are hand-authored and don't need
-  `SNAPSHOT_EXEMPT_TAGS` entries (`validate-snapshots` skips pairs with no
-  snapshot file rather than requiring one).
+  this PR added: `0087_image_prompt_attempts_error_code` (hand-authored DDL)
+  and `0088_trim_global_look_style_copy` (hand-authored DML) are both in
+  `SNAPSHOT_EXEMPT_TAGS` — confirm both entries are present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - Install/typecheck (`install --frozen-lockfile`, `typecheck:libs`, per-package
   `typecheck`) — pre-merge gates assumed green; spot-check only if something
   below fails.
 
-## Full sharded suite — shared infra touched: no
+## Full sharded suite — shared infra touched: yes
 
-This PR is §12 async terminal/retryable handling + §10 prompt budget + §14
-style-copy trim — no test runner, DB layer, migration runner, codegen
-pipeline, or shared middleware change. The targeted list below is sufficient;
-skip the sharded run. (Replit's own experience running this checklist: the
-sharded suite never completed here — the `pretest` chain stalled against
-`heliumdb_test` while the api-server dev workflow held connections open. That
-cost is exactly what skipping it here avoids.)
+This PR touches the shared async-worker implementation
+(`artifacts/api-server/src/lib/asyncJobs.ts`) and registers a new
+`lib/api-zod/src/promptBudget.ts` module in the codegen allowlist
+(`lib/api-spec/patch-generated.mjs`) — both shared infra, so the full suite
+stays required.
+
+```bash
+pnpm --filter @workspace/api-server test
+```
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections — this checklist previously stalled here (the `pretest`
+chain hung against `heliumdb_test` while the dev workflow held connections
+open); that's an operational precondition to fix, not a reason to skip the
+suite the contract requires for a genuine shared-infra touch.
 
 ## Targeted tests
 

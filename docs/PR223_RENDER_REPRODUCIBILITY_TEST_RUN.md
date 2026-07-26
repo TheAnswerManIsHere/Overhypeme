@@ -19,11 +19,20 @@ migration/test flow against Replit's own database.
   below fails. (`check:no-console` / `check:cycles` run inside the api-server
   typecheck script.)
 
-## Full sharded suite — shared infra touched: no
+## Full sharded suite — shared infra touched: yes
 
-This PR is scoped to render identity/style reproducibility — no test runner,
-DB layer, migration runner, codegen pipeline, or shared middleware change. The
-targeted list below is sufficient; skip the sharded run.
+This PR registers a new `lib/api-zod/src/resolvedIdentityForms.ts` module in
+the codegen allowlist (`lib/api-spec/patch-generated.mjs`) — the codegen
+pipeline is touched, so the full suite stays required.
+
+```bash
+pnpm --filter @workspace/api-server test
+```
+
+Expected: **all shards pass, 0 fail.** (A logged
+`OPENAI_API_KEY must be set…` line from the fact-image pipeline is a
+non-failing warning inside a test, not a failure — the shard still reports
+`result=pass`.)
 
 ## Automated tests
 
