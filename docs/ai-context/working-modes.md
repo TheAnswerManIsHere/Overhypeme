@@ -63,11 +63,16 @@ land the same day. Create non-resettingly (fail rather than wipe existing work),
 pick a disambiguated name on a clash, and **never** force/reset onto
 `origin/main` to resolve one.
 
-> **Exception — a preselected/assigned branch wins.** If you were already invoked
-> on a designated task branch (a preselected branch, a Codex cloud run, an assigned
-> working branch, or a runner that disallows branch creation), **stay on it** — do
-> not create a fresh branch. The fresh-branch step is only for the normal case
-> where David starts a bug from scratch with no branch assigned.
+> **Exception — a preselected/assigned branch wins, but only while unclaimed.**
+> If you were already invoked on a designated task branch (a preselected branch, a
+> Codex cloud run, an assigned working branch, or a runner that disallows branch
+> creation) and it has **no bug on it yet**, **stay on it** — do not create a
+> fresh branch. The moment that branch carries a prior bug's pushed fix (its PR is
+> open or merged), it is claimed the same as any other branch, and this exception
+> no longer covers it — the next bug needs an unclaimed branch, per the fresh-branch
+> step above. If the environment also disallows creating one (a runner that
+> assigns exactly one branch), don't put the second bug on the first bug's
+> branch to route around that — stop and ask David for a new assigned branch.
 
 > **Dependent bugs.** If a new bug's fix depends on an earlier fix whose PR is
 > still open, say so rather than silently branching from `origin/main` (which
@@ -303,14 +308,20 @@ this miss a caller?*
 
 **Mode persistence & switching:** a mode stays in force across messages until David
 ends it. If a request that arrives during bugfix mode looks like **building or
-changing product functionality** (a feature, a behavior change, a schema change
-with product consequences), **do not silently treat it as a fix and do not silently
-switch** — **ask** whether to exit bugfix mode and switch to the feature workflow.
-Guessing wrong is expensive in both directions (skipping a plan a feature needed, or
+changing product functionality** (a feature, a behavior change) — or diagnosis
+reveals **any schema change, migration, or backfill** (Tier C without exception,
+regardless of product consequence — see *Tier C* above) — **do not silently treat
+it as a fix and do not silently switch** — **ask** whether to exit bugfix mode and
+switch to the feature workflow, or (for a genuinely trivial schema fix) proceed
+straight to migration ceremony per Tier C. Guessing wrong is expensive in both
+directions (skipping a plan a feature or a non-trivial schema change needed, or
 piling ceremony onto a one-line fix), and the confirm costs one question.
 
 ## When NOT to use bugfix mode
 
-Features, behavior changes, schema changes with product consequences, or anything
-where David needs to verify intent — that's **feature mode**. Don't use bugfix mode
-to sneak a feature through the lightweight path. When unsure which it is, **ask.**
+Features, behavior changes, **any schema change, migration, or backfill**
+(Tier C without exception — see above; not gated on product consequence), or
+anything where David needs to verify intent — that's **feature mode**, or for a
+trivial schema fix, migration ceremony run directly per Tier C. Don't use bugfix
+mode to sneak a feature through the lightweight path. When unsure which it is,
+**ask.**

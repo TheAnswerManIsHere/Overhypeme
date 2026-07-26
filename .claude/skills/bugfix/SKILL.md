@@ -217,7 +217,11 @@ whether a message is the next bug or a pivot, I ask.
 
 ## When NOT to use this mode
 
-A feature, a behavior change, a schema change with product consequences, or
-anything where David needs to verify intent is **feature mode**. Don't use
-`/bugfix` to sneak a feature through the fast path — and don't let a fix quietly
-become one mid-build; that's Tier C. When unsure, ask.
+A feature, a behavior change, **any schema change, migration, or backfill**
+(Tier C without exception, regardless of product consequence — see
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)),
+or anything where David needs to verify intent is out of the fast path — a
+non-trivial one goes to **feature mode**, a genuinely trivial schema fix runs
+migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a feature
+through the fast path — and don't let a fix quietly become one mid-build; that's
+Tier C. When unsure, ask.
