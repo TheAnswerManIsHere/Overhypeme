@@ -50,6 +50,46 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * Does this file bring the flat `renderFact` export into scope, in any form?
+ * Matches the module by its final path segment ("render-fact", optionally
+ * with a .ts/.tsx extension) rather than one exact specifier string, so the
+ * `@/lib/...` alias, any relative depth (`../lib/render-fact`,
+ * `./render-fact`), and re-exports are all covered — not just the alias form
+ * the first version of this guard checked (Codex review, PR #262: a
+ * namespace import or relative path was a silent bypass).
+ */
+function referencesFlatRenderFact(src: string): boolean {
+  const DECL_RE =
+    /\b(?:import|export)\s+(?:type\s+)?([^;]*?)\s+from\s+["'](?:[^"']*\/)?render-fact(?:\.tsx?)?["']/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = DECL_RE.exec(src))) {
+    const clause = match[1];
+
+    // `export * from ".../render-fact"` — re-exports everything, including
+    // renderFact, with no local name to trace usage through. Always counts;
+    // it needs its own allowlist justification like any other reference.
+    if (/^\*\s*$/.test(clause.trim())) return true;
+
+    // `import * as X from ".../render-fact"` — only an offense if the flat
+    // export is actually read off the namespace, so a namespace import used
+    // solely for renderFactSegments/tokenizeFact/hasPronouns doesn't
+    // false-positive.
+    const namespaceAlias = clause.match(/\*\s*as\s+(\w+)/)?.[1];
+    if (namespaceAlias) {
+      if (new RegExp(`\\b${namespaceAlias}\\.renderFact\\b`).test(src)) return true;
+      continue;
+    }
+
+    // Named import/export list — `{ renderFact }`, `{ renderFact as x }`,
+    // `{ renderFactSegments, renderFact }`. The word boundary means this does
+    // not false-positive on `renderFactSegments`.
+    if (/\brenderFact\b/.test(clause)) return true;
+  }
+  return false;
+}
+
 describe("fact-text highlighting guard", () => {
   it("resolves the source tree it is meant to scan", () => {
     // If this fails the two guards below would silently pass on an empty scan.
@@ -64,8 +104,7 @@ describe("fact-text highlighting guard", () => {
       if (rel === "lib/render-fact.ts") continue; // the module that defines it
 
       const src = readFileSync(file, "utf8");
-      const importsFlat = /import\s*\{[^}]*\brenderFact\b[^}]*\}\s*from\s*["']@\/lib\/render-fact["']/.test(src);
-      if (!importsFlat) continue;
+      if (!referencesFlatRenderFact(src)) continue;
 
       if (!(rel in FLAT_RENDER_ALLOWLIST)) offenders.push(rel);
     }
@@ -82,6 +121,19 @@ describe("fact-text highlighting guard", () => {
   it("no module highlights a name by splitting rendered text", () => {
     const offenders: string[] = [];
 
+    // How far past a `.split(` to look for the brand-colour paint. Not a
+    // full parse of the enclosing JSX expression (Codex review, PR #262:
+    // the original 5-line window missed a paint past line 4, a common
+    // outcome once JSX gets reformatted) — a generous bounded window, cut
+    // short at the next top-level declaration so it can't bleed into an
+    // unrelated component further down the file.
+    const MAX_LOOKAHEAD = 40;
+    const TOP_LEVEL_DECL_RE = /^\s*(export\s+)?(default\s+)?(async\s+)?(function|const|class)\s+[A-Za-z]/;
+    // Matches the literal `className="text-primary"` form AND any computed
+    // form (`cn(...)`, a template literal, a ternary) as long as the
+    // "text-primary" token appears somewhere in the expression.
+    const HIGHLIGHT_CLASS_RE = /className=(?:"[^"]*\btext-primary\b[^"]*"|\{[^}]*\btext-primary\b[^}]*\})/;
+
     for (const file of sourceFiles(SRC)) {
       const rel = relative(SRC, file).split("\\").join("/");
       const lines = readFileSync(file, "utf8").split("\n");
@@ -89,9 +141,16 @@ describe("fact-text highlighting guard", () => {
       lines.forEach((line, i) => {
         if (!line.includes(".split(")) return;
         // The anti-pattern: split a rendered sentence, then paint one piece
-        // with the brand colour. Look ahead a few lines for that paint.
-        const window = lines.slice(i, i + 5).join("\n");
-        if (/className="text-primary"/.test(window)) {
+        // with the brand colour. Look ahead for that paint, stopping at the
+        // next top-level declaration so an unrelated later component can't
+        // be mistaken for this one's paint.
+        let windowEnd = i;
+        for (let j = i + 1; j < lines.length && j < i + MAX_LOOKAHEAD; j++) {
+          if (TOP_LEVEL_DECL_RE.test(lines[j])) break;
+          windowEnd = j;
+        }
+        const window = lines.slice(i, windowEnd + 1).join("\n");
+        if (HIGHLIGHT_CLASS_RE.test(window)) {
           offenders.push(`${rel}:${i + 1}`);
         }
       });
