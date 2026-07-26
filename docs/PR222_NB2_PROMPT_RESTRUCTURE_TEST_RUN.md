@@ -47,7 +47,21 @@ pnpm --filter @workspace/api-server test
 test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
 can stall against the test database.
 
-Expect: **full suite green** (≈2,334 tests across 4 shards, 0 fail). Key files:
+Expect: **full suite green** (≈2,334 tests across 4 shards, 0 fail).
+
+Targeted (fast inner loop before the full run — never raw `node`/`tsx`
+execution, it bypasses `run-test.sh`'s production-DB guard):
+
+```bash
+bash artifacts/api-server/scripts/run-test.sh \
+  src/__tests__/promptIdentityBudget.test.ts \
+  src/__tests__/promptContentDetectors.test.ts \
+  src/__tests__/nanoBanana2Compiler.test.ts \
+  src/__tests__/imagePromptGeneration.validate.test.ts \
+  src/__tests__/imagePromptUserMessage.test.ts
+```
+
+Key files:
 
 - `promptIdentityBudget.test.ts` — 6 pass. Proves `projectWorstCaseRenderedLength`
   ≥ actual `renderPersonalized` output across an identity×template matrix.

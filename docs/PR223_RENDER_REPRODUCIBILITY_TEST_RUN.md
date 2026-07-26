@@ -40,10 +40,11 @@ non-failing warning inside a test, not a failure — the shard still reports
 
 ## Automated tests
 
-Targeted new/affected files (single-file runner, faster to iterate):
+Targeted new/affected files (never raw `node`/`tsx` execution — it bypasses
+`run-test.sh`'s production-DB guard):
 
 ```bash
-pnpm --filter @workspace/api-server exec tsx --test \
+bash artifacts/api-server/scripts/run-test.sh \
   src/__tests__/resolvedIdentityForms.test.ts \
   src/__tests__/promptIdentity.test.ts \
   src/__tests__/styleResolution.test.ts \

@@ -51,9 +51,10 @@ can stall against the test database.
 
 ## 4. Backend test files (run each; expect `# fail 0`)
 
-Runner: `node --import tsx/esm --test src/__tests__/<file>` from
-`artifacts/api-server` (set `BCRYPT_SALT_ROUNDS=4
-TEST_DB_ALLOW_EXIT_ON_IDLE=1`). New and touched files:
+Runner: `BCRYPT_SALT_ROUNDS=4 bash artifacts/api-server/scripts/run-test.sh
+src/__tests__/<file>` (never raw `node`/`tsx` execution — it bypasses the
+script's production-DB guard; `run-test.sh` already sets
+`TEST_DB_ALLOW_EXIT_ON_IDLE` internally). New and touched files:
 
 | File | Covers |
 |---|---|

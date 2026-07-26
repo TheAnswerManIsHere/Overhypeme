@@ -70,8 +70,11 @@ suite the contract requires for a genuine shared-infra touch.
 
 ## Targeted tests
 
+Never raw `node`/`tsx` execution — it bypasses `run-test.sh`'s production-DB
+guard:
+
 ```bash
-pnpm --filter @workspace/api-server exec tsx --test \
+bash artifacts/api-server/scripts/run-test.sh \
   src/__tests__/asyncJobs.test.ts \
   src/__tests__/promptBudget.test.ts \
   src/__tests__/nanoBanana2Compiler.test.ts \

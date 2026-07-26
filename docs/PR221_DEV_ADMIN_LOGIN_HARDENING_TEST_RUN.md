@@ -14,11 +14,19 @@ Sibling doc: [`PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md`](./PR221_DEV_ADMIN_LOGIN_
   CI's `build.yml`). No new exemptions — this PR has no migration.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 
-## Full sharded suite — shared infra touched: no
+## Full sharded suite — shared infra touched: yes
 
-This PR is scoped to gating the dev-admin-login route — no test runner, DB
-layer, migration runner, codegen pipeline, or shared middleware change. The
-targeted suites below are sufficient; skip the sharded run.
+This PR changes the app-level origin/CSRF exemption set and conditionally
+mounts the pre-global-CORS middleware in `artifacts/api-server/src/app.ts` —
+shared middleware, so the full suite stays required.
+
+```bash
+pnpm --filter @workspace/api-server test
+```
+
+**Stop the `artifacts/api-server: API Server` workflow first** to free
+test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
+can stall against the test database.
 
 ## Commands
 
@@ -27,8 +35,9 @@ From `artifacts/api-server`:
 ```bash
 pnpm run typecheck
 
-# The C1 hardening suite + the C7 suite (same route file)
-node --import tsx/esm --test \
+# The C1 hardening suite + the C7 suite (same route file) — never raw
+# `node --test`, it bypasses run-test.sh's production-DB guard
+bash scripts/run-test.sh \
   src/__tests__/localAuth.devAdminLogin.security.test.ts \
   src/__tests__/localAuth.security.test.ts
 ```
