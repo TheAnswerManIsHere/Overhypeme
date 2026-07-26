@@ -44,12 +44,12 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). **Known gap, not this PR's to fix:** `0090` is a DML-only
-  migration (no schema change, per above) and correctly has no snapshot file,
-  but it also isn't yet in `check-migration-snapshots.ts`'s
-  `SNAPSHOT_EXEMPT_TAGS` — that gate will report it missing until the tag is
-  added; `validate-snapshots` (the gate that actually matters here) doesn't
-  require one and passes regardless.
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. `0090` is
+  a DML-only migration (no schema change, per above) and correctly has no
+  snapshot file — confirm `0090_visual_concepts_bubble_contract` is in
+  `SNAPSHOT_EXEMPT_TAGS` (added by a later follow-up commit, not this PR's
+  own diff).
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 
 ## Full sharded suite — shared infra touched: yes

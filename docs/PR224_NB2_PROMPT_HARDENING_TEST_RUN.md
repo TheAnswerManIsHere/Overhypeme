@@ -37,10 +37,9 @@ silently shrinking the moderator pool.
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`; do not substitute `check-snapshots` — it fails on plain
-  `main` today for a pre-existing, unrelated gap, see
-  [`test-run-contract.md`](engineering/test-run-contract.md)). New exemptions
-  this PR added: `0086_retire_style_integration_add_supporting_text_kind`
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  exemptions this PR added: `0086_retire_style_integration_add_supporting_text_kind`
   (hand-authored DML, actually introduced by PR222 but only exempted here),
   `0087_image_prompt_attempts_error_code` (hand-authored DDL), and
   `0088_trim_global_look_style_copy` (hand-authored DML) — all three are in

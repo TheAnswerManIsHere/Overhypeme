@@ -24,13 +24,11 @@ the migration a second time is a no-op (`IF NOT EXISTS`).
 ## 2. Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`; do not substitute `check-migration-snapshots.ts` — it
-  reports the **pre-existing**, unrelated `0089`/`0090` gap regardless of this
-  PR). New exemptions this PR added: `0093_facts_ai_meme_backfill_status` is
-  in `SNAPSHOT_EXEMPT_TAGS` (mirrors the `0075_facts_pexels_status`
-  precedent) — not required for
-  `validate-snapshots` to pass, but confirms the exempt-list entry is present
-  if you do run `check-migration-snapshots.ts` directly.
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  exemption this PR added: `0093_facts_ai_meme_backfill_status` is in
+  `SNAPSHOT_EXEMPT_TAGS` (mirrors the `0075_facts_pexels_status` precedent) —
+  confirm the entry is present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - `pnpm run check:codegen-drift` — expected: clean (no hand-edited generated
   files).

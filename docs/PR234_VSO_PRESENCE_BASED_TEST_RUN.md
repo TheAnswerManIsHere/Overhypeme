@@ -12,8 +12,9 @@ Sibling doc: [`PR234_VSO_PRESENCE_BASED_UAT.md`](./PR234_VSO_PRESENCE_BASED_UAT.
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). No new exemptions — this PR has no migration (see
-  *Schema / DB* below).
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. No new
+  exemptions — this PR has no migration (see *Schema / DB* below).
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - Typecheck (`typecheck:libs`, per-package `typecheck`) — pre-merge gates
   assumed green; spot-check only if something below fails.

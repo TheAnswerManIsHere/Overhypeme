@@ -40,11 +40,11 @@ Confirm after migrate:
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). **Known gap, not this PR's to fix:** `0089` is real DDL
-  (a new table) generated without a snapshot file and isn't in
-  `check-snapshots`'s `SNAPSHOT_EXEMPT_TAGS` — that gate will report it missing
-  until a snapshot is generated or the tag is added; `validate-snapshots` (the
-  gate that actually matters here) doesn't require one and passes regardless.
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. `0089` is
+  real DDL (a new table) generated without a snapshot file — confirm
+  `0089_fact_text_edit_history` is in `SNAPSHOT_EXEMPT_TAGS` (added by a later
+  follow-up commit, not this PR's own diff).
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 
 ## Automated tests

@@ -30,17 +30,22 @@ and demote the rest.
 2. **Post-merge repo-health gates.** These depend on the *merged* state of
    `main`, which the PR author could not see when writing the doc — so a gate
    that was green on the branch can be red here because another PR landed
-   first. Always run:
+   first. Always run **both** snapshot gates — they check different things:
    - `pnpm --filter @workspace/db validate-snapshots`
-     (`lib/db/scripts/validate-migration-snapshots.ts`) — this is the gate
-     CI's `build.yml` actually runs. **Do not substitute
-     `check-snapshots`/`check-migration-snapshots.ts`** — as of this writing
-     it fails on plain `main` for a pre-existing, unrelated reason (migrations
-     `0089`/`0090` predate the exempt-list discipline and aren't in
-     `SNAPSHOT_EXEMPT_TAGS`), so instructing Replit to expect it clean produces
-     a false alarm on every future TEST_RUN regardless of that PR's content.
-     If that baseline gap is ever closed (fixed or exempted), this doc should
-     switch back to `check-snapshots` as the stricter check.
+     (`lib/db/scripts/validate-migration-snapshots.ts`) — the gate CI's
+     `build.yml` actually runs. Checks that consecutive snapshots are
+     consistent with the SQL between them; silently skips any pair with a
+     missing snapshot file.
+   - `pnpm --filter @workspace/db check-snapshots`
+     (`lib/db/scripts/check-migration-snapshots.ts`) — checks that every
+     journal entry has a snapshot file **or** an explicit
+     `SNAPSHOT_EXEMPT_TAGS` entry. This is the gate `validate-snapshots`
+     doesn't do: it's what catches a migration that shipped with neither a
+     generated snapshot nor an exemption comment — exactly what happened with
+     `0089`/`0090` (added without exemptions, causing this gate to fail on
+     `main` for a stretch after PR228/PR229 merged, until a later commit
+     added both tags). That gap is now closed (both entries exist), so this
+     gate is green again and back to being required, not skipped.
    - `node scripts/check-docs-accuracy.mjs`
    - plus **any new allow-list / exempt-list entry this PR added** — a new
      `SNAPSHOT_EXEMPT_TAGS` entry in `check-migration-snapshots.ts`,
@@ -118,8 +123,9 @@ only if something below fails.
 
 ## Repo-health gates (post-merge state — run always)
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). New `SNAPSHOT_EXEMPT_TAGS` entries this PR added: <list,
-  or "none">
+  CI's `build.yml`)
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  `SNAPSHOT_EXEMPT_TAGS` entries this PR added: <list, or "none">
 - `node scripts/check-docs-accuracy.mjs` — expected: clean
 - Other allow-list entries this PR added: <list, or "none">
 

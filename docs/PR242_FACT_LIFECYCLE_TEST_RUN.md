@@ -25,11 +25,12 @@ test schema so tests see the new shape:
 ## 2. Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`). New exemptions this PR added:
-  `0091_fact_lifecycle_phase1_additive` (hand-authored idempotent DDL) and
-  `0092_fact_lifecycle_phase2_backfill_check` (DML + the blocking CHECK
-  constraint) are both in `SNAPSHOT_EXEMPT_TAGS` — confirm both entries are
-  present.
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  exemptions this PR added: `0091_fact_lifecycle_phase1_additive`
+  (hand-authored idempotent DDL) and `0092_fact_lifecycle_phase2_backfill_check`
+  (DML + the blocking CHECK constraint) are both in `SNAPSHOT_EXEMPT_TAGS` —
+  confirm both entries are present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
 - Typecheck (`typecheck:libs`, per-package `tsc -b`) — pre-merge gates assumed
   green; spot-check only if something below fails.
