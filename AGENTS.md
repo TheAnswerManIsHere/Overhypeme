@@ -65,6 +65,9 @@ Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [testing-guide](docs/engineering/testing-guide.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md),
 [code-review](docs/engineering/code-review.md),
+[test-run-contract](docs/engineering/test-run-contract.md) (what a per-PR
+`TEST_RUN` checklist must contain — Replit executes it post-merge against the
+live DB),
 [deferred-work](docs/engineering/deferred-work.md) (the backlog of parked
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.
