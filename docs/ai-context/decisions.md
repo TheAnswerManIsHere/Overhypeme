@@ -13,6 +13,53 @@
 
 ---
 
+### 2026-07-26 · TEST_RUN checklists are scoped to what only Replit's live environment can verify
+- **Decision:** A `docs/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
+  migration state, post-merge repo-health gates (**both**
+  `pnpm --filter @workspace/db validate-snapshots` — matches CI's
+  `build.yml` — **and** `check-snapshots` — catches a migration that shipped
+  with neither a generated snapshot nor an explicit `SNAPSHOT_EXEMPT_TAGS`
+  entry, which `validate-snapshots` silently skips), behavior checks against
+  live config/data, and a test list scoped to the touched surfaces. The full
+  sharded suite (`pnpm --filter @workspace/api-server test`) is **conditional
+  on an explicit shared-infra verdict** — required only when the PR touches
+  the test runner, DB layer, migration runner, codegen pipeline
+  (`lib/api-spec`, `lib/api-zod`), or shared middleware — not a default step.
+  Every targeted test command must route through
+  `bash artifacts/api-server/scripts/run-test.sh`, never raw
+  `node`/`pnpm exec tsx --test`.
+- **Why:** Replit's own feedback after executing the PR223/PR224 checklists:
+  roughly half of each one re-verified things that already passed pre-merge,
+  and PR224's unconditional full-suite run cost ~40 minutes fighting test-DB
+  contention for zero new signal. The `check-snapshots`/`validate-snapshots`
+  split resolved a real back-and-forth: `check-snapshots` was initially
+  dropped as "currently broken" (migrations `0089`/`0090` predate the
+  exempt-list discipline and weren't tagged, so it failed on plain `main` for
+  reasons unrelated to whatever PR was being checked) — but that failure was
+  real signal, not noise, and a later commit closed the gap by tagging both.
+  Once closed, `check-snapshots` was restored as required alongside
+  `validate-snapshots`, since it catches a failure mode
+  `validate-snapshots` structurally can't (a missing snapshot with no
+  exemption at all). Separately, a Codex review round caught that four of the
+  applied checklists used raw `node --import tsx/esm --test` /
+  `pnpm exec tsx --test` for their targeted commands — both bypass
+  `run-test.sh`'s production-DB guard entirely (the guard never executes on a
+  direct invocation), which is the exact danger `docs/TESTING.md` already
+  documents. Several shared-infra verdicts (does this PR touch the codegen
+  allowlist / a shared worker / shared middleware?) were also initially
+  judged from the PR's own description rather than its actual commit diff,
+  and had to be corrected once verified.
+- **Reference:** PR #263 (new contract:
+  [`docs/engineering/test-run-contract.md`](../engineering/test-run-contract.md))
+  and PR #264 (applied to the 6 still-live checklists: 224, 228, 229, 234,
+  242, 256 — 221/222/223 had already been executed by Replit and deleted
+  before #264 merged, per the transient-doc lifecycle).
+- **Revisit if:** the `check-snapshots`/`0089`/`0090` gap reopens (a future
+  migration ships without a snapshot or exemption again), or CI's `build.yml`
+  changes which snapshot gate it runs.
+
+---
+
 ### 2026-07-25 · Stripe plan selection classifies by each price's own `recurring` field, and only from membership-tagged products
 - **Decision:** The customer-facing pricing page (and any future code that
   turns Stripe's product/price catalog into "which plan is this?") must

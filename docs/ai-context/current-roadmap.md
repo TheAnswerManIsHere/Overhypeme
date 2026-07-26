@@ -24,6 +24,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **TEST_RUN checklist contract** (PR #263, #264). New
+  [`docs/engineering/test-run-contract.md`](../engineering/test-run-contract.md)
+  restructures per-PR TEST_RUN checklists around what only Replit's live
+  environment can verify (migration state, post-merge repo-health gates,
+  live-config behavior, scoped tests), demotes the full sharded suite to an
+  explicit shared-infra-touched verdict instead of a default step, and
+  requires every test command route through `run-test.sh` rather than a raw
+  `node`/`tsx` invocation that bypasses the production-DB guard. Applied to
+  the 6 still-live checklists. See
+  [`decisions.md`](./decisions.md#2026-07-26--test_run-checklists-are-scoped-to-what-only-replits-live-environment-can-verify).
 - **Pricing page showed only one upgrade plan** (PR #255). Root cause: the
   page classified a whole Stripe *product* into monthly/annual/lifetime by
   its name (or defaulted to only its cheapest price), which collapses onto

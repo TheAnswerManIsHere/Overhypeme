@@ -89,6 +89,18 @@ highest-value tests we write.
 
 ## Authoring requirements
 
+- **Every targeted or full-suite test command must route through a wrapper
+  script** — `bash artifacts/api-server/scripts/run-test.sh <file...>`
+  (targeted) or `pnpm --filter @workspace/api-server test` (full suite).
+  **Never** write a raw `node --import tsx/esm --test` or
+  `pnpm --filter @workspace/api-server exec tsx --test` command in a TEST_RUN
+  doc — both bypass `run-test.sh`'s production-DB guard entirely (the guard
+  never executes, so the test runs against whatever `DATABASE_URL` already
+  points at — `heliumdb`, the live schema, on Replit). See
+  [`../TESTING.md`](../TESTING.md#quick-commands) for the full danger
+  explanation. This bit four separate checklists in one review pass before
+  being caught — check every command you write against this rule, not just
+  the ones you copied from an older doc.
 - **State the expected output for every gate**, but **phrase it drift-proof**.
   "All 89 journal entries…" goes stale the moment another PR merges a
   migration; write "all entries exempt or snapshotted" instead. Same for test
