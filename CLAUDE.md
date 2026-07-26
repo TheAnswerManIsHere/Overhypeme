@@ -345,6 +345,14 @@ through the public PR channel** — that plan stays on the manual/private review
 path (a public plan describing an exploit discloses it before the fix ships). I
 run this check every time, before creating the PR, not after.
 
+**And I record that it passed, in the PR body** (the *Public-disclosure check*
+section of the template below). An obligation that leaves no evidence decays —
+the same reasoning the plan-review contract applies to verification reporting.
+The attestation is deliberately contentless: it says the check passed, never
+what was screened out or why some other plan was judged sensitive, since that
+description would itself be the disclosure. A plan that fails the check never
+reaches this template at all.
+
 **External-claim verification is mine.** Codex's review environment is often
 network-restricted, so I don't outsource external verification to it. When a plan
 makes a material external API / SDK / model / pricing / rate-limit claim, **I**
@@ -367,6 +375,10 @@ have a draft plan, and the disclosure check passes:
    ## Review mode
    Plan review only. Never merge. Do not implement. Apply
    docs/ai-context/plan-review-contract.md.
+
+   ## Public-disclosure check
+   Passed. This plan contains no unpatched vulnerability details, secrets,
+   private customer information, fraud-enabling details, or embargoed material.
 
    ## Product intent
    <What David asked this feature to accomplish — verbatim or faithful.>
@@ -411,8 +423,15 @@ have a draft plan, and the disclosure check passes:
    the current head), weigh every comment on plan *substance*, revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit `@codex review` comment.
-   Codex has authority on plan *substance*, **none** on branch/PR/devops
-   mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
+   Codex is the independent technical reviewer. **Every substantive finding
+   must be fixed, rebutted with repository evidence, or escalated to David —
+   none may be silently ignored.** That's the real gate, and it's stronger than
+   "Codex has authority" (the wording this replaces), which read as though
+   Codex settled architecture or product direction: it doesn't, David does, and
+   a finding I can disprove from the repo is disposed of by showing that
+   evidence on the thread, not by deferring. Codex has **no** authority over
+   the branch/PR/devops ceremony this contract already governs (e.g. its
+   "delete the branch" advice — I can't, and don't need to).
    Codex's GitHub review posts only diff-anchored inline findings — confirmed
    against this repo's own PR history, its top-level review body is always
    fixed connector boilerplate, never custom text. So it cannot itself post a
@@ -646,7 +665,18 @@ loop, or straight from the final approved plan document when the plan went
 through the manual/private review path instead (the disclosure carve-out or a
 broken-loop fallback, per *Automated plan review* above — there's no
 `[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
-Bugfix mode or a trivial change with no plan gets "n/a — no plan" there. See
+Bugfix mode or a trivial change with no plan gets "n/a — no plan" there.
+
+**I fill in *Approved-plan source* with the exact revision, not the title.**
+Across a 20-round plan-review loop, copying the oracle out of an earlier
+revision is an easy mistake and an invisible one — the PR would look fully
+oracled while the reviewer checks the code against a plan David never
+approved. So the provenance line names the artifact precisely: for the
+automated loop, `Plan-review PR #<N>, final plan commit <sha>, approved by
+David on <date>` (the `plan-review/*` branches are never deleted in this
+environment, so that sha stays resolvable); for the manual/private path where
+the plan was never committed, the filename plus a `shasum -a 256` of the exact
+file I delivered for approval, plus the date. See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
@@ -832,9 +862,13 @@ since none was armed). While watching:
   says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
   round was meant to close and ask Codex to confirm each is actually resolved
-  in the code — not merely responded to. Same principle as the plan loop's
-  *Re-reviews*, in miniature: a reply on a thread is not evidence the defect is
-  gone.
+  in the code — not merely responded to. **The reviewer's side of this is the
+  shared contract, not my ceremony**: what makes a prior finding genuinely
+  closed, and how deep a re-review has to look, live in
+  [`code-review.md`](docs/engineering/code-review.md#re-reviews-round-2-onward)
+  so any reviewer and any future implementing agent get the same standard. What
+  stays mine here is who posts the trigger, what it names, and the git around
+  it.
 - **After 2+ fix rounds, ask for the cumulative diff, not just the latest
   commits (David, 2026-07-25).** A per-round `@codex review` only shows Codex
   the new commits since its last pass — fine for round 1's fix, but a fix in
@@ -844,7 +878,9 @@ since none was armed). While watching:
   Codex to check the branch's full diff against `main`
   (`git diff origin/main...HEAD --stat` gives me the file list to reference),
   not only the incremental commits — same "the diff is not the scope"
-  principle as the plan loop's re-reviews, applied to code.
+  principle as the plan loop's re-reviews, applied to code, and now stated for
+  the reviewer as invariant 5 of
+  [`code-review.md`'s *Re-reviews*](docs/engineering/code-review.md#re-reviews-round-2-onward).
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real

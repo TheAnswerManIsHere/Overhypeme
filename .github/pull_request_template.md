@@ -15,8 +15,17 @@
      from the plan-review PR body or the final approved plan doc — so the
      reviewer can check this diff against what was actually approved, not
      just against itself (see docs/engineering/code-review.md#the-review-oracle-the-pr-body).
-     For bugfix mode or a trivial change with no plan, write "n/a — no plan." -->
+     For bugfix mode or a trivial change with no plan, write "n/a — no plan."
 
+     Approved-plan source identifies the EXACT final revision these words came
+     from — not a title or a mutable branch — so a reviewer can tell the
+     approved plan apart from earlier review-round versions. Use:
+       Plan-review PR #<N>, final plan commit `<sha>`, approved by David on `YYYY-MM-DD`.
+     or, for the private/manual review path (plan never committed):
+       `<final-plan-filename>.md`, sha256 `<hash>`, approved by David on `YYYY-MM-DD`.
+     (`shasum -a 256 <file>` on the exact file delivered for approval.) -->
+
+**Approved-plan source:**
 **Product intent:**
 **Must not change:**
 **Settled decisions:**
