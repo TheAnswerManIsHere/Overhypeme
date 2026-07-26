@@ -34,6 +34,21 @@ const FLAT_RENDER_ALLOWLIST: Record<string, string> = {
     "The meme canvas highlights from `rawFactText` via renderFactSegments.",
 };
 
+/**
+ * `file:line` (the `.split(` line) entries permitted to have a `text-primary`
+ * paint somewhere in their lookahead window despite not being the fact-name
+ * anti-pattern. The 40-line window is a heuristic, not a parse of the
+ * enclosing expression — it can span into unrelated code that happens to
+ * both split a string and use the brand colour nearby. Each entry needs a
+ * reason the split target isn't fact text.
+ */
+const SPLIT_PAINT_ALLOWLIST: Record<string, string> = {
+  "components/admin/EnrichmentEditor.tsx:1616":
+    "splits a validation error message on `\"; \"` to list individual issues, " +
+    "not fact text; the nearby `text-primary` paints an unrelated " +
+    "\"Re-run classification\" button link.",
+};
+
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -61,23 +76,32 @@ function sourceFiles(dir: string): string[] {
  */
 function referencesFlatRenderFact(src: string): boolean {
   const DECL_RE =
-    /\b(?:import|export)\s+(?:type\s+)?([^;]*?)\s+from\s+["'](?:[^"']*\/)?render-fact(?:\.tsx?)?["']/g;
+    /\b(import|export)\s+(?:type\s+)?([^;]*?)\s+from\s+["'](?:[^"']*\/)?render-fact(?:\.tsx?)?["']/g;
 
   let match: RegExpExecArray | null;
   while ((match = DECL_RE.exec(src))) {
-    const clause = match[1];
+    const keyword = match[1];
+    const clause = match[2];
 
     // `export * from ".../render-fact"` — re-exports everything, including
     // renderFact, with no local name to trace usage through. Always counts;
     // it needs its own allowlist justification like any other reference.
     if (/^\*\s*$/.test(clause.trim())) return true;
 
-    // `import * as X from ".../render-fact"` — only an offense if the flat
-    // export is actually read off the namespace, so a namespace import used
-    // solely for renderFactSegments/tokenizeFact/hasPronouns doesn't
-    // false-positive.
     const namespaceAlias = clause.match(/\*\s*as\s+(\w+)/)?.[1];
     if (namespaceAlias) {
+      // `export * as X from ".../render-fact"` — a barrel re-export. It
+      // exposes the flat renderFact to every consumer of *this* module
+      // under a specifier that no longer ends in "render-fact", so those
+      // consumers are invisible to this same scan. Always counts, whether
+      // or not this file itself reads X.renderFact (Codex review, PR #265:
+      // checking local usage let a barrel re-export pass unreported).
+      if (keyword === "export") return true;
+
+      // `import * as X from ".../render-fact"` — only an offense if the
+      // flat export is actually read off the namespace, so a namespace
+      // import used solely for renderFactSegments/tokenizeFact/hasPronouns
+      // doesn't false-positive.
       if (new RegExp(`\\b${namespaceAlias}\\.renderFact\\b`).test(src)) return true;
       continue;
     }
@@ -128,7 +152,11 @@ describe("fact-text highlighting guard", () => {
     // short at the next top-level declaration so it can't bleed into an
     // unrelated component further down the file.
     const MAX_LOOKAHEAD = 40;
-    const TOP_LEVEL_DECL_RE = /^\s*(export\s+)?(default\s+)?(async\s+)?(function|const|class)\s+[A-Za-z]/;
+    // No leading `\s*`: an indented (nested) declaration inside the same
+    // component must not be mistaken for the start of the next top-level
+    // one — that would cut the lookahead window short and let a paint
+    // within range slip through unreported (Codex review, PR #265).
+    const TOP_LEVEL_DECL_RE = /^(export\s+)?(default\s+)?(async\s+)?(function|const|class)\s+[A-Za-z]/;
     // Matches the literal `className="text-primary"` form AND any computed
     // form (`cn(...)`, a template literal, a ternary) as long as the
     // "text-primary" token appears somewhere in the expression.
@@ -150,8 +178,9 @@ describe("fact-text highlighting guard", () => {
           windowEnd = j;
         }
         const window = lines.slice(i, windowEnd + 1).join("\n");
-        if (HIGHLIGHT_CLASS_RE.test(window)) {
-          offenders.push(`${rel}:${i + 1}`);
+        const key = `${rel}:${i + 1}`;
+        if (HIGHLIGHT_CLASS_RE.test(window) && !(key in SPLIT_PAINT_ALLOWLIST)) {
+          offenders.push(key);
         }
       });
     }
@@ -161,7 +190,8 @@ describe("fact-text highlighting guard", () => {
       `Highlighting by splitting rendered text drops the possessive "'s" (a ` +
         `{NAME_POSSESSIVE} token renders as "James's", so splitting on "James" ` +
         `leaves "'s" unhighlighted). Use <HighlightedFactText>, which works from ` +
-        `the raw template via renderFactSegments.`,
+        `the raw template via renderFactSegments. If this really isn't fact text, ` +
+        `add it to SPLIT_PAINT_ALLOWLIST with a reason.`,
     ).toEqual([]);
   });
 });
