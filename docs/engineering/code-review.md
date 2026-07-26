@@ -79,10 +79,17 @@ against those, and specifically ask:
   touches, directly or through a shared path.
 - **Does the regression test prove the invariant?** A test that only asserts the
   reported input passes leaves the class open — negative cases required.
-- **Is the tier right?** A fix tagged Tier A that trips a Tier B trigger (shared
-  code, a changed predicate/default, concurrency or async state, persisted data,
-  a generalized fix, a shaky diagnosis, or a previously untested path) is
-  under-verified — flag the mis-tier, not just its consequences.
+- **Is the tier right?** A fix tagged Tier A that trips a Tier B trigger is
+  under-verified — flag the mis-tier, not just its consequences. Check **both**
+  halves of the checklist in
+  [`working-modes.md`](../ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake):
+  the **subsystem** the fix lands in (payments/auth, tokenizer/grammar, the
+  visual pipeline, the async queue, enrichment/moderation, `lib/api-zod`,
+  dev-infra) as much as the fix's **shape** (shared code, a changed
+  predicate/default, concurrency or async state, persisted data, a
+  generalized fix, a shaky diagnosis, a previously untested path) — a leaf
+  edit in a Tier B subsystem is Tier B even if none of the shape triggers
+  fire.
 
 Only a genuinely trivial change with no plan and no bug behind it (a typo, a
 comment) reads "n/a — no plan"; there, review the diff on its own terms as usual.

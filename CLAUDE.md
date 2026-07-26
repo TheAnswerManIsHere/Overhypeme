@@ -172,7 +172,10 @@ contract. David picks the mode explicitly so there's no guessing:
   expensive part a fix rarely needs. Everything else scales to what diagnosis
   reveals: a **Tier A** fix ships with a regression test, a blast-radius note,
   and the bugfix oracle in the PR body; a **Tier B** fix (sensitive subsystem,
-  or a structurally risky fix shape) adds a UAT doc and moves to Opus;
+  or a structurally risky fix shape) moves to Opus and adds a UAT doc **if the
+  fix has any product-visible behavior** — a Tier B fix with none (a pure
+  CI/build-tooling/codegen correction) ships a written verification note
+  instead, same as feature mode's ship-the-UI-surface exception;
   **Tier C** means it isn't a bug fix and leaves the mode. Codex still reviews
   every bugfix diff and I drive that to convergence. The shared contract is
   [`working-modes.md`](docs/ai-context/working-modes.md); my enactment is
@@ -699,9 +702,17 @@ for what the reviewer does with it.
 
 ### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
-For **every** PR that has product-visible or testable behavior, I ship two
-docs in `docs/` named after the PR's number. Because the GitHub PR number
-doesn't exist until the PR is opened, the flow is **PR-first**:
+**This section is the feature-mode default: paired by default, unconditionally.**
+Bugfix mode does **not** inherit this pairing — its docs are conditional per
+tier, not paired, and its infra-only fixes may ship neither: see
+[`working-modes.md`](docs/ai-context/working-modes.md#tier-b--elevated-fix)
+(Tier A ships neither doc; Tier B ships a UAT only if the fix has
+product-visible behavior, and a TEST_RUN only if something genuinely needs
+Replit's live environment). What follows describes the feature-mode default.
+
+For **every** feature-mode PR that has product-visible or testable behavior, I
+ship two docs in `docs/` named after the PR's number. Because the GitHub PR
+number doesn't exist until the PR is opened, the flow is **PR-first**:
 
 1. Open the PR with the code (per the squash-merge workflow above), giving
    the body a temporary placeholder note:

@@ -109,7 +109,10 @@ canonical copy.
 
 - **No feature work, no refactors, no drive-by fixes** — anything
   discovered here that needs real code change becomes a flagged item for
-  David, or a `/bugfix` batch if he says so. Maintenance touches nothing but
+  David, or a `/bugfix` fix (its own branch and PR per bug — bugfix mode no
+  longer batches, see
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
+  if he says so. Maintenance touches nothing but
   dependency merges, **with one narrow exception**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status.
