@@ -33,6 +33,13 @@ jobs:
       - name: Check docs accuracy (links + cited paths)
         run: node scripts/check-docs-accuracy.mjs
 
+      # Also dependency-free. The loop ledger's whole premise is that counted
+      # numbers beat recalled ones, so its counting logic has to be provably
+      # right — an unverified derivation would carry exactly the false
+      # authority it exists to remove.
+      - name: Check loop-metrics derivation
+        run: node --test scripts/__tests__/loop-metrics.test.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

@@ -371,3 +371,43 @@ anything where David needs to verify intent — that's **feature mode**, or for 
 trivial database schema fix, migration ceremony run directly per Tier C. Don't
 use bugfix mode to sneak a feature through the lightweight path. When unsure
 which it is, **ask.**
+
+## The loop ledger
+
+**Every review loop gets one row in
+[`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md), appended
+when the loop closes. This applies to every agent and every mode** — plan
+review, feature/code review, bugfix review, and any ad-hoc thread that
+escalated into a reviewed change.
+
+**It is here, in the shared contract, rather than in one agent's private
+instructions, for a specific reason:** Codex runs feature and bugfix workflows
+independently of Claude's ceremony (see *How each agent enters / exits a mode*
+above), so an obligation living only in `CLAUDE.md` would silently omit every
+Codex-driven loop. The resulting ledger would look complete while being wrong
+about the thing it exists to measure — worse than no ledger, because it would
+be trusted.
+
+**At loop close:**
+
+1. Run `node scripts/loop-metrics.mjs --pr <number>` and paste the mechanical
+   columns. **Do not type these by hand.** Rounds, findings and elapsed time
+   are countable, and figures produced here by recollection have a poor track
+   record — two were withdrawn as wrong during the work that created this file.
+2. Add the judgment columns yourself: cause per finding (new ground /
+   propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
+   fired. **Ambiguous causes default to self-inflicted**, so classification
+   drift cannot quietly flatter the workflow.
+3. Adjudicate `max(1, ceil(0.3 × findings))` findings blind — a fresh reader
+   given the round history and the rubric but not your classifications. Above
+   **20% disagreement**, record that loop's causal figure as `unmeasured` and
+   exclude it from the trend rather than counting it as a pass.
+
+**What it is for.** The primary question is whether the **self-inflicted
+finding share** — findings that exist only because an earlier fix in the same
+loop was incomplete or wrong — is falling. **Round count is recorded, never
+targeted:** a long loop that keeps surfacing new ground is the loop working,
+while a short loop that is mostly self-repair is worse, and a round target
+scores both backwards.
+
+A row's format and the full column contract live in the ledger file itself.

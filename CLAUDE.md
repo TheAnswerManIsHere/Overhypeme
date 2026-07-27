@@ -933,6 +933,28 @@ since none was armed). While watching:
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
 
+## I append to the loop ledger when a loop closes
+
+The obligation itself is **shared and lives in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
+binds Codex too, so it is not restated here. What is mine is only the
+enactment:
+
+- **When a PR I own merges or closes, I append its row** before I consider the
+  work finished. A closed loop with no row is unfinished work, not a
+  bookkeeping omission.
+- **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
+  columns and never type them from memory.** My record on recalled numbers in
+  this repo is poor — three figures produced by inference during the work that
+  created the ledger were all wrong; every figure produced by counting a source
+  held.
+- **I classify the judgment columns myself and say so**, including when the
+  causes are my own errors. Ambiguous causes go to self-inflicted.
+- **I dispatch the blind adjudication subagent** — this is a named exception to
+  the subagent-delegation rules below, for the same reason the fresh-context
+  preflight would be: its value is the *absence* of my context, which my main
+  loop cannot reproduce at any size.
+
 ## Standing devops rituals (David, 2026-07-22)
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The

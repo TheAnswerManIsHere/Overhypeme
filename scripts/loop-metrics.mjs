@@ -1,0 +1,255 @@
+#!/usr/bin/env node
+/**
+ * loop-metrics — derive the mechanical half of a loop-ledger row from a PR.
+ *
+ * Why this exists: every efficacy claim about our review workflow was
+ * unfalsifiable, because nothing recorded a single round. See
+ * `.agents/metrics/loop-ledger.md` for the ledger itself and the obligation to
+ * append to it.
+ *
+ * The design rule is that **numbers a machine can count are never recalled by
+ * hand.** Prior attempts to characterise our own review history by inference
+ * were wrong three times out of three; every figure produced by counting a
+ * source held. So this script owns the countable columns and nothing else —
+ * the judgment columns stay explicitly, visibly human.
+ *
+ * Usage:
+ *   node scripts/loop-metrics.mjs --pr 268
+ *   node scripts/loop-metrics.mjs --fixture path/to/fixture.json
+ *   node scripts/loop-metrics.mjs --pr 268 --save-fixture out.json
+ *
+ * Auth: GITHUB_TOKEN or GH_TOKEN, needing only public repo read.
+ */
+
+const REPO_OWNER = "TheAnswerManIsHere";
+const REPO_NAME = "Overhypeme";
+
+/** Logins whose reviews count as a review round. */
+const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-connector"]);
+
+// ---------------------------------------------------------------------------
+// Pure derivation — no I/O. This is the part that is tested.
+// ---------------------------------------------------------------------------
+
+/**
+ * A *round* is a completed review event by the reviewer, NOT an "@codex review"
+ * comment.
+ *
+ * The connector auto-reviews every non-draft PR on open and only needs an
+ * explicit trigger for later fix rounds, so counting trigger comments
+ * undercounts every implementation PR by exactly one — and does so
+ * non-uniformly, since draft plan-review PRs get no auto-review and would
+ * count correctly. Comparing those two cohorts is the entire point of the
+ * ledger, so a bias present in one and absent in the other is disqualifying.
+ */
+export function countRounds(reviews) {
+  return reviews.filter((r) => REVIEWER_LOGINS.has(r.user?.login)).length;
+}
+
+/**
+ * A *finding* is one reviewer-authored ROOT comment — one per thread.
+ *
+ * Two corrections are baked in here, both of which inflated the count in the
+ * direction that would have flattered the workflow:
+ *
+ *  1. Our own workflow requires an author reply on every thread, so raw
+ *     comment counts run roughly double. PR #269 carried 31 comments for ~23
+ *     findings.
+ *  2. A re-raised prior finding is not newly surfaced ground.
+ *
+ * Correction 2 is deliberately NOT applied here. "Reconciliation" is a prose
+ * convention with no machine-readable marker: it is named in
+ * `docs/ai-context/plan-review-contract.md` without a serialized field, and
+ * `docs/engineering/code-review.md` does not define the category at all. A
+ * regex over prose would be a guess wearing the costume of a measurement, so
+ * re-raised findings are counted here and separated in the *judgment* column
+ * instead, where their uncertainty is visible. See the ledger's `re-raised`
+ * cause.
+ */
+export function countFindings(comments) {
+  const rootThreadIds = new Set();
+  for (const c of comments) {
+    if (!REVIEWER_LOGINS.has(c.user?.login)) continue;
+    if (c.in_reply_to_id) continue; // a reply, not a finding
+    rootThreadIds.add(c.id);
+  }
+  return rootThreadIds.size;
+}
+
+/** Findings grouped by round, keyed by the review event they belong to. */
+export function findingsByRound(reviews, comments) {
+  const reviewerReviews = reviews
+    .filter((r) => REVIEWER_LOGINS.has(r.user?.login))
+    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+
+  return reviewerReviews.map((review, i) => ({
+    round: i + 1,
+    submitted_at: review.submitted_at,
+    findings: comments.filter(
+      (c) =>
+        REVIEWER_LOGINS.has(c.user?.login) &&
+        !c.in_reply_to_id &&
+        c.pull_request_review_id === review.id,
+    ).length,
+  }));
+}
+
+/**
+ * Review-interval wall-clock: PR open → final reviewer event.
+ *
+ * ONE interval, never a sum. An earlier design added preflight duration to
+ * this, which double-counts every preflight that happens after the PR opens —
+ * those already sit inside this window. Preflight time that precedes the PR is
+ * recorded separately in the ledger's judgment column and is *not* added here;
+ * whoever wants total cost adds the pre-open portion only, and the ledger says
+ * so per row rather than presenting a conflated number as derived.
+ */
+export function reviewInterval(pr, reviews) {
+  const reviewerReviews = reviews.filter((r) => REVIEWER_LOGINS.has(r.user?.login));
+  if (reviewerReviews.length === 0) return null;
+  const last = reviewerReviews
+    .map((r) => new Date(r.submitted_at))
+    .reduce((a, b) => (a > b ? a : b));
+  const opened = new Date(pr.created_at);
+  return {
+    opened_at: pr.created_at,
+    last_review_at: last.toISOString(),
+    hours: Math.round(((last - opened) / 36e5) * 10) / 10,
+  };
+}
+
+/**
+ * Cohort, evaluated top-down, first match wins. A mixed code/prose PR lands in
+ * `prose/contract` because that is where the stricter obligations and the
+ * measured risk are.
+ */
+export function classifyCohort(pr, files) {
+  if (/^\[PLAN REVIEW\]/.test(pr.title ?? "")) return "plan-review";
+  const paths = files.map((f) => f.filename);
+  const isProse = (p) => /\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/");
+  if (paths.some(isProse)) return "prose/contract";
+  if (/^(fix|bugfix)[:/]/i.test(pr.title ?? "") || (pr.labels ?? []).some((l) => l.name === "bugfix"))
+    return "bugfix";
+  return "feature/code";
+}
+
+/** Artifact size. Both dimensions are kept — neither alone is size. */
+export function artifactSize(files) {
+  return {
+    files: files.length,
+    added: files.reduce((n, f) => n + (f.additions ?? 0), 0),
+    removed: files.reduce((n, f) => n + (f.deletions ?? 0), 0),
+  };
+}
+
+/**
+ * Adjudication sample size for the causal classification.
+ *
+ * `max(1, ceil(0.3 * findings))` with an explicit zero case, because "random
+ * 30%" is undefined exactly where most loops live: at 1–3 findings, rounding
+ * down audits nothing and rounding up changes the rate substantially.
+ */
+export function adjudicationSample(findings) {
+  if (findings === 0) return { size: 0, note: "no findings — nothing to adjudicate" };
+  return { size: Math.max(1, Math.ceil(0.3 * findings)), note: null };
+}
+
+/** Assemble the mechanical columns. Judgment columns are left null by design. */
+export function derive({ pr, reviews, comments, files }) {
+  const rounds = countRounds(reviews);
+  const findings = countFindings(comments);
+  return {
+    pr: pr.number,
+    title: pr.title,
+    cohort: classifyCohort(pr, files),
+    size: artifactSize(files),
+    rounds,
+    findings,
+    per_round: findingsByRound(reviews, comments),
+    review_interval: reviewInterval(pr, reviews),
+    adjudication_sample: adjudicationSample(findings),
+    state: pr.merged_at ? "merged" : pr.closed_at ? "closed" : "open",
+    // Judgment columns — appended by hand at loop close, never guessed here.
+    judgment: {
+      new_ground: null,
+      propagation: null,
+      wrong_fix: null,
+      re_raised: null,
+      preflight_passes: null,
+      preflight_minutes_pre_open: null,
+      breakers_fired: null,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+
+async function gh(path) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (!token) throw new Error("GITHUB_TOKEN or GH_TOKEN required");
+  const out = [];
+  let url = `https://api.github.com${path}${path.includes("?") ? "&" : "?"}per_page=100`;
+  while (url) {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "loop-metrics",
+      },
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+    const page = await res.json();
+    out.push(...(Array.isArray(page) ? page : [page]));
+    const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get("link") ?? "");
+    url = next?.[1] ?? null;
+  }
+  return out;
+}
+
+async function fetchPR(number) {
+  const base = `/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${number}`;
+  const [prArr, reviews, comments, files] = await Promise.all([
+    gh(base),
+    gh(`${base}/reviews`),
+    gh(`${base}/comments`),
+    gh(`${base}/files`),
+  ]);
+  return { pr: prArr[0], reviews, comments, files };
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+function arg(name) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i === -1 ? null : process.argv[i + 1];
+}
+
+async function main() {
+  const fixture = arg("fixture");
+  const prNumber = arg("pr");
+  if (!fixture && !prNumber) {
+    console.error("usage: loop-metrics.mjs --pr <number> | --fixture <file>");
+    process.exit(2);
+  }
+
+  const { readFile, writeFile } = await import("node:fs/promises");
+  const raw = fixture
+    ? JSON.parse(await readFile(fixture, "utf8"))
+    : await fetchPR(prNumber);
+
+  const saveTo = arg("save-fixture");
+  if (saveTo) await writeFile(saveTo, JSON.stringify(raw, null, 2));
+
+  console.log(JSON.stringify(derive(raw), null, 2));
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => {
+    console.error(e.message);
+    process.exit(1);
+  });
+}
