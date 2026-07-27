@@ -543,37 +543,78 @@ produce it:
 | Field | Source | Trustworthy? |
 |---|---|---|
 | PR number, type, artifact size (files, ±lines) | GitHub API | **Mechanical** |
-| Rounds = count of `@codex review` triggers | GitHub API | **Mechanical** |
-| Findings per round, severity | GitHub API (review comments) | **Mechanical** |
-| First-preflight → merge/close wall-clock | GitHub API + ledger | **Mechanical** |
-| Preflight passes (pre-open / post-fix / post-Breaker-A) and yield | Self-reported | Judgment |
+| **Rounds = completed Codex *review events*** | GitHub API (`get_reviews`, filtered to the connector) | **Mechanical** |
+| **Findings = reviewer-authored *root* comments**, deduplicated by thread and excluding Reconciliation items | GitHub API (`get_review_comments`) | **Mechanical** |
+| **PR-open → last review event** wall-clock (the *review* interval) | GitHub API | **Mechanical** |
+| Preflight passes (pre-open / post-fix / post-Breaker-A), yield, **and their timestamps** | Self-reported | Judgment |
 | Per-finding cause: new ground · propagation · wrong fix | Self-reported, fixed rubric, ambiguity defaults to self-inflicted | Judgment |
 | Breakers fired | Self-reported | Judgment |
 
-**`scripts/loop-metrics.mjs` emits the mechanical half from a PR number**, so
-round counts, finding counts and elapsed time are never my recollection. I
-append only the judgment columns. A row missing its mechanical half is a bug
-in the script; a row missing its judgment half is a loop I failed to close
-out, and **both are visible as gaps in the file** rather than as silence.
+**Three corrections revision 7 got wrong, all found in C8's first review — they
+are recorded because each was a plausible-looking derivation that is simply
+false on this repository:**
+
+1. **Rounds are review *events*, not `@codex review` comments.** Verified at
+   `CLAUDE.md:184-186`: the connector **auto-reviews every non-draft PR on
+   open**, and `CLAUDE.md:889-896` adds an explicit trigger only for *fix*
+   rounds. Counting trigger comments therefore undercounts every implementation
+   PR by exactly one — its first round has no comment.
+2. **A review-comment count is not a finding count.** The workflow requires an
+   author reply on every thread (`CLAUDE.md:883-888`), so my own replies would
+   roughly double it — this PR carries 31 comments for ~23 findings. The filter
+   is: **reviewer-authored root comments only**, one per thread, with
+   Reconciliation items excluded (a re-raised prior finding is not newly
+   surfaced ground, and counting it as one corrupts the causal denominator in
+   the direction that flatters the plan).
+3. **The elapsed interval must be one the API can actually produce.** Revision
+   7 said "first preflight → merge/close." The API knows neither end: the
+   preflight happens before the PR exists, and merge time includes David's
+   post-convergence delay, which is not review cost. It also contradicted this
+   plan's own cost table, which ends at *convergence*. Split instead:
+   **PR-open → last review event is mechanical**; **preflight duration is
+   self-reported with its timestamps**, and the two are summed rather than
+   conflated. The honest consequence: end-to-end cost is **partly** judgment,
+   and the ledger says so per row rather than implying full derivation.
+
+**`scripts/loop-metrics.mjs` emits the mechanical half from a PR number.**
+**Acceptance is a replay, not an inspection:** it must reproduce #268's and
+this PR's round and finding counts to match their independently maintained
+ledgers before it is trusted for a single new row. A row missing its mechanical
+half is a script bug; a row missing its judgment half is a loop I failed to
+close out — **both are visible as gaps** rather than as silence.
 
 **What the ledger is for — the questions it must be able to answer:**
 
-1. What share of rounds were **self-inflicted**? (The primary metric — trending
-   toward zero is the goal.)
-2. Is end-to-end **cost** falling or rising as controls are added? A cohort
-   whose cost rises while round count falls is a **failure** of this plan.
+1. What share of findings were **self-inflicted**? (The primary metric —
+   trending toward zero.)
+2. Is end-to-end **cost** falling or rising as controls are added? Cost rising
+   while rounds fall is a **failure** of this plan.
 3. Do the controls pay for themselves — is **preflight yield** worth its cost?
-4. Which **artifact sizes** produce which round counts? This is the evidence
-   that decides where the size bound (C9) should actually sit.
+4. **Does artifact size predict how *serially* new-ground findings surface?**
+   *(Corrected: revision 7 asked "which sizes produce which round counts,"
+   which contradicts this plan's own Product Intent — round count is not an
+   objective, and a long new-ground loop is healthy. The question C9 actually
+   needs is whether large artifacts force defects to appear **one round at a
+   time instead of together**, and at what cost. Round count is the symptom;
+   seriality is the mechanism.)*
 
-**Owner: `.agents/metrics/loop-ledger.md` (data) + `scripts/loop-metrics.mjs`
-(derivation) + `CLAUDE.md` (the obligation to append at every loop close).**
+**Owner: the append obligation is *cross-agent* and lives in
+[`working-modes.md`](../ai-context/working-modes.md)** — not `CLAUDE.md`.
+Codex runs feature and bugfix workflows independently of my ceremony
+(`working-modes.md:337-373`), so a `CLAUDE.md`-only obligation would silently
+exclude every Codex-driven loop and break David's "track **all** activity"
+requirement on day one. `CLAUDE.md` carries only my enactment; the data lives
+at `.agents/metrics/loop-ledger.md` and the derivation at
+`scripts/loop-metrics.mjs`.
 
 ### C9 — Bound artifact size per PR
 
 *(Approved by David, 2026-07-27, as the structural attack on new-ground
-findings — the category ~21 of #268's 40 findings fell into and that nothing
-else in this plan touches.)*
+findings — **16 of #268's 40 findings (40%)**, the category nothing else in
+this plan touches. **Corrected: revision 7 said "~21," conflating two different
+numbers** — 21 was the estimated *residual after all controls*, not the
+historical new-ground count. The verified figure from this plan's own causal
+ledger is 16.)*
 
 #268 was an 8-file contract refactor in one PR; this plan is one 700-line
 document. Both produced long loops for the same reason: **a reviewer cannot
@@ -584,9 +625,29 @@ fixes that — it is a property of the artifact, not the process.
 **The initial bound is deliberately provisional, because the ledger has not
 run yet and I will not invent a threshold I cannot defend.** Starting point:
 a prose/contract change touching **more than ~4 files or ~400 added lines**
-gets split, or gets an explicit written justification for staying whole. C8's
-data replaces this guess with a measured one — that is the first question the
-ledger is built to answer.
+gets split, or gets an explicit written justification for staying whole.
+
+**The exit rule — because a provisional number with no expiry becomes
+permanent by inertia.** "The data will replace it later" is not a plan; it is
+how a guess survives forever. So:
+
+- **Mandatory checkpoint at 10 ledgered loops** spanning at least three
+  distinct artifact sizes. Not a date — a data threshold, since a calendar
+  deadline can pass with nothing to decide on.
+- **At that checkpoint the bound is explicitly replaced, reaffirmed, or
+  removed.** No fourth option, and no silent continuation: reaffirming requires
+  writing down the evidence, exactly as replacing does.
+- **The criterion is seriality and cost, not round count** — matching what this
+  plan actually optimizes. Split the ledgered loops by artifact size and ask:
+  *do larger artifacts surface new-ground findings across more rounds, at
+  higher total cost, than an equivalent volume of work split into smaller
+  ones?* If yes, the bound is justified and the data says where it sits. If
+  the correlation is absent, **the bound is removed** — it would be pure
+  overhead, and keeping it would be exactly the unjustified-prose accumulation
+  this plan was written to stop.
+- If 10 loops arrive without three distinct size bands, that is itself the
+  finding: the bound is untestable as written and goes back to David rather
+  than quietly standing.
 
 **This is a behavior change, not just a rule**, which is why it needed David's
 approval rather than mine. It costs up-front splitting work on every large
@@ -681,7 +742,7 @@ executed correctly. This plan's own C3 application failed twice — round 3
 (missed two operative mirrors) and round 4 (missed `CLAUDE.md:1033`). Both
 failures are now traced to mechanism rather than diligence, and both are
 addressed by the specified command. **Whether that is sufficient is exactly
-what the calibration window measures**, which is why the primary metric is
+what the ledger measures**, which is why the primary metric is
 self-inflicted share and not round count.
 
 ## Testing Plan
@@ -822,12 +883,26 @@ self-inflicted share and not round count.
     authoring incompleteness. **Ambiguous cases default to self-inflicted.**
     That default is deliberate: it biases the metric *against* the plan, so
     drift cannot quietly flatter it.
-  - **Independent adjudication sample.** For each calibration window, a
-    fresh-context subagent — given the round history and the rubric, but **not**
-    my classifications — independently classifies a random **30%** of clusters.
-    Disagreement above **20%** invalidates the window's self-inflicted figure,
-    which is then reported to David as unmeasured rather than as a pass.
-  - Where a cluster's provenance is genuinely contested after adjudication, it
+  - **Independent adjudication — per loop, in findings.** *(Corrected: this
+    previously ran "for each calibration window" and sampled **clusters** —
+    two units and a cadence that revision 7 had already abolished. It therefore
+    had no defined schedule and a different denominator from the figure it
+    exists to validate, so a handful of misclassified findings could skew the
+    share while passing the audit.)*
+
+    At **every loop close**, a fresh-context subagent — given the round history
+    and the rubric, but **not** my classifications — independently classifies a
+    random **30% of that loop's findings**, same unit as the metric. Cadence is
+    per loop because tracking is permanent; there is no window to batch into.
+  - **Disagreement above 20% invalidates that loop's self-inflicted figure**,
+    which is recorded as **unmeasured** rather than as a pass. A loop with an
+    unmeasured figure is excluded from the trend rather than counted as good
+    news.
+  - **Acceptance for the whole mechanism is a replay of #268** — adjudicate its
+    40 findings blind and compare against the ledger's classification. If the
+    two disagree beyond the threshold, **the causal metric is not yet
+    trustworthy and the plan says so** rather than reporting a number.
+  - Where a finding's provenance is genuinely contested after adjudication, it
     is recorded as contested and counted as self-inflicted.
 
 ## Implementation Steps
@@ -888,14 +963,14 @@ PRs; step 1 is already established as independently shippable.
 
 | Risk | Mitigation |
 |---|---|
-| **C1 costs a subagent dispatch per qualifying PR** — now up to three per trigger, plus a set after every Breaker-A rewrite — and delays the first review. | Thresholded by the qualifying-change list. **The "would have replaced ~5 rounds" claim is withdrawn**: per *Counterfactual Efficacy*, C1 has no attributable share of #268's 24 self-inflicted findings, because it runs before any review fix exists. Its benefit is against the 16 **new-ground** findings — original authoring incompleteness — and the measured evidence for it is the exhaustive-sweep commit that closed a seam five reactive rounds could not. The calibration window's end-to-end cost fields exist to catch this risk if the benefit does not materialize. |
+| **C1 costs a subagent dispatch per qualifying PR** — now up to three per trigger, plus a set after every Breaker-A rewrite — and delays the first review. | Thresholded by the qualifying-change list. **The "would have replaced ~5 rounds" claim is withdrawn**: per *Counterfactual Efficacy*, C1 has no attributable share of #268's 24 self-inflicted findings, because it runs before any review fix exists. Its benefit is against the 16 **new-ground** findings — original authoring incompleteness — and the measured evidence for it is the exhaustive-sweep commit that closed a seam five reactive rounds could not. The ledger's end-to-end cost fields exist to catch this risk if the benefit does not materialize. |
 | **C1 could be read as reducing Codex's rigor.** | *Must Not Change* states explicitly it is author-side and is never evidence for a reviewer to do less. Not added to the reviewer contract. |
 | **C5's provenance classification is my own judgment.** | Recorded per-round in the trigger comment — visible to David and Codex, auditable after the fact. Cluster counting reduces gaming via comment-splitting. |
 | **Faster convergence could mean shallower review.** | Self-inflicted share, not round count, is the primary metric; shallow-but-fast fails it. |
 | **This plan adds prose to already-long docs.** | Each change lands in exactly one owning file; C2 reduces net volume. |
 | **The transport's reporting limit is unfixed** — no status label, verification report, or clean-round confirmation. | Accepted and already documented in both contracts. C1 partially compensates by producing a full assessment before the round. Not solvable; do not re-engineer. |
 | **C2 deferral leaves 47.5% of the mechanism live.** | Open question #1 — sequencing C2 first resolves it. |
-| **C3 is only as good as the searcher running it — and it has now failed three times in a row, here, in this plan.** Round 3: the inventory named one of three operative mirrors. Round 4: it missed `CLAUDE.md:1033`. Round 5: the *command I specified to fix rounds 3 and 4* returned 521 hits because a stem had no word boundary. C3's own diagnosed failure mode, reproducing inside the plan that proposes C3, three revisions running. | **This is the plan's most serious open risk and it is not fully mitigated.** What is mitigated: the C5 inventory is a classification table with dispositions, so a missing row is visible; implementation step 5 re-runs the pass after the edits land; the acceptance check now **classifies every hit rather than asserting an expected list** (asserting a list is what failed in round 5); and C3 requires the command to be **run before it is written down** — the round-5 defect was a specified-but-unrun command, which carries false authority an unspecified intent does not. What is **not** mitigated: none of that proves the *next* pattern will be right. The honest position is that C3 raises the floor and does not guarantee completeness, and the calibration window is what tests whether the floor is high enough. |
+| **C3 is only as good as the searcher running it — and it has now failed three times in a row, here, in this plan.** Round 3: the inventory named one of three operative mirrors. Round 4: it missed `CLAUDE.md:1033`. Round 5: the *command I specified to fix rounds 3 and 4* returned 521 hits because a stem had no word boundary. C3's own diagnosed failure mode, reproducing inside the plan that proposes C3, three revisions running. | **This is the plan's most serious open risk and it is not fully mitigated.** What is mitigated: the C5 inventory is a classification table with dispositions, so a missing row is visible; implementation step 5 re-runs the pass after the edits land; the acceptance check now **classifies every hit rather than asserting an expected list** (asserting a list is what failed in round 5); and C3 requires the command to be **run before it is written down** — the round-5 defect was a specified-but-unrun command, which carries false authority an unspecified intent does not. What is **not** mitigated: none of that proves the *next* pattern will be right. The honest position is that C3 raises the floor and does not guarantee completeness, and the ledger is what tests whether the floor is high enough. |
 
 ## Questions for David
 
@@ -970,7 +1045,7 @@ PRs; step 1 is already established as independently shippable.
 - [ ] **Breaker B is reachable on every PR type it governs.** Trace it on a
       bugfix PR specifically — the path that was blocked before revision 4 —
       and confirm no instruction stops the loop before round five.
-- [ ] Every calibration loop lands in exactly one cohort under the precedence
+- [ ] Every ledgered loop lands in exactly one cohort under the precedence
       rule, including a mixed code/prose PR.
 - [ ] `code-review.md` no longer claims compilation/tests/CI corroborate a
       clean result on prose-only changes.
@@ -989,10 +1064,17 @@ PRs; step 1 is already established as independently shippable.
 - [ ] **The calibration ledger records end-to-end cost**, and the
       cost-rose-while-rounds-fell condition is written as a **failure** of the
       plan with a defined response, not as an observation.
-- [ ] **Baseline and metric share a unit.** The 58% per-cluster #268 baseline is
-      recorded, and the <25% target is stated as measured against it.
+- [ ] **Baseline and metric share a unit — the finding.** #268's **verified
+      60% (24 of 40)** is recorded as the baseline, and the <25% target is
+      stated as measured against it. **The withdrawn 58% per-cluster figure
+      must not appear as a normative baseline anywhere** — verified by a
+      concept search for `58%` / `per-cluster` / `cluster share`, whose only
+      permitted survivor is the passage explaining *why* it was withdrawn.
+      *(This item previously required recording the 58% figure — an
+      implementation could not have satisfied it without resurrecting the
+      invalid metric that findings 4.2/4.3 killed.)*
 - [ ] **The independent adjudication sample is specified and binding** — 30% of
-      clusters, fresh-context classifier, >20% disagreement invalidates the
+      each loop's **findings**, fresh-context classifier, >20% disagreement invalidates the
       window's figure rather than downgrading it.
 - [ ] **`.agents/metrics/loop-ledger.md` and `scripts/loop-metrics.mjs` exist
       and work**, proven by running the script against a real merged PR and
