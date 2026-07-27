@@ -58,10 +58,30 @@ Round 11 came back clean and round 12 then found three issues including two P1s
 
 ## Product Intent
 
-Bugfix, code review, and plan review each converge in a handful of rounds —
-target ~4–5, not 20 — **without reducing review rigor.** The manual
-paste-to-ChatGPT flow reached consensus in ~4 rounds on plans; we want that
-efficiency from the automated loop.
+**Every review round earns its place — and we can prove which ones did.**
+A loop should end when rounds stop surfacing anything the artifact didn't
+already contain, not when a counter is reached.
+
+**The "4–5 rounds" figure is withdrawn as a requirement (David, 2026-07-27).**
+It was his description of the order of magnitude he'd observed in the manual
+paste-to-ChatGPT flow, not a specification — and round 5 established the plan
+could not deliver it on a large artifact anyway. What he actually wants is
+**confidence that additional rounds are genuinely useful**, plus **measurement
+of whether the workflow as a whole is effective.** Round count is an output we
+record, never a target we chase.
+
+That reframes the objective usefully, because it splits rounds by what they
+produce:
+
+- A round that surfaces **new ground** told us something true about the
+  artifact. It is the loop working, and it needs no defence at any count —
+  PR #252's round 23 was this.
+- A round that surfaces only **self-inflicted** findings corrected damage the
+  previous round did. It added no information about correctness. **These are
+  the rounds to bound**, and Breaker A is the bound.
+
+So the goal is not fewer rounds. It is **a vanishing share of rounds that exist
+only to repair the previous round**, with the data to show it.
 
 ## Must Not Change
 
@@ -93,6 +113,17 @@ efficiency from the automated loop.
    percentages, which ChatGPT explicitly could not verify; ChatGPT found three
    internal-coherence defects Codex missed entirely. Diff-anchoring makes Codex
    strong on "is this claim true" and weak on "is this argument coherent."
+
+5. **Round-count targets are withdrawn; measurement replaces them (David,
+   2026-07-27).** "4–5 rounds" was an observed magnitude, not a requirement.
+   What matters is that each round is useful and that the workflow's
+   effectiveness is measured — not that a counter stays low.
+6. **Every loop is tracked, permanently, across all four loop types (David,
+   2026-07-27).** This is a standing obligation, not a calibration experiment.
+   Nothing tracks anything today, so C8 is the control the others' claims
+   depend on.
+7. **Artifact size is bounded per PR (C9)** — approved as the structural attack
+   on new-ground findings.
 
 ## Repo Context Inspected
 
@@ -488,6 +519,81 @@ answer.
 
 **Owner if revived: `CLAUDE.md`. Not implemented by this plan.**
 
+### C8 — The loop ledger: track **every** loop, derive what can be derived
+
+*(New in revision 7, at David's direction: "I want to confirm you have a
+mechanism for tracking ALL activity that invokes any type of loop." **We do
+not.** Nothing in this repository records a single round today — verified by
+search. Every efficacy claim in this plan is therefore currently
+unfalsifiable, which makes this the control the others depend on.)*
+
+**One append-only ledger at `.agents/metrics/loop-ledger.md`**, one row per
+loop, covering **all four loop types** — plan review, feature/code review,
+bugfix review, and any ad-hoc thread that escalated into a reviewed change.
+No calibration "window": tracking is permanent, because the question *"is the
+workflow effective?"* does not expire after 30 days.
+
+**The critical design choice: derive the objective half mechanically.** A
+ledger I fill in by hand at loop close is exactly the obligation-nobody-checks
+that this repo already knows decays — and my own error rate on hand-produced
+numbers in this very plan (two withdrawn figures in five rounds) is the
+argument against trusting it. So the row splits by who can be trusted to
+produce it:
+
+| Field | Source | Trustworthy? |
+|---|---|---|
+| PR number, type, artifact size (files, ±lines) | GitHub API | **Mechanical** |
+| Rounds = count of `@codex review` triggers | GitHub API | **Mechanical** |
+| Findings per round, severity | GitHub API (review comments) | **Mechanical** |
+| First-preflight → merge/close wall-clock | GitHub API + ledger | **Mechanical** |
+| Preflight passes (pre-open / post-fix / post-Breaker-A) and yield | Self-reported | Judgment |
+| Per-finding cause: new ground · propagation · wrong fix | Self-reported, fixed rubric, ambiguity defaults to self-inflicted | Judgment |
+| Breakers fired | Self-reported | Judgment |
+
+**`scripts/loop-metrics.mjs` emits the mechanical half from a PR number**, so
+round counts, finding counts and elapsed time are never my recollection. I
+append only the judgment columns. A row missing its mechanical half is a bug
+in the script; a row missing its judgment half is a loop I failed to close
+out, and **both are visible as gaps in the file** rather than as silence.
+
+**What the ledger is for — the questions it must be able to answer:**
+
+1. What share of rounds were **self-inflicted**? (The primary metric — trending
+   toward zero is the goal.)
+2. Is end-to-end **cost** falling or rising as controls are added? A cohort
+   whose cost rises while round count falls is a **failure** of this plan.
+3. Do the controls pay for themselves — is **preflight yield** worth its cost?
+4. Which **artifact sizes** produce which round counts? This is the evidence
+   that decides where the size bound (C9) should actually sit.
+
+**Owner: `.agents/metrics/loop-ledger.md` (data) + `scripts/loop-metrics.mjs`
+(derivation) + `CLAUDE.md` (the obligation to append at every loop close).**
+
+### C9 — Bound artifact size per PR
+
+*(Approved by David, 2026-07-27, as the structural attack on new-ground
+findings — the category ~21 of #268's 40 findings fell into and that nothing
+else in this plan touches.)*
+
+#268 was an 8-file contract refactor in one PR; this plan is one 700-line
+document. Both produced long loops for the same reason: **a reviewer cannot
+hold a large artifact in one pass, so defects surface serially across rounds
+instead of together in round one.** No amount of preflight or concept-search
+fixes that — it is a property of the artifact, not the process.
+
+**The initial bound is deliberately provisional, because the ledger has not
+run yet and I will not invent a threshold I cannot defend.** Starting point:
+a prose/contract change touching **more than ~4 files or ~400 added lines**
+gets split, or gets an explicit written justification for staying whole. C8's
+data replaces this guess with a measured one — that is the first question the
+ledger is built to answer.
+
+**This is a behavior change, not just a rule**, which is why it needed David's
+approval rather than mine. It costs up-front splitting work on every large
+change.
+
+**Owner: `CLAUDE.md`.**
+
 ## Data Model and Migration Impact
 
 **None.** Documentation and skill files only.
@@ -611,10 +717,17 @@ self-inflicted share and not round count.
   11. **Step 1 read in isolation** — `code-review.md`'s clean-round
       qualification, with step 2 assumed never to land. It must be
       comprehensible and correct to a reviewer who has never heard of C1.
-- **Calibration window, not a one-PR verdict:** the next **10 eligible loops or
-  30 days**, whichever yields enough observations. Record per loop: total
-  rounds; new-ground / propagation / wrong-fix clusters; self-inflicted share;
-  preflight findings caught before external review; severity per cluster.
+- **Permanent tracking of every loop, not a fixed calibration window
+  (revised at David's direction, 2026-07-27).** Revision 6 proposed "10 loops
+  or 30 days." That was wrong in two ways: it would have sampled *eligible*
+  loops rather than all of them, and it would have expired — but "is the
+  workflow effective?" is a standing question, not a one-off experiment.
+  **C8's ledger records every loop, permanently, of all four types.** The
+  fields below define the row; C8 defines who produces each field and why the
+  objective half is derived mechanically rather than recalled.
+
+  The first ~10 rows still serve as the initial read on whether the controls
+  work — that is a **checkpoint, not the end of tracking.**
 
   **Plus end-to-end cost — because the plan can otherwise pass every metric
   while being worse.** C1 adds up to three subagent passes before the first
@@ -653,13 +766,26 @@ self-inflicted share and not round count.
   3. `bugfix PR` — a Tier A/B bugfix with no prose artifact.
   4. `feature/code PR` — everything else.
 
-  Evaluate top-down; the first matching category wins. The ≤3-round median
-  applies to a mixed PR via cohort 2.
-- **Primary metric: self-inflicted cluster share below ~25%.** Round counts are
-  provisional SLOs (bugfix ≤2 median, code ≤3, prose ≤3 post-preflight, plan
-  review ≤5 new-ground rounds), **not gates.** Reassess when the share exceeds
-  25% across the window or the median/p90 materially misses — never because one
-  legitimate loop reached round four.
+  Evaluate top-down; the first matching category wins.
+- **Primary metric: self-inflicted finding share, trending toward zero.**
+  **All round-count targets are withdrawn** (David, 2026-07-27) — there is no
+  bugfix ≤2, code ≤3, prose ≤3, or plan-review ≤5. Round count is **recorded,
+  never targeted**, because a target invites the one failure *Must Not Change*
+  forbids: converging fast by finding less.
+
+  What replaces them, matching what David actually asked for — confidence that
+  additional rounds are useful:
+
+  | Signal | Reading |
+  |---|---|
+  | Self-inflicted share **falling** | The controls work. |
+  | Self-inflicted share **≥25%** | Churn persists; the controls are insufficient — diagnose, don't retune the number. |
+  | A long loop, **nearly all new ground** | Working as designed. Not a problem at any count (PR #252). |
+  | A short loop with **high self-inflicted share** | Worse than a long clean one, and a round target would have called it a success. |
+  | Cost **rising** while rounds fall | A **failure** of this plan — return to David with the data. |
+
+  The last two rows are the point: they are the cases a round target scores
+  backwards.
 
   **The metric's unit is the finding, not the cluster — because that is the
   only unit whose baseline is verifiable.** Revision 5 tried to fix the unit
@@ -728,19 +854,35 @@ self-inflicted share and not round count.
    would keep Breaker B unreachable on the bugfix path regardless of what
    `CLAUDE.md` says. It ships in the same commit as step 2 — the two are one
    concept change and must not land split across PRs.
-4. **Do not edit `docs/ai-context/plan-review-contract.md`.** Confirm its
+4. **C8 — build the ledger before anything it measures.** Create
+   `.agents/metrics/loop-ledger.md` (header + column contract, zero rows) and
+   `scripts/loop-metrics.mjs` (takes a PR number, emits the mechanical
+   columns). Add the append-at-loop-close obligation to `CLAUDE.md`.
+   **This step ships first among the behavioural ones, and its own
+   implementation PR is ledger row #1** — if the mechanism cannot record the
+   loop that creates it, it will not record anything later either.
+5. **C9 — write the artifact-size bound into `CLAUDE.md`**, with the threshold
+   explicitly marked provisional and pointing at C8's data as what replaces it.
+6. **Do not edit `docs/ai-context/plan-review-contract.md`.** Confirm its
    existing whole-plan re-review invariant is unchanged.
-5. **Re-run C3's repository-wide pass over the two concepts this plan itself
+7. **Re-run C3's repository-wide pass over the two concepts this plan itself
    changes** — *"when to stop a non-converging review loop"* and *"when may I
-   dispatch a subagent"* — after steps 1–3 land, and confirm the resulting hit
-   list matches the C5 inventory table with no unclassified survivors. Step 3
-   exists only because the first pass was incomplete; this step is the check
-   that the second pass was not.
-6. `pnpm run check:docs` + `git diff --check`.
-7. Run the C1 preflight against the completed artifact set **before** opening
+   dispatch a subagent"* — after steps 1–3 land, classifying every hit the
+   specified command returns. Step 3 exists only because the first pass was
+   incomplete; this step is the check that the second pass was not.
+8. `pnpm run check:docs` + `git diff --check`.
+9. Run the C1 preflight against the completed artifact set **before** opening
    the implementation PR — this plan's first dogfood use.
-8. Open the implementation PR with the approved-plan oracle; record preflight
-   yield and per-round provenance as calibration datapoint #1.
+10. Open the implementation PR with the approved-plan oracle, and **append its
+    ledger row on close** — the first real data either of us has on whether any
+    of this works.
+
+**Note on C9 and this sequence:** steps 1–5 together exceed the artifact-size
+bound C9 introduces. That is not an oversight — the bound applies to changes
+made *after* it exists, and splitting the change that creates the rule is
+circular. It is called out here so a reviewer does not read it as the plan
+violating itself on day one. If David prefers, steps 1 and 4–5 can ship as two
+PRs; step 1 is already established as independently shippable.
 
 ## Risks and Mitigations
 
@@ -764,20 +906,18 @@ self-inflicted share and not round count.
    **my recommendation is to sequence C2 first, as its own PR, before
    implementing the rest.** Each PR stays one coherent artifact, and C1/C3–C6
    then land against an already-de-duplicated base.
-2. **Round targets.** Recommendation: adopt as **provisional SLOs, not gates** —
-   bugfix ≤2 median, code ≤3, prose ≤3 post-preflight, plan review ≤5
-   new-ground rounds — with self-inflicted share <25% as the real metric.
-3. **The round target itself — blocking, escalated after round 5.** The
-   arithmetic does not reach 4–5 rounds for a #268-sized artifact: ~21 findings
-   remain after the controls, and at #268's observed rate that is ~9–10 rounds.
-   Codex reached the same figure independently. Options and their consequences
-   were put to David directly; my recommendation is **(a) make self-inflicted
-   share the measured objective and treat round count as an output**, plus
-   **(b) bound artifact size per PR**, which is the only option that attacks
-   new-ground findings structurally and the only one that could genuinely reach
-   4–5. (b) is a behavior change beyond this plan's controls and needs his
-   approval. **Nothing else in this plan is revised until he answers** — I am
-   not inventing a control to make the arithmetic work.
+2. ~~**Round targets.**~~ **ANSWERED — David, 2026-07-27: withdrawn entirely.**
+   The 4–5 figure was his description of an observed magnitude, never a
+   requirement. All round-count targets are removed; round count is recorded,
+   not targeted. What he wants instead: **confidence that additional rounds are
+   genuinely useful**, and **measurement of whether the workflow is effective.**
+3. ~~**The round target itself.**~~ **ANSWERED — David, 2026-07-27: adopt the
+   recommendation.** Self-inflicted share becomes the measured objective
+   (round count an output), **and** artifact size is bounded per PR — now C9.
+   He added a requirement the plan did not have: **track every loop, always**,
+   to confirm the workflow is optimizing the right things. That is now C8, and
+   it is the control the rest depend on, because nothing in this repository
+   records a single round today.
 4. **The tier-table ambiguity C7 would have fixed** — which tier revises a
    cross-agent contract. C7 is cut from this plan as not load-bearing; the
    ambiguity is real and worth its own small change. Does David want it queued?
@@ -854,8 +994,17 @@ self-inflicted share and not round count.
 - [ ] **The independent adjudication sample is specified and binding** — 30% of
       clusters, fresh-context classifier, >20% disagreement invalidates the
       window's figure rather than downgrading it.
-- [ ] The implementation PR records preflight yield and per-round provenance as
-      **calibration datapoint #1** — explicitly *not* a pass/fail gate on the
-      plan's validity.
+- [ ] **`.agents/metrics/loop-ledger.md` and `scripts/loop-metrics.mjs` exist
+      and work**, proven by running the script against a real merged PR and
+      getting correct round/finding/elapsed numbers back. **Not proven by the
+      files existing.**
+- [ ] **The ledger's first row is this plan's own implementation PR**, with
+      both halves filled — mechanical and judgment.
+- [ ] **No round-count target survives anywhere in the changed docs.** Verified
+      by concept search: no "≤2 median", "≤3 rounds", "4–5 rounds" or
+      equivalent framed as a goal. Recording a count is fine; targeting one is
+      the defect.
+- [ ] The C9 size bound is written **with its threshold marked provisional**
+      and pointing at the ledger as what replaces the guess.
 - [ ] David can point at each of his three questions and see it answered in the
       merged docs.
