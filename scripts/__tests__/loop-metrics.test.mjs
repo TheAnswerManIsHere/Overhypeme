@@ -11,6 +11,7 @@ import {
   adjudicationSample,
   derive,
   gh,
+  stripHtmlComments,
 } from "../loop-metrics.mjs";
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
@@ -151,6 +152,16 @@ test("a bugfix PR with a natural-language title and no label still classifies as
 test("a Tier C fix-tier field also signals bugfix", () => {
   const pr = { title: "Prevent the crash on empty payload", body: "**Fix tier:** C — trivial schema fix\n" };
   assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
+test("stripHtmlComments removes a comment span reconstituted by a single pass's removal", () => {
+  // CodeQL: "incomplete multi-character sanitization." A single non-looped
+  // pass only removes the inner `<!-- hidden -->` (the first `<!--` it
+  // finds, closed by the first `-->` after it) — the leftover `<!` (from the
+  // prefix) and `--` (from the suffix) then splice into a fresh, fully-formed
+  // comment that was never a literal match in the original string.
+  const input = "X<!" + "<!-- hidden -->" + "-- real content -->Y";
+  assert.equal(stripHtmlComments(input), "XY");
 });
 
 test("an unedited Fix tier placeholder left over on a real feature PR does not force bugfix", () => {

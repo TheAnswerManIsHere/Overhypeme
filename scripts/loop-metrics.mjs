@@ -126,9 +126,28 @@ export function reviewInterval(pr, reviews) {
   };
 }
 
-/** Strip HTML comments so unedited template placeholder text isn't read as content. */
-function stripHtmlComments(text) {
-  return text.replace(/<!--[\s\S]*?-->/g, "");
+/**
+ * Strip HTML comments so unedited template placeholder text isn't read as
+ * content.
+ *
+ * A single non-looped pass is incomplete: removing an inner comment can
+ * splice its surrounding text into a NEW, previously-nonexistent comment
+ * span. E.g. `"X<!" + "<!-- hidden -->" + "-- real content -->Y"` — one pass
+ * removes only the inner `<!-- hidden -->` (the first `<!--` it finds,
+ * closed by the first `-->` after it), leaving `"X<!-- real content -->Y"`:
+ * the leftover `<!` and `--` have spliced into a fresh, fully-formed,
+ * unstripped comment that didn't exist as a literal match in the original
+ * string (flagged by CodeQL as incomplete multi-character sanitization).
+ * Looping to a fixed point removes any such reconstituted marker too.
+ */
+export function stripHtmlComments(text) {
+  let previous;
+  let current = text;
+  do {
+    previous = current;
+    current = current.replace(/<!--[\s\S]*?-->/g, "");
+  } while (current !== previous);
+  return current;
 }
 
 /**
