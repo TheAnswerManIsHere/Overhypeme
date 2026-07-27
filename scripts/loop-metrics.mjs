@@ -385,6 +385,7 @@ export function derive({ pr, reviews, comments, files }) {
       propagation: null,
       wrong_fix: null,
       re_raised: null,
+      invalid: null,
       preflight_passes: null,
       preflight_minutes_pre_open: null,
       breakers_fired: null,

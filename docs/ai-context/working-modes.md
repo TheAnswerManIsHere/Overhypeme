@@ -407,9 +407,9 @@ be trusted.
    a large loop (18 rounds, 40 findings, on our worst case so far) would
    otherwise produce silently.
 2. Add the judgment columns yourself: cause per finding (new ground /
-   propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
-   fired. **Ambiguous causes default to self-inflicted**, so classification
-   drift cannot quietly flatter the workflow.
+   propagation / wrong fix / re-raised / invalid), pre-open preflight
+   minutes, breakers fired. **Ambiguous causes default to self-inflicted**,
+   so classification drift cannot quietly flatter the workflow.
 3. Adjudicate **every finding** blind — a fresh-context reader (in practice a
    subagent with no access to the original classifications) is given the
    round history and **the rubric below**, and re-classifies the full
@@ -419,7 +419,7 @@ be trusted.
    across the full set, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
 
-**The adjudication rubric.** Without a shared definition of the four causes,
+**The adjudication rubric.** Without a shared definition of the categories,
 two readers can legitimately disagree on *classification* without either
 being wrong about the *facts* — and the >20% gate can't tell that apart from
 genuine drift. This is the shared decision rule both the original classifier
@@ -453,7 +453,25 @@ and the blind adjudicator use:
   must enter the numerator). Re-raised is only the remainder: a restatement of
   a defect that was genuinely resolved (a spurious re-raise), or one no fix
   was attempted on in between (e.g. explicitly deferred) — repetition with no
-  failed fix behind it.
+  failed fix behind it. A restatement stays re-raised even when it is
+  factually wrong *now* (the defect no longer exists) — invalid, below, is
+  for first occurrences only.
+- **Invalid** — the finding is demonstrably not a defect at all, on its first
+  occurrence: refuted with repository evidence, the same standard the review
+  workflow already uses to dispose of a finding by rebuttal rather than a fix.
+  This category exists because the other four all presuppose either a real
+  defect or a prior finding, while `findings` mechanically counts every
+  reviewer-authored root comment — without it, a false positive would force
+  the classifier to fabricate a causal label or leave the category totals
+  short of the findings count. Invalid findings are excluded from **both**
+  the numerator and the denominator of the self-inflicted share, so a
+  reviewer's false positives neither inflate nor deflate the metric.
+  **Validity doubt is resolved toward valid**: only a finding refuted with
+  evidence is invalid — "probably not a real problem" is not enough. A
+  finding treated as valid then gets a causal label, where the ambiguous
+  default below applies. **The five category counts must sum exactly to
+  `findings`** — a total that comes up short means a finding was skipped, not
+  that it was hard to classify.
 - **Ambiguous default**: if a finding could plausibly be new ground *or*
   self-inflicted (propagation/wrong fix), classify it as self-inflicted. This
   is the same bias direction the ledger's per-finding cause column already

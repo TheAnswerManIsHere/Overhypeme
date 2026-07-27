@@ -33,7 +33,7 @@ since it borrows credibility it has not earned.
 | `rounds` | mechanical | **Completed reviewer review events** — not `@codex review` comments. The connector auto-reviews non-draft PRs on open, so counting triggers undercounts implementation PRs by one and draft plan-review PRs by zero: a bias present in one cohort and absent in the other. |
 | `findings` | mechanical | **Reviewer-authored root comments**, one per thread. Author replies are excluded — our workflow mandates a reply per thread, which roughly doubles a raw comment count. |
 | `review hrs` | mechanical | PR open → final reviewer event. **One interval, never a sum.** Preflight time occurring after the PR opens is already inside it. |
-| `new / prop / wrong / re-raised` | **judgment** | Cause per finding. Ambiguous cases default to self-inflicted, biasing the metric *against* the workflow so drift cannot quietly flatter it. |
+| `new / prop / wrong / re-raised / invalid` | **judgment** | Cause per finding, per `working-modes.md`'s rubric; the five counts must sum exactly to `findings`. Ambiguous *causes* default to self-inflicted, biasing the metric *against* the workflow so drift cannot quietly flatter it — but `invalid` (a first-occurrence finding refuted with repository evidence) requires proof, not doubt, and is excluded from both sides of the share so false positives neither inflate nor deflate it. |
 | `pre-open preflight` | **judgment** | Minutes of preflight *before* the PR existed — the only preflight cost outside `review hrs`. Add this to `review hrs` for total; never add post-open passes. |
 | `breakers fired` | **judgment** | Which of this repo's break-the-loop rules fired during the loop (e.g. the ~2-round non-converging-fix break, the plan-review ~20-round soft cap), or `none`. Required at loop close per `working-modes.md` step 2; recorded here because a required field with nowhere to persist it gets silently dropped or improvised into `notes`. |
 | `adjudicated` | **judgment** | **Every finding** re-classified blind by a fresh-context reader — an agent, so full coverage costs tokens rather than anyone's time, and there is no sampling machinery left to bias the result (see `working-modes.md`'s *Why the full population, not a sample*; the earlier 30% design produced two confirmed selection-bias defects before being removed). At `findings = 0` there is nothing to adjudicate — record `n/a — clean loop`, per the note below. `>20%` disagreement ⇒ that loop's causal figure is **`unmeasured`** and is excluded from the trend, not counted as good news. |
@@ -46,24 +46,28 @@ would be a guess wearing the costume of a measurement, so the script counts
 these and a human separates them.
 
 **The primary metric is the self-inflicted *finding* share** —
-`(prop + wrong) / findings` — trending toward zero. **A zero-finding loop has
-no share to compute** (the formula is `0 / 0`): record it as `n/a — clean
-loop`, never `0%` — `0%` reads as a *measured* perfect score, which a loop
-with nothing to measure has not earned. The row still counts toward the
-ledger's round/PR coverage; it is simply excluded from the self-inflicted-share
-trend line, the same way an `unmeasured` adjudication result is. **Round count
-is recorded, never targeted.** A long loop that is nearly all new ground is
-the loop working; a short loop with a high self-inflicted share is worse than
-a long clean one, and a round target would score both backwards.
+`(prop + wrong) / (findings − invalid)` — trending toward zero. Invalid
+findings sit outside both sides of the fraction: a reviewer's false positives
+are not the workflow's fault (numerator) and are not real defects to measure
+against (denominator). **A loop with no valid findings has no share to
+compute** (zero findings, or every finding invalid — either way the
+denominator is zero): record it as `n/a — clean loop`, never `0%` — `0%`
+reads as a *measured* perfect score, which a loop with nothing to measure has
+not earned. The row still counts toward the ledger's round/PR coverage; it is
+simply excluded from the self-inflicted-share trend line, the same way an
+`unmeasured` adjudication result is. **Round count is recorded, never
+targeted.** A long loop that is nearly all new ground is the loop working; a
+short loop with a high self-inflicted share is worse than a long clean one,
+and a round target would score both backwards.
 
 ---
 
 ## Rows
 
-| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | 744 | 214 | 18 | 40 | 16 | 19 | 5 | 0 | **60%** | — | none | — | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
-| 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | **27.5%** | — | none | — | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
+| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | 744 | 214 | 18 | 40 | 16 | 19 | 5 | 0 | — | **60%** | — | none | — | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
+| 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | — | **27.5%** | — | none | — | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
 
 ### Row provenance — read before using these numbers
 
@@ -92,6 +96,12 @@ against, not output of the mechanism it describes.
   didn't exist while these loops ran, so whether either one tripped a
   break-the-loop rule was never recorded at the time. Blank means *not
   measured*, never *none*.
+- **`invalid` is absent** for both, likewise: the category didn't exist when
+  these rows were classified, so any refuted-with-evidence findings are
+  buried inside the four causal counts rather than separated out. Their
+  `self-infl.` figures therefore use the old `(prop + wrong) / findings`
+  denominator; the blind adjudication pass (which classifies against the
+  current five-category rubric) is what will produce the corrected split.
 
 **The first row produced by the mechanism**, rather than recalled into it, will
 be this ledger's own implementation PR — computed once it closes and folded
