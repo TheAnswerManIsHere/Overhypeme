@@ -266,10 +266,18 @@ function featureOracleIsPopulated(body) {
  * `prose/contract` because that is where the stricter obligations and the
  * measured risk are.
  */
+// Excluded from prose-cohort detection: per working-modes.md's "a row is
+// never its own dedicated PR," a closed loop's row is folded into whichever
+// PR is opened next, on ANY subject — meaning nearly every future feature or
+// bugfix PR will carry an incidental edit to this file. Counting it as
+// prose-cohort evidence would misclassify almost every PR going forward as
+// prose/contract regardless of its actual substance.
+const LEDGER_PATH = ".agents/metrics/loop-ledger.md";
+
 export function classifyCohort(pr, files) {
   if (/^\[PLAN REVIEW\]/.test(pr.title ?? "")) return "plan-review";
   const paths = files.map((f) => f.filename);
-  const isProse = (p) => /\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/");
+  const isProse = (p) => p !== LEDGER_PATH && (/\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/"));
   if (paths.some(isProse)) return "prose/contract";
   // The primary signal is the bugfix workflow's own required PR-body field —
   // "**Fix tier:**", per .github/pull_request_template.md, present on every

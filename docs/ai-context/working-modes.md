@@ -410,10 +410,50 @@ be trusted.
    propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
    fired. **Ambiguous causes default to self-inflicted**, so classification
    drift cannot quietly flatter the workflow.
-3. Adjudicate `max(1, ceil(0.3 × findings))` findings blind — a fresh reader
-   given the round history and the rubric but not your classifications. Above
-   **20% disagreement**, record that loop's causal figure as `unmeasured` and
+3. Adjudicate `max(1, ceil(0.3 × findings))` findings blind, except at
+   `findings = 0` — a clean loop has nothing to adjudicate, so the sample is
+   `0` and the causal share is recorded as `n/a — clean loop` (see the
+   ledger's own note on this), not `0%`. A fresh reader is given the round
+   history and **the rubric below** but not your classifications. Above **20%
+   disagreement**, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
+
+**The adjudication rubric.** Without a shared definition of the four causes and
+a fixed way to pick the sample, two readers can legitimately disagree on
+*classification* without either being wrong about the *facts* — and the >20%
+gate can't tell that apart from genuine drift. This is the shared decision
+rule both the original classifier and the blind adjudicator use:
+
+- **New ground** — the finding is a defect in the diff under review that
+  existed independent of anything this same loop tried to fix. This is what
+  the review workflow exists to catch; it is never counted as self-inflicted.
+- **Propagation** — the finding exists *only* because an earlier fix **in this
+  same loop** introduced or exposed it. If that earlier fix had never
+  happened, this finding would not exist.
+- **Wrong fix** — the finding says an earlier fix **in this same loop** did
+  not actually resolve what it claimed to (the original symptom persists, or
+  the fix is incomplete) — as distinct from propagation, which is a *new*
+  defect elsewhere, not the same one recurring.
+- **Re-raised** — the finding restates a **prior finding from an earlier round
+  of this same loop** that was already addressed and reviewed, with no new
+  information — a genuine Reconciliation check, not a fresh observation.
+- **Ambiguous default**: if a finding could plausibly be new ground *or*
+  self-inflicted (propagation/wrong fix), classify it as self-inflicted. This
+  is the same bias direction the ledger's per-finding cause column already
+  states, applied consistently by both the original classifier and the
+  adjudicator.
+
+**Sample selection**, so it can't be picked to avoid the hard cases: sort the
+loop's findings by their GitHub comment id ascending (a stable identifier
+GitHub assigns at creation time, uncorrelated with how easy or hard a finding
+is to classify) and take the first `max(1, ceil(0.3 × findings))` of them.
+This is deterministic — two people given the same PR compute the same sample.
+
+*This rubric is new as of the loop-ledger's own PR and has not yet been
+exercised by a real adjudication pass. #268 is the designated first run of
+it (see the ledger's row-provenance notes) — if that pass surfaces a rubric
+gap, fix the rubric here rather than making a one-off judgment call on #268
+alone.*
 
 **A row is never its own dedicated PR.** Appending is itself a repository
 edit, and this repo's convention is that every edit ships through a reviewed

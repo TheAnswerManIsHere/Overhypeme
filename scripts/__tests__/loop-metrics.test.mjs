@@ -159,6 +159,36 @@ test("cohort precedence is top-down, first match wins", () => {
   );
 });
 
+test("a ledger-append piggyback does not force a feature/bugfix PR into prose/contract", () => {
+  // Per working-modes.md's write-path rule, a closed loop's row is folded
+  // into whichever PR is opened next, on ANY subject — so nearly every
+  // future PR carries an incidental edit to the ledger file. Counting that
+  // alone as prose evidence would misclassify almost every PR going forward.
+  assert.equal(
+    classifyCohort({ title: "Add thing" }, [
+      { filename: "src/a.ts" },
+      { filename: ".agents/metrics/loop-ledger.md" },
+    ]),
+    "feature/code",
+  );
+  assert.equal(
+    classifyCohort({ title: "fix: off-by-one" }, [
+      { filename: "src/a.ts" },
+      { filename: ".agents/metrics/loop-ledger.md" },
+    ]),
+    "bugfix",
+  );
+  // A genuine prose PR that also happens to carry the piggyback still
+  // classifies as prose — only the ledger path itself is excluded.
+  assert.equal(
+    classifyCohort({ title: "Update docs" }, [
+      { filename: "docs/real-docs.md" },
+      { filename: ".agents/metrics/loop-ledger.md" },
+    ]),
+    "prose/contract",
+  );
+});
+
 test("scoped conventional-commit fix titles are recognized as bugfix", () => {
   // These exact forms appear repeatedly in this repo's history (#265, #246)
   // and carry no label — the unscoped-only regex silently misclassified them.
