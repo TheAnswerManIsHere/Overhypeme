@@ -371,3 +371,163 @@ anything where David needs to verify intent — that's **feature mode**, or for 
 trivial database schema fix, migration ceremony run directly per Tier C. Don't
 use bugfix mode to sneak a feature through the lightweight path. When unsure
 which it is, **ask.**
+
+## The loop ledger
+
+**Every review loop gets one row in
+[`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md), appended
+when the loop closes. This applies to every agent and every mode** — plan
+review, feature/code review, bugfix review, and any ad-hoc thread that
+escalated into a reviewed change.
+
+**It is here, in the shared contract, rather than in one agent's private
+instructions, for a specific reason:** Codex runs feature and bugfix workflows
+independently of Claude's ceremony (see *How each agent enters / exits a mode*
+above), so an obligation living only in `CLAUDE.md` would silently omit every
+Codex-driven loop. The resulting ledger would look complete while being wrong
+about the thing it exists to measure — worse than no ledger, because it would
+be trusted.
+
+**At loop close:**
+
+1. Run `node scripts/loop-metrics.mjs --pr <number>` and paste the mechanical
+   columns. **Do not type these by hand.** Rounds, findings and elapsed time
+   are countable, and figures produced here by recollection have a poor track
+   record — two were withdrawn as wrong during the work that created this file.
+   No direct `api.github.com` credential in your environment? The script also
+   accepts `--mcp-snapshot <file>` for agents whose only working GitHub access
+   is a tool-calling integration — see the adapter and its shape notes in
+   `scripts/loop-metrics.mjs`. Either path is mechanical; neither is typing the
+   numbers from memory. **The snapshot must page each of `get_reviews`,
+   `get_files`, and `get_review_comments` to completion yourself before
+   calling the script** — it cannot page through the MCP tool on its own — and
+   must set `complete: {reviews: true, files: true, reviewThreads: true}` only
+   once every page is concatenated in. The script refuses an unmarked or
+   partial snapshot rather than deriving a plausible-looking undercount, which
+   a large loop (18 rounds, 40 findings, on our worst case so far) would
+   otherwise produce silently.
+2. Add the judgment columns yourself: cause per finding (new ground /
+   propagation / wrong fix / re-raised / invalid), pre-open preflight
+   minutes, breakers fired. **Ambiguous causes default to self-inflicted**,
+   so classification drift cannot quietly flatter the workflow.
+3. Adjudicate **every finding** blind — a fresh-context reader (in practice a
+   subagent with no access to the original classifications) is given the
+   round history and **the rubric below**, and re-classifies the full
+   population independently. At `findings = 0` there is nothing to
+   adjudicate, and the causal share is recorded as `n/a — clean loop` (see
+   the ledger's own note on this), not `0%`. Above **20% disagreement**
+   across the full set, record that loop's causal figure as `unmeasured` and
+   exclude it from the trend rather than counting it as a pass.
+
+**The adjudication rubric.** Without a shared definition of the categories,
+two readers can legitimately disagree on *classification* without either
+being wrong about the *facts* — and the >20% gate can't tell that apart from
+genuine drift. This is the shared decision rule both the original classifier
+and the blind adjudicator use:
+
+- **New ground** — the finding is a defect that existed independent of
+  anything this same loop tried to fix. This includes a defect that was
+  *already present* in the diff under review but only became visible or
+  reachable because an earlier fix removed something blocking it (e.g. a
+  fix removes a guard clause, and that makes a downstream bug reviewable for
+  the first time) — the defect itself predates the fix, so exposing it is
+  not something the fix *did wrong*. New ground is what the review workflow
+  exists to catch; it is never counted as self-inflicted.
+- **Propagation** — the finding is a **new** defect that exists *only because*
+  an earlier fix **in this same loop** introduced it — not one it merely
+  revealed. The test is causal, not temporal: if that earlier fix had never
+  happened, would this specific defect exist? "Yes, though maybe unnoticed"
+  is new ground; "no, the fix is the reason this exists at all" is
+  propagation.
+- **Wrong fix** — the finding says an earlier fix **in this same loop** did
+  not actually resolve what it claimed to (the original symptom persists, or
+  the fix is incomplete) — as distinct from propagation, which is a *new*
+  defect elsewhere, not the same one recurring.
+- **Re-raised** — the finding restates a **prior finding from an earlier round
+  of this same loop** with no new information, **and no failed fix attempt sits
+  between the original and the restatement.** The precedence matters because
+  the categories otherwise overlap on exactly the case the numerator most
+  needs: a Still Open Reconciliation finding about a defect an earlier fix
+  attempted and did not resolve satisfies both definitions — that case is
+  **wrong fix, always** (the failed attempt is the fact being measured, and it
+  must enter the numerator). Re-raised is only the remainder: a restatement of
+  a defect that was genuinely resolved (a spurious re-raise), or one no fix
+  was attempted on in between (e.g. explicitly deferred) — repetition with no
+  failed fix behind it. A restatement stays re-raised even when it is
+  factually wrong *now* (the defect no longer exists) — invalid, below, is
+  for first occurrences only.
+- **Invalid** — the finding is not a defect for this loop's purposes, on its
+  first occurrence, established one of two ways: **(a) refuted with
+  repository evidence**, the same standard the review workflow already uses
+  to dispose of a finding by rebuttal rather than a fix; or **(b) settled by
+  an explicit product/scope decision from David** — the finding was escalated
+  as a genuine product question and he chose the existing behavior or ruled
+  the concern out of scope. The two subcases differ in kind (one says the
+  reviewer misread the code, the other says the code is intended) but get
+  identical metric treatment: neither is a defect the workflow caused or
+  should have caught, so both are recorded in the `invalid` column and
+  excluded from **both** the numerator and the denominator of the
+  self-inflicted share — note the subcase in the row's notes when it
+  matters. This category exists because the other four all presuppose either
+  a real defect or a prior finding, while `findings` mechanically counts
+  every reviewer-authored root comment — without it, a false positive or a
+  David-overruled finding would force the classifier to fabricate a causal
+  label or leave the category totals short of the findings count.
+  **Doubt is resolved toward valid**: only evidence or an explicit decision
+  makes a finding invalid — "probably not a real problem" is not enough. A
+  finding treated as valid then gets a causal label, where the ambiguous
+  default below applies. **The five category counts must sum exactly to
+  `findings`** — a total that comes up short means a finding was skipped, not
+  that it was hard to classify.
+- **Ambiguous default**: if a finding could plausibly be new ground *or*
+  self-inflicted (propagation/wrong fix), classify it as self-inflicted. This
+  is the same bias direction the ledger's per-finding cause column already
+  states, applied consistently by both the original classifier and the
+  adjudicator. This default does not extend to the new-ground-vs-propagation
+  test above: an *exposed* pre-existing defect is new ground by definition,
+  not an ambiguous case defaulting to self-inflicted.
+
+**Why the full population, not a sample (David, 2026-07-27).** Earlier drafts
+adjudicated a 30% sample, inheriting the assumption that a *human* would do
+the re-classification and the sample existed to bound that effort. The
+adjudicator here is an agent, so full coverage costs tokens once per loop
+close, not anyone's time — and the sampling machinery itself produced two
+confirmed bias defects in two consecutive review rounds before being removed
+(first an id-sort that oversampled round 1's disproportionately-new-ground
+findings, then a round-robin whose "every round contributes" guarantee
+failed whenever a loop had more nonempty rounds than the sample size —
+either one capable of validating a causal figure while part of its
+numerator went unchecked, since propagation and wrong-fix findings can only
+occur in round 2 onward). Full-population adjudication deletes that
+machinery outright: the >20% gate is computed exactly, over every finding,
+with nothing to select and no selection rule left to get wrong.
+
+*This rubric is new as of the loop-ledger's own PR and has not yet been
+exercised by a real adjudication pass. #268 is the designated first run of
+it (see the ledger's row-provenance notes) — if that pass surfaces a rubric
+gap, fix the rubric here rather than making a one-off judgment call on #268
+alone.*
+
+**A row is never its own dedicated PR.** Appending is itself a repository
+edit, and this repo's convention is that every edit ships through a reviewed
+PR ("Always open a PR when work is done") — which would mean the append for a
+closed loop needs its own PR, whose own close would then owe another row,
+forever. The two rules are each correct on their own and jointly circular, so
+the fix is sequencing rather than an exception to either: **a closed loop's
+mechanical facts don't change after the fact** — `rounds`, `findings`, and
+`size` for a PR that has already merged or closed are fully computable at any
+later point — so there is no reason the row must land *immediately*. Compute
+it as soon as the loop closes, and fold it in as one ordinary commit of
+whichever PR you open next, on any subject. **Never open a PR whose only
+purpose is a ledger append.** If no further PR is imminent, the next
+`/maintenance` or `/document` pass is the backstop that catches any row still
+owed.
+
+**What it is for.** The primary question is whether the **self-inflicted
+finding share** — findings that exist only because an earlier fix in the same
+loop was incomplete or wrong — is falling. **Round count is recorded, never
+targeted:** a long loop that keeps surfacing new ground is the loop working,
+while a short loop that is mostly self-repair is worse, and a round target
+scores both backwards.
+
+A row's format and the full column contract live in the ledger file itself.

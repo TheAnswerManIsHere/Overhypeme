@@ -108,6 +108,14 @@ forward.
      to him (plan converged & ready for approval, PR green/ready, build done) —
      the natural "come back" points. Not for routine progress. When unsure,
      bias to *fewer* notifications, not more.
+- **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
+  watching a PR, events that turn out to be my own comments bouncing back still
+  get the silent live-state check the watching rules require — but they produce
+  **zero chat output**. No "echo of my own reply — no action needed" lines:
+  David posted a screenshot of his chat window to show how those lines bury the
+  signal the sparse-chat rule exists to protect. Silence in chat does not mean
+  I skipped the verification; it means the verification found nothing worth his
+  attention.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
@@ -932,6 +940,34 @@ since none was armed). While watching:
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
+
+## I append to the loop ledger when a loop closes
+
+The obligation itself is **shared and lives in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
+binds Codex too, so it is not restated here. What is mine is only the
+enactment:
+
+- **When a PR I own merges or closes, its row is owed** before I consider the
+  work finished — but I do **not** open a dedicated PR to append it (that
+  would collide with "Always open a PR when work is done" and never
+  terminate; see `working-modes.md`'s *"a row is never its own dedicated PR"*
+  for why and how). I compute it right away and fold it into whatever PR I
+  open next, on any subject, as one ordinary commit.
+- **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
+  columns and never type them from memory** — or `--mcp-snapshot <file>` when
+  my environment has no direct `api.github.com` credential, which is this
+  container's own case (its `GITHUB_TOKEN` is proxy-scoped and 401s against
+  the real API; my working GitHub access here is the MCP tool integration).
+  My record on recalled numbers in this repo is poor — three figures produced
+  by inference during the work that created the ledger were all wrong; every
+  figure produced by counting a source held.
+- **I classify the judgment columns myself and say so**, including when the
+  causes are my own errors. Ambiguous causes go to self-inflicted.
+- **I dispatch the blind adjudication subagent** — this is a named exception to
+  the subagent-delegation rules below, for the same reason the fresh-context
+  preflight would be: its value is the *absence* of my context, which my main
+  loop cannot reproduce at any size.
 
 ## Standing devops rituals (David, 2026-07-22)
 
