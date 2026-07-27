@@ -147,7 +147,8 @@ reads whole files; it can only *anchor* findings to changed lines.
 | Plan-review substance | `plan-review-contract.md` | **unchanged — this plan does not edit it** |
 | Code-review substance | `code-review.md` | gains the prose invariant + clean-round qualification |
 | Feature/bugfix modes | `working-modes.md` | unchanged |
-| Claude's loop mechanics (preflight, triggers, breakers, git, tiers) | `CLAUDE.md` | gains C1, C3, C4, C5, C6-trigger, C7 |
+| Claude's loop mechanics (preflight, triggers, breakers, git) | `CLAUDE.md` | gains C1, C3, C4, C5, C6-trigger |
+| Model-tier routing for contract revision | `CLAUDE.md` (two tier tables) | **unchanged — C7 is cut**, see C7's section |
 
 **No new source of truth is created, and no rule is restated across files.**
 Revision 1 violated this by putting C1 in both `CLAUDE.md` and
@@ -236,14 +237,41 @@ a file only enters the set once someone discovers it. Replaced with:
    `.agents/memory/` hold a large share of the operative rules. So C3 mandates:
 
    ```
-   rg -n -i --hidden --glob '!.git' '<pattern>' .
+   rg -n -i --hidden --glob '!.git' --glob '!artifacts' '<pattern>' .
    ```
 
-   with the pattern written as **alternations of word stems, not phrases**
-   (`converg`, not `without convergence`; `\d\+? rounds?`, not `~2 rounds`),
-   and the exact command recorded in the round ledger. A concept search whose
-   command is not recorded cannot be checked by the next reviewer, and — as
-   both failures above show — cannot be trusted from the intent alone.
+   with the pattern written as **word-bounded alternations of stems** — stems
+   rather than phrases (`converg`, not `without convergence`), and `\b`-anchored
+   so a stem cannot match inside a longer word.
+
+   **Revision 5's version of this rule was itself wrong, and the correction is
+   the point.** It specified `\d\+? rounds?` with no word boundary, which
+   matches `8 round` inside a Tailwind class like `min-h-8 rounded-md`. Run
+   repo-wide it returns **521 hits**, almost all CSS in `artifacts/`. I
+   specified that command without running it against the whole repository —
+   committing the C4 violation (verify before writing) *in the act of
+   specifying C3*. Codex caught it by running it.
+
+   The corrected pattern is word-bounded and scoped past the vendored UI
+   sandbox:
+
+   ```
+   rg -n -i --hidden --glob '!.git' --glob '!artifacts' \
+     'non[- ]?converg|\b\d\+? rounds?\b|\brounds? without converg|bring David the diagnosis' .
+   ```
+
+   **7 hits, all classifiable.** *(Both patterns run; counts are measured, not
+   estimated.)*
+
+   Two rules follow from this, and they are the durable part:
+
+   1. **Run the command before writing it down.** A specified-but-unrun command
+      is worse than an unspecified intent, because it carries false authority.
+   2. **The acceptance check classifies every hit the command returns — it never
+      asserts an expected hit list.** An expected-set assertion fails the moment
+      the pattern is broader than the author imagined, which is precisely the
+      failure mode here. Record the exact command *and* the disposition of every
+      hit in the round ledger.
 3. **Classify each hit**: canonical definition · operative mirror/enactment ·
    summary/pointer · historical record · example · unrelated.
 4. Update every **operative** hit in the same commit. **Supersede historical
@@ -410,7 +438,35 @@ Mixed code/prose PRs get **both** sets of obligations.
 
 **Owner:** `code-review.md` (reviewer standard) + `CLAUDE.md` (trigger).
 
-### C7 — Explicit tier boundary, not "authoring tier"
+### C7 — Explicit tier boundary *(**CUT** from this plan — kept here as the record of why)*
+
+**Codex asked, in round 5, whether all seven controls are load-bearing. C7 is
+not, and it is cut rather than defended.**
+
+The case against it is the plan's own text. *Settled Decision 2* states model
+tier is a **third-order factor** — the duplication that drove propagation was
+authored on Opus. The *Counterfactual Efficacy* replay attributes **zero** of
+#268's 24 self-inflicted findings to a tier boundary. The only findings C7
+could plausibly touch are the two residual judgment-error wrong fixes that C4
+does not catch, and I cannot give a defensible mechanism by which a stated tier
+rule prevents a judgment error — only an argument that it makes one less
+likely, which is not an acceptance check.
+
+Keeping it would mean the plan carries a control justified by nothing in its
+own evidence, inside a change whose entire thesis is that unjustified prose
+accumulates and creates the next defect. That is the argument against C7 and I
+find it stronger than my reasons for including it.
+
+**What is actually lost:** the `CLAUDE.md` tier tables remain ambiguous about
+which tier revises a cross-agent contract. That is a real ambiguity and worth
+fixing — **as its own small change, on its own evidence**, not smuggled into a
+convergence plan as an eighth wheel. Recorded in *Questions for David* so it is
+not silently dropped.
+
+The original proposal, preserved for that follow-up:
+
+<details>
+<summary>C7 as drafted</summary>
 
 "Stays on the authoring tier" is ambiguous when a contract is simultaneously
 documentation (Sonnet), workflow meta (Sonnet), and architecture judgment
@@ -428,7 +484,9 @@ Reconcile in **every** tier table that would otherwise route the same work to
 Sonnet — *Watching the PRs I open* and *Token / cost discipline* must give one
 answer.
 
-**Owner: `CLAUDE.md`.**
+</details>
+
+**Owner if revived: `CLAUDE.md`. Not implemented by this plan.**
 
 ## Data Model and Migration Impact
 
@@ -568,7 +626,7 @@ self-inflicted share and not round count.
   | Field | Definition |
   |---|---|
   | Elapsed wall-clock | First preflight dispatch → convergence. Not first *review* — the preflight is part of the cost. |
-  | Preflight passes | Count, split pre-open vs. post-Breaker-A, with findings each. |
+  | Preflight passes | Count and findings each, split **three** ways: pre-open · **post-ordinary-fix-round** · post-Breaker-A. The middle category is the one that multiplies: C1 runs before *every* trigger, so a five-round loop incurs preflights after each fix round, not just twice. Omitting it would have made the cost model understate exactly the case most likely to be expensive. |
   | Rewrites | Count of Breaker-A rewrites and the artifact size each touched. |
   | Total tokens / tool calls | Whole loop, all subagents included. |
   | External rounds | The count the round targets refer to. |
@@ -603,14 +661,28 @@ self-inflicted share and not round count.
   25% across the window or the median/p90 materially misses — never because one
   legitimate loop reached round four.
 
-  **The baseline must be restated in the metric's own unit.** #268's 60% was
-  computed **per finding** (24 of 40); the metric is **per root-cause cluster**.
-  Comparing them is a unit error that could make the target look met or missed
-  for no real reason. Re-expressed in clusters using the *Counterfactual
-  Efficacy* grouping above: **#268 was 11 self-inflicted clusters of 19 total
-  clusters — 58%.** Close to the per-finding figure by coincidence, not by
-  construction. **58% per cluster is the baseline the <25% target is measured
-  against.**
+  **The metric's unit is the finding, not the cluster — because that is the
+  only unit whose baseline is verifiable.** Revision 5 tried to fix the unit
+  mismatch the other way round, by re-expressing #268 as "11 self-inflicted
+  clusters of 19." That number was **not reproducible**, correctly, and it is
+  withdrawn rather than recomputed:
+
+  - #268's commit history groups findings **by round**, not by root cause. The
+    per-finding ledger above was built from those summaries and independently
+    corroborated by Codex's own count in round 1 — **24 of 40 is verifiable.**
+  - A cluster mapping is not. Producing one requires judgment calls the record
+    cannot settle (round 3's four findings are four distinct concepts, not one;
+    several rounds mix causes), and any denominator I derive is unfalsifiable.
+    Manufacturing a third number after two were already wrong would be the
+    exact failure this plan diagnoses.
+
+  So the primary metric is **self-inflicted findings below ~25%, measured
+  against #268's verified 60%.** Root-cause clusters remain the unit for
+  **Breaker A's majority test only**, where the judgment is made within a
+  single round against findings in front of me — not projected backwards across
+  eighteen rounds of summarized history. The two units serve different purposes
+  and the plan now says which is which, instead of silently converting between
+  them.
 
   **Classification cannot be self-certified.** I both assign provenance and
   record it, and round 1 established that my own classification was wrong when
@@ -646,8 +718,9 @@ self-inflicted share and not round count.
    rather than sitting beside them, preserving the contested-fix clause, and
    **leaving `CLAUDE.md:1051` deliberately unchanged** (tier-escalation
    trigger, a different concept) with a commit-message note saying so; C6
-   trigger mechanics including the honest preflight-evidence report; C7 tier
-   boundary reconciled across both tier sections.
+   trigger mechanics including the honest preflight-evidence report.
+   **No tier-table changes — C7 is cut** (see its section); the two tier tables
+   are left exactly as they are.
 3. `.claude/skills/bugfix/SKILL.md:200` — rewrite the third operative mirror of
    the ~2-round rule to point at Breakers A/B. **This is a separate step
    because it is a separate file**: a bugfix PR is an implementation PR, so
@@ -680,7 +753,7 @@ self-inflicted share and not round count.
 | **This plan adds prose to already-long docs.** | Each change lands in exactly one owning file; C2 reduces net volume. |
 | **The transport's reporting limit is unfixed** — no status label, verification report, or clean-round confirmation. | Accepted and already documented in both contracts. C1 partially compensates by producing a full assessment before the round. Not solvable; do not re-engineer. |
 | **C2 deferral leaves 47.5% of the mechanism live.** | Open question #1 — sequencing C2 first resolves it. |
-| **C3 is only as good as the searcher running it — and it already failed once, here.** Revision 3 named one of three operative mirrors of the ~2-round rule; Codex found the other two. That is C3's own diagnosed failure mode reproducing inside the plan that proposes C3. | Treated as evidence *for* C3 rather than against it — an unaided fix would have missed all three. Two structural responses: the C5 inventory is now a **classification table with dispositions**, not a prose mention, so a missing row is visible; and implementation step 5 **re-runs the concept pass after the edits land** and requires the hit list to match that table with no unclassified survivors. The DoD's grep is stated as a *verification of* the concept pass, explicitly not a substitute for it — grepping one wording is what produced the miss. |
+| **C3 is only as good as the searcher running it — and it has now failed three times in a row, here, in this plan.** Round 3: the inventory named one of three operative mirrors. Round 4: it missed `CLAUDE.md:1033`. Round 5: the *command I specified to fix rounds 3 and 4* returned 521 hits because a stem had no word boundary. C3's own diagnosed failure mode, reproducing inside the plan that proposes C3, three revisions running. | **This is the plan's most serious open risk and it is not fully mitigated.** What is mitigated: the C5 inventory is a classification table with dispositions, so a missing row is visible; implementation step 5 re-runs the pass after the edits land; the acceptance check now **classifies every hit rather than asserting an expected list** (asserting a list is what failed in round 5); and C3 requires the command to be **run before it is written down** — the round-5 defect was a specified-but-unrun command, which carries false authority an unspecified intent does not. What is **not** mitigated: none of that proves the *next* pattern will be right. The honest position is that C3 raises the floor and does not guarantee completeness, and the calibration window is what tests whether the floor is high enough. |
 
 ## Questions for David
 
@@ -689,12 +762,26 @@ self-inflicted share and not round count.
    endorses deferring C2 to its own PR (correctly — a 6-file refactor inside
    this PR recreates the diagnosed scope problem). Those are compatible:
    **my recommendation is to sequence C2 first, as its own PR, before
-   implementing C1–C7.** Each PR stays one coherent artifact, and C1–C7 then
-   land against an already-de-duplicated base.
+   implementing the rest.** Each PR stays one coherent artifact, and C1/C3–C6
+   then land against an already-de-duplicated base.
 2. **Round targets.** Recommendation: adopt as **provisional SLOs, not gates** —
    bugfix ≤2 median, code ≤3, prose ≤3 post-preflight, plan review ≤5
    new-ground rounds — with self-inflicted share <25% as the real metric.
-3. **C1 scope.** Recommendation (revised — ChatGPT's answer is better than
+3. **The round target itself — blocking, escalated after round 5.** The
+   arithmetic does not reach 4–5 rounds for a #268-sized artifact: ~21 findings
+   remain after the controls, and at #268's observed rate that is ~9–10 rounds.
+   Codex reached the same figure independently. Options and their consequences
+   were put to David directly; my recommendation is **(a) make self-inflicted
+   share the measured objective and treat round count as an output**, plus
+   **(b) bound artifact size per PR**, which is the only option that attacks
+   new-ground findings structurally and the only one that could genuinely reach
+   4–5. (b) is a behavior change beyond this plan's controls and needs his
+   approval. **Nothing else in this plan is revised until he answers** — I am
+   not inventing a control to make the arithmetic work.
+4. **The tier-table ambiguity C7 would have fixed** — which tier revises a
+   cross-agent contract. C7 is cut from this plan as not load-bearing; the
+   ambiguity is real and worth its own small change. Does David want it queued?
+5. **C1 scope.** Recommendation (revised — ChatGPT's answer is better than
    revision 1's "prose only"): apply to plans/contracts, prose above threshold,
    **Tier B/high-risk fixes, cross-file shared code, architecture/refactor, and
    the high-risk subsystem list** — but not tiny leaf-code changes. Tests and CI
@@ -703,10 +790,12 @@ self-inflicted share and not round count.
 
 ## Definition of Done
 
-- [ ] C6(a) and C6(b) land in `code-review.md`; C1, C3, C4, C5, C6-trigger, C7
+- [ ] C6(a) and C6(b) land in `code-review.md`; C1, C3, C4, C5, C6-trigger
       land in `CLAUDE.md`; the C5 mirror rewrite also lands in
       `.claude/skills/bugfix/SKILL.md`; `plan-review-contract.md` is
       **unmodified**.
+- [ ] **`CLAUDE.md`'s two tier tables are byte-identical to `main`** — C7 is
+      cut, and a diff touching them means it crept back in.
 - [ ] `code-review.md`'s clean-round qualification is **reviewer-agnostic** —
       it names no `CLAUDE.md` ceremony, mentions no preflight, and reads
       correctly for a non-Claude implementing agent. Verified by reading step
@@ -721,17 +810,23 @@ self-inflicted share and not round count.
       three operative sites — `CLAUDE.md:880-882`, `CLAUDE.md:897-900`, and
       `.claude/skills/bugfix/SKILL.md:200` — are rewritten by Breakers A/B
       rather than left alongside them; the contested-fix clause survives.
-      **Verified by running C3's concept pass with its specified command, not
-      by grepping one wording:**
-      `rg -n -i --hidden --glob '!.git' 'non[- ]?converg|\d\+? rounds?|rounds? without converg|bring David the diagnosis' .`
-      returns, besides the rewritten sites, exactly three classified survivors:
-      `CLAUDE.md:1033` and `CLAUDE.md:1051` (both tier-escalation triggers, a
-      different concept, deliberately unchanged) and
-      `.agents/memory/plan-doc-path-never-cite-from-code.md:22` (historical
-      record, superseded not rewritten). Any other survivor is a defect.
+      **Verified by running C3's specified command and classifying every hit it
+      returns — not by asserting an expected hit list.** Revision 5's DoD
+      claimed the search would return "exactly three survivors"; that assertion
+      was false and unsatisfiable, because the pattern was broader than I
+      realised. The check is now:
+
+      1. Run the word-bounded command from C3 verbatim.
+      2. **Classify every hit**, including ones this plan never anticipated
+         (`CLAUDE.md:507` and `:534` are plan-review *depth* thresholds — a
+         different concept from loop-stopping — and must be dispositioned, not
+         assumed absent).
+      3. Pass condition: **no hit is left unclassified, and no hit classified
+         *operative mirror* is left unrewritten.** Not "the output equals this
+         list."
+
       **`--hidden` is not optional** — without it the command cannot see
-      `.claude/` or `.agents/`, which is how round 4's search missed two of
-      these three.
+      `.claude/` or `.agents/`, which is how round 4's search missed two sites.
 - [ ] **Breaker B is reachable on every PR type it governs.** Trace it on a
       bugfix PR specifically — the path that was blocked before revision 4 —
       and confirm no instruction stops the loop before round five.
