@@ -29,7 +29,7 @@ since it borrows credibility it has not earned.
 
 | Column | Half | Definition |
 |---|---|---|
-| `pr`, `cohort`, `files`, `+lines` | mechanical | Cohort is first-match top-down: `plan-review` → `prose/contract` (incl. mixed) → `bugfix` → `feature/code`. |
+| `pr`, `cohort`, `files`, `+lines`, `-lines` | mechanical | Cohort is first-match top-down: `plan-review` → `prose/contract` (incl. mixed) → `bugfix` → `feature/code`, keyed primarily on the bugfix PR body's required `**Fix tier:**` field, not title wording. **Both `+lines` and `-lines` are kept** — `artifactSize()` derives both because neither alone is size, and a table that drops `-lines` on paste would make a large deletion-heavy change look trivial. |
 | `rounds` | mechanical | **Completed reviewer review events** — not `@codex review` comments. The connector auto-reviews non-draft PRs on open, so counting triggers undercounts implementation PRs by one and draft plan-review PRs by zero: a bias present in one cohort and absent in the other. |
 | `findings` | mechanical | **Reviewer-authored root comments**, one per thread. Author replies are excluded — our workflow mandates a reply per thread, which roughly doubles a raw comment count. |
 | `review hrs` | mechanical | PR open → final reviewer event. **One interval, never a sum.** Preflight time occurring after the PR opens is already inside it. |
@@ -54,10 +54,10 @@ clean one, and a round target would score both backwards.
 
 ## Rows
 
-| # | pr | cohort | files | +lines | rounds | findings | new | prop | wrong | re-raised | self-infl. | review hrs | pre-open preflight | adjudicated | notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | — | 18 | 40 | 16 | 19 | 5 | 0 | **60%** | — | none | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
-| 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1092 | 7 | 40 | 28 | 6 | 5 | 1 | **27.5%** | — | none | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1092 lines. |
+| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | self-infl. | review hrs | pre-open preflight | adjudicated | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | 744 | 214 | 18 | 40 | 16 | 19 | 5 | 0 | **60%** | — | none | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
+| 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | **27.5%** | — | none | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
 
 ### Row provenance — read before using these numbers
 

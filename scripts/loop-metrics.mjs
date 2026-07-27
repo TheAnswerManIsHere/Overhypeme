@@ -136,13 +136,16 @@ export function classifyCohort(pr, files) {
   const paths = files.map((f) => f.filename);
   const isProse = (p) => /\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/");
   if (paths.some(isProse)) return "prose/contract";
-  // Matches "fix: ..." and conventional scoped forms like "fix(test): ...",
-  // "fix(security): ..." — both appear repeatedly in this repo's actual PR
-  // history (e.g. #265, #246), and the bugfix workflow never requires a label
-  // or an unscoped title. Missing these silently misclassified real bugfix
-  // loops as feature/code, corrupting the cohort comparison the ledger exists
-  // to make.
+  // The primary signal is the bugfix workflow's own required PR-body field —
+  // "**Fix tier:**", per .github/pull_request_template.md, present on every
+  // Tier A/B/C bugfix PR by contract. working-modes.md never requires a
+  // conventional "fix:" title or a label, and this repo's real history has
+  // natural-language bugfix titles with neither ("Fix test isolation
+  // issues...", "Prevent the crash..."), which title/label matching alone
+  // silently misclassified as feature/code. Title and label are kept as a
+  // fallback for a bugfix PR predating the template field.
   if (
+    /\*\*Fix tier:\*\*/i.test(pr.body ?? "") ||
     /^(fix|bugfix)(\([^)]*\))?[:/]/i.test(pr.title ?? "") ||
     (pr.labels ?? []).some((l) => l.name === "bugfix")
   )
@@ -309,6 +312,36 @@ export function assertMcpSnapshotComplete(snapshot) {
 }
 
 /**
+ * Refuse a snapshot that *claims* completeness but doesn't actually have the
+ * data to back it up.
+ *
+ * `assertMcpSnapshotComplete` only checks the attestation was made — it can't
+ * tell whether the collection it attests to is even present. A snapshot with
+ * `complete.reviewThreads: true` and no `reviewThreads` field would otherwise
+ * fall through `flattenMcpThreads`'s `?? []` defaults and silently report
+ * zero findings, and a thread with no `comments` array would be silently
+ * dropped the same way — both indistinguishable from a genuinely clean,
+ * finding-free loop unless checked explicitly.
+ */
+export function assertMcpSnapshotShape(snapshot) {
+  for (const key of ["reviews", "files", "reviewThreads"]) {
+    if (!Array.isArray(snapshot[key])) {
+      throw new Error(
+        `MCP snapshot malformed: "${key}" must be an array (got ${typeof snapshot[key]}). ` +
+          `An attestation of completeness does not substitute for the data being present.`,
+      );
+    }
+  }
+  snapshot.reviewThreads.forEach((thread, i) => {
+    if (!Array.isArray(thread.comments)) {
+      throw new Error(
+        `MCP snapshot malformed: reviewThreads[${i}] (id ${thread.id ?? "unknown"}) has no comments array.`,
+      );
+    }
+  });
+}
+
+/**
  * Assemble a `derive()`-ready object from raw MCP tool outputs.
  *
  * `snapshot` is the four raw results an agent gets from `pull_request_read`,
@@ -326,6 +359,7 @@ export function assertMcpSnapshotComplete(snapshot) {
  * `reviewThreads` needs the flattening above.
  */
 export function fromMcp(snapshot) {
+  assertMcpSnapshotShape(snapshot);
   assertMcpSnapshotComplete(snapshot);
   const { pr, reviews, files, reviewThreads } = snapshot;
   return { pr, reviews, files, comments: flattenMcpThreads(reviewThreads, reviews) };

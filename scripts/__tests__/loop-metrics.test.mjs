@@ -136,6 +136,23 @@ test("scoped conventional-commit fix titles are recognized as bugfix", () => {
   );
 });
 
+test("a bugfix PR with a natural-language title and no label still classifies as bugfix", () => {
+  // working-modes.md never requires a conventional title or a label — only
+  // the PR body's required "**Fix tier:**" field. Titles like these are real,
+  // present in this repo's history, and the title/label regex alone silently
+  // misclassified them as feature/code.
+  const pr = {
+    title: "Fix test isolation issues in the enrichment suite",
+    body: "## What & why\n\n...\n\n**Fix tier:** A — contained, single caller\n",
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
+test("a Tier C fix-tier field also signals bugfix", () => {
+  const pr = { title: "Prevent the crash on empty payload", body: "**Fix tier:** C — trivial schema fix\n" };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
 test("a skill file counts as prose", () => {
   assert.equal(
     classifyCohort({ title: "x" }, [{ filename: ".claude/skills/bugfix/SKILL.md" }]),
@@ -367,6 +384,30 @@ for (const key of ["reviews", "files", "reviewThreads"]) {
 
 test("assertMcpSnapshotComplete passes silently when all three are true", () => {
   assert.doesNotThrow(() => assertMcpSnapshotComplete(realSnapshot()));
+});
+
+test("fromMcp refuses complete:true attesting to a collection that is not actually present", () => {
+  // The attestation only proves a claim was made — it says nothing about
+  // whether the data behind it exists. Without this check, complete.reviewThreads
+  // true plus a missing reviewThreads field would fall through flattenMcpThreads'
+  // ?? [] default and silently report zero findings: indistinguishable from a
+  // genuinely clean loop.
+  const { reviewThreads: _drop, ...malformed } = realSnapshot();
+  assert.throws(() => fromMcp(malformed), /"reviewThreads" must be an array/);
+});
+
+for (const key of ["reviews", "files", "reviewThreads"]) {
+  test(`fromMcp refuses ${key} when it is present but not an array`, () => {
+    assert.throws(() => fromMcp(realSnapshot({ [key]: "not-an-array" })), new RegExp(`"${key}" must be an array`));
+  });
+}
+
+test("fromMcp refuses a thread whose comments field is missing", () => {
+  const threadWithNoComments = { id: "PRRT_broken" };
+  assert.throws(
+    () => fromMcp(realSnapshot({ reviewThreads: [threadWithNoComments] })),
+    /reviewThreads\[0\] \(id PRRT_broken\) has no comments array/,
+  );
 });
 
 test("fromMcp produces derive()-ready findings and rounds for real PR #270 data", () => {
