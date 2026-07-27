@@ -452,8 +452,20 @@ export function assertMcpSnapshotComplete(snapshot) {
  * zero for both via `?? 0`, and a review missing `user.login` is silently
  * excluded from `countRounds`'s round count rather than counted or rejected —
  * both produce a credible-looking undercount instead of throwing.
+ *
+ * `snapshot.pr` itself is validated too: `derive()` consumes `pr.created_at`
+ * for `reviewInterval()`, and a missing/unparseable one produces `NaN` hours
+ * that JSON-serializes as a legitimate-looking `hours: null` (with
+ * `opened_at` silently omitted) instead of failing loudly.
  */
 export function assertMcpSnapshotShape(snapshot) {
+  const pr = snapshot.pr ?? {};
+  if (typeof pr.number !== "number" || typeof pr.title !== "string" || Number.isNaN(new Date(pr.created_at ?? "").getTime())) {
+    throw new Error(
+      `MCP snapshot malformed: "pr" must have a numeric number, a string title, and a parseable created_at ` +
+        `(got number=${JSON.stringify(pr.number)}, title=${JSON.stringify(pr.title)}, created_at=${JSON.stringify(pr.created_at)}).`,
+    );
+  }
   for (const key of ["reviews", "files", "reviewThreads"]) {
     if (!Array.isArray(snapshot[key])) {
       throw new Error(
@@ -473,11 +485,13 @@ export function assertMcpSnapshotShape(snapshot) {
     }
   });
   snapshot.reviews.forEach((r, i) => {
-    if (typeof r.user?.login !== "string" || !r.submitted_at) {
+    const hasStableId = typeof r.id === "number" || typeof r.id === "string";
+    if (!hasStableId || typeof r.user?.login !== "string" || !r.submitted_at) {
       throw new Error(
-        `MCP snapshot malformed: reviews[${i}] must have a string user.login and a submitted_at ` +
-          `(got user.login=${JSON.stringify(r.user?.login)}, submitted_at=${JSON.stringify(r.submitted_at)}). ` +
-          `A review missing either is silently excluded from the round count instead of counted or rejected.`,
+        `MCP snapshot malformed: reviews[${i}] must have a stable id (number or string), a string user.login, ` +
+          `and a submitted_at (got id=${JSON.stringify(r.id)}, user.login=${JSON.stringify(r.user?.login)}, ` +
+          `submitted_at=${JSON.stringify(r.submitted_at)}). countRounds/findingsByRound now dedupe by id — ` +
+          `multiple id-less reviews would silently collapse into a single round instead of being rejected.`,
       );
     }
   });
@@ -580,21 +594,50 @@ async function fetchPR(number) {
 // CLI
 // ---------------------------------------------------------------------------
 
-function arg(name) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? null : process.argv[i + 1];
-}
+/**
+ * Parse and validate CLI arguments. Exported so the validation itself is
+ * directly testable without mocking process.argv/exit.
+ *
+ * Two failure modes this used to let through silently:
+ *  - More than one of --fixture/--mcp-snapshot/--pr supplied together: the
+ *    old code just picked by precedence, so e.g. `--fixture stale.json --pr
+ *    270` would derive from the stale fixture while appearing to target PR
+ *    270 — persisting a row for the wrong loop with no error at all.
+ *  - `--save-fixture` given with no following path (e.g. as the last arg):
+ *    the old code treated a `null`/`undefined` value the same as "not
+ *    requested" and skipped saving silently — a capture that looks
+ *    successful but loses the fixture needed to reproduce the calculation.
+ */
+export function parseArgs(argv) {
+  const arg = (name) => {
+    const i = argv.indexOf(`--${name}`);
+    return i === -1 ? null : argv[i + 1];
+  };
 
-async function main() {
   const fixture = arg("fixture");
   const mcpSnapshot = arg("mcp-snapshot");
   const prNumber = arg("pr");
-  if (!fixture && !mcpSnapshot && !prNumber) {
-    console.error(
-      "usage: loop-metrics.mjs --pr <number> | --fixture <file> | --mcp-snapshot <file>",
-    );
-    process.exit(2);
+  const sources = [fixture, mcpSnapshot, prNumber].filter((v) => v != null);
+  if (sources.length === 0) {
+    throw new Error("usage: loop-metrics.mjs --pr <number> | --fixture <file> | --mcp-snapshot <file>");
   }
+  if (sources.length > 1) {
+    throw new Error(
+      "loop-metrics.mjs accepts exactly one of --pr, --fixture, --mcp-snapshot, not more than one at once.",
+    );
+  }
+
+  const saveFixtureRequested = argv.includes("--save-fixture");
+  const saveTo = arg("save-fixture");
+  if (saveFixtureRequested && !saveTo) {
+    throw new Error("--save-fixture requires a file path");
+  }
+
+  return { fixture, mcpSnapshot, prNumber, saveTo };
+}
+
+async function main() {
+  const { fixture, mcpSnapshot, prNumber, saveTo } = parseArgs(process.argv);
 
   const { readFile, writeFile } = await import("node:fs/promises");
   const raw = fixture
@@ -603,7 +646,6 @@ async function main() {
       ? fromMcp(JSON.parse(await readFile(mcpSnapshot, "utf8")))
       : await fetchPR(prNumber);
 
-  const saveTo = arg("save-fixture");
   if (saveTo) await writeFile(saveTo, JSON.stringify(raw, null, 2));
 
   console.log(JSON.stringify(derive(raw), null, 2));

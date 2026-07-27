@@ -12,6 +12,7 @@ import {
   derive,
   gh,
   stripHtmlComments,
+  parseArgs,
 } from "../loop-metrics.mjs";
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
@@ -595,7 +596,34 @@ test("fromMcp refuses a review entry missing user.login", () => {
   // counting or rejecting it — a credible-looking undercount.
   assert.throws(
     () => fromMcp(realSnapshot({ reviews: [{ id: 1, submitted_at: "2026-07-27T20:15:30Z" }] })),
-    /reviews\[0\] must have a string user\.login and a submitted_at/,
+    /reviews\[0\] must have a stable id .* a string user\.login, and a submitted_at/,
+  );
+});
+
+test("fromMcp refuses a review entry missing a stable id", () => {
+  // countRounds/findingsByRound now dedupe reviews by id — multiple id-less
+  // reviews would silently collapse into a single round instead of being
+  // rejected, producing a plausible but understated ledger row.
+  assert.throws(
+    () => fromMcp(realSnapshot({ reviews: [{ user: BOT, submitted_at: "2026-07-27T20:15:30Z" }] })),
+    /reviews\[0\] must have a stable id \(number or string\)/,
+  );
+});
+
+test("fromMcp refuses a pr object missing a parseable created_at", () => {
+  // derive() consumes pr.created_at for reviewInterval() — a missing/invalid
+  // one produces NaN hours that serializes as a legitimate-looking
+  // "hours: null" instead of failing loudly.
+  assert.throws(
+    () => fromMcp(realSnapshot({ pr: { number: 270, title: "x", created_at: "not-a-date" } })),
+    /"pr" must have a numeric number, a string title, and a parseable created_at/,
+  );
+});
+
+test("fromMcp refuses a pr object missing a title", () => {
+  assert.throws(
+    () => fromMcp(realSnapshot({ pr: { number: 270, created_at: "2026-07-27T20:07:03Z" } })),
+    /"pr" must have a numeric number, a string title, and a parseable created_at/,
   );
 });
 
@@ -607,5 +635,49 @@ test("fromMcp refuses a thread comment missing a body, author, or created_at", (
   assert.throws(
     () => fromMcp(realSnapshot({ reviewThreads: [brokenThread] })),
     /reviewThreads\[0\]\.comments\[0\] must have a body, an author or user\.login, and a created_at/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// CLI argument parsing/validation.
+// ---------------------------------------------------------------------------
+
+test("parseArgs accepts a single --pr source", () => {
+  assert.deepEqual(parseArgs(["node", "loop-metrics.mjs", "--pr", "270"]), {
+    fixture: null,
+    mcpSnapshot: null,
+    prNumber: "270",
+    saveTo: null,
+  });
+});
+
+test("parseArgs rejects no input source at all", () => {
+  assert.throws(() => parseArgs(["node", "loop-metrics.mjs"]), /usage: loop-metrics\.mjs/);
+});
+
+test("parseArgs rejects more than one input source", () => {
+  // The old precedence chain silently used the first one instead of
+  // rejecting the ambiguous invocation — `--fixture stale.json --pr 270`
+  // would derive from the stale fixture while appearing to target PR 270.
+  assert.throws(
+    () => parseArgs(["node", "loop-metrics.mjs", "--fixture", "stale.json", "--pr", "270"]),
+    /accepts exactly one of --pr, --fixture, --mcp-snapshot/,
+  );
+});
+
+test("parseArgs rejects --save-fixture given without a path", () => {
+  // A present-but-valueless option used to be treated the same as "not
+  // requested" and skipped saving silently — a capture that looks
+  // successful but loses the fixture needed to reproduce the calculation.
+  assert.throws(
+    () => parseArgs(["node", "loop-metrics.mjs", "--pr", "270", "--save-fixture"]),
+    /--save-fixture requires a file path/,
+  );
+});
+
+test("parseArgs accepts --save-fixture with a path", () => {
+  assert.equal(
+    parseArgs(["node", "loop-metrics.mjs", "--pr", "270", "--save-fixture", "out.json"]).saveTo,
+    "out.json",
   );
 });
