@@ -243,7 +243,9 @@ oracle and the Tier A/B bugfix oracle below.
    that breaks the build doesn't get committed.
 7. **One focused commit** — fix + its regression test together, message naming the
    bug and the fix.
-8. **Open the PR** with the oracle below, and engage the review to convergence.
+8. **Open the PR** with the applicable oracle — the Tier A/B oracle below for a
+   Tier A/B fix, or the dedicated Tier C block described above for a trivial
+   schema fix — and engage the review to convergence.
 
 > **Narrow carve-out on step 3:** if a fix is genuinely untestable at reasonable
 > cost (a pure visual/CSS tweak with no assertable behavior), the regression test
