@@ -31,14 +31,17 @@
      and Tier C blocks. See
      docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
 
-     BUGFIX MODE, TIER C, TRIVIAL SCHEMA FIX — a schema/migration/backfill fix
-     is always Tier C (out of bugfix mode's fast path), but a genuinely trivial
+     BUGFIX MODE, TIER C, TRIVIAL DATABASE SCHEMA FIX — a *database* schema/
+     migration/backfill fix (not the generated Zod schemas under
+     lib/api-zod/lib/api-spec, which are a Q1 Tier B trigger, not this one) is
+     always Tier C (out of bugfix mode's fast path), but a genuinely trivial
      one is allowed to run migration ceremony directly, with David's go-ahead,
      instead of a full plan (see
      docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode).
      It still has a bug behind it, so it isn't "n/a — no plan" — fill the Tier C
-     block instead; delete the feature and A/B blocks. A NON-trivial schema
-     change gets a full plan and uses the FEATURE MODE block above, not this one.
+     block instead; delete the feature and A/B blocks. A NON-trivial database
+     schema change gets a full plan and uses the FEATURE MODE block above, not
+     this one.
 
      Only a genuinely trivial change with no plan and no bug behind it (a typo,
      a comment) writes "n/a — no plan" and deletes all three blocks. -->

@@ -26,12 +26,16 @@ The full workflow for building or changing product functionality. In this mode:
 4. **Tests prove the general invariant**, not just the reported example.
 5. **Open a PR** for review.
 
-Any "let's build / add / change X", a behavior change, or a schema change is
-feature mode — **not** gated on product consequence: a non-trivial schema
-change of any kind (see *Tier C* below) needs a plan and David's approval
-before anything runs. A schema change is feature mode by default; it stays
-out of the full plan only if it's genuinely trivial, in which case it runs
-migration ceremony directly per Tier C.
+Any "let's build / add / change X", a behavior change, or a **database**
+schema change is feature mode — **not** gated on product consequence: a
+non-trivial database schema change of any kind (see *Tier C* below) needs a
+plan and David's approval before anything runs. A database schema change is
+feature mode by default; it stays out of the full plan only if it's genuinely
+trivial, in which case it runs migration ceremony directly per Tier C. (This
+is the *database* schema — Drizzle/`lib/db`, migrations, table structure —
+not the generated Zod API-validation schemas under `lib/api-zod`/
+`lib/api-spec`, which have their own explicit Tier B routing; see *Tier C*
+below.)
 
 ## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
@@ -87,19 +91,19 @@ pick a disambiguated name on a clash, and **never** force/reset onto
 > parent's branch as its base, not `main`.** Basing against `main` while the
 > branch carries the parent's unmerged commits puts both bugs in one diff,
 > which defeats the one-bug-per-PR isolation this section exists for. State
-> the stack order in the new PR body. **Once the parent merges, retarget the
-> child's PR base to `main` immediately — before doing anything else.** This
-> repo auto-deletes a branch once its PR merges, and
+> the stack order in the new PR body. **Retarget the child's PR base to `main`
+> *before* the parent's PR is merged — not after.** This repo auto-deletes a
+> branch once its PR merges, with **no reliable window afterward** to act — the
+> deletion can happen as part of the merge itself.
 > [`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../CODEX_GITHUB_REVIEW_WORKFLOW.md)
-> records a real prior incident where a stacked PR's branch was deleted before
-> its commits reached `main`, putting the PR at risk of being orphaned. The
-> child's base still points at the parent's (about-to-vanish) branch, so
-> retargeting to `main` first is what protects the PR — do this before the
-> content merge below, not after. Retargeting alone does **not** yet narrow
-> the diff (David squash-merges, so the parent's commits aren't ancestors of
-> `main`, and a three-dot diff still compares against the pre-parent merge
-> base) — that's fine, it's a purely visual gap until the next step: `git
-> fetch origin main && git merge origin/main` into the child branch (the
+> records a real prior incident of exactly this orphaning, and its own required
+> workflow says to preserve the parent branch and retarget the stack *before*
+> squash-merging it — do the retarget as part of preparing the parent for
+> merge, before asking David to merge it (or before merging it myself if that's
+> in scope), not as a step after. Retargeting early means the diff is
+> temporarily broad (it still contains the parent's unmerged commits) — accept
+> that; it's cosmetic. Once the parent has actually merged, narrow the diff:
+> `git fetch origin main && git merge origin/main` into the child branch (the
 > squash commit becomes an ancestor, per CLAUDE.md's squash-merge-follow-up
 > guidance — merge, never rebase, on an already-pushed branch), then push;
 > the diff narrows to just the new bug once that lands.
@@ -349,19 +353,21 @@ this miss a caller?*
 **Mode persistence & switching:** a mode stays in force across messages until David
 ends it. If a request that arrives during bugfix mode looks like **building or
 changing product functionality** (a feature, a behavior change) — or diagnosis
-reveals **any schema change, migration, or backfill** (Tier C without exception,
-regardless of product consequence — see *Tier C* above) — **do not silently treat
+reveals **any *database* schema change, migration, or backfill** (Tier C without
+exception, regardless of product consequence — not the `lib/api-zod` Zod schemas,
+which stay Q1 Tier B — see *Tier C* above) — **do not silently treat
 it as a fix and do not silently switch** — **ask** whether to exit bugfix mode and
-switch to the feature workflow, or (for a genuinely trivial schema fix) proceed
-straight to migration ceremony per Tier C. Guessing wrong is expensive in both
-directions (skipping a plan a feature or a non-trivial schema change needed, or
-piling ceremony onto a one-line fix), and the confirm costs one question.
+switch to the feature workflow, or (for a genuinely trivial database schema fix)
+proceed straight to migration ceremony per Tier C. Guessing wrong is expensive in
+both directions (skipping a plan a feature or a non-trivial schema change needed,
+or piling ceremony onto a one-line fix), and the confirm costs one question.
 
 ## When NOT to use bugfix mode
 
-Features, behavior changes, **any schema change, migration, or backfill**
-(Tier C without exception — see above; not gated on product consequence), or
+Features, behavior changes, **any *database* schema change, migration, or
+backfill** (Tier C without exception — see above; not gated on product
+consequence; not the `lib/api-zod` Zod schemas, which stay Q1 Tier B), or
 anything where David needs to verify intent — that's **feature mode**, or for a
-trivial schema fix, migration ceremony run directly per Tier C. Don't use bugfix
-mode to sneak a feature through the lightweight path. When unsure which it is,
-**ask.**
+trivial database schema fix, migration ceremony run directly per Tier C. Don't
+use bugfix mode to sneak a feature through the lightweight path. When unsure
+which it is, **ask.**

@@ -103,17 +103,17 @@ the PR back only delays the review that catches things.
    **Exception: a stacked fix bases against its parent's branch, not `main`**
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
-   one-bug-per-PR isolation this whole redesign is for. **When the parent
-   merges, retarget to `main` immediately, before anything else** — this repo
-   auto-deletes a merged branch, and a documented prior incident
+   one-bug-per-PR isolation this whole redesign is for. **Retarget to `main`
+   *before* the parent's PR is merged, not after** — this repo auto-deletes a
+   merged branch with no reliable window afterward (deletion can happen as
+   part of the merge itself), and a documented prior incident
    ([`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../../../docs/CODEX_GITHUB_REVIEW_WORKFLOW.md))
-   shows a stacked PR can be orphaned if its base branch disappears first, so
-   retargeting is the safety step and comes first. Retargeting alone doesn't
-   yet narrow the diff (squash-merge means the parent's commits aren't
-   ancestors of `main`) — that's a purely visual gap until the next step:
-   `git fetch origin main && git merge origin/main` into this branch (merge,
-   never rebase, on an already-pushed branch), then push; the diff narrows
-   once that lands.
+   shows exactly this orphaning; that doc's own required workflow says to
+   retarget before squash-merging, not after. Retargeting early leaves the
+   diff temporarily broad (it still shows the parent's unmerged commits) —
+   accept that, it's cosmetic. Once the parent has actually merged, narrow the
+   diff: `git fetch origin main && git merge origin/main` into this branch
+   (merge, never rebase, on an already-pushed branch), then push.
    Use **`.github/pull_request_template.md`** — the
    repo template applies to bug fixes too. Fill the **Approved-plan oracle**
    section with the **bugfix oracle** instead of "n/a — no plan" — **which
@@ -238,11 +238,12 @@ whether a message is the next bug or a pivot, I ask.
 
 ## When NOT to use this mode
 
-A feature, a behavior change, **any schema change, migration, or backfill**
-(Tier C without exception, regardless of product consequence — see
+A feature, a behavior change, **any *database* schema change, migration, or
+backfill** (Tier C without exception, regardless of product consequence; not
+the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)),
 or anything where David needs to verify intent is out of the fast path — a
-non-trivial one goes to **feature mode**, a genuinely trivial schema fix runs
-migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a feature
-through the fast path — and don't let a fix quietly become one mid-build; that's
-Tier C. When unsure, ask.
+non-trivial one goes to **feature mode**, a genuinely trivial database schema
+fix runs migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a
+feature through the fast path — and don't let a fix quietly become one
+mid-build; that's Tier C. When unsure, ask.
