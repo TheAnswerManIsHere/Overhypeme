@@ -940,14 +940,20 @@ The obligation itself is **shared and lives in
 binds Codex too, so it is not restated here. What is mine is only the
 enactment:
 
-- **When a PR I own merges or closes, I append its row** before I consider the
-  work finished. A closed loop with no row is unfinished work, not a
-  bookkeeping omission.
+- **When a PR I own merges or closes, its row is owed** before I consider the
+  work finished — but I do **not** open a dedicated PR to append it (that
+  would collide with "Always open a PR when work is done" and never
+  terminate; see `working-modes.md`'s *"a row is never its own dedicated PR"*
+  for why and how). I compute it right away and fold it into whatever PR I
+  open next, on any subject, as one ordinary commit.
 - **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
-  columns and never type them from memory.** My record on recalled numbers in
-  this repo is poor — three figures produced by inference during the work that
-  created the ledger were all wrong; every figure produced by counting a source
-  held.
+  columns and never type them from memory** — or `--mcp-snapshot <file>` when
+  my environment has no direct `api.github.com` credential, which is this
+  container's own case (its `GITHUB_TOKEN` is proxy-scoped and 401s against
+  the real API; my working GitHub access here is the MCP tool integration).
+  My record on recalled numbers in this repo is poor — three figures produced
+  by inference during the work that created the ledger were all wrong; every
+  figure produced by counting a source held.
 - **I classify the judgment columns myself and say so**, including when the
   causes are my own errors. Ambiguous causes go to self-inflicted.
 - **I dispatch the blind adjudication subagent** — this is a named exception to

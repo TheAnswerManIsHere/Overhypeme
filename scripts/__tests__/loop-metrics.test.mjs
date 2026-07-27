@@ -119,6 +119,23 @@ test("cohort precedence is top-down, first match wins", () => {
   );
 });
 
+test("scoped conventional-commit fix titles are recognized as bugfix", () => {
+  // These exact forms appear repeatedly in this repo's history (#265, #246)
+  // and carry no label — the unscoped-only regex silently misclassified them.
+  assert.equal(
+    classifyCohort({ title: "fix(test): stabilize flaky assertion" }, [
+      { filename: "src/a.ts" },
+    ]),
+    "bugfix",
+  );
+  assert.equal(
+    classifyCohort({ title: "fix(security): close auth bypass" }, [
+      { filename: "src/a.ts" },
+    ]),
+    "bugfix",
+  );
+});
+
 test("a skill file counts as prose", () => {
   assert.equal(
     classifyCohort({ title: "x" }, [{ filename: ".claude/skills/bugfix/SKILL.md" }]),
@@ -223,4 +240,112 @@ test("gh requires a token", async () => {
     () => gh("/x", { token: "", fetchImpl: stub([{ body: [] }]) }),
     /GITHUB_TOKEN/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// MCP adapter. Fixtures below are drawn verbatim from real `pull_request_read`
+// output against this repo's own PR #270 (2026-07-27) — not hand-imagined
+// shapes. That's the whole point: a plausible-looking mapping is not the same
+// as one checked against a real response.
+// ---------------------------------------------------------------------------
+
+import { flattenMcpThreads, fromMcp } from "../loop-metrics.mjs";
+
+const MCP_REVIEW = {
+  id: 4791129869,
+  user: { login: "chatgpt-codex-connector[bot]" },
+  submitted_at: "2026-07-27T20:15:30Z",
+};
+
+// Real shape from get_review_comments against PR #270: comments grouped by
+// thread, `author` as a bare string, no `id`/`in_reply_to_id`/
+// `pull_request_review_id` — id only recoverable from html_url.
+const MCP_THREAD_UNANSWERED = {
+  id: "PRRT_kwDOR3LTYs6UMcPj",
+  comments: [
+    {
+      body: "Provide a usable API transport in the agent environment",
+      path: "scripts/loop-metrics.mjs",
+      line: 205,
+      author: "chatgpt-codex-connector",
+      created_at: "2026-07-27T20:15:31Z",
+      html_url:
+        "https://github.com/TheAnswerManIsHere/Overhypeme/pull/270#discussion_r3660595551",
+    },
+  ],
+};
+
+const MCP_THREAD_WITH_REPLY = {
+  id: "PRRT_kwDOR3LTYs6UMcPm",
+  comments: [
+    {
+      body: "Recognize scoped fix titles as bugfixes",
+      author: "chatgpt-codex-connector",
+      created_at: "2026-07-27T20:15:31Z",
+      html_url:
+        "https://github.com/TheAnswerManIsHere/Overhypeme/pull/270#discussion_r3660595556",
+    },
+    {
+      body: "Fixed — broadened the regex.",
+      author: "TheAnswerManIsHere",
+      created_at: "2026-07-27T20:30:00Z",
+      html_url:
+        "https://github.com/TheAnswerManIsHere/Overhypeme/pull/270#discussion_r3660777777",
+    },
+  ],
+};
+
+test("flattenMcpThreads recovers the numeric id from html_url", () => {
+  const [c] = flattenMcpThreads([MCP_THREAD_UNANSWERED], [MCP_REVIEW]);
+  assert.equal(c.id, 3660595551);
+});
+
+test("flattenMcpThreads wraps the bare author string as user.login", () => {
+  const [c] = flattenMcpThreads([MCP_THREAD_UNANSWERED], [MCP_REVIEW]);
+  assert.equal(c.user.login, "chatgpt-codex-connector");
+});
+
+test("flattenMcpThreads: first comment in a thread is the root, not a reply", () => {
+  const [root] = flattenMcpThreads([MCP_THREAD_WITH_REPLY], [MCP_REVIEW]);
+  assert.equal(root.in_reply_to_id, undefined);
+});
+
+test("flattenMcpThreads: later comments reply to the thread's root id", () => {
+  const [root, reply] = flattenMcpThreads([MCP_THREAD_WITH_REPLY], [MCP_REVIEW]);
+  assert.equal(reply.in_reply_to_id, root.id);
+});
+
+test("flattenMcpThreads infers pull_request_review_id across the bot's two login spellings", () => {
+  // MCP_REVIEW.user.login is "chatgpt-codex-connector[bot]" (from
+  // get_reviews); the comment's author is "chatgpt-codex-connector" (from
+  // get_review_comments, no [bot] suffix). An exact-match lookup between the
+  // two would silently find nothing here — this failed before normalizeLogin.
+  const [c] = flattenMcpThreads([MCP_THREAD_UNANSWERED], [MCP_REVIEW]);
+  assert.equal(c.pull_request_review_id, MCP_REVIEW.id);
+});
+
+test("flattenMcpThreads assigns no review id when the comment predates every review by that author", () => {
+  const earlyComment = {
+    ...MCP_THREAD_UNANSWERED,
+    comments: [{ ...MCP_THREAD_UNANSWERED.comments[0], created_at: "2020-01-01T00:00:00Z" }],
+  };
+  const [c] = flattenMcpThreads([earlyComment], [MCP_REVIEW]);
+  assert.equal(c.pull_request_review_id, undefined);
+});
+
+test("fromMcp produces derive()-ready findings and rounds for real PR #270 data", () => {
+  const snapshot = {
+    pr: {
+      number: 270,
+      title: "Add the loop ledger: track every review loop, count what can be counted",
+      created_at: "2026-07-27T20:07:03Z",
+    },
+    reviews: [MCP_REVIEW],
+    files: [{ filename: "scripts/loop-metrics.mjs", additions: 100, deletions: 0 }],
+    reviewThreads: [MCP_THREAD_UNANSWERED, MCP_THREAD_WITH_REPLY],
+  };
+  const row = derive(fromMcp(snapshot));
+  assert.equal(row.rounds, 1);
+  // Two threads, one reply — one root finding each, the reply excluded.
+  assert.equal(row.findings, 2);
 });

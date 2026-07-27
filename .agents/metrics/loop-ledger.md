@@ -84,6 +84,7 @@ against, not output of the mechanism it describes.
   measured*, never *zero*.
 
 **The first row produced by the mechanism**, rather than recalled into it, will
-be this ledger's own implementation PR — appended after that PR closes, since a
-PR cannot contain its own final round count without changing its own head and
-triggering another round.
+be this ledger's own implementation PR — computed once it closes and folded
+into whichever PR comes next, per `working-modes.md`'s *"a row is never its own
+dedicated PR"*. Not a dedicated ledger-only PR: that would require its own
+review, whose own close would owe another row, forever.

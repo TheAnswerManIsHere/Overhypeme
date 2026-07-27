@@ -17,6 +17,14 @@
  *   node scripts/loop-metrics.mjs --pr 268
  *   node scripts/loop-metrics.mjs --fixture path/to/fixture.json
  *   node scripts/loop-metrics.mjs --pr 268 --save-fixture out.json
+ *   node scripts/loop-metrics.mjs --mcp-snapshot path/to/snapshot.json
+ *
+ * `--mcp-snapshot` is for agents whose only working GitHub credential is a
+ * tool-calling MCP integration rather than a direct token against
+ * api.github.com (this repo's own dev container is one such agent — its
+ * GITHUB_TOKEN is scoped to a local git proxy and 401s against the real API).
+ * See `fromMcp()` below for the exact shape and how it differs from the REST
+ * shape `gh()` expects.
  *
  * Auth: GITHUB_TOKEN or GH_TOKEN, needing only public repo read.
  */
@@ -128,7 +136,16 @@ export function classifyCohort(pr, files) {
   const paths = files.map((f) => f.filename);
   const isProse = (p) => /\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/");
   if (paths.some(isProse)) return "prose/contract";
-  if (/^(fix|bugfix)[:/]/i.test(pr.title ?? "") || (pr.labels ?? []).some((l) => l.name === "bugfix"))
+  // Matches "fix: ..." and conventional scoped forms like "fix(test): ...",
+  // "fix(security): ..." — both appear repeatedly in this repo's actual PR
+  // history (e.g. #265, #246), and the bugfix workflow never requires a label
+  // or an unscoped title. Missing these silently misclassified real bugfix
+  // loops as feature/code, corrupting the cohort comparison the ledger exists
+  // to make.
+  if (
+    /^(fix|bugfix)(\([^)]*\))?[:/]/i.test(pr.title ?? "") ||
+    (pr.labels ?? []).some((l) => l.name === "bugfix")
+  )
     return "bugfix";
   return "feature/code";
 }
@@ -180,6 +197,102 @@ export function derive({ pr, reviews, comments, files }) {
       breakers_fired: null,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// MCP adapter — for agents without a direct api.github.com credential.
+//
+// `derive()` expects the flat REST comment shape: {id, user:{login},
+// in_reply_to_id, pull_request_review_id}. The GitHub MCP server's
+// `get_review_comments` does NOT return that shape — verified against this
+// repo's own PR #270 rather than assumed. It returns comments grouped by
+// thread, with `author` as a bare string (not `user.login`), no numeric `id`
+// field (only recoverable from the `#discussion_r<digits>` suffix on
+// `html_url`), no `in_reply_to_id`, and no `pull_request_review_id` at all.
+//
+// A regex over the wrong shape would produce a number that looks derived and
+// isn't — the exact failure this file exists to prevent — so this adapter is
+// tested against the real shape, not an assumed one.
+// ---------------------------------------------------------------------------
+
+/**
+ * Flatten MCP `get_review_comments` thread groups into the flat shape
+ * `countFindings`/`findingsByRound` expect.
+ *
+ * Two things are inferred rather than read directly, because the MCP shape
+ * does not carry them:
+ *
+ *  - `in_reply_to_id`: the first comment in a thread is the root finding;
+ *    every later comment in the same thread is a reply to it. This matches
+ *    our own workflow (one reviewer opens a thread, one author replies) and
+ *    is not a general GitHub guarantee for arbitrarily-authored threads.
+ *  - `pull_request_review_id`: not present in this MCP shape at all. It is
+ *    approximated as the id of the latest `reviews` entry, **by the same
+ *    author**, submitted at or before the comment's `created_at` — the same
+ *    correlation a human would do by reading timestamps, made explicit and
+ *    testable instead of implicit.
+ */
+/**
+ * Same bot, two spellings: `get_reviews` returns
+ * `chatgpt-codex-connector[bot]` as the review author's login, but
+ * `get_review_comments` returns the bare `chatgpt-codex-connector` (no
+ * `[bot]` suffix) as the comment's `author` string — confirmed by comparing
+ * the two calls against the same PR. An exact-match lookup between them
+ * silently finds nothing for every one of the bot's own comments, which is
+ * exactly the kind of confidently-wrong result this file exists to prevent.
+ */
+const normalizeLogin = (login) => (login ?? "").replace(/\[bot\]$/, "");
+
+export function flattenMcpThreads(reviewThreads, reviews) {
+  const byAuthor = new Map();
+  for (const r of reviews) {
+    const login = normalizeLogin(r.user?.login);
+    if (!login) continue;
+    if (!byAuthor.has(login)) byAuthor.set(login, []);
+    byAuthor.get(login).push(r);
+  }
+  for (const list of byAuthor.values()) list.sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+
+  const out = [];
+  for (const thread of reviewThreads ?? []) {
+    let rootId = null;
+    (thread.comments ?? []).forEach((c, i) => {
+      const match = /discussion_r(\d+)/.exec(c.html_url ?? "");
+      const id = match ? Number(match[1]) : `${thread.id}#${i}`;
+      if (i === 0) rootId = id;
+
+      const login = c.author ?? c.user?.login;
+      const createdAt = new Date(c.created_at);
+      const candidates = byAuthor.get(normalizeLogin(login)) ?? [];
+      const review = candidates.filter((r) => new Date(r.submitted_at) <= createdAt).pop();
+
+      out.push({
+        id,
+        user: { login },
+        in_reply_to_id: i === 0 ? undefined : rootId,
+        pull_request_review_id: review?.id,
+        body: c.body,
+      });
+    });
+  }
+  return out;
+}
+
+/**
+ * Assemble a `derive()`-ready object from raw MCP tool outputs.
+ *
+ * `snapshot` is exactly the four raw results an agent gets from
+ * `pull_request_read`:
+ *   { pr: <method:"get">, reviews: <method:"get_reviews">,
+ *     files: <method:"get_files">, reviewThreads: <method:"get_review_comments">.review_threads }
+ *
+ * `pr`, `reviews`, and `files` pass through unchanged — verified against
+ * PR #270's live output to carry the same field names `derive()` expects
+ * (`user.login`, `submitted_at`, `filename`/`additions`/`deletions`). Only
+ * `reviewThreads` needs the flattening above.
+ */
+export function fromMcp({ pr, reviews, files, reviewThreads }) {
+  return { pr, reviews, files, comments: flattenMcpThreads(reviewThreads, reviews) };
 }
 
 // ---------------------------------------------------------------------------
@@ -245,16 +358,21 @@ function arg(name) {
 
 async function main() {
   const fixture = arg("fixture");
+  const mcpSnapshot = arg("mcp-snapshot");
   const prNumber = arg("pr");
-  if (!fixture && !prNumber) {
-    console.error("usage: loop-metrics.mjs --pr <number> | --fixture <file>");
+  if (!fixture && !mcpSnapshot && !prNumber) {
+    console.error(
+      "usage: loop-metrics.mjs --pr <number> | --fixture <file> | --mcp-snapshot <file>",
+    );
     process.exit(2);
   }
 
   const { readFile, writeFile } = await import("node:fs/promises");
   const raw = fixture
     ? JSON.parse(await readFile(fixture, "utf8"))
-    : await fetchPR(prNumber);
+    : mcpSnapshot
+      ? fromMcp(JSON.parse(await readFile(mcpSnapshot, "utf8")))
+      : await fetchPR(prNumber);
 
   const saveTo = arg("save-fixture");
   if (saveTo) await writeFile(saveTo, JSON.stringify(raw, null, 2));

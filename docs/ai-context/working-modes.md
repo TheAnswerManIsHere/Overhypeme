@@ -394,6 +394,11 @@ be trusted.
    columns. **Do not type these by hand.** Rounds, findings and elapsed time
    are countable, and figures produced here by recollection have a poor track
    record — two were withdrawn as wrong during the work that created this file.
+   No direct `api.github.com` credential in your environment? The script also
+   accepts `--mcp-snapshot <file>` for agents whose only working GitHub access
+   is a tool-calling integration — see the adapter and its shape notes in
+   `scripts/loop-metrics.mjs`. Either path is mechanical; neither is typing the
+   numbers from memory.
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
    fired. **Ambiguous causes default to self-inflicted**, so classification
@@ -402,6 +407,21 @@ be trusted.
    given the round history and the rubric but not your classifications. Above
    **20% disagreement**, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
+
+**A row is never its own dedicated PR.** Appending is itself a repository
+edit, and this repo's convention is that every edit ships through a reviewed
+PR ("Always open a PR when work is done") — which would mean the append for a
+closed loop needs its own PR, whose own close would then owe another row,
+forever. The two rules are each correct on their own and jointly circular, so
+the fix is sequencing rather than an exception to either: **a closed loop's
+mechanical facts don't change after the fact** — `rounds`, `findings`, and
+`size` for a PR that has already merged or closed are fully computable at any
+later point — so there is no reason the row must land *immediately*. Compute
+it as soon as the loop closes, and fold it in as one ordinary commit of
+whichever PR you open next, on any subject. **Never open a PR whose only
+purpose is a ledger append.** If no further PR is imminent, the next
+`/maintenance` or `/document` pass is the backstop that catches any row still
+owed.
 
 **What it is for.** The primary question is whether the **self-inflicted
 finding share** — findings that exist only because an earlier fix in the same
