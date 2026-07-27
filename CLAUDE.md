@@ -648,8 +648,13 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
-1. Do the fetch + rebase-onto-`origin/main` above so the branch sits
-   exactly on top of current `main`.
+1. **Do not rebase.** Follow the git-constraints procedure above by branch
+   state: a fresh, never-pushed branch is already based on current `main` from
+   its creation — nothing to do. An **already-pushed** branch stays as-is
+   (GitHub's squash-merge 3-way-merges it against `main` at merge time, so it
+   doesn't need to "sit on top of main" first); only merge current `main` in
+   if the work genuinely needs something newly landed there, and even then
+   **merge, never rebase**, per above.
 2. Verify the branch has commits ahead of `origin/main`.
 3. Check `mcp__github__list_pull_requests` (head:
    `theanswermanishere:<branch>`, state: `open`) — is there already an
