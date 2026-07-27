@@ -10,12 +10,14 @@
 
 ## Approved-plan oracle
 
-<!-- If this PR implements a plan David approved (feature mode), paste that
-     plan's Product Intent / Must Not Change / Settled Decisions verbatim —
-     from the plan-review PR body or the final approved plan doc — so the
-     reviewer can check this diff against what was actually approved, not
-     just against itself (see docs/engineering/code-review.md#the-review-oracle-the-pr-body).
-     For bugfix mode or a trivial change with no plan, write "n/a — no plan."
+<!-- Every PR needs an oracle — something OUTSIDE the diff to check it against,
+     so a reviewer can catch a PR that is internally sound but quietly narrowed
+     its scope or broke a neighbor. Which form you fill in depends on the mode;
+     see docs/engineering/code-review.md#the-review-oracle-the-pr-body.
+
+     FEATURE MODE — paste the approved plan's Product Intent / Must Not Change /
+     Settled Decisions verbatim, from the plan-review PR body or the final
+     approved plan doc. Delete the bugfix block.
 
      Approved-plan source identifies the EXACT final revision these words came
      from — not a title or a mutable branch — so a reviewer can tell the
@@ -23,12 +25,55 @@
        Plan-review PR #<N>, final plan commit `<sha>`, approved by David on `YYYY-MM-DD`.
      or, for the private/manual review path (plan never committed):
        `<final-plan-filename>.md`, sha256 `<hash>`, approved by David on `YYYY-MM-DD`.
-     (`shasum -a 256 <file>` on the exact file delivered for approval.) -->
+     (`shasum -a 256 <file>` on the exact file delivered for approval.)
 
+     BUGFIX MODE (Tier A/B) — fill the bugfix oracle instead; delete the feature
+     and Tier C blocks. See
+     docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
+
+     BUGFIX MODE, TIER C, TRIVIAL DATABASE SCHEMA FIX — a *database* schema/
+     migration/backfill fix (not the generated Zod schemas under
+     lib/api-zod/lib/api-spec, which are a Q1 Tier B trigger, not this one) is
+     always Tier C (out of bugfix mode's fast path), but a genuinely trivial
+     one is allowed to run migration ceremony directly, with David's go-ahead,
+     instead of a full plan (see
+     docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode).
+     It still has a bug behind it, so it isn't "n/a — no plan" — fill the Tier C
+     block instead; delete the feature and A/B blocks. A NON-trivial database
+     schema change gets a full plan and uses the FEATURE MODE block above, not
+     this one.
+
+     Only a genuinely trivial change with no plan and no bug behind it (a typo,
+     a comment) writes "n/a — no plan" and deletes all three blocks. -->
+
+<!-- Feature mode -->
 **Approved-plan source:**
 **Product intent:**
 **Must not change:**
 **Settled decisions:**
+
+<!-- Bugfix mode, Tier A/B -->
+**Fix tier:** <!-- A or B, PLUS the reason either way — for B, the specific Q1/Q2
+     trigger that fired; for A, the triggers you actually checked and ruled out
+     (not just "A (contained)" with no reasoning — A is the classification a
+     reviewer most needs to be able to challenge). See
+     docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake. -->
+**Reported symptom:** <!-- David's report, quoted verbatim -->
+**Intended correct behavior:**
+**Must not change:** <!-- adjacent behaviors sharing this code path -->
+**Root cause:** <!-- the mechanism, not the instance -->
+**Blast radius:** <!-- what else calls this / shares this path, and what you checked -->
+
+<!-- Bugfix mode, Tier C trivial schema fix -->
+**Fix tier:** C — trivial schema/migration fix, no plan
+**Reported symptom:** <!-- David's report, quoted verbatim -->
+**Root cause:** <!-- the mechanism, not the instance -->
+**Why this is trivial:** <!-- single-step, no data transformation, no behavior
+     change — the specific reason it doesn't need a full plan -->
+**David's go-ahead:** <!-- how/when confirmed, since this ran without a written plan -->
+**Migration ceremony checklist:** <!-- idempotency, observable counts,
+     human-edited-row preservation, rollback for destructive ops — see
+     docs/engineering/migrations-and-backfills.md -->
 
 ## Verification
 

@@ -164,13 +164,26 @@ contract. David picks the mode explicitly so there's no guessing:
   loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
   gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
-- **Bug-fixing mode is the lightweight path, entered explicitly via the
-  `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
-  small bug), I switch to a fix-and-commit loop: fresh branch off
-  `origin/main`, one focused commit per bug, **no plan file, no plan review
-  (no Codex loop, no ChatGPT), no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
-  only open the PR when he explicitly says "create the PR." The full contract
-  lives in `.claude/skills/bugfix/SKILL.md`.
+- **Bug-fixing mode drops the *planning* ceremony, not the verification** —
+  entered explicitly via the `/bugfix` skill. When David invokes `/bugfix` (or
+  asks me to "just fix" a bug), I switch to a diagnose-classify-fix-ship loop:
+  fresh branch off `origin/main`, **one bug per branch per PR**, opened as soon
+  as the fix is verified. **No plan file and no plan-review loop** — that's the
+  expensive part a fix rarely needs. Everything else scales to what diagnosis
+  reveals: a **Tier A** fix ships with a regression test, a blast-radius note,
+  and the bugfix oracle in the PR body; a **Tier B** fix (sensitive subsystem,
+  or a structurally risky fix shape) moves to Opus and adds a UAT doc **if the
+  fix has any product-visible behavior** — a Tier B fix with none (a pure
+  CI/build-tooling/codegen correction) ships a written verification note
+  instead, same as feature mode's ship-the-UI-surface exception;
+  **Tier C** means it isn't a bug fix and leaves the mode. Codex still reviews
+  every bugfix diff and I drive that to convergence. The shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md); my enactment is
+  `.claude/skills/bugfix/SKILL.md`.
+
+  Note this is **not** "no ChatGPT review" — Codex *is* ChatGPT, and its
+  connector auto-reviews every non-draft PR on open. What bugfix mode skips is
+  **plan** review, not **code** review.
 
 What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
 that's really a behavior change is feature work — see the working rules), verify
@@ -627,7 +640,7 @@ Only ever do this to MY feature branch, never `main`. When in doubt,
 `git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
 **Pre-PR quality pass (David, 2026-07-22):** before opening an implementation
-PR (feature mode; bug-fix batches are exempt — they're already minimal), I run
+PR (feature mode; a bugfix PR is exempt — one bug's diff is already minimal), I run
 the `/simplify` pass over my changed code — dead weight, duplication,
 needless complexity — and fold in its fixes. Codex then reviews a cleaner
 diff, which means fewer mechanical review rounds. This is my discipline, not
@@ -635,17 +648,25 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
-1. Do the fetch + rebase-onto-`origin/main` above so the branch sits
-   exactly on top of current `main`.
+1. **Do not rebase.** Follow the git-constraints procedure above by branch
+   state: a fresh, never-pushed branch is already based on current `main` from
+   its creation — nothing to do. An **already-pushed** branch stays as-is
+   (GitHub's squash-merge 3-way-merges it against `main` at merge time, so it
+   doesn't need to "sit on top of main" first); only merge current `main` in
+   if the work genuinely needs something newly landed there, and even then
+   **merge, never rebase**, per above.
 2. Verify the branch has commits ahead of `origin/main`.
 3. Check `mcp__github__list_pull_requests` (head:
    `theanswermanishere:<branch>`, state: `open`) — is there already an
    open PR?
 4. If yes, the existing PR picks up the new push. Mention the PR URL
    in the closing message and stop.
-5. If no, open a new PR with `mcp__github__create_pull_request` (base:
-   `main`, head: the branch). Title + body describe the change. Return
-   the PR URL.
+5. If no, open a new PR with `mcp__github__create_pull_request` — base
+   `main`, **except a stacked bugfix PR** (a dependent bug branched from
+   another open bugfix PR's head — see `working-modes.md`'s *Dependent
+   bugs* note), which bases against that parent branch instead; basing it
+   on `main` would put both bugs in one diff. Title + body describe the
+   change. Return the PR URL.
 
 This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration
@@ -665,7 +686,19 @@ loop, or straight from the final approved plan document when the plan went
 through the manual/private review path instead (the disclosure carve-out or a
 broken-loop fallback, per *Automated plan review* above — there's no
 `[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
-Bugfix mode or a trivial change with no plan gets "n/a — no plan" there.
+**A bugfix PR fills the same section with the *bugfix oracle*, not "n/a — no
+plan"** — a fix has no plan, but reviewing it against nothing but itself can't
+catch the one failure that matters most on a fix: the symptom disappears while
+a neighbor breaks. **Tier A/B** fills fix tier, reported symptom verbatim,
+intended correct behavior, must not change, root cause, blast radius. **Tier
+C's trivial-schema-fix exception fills a different, dedicated block instead**
+(symptom, root cause, why it's trivial, David's go-ahead, the
+migration-ceremony checklist) — it has no *intended correct behavior*, *must
+not change*, or *blast radius* fields, and using the Tier A/B block for it is
+wrong. See
+[`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)
+for both. Only a genuinely trivial change with no bug behind it gets "n/a — no
+plan."
 
 **I fill in *Approved-plan source* with the exact revision, not the title.**
 Across a 20-round plan-review loop, copying the oracle out of an earlier
@@ -682,9 +715,17 @@ for what the reviewer does with it.
 
 ### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
-For **every** PR that has product-visible or testable behavior, I ship two
-docs in `docs/` named after the PR's number. Because the GitHub PR number
-doesn't exist until the PR is opened, the flow is **PR-first**:
+**This section is the feature-mode default: paired by default, unconditionally.**
+Bugfix mode does **not** inherit this pairing — its docs are conditional per
+tier, not paired, and its infra-only fixes may ship neither: see
+[`working-modes.md`](docs/ai-context/working-modes.md#tier-b--elevated-fix)
+(Tier A ships neither doc; Tier B ships a UAT only if the fix has
+product-visible behavior, and a TEST_RUN only if something genuinely needs
+Replit's live environment). What follows describes the feature-mode default.
+
+For **every** feature-mode PR that has product-visible or testable behavior, I
+ship two docs in `docs/` named after the PR's number. Because the GitHub PR
+number doesn't exist until the PR is opened, the flow is **PR-first**:
 
 1. Open the PR with the code (per the squash-merge workflow above), giving
    the body a temporary placeholder note:
@@ -939,7 +980,14 @@ calls. Two concrete, durable changes:
   question for any task is: **if this goes subtly wrong, will Codex's review or
   David's product-testing catch it before it does damage?** Yes → Sonnet is
   safe. No → Opus, because I'm the only guard.
-  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
+  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`)
+    for triage and diagnosis. **But the tier classification can send it back up:**
+    the moment I classify a fix as **Tier B** (a sensitive subsystem, or a
+    structurally risky fix shape — see
+    [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake)),
+    I say so and ask David to switch me to **Opus** before I write it. Those are
+    precisely the fixes where a subtle error slips both safety nets, which is the
+    deciding question in this whole table.
   - **Entering plan mode, or any "let's build/design/add X" feature-building
     request** → **`opusplan` now handles the plan-mode half automatically** (see
     *The `opusplan` default* below), so entering plan mode puts the session on
