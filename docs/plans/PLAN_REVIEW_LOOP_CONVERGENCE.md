@@ -174,11 +174,27 @@ data, migrations, auth/security, the visual pipeline, tokenizer/grammar, the
 async queue, or generated-code owners. **Not** tiny leaf-code changes or
 single-file typo fixes.
 
-**This requires an explicit carve-out.** `CLAUDE.md:1175` currently says
-*"Don't spawn subagents to verify or double-check my own work."* That rule
-stays for ordinary work and gains a named exception for this preflight, with
-the reason stated: the value here is precisely the *absence* of my context,
-which my main loop cannot reproduce.
+**This requires an explicit carve-out from BOTH delegation prohibitions.**
+`CLAUDE.md:1173-1176` carries two rules that each independently forbid this
+preflight, and exempting only the second leaves the first still contradicting
+C1 at exactly the scope C1 cares about:
+
+- **`CLAUDE.md:1173-1174`** — *"Don't delegate work I could finish in a handful
+  of tool calls."* A qualifying single-file plan or contract change is often
+  exactly that size, so this bullet alone would block the preflight on the very
+  changes C1 targets.
+- **`CLAUDE.md:1175`** — *"Don't spawn subagents to verify or double-check my
+  own work."*
+
+Both stay in force for ordinary work and gain **one named exception** covering
+this preflight, written once and referenced by both bullets rather than
+restated. The reason is stated with it, because it is what makes the exception
+principled rather than a loophole: the preflight's entire value is the
+*absence* of my context — my main loop cannot reproduce that at any size, so
+"I could do it in a handful of tool calls" is not a reason to skip it here.
+Cost is not the constraint the first bullet is protecting against in this case;
+the second bullet's concern (redundant self-verification) does not apply either,
+since a context-free reader is not redundant with me.
 
 **Owner: `CLAUDE.md` only.** Not added to `plan-review-contract.md` — that
 would violate the reviewer-contract boundary and duplicate ownership.
@@ -237,11 +253,29 @@ trigger. This is an internal recovery action, not an escalation.
 without convergence *after* any Breaker-A recovery → pause and bring David the
 diagnosis and a recommendation.
 
-**Breakers A and B together REPLACE the existing ~2-round rule** at
-`CLAUDE.md:880-882` (*"after ~2 rounds without convergence, I stop and bring
-David the diagnosis"*). That rule must be rewritten, not left standing beside
-these — otherwise there are two operative escalation thresholds and an executor
-stops at round 2, so Breaker B could never fire.
+**Breakers A and B together REPLACE the existing ~2-round rule — in every
+place it is stated, not just its canonical one.** Leaving any mirror standing
+gives an executor two operative thresholds; they stop at round 2 and Breaker B
+can never fire. Revision 3 named only the canonical site, which meant this plan
+failed its own C3 on C3's very first application. The full inventory, produced
+by running C3's repository-wide pass over the concept *"when to stop a
+non-converging review loop"* (search terms: `non-converging`, `~2 rounds`,
+`two rounds`, `rounds without convergence`, `break`, `bring David the
+diagnosis`):
+
+| Site | Text | Classification | Disposition |
+|---|---|---|---|
+| `CLAUDE.md:880-882` | *"Break non-converging loops… after ~2 rounds without convergence, I stop and bring David the diagnosis"* | **Canonical definition** | **Rewrite** as Breakers A/B; preserve the contested-fix clause. |
+| `CLAUDE.md:897-900` | *"…escalate real decisions, break after ~2 non-converging rounds"* (inside the fix-round re-review rule) | **Operative mirror** | **Rewrite** to point at Breakers A/B. Governs implementation-PR fix rounds — the exact loop Breaker B is for. |
+| `.claude/skills/bugfix/SKILL.md:200` | *"Break after ~2 non-converging rounds and bring David the diagnosis."* | **Operative mirror** (a different file, so C2 will not reach it) | **Rewrite** to point at Breakers A/B. A bugfix PR is an implementation PR, so Breaker B's five rounds must reach it. |
+| `CLAUDE.md:1051` | *"…mid-task if a debugging/optimization thread thrashes past ~2 rounds without converging"* | **Not a mirror — different concept.** This is the *model-tier* escalation trigger (say so out loud, suggest Opus), not a loop-stop. | **Leave unchanged**, and say so in the commit, so a later reader does not "fix" it into agreement. |
+| `.agents/memory/plan-doc-path-never-cite-from-code.md:22` | *"Codex's review caught it two rounds later"* | **Historical record** | **Leave unchanged.** C3 supersedes historical records, never rewrites them. |
+
+The mirrors at `CLAUDE.md:897-900` and `SKILL.md:200` are the operationally
+dangerous ones: both sit in the *implementation-PR fix-round* path, which is
+precisely Breaker B's scope, so before this correction Breaker B was unreachable
+on every PR type it was written for — not merely on the one path revision 3
+identified.
 
 Why replacing it is right rather than a loosening: the old rule conflated two
 different situations under one threshold, which is exactly why it never fired
@@ -283,23 +317,43 @@ compilation/tests/CI corroboration applies **to code**. For prose-only changes
 an empty findings list is still the transport's clean result, but nothing
 independently corroborates it.
 
-**What supplies confidence instead depends on whether C1 applied** — and the
-qualification must say so, because C1 exempts small prose changes (≤3 files,
-non-plan, non-contract):
+**The qualification in `code-review.md` stays generic and names no Claude
+ceremony.** Revision 3 had it branch on whether C1 ran, which was wrong on the
+ownership boundary: `code-review.md:249-252` already assigns trigger mechanics
+to the implementing agent and keeps only reviewer substance in the shared
+guide, and a non-Claude implementing agent has no C1 at all. Branching the
+shared contract on a `CLAUDE.md`-only ceremony would also make step 1
+undeliverable on its own, since it would reference something step 2 has not yet
+defined. So `code-review.md` says only this, in reviewer-agnostic terms:
 
-- **C1 applied** — confidence comes from the preflight, the complete-artifact
-  read, and the repository-wide consistency search.
-- **C1 exempt** — confidence comes from the complete-artifact read and the
-  repository-wide search **only**. State this as weaker evidence rather than
-  implying a preflight that never ran. A reviewer or David reading a clean
-  result on an exempt prose PR should know which evidence actually backs it.
+> On a prose-only change, an empty findings list is the transport's clean
+> result, but nothing independently corroborates it — there is no compiler, no
+> test suite, and no CI signal behind it. What backs it instead is whatever
+> outside-diff work was actually performed: the complete-current-file read
+> required above, and any repository-wide consistency search. **The trigger
+> comment states which of those were done**; a clean result should be read
+> against that stated evidence, not against an assumed maximum.
 
-**In `CLAUDE.md`**, the trigger rule: a prose PR's trigger names the known
-changed files **and** instructs the reviewer to follow their canonical
-references and operative consumers — the list is a starting point, not a closed
-scope. It also states that whole-file consistency is an **additional**
-obligation, not the only lens; all normal correctness, source-of-truth,
-security, test and operational checks still apply.
+That inverts the dependency correctly — the shared guide asks the trigger to
+declare its evidence, and each implementing agent's own ceremony decides what
+evidence it can offer.
+
+**In `CLAUDE.md`**, the trigger rule then supplies Claude's side of that
+declaration:
+
+- The trigger names the known changed files **and** instructs the reviewer to
+  follow their canonical references and operative consumers — the list is a
+  starting point, not a closed scope.
+- It states that whole-file consistency is an **additional** obligation, not
+  the only lens; all normal correctness, source-of-truth, security, test and
+  operational checks still apply.
+- **It reports the preflight honestly.** When C1 applied, the trigger says so
+  and reports its yield. When C1 was exempt (≤3 files, non-plan, non-contract),
+  the trigger says the preflight did not run and names the weaker evidence set
+  that remains — the complete-artifact read and the repository-wide search
+  alone. A reviewer or David reading a clean result on an exempt prose PR then
+  knows exactly which evidence backs it, without the shared contract ever
+  having to know what a preflight is.
 
 Mixed code/prose PRs get **both** sets of obligations.
 
@@ -373,7 +427,12 @@ customer data, or embargoed material.
   1. Four-round plan review, all new-ground → continues normally.
   2. Two consecutive propagation rounds in a plan review → Breaker A fires,
      Breaker B does not.
-  3. Five-round implementation PR → Breaker B escalation fires.
+  3. Five-round implementation PR → Breaker B escalation fires. **Run this on
+     both implementation paths**: (a) a feature/code PR, governed by
+     `CLAUDE.md`'s fix-round rule, and (b) a **bugfix PR**, governed by
+     `.claude/skills/bugfix/SKILL.md`. Path (b) is the one that was blocked
+     before revision 4 — the scenario passes only if neither path stops the
+     loop before round five.
   4. One-file typo → no preflight.
   5. Four-file prose contract change → preflight + complete-artifact review.
   6. High-risk cross-file *code* change → preflight applies though not prose.
@@ -382,6 +441,14 @@ customer data, or embargoed material.
      result **without** claiming compile/CI proved semantic consistency.
   9. **PR #252 replayed against C5** → Breaker B never applies (plan review);
      show whether Breaker A would have fired and why that is acceptable.
+  10. **Single-file contract change small enough to inspect in a handful of
+      tool calls** → the preflight still runs. This is the boundary case where
+      `CLAUDE.md:1173-1174` and C1 collide; the scenario passes only if the
+      carve-out resolves it without leaving either bullet self-contradictory as
+      written.
+  11. **Step 1 read in isolation** — `code-review.md`'s clean-round
+      qualification, with step 2 assumed never to land. It must be
+      comprehensible and correct to a reviewer who has never heard of C1.
 - **Calibration window, not a one-PR verdict:** the next **10 eligible loops or
   30 days**, whichever yields enough observations. Record per loop: total
   rounds; new-ground / propagation / wrong-fix clusters; self-inflicted share;
@@ -412,19 +479,38 @@ customer data, or embargoed material.
 ## Implementation Steps
 
 1. `docs/engineering/code-review.md` — C6(a) prose invariant + C6(b)
-   clean-round qualification. Highest-value single change; could ship alone.
-2. `CLAUDE.md` — C1 preflight (including the re-run-until-clean loop) + the
-   named carve-out to the subagent rule; C3 repo-wide impact pass; C4
-   verify-and-record; C5 two breakers **rewriting the existing ~2-round rule at
-   lines 880-882 rather than sitting beside it**, preserving its
-   contested-fix clause; C6 trigger mechanics; C7 tier boundary reconciled
-   across both tier sections.
-3. **Do not edit `docs/ai-context/plan-review-contract.md`.** Confirm its
+   clean-round qualification. Highest-value single change, and it **genuinely
+   ships alone**: both edits are reviewer-agnostic and reference no
+   `CLAUDE.md` ceremony, so nothing here depends on step 2 landing.
+2. `CLAUDE.md` — C1 preflight (including the re-run-until-clean loop) + **one
+   named carve-out covering both delegation prohibitions at lines 1173-1176**,
+   referenced from each bullet rather than restated; C3 repo-wide impact pass;
+   C4 verify-and-record; C5 two breakers **rewriting every operative statement
+   of the ~2-round rule — `CLAUDE.md:880-882` and `CLAUDE.md:897-900`** —
+   rather than sitting beside them, preserving the contested-fix clause, and
+   **leaving `CLAUDE.md:1051` deliberately unchanged** (tier-escalation
+   trigger, a different concept) with a commit-message note saying so; C6
+   trigger mechanics including the honest preflight-evidence report; C7 tier
+   boundary reconciled across both tier sections.
+3. `.claude/skills/bugfix/SKILL.md:200` — rewrite the third operative mirror of
+   the ~2-round rule to point at Breakers A/B. **This is a separate step
+   because it is a separate file**: a bugfix PR is an implementation PR, so
+   Breaker B's five-round threshold must reach it, and leaving this line alone
+   would keep Breaker B unreachable on the bugfix path regardless of what
+   `CLAUDE.md` says. It ships in the same commit as step 2 — the two are one
+   concept change and must not land split across PRs.
+4. **Do not edit `docs/ai-context/plan-review-contract.md`.** Confirm its
    existing whole-plan re-review invariant is unchanged.
-4. `pnpm run check:docs` + `git diff --check`.
-5. Run the C1 preflight against the completed artifact set **before** opening
+5. **Re-run C3's repository-wide pass over the two concepts this plan itself
+   changes** — *"when to stop a non-converging review loop"* and *"when may I
+   dispatch a subagent"* — after steps 1–3 land, and confirm the resulting hit
+   list matches the C5 inventory table with no unclassified survivors. Step 3
+   exists only because the first pass was incomplete; this step is the check
+   that the second pass was not.
+6. `pnpm run check:docs` + `git diff --check`.
+7. Run the C1 preflight against the completed artifact set **before** opening
    the implementation PR — this plan's first dogfood use.
-6. Open the implementation PR with the approved-plan oracle; record preflight
+8. Open the implementation PR with the approved-plan oracle; record preflight
    yield and per-round provenance as calibration datapoint #1.
 
 ## Risks and Mitigations
@@ -438,6 +524,7 @@ customer data, or embargoed material.
 | **This plan adds prose to already-long docs.** | Each change lands in exactly one owning file; C2 reduces net volume. |
 | **The transport's reporting limit is unfixed** — no status label, verification report, or clean-round confirmation. | Accepted and already documented in both contracts. C1 partially compensates by producing a full assessment before the round. Not solvable; do not re-engineer. |
 | **C2 deferral leaves 47.5% of the mechanism live.** | Open question #1 — sequencing C2 first resolves it. |
+| **C3 is only as good as the searcher running it — and it already failed once, here.** Revision 3 named one of three operative mirrors of the ~2-round rule; Codex found the other two. That is C3's own diagnosed failure mode reproducing inside the plan that proposes C3. | Treated as evidence *for* C3 rather than against it — an unaided fix would have missed all three. Two structural responses: the C5 inventory is now a **classification table with dispositions**, not a prose mention, so a missing row is visible; and implementation step 5 **re-runs the concept pass after the edits land** and requires the hit list to match that table with no unclassified survivors. The DoD's grep is stated as a *verification of* the concept pass, explicitly not a substitute for it — grepping one wording is what produced the miss. |
 
 ## Questions for David
 
@@ -461,21 +548,39 @@ customer data, or embargoed material.
 ## Definition of Done
 
 - [ ] C6(a) and C6(b) land in `code-review.md`; C1, C3, C4, C5, C6-trigger, C7
-      land in `CLAUDE.md`; `plan-review-contract.md` is **unmodified**.
+      land in `CLAUDE.md`; the C5 mirror rewrite also lands in
+      `.claude/skills/bugfix/SKILL.md`; `plan-review-contract.md` is
+      **unmodified**.
+- [ ] `code-review.md`'s clean-round qualification is **reviewer-agnostic** —
+      it names no `CLAUDE.md` ceremony, mentions no preflight, and reads
+      correctly for a non-Claude implementing agent. Verified by reading step
+      1's diff in isolation, as if step 2 never lands.
 - [ ] Every rule lives in exactly one owning file — verified by a repo-wide
       search before the PR opens (C3 applied to this plan's own changes).
-- [ ] `CLAUDE.md:1175`'s subagent prohibition carries an explicit, reasoned
-      carve-out for the C1 preflight — no contradictory commands remain.
-- [ ] **Exactly one operative escalation threshold exists.** The old ~2-round
-      rule at `CLAUDE.md:880-882` is rewritten by Breakers A/B, not left
-      alongside them; its contested-fix clause survives. Grep confirms no
-      surviving "~2 rounds without convergence" escalation language.
+- [ ] The delegation carve-out is **one** exception covering **both**
+      prohibitions at `CLAUDE.md:1173-1176`, referenced from each bullet rather
+      than restated. Neither bullet, read alone, forbids the C1 preflight —
+      including for a single-file change a handful of tool calls could cover.
+- [ ] **Exactly one operative escalation threshold exists, repo-wide.** All
+      three operative sites — `CLAUDE.md:880-882`, `CLAUDE.md:897-900`, and
+      `.claude/skills/bugfix/SKILL.md:200` — are rewritten by Breakers A/B
+      rather than left alongside them; the contested-fix clause survives.
+      **Verified by running C3's concept pass, not by grepping one wording:**
+      `grep -rn -iE "non-converging|~2 rounds|two rounds|rounds without conver"`
+      across `*.md` returns only `CLAUDE.md:1051` (tier-escalation trigger, a
+      different concept, deliberately unchanged) and
+      `.agents/memory/plan-doc-path-never-cite-from-code.md:22` (historical
+      record, superseded not rewritten). Any other survivor is a defect.
+- [ ] **Breaker B is reachable on every PR type it governs.** Trace it on a
+      bugfix PR specifically — the path that was blocked before revision 4 —
+      and confirm no instruction stops the loop before round five.
 - [ ] Every calibration loop lands in exactly one cohort under the precedence
       rule, including a mixed code/prose PR.
 - [ ] `code-review.md` no longer claims compilation/tests/CI corroborate a
       clean result on prose-only changes.
-- [ ] All nine testing scenarios validate against the final prose, including
-      the #252 replay.
+- [ ] All eleven testing scenarios validate against the final prose, including
+      the #252 replay, both implementation paths in scenario 3, and scenario 11's
+      read-step-1-in-isolation check.
 - [ ] `pnpm run check:docs` and `git diff --check` pass.
 - [ ] The implementation PR records preflight yield and per-round provenance as
       **calibration datapoint #1** — explicitly *not* a pass/fail gate on the
