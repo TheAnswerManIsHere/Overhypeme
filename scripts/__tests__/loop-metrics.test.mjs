@@ -29,6 +29,16 @@ test("a round is a reviewer review event, not an @codex review comment", () => {
   assert.equal(countRounds(reviews), 2);
 });
 
+test("a duplicated review record counts as one round, not two", () => {
+  // A bad fixture or two overlapping concatenated pages can repeat a review
+  // record. The raw array length would overcount; countRounds dedupes by id.
+  const reviews = [
+    { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" },
+    { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" },
+  ];
+  assert.equal(countRounds(reviews), 1);
+});
+
 test("author replies never count as findings", () => {
   // Our workflow mandates a reply per thread, which roughly doubles a naive
   // comment count. PR #269: 31 comments, ~23 findings.
@@ -78,6 +88,34 @@ test("findings are attributed to the round that produced them", () => {
       [1, 2],
       [2, 1],
     ],
+  );
+});
+
+test("findingsByRound dedupes a repeated review record instead of double-mapping its findings", () => {
+  const reviews = [
+    { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" },
+    { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" }, // duplicate record
+  ];
+  const comments = [{ id: 40, user: BOT, pull_request_review_id: 1 }];
+  assert.deepEqual(
+    findingsByRound(reviews, comments).map((r) => [r.round, r.findings]),
+    [[1, 1]],
+  );
+});
+
+test("findingsByRound dedupes a repeated root comment instead of double-counting it in its round", () => {
+  // countFindings collapses a duplicate root to one via its Set; the
+  // per-round filter must use the same unique-root semantics, or derive()'s
+  // reconciliation check throws over what is really a duplicate-input
+  // problem, not a genuine correlation failure.
+  const reviews = [{ id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" }];
+  const comments = [
+    { id: 40, user: BOT, pull_request_review_id: 1 },
+    { id: 40, user: BOT, pull_request_review_id: 1 }, // duplicate root
+  ];
+  assert.deepEqual(
+    findingsByRound(reviews, comments).map((r) => [r.round, r.findings]),
+    [[1, 1]],
   );
 });
 
@@ -193,6 +231,29 @@ test("an unedited Fix tier placeholder left over on a real feature PR does not f
   assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
 });
 
+test("a natural-language bugfix with an unedited, empty feature block still classifies as bugfix", () => {
+  // \s* in the field regexes used to cross the newline after an empty
+  // "**Product intent:**"/"**Settled decisions:**" straight into the NEXT
+  // line's own "**Label:**" text, reading it as this field's value —
+  // featureOracleIsPopulated would then see a "populated" feature oracle
+  // that is actually just the neighboring field, disabling the genuine
+  // Fix-tier signal and misclassifying the PR as feature/code.
+  const pr = {
+    title: "Fix test isolation issues in the enrichment suite",
+    body: [
+      "## Approved-plan oracle",
+      "**Approved-plan source:**",
+      "**Product intent:**",
+      "**Must not change:**",
+      "**Settled decisions:**",
+      "",
+      "**Fix tier:** A — contained, single caller",
+      "**Reported symptom:** flaky test order dependency",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
 test("a real Tier C fix classifies as bugfix even with the unused Tier A/B block left in", () => {
   // The inverse of the above: a genuine Tier C fix that deleted the feature
   // block (per the template's own instructions) but left the unused A/B
@@ -225,6 +286,17 @@ test("artifact size keeps both dimensions", () => {
     { filename: "b.md", additions: 300, deletions: 0 },
   ]);
   assert.deepEqual(size, { files: 2, added: 400, removed: 5 });
+});
+
+test("artifact size dedupes a repeated file record instead of double-counting it", () => {
+  // A bad fixture or two overlapping concatenated pages can repeat a file
+  // entry, which would otherwise inflate every dimension of a number this
+  // ledger persists as mechanically authoritative.
+  const size = artifactSize([
+    { filename: "a.md", additions: 100, deletions: 5 },
+    { filename: "a.md", additions: 100, deletions: 5 },
+  ]);
+  assert.deepEqual(size, { files: 1, added: 100, removed: 5 });
 });
 
 test("adjudication sample is defined for small and clean loops", () => {

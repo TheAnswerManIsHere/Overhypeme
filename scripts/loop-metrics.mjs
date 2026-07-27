@@ -51,7 +51,16 @@ const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-
  * ledger, so a bias present in one and absent in the other is disqualifying.
  */
 export function countRounds(reviews) {
-  return reviews.filter((r) => REVIEWER_LOGINS.has(r.user?.login)).length;
+  // Deduplicated by review id: a duplicated review record (a bad fixture, or
+  // two concatenated MCP/REST pages that overlap) is one review event, not
+  // two — counting the raw array would overcount rounds and, via
+  // findingsByRound below, produce two round-entries that each claim the
+  // same findings, disagreeing with countFindings' own deduplicated total.
+  const ids = new Set();
+  for (const r of reviews) {
+    if (REVIEWER_LOGINS.has(r.user?.login)) ids.add(r.id);
+  }
+  return ids.size;
 }
 
 /**
@@ -84,21 +93,33 @@ export function countFindings(comments) {
   return rootThreadIds.size;
 }
 
-/** Findings grouped by round, keyed by the review event they belong to. */
+/**
+ * Findings grouped by round, keyed by the review event they belong to.
+ *
+ * Both inputs are deduplicated by id first — matching countRounds' and
+ * countFindings' own semantics — because a duplicated review record (or a
+ * duplicated root comment, from a bad fixture or an overlapping concatenated
+ * page) would otherwise produce a round whose findings count disagrees with
+ * the deduplicated totals those two functions report, tripping derive()'s
+ * reconciliation check for what is actually a duplicate-input problem, not a
+ * genuine correlation failure.
+ */
 export function findingsByRound(reviews, comments) {
+  const seenReviewIds = new Set();
   const reviewerReviews = reviews
     .filter((r) => REVIEWER_LOGINS.has(r.user?.login))
+    .filter((r) => (seenReviewIds.has(r.id) ? false : seenReviewIds.add(r.id)))
     .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+
+  const seenRootIds = new Set();
+  const uniqueRoots = comments
+    .filter((c) => REVIEWER_LOGINS.has(c.user?.login) && !c.in_reply_to_id)
+    .filter((c) => (seenRootIds.has(c.id) ? false : seenRootIds.add(c.id)));
 
   return reviewerReviews.map((review, i) => ({
     round: i + 1,
     submitted_at: review.submitted_at,
-    findings: comments.filter(
-      (c) =>
-        REVIEWER_LOGINS.has(c.user?.login) &&
-        !c.in_reply_to_id &&
-        c.pull_request_review_id === review.id,
-    ).length,
+    findings: uniqueRoots.filter((c) => c.pull_request_review_id === review.id).length,
   }));
 }
 
@@ -161,7 +182,12 @@ export function stripHtmlComments(text) {
  */
 function fixTierValue(body) {
   const stripped = stripHtmlComments(body);
-  const values = [...stripped.matchAll(/\*\*Fix tier:\*\*\s*([^\n]*)/gi)].map((m) => m[1].trim());
+  // [ \t]*, not \s*: \s crosses the newline after an empty field straight
+  // into the NEXT line's own "**Label:**" text, reading it as this field's
+  // value. Constraining to same-line whitespace means a genuinely empty
+  // field (label immediately followed by a newline) captures "", not the
+  // next field's label and content.
+  const values = [...stripped.matchAll(/\*\*Fix tier:\*\*[ \t]*([^\n]*)/gi)].map((m) => m[1].trim());
   return values.find((v) => v.length > 0) ?? "";
 }
 
@@ -174,8 +200,12 @@ function fixTierValue(body) {
  */
 function featureOracleIsPopulated(body) {
   const stripped = stripHtmlComments(body);
+  // [ \t]*, not \s* — see fixTierValue's comment: \s crosses the newline
+  // after an empty "**Product intent:**"/"**Settled decisions:**" straight
+  // into the NEXT field's own label+text, misreading an unedited feature
+  // block as populated and silently disabling a genuine Fix-tier signal.
   return ["Product intent", "Settled decisions"].some((label) => {
-    const match = new RegExp(`\\*\\*${label}:\\*\\*\\s*([^\\n]*)`, "i").exec(stripped);
+    const match = new RegExp(`\\*\\*${label}:\\*\\*[ \\t]*([^\\n]*)`, "i").exec(stripped);
     return Boolean(match && match[1].trim());
   });
 }
@@ -219,12 +249,21 @@ export function classifyCohort(pr, files) {
   return "feature/code";
 }
 
-/** Artifact size. Both dimensions are kept — neither alone is size. */
+/**
+ * Artifact size. Both dimensions are kept — neither alone is size.
+ *
+ * Deduplicated by filename first: a repeated file record (a bad fixture, or
+ * two concatenated pages that overlap) would otherwise double-count that
+ * file's additions and deletions, silently inflating every dimension of a
+ * number this ledger persists as mechanically authoritative.
+ */
 export function artifactSize(files) {
+  const seen = new Set();
+  const unique = files.filter((f) => (seen.has(f.filename) ? false : seen.add(f.filename)));
   return {
-    files: files.length,
-    added: files.reduce((n, f) => n + (f.additions ?? 0), 0),
-    removed: files.reduce((n, f) => n + (f.deletions ?? 0), 0),
+    files: unique.length,
+    added: unique.reduce((n, f) => n + (f.additions ?? 0), 0),
+    removed: unique.reduce((n, f) => n + (f.deletions ?? 0), 0),
   };
 }
 
