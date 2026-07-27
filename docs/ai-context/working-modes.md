@@ -424,12 +424,20 @@ a fixed way to pick the sample, two readers can legitimately disagree on
 gate can't tell that apart from genuine drift. This is the shared decision
 rule both the original classifier and the blind adjudicator use:
 
-- **New ground** — the finding is a defect in the diff under review that
-  existed independent of anything this same loop tried to fix. This is what
-  the review workflow exists to catch; it is never counted as self-inflicted.
-- **Propagation** — the finding exists *only* because an earlier fix **in this
-  same loop** introduced or exposed it. If that earlier fix had never
-  happened, this finding would not exist.
+- **New ground** — the finding is a defect that existed independent of
+  anything this same loop tried to fix. This includes a defect that was
+  *already present* in the diff under review but only became visible or
+  reachable because an earlier fix removed something blocking it (e.g. a
+  fix removes a guard clause, and that makes a downstream bug reviewable for
+  the first time) — the defect itself predates the fix, so exposing it is
+  not something the fix *did wrong*. New ground is what the review workflow
+  exists to catch; it is never counted as self-inflicted.
+- **Propagation** — the finding is a **new** defect that exists *only because*
+  an earlier fix **in this same loop** introduced it — not one it merely
+  revealed. The test is causal, not temporal: if that earlier fix had never
+  happened, would this specific defect exist? "Yes, though maybe unnoticed"
+  is new ground; "no, the fix is the reason this exists at all" is
+  propagation.
 - **Wrong fix** — the finding says an earlier fix **in this same loop** did
   not actually resolve what it claimed to (the original symptom persists, or
   the fix is incomplete) — as distinct from propagation, which is a *new*
@@ -441,13 +449,31 @@ rule both the original classifier and the blind adjudicator use:
   self-inflicted (propagation/wrong fix), classify it as self-inflicted. This
   is the same bias direction the ledger's per-finding cause column already
   states, applied consistently by both the original classifier and the
-  adjudicator.
+  adjudicator. This default does not extend to the new-ground-vs-propagation
+  test above: an *exposed* pre-existing defect is new ground by definition,
+  not an ambiguous case defaulting to self-inflicted.
 
-**Sample selection**, so it can't be picked to avoid the hard cases: sort the
-loop's findings by their GitHub comment id ascending (a stable identifier
-GitHub assigns at creation time, uncorrelated with how easy or hard a finding
-is to classify) and take the first `max(1, ceil(0.3 × findings))` of them.
-This is deterministic — two people given the same PR compute the same sample.
+**Sample selection**, so it can't be picked to avoid the hard cases *and* so
+it can't systematically miss the finding types the metric most needs checked:
+propagation and wrong-fix findings can only occur in round 2 onward (nothing
+has been fixed yet in round 1 to propagate from or get wrong), so sorting all
+of a loop's findings by comment id and taking the first `N` would oversample
+round 1's disproportionately-new-ground findings and could pass the >20% gate
+while every later self-inflicted classification — the metric's actual
+numerator — goes unchecked. Sample **round-robin across rounds** instead:
+
+1. Group the loop's findings by round (`per_round`, the same grouping
+   `findingsByRound()` already produces), each round's findings sorted by
+   comment id ascending for reproducibility within the round.
+2. Take one finding from round 1, then one from round 2, then round 3, and so
+   on; when a pass reaches the last round with any findings left, wrap back to
+   round 1 and repeat.
+3. Stop once `max(1, ceil(0.3 × findings))` findings have been selected.
+
+This guarantees every round contributes to the sample (skipping only rounds
+that ran dry before the target is reached) rather than letting an
+early-heavy id sort silently exclude round 2+. Two people given the same PR
+and the same `per_round` breakdown compute the same sample.
 
 *This rubric is new as of the loop-ledger's own PR and has not yet been
 exercised by a real adjudication pass. #268 is the designated first run of
