@@ -104,10 +104,16 @@ the PR back only delays the review that catches things.
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
    one-bug-per-PR isolation this whole redesign is for. **When the parent
-   merges, retargeting alone does not narrow the diff** — squash-merge means
-   the parent's commits never become ancestors of `main`, so `git fetch origin
-   main && git merge origin/main` into this branch first (merge, never
-   rebase, on an already-pushed branch), push, **then** retarget to `main`.
+   merges, retarget to `main` immediately, before anything else** — this repo
+   auto-deletes a merged branch, and a documented prior incident
+   ([`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../../../docs/CODEX_GITHUB_REVIEW_WORKFLOW.md))
+   shows a stacked PR can be orphaned if its base branch disappears first, so
+   retargeting is the safety step and comes first. Retargeting alone doesn't
+   yet narrow the diff (squash-merge means the parent's commits aren't
+   ancestors of `main`) — that's a purely visual gap until the next step:
+   `git fetch origin main && git merge origin/main` into this branch (merge,
+   never rebase, on an already-pushed branch), then push; the diff narrows
+   once that lands.
    Use **`.github/pull_request_template.md`** — the
    repo template applies to bug fixes too. Fill the **Approved-plan oracle**
    section with the **bugfix oracle** instead of "n/a — no plan" — **which

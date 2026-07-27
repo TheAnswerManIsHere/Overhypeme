@@ -661,9 +661,12 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
    open PR?
 4. If yes, the existing PR picks up the new push. Mention the PR URL
    in the closing message and stop.
-5. If no, open a new PR with `mcp__github__create_pull_request` (base:
-   `main`, head: the branch). Title + body describe the change. Return
-   the PR URL.
+5. If no, open a new PR with `mcp__github__create_pull_request` — base
+   `main`, **except a stacked bugfix PR** (a dependent bug branched from
+   another open bugfix PR's head — see `working-modes.md`'s *Dependent
+   bugs* note), which bases against that parent branch instead; basing it
+   on `main` would put both bugs in one diff. Title + body describe the
+   change. Return the PR URL.
 
 This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration

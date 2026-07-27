@@ -87,14 +87,22 @@ pick a disambiguated name on a clash, and **never** force/reset onto
 > parent's branch as its base, not `main`.** Basing against `main` while the
 > branch carries the parent's unmerged commits puts both bugs in one diff,
 > which defeats the one-bug-per-PR isolation this section exists for. State
-> the stack order in the new PR body. **Once the parent merges, retargeting
-> alone does NOT narrow the diff** — David squash-merges, so the parent's
-> commits never become ancestors of `main` and a three-dot diff still compares
-> against the pre-parent merge base. First `git fetch origin main && git merge
-> origin/main` into the child branch (the squash commit becomes an ancestor,
-> per CLAUDE.md's squash-merge-follow-up guidance — merge, never rebase, on an
-> already-pushed branch), push, **then** retarget the PR base to `main`; the
-> diff narrows to just the new bug only after that merge.
+> the stack order in the new PR body. **Once the parent merges, retarget the
+> child's PR base to `main` immediately — before doing anything else.** This
+> repo auto-deletes a branch once its PR merges, and
+> [`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../CODEX_GITHUB_REVIEW_WORKFLOW.md)
+> records a real prior incident where a stacked PR's branch was deleted before
+> its commits reached `main`, putting the PR at risk of being orphaned. The
+> child's base still points at the parent's (about-to-vanish) branch, so
+> retargeting to `main` first is what protects the PR — do this before the
+> content merge below, not after. Retargeting alone does **not** yet narrow
+> the diff (David squash-merges, so the parent's commits aren't ancestors of
+> `main`, and a three-dot diff still compares against the pre-parent merge
+> base) — that's fine, it's a purely visual gap until the next step: `git
+> fetch origin main && git merge origin/main` into the child branch (the
+> squash commit becomes an ancestor, per CLAUDE.md's squash-merge-follow-up
+> guidance — merge, never rebase, on an already-pushed branch), then push;
+> the diff narrows to just the new bug once that lands.
 
 ### The tier is chosen after diagnosis, never at intake
 
@@ -105,12 +113,14 @@ persisted state — and none of that is knowable until the cause is found.
 "Simple-seeming" describes a bug report; it never described a blast radius.
 
 So: **diagnose first, then classify, then fix.** **Check Tier C first** (below)
-— **any** of its triggers (a behavior/product change; any schema, migration, or
-backfill work; a design flaw rather than a defect; needing a new abstraction;
-needing an external vendor) is Tier C regardless of whether the change also
-trips a Q1/Q2 item; those triggers only decide Tier A vs. Tier B *within* work
-that's already confirmed to be a bug fix, not before. Once Tier C is ruled out
-on **all** of its grounds, run the checklist below. **If any item trips, it is
+— **any** of its triggers (a behavior/product change; any *database* schema,
+migration, or backfill work — not the `lib/api-zod` Zod schemas, which are a
+Q1 trigger, not this one; a design flaw rather than a defect; needing a new
+abstraction; needing an external vendor) is Tier C regardless of whether the
+change also trips a Q1/Q2 item; those triggers only decide Tier A vs. Tier B
+*within* work that's already confirmed to be a bug fix, not before. Once Tier
+C is ruled out on **all** of its grounds, run the checklist below. **If any
+item trips, it is
 Tier B.** With this list, Tier A is the exception — that is intended, not a
 mis-calibration.
 
@@ -119,7 +129,9 @@ payments / auth / permissions / security headers; the tokenizer, grammar, or
 `render-fact`; the visual pipeline (planner, compiler, render policy, Visual
 Concept); the async job queue, worker lanes, or any enqueue helper; enrichment or
 moderation source-of-truth (`facts.*`, `resolveEnrichment`, override layers);
-`lib/api-zod/` or `lib/api-spec/` (the codegen allowlist trap); dev-infra and
+`lib/api-zod/` or `lib/api-spec/` (the codegen allowlist trap — these are
+generated Zod *API-validation* schemas, distinct from Tier C's *database*
+schema trigger below; a fix confined to them is Q1 Tier B, not Tier C); dev-infra and
 build tooling (Vite/esbuild config, the dev supervisor, retry/reload paths, CI
 workflows).
 
@@ -198,9 +210,14 @@ decision; diagnosis revealed a design flaw rather than a defect; or the fix
 would need a new abstraction or an external vendor — these go to **feature
 mode** (plan + David's approval).
 
-**A schema change, migration, or backfill is Tier C without exception** —
-there is no size or scope of schema change that stays on bugfix mode's fast
-path. It always runs
+**A *database* schema change, migration, or backfill is Tier C without
+exception** — there is no size or scope of database schema change that stays
+on bugfix mode's fast path. **"Schema" here means the persisted database
+schema** (Drizzle/`lib/db`, migrations, table structure) — not the generated
+Zod API-validation schemas under `lib/api-zod`/`lib/api-spec`, which are Q1's
+own explicit Tier B trigger (the codegen allowlist trap); a fix confined to
+those stays Q1/Q2-governed, not Tier C, unless it *also* changes the database
+schema, which puts it here on that separate basis. It always runs
 [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)'s
 ceremony (idempotency, observable counts, human-override preservation,
 rollback for destructive ops). Whether it *also* needs a full approved plan

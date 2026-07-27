@@ -96,9 +96,10 @@ and specifically ask:
   this standard.)
 - **Is the tier right? Check Tier C first, then A vs. B.** The most
   consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
-  **any** of: a behavior/product change; any schema, migration, or backfill
-  work; a design flaw rather than a defect; needing a new abstraction; or
-  needing an external vendor (see
+  **any** of: a behavior/product change; any *database* schema, migration, or
+  backfill work (not the generated `lib/api-zod` Zod schemas, which are Q1's
+  own Tier B trigger); a design flaw rather than a defect; needing a new
+  abstraction; or needing an external vendor (see
   [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode))
   — because that PR shouldn't be in bugfix mode's fast path at all,
   regardless of which of those five it trips. Flag that first. **A
