@@ -260,7 +260,12 @@ Feature mode solves this by pasting the approved plan into the PR body as the
 reviewer's oracle. **A bug fix has no plan, so it needs its own oracle** — and
 "n/a — no plan" leaves the reviewer checking the diff against nothing but itself.
 
-The feature oracle's fields map onto a fix directly:
+**This section covers the Tier A/B oracle.** A trivial Tier C schema fix uses a
+different, dedicated block (symptom, root cause, why it's trivial, David's
+go-ahead, the migration-ceremony checklist) — see *Tier C* below; it has none of
+the fields in the table that follows.
+
+The feature oracle's fields map onto a Tier A/B fix directly:
 
 | Feature mode | Bugfix mode |
 |---|---|
