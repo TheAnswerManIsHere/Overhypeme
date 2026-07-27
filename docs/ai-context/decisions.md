@@ -71,9 +71,12 @@
      when the plan went through the manual/private review path instead — for
      any PR built from a plan; "n/a — no plan" for a trivial change with no
      plan and no bug behind it. *(Superseded 2026-07-26 for bugfix mode: a
-     bug fix now carries its own **bugfix oracle** — reported symptom,
-     intended behavior, must not change, root cause, blast radius, fix tier —
-     instead of "n/a — no plan." See
+     Tier A/B bug fix now carries its own **bugfix oracle** — reported
+     symptom, intended behavior, must not change, root cause, blast radius,
+     fix tier — instead of "n/a — no plan." A trivial Tier C schema fix
+     (also no longer "n/a — no plan") uses a separate dedicated oracle block
+     instead — symptom, root cause, why it's trivial, David's go-ahead, the
+     migration-ceremony checklist. See
      [`working-modes.md`](./working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry).)*
      `code-review.md` now instructs reviewers to check the diff
      against that oracle and flag a dropped or narrowed requirement even if

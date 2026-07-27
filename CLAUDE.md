@@ -679,12 +679,17 @@ through the manual/private review path instead (the disclosure carve-out or a
 broken-loop fallback, per *Automated plan review* above — there's no
 `[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
 **A bugfix PR fills the same section with the *bugfix oracle*, not "n/a — no
-plan"** (fix tier, reported symptom verbatim, intended correct behavior, must
-not change, root cause, blast radius — see
-[`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)).
-A fix has no plan, but reviewing it against nothing but itself can't catch the
-one failure that matters most on a fix: the symptom disappears while a neighbor
-breaks. Only a genuinely trivial change with no bug behind it gets "n/a — no
+plan"** — a fix has no plan, but reviewing it against nothing but itself can't
+catch the one failure that matters most on a fix: the symptom disappears while
+a neighbor breaks. **Tier A/B** fills fix tier, reported symptom verbatim,
+intended correct behavior, must not change, root cause, blast radius. **Tier
+C's trivial-schema-fix exception fills a different, dedicated block instead**
+(symptom, root cause, why it's trivial, David's go-ahead, the
+migration-ceremony checklist) — it has no *intended correct behavior*, *must
+not change*, or *blast radius* fields, and using the Tier A/B block for it is
+wrong. See
+[`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)
+for both. Only a genuinely trivial change with no bug behind it gets "n/a — no
 plan."
 
 **I fill in *Approved-plan source* with the exact revision, not the title.**

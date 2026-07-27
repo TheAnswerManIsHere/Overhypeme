@@ -77,14 +77,23 @@ and specifically ask:
 - **Is this the root cause or a symptom-level patch?** Does the fix address the
   stated mechanism, or only the reported instance? If the root-cause line
   describes a general mechanism but the diff special-cases one input, that gap is
-  the finding.
-- **Did it miss a caller?** Check the blast-radius claim against the code. An
-  incomplete or absent blast-radius note on a fix to shared code is itself a
-  finding.
-- **Did it break a neighbor?** Anything under *Must not change* that the diff
-  touches, directly or through a shared path.
+  the finding. (Both blocks carry Root cause — this applies to either.)
+- **Tier A/B only — did it miss a caller?** Check the blast-radius claim
+  against the code. An incomplete or absent blast-radius note on a fix to
+  shared code is itself a finding. The Tier C block has no *Blast radius*
+  field — don't flag its absence there.
+- **Tier A/B only — did it break a neighbor?** Anything under *Must not
+  change* that the diff touches, directly or through a shared path. The Tier
+  C block has no *Must not change* field — don't flag its absence there. For
+  Tier C, check instead that the **migration-ceremony checklist** field is
+  actually filled with real specifics (idempotency, observable counts,
+  human-edited-row preservation, rollback for destructive ops — see
+  [`migrations-and-backfills.md`](./migrations-and-backfills.md)), not a
+  placeholder.
 - **Does the regression test prove the invariant?** A test that only asserts the
-  reported input passes leaves the class open — negative cases required.
+  reported input passes leaves the class open — negative cases required. (Tier
+  C has no separate regression-test field, but the fix's own tests still apply
+  this standard.)
 - **Is the tier right? Check Tier C first, then A vs. B.** The most
   consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
   a behavior/product change, or any schema, migration, or backfill work (see

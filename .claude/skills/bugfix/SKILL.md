@@ -110,8 +110,10 @@ the PR back only delays the review that catches things.
    rebase, on an already-pushed branch), push, **then** retarget to `main`.
    Use **`.github/pull_request_template.md`** — the
    repo template applies to bug fixes too. Fill the **Approved-plan oracle**
-   section with the **bugfix oracle** instead of "n/a — no plan":
+   section with the **bugfix oracle** instead of "n/a — no plan" — **which
+   block depends on the tier:**
 
+   **Tier A/B:**
    ```markdown
    **Fix tier:** <A or B> — <the Q1/Q2 triggers checked: which one fired (B),
      or which were ruled out (A) — a bare tier letter isn't enough; A is the
@@ -121,6 +123,19 @@ the PR back only delays the review that catches things.
    **Must not change:** <adjacent behaviors sharing this code path>
    **Root cause:** <the mechanism, not the instance>
    **Blast radius:** <what else calls this / shares this path, and what I checked>
+   ```
+
+   **Tier C, trivial schema fix** (David authorized migration ceremony directly
+   — a *different* block, not the one above):
+   ```markdown
+   **Fix tier:** C — trivial schema/migration fix, no plan
+   **Reported symptom:** <David's report, quoted verbatim>
+   **Root cause:** <the mechanism, not the instance>
+   **Why this is trivial:** <single-step, no data transformation, no behavior
+     change — the specific reason it didn't need a full plan>
+   **David's go-ahead:** <how/when confirmed>
+   **Migration ceremony checklist:** <idempotency, observable counts,
+     human-edited-row preservation, rollback for destructive ops>
    ```
 
    Then **Verification** (exact commands + results, and the click-through steps
