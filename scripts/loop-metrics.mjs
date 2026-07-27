@@ -298,16 +298,25 @@ export function classifyCohort(pr, files) {
   // oracle fields being empty — a body carrying both is contradictory, not
   // trustworthy evidence either way, and falls through to the fallback below.
   const body = pr.body ?? "";
-  const hasGenuineFixTier = Boolean(fixTierValue(body)) && !featureOracleIsPopulated(body);
+  const featureOracle = featureOracleIsPopulated(body);
+  const hasGenuineFixTier = Boolean(fixTierValue(body)) && !featureOracle;
   // The title fallback matches on a word boundary, not just conventional
   // "fix:"/"fix(scope):" forms — this repo's real pre-template bugfix titles
   // are natural language ("Fix test isolation issues..."), which is exactly
   // the legacy case this fallback exists for. \b keeps "Fixture..." and
   // similar non-fix words out while still covering "Fix ...", "Fixes ...",
   // "Fixed ...", "fix: ...", and "fix(scope): ...".
+  //
+  // The title heuristic is gated on the feature oracle being empty, same as
+  // the Fix-tier signal: it exists only for pre-template PRs, which have no
+  // oracle at all. Without the gate, a genuine feature PR whose title
+  // happens to start with "Fix" (an approved behavior change like "Fix
+  // checkout semantics") would have its populated feature oracle overridden
+  // by a word in its title. The explicit bugfix label stays ungated — a
+  // label is a deliberate marker, not a legacy heuristic.
   if (
     hasGenuineFixTier ||
-    /^(fix(es|ed)?|bugfix)\b/i.test(pr.title ?? "") ||
+    (!featureOracle && /^(fix(es|ed)?|bugfix)\b/i.test(pr.title ?? "")) ||
     (pr.labels ?? []).some((l) => l.name === "bugfix")
   )
     return "bugfix";

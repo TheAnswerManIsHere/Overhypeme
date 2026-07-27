@@ -189,6 +189,18 @@ test("a ledger-append piggyback does not force a feature/bugfix PR into prose/co
   );
 });
 
+test("a Fix-prefixed title does not override a populated feature oracle", () => {
+  // The title heuristic exists only for pre-template PRs, which have no
+  // oracle at all. An approved behavior change titled "Fix checkout
+  // semantics" with a real Product intent is feature work — a word in the
+  // title must not override the oracle.
+  const pr = {
+    title: "Fix checkout semantics",
+    body: "**Product intent:** Change checkout to charge at confirmation, per the approved plan.\n",
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
+});
+
 test("a legacy natural-language Fix title with no body field or label classifies as bugfix", () => {
   // Pre-template bugfix PRs in this repo's history have titles like "Fix
   // test isolation issues..." with neither a **Fix tier:** body field nor a
