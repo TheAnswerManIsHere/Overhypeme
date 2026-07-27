@@ -443,8 +443,16 @@ rule both the original classifier and the blind adjudicator use:
   the fix is incomplete) — as distinct from propagation, which is a *new*
   defect elsewhere, not the same one recurring.
 - **Re-raised** — the finding restates a **prior finding from an earlier round
-  of this same loop** that was already addressed and reviewed, with no new
-  information — a genuine Reconciliation check, not a fresh observation.
+  of this same loop** with no new information, **and no failed fix attempt sits
+  between the original and the restatement.** The precedence matters because
+  the categories otherwise overlap on exactly the case the numerator most
+  needs: a Still Open Reconciliation finding about a defect an earlier fix
+  attempted and did not resolve satisfies both definitions — that case is
+  **wrong fix, always** (the failed attempt is the fact being measured, and it
+  must enter the numerator). Re-raised is only the remainder: a restatement of
+  a defect that was genuinely resolved (a spurious re-raise), or one no fix
+  was attempted on in between (e.g. explicitly deferred) — repetition with no
+  failed fix behind it.
 - **Ambiguous default**: if a finding could plausibly be new ground *or*
   self-inflicted (propagation/wrong fix), classify it as self-inflicted. This
   is the same bias direction the ledger's per-finding cause column already

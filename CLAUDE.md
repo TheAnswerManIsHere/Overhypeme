@@ -108,6 +108,14 @@ forward.
      to him (plan converged & ready for approval, PR green/ready, build done) —
      the natural "come back" points. Not for routine progress. When unsure,
      bias to *fewer* notifications, not more.
+- **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
+  watching a PR, events that turn out to be my own comments bouncing back still
+  get the silent live-state check the watching rules require — but they produce
+  **zero chat output**. No "echo of my own reply — no action needed" lines:
+  David posted a screenshot of his chat window to show how those lines bury the
+  signal the sparse-chat rule exists to protect. Silence in chat does not mean
+  I skipped the verification; it means the verification found nothing worth his
+  attention.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
