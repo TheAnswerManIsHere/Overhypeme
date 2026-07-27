@@ -327,15 +327,23 @@ export function artifactSize(files) {
 }
 
 /**
- * Adjudication sample size for the causal classification.
+ * Adjudication population for the causal classification: EVERY finding,
+ * deliberately (David, 2026-07-27).
  *
- * `max(1, ceil(0.3 * findings))` with an explicit zero case, because "random
- * 30%" is undefined exactly where most loops live: at 1–3 findings, rounding
- * down audits nothing and rounding up changes the rate substantially.
+ * The blind adjudicator is an agent, so full coverage costs tokens once per
+ * loop close rather than anyone's time — and the earlier 30%-sample design
+ * produced two confirmed selection-bias defects in two consecutive review
+ * rounds before being removed (an id-sort that oversampled round 1, then a
+ * round-robin whose coverage guarantee failed when nonempty rounds exceeded
+ * the sample size). Full population makes the >20% disagreement gate exact
+ * and leaves no selection rule to get wrong. See working-modes.md's "Why the
+ * full population, not a sample". The zero case stays explicit: a clean loop
+ * has nothing to adjudicate, and its causal share is recorded as "n/a —
+ * clean loop", never 0%.
  */
 export function adjudicationSample(findings) {
   if (findings === 0) return { size: 0, note: "no findings — nothing to adjudicate" };
-  return { size: Math.max(1, Math.ceil(0.3 * findings)), note: null };
+  return { size: findings, note: "full population — no sampling; see working-modes.md" };
 }
 
 /** Assemble the mechanical columns. Judgment columns are left null by design. */

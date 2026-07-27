@@ -399,13 +399,16 @@ test("artifact size dedupes a repeated file record instead of double-counting it
   assert.deepEqual(size, { files: 1, added: 100, removed: 5 });
 });
 
-test("adjudication sample is defined for small and clean loops", () => {
-  // "random 30%" is undefined exactly where most loops live.
+test("adjudication covers the full population, with an explicit zero case", () => {
+  // Full population, deliberately: the adjudicator is an agent, and the
+  // earlier 30%-sample design produced two confirmed selection-bias defects
+  // (round-1 oversampling, then a failed round-robin coverage guarantee)
+  // before being removed. A clean loop has nothing to adjudicate.
   assert.equal(adjudicationSample(0).size, 0);
   assert.equal(adjudicationSample(1).size, 1);
-  assert.equal(adjudicationSample(3).size, 1);
-  assert.equal(adjudicationSample(10).size, 3);
-  assert.equal(adjudicationSample(40).size, 12);
+  assert.equal(adjudicationSample(3).size, 3);
+  assert.equal(adjudicationSample(10).size, 10);
+  assert.equal(adjudicationSample(40).size, 40);
 });
 
 test("derive leaves every judgment column null rather than guessing", () => {

@@ -410,19 +410,20 @@ be trusted.
    propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
    fired. **Ambiguous causes default to self-inflicted**, so classification
    drift cannot quietly flatter the workflow.
-3. Adjudicate `max(1, ceil(0.3 × findings))` findings blind, except at
-   `findings = 0` — a clean loop has nothing to adjudicate, so the sample is
-   `0` and the causal share is recorded as `n/a — clean loop` (see the
-   ledger's own note on this), not `0%`. A fresh reader is given the round
-   history and **the rubric below** but not your classifications. Above **20%
-   disagreement**, record that loop's causal figure as `unmeasured` and
+3. Adjudicate **every finding** blind — a fresh-context reader (in practice a
+   subagent with no access to the original classifications) is given the
+   round history and **the rubric below**, and re-classifies the full
+   population independently. At `findings = 0` there is nothing to
+   adjudicate, and the causal share is recorded as `n/a — clean loop` (see
+   the ledger's own note on this), not `0%`. Above **20% disagreement**
+   across the full set, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
 
-**The adjudication rubric.** Without a shared definition of the four causes and
-a fixed way to pick the sample, two readers can legitimately disagree on
-*classification* without either being wrong about the *facts* — and the >20%
-gate can't tell that apart from genuine drift. This is the shared decision
-rule both the original classifier and the blind adjudicator use:
+**The adjudication rubric.** Without a shared definition of the four causes,
+two readers can legitimately disagree on *classification* without either
+being wrong about the *facts* — and the >20% gate can't tell that apart from
+genuine drift. This is the shared decision rule both the original classifier
+and the blind adjudicator use:
 
 - **New ground** — the finding is a defect that existed independent of
   anything this same loop tried to fix. This includes a defect that was
@@ -461,27 +462,20 @@ rule both the original classifier and the blind adjudicator use:
   test above: an *exposed* pre-existing defect is new ground by definition,
   not an ambiguous case defaulting to self-inflicted.
 
-**Sample selection**, so it can't be picked to avoid the hard cases *and* so
-it can't systematically miss the finding types the metric most needs checked:
-propagation and wrong-fix findings can only occur in round 2 onward (nothing
-has been fixed yet in round 1 to propagate from or get wrong), so sorting all
-of a loop's findings by comment id and taking the first `N` would oversample
-round 1's disproportionately-new-ground findings and could pass the >20% gate
-while every later self-inflicted classification — the metric's actual
-numerator — goes unchecked. Sample **round-robin across rounds** instead:
-
-1. Group the loop's findings by round (`per_round`, the same grouping
-   `findingsByRound()` already produces), each round's findings sorted by
-   comment id ascending for reproducibility within the round.
-2. Take one finding from round 1, then one from round 2, then round 3, and so
-   on; when a pass reaches the last round with any findings left, wrap back to
-   round 1 and repeat.
-3. Stop once `max(1, ceil(0.3 × findings))` findings have been selected.
-
-This guarantees every round contributes to the sample (skipping only rounds
-that ran dry before the target is reached) rather than letting an
-early-heavy id sort silently exclude round 2+. Two people given the same PR
-and the same `per_round` breakdown compute the same sample.
+**Why the full population, not a sample (David, 2026-07-27).** Earlier drafts
+adjudicated a 30% sample, inheriting the assumption that a *human* would do
+the re-classification and the sample existed to bound that effort. The
+adjudicator here is an agent, so full coverage costs tokens once per loop
+close, not anyone's time — and the sampling machinery itself produced two
+confirmed bias defects in two consecutive review rounds before being removed
+(first an id-sort that oversampled round 1's disproportionately-new-ground
+findings, then a round-robin whose "every round contributes" guarantee
+failed whenever a loop had more nonempty rounds than the sample size —
+either one capable of validating a causal figure while part of its
+numerator went unchecked, since propagation and wrong-fix findings can only
+occur in round 2 onward). Full-population adjudication deletes that
+machinery outright: the >20% gate is computed exactly, over every finding,
+with nothing to select and no selection rule left to get wrong.
 
 *This rubric is new as of the loop-ledger's own PR and has not yet been
 exercised by a real adjudication pass. #268 is the designated first run of
