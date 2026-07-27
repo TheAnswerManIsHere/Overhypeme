@@ -213,6 +213,12 @@ a full plan and approval first, regardless of whether it has product
 consequences. If genuinely unsure which side of trivial/non-trivial it's on,
 treat it as non-trivial and ask rather than guess.
 
+A trivial Tier C fix still has a bug behind it, so its PR body isn't "n/a — no
+plan" either — the [PR template](../../.github/pull_request_template.md) has a
+dedicated Tier C block (tier, symptom, root cause, why it's trivial, David's
+go-ahead, the migration-ceremony checklist) distinct from both the feature-mode
+oracle and the Tier A/B bugfix oracle below.
+
 ### Per bug — the loop
 
 1. **Reproduce and find the root cause.** Name the mechanism, not the instance.

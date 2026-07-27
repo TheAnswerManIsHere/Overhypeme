@@ -83,10 +83,16 @@ against those, and specifically ask:
   consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
   a behavior/product change, or any schema, migration, or backfill work (see
   [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)) —
-  because that PR shouldn't be in bugfix mode's fast path at all: it needs a
-  full plan and David's approval before it runs, not just a heavier
-  verification tier. Flag that first. Only once Tier C is ruled out does the
-  A-vs-B question apply: a fix tagged Tier A that trips a Tier B trigger is
+  because that PR shouldn't be in bugfix mode's fast path at all. Flag that
+  first, but don't assume it always means a full plan was required: Tier C
+  itself splits on trivial vs. non-trivial (per `working-modes.md`'s Tier C
+  section) — a **non-trivial** behavior change or schema/migration/backfill
+  needs a full plan and David's approval before it ran, which a bugfix PR
+  obviously can't have; a genuinely **trivial** schema fix is allowed to have
+  run migration ceremony directly with David's go-ahead instead, and that's
+  not a finding. So on a Tier C PR, check which side of trivial/non-trivial it
+  actually falls on before flagging a missing plan. Only once Tier C is ruled
+  out does the A-vs-B question apply: a fix tagged Tier A that trips a Tier B trigger is
   under-verified — flag the mis-tier, not just its consequences. Check
   **both** halves of the A/B checklist in
   [`working-modes.md`](../ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake):

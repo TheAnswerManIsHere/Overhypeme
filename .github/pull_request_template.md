@@ -27,11 +27,21 @@
        `<final-plan-filename>.md`, sha256 `<hash>`, approved by David on `YYYY-MM-DD`.
      (`shasum -a 256 <file>` on the exact file delivered for approval.)
 
-     BUGFIX MODE — fill the bugfix oracle instead; delete the feature block.
-     See docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
+     BUGFIX MODE (Tier A/B) — fill the bugfix oracle instead; delete the feature
+     and Tier C blocks. See
+     docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
+
+     BUGFIX MODE, TIER C, TRIVIAL SCHEMA FIX — a schema/migration/backfill fix
+     is always Tier C (out of bugfix mode's fast path), but a genuinely trivial
+     one is allowed to run migration ceremony directly, with David's go-ahead,
+     instead of a full plan (see
+     docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode).
+     It still has a bug behind it, so it isn't "n/a — no plan" — fill the Tier C
+     block instead; delete the feature and A/B blocks. A NON-trivial schema
+     change gets a full plan and uses the FEATURE MODE block above, not this one.
 
      Only a genuinely trivial change with no plan and no bug behind it (a typo,
-     a comment) writes "n/a — no plan" and deletes both blocks. -->
+     a comment) writes "n/a — no plan" and deletes all three blocks. -->
 
 <!-- Feature mode -->
 **Approved-plan source:**
@@ -39,7 +49,7 @@
 **Must not change:**
 **Settled decisions:**
 
-<!-- Bugfix mode -->
+<!-- Bugfix mode, Tier A/B -->
 **Fix tier:** <!-- A or B, PLUS the reason either way — for B, the specific Q1/Q2
      trigger that fired; for A, the triggers you actually checked and ruled out
      (not just "A (contained)" with no reasoning — A is the classification a
@@ -50,6 +60,17 @@
 **Must not change:** <!-- adjacent behaviors sharing this code path -->
 **Root cause:** <!-- the mechanism, not the instance -->
 **Blast radius:** <!-- what else calls this / shares this path, and what you checked -->
+
+<!-- Bugfix mode, Tier C trivial schema fix -->
+**Fix tier:** C — trivial schema/migration fix, no plan
+**Reported symptom:** <!-- David's report, quoted verbatim -->
+**Root cause:** <!-- the mechanism, not the instance -->
+**Why this is trivial:** <!-- single-step, no data transformation, no behavior
+     change — the specific reason it doesn't need a full plan -->
+**David's go-ahead:** <!-- how/when confirmed, since this ran without a written plan -->
+**Migration ceremony checklist:** <!-- idempotency, observable counts,
+     human-edited-row preservation, rollback for destructive ops — see
+     docs/engineering/migrations-and-backfills.md -->
 
 ## Verification
 
