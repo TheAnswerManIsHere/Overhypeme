@@ -104,9 +104,13 @@ of the **fix** — what it touches, how many callers share it, whether it crosse
 persisted state — and none of that is knowable until the cause is found.
 "Simple-seeming" describes a bug report; it never described a blast radius.
 
-So: **diagnose first, then classify, then fix.** Run the checklist below once the
-cause is known. **If any item trips, it is Tier B.** With this list, Tier A is the
-exception — that is intended, not a mis-calibration.
+So: **diagnose first, then classify, then fix.** **Check Tier C first** (below) —
+a behavior/product change, or any schema/migration/backfill work, is Tier C
+regardless of whether it also trips a Q1/Q2 item; those triggers only decide
+Tier A vs. Tier B *within* work that's already confirmed to be a bug fix. Once
+Tier C is ruled out, run the checklist below. **If any item trips, it is Tier
+B.** With this list, Tier A is the exception — that is intended, not a
+mis-calibration.
 
 **Q1 — Where does the fix land?** Any of these subsystems → **Tier B**:
 payments / auth / permissions / security headers; the tokenizer, grammar, or
