@@ -932,7 +932,19 @@ self-inflicted share and not round count.
 4. **C8 — build the ledger before anything it measures.** Create
    `.agents/metrics/loop-ledger.md` (header + column contract, zero rows) and
    `scripts/loop-metrics.mjs` (takes a PR number, emits the mechanical
-   columns). Add the append-at-loop-close obligation to `CLAUDE.md`.
+   columns).
+
+   **The append-at-loop-close obligation goes in
+   [`docs/ai-context/working-modes.md`](../ai-context/working-modes.md) — the
+   shared cross-agent contract — NOT `CLAUDE.md`.** `CLAUDE.md` gains only
+   Claude's enactment (when I run the script, where I record the judgment
+   columns), pointing at the shared rule rather than restating it.
+
+   *This instruction previously said "add the obligation to `CLAUDE.md`" —
+   stale after round 6 moved ownership, and an executor following it would
+   have reproduced the exact defect that round fixed: Codex-driven loops
+   silently absent from a ledger that looks complete.*
+
    **This step ships first among the behavioural ones, and its own
    implementation PR is ledger row #1** — if the mechanism cannot record the
    loop that creates it, it will not record anything later either.
@@ -1080,6 +1092,13 @@ PRs; step 1 is already established as independently shippable.
       and work**, proven by running the script against a real merged PR and
       getting correct round/finding/elapsed numbers back. **Not proven by the
       files existing.**
+- [ ] **The append obligation is in `working-modes.md`, and `CLAUDE.md` only
+      enacts it.** Verified by grep: `CLAUDE.md` contains no standalone
+      statement of the obligation, only a pointer.
+- [ ] **Both closeout paths traced end-to-end**: one **Claude-driven** loop and
+      one **Codex-driven** loop each reach a completed ledger row. A shared
+      file only one agent appends to is the original defect with extra steps,
+      and only a Codex-driven trace can disprove it.
 - [ ] **The ledger's first row is this plan's own implementation PR**, with
       both halves filled — mechanical and judgment.
 - [ ] **No round-count target survives anywhere in the changed docs.** Verified
