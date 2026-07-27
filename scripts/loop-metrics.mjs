@@ -186,15 +186,30 @@ export function derive({ pr, reviews, comments, files }) {
 // Transport
 // ---------------------------------------------------------------------------
 
-async function gh(path) {
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (!token) throw new Error("GITHUB_TOKEN or GH_TOKEN required");
+/**
+ * Paginated GitHub GET.
+ *
+ * Pagination is not incidental here: a loop with 18 review rounds — our worst
+ * case to date, and the one the ledger most needs to characterise — exceeds a
+ * default page. A wrapper that silently returns page one would undercount
+ * rounds precisely on the large loops, which is the failure this whole file
+ * exists to prevent.
+ *
+ * `fetchImpl` is injectable so the pagination and error behaviour can be
+ * tested without network access.
+ */
+export async function gh(path, { token, fetchImpl = fetch } = {}) {
+  const auth = token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+  if (!auth) throw new Error("GITHUB_TOKEN or GH_TOKEN required");
   const out = [];
   let url = `https://api.github.com${path}${path.includes("?") ? "&" : "?"}per_page=100`;
+  const seen = new Set();
   while (url) {
-    const res = await fetch(url, {
+    if (seen.has(url)) throw new Error(`pagination loop detected at ${url}`);
+    seen.add(url);
+    const res = await fetchImpl(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${auth}`,
         Accept: "application/vnd.github+json",
         "User-Agent": "loop-metrics",
       },

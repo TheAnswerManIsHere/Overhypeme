@@ -10,6 +10,7 @@ import {
   artifactSize,
   adjudicationSample,
   derive,
+  gh,
 } from "../loop-metrics.mjs";
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
@@ -152,4 +153,74 @@ test("derive leaves every judgment column null rather than guessing", () => {
   assert.equal(row.rounds, 1);
   assert.equal(row.findings, 1);
   for (const v of Object.values(row.judgment)) assert.equal(v, null);
+});
+
+// ---------------------------------------------------------------------------
+// Transport. The live API is unreachable from the dev container (the token
+// there is proxy-scoped), so pagination and error handling are tested with an
+// injected fetch rather than left unverified — an untested wrapper would
+// undercount rounds on exactly the large loops this ledger exists to measure.
+// ---------------------------------------------------------------------------
+
+function stub(pages) {
+  let i = 0;
+  return async () => {
+    const p = pages[i++];
+    return {
+      ok: p.ok ?? true,
+      status: p.status ?? 200,
+      statusText: p.statusText ?? "OK",
+      json: async () => p.body,
+      headers: { get: (h) => (h.toLowerCase() === "link" ? (p.link ?? null) : null) },
+    };
+  };
+}
+
+test("gh follows Link rel=next across pages", async () => {
+  // #268 ran 18 rounds; a wrapper that stopped at page one would report far
+  // fewer and look plausible doing it.
+  const fetchImpl = stub([
+    { body: [{ id: 1 }, { id: 2 }], link: '<https://api.github.com/x?page=2>; rel="next"' },
+    { body: [{ id: 3 }], link: null },
+  ]);
+  const out = await gh("/x", { token: "t", fetchImpl });
+  assert.deepEqual(
+    out.map((o) => o.id),
+    [1, 2, 3],
+  );
+});
+
+test("gh ignores rel=prev/last and stops when there is no next", async () => {
+  const fetchImpl = stub([
+    { body: [{ id: 1 }], link: '<https://api.github.com/x?page=9>; rel="last"' },
+  ]);
+  assert.equal((await gh("/x", { token: "t", fetchImpl })).length, 1);
+});
+
+test("gh wraps a single-object response", async () => {
+  // /pulls/{n} returns an object, not an array.
+  const fetchImpl = stub([{ body: { number: 268 } }]);
+  const out = await gh("/repos/o/r/pulls/268", { token: "t", fetchImpl });
+  assert.deepEqual(out, [{ number: 268 }]);
+});
+
+test("gh throws on a non-ok response instead of returning partial data", async () => {
+  const fetchImpl = stub([{ ok: false, status: 401, statusText: "Unauthorized", body: {} }]);
+  await assert.rejects(() => gh("/x", { token: "t", fetchImpl }), /401 Unauthorized/);
+});
+
+test("gh detects a pagination cycle rather than looping forever", async () => {
+  const self = '<https://api.github.com/x?per_page=100>; rel="next"';
+  const fetchImpl = stub([
+    { body: [{ id: 1 }], link: self },
+    { body: [{ id: 1 }], link: self },
+  ]);
+  await assert.rejects(() => gh("/x", { token: "t", fetchImpl }), /pagination loop/);
+});
+
+test("gh requires a token", async () => {
+  await assert.rejects(
+    () => gh("/x", { token: "", fetchImpl: stub([{ body: [] }]) }),
+    /GITHUB_TOKEN/,
+  );
 });
