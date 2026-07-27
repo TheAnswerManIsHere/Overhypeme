@@ -172,22 +172,36 @@ export function stripHtmlComments(text) {
 }
 
 /**
+ * Extract a markdown oracle field's value — everything after `**Label:**` up
+ * to the next `**AnyLabel:**` line or the end of the body, trimmed.
+ *
+ * A field's value is not always on the same line as its label — the PR
+ * template's own natural layout is to write multi-line content (a
+ * paragraph, a numbered list) starting on the line AFTER the label. A
+ * same-line-only regex reads that as empty, which is wrong in the dangerous
+ * direction: an empty-looking "**Product intent:**" with real content one
+ * line down would make `featureOracleIsPopulated()` report the feature
+ * oracle as unpopulated, and a leftover unedited Tier C block would then
+ * make `hasGenuineFixTier` misclassify the PR as `bugfix`. Capturing through
+ * the next field label (or end of string) instead of just `[^\n]*` reads
+ * both same-line and multi-line values correctly.
+ */
+function fieldValue(stripped, label) {
+  const re = new RegExp(`\\*\\*${label}:\\*\\*([\\s\\S]*?)(?=\\n\\*\\*[^\\n]+:\\*\\*|$)`, "gi");
+  return [...stripped.matchAll(re)].map((m) => m[1].trim());
+}
+
+/**
  * Whether the PR body's `**Fix tier:**` field carries a real value anywhere
  * it appears — not just the unedited template placeholder.
  * `.github/pull_request_template.md` prints this field in TWO blocks
  * unconditionally (Tier A/B and Tier C), so a body can contain it more than
- * once; matchAll + first-non-empty means an untouched A/B placeholder
- * (comment-only, so empty once comments are stripped) doesn't hide a
- * genuinely filled Tier C value that follows it.
+ * once; first-non-empty means an untouched A/B placeholder (comment-only, so
+ * empty once comments are stripped) doesn't hide a genuinely filled Tier C
+ * value that follows it.
  */
 function fixTierValue(body) {
-  const stripped = stripHtmlComments(body);
-  // [ \t]*, not \s*: \s crosses the newline after an empty field straight
-  // into the NEXT line's own "**Label:**" text, reading it as this field's
-  // value. Constraining to same-line whitespace means a genuinely empty
-  // field (label immediately followed by a newline) captures "", not the
-  // next field's label and content.
-  const values = [...stripped.matchAll(/\*\*Fix tier:\*\*[ \t]*([^\n]*)/gi)].map((m) => m[1].trim());
+  const values = fieldValue(stripHtmlComments(body), "Fix tier");
   return values.find((v) => v.length > 0) ?? "";
 }
 
@@ -200,14 +214,9 @@ function fixTierValue(body) {
  */
 function featureOracleIsPopulated(body) {
   const stripped = stripHtmlComments(body);
-  // [ \t]*, not \s* — see fixTierValue's comment: \s crosses the newline
-  // after an empty "**Product intent:**"/"**Settled decisions:**" straight
-  // into the NEXT field's own label+text, misreading an unedited feature
-  // block as populated and silently disabling a genuine Fix-tier signal.
-  return ["Product intent", "Settled decisions"].some((label) => {
-    const match = new RegExp(`\\*\\*${label}:\\*\\*[ \\t]*([^\\n]*)`, "i").exec(stripped);
-    return Boolean(match && match[1].trim());
-  });
+  return ["Product intent", "Settled decisions"].some((label) =>
+    fieldValue(stripped, label).some((v) => v.length > 0),
+  );
 }
 
 /**
@@ -598,7 +607,7 @@ async function fetchPR(number) {
  * Parse and validate CLI arguments. Exported so the validation itself is
  * directly testable without mocking process.argv/exit.
  *
- * Two failure modes this used to let through silently:
+ * Failure modes this used to let through silently:
  *  - More than one of --fixture/--mcp-snapshot/--pr supplied together: the
  *    old code just picked by precedence, so e.g. `--fixture stale.json --pr
  *    270` would derive from the stale fixture while appearing to target PR
@@ -607,11 +616,32 @@ async function fetchPR(number) {
  *    the old code treated a `null`/`undefined` value the same as "not
  *    requested" and skipped saving silently — a capture that looks
  *    successful but loses the fixture needed to reproduce the calculation.
+ *  - A valueless option immediately followed by another option: `--save-
+ *    fixture --pr 270` used to read `"--pr"` itself as save-fixture's value
+ *    and write a file literally named `--pr`, instead of reporting the
+ *    missing path. A value that itself looks like an option (starts with
+ *    `--`) is now treated as no value at all.
+ *  - The same flag given twice: the old lookup silently used the first
+ *    occurrence and ignored the second, which could mean the wrong one of
+ *    two conflicting values gets used with no indication anything was
+ *    dropped.
  */
 export function parseArgs(argv) {
+  // A flag present with no valid value (missing entirely, or the next token
+  // itself looks like another option) throws immediately, uniformly across
+  // all four flags — never silently falls back to "as if it wasn't given."
   const arg = (name) => {
-    const i = argv.indexOf(`--${name}`);
-    return i === -1 ? null : argv[i + 1];
+    const flag = `--${name}`;
+    const i = argv.indexOf(flag);
+    if (i === -1) return null;
+    if (argv.lastIndexOf(flag) !== i) {
+      throw new Error(`--${name} was given more than once`);
+    }
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new Error(`--${name} requires a value`);
+    }
+    return value;
   };
 
   const fixture = arg("fixture");
@@ -627,11 +657,7 @@ export function parseArgs(argv) {
     );
   }
 
-  const saveFixtureRequested = argv.includes("--save-fixture");
   const saveTo = arg("save-fixture");
-  if (saveFixtureRequested && !saveTo) {
-    throw new Error("--save-fixture requires a file path");
-  }
 
   return { fixture, mcpSnapshot, prNumber, saveTo };
 }

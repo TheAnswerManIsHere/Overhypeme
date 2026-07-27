@@ -232,6 +232,33 @@ test("an unedited Fix tier placeholder left over on a real feature PR does not f
   assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
 });
 
+test("a feature PR with multi-line oracle values (content below the label) does not misclassify as bugfix", () => {
+  // Writing a field's content on the line(s) AFTER its label is a natural
+  // Markdown layout, not an edge case — this PR's own body does exactly
+  // this. A same-line-only regex reads "**Product intent:**" as empty here,
+  // and if the unused Tier C block is also left in place, the code-only
+  // feature would be misclassified as bugfix.
+  const pr = {
+    title: "Add the loop ledger: track every review loop, count what can be counted",
+    body: [
+      "## Approved-plan oracle",
+      "**Approved-plan source:**",
+      "Plan-review PR #269, final plan commit `abc123`, approved by David on 2026-07-27.",
+      "**Product intent:**",
+      "Track every review loop's rounds and findings mechanically.",
+      "**Must not change:**",
+      "The existing PR workflow.",
+      "**Settled decisions:**",
+      "1. Ledger lives at .agents/metrics/loop-ledger.md.",
+      "",
+      "<!-- Bugfix mode, Tier C trivial schema fix -->",
+      "**Fix tier:** C — trivial schema/migration fix, no plan",
+      "**Reported symptom:** <!-- David's report, quoted verbatim -->",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
+});
+
 test("a natural-language bugfix with an unedited, empty feature block still classifies as bugfix", () => {
   // \s* in the field regexes used to cross the newline after an empty
   // "**Product intent:**"/"**Settled decisions:**" straight into the NEXT
@@ -671,7 +698,24 @@ test("parseArgs rejects --save-fixture given without a path", () => {
   // successful but loses the fixture needed to reproduce the calculation.
   assert.throws(
     () => parseArgs(["node", "loop-metrics.mjs", "--pr", "270", "--save-fixture"]),
-    /--save-fixture requires a file path/,
+    /--save-fixture requires a value/,
+  );
+});
+
+test("parseArgs rejects another option token as a missing value", () => {
+  // `--save-fixture --pr 270` used to read "--pr" itself as save-fixture's
+  // value and write a file literally named "--pr" instead of reporting the
+  // missing path.
+  assert.throws(
+    () => parseArgs(["node", "loop-metrics.mjs", "--save-fixture", "--pr", "270"]),
+    /--save-fixture requires a value/,
+  );
+});
+
+test("parseArgs rejects the same flag given twice", () => {
+  assert.throws(
+    () => parseArgs(["node", "loop-metrics.mjs", "--pr", "270", "--pr", "271"]),
+    /--pr was given more than once/,
   );
 });
 
