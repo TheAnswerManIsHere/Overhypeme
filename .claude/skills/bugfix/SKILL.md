@@ -1,6 +1,6 @@
 ---
 name: bugfix
-description: Enter bug-fixing mode — fix a bug without the planning ceremony. Use when David says /bugfix, or asks to "just fix" a bug. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — every fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
+description: Enter bug-fixing mode — fix a bug without the planning ceremony. Use when David says /bugfix, or asks to "just fix" a bug. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
 ---
 
 # Bug-fixing mode

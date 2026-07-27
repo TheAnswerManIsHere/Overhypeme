@@ -96,10 +96,13 @@ and specifically ask:
   this standard.)
 - **Is the tier right? Check Tier C first, then A vs. B.** The most
   consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
-  a behavior/product change, or any schema, migration, or backfill work (see
-  [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)) —
-  because that PR shouldn't be in bugfix mode's fast path at all. Flag that
-  first. **A behavior/product change is unconditionally a full-plan finding —
+  **any** of: a behavior/product change; any schema, migration, or backfill
+  work; a design flaw rather than a defect; needing a new abstraction; or
+  needing an external vendor (see
+  [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode))
+  — because that PR shouldn't be in bugfix mode's fast path at all,
+  regardless of which of those five it trips. Flag that first. **A
+  behavior/product change is unconditionally a full-plan finding —
   there is no trivial exception for it, ever**; a bugfix PR can't carry
   approval for a behavior change it has no plan for, full stop. The trivial
   exception is narrower than "Tier C" and applies **only** to a
