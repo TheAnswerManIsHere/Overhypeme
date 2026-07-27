@@ -456,18 +456,25 @@ and the blind adjudicator use:
   failed fix behind it. A restatement stays re-raised even when it is
   factually wrong *now* (the defect no longer exists) — invalid, below, is
   for first occurrences only.
-- **Invalid** — the finding is demonstrably not a defect at all, on its first
-  occurrence: refuted with repository evidence, the same standard the review
-  workflow already uses to dispose of a finding by rebuttal rather than a fix.
-  This category exists because the other four all presuppose either a real
-  defect or a prior finding, while `findings` mechanically counts every
-  reviewer-authored root comment — without it, a false positive would force
-  the classifier to fabricate a causal label or leave the category totals
-  short of the findings count. Invalid findings are excluded from **both**
-  the numerator and the denominator of the self-inflicted share, so a
-  reviewer's false positives neither inflate nor deflate the metric.
-  **Validity doubt is resolved toward valid**: only a finding refuted with
-  evidence is invalid — "probably not a real problem" is not enough. A
+- **Invalid** — the finding is not a defect for this loop's purposes, on its
+  first occurrence, established one of two ways: **(a) refuted with
+  repository evidence**, the same standard the review workflow already uses
+  to dispose of a finding by rebuttal rather than a fix; or **(b) settled by
+  an explicit product/scope decision from David** — the finding was escalated
+  as a genuine product question and he chose the existing behavior or ruled
+  the concern out of scope. The two subcases differ in kind (one says the
+  reviewer misread the code, the other says the code is intended) but get
+  identical metric treatment: neither is a defect the workflow caused or
+  should have caught, so both are recorded in the `invalid` column and
+  excluded from **both** the numerator and the denominator of the
+  self-inflicted share — note the subcase in the row's notes when it
+  matters. This category exists because the other four all presuppose either
+  a real defect or a prior finding, while `findings` mechanically counts
+  every reviewer-authored root comment — without it, a false positive or a
+  David-overruled finding would force the classifier to fabricate a causal
+  label or leave the category totals short of the findings count.
+  **Doubt is resolved toward valid**: only evidence or an explicit decision
+  makes a finding invalid — "probably not a real problem" is not enough. A
   finding treated as valid then gets a causal label, where the ambiguous
   default below applies. **The five category counts must sum exactly to
   `findings`** — a total that comes up short means a finding was skipped, not
