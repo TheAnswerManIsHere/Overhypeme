@@ -249,7 +249,7 @@ test("gh requires a token", async () => {
 // as one checked against a real response.
 // ---------------------------------------------------------------------------
 
-import { flattenMcpThreads, fromMcp } from "../loop-metrics.mjs";
+import { flattenMcpThreads, fromMcp, assertMcpSnapshotComplete } from "../loop-metrics.mjs";
 
 const MCP_REVIEW = {
   id: 4791129869,
@@ -333,8 +333,8 @@ test("flattenMcpThreads assigns no review id when the comment predates every rev
   assert.equal(c.pull_request_review_id, undefined);
 });
 
-test("fromMcp produces derive()-ready findings and rounds for real PR #270 data", () => {
-  const snapshot = {
+function realSnapshot(overrides = {}) {
+  return {
     pr: {
       number: 270,
       title: "Add the loop ledger: track every review loop, count what can be counted",
@@ -343,8 +343,34 @@ test("fromMcp produces derive()-ready findings and rounds for real PR #270 data"
     reviews: [MCP_REVIEW],
     files: [{ filename: "scripts/loop-metrics.mjs", additions: 100, deletions: 0 }],
     reviewThreads: [MCP_THREAD_UNANSWERED, MCP_THREAD_WITH_REPLY],
+    complete: { reviews: true, files: true, reviewThreads: true },
+    ...overrides,
   };
-  const row = derive(fromMcp(snapshot));
+}
+
+test("fromMcp refuses a snapshot with no completeness attestation at all", () => {
+  // A loop with 18 rounds and 40 findings (our worst case, and exactly the
+  // shape this adapter is for) will paginate at least one collection. Deriving
+  // from an unmarked partial snapshot silently undercounts precisely there.
+  const { complete: _drop, ...noAttestation } = realSnapshot();
+  assert.throws(() => fromMcp(noAttestation), /complete\.reviews/);
+});
+
+for (const key of ["reviews", "files", "reviewThreads"]) {
+  test(`fromMcp refuses a snapshot where complete.${key} is explicitly false`, () => {
+    assert.throws(
+      () => fromMcp(realSnapshot({ complete: { reviews: true, files: true, reviewThreads: true, [key]: false } })),
+      new RegExp(`complete\\.${key}`),
+    );
+  });
+}
+
+test("assertMcpSnapshotComplete passes silently when all three are true", () => {
+  assert.doesNotThrow(() => assertMcpSnapshotComplete(realSnapshot()));
+});
+
+test("fromMcp produces derive()-ready findings and rounds for real PR #270 data", () => {
+  const row = derive(fromMcp(realSnapshot()));
   assert.equal(row.rounds, 1);
   // Two threads, one reply — one root finding each, the reply excluded.
   assert.equal(row.findings, 2);

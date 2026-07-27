@@ -398,7 +398,14 @@ be trusted.
    accepts `--mcp-snapshot <file>` for agents whose only working GitHub access
    is a tool-calling integration — see the adapter and its shape notes in
    `scripts/loop-metrics.mjs`. Either path is mechanical; neither is typing the
-   numbers from memory.
+   numbers from memory. **The snapshot must page each of `get_reviews`,
+   `get_files`, and `get_review_comments` to completion yourself before
+   calling the script** — it cannot page through the MCP tool on its own — and
+   must set `complete: {reviews: true, files: true, reviewThreads: true}` only
+   once every page is concatenated in. The script refuses an unmarked or
+   partial snapshot rather than deriving a plausible-looking undercount, which
+   a large loop (18 rounds, 40 findings, on our worst case so far) would
+   otherwise produce silently.
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised), pre-open preflight minutes, breakers
    fired. **Ambiguous causes default to self-inflicted**, so classification

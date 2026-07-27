@@ -279,19 +279,55 @@ export function flattenMcpThreads(reviewThreads, reviews) {
 }
 
 /**
+ * Refuse an MCP snapshot that hasn't been paginated to completion.
+ *
+ * `loop-metrics.mjs` runs as a plain Node process — it cannot itself call
+ * `pull_request_read`, so it can't page through the MCP tool the way `gh()`
+ * pages through the raw REST API. The agent assembling `--mcp-snapshot` must
+ * do that instead, and must say so explicitly: this throws unless
+ * `snapshot.complete` marks all three paginated collections `true`.
+ *
+ * This is not a formality. A loop with 18 review rounds and 40 findings —
+ * our worst case to date, and exactly the shape this adapter exists to
+ * measure — will paginate on at least one of `get_reviews`,
+ * `get_review_comments`, or `get_files`. Deriving a row from an unmarked
+ * partial snapshot produces a number that looks measured and undercounts
+ * rounds, findings, or artifact size on precisely the loops that matter most.
+ */
+export function assertMcpSnapshotComplete(snapshot) {
+  const complete = snapshot.complete ?? {};
+  for (const key of ["reviews", "files", "reviewThreads"]) {
+    if (complete[key] !== true) {
+      throw new Error(
+        `MCP snapshot incomplete: complete.${key} must be explicitly true. ` +
+          `Page through pull_request_read (method:"${
+            key === "reviewThreads" ? "get_review_comments" : key === "reviews" ? "get_reviews" : "get_files"
+          }") until it reports no further pages, concatenate every page, then set complete.${key} = true.`,
+      );
+    }
+  }
+}
+
+/**
  * Assemble a `derive()`-ready object from raw MCP tool outputs.
  *
- * `snapshot` is exactly the four raw results an agent gets from
- * `pull_request_read`:
- *   { pr: <method:"get">, reviews: <method:"get_reviews">,
- *     files: <method:"get_files">, reviewThreads: <method:"get_review_comments">.review_threads }
+ * `snapshot` is the four raw results an agent gets from `pull_request_read`,
+ * **after fully paginating each of `reviews`, `files`, and `reviewThreads`**
+ * (see `assertMcpSnapshotComplete`), plus an explicit attestation:
+ *   { pr: <method:"get">,
+ *     reviews: <all pages of method:"get_reviews", concatenated>,
+ *     files: <all pages of method:"get_files", concatenated>,
+ *     reviewThreads: <all pages of method:"get_review_comments">.review_threads, concatenated>,
+ *     complete: { reviews: true, files: true, reviewThreads: true } }
  *
  * `pr`, `reviews`, and `files` pass through unchanged — verified against
  * PR #270's live output to carry the same field names `derive()` expects
  * (`user.login`, `submitted_at`, `filename`/`additions`/`deletions`). Only
  * `reviewThreads` needs the flattening above.
  */
-export function fromMcp({ pr, reviews, files, reviewThreads }) {
+export function fromMcp(snapshot) {
+  assertMcpSnapshotComplete(snapshot);
+  const { pr, reviews, files, reviewThreads } = snapshot;
   return { pr, reviews, files, comments: flattenMcpThreads(reviewThreads, reviews) };
 }
 
