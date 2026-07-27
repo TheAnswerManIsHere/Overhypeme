@@ -172,8 +172,50 @@ export function stripHtmlComments(text) {
 }
 
 /**
+ * The complete, fixed set of oracle field labels
+ * `.github/pull_request_template.md` prints — the ONLY lines that count as a
+ * field boundary. Treating any bold-colon text as a boundary is too eager: a
+ * value that itself uses a bold sub-label (e.g. "**Product intent:**" with
+ * content written as "**Goal:** ...") would have that sub-label misread as
+ * the START of a new field, truncating the real value to empty.
+ */
+const ORACLE_FIELD_LABELS = [
+  "Approved-plan source",
+  "Product intent",
+  "Must not change",
+  "Settled decisions",
+  "Fix tier",
+  "Reported symptom",
+  "Intended correct behavior",
+  "Root cause",
+  "Blast radius",
+  "Why this is trivial",
+  "David's go-ahead",
+  "Migration ceremony checklist",
+];
+const ORACLE_FIELD_BOUNDARY = ORACLE_FIELD_LABELS.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+
+/**
+ * Strip content an oracle field scan should never read as real field text:
+ * fenced code blocks and blockquoted lines. Without this, a body that
+ * quotes an example PR (illustrating the template, or citing a prior PR)
+ * containing literal "**Product intent:**"/"**Fix tier:**" text would have
+ * that quoted example read as this PR's own oracle.
+ */
+function stripExampleText(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, "")
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n");
+}
+
+/**
  * Extract a markdown oracle field's value — everything after `**Label:**` up
- * to the next `**AnyLabel:**` line or the end of the body, trimmed.
+ * to the next recognized oracle field label or the end of the body, trimmed.
+ * The boundary is restricted to `ORACLE_FIELD_LABELS`, not any bold-colon
+ * text, so a bold sub-label inside the value itself isn't misread as a new
+ * field.
  *
  * A field's value is not always on the same line as its label — the PR
  * template's own natural layout is to write multi-line content (a
@@ -187,7 +229,7 @@ export function stripHtmlComments(text) {
  * both same-line and multi-line values correctly.
  */
 function fieldValue(stripped, label) {
-  const re = new RegExp(`\\*\\*${label}:\\*\\*([\\s\\S]*?)(?=\\n\\*\\*[^\\n]+:\\*\\*|$)`, "gi");
+  const re = new RegExp(`\\*\\*${label}:\\*\\*([\\s\\S]*?)(?=\\n\\*\\*(?:${ORACLE_FIELD_BOUNDARY}):\\*\\*|$)`, "gi");
   return [...stripped.matchAll(re)].map((m) => m[1].trim());
 }
 
@@ -201,7 +243,7 @@ function fieldValue(stripped, label) {
  * value that follows it.
  */
 function fixTierValue(body) {
-  const values = fieldValue(stripHtmlComments(body), "Fix tier");
+  const values = fieldValue(stripExampleText(stripHtmlComments(body)), "Fix tier");
   return values.find((v) => v.length > 0) ?? "";
 }
 
@@ -213,7 +255,7 @@ function fixTierValue(body) {
  * one being populated is an unambiguous feature-mode signal.
  */
 function featureOracleIsPopulated(body) {
-  const stripped = stripHtmlComments(body);
+  const stripped = stripExampleText(stripHtmlComments(body));
   return ["Product intent", "Settled decisions"].some((label) =>
     fieldValue(stripped, label).some((v) => v.length > 0),
   );
@@ -510,6 +552,15 @@ export function assertMcpSnapshotShape(snapshot) {
         `MCP snapshot malformed: reviewThreads[${i}] (id ${thread.id ?? "unknown"}) has no comments array.`,
       );
     }
+    // flattenMcpThreads recovers a comment's id from a discussion_r<digits>
+    // match in html_url, falling back to `${thread.id}#${i}` only when that
+    // fails. If BOTH are missing — no parseable html_url AND no stable
+    // thread.id — every such comment across every such thread collapses to
+    // the identical literal id "undefined#0"; countFindings' Set-based dedup
+    // then silently merges distinct findings into one, and the per-round
+    // count (built from the same collapsed set) stays self-consistent while
+    // being wrong.
+    const threadHasStableId = typeof thread.id === "string" && thread.id.length > 0;
     thread.comments.forEach((c, j) => {
       const login = c.author ?? c.user?.login;
       if (typeof c.body !== "string" || typeof login !== "string" || !c.created_at) {
@@ -517,6 +568,13 @@ export function assertMcpSnapshotShape(snapshot) {
           `MCP snapshot malformed: reviewThreads[${i}].comments[${j}] must have a body, an author or ` +
             `user.login, and a created_at (got body=${JSON.stringify(c.body)}, author=${JSON.stringify(login)}, ` +
             `created_at=${JSON.stringify(c.created_at)}).`,
+        );
+      }
+      if (!/discussion_r\d+/.test(c.html_url ?? "") && !threadHasStableId) {
+        throw new Error(
+          `MCP snapshot malformed: reviewThreads[${i}].comments[${j}] has no parseable discussion_r id in ` +
+            `html_url (got ${JSON.stringify(c.html_url)}) and reviewThreads[${i}] has no stable thread id ` +
+            `(got ${JSON.stringify(thread.id)}) to fall back to.`,
         );
       }
     });

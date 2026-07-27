@@ -259,6 +259,48 @@ test("a feature PR with multi-line oracle values (content below the label) does 
   assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
 });
 
+test("a bold sub-label inside a field's value is not misread as the start of a new field", () => {
+  // "**Product intent:**" followed by "**Goal:** ..." on the next line is a
+  // real, if unusual, way to write the value — a boundary check that treats
+  // ANY bold-colon text as a new field would truncate this to empty and,
+  // with the unused Tier C block left in place, misclassify the feature as
+  // bugfix.
+  const pr = {
+    title: "Add the loop ledger: track every review loop, count what can be counted",
+    body: [
+      "**Product intent:**",
+      "**Goal:** Track every review loop's rounds and findings mechanically.",
+      "**Must not change:**",
+      "The existing PR workflow.",
+      "",
+      "**Fix tier:** C — trivial schema/migration fix, no plan",
+      "**Reported symptom:** <!-- David's report, quoted verbatim -->",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
+});
+
+test("a quoted example containing oracle-field syntax does not corrupt classification", () => {
+  // A bugfix PR body that cites the template (a fenced code block showing
+  // what the fields look like) contains a literal "**Product intent:**"
+  // that isn't this PR's own oracle — an unanchored match would read it as
+  // one and disable the genuine Fix-tier signal.
+  const pr = {
+    title: "Fix test isolation issues in the enrichment suite",
+    body: [
+      "**Fix tier:** A — contained, single caller",
+      "**Reported symptom:** flaky test order dependency",
+      "",
+      "For reference, the feature-mode block looks like:",
+      "```",
+      "**Product intent:** <what the feature does>",
+      "**Settled decisions:** <the decisions made>",
+      "```",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
 test("a natural-language bugfix with an unedited, empty feature block still classifies as bugfix", () => {
   // \s* in the field regexes used to cross the newline after an empty
   // "**Product intent:**"/"**Settled decisions:**" straight into the NEXT
@@ -663,6 +705,43 @@ test("fromMcp refuses a thread comment missing a body, author, or created_at", (
     () => fromMcp(realSnapshot({ reviewThreads: [brokenThread] })),
     /reviewThreads\[0\]\.comments\[0\] must have a body, an author or user\.login, and a created_at/,
   );
+});
+
+test("fromMcp refuses a comment with neither a parseable discussion_r id nor a stable thread id", () => {
+  // flattenMcpThreads falls back to `${thread.id}#${i}` when html_url has no
+  // discussion_r match. If thread.id is ALSO missing, every such comment
+  // across every such thread collapses to the identical literal id
+  // "undefined#0" — countFindings' Set-based dedup then silently merges
+  // distinct findings into one.
+  const unidentifiableThread = {
+    comments: [
+      {
+        body: "A finding with no way to derive a unique id",
+        author: "chatgpt-codex-connector",
+        created_at: "2026-07-27T20:15:31Z",
+        html_url: "https://github.com/TheAnswerManIsHere/Overhypeme/pull/270",
+      },
+    ],
+  };
+  assert.throws(
+    () => fromMcp(realSnapshot({ reviewThreads: [unidentifiableThread] })),
+    /reviewThreads\[0\]\.comments\[0\] has no parseable discussion_r id/,
+  );
+});
+
+test("fromMcp accepts a comment with a stable thread id even without a discussion_r html_url", () => {
+  const threadWithStableId = {
+    id: "PRRT_stable_but_no_url",
+    comments: [
+      {
+        body: "A finding identified by thread id alone",
+        author: "chatgpt-codex-connector",
+        created_at: "2026-07-27T20:15:31Z",
+        html_url: "https://github.com/TheAnswerManIsHere/Overhypeme/pull/270",
+      },
+    ],
+  };
+  assert.doesNotThrow(() => fromMcp(realSnapshot({ reviewThreads: [threadWithStableId] })));
 });
 
 // ---------------------------------------------------------------------------
