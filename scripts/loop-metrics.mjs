@@ -299,9 +299,15 @@ export function classifyCohort(pr, files) {
   // trustworthy evidence either way, and falls through to the fallback below.
   const body = pr.body ?? "";
   const hasGenuineFixTier = Boolean(fixTierValue(body)) && !featureOracleIsPopulated(body);
+  // The title fallback matches on a word boundary, not just conventional
+  // "fix:"/"fix(scope):" forms — this repo's real pre-template bugfix titles
+  // are natural language ("Fix test isolation issues..."), which is exactly
+  // the legacy case this fallback exists for. \b keeps "Fixture..." and
+  // similar non-fix words out while still covering "Fix ...", "Fixes ...",
+  // "Fixed ...", "fix: ...", and "fix(scope): ...".
   if (
     hasGenuineFixTier ||
-    /^(fix|bugfix)(\([^)]*\))?[:/]/i.test(pr.title ?? "") ||
+    /^(fix(es|ed)?|bugfix)\b/i.test(pr.title ?? "") ||
     (pr.labels ?? []).some((l) => l.name === "bugfix")
   )
     return "bugfix";

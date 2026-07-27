@@ -189,6 +189,26 @@ test("a ledger-append piggyback does not force a feature/bugfix PR into prose/co
   );
 });
 
+test("a legacy natural-language Fix title with no body field or label classifies as bugfix", () => {
+  // Pre-template bugfix PRs in this repo's history have titles like "Fix
+  // test isolation issues..." with neither a **Fix tier:** body field nor a
+  // label — exactly the legacy case the title fallback exists for, which a
+  // conventional-forms-only regex silently misclassified as feature/code.
+  assert.equal(
+    classifyCohort({ title: "Fix test isolation issues in the enrichment suite" }, [
+      { filename: "src/a.ts" },
+    ]),
+    "bugfix",
+  );
+  // Word boundary keeps non-fix words starting with "fix" out.
+  assert.equal(
+    classifyCohort({ title: "Fixture cleanup for the enrichment suite" }, [
+      { filename: "src/a.ts" },
+    ]),
+    "feature/code",
+  );
+});
+
 test("scoped conventional-commit fix titles are recognized as bugfix", () => {
   // These exact forms appear repeatedly in this repo's history (#265, #246)
   // and carry no label — the unscoped-only regex silently misclassified them.
