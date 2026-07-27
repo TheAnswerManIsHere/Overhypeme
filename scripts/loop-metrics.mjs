@@ -126,6 +126,41 @@ export function reviewInterval(pr, reviews) {
   };
 }
 
+/** Strip HTML comments so unedited template placeholder text isn't read as content. */
+function stripHtmlComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/**
+ * Whether the PR body's `**Fix tier:**` field carries a real value anywhere
+ * it appears — not just the unedited template placeholder.
+ * `.github/pull_request_template.md` prints this field in TWO blocks
+ * unconditionally (Tier A/B and Tier C), so a body can contain it more than
+ * once; matchAll + first-non-empty means an untouched A/B placeholder
+ * (comment-only, so empty once comments are stripped) doesn't hide a
+ * genuinely filled Tier C value that follows it.
+ */
+function fixTierValue(body) {
+  const stripped = stripHtmlComments(body);
+  const values = [...stripped.matchAll(/\*\*Fix tier:\*\*\s*([^\n]*)/gi)].map((m) => m[1].trim());
+  return values.find((v) => v.length > 0) ?? "";
+}
+
+/**
+ * Whether the PR body's FEATURE oracle fields carry real content. Checked
+ * against `**Product intent:**` and `**Settled decisions:**` specifically
+ * because both are feature-block-only in the template (unlike
+ * `**Must not change:**`, which the bugfix A/B block also uses) — so either
+ * one being populated is an unambiguous feature-mode signal.
+ */
+function featureOracleIsPopulated(body) {
+  const stripped = stripHtmlComments(body);
+  return ["Product intent", "Settled decisions"].some((label) => {
+    const match = new RegExp(`\\*\\*${label}:\\*\\*\\s*([^\\n]*)`, "i").exec(stripped);
+    return Boolean(match && match[1].trim());
+  });
+}
+
 /**
  * Cohort, evaluated top-down, first match wins. A mixed code/prose PR lands in
  * `prose/contract` because that is where the stricter obligations and the
@@ -144,8 +179,20 @@ export function classifyCohort(pr, files) {
   // issues...", "Prevent the crash..."), which title/label matching alone
   // silently misclassified as feature/code. Title and label are kept as a
   // fallback for a bugfix PR predating the template field.
+  //
+  // A bare existence check on "**Fix tier:**" is not enough: the template
+  // prints that field in TWO blocks (Tier A/B, Tier C) whether or not either
+  // is used, and the Tier C block's default text ("C — trivial
+  // schema/migration fix, no plan") is not comment-wrapped, so a code-only
+  // feature PR that forgot to delete the unused bugfix blocks (the template
+  // instructs deleting them, but doesn't enforce it) would still match. So a
+  // genuine signal requires BOTH a populated Fix tier value AND the feature
+  // oracle fields being empty — a body carrying both is contradictory, not
+  // trustworthy evidence either way, and falls through to the fallback below.
+  const body = pr.body ?? "";
+  const hasGenuineFixTier = Boolean(fixTierValue(body)) && !featureOracleIsPopulated(body);
   if (
-    /\*\*Fix tier:\*\*/i.test(pr.body ?? "") ||
+    hasGenuineFixTier ||
     /^(fix|bugfix)(\([^)]*\))?[:/]/i.test(pr.title ?? "") ||
     (pr.labels ?? []).some((l) => l.name === "bugfix")
   )
@@ -178,6 +225,24 @@ export function adjudicationSample(findings) {
 export function derive({ pr, reviews, comments, files }) {
   const rounds = countRounds(reviews);
   const findings = countFindings(comments);
+  const per_round = findingsByRound(reviews, comments);
+
+  // Every reviewer-authored root comment must land in exactly one round.
+  // `flattenMcpThreads` can produce a root whose `pull_request_review_id` is
+  // `undefined` when a comment's `created_at` precedes every same-author
+  // review's `submitted_at` (no review to correlate it to) — `countFindings`
+  // still counts that root, but `findingsByRound`'s exact-match filter puts it
+  // in no round, so the per-round sum would silently disagree with the total.
+  // A row whose own numbers don't reconcile is worse than no row at all.
+  const perRoundTotal = per_round.reduce((n, r) => n + r.findings, 0);
+  if (perRoundTotal !== findings) {
+    throw new Error(
+      `findings (${findings}) does not equal the sum of per-round findings (${perRoundTotal}) for PR #${pr.number}. ` +
+        `At least one reviewer-authored root comment could not be attributed to a review round. ` +
+        `Fix the round correlation rather than deriving a row whose own totals disagree.`,
+    );
+  }
+
   return {
     pr: pr.number,
     title: pr.title,
@@ -185,7 +250,7 @@ export function derive({ pr, reviews, comments, files }) {
     size: artifactSize(files),
     rounds,
     findings,
-    per_round: findingsByRound(reviews, comments),
+    per_round,
     review_interval: reviewInterval(pr, reviews),
     adjudication_sample: adjudicationSample(findings),
     state: pr.merged_at ? "merged" : pr.closed_at ? "closed" : "open",
@@ -322,6 +387,13 @@ export function assertMcpSnapshotComplete(snapshot) {
  * zero findings, and a thread with no `comments` array would be silently
  * dropped the same way — both indistinguishable from a genuinely clean,
  * finding-free loop unless checked explicitly.
+ *
+ * Checking that each collection is an ARRAY is not enough either: an entry
+ * missing a required field is just as silently wrong. `files: [{filename:
+ * "x.ts"}]` (no additions/deletions) would make `artifactSize()` substitute
+ * zero for both via `?? 0`, and a review missing `user.login` is silently
+ * excluded from `countRounds`'s round count rather than counted or rejected —
+ * both produce a credible-looking undercount instead of throwing.
  */
 export function assertMcpSnapshotShape(snapshot) {
   for (const key of ["reviews", "files", "reviewThreads"]) {
@@ -332,12 +404,41 @@ export function assertMcpSnapshotShape(snapshot) {
       );
     }
   }
+  snapshot.files.forEach((f, i) => {
+    if (typeof f.filename !== "string" || typeof f.additions !== "number" || typeof f.deletions !== "number") {
+      throw new Error(
+        `MCP snapshot malformed: files[${i}] must have a string filename and numeric additions/deletions ` +
+          `(got filename=${JSON.stringify(f.filename)}, additions=${JSON.stringify(f.additions)}, ` +
+          `deletions=${JSON.stringify(f.deletions)}). A missing field silently substitutes zero rather than ` +
+          `reflecting real artifact size.`,
+      );
+    }
+  });
+  snapshot.reviews.forEach((r, i) => {
+    if (typeof r.user?.login !== "string" || !r.submitted_at) {
+      throw new Error(
+        `MCP snapshot malformed: reviews[${i}] must have a string user.login and a submitted_at ` +
+          `(got user.login=${JSON.stringify(r.user?.login)}, submitted_at=${JSON.stringify(r.submitted_at)}). ` +
+          `A review missing either is silently excluded from the round count instead of counted or rejected.`,
+      );
+    }
+  });
   snapshot.reviewThreads.forEach((thread, i) => {
     if (!Array.isArray(thread.comments)) {
       throw new Error(
         `MCP snapshot malformed: reviewThreads[${i}] (id ${thread.id ?? "unknown"}) has no comments array.`,
       );
     }
+    thread.comments.forEach((c, j) => {
+      const login = c.author ?? c.user?.login;
+      if (typeof c.body !== "string" || typeof login !== "string" || !c.created_at) {
+        throw new Error(
+          `MCP snapshot malformed: reviewThreads[${i}].comments[${j}] must have a body, an author or ` +
+            `user.login, and a created_at (got body=${JSON.stringify(c.body)}, author=${JSON.stringify(login)}, ` +
+            `created_at=${JSON.stringify(c.created_at)}).`,
+        );
+      }
+    });
   });
 }
 

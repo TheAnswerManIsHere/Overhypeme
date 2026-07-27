@@ -153,6 +153,54 @@ test("a Tier C fix-tier field also signals bugfix", () => {
   assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
 });
 
+test("an unedited Fix tier placeholder left over on a real feature PR does not force bugfix", () => {
+  // .github/pull_request_template.md prints "**Fix tier:**" in TWO blocks
+  // (Tier A/B, Tier C) unconditionally. A code-only feature PR that filled in
+  // the feature oracle but forgot to delete the unused bugfix blocks (the
+  // template instructs deletion but doesn't enforce it) would still contain a
+  // populated-looking Fix tier value from the Tier C block's un-comment-
+  // wrapped default text ("C — trivial schema/migration fix, no plan"), even
+  // though this is a genuine feature/code PR with real product intent.
+  const pr = {
+    title: "Add the loop ledger: track every review loop, count what can be counted",
+    body: [
+      "## Approved-plan oracle",
+      "**Approved-plan source:** Plan-review PR #269, final plan commit `abc123`, approved by David on 2026-07-27.",
+      "**Product intent:** Track every review loop's rounds and findings mechanically.",
+      "**Must not change:** the existing PR workflow.",
+      "**Settled decisions:** 1. Ledger lives at .agents/metrics/loop-ledger.md.",
+      "",
+      "<!-- Bugfix mode, Tier A/B -->",
+      "**Fix tier:** <!-- A or B, PLUS the reason either way -->",
+      "**Reported symptom:** <!-- David's report, quoted verbatim -->",
+      "",
+      "<!-- Bugfix mode, Tier C trivial schema fix -->",
+      "**Fix tier:** C — trivial schema/migration fix, no plan",
+      "**Reported symptom:** <!-- David's report, quoted verbatim -->",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "feature/code");
+});
+
+test("a real Tier C fix classifies as bugfix even with the unused Tier A/B block left in", () => {
+  // The inverse of the above: a genuine Tier C fix that deleted the feature
+  // block (per the template's own instructions) but left the unused A/B
+  // block's comment-only placeholder in place. The first "**Fix tier:**"
+  // match is empty (A/B, comment-stripped); the real signal is the second.
+  const pr = {
+    title: "Prevent the crash on empty payload",
+    body: [
+      "<!-- Bugfix mode, Tier A/B -->",
+      "**Fix tier:** <!-- A or B, PLUS the reason either way -->",
+      "",
+      "<!-- Bugfix mode, Tier C trivial schema fix -->",
+      "**Fix tier:** C — trivial schema/migration fix, no plan",
+      "**Reported symptom:** crash on empty payload",
+    ].join("\n"),
+  };
+  assert.equal(classifyCohort(pr, [{ filename: "src/a.ts" }]), "bugfix");
+});
+
 test("a skill file counts as prose", () => {
   assert.equal(
     classifyCohort({ title: "x" }, [{ filename: ".claude/skills/bugfix/SKILL.md" }]),
@@ -187,6 +235,24 @@ test("derive leaves every judgment column null rather than guessing", () => {
   assert.equal(row.rounds, 1);
   assert.equal(row.findings, 1);
   for (const v of Object.values(row.judgment)) assert.equal(v, null);
+});
+
+test("derive refuses a row whose per-round findings don't sum to the total", () => {
+  // A reviewer-authored root with a `pull_request_review_id` that matches no
+  // entry in `reviews` (the shape flattenMcpThreads produces when a comment's
+  // created_at precedes every same-author review) is still counted by
+  // countFindings but lands in no round via findingsByRound's exact-match
+  // filter — a plausible-looking row whose own numbers silently disagree.
+  assert.throws(
+    () =>
+      derive({
+        pr: { number: 270, title: "x", created_at: "2026-07-27T00:00:00Z" },
+        reviews: [{ id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" }],
+        comments: [{ id: 1, user: BOT, pull_request_review_id: 999 }],
+        files: [{ filename: "a.md", additions: 1, deletions: 0 }],
+      }),
+    /findings \(1\) does not equal the sum of per-round findings \(0\)/,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -415,4 +481,48 @@ test("fromMcp produces derive()-ready findings and rounds for real PR #270 data"
   assert.equal(row.rounds, 1);
   // Two threads, one reply — one root finding each, the reply excluded.
   assert.equal(row.findings, 2);
+});
+
+test("derive(fromMcp(...)) throws when a root comment predates every review by its author", () => {
+  // End-to-end version of the flattenMcpThreads unit test above: an unmapped
+  // root shouldn't just carry an undefined pull_request_review_id quietly —
+  // it should stop the whole row from being produced.
+  const earlyThread = {
+    ...MCP_THREAD_UNANSWERED,
+    comments: [{ ...MCP_THREAD_UNANSWERED.comments[0], created_at: "2020-01-01T00:00:00Z" }],
+  };
+  assert.throws(
+    () => derive(fromMcp(realSnapshot({ reviewThreads: [earlyThread] }))),
+    /does not equal the sum of per-round findings/,
+  );
+});
+
+test("fromMcp refuses a files entry missing additions/deletions", () => {
+  // A files entry with only a filename is a valid array element, so the
+  // container-level check alone would pass this through and let
+  // artifactSize() silently substitute zero for both dimensions.
+  assert.throws(
+    () => fromMcp(realSnapshot({ files: [{ filename: "src/x.ts" }] })),
+    /files\[0\] must have a string filename and numeric additions\/deletions/,
+  );
+});
+
+test("fromMcp refuses a review entry missing user.login", () => {
+  // countRounds silently excludes a review with no matching login instead of
+  // counting or rejecting it — a credible-looking undercount.
+  assert.throws(
+    () => fromMcp(realSnapshot({ reviews: [{ id: 1, submitted_at: "2026-07-27T20:15:30Z" }] })),
+    /reviews\[0\] must have a string user\.login and a submitted_at/,
+  );
+});
+
+test("fromMcp refuses a thread comment missing a body, author, or created_at", () => {
+  const brokenThread = {
+    id: "PRRT_broken2",
+    comments: [{ path: "scripts/loop-metrics.mjs", author: "chatgpt-codex-connector" }],
+  };
+  assert.throws(
+    () => fromMcp(realSnapshot({ reviewThreads: [brokenThread] })),
+    /reviewThreads\[0\]\.comments\[0\] must have a body, an author or user\.login, and a created_at/,
+  );
 });
