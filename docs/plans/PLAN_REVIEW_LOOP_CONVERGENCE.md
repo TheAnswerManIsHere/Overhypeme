@@ -237,6 +237,25 @@ trigger. This is an internal recovery action, not an escalation.
 without convergence *after* any Breaker-A recovery → pause and bring David the
 diagnosis and a recommendation.
 
+**Breakers A and B together REPLACE the existing ~2-round rule** at
+`CLAUDE.md:880-882` (*"after ~2 rounds without convergence, I stop and bring
+David the diagnosis"*). That rule must be rewritten, not left standing beside
+these — otherwise there are two operative escalation thresholds and an executor
+stops at round 2, so Breaker B could never fire.
+
+Why replacing it is right rather than a loosening: the old rule conflated two
+different situations under one threshold, which is exactly why it never fired
+on #268 (every round produced real findings, so nothing looked
+"non-converging"). The split handles both properly — **churn** is caught
+*earlier* and more decisively at 2 rounds by Breaker A, which mandates a
+rewrite rather than more patching; **genuine slow convergence on new ground**
+gets to 5 rounds before escalating, instead of being stopped at 2. Net effect
+on #268 would have been an earlier intervention, not a later one.
+
+The one clause worth preserving from the old rule: *"if a fix would be
+contested"* → escalate immediately, regardless of round count. That is
+orthogonal to both breakers and carries over.
+
 **Plan-review PRs keep the existing ~20-round check-in** and minimum-3-rounds
 rule. Breaker A applies; Breaker B does not.
 
@@ -262,8 +281,18 @@ Two edits to `code-review.md`:
 **(b)** Qualify *Review output format*'s clean-round claim (lines 282–285): the
 compilation/tests/CI corroboration applies **to code**. For prose-only changes
 an empty findings list is still the transport's clean result, but nothing
-independently corroborates it — confidence comes from the C1 preflight, the
-complete-artifact read, and the repository-wide consistency search.
+independently corroborates it.
+
+**What supplies confidence instead depends on whether C1 applied** — and the
+qualification must say so, because C1 exempts small prose changes (≤3 files,
+non-plan, non-contract):
+
+- **C1 applied** — confidence comes from the preflight, the complete-artifact
+  read, and the repository-wide consistency search.
+- **C1 exempt** — confidence comes from the complete-artifact read and the
+  repository-wide search **only**. State this as weaker evidence rather than
+  implying a preflight that never ran. A reviewer or David reading a clean
+  result on an exempt prose PR should know which evidence actually backs it.
 
 **In `CLAUDE.md`**, the trigger rule: a prose PR's trigger names the known
 changed files **and** instructs the reviewer to follow their canonical
@@ -304,7 +333,14 @@ answer.
 
 No product runtime change. A loop after this plan:
 
-1. Work completes → **C1 preflight** (if in scope) → fix its findings → open PR.
+1. Work completes → **C1 preflight** (if in scope) → fix its findings →
+   **re-run the preflight on the revised artifact.** Repeat until a preflight
+   returns clean, then open the PR. A preflight fix can itself introduce a
+   propagation or wrong-fix defect — the two dominant causes in the ledger — so
+   opening the PR straight after the first fix ships an artifact that never
+   actually passed the preflight it claims to have had. **Bound: if three
+   preflight rounds do not reach clean, that is Breaker A's signal — stop
+   patching and rewrite the artifact coherently before opening the PR.**
 2. Trigger names the artifact type; prose PRs request complete-file reads and
    instruct the reviewer to follow references beyond the named list (C6).
 3. Per finding: **C4 verify + record clauses** → **C3 repo-wide impact pass** →
@@ -347,11 +383,26 @@ customer data, or embargoed material.
   9. **PR #252 replayed against C5** → Breaker B never applies (plan review);
      show whether Breaker A would have fired and why that is acceptable.
 - **Calibration window, not a one-PR verdict:** the next **10 eligible loops or
-  30 days**, whichever yields enough observations, across four mutually
-  exclusive categories — bugfix PR · feature/code PR · prose/contract PR ·
-  plan-review PR. Record per loop: total rounds; new-ground / propagation /
-  wrong-fix clusters; self-inflicted share; preflight findings caught before
-  external review; severity per cluster.
+  30 days**, whichever yields enough observations. Record per loop: total
+  rounds; new-ground / propagation / wrong-fix clusters; self-inflicted share;
+  preflight findings caught before external review; severity per cluster.
+
+  **Categories, with an explicit precedence rule** so every loop lands in
+  exactly one cohort (scenario 7 is otherwise unrecordable — a mixed PR is
+  simultaneously code and prose):
+
+  1. `plan-review PR` — any `[PLAN REVIEW]` PR.
+  2. `prose/contract PR` — **including mixed code/prose PRs.** Precedence goes
+     to prose because that is where the obligations are stricter and where the
+     measured risk lives; a mixed PR already carries both obligation sets, so
+     recording it under the stricter cohort matches what was actually required
+     of it. Note mixed PRs in the ledger so they can be separated later if the
+     data suggests they behave differently.
+  3. `bugfix PR` — a Tier A/B bugfix with no prose artifact.
+  4. `feature/code PR` — everything else.
+
+  Evaluate top-down; the first matching category wins. The ≤3-round median
+  applies to a mixed PR via cohort 2.
 - **Primary metric: self-inflicted cluster share below ~25%.** Round counts are
   provisional SLOs (bugfix ≤2 median, code ≤3, prose ≤3 post-preflight, plan
   review ≤5 new-ground rounds), **not gates.** Reassess when the share exceeds
@@ -362,9 +413,12 @@ customer data, or embargoed material.
 
 1. `docs/engineering/code-review.md` — C6(a) prose invariant + C6(b)
    clean-round qualification. Highest-value single change; could ship alone.
-2. `CLAUDE.md` — C1 preflight + the named carve-out to the subagent rule; C3
-   repo-wide impact pass; C4 verify-and-record; C5 two breakers; C6 trigger
-   mechanics; C7 tier boundary reconciled across both tier sections.
+2. `CLAUDE.md` — C1 preflight (including the re-run-until-clean loop) + the
+   named carve-out to the subagent rule; C3 repo-wide impact pass; C4
+   verify-and-record; C5 two breakers **rewriting the existing ~2-round rule at
+   lines 880-882 rather than sitting beside it**, preserving its
+   contested-fix clause; C6 trigger mechanics; C7 tier boundary reconciled
+   across both tier sections.
 3. **Do not edit `docs/ai-context/plan-review-contract.md`.** Confirm its
    existing whole-plan re-review invariant is unchanged.
 4. `pnpm run check:docs` + `git diff --check`.
@@ -412,6 +466,12 @@ customer data, or embargoed material.
       search before the PR opens (C3 applied to this plan's own changes).
 - [ ] `CLAUDE.md:1175`'s subagent prohibition carries an explicit, reasoned
       carve-out for the C1 preflight — no contradictory commands remain.
+- [ ] **Exactly one operative escalation threshold exists.** The old ~2-round
+      rule at `CLAUDE.md:880-882` is rewritten by Breakers A/B, not left
+      alongside them; its contested-fix clause survives. Grep confirms no
+      surviving "~2 rounds without convergence" escalation language.
+- [ ] Every calibration loop lands in exactly one cohort under the precedence
+      rule, including a mixed code/prose PR.
 - [ ] `code-review.md` no longer claims compilation/tests/CI corroborate a
       clean result on prose-only changes.
 - [ ] All nine testing scenarios validate against the final prose, including
