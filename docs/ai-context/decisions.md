@@ -49,6 +49,55 @@
 
 ---
 
+### 2026-07-27 · The loop ledger: every review loop gets a permanent, falsifiable row — adjudicated over the full population, not a sample
+- **Decision:** Every AI-agent-driven review loop (feature, bugfix, plan-review,
+  or any ad-hoc thread that escalated into a reviewed change) gets one
+  permanent row in [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md),
+  appended when the loop closes, by **both** Claude Code and Codex. Mechanical
+  columns (rounds, findings, size, review hours) are derived by
+  `scripts/loop-metrics.mjs` and never typed by hand; judgment columns (cause
+  per finding, breakers fired, preflight time) are hand-entered and visibly
+  marked as such. The causal classification is checked by **blind
+  adjudication over the full finding population** — not a sample — using a
+  five-category rubric (new ground / propagation / wrong fix / re-raised /
+  invalid) with explicit precedence rules.
+- **Why:** David asked directly whether a mechanism existed to track all
+  loop-invoking activity and confirm the workflow is optimizing the right
+  things, calling it "extremely important." At the time, nothing recorded a
+  single review round, so every efficacy claim about the workflow — including
+  claims that it was *degrading* — was unfalsifiable; three prior attempts to
+  characterize review history by recollection were each wrong and withdrawn.
+  Adjudication started as a 30%-of-findings sample (to bound *human*
+  effort), but the loop that built this ledger caught the assumption
+  underneath that: the adjudicator here is a subagent, so full coverage
+  costs tokens once per loop close, not anyone's time. The sample selection
+  rule also produced two confirmed bias defects in two consecutive review
+  rounds before being removed entirely (an id-sort that oversampled the
+  first round's disproportionately-new-ground findings, then a round-robin
+  whose "every round contributes" guarantee was false whenever a loop had
+  more review rounds than the sample size — silently dropping the *latest*
+  rounds, exactly where the metric's self-inflicted numerator lives).
+  Full-population adjudication deletes that whole class of defect and makes
+  the disagreement gate exact instead of estimated.
+- **Reference:** PR #270. Full contract and rubric in
+  [`working-modes.md`](./working-modes.md#the-loop-ledger); the ledger itself,
+  including the seed rows and their provenance notes, at
+  [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md).
+  PR #270's own row (16 review rounds, 34 findings, 64.7% self-inflicted,
+  confirmed by blind adjudication at 14.7% disagreement — under the 20% gate)
+  is the first row the mechanism produced rather than recalled into, and is
+  itself the acceptance test for the pipeline: snapshot → script → row →
+  independent adjudication, all in one pass.
+- **Revisit if:** the blind adjudicator is ever a human instead of an agent
+  (the cost calculus that justified full-population coverage would flip
+  back toward sampling), or the pending acceptance replay of PR #268's 40
+  findings disagrees with its retrospective classification beyond 20% (per
+  the ledger's own row-provenance notes) — that would mean the rubric isn't
+  trustworthy yet and needs another pass before its output is treated as a
+  measurement rather than an account.
+
+---
+
 ### 2026-07-25 · Stripe plan selection classifies by each price's own `recurring` field, and only from membership-tagged products
 - **Decision:** The customer-facing pricing page (and any future code that
   turns Stripe's product/price catalog into "which plan is this?") must

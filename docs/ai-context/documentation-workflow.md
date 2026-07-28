@@ -173,7 +173,11 @@ separation aids review). Placement:
   suffices. If a stale remote ref of the old feature branch exists (a
   same-name push can recreate one GitHub already auto-deleted), confirm the
   owning PR is actually merged/closed before deleting that stale ref, and
-  never force-push.
+  never force-push. **Restarting the branch removes staleness, not
+  collisions**: if another PR merged in the interval and touched the same
+  shared docs files, reapplying your edits can produce a real merge conflict
+  — resolve by keeping both sides' entries, never by picking one (see
+  `.agents/memory/document-ceremony-concurrent-docs-pr-conflict.md`).
 - **Only if you have clear session evidence the feature's PR is still
   open** (e.g. you're running `/document` mid-build, before the PR merged) →
   commit to that same branch instead, so the learnings ship and get reviewed

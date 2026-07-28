@@ -668,3 +668,35 @@ over-read as "the sync is fine," when the live sync itself had simply failed
 on an earlier run. The faster test that would have settled it sooner:
 re-running the live operation and checking whether the symptom changes,
 before building a from-scratch reproduction of its internals.
+
+## A sample ordered by anything correlated with the outcome isn't representative
+
+**Looks like:** measuring some subset of items by sorting on a convenient,
+available field (creation order, an id, alphabetical) and taking a fixed
+fraction — because the field is deterministic and easy to reason about, not
+because it's independent of what you're trying to detect. **Dangerous:** if
+the ordering field correlates with the property under measurement, the
+sample can be composed entirely of the "easy" or "early" cases while the
+metric's own reason for existing — catching the hard, late cases — goes
+completely unchecked, and a validation gate built on that sample (a
+disagreement threshold, an acceptance test) can pass cleanly while being
+blind to exactly the failures it exists to catch. **Avoid:** either measure
+the full population when the cost allows it (deletes the whole class of
+defect), or stratify explicitly across whatever dimension correlates with
+the outcome (here: review round) rather than trusting a single convenient
+sort key. A "the sample is deterministic" property is not the same as "the
+sample is representative" — the first is about reproducibility, the second
+is about coverage, and a fix can satisfy one while still failing the other.
+**Overhype:** the loop-ledger's blind-adjudication sample (PR #270) first
+sorted findings by GitHub comment id ascending and took the first 30% — but
+comment ids track creation order, and propagation/wrong-fix findings (the
+metric's actual self-inflicted numerator) can only occur in round 2 onward,
+so the sample oversampled round 1's disproportionately-new-ground findings.
+The next fix, round-robin sampling across rounds, was still deterministic
+and still wrong: its "every round contributes" guarantee was false whenever
+a loop had more nonempty rounds than the sample size, and starting the
+robin at round 1 meant it systematically dropped the *latest* rounds —
+exactly where the numerator lives. Both defects were confirmed by
+independent review before the sampling design was replaced entirely with
+full-population adjudication. See
+[`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).
