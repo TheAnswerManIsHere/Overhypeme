@@ -36,13 +36,13 @@ recurs elsewhere in this integration.
 | Area | Lines | Reviewed? |
 |---|---|---|
 | `routes/stripe.ts` (14 endpoints) | 658 | **~2 endpoints.** `/stripe/plans` and `/stripe/checkout` only |
-| `lib/webhookHandlers.ts` | 1,197 | **No.** Largest single payments file, entirely unexamined |
-| `lib/stripeSyncRunner.ts` | 558 | Mostly — lock, status, `cleanStaleAccountData` |
-| `lib/membershipGrant.ts` | 355 | **No.** Signatures only |
-| `lib/stripeStorage.ts` | 172 | `listProductsWithPrices` only |
-| `lib/stripeClient.ts` | 114 | Yes |
-| `lib/membershipPricing.ts` | 106 | Yes — the allowlist |
-| `lib/checkoutIdempotency.ts` | 33 | **No.** |
+| `artifacts/api-server/src/lib/webhookHandlers.ts` | 1,197 | **No.** Largest single payments file, entirely unexamined |
+| `artifacts/api-server/src/lib/stripeSyncRunner.ts` | 558 | Mostly — lock, status, `cleanStaleAccountData` |
+| `artifacts/api-server/src/lib/membershipGrant.ts` | 355 | **No.** Signatures only |
+| `artifacts/api-server/src/lib/stripeStorage.ts` | 172 | `listProductsWithPrices` only |
+| `artifacts/api-server/src/lib/stripeClient.ts` | 114 | Yes |
+| `artifacts/api-server/src/lib/membershipPricing.ts` | 106 | Yes — the allowlist |
+| `artifacts/api-server/src/lib/checkoutIdempotency.ts` | 33 | **No.** |
 
 **Roughly 15% of the payment code has been read.** The reviewed part is the
 *catalog display* path. **The money path — webhooks, grants, refunds, portal,
