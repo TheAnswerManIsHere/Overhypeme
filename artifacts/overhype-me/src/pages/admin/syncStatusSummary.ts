@@ -94,26 +94,51 @@ export function deriveSyncSummary(
     };
   }
 
-  // No errors and nothing running. If nothing has ever synced, say so
-  // plainly — this is an actionable state, not a quiet one, and it is what a
-  // fresh install reports (readSyncStatus defaults every absent row to
-  // `idle`, so all-idle is exactly the never-ran case).
-  if (latestSyncedAt === null) {
+  // No errors and nothing running. "Never ran" is decided by STATUS, not by
+  // the absence of a timestamp.
+  //
+  // This distinction is load-bearing (Codex review, PR #276). In the pinned
+  // stripe-replit-sync, `last_synced_at` is written only by
+  // `updateSyncCursor` — which runs per item, to advance the cursor.
+  // `markSyncRunning` and `markSyncComplete` both set `status` and never
+  // touch the stamp. So a Stripe account with **no products** syncs
+  // successfully and lands every resource on `complete` with
+  // `last_synced_at` still NULL. Keying "never synced" off the stamp would
+  // tell that operator to run a sync they had just run, forever — the UI
+  // asserting something the data doesn't support, which is the same defect
+  // class this whole module exists to remove.
+  //
+  // `readSyncStatus` defaults every absent row to `idle`, so all-idle is
+  // exactly the genuinely-never-ran case, and an empty list is too.
+  const everRan = resources.some(r => r.status !== "idle");
+  if (!everRan) {
     return {
       tone: "never",
       message: "Never synced — run a full sync to populate the catalog.",
-      latestSyncedAt: null,
+      latestSyncedAt,
       erroredResources,
     };
   }
 
   const completed = resources.filter(r => r.status === "complete").length;
+  const allComplete = completed === resources.length;
+
+  // Completed but nothing to sync: a real, successful no-op. Say so, rather
+  // than implying either failure or stale data.
+  if (allComplete && latestSyncedAt === null) {
+    return {
+      tone: "ok",
+      message: "Last sync completed — the Stripe catalog is empty, so there was nothing to pull.",
+      latestSyncedAt: null,
+      erroredResources,
+    };
+  }
+
   return {
     tone: "ok",
-    message:
-      completed === resources.length
-        ? "Last sync completed successfully."
-        : `Last sync completed — ${completed} of ${resources.length} ${plural(resources.length, "resource", "resources")} reported.`,
+    message: allComplete
+      ? "Last sync completed successfully."
+      : `Last sync completed — ${completed} of ${resources.length} ${plural(resources.length, "resource", "resources")} reported.`,
     latestSyncedAt,
     erroredResources,
   };

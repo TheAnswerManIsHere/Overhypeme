@@ -120,4 +120,39 @@ describe("deriveSyncSummary — aggregate state table", () => {
     const summary = deriveSyncSummary([], false);
     expect(summary.tone).toBe("never");
   });
+
+  it("all complete with NO timestamps → a successful empty-catalog sync, not 'never synced'", () => {
+    // Regression (Codex review, PR #276): stripe-replit-sync writes
+    // `last_synced_at` only in `updateSyncCursor`, which runs per item.
+    // `markSyncComplete` sets status alone. So a Stripe account with no
+    // products completes a sync with every stamp still null — and keying
+    // "never synced" off the stamp would tell that operator to re-run a sync
+    // they just ran, permanently.
+    const summary = deriveSyncSummary(
+      [
+        row({ resource: "products", status: "complete" }),
+        row({ resource: "prices", status: "complete" }),
+      ],
+      false,
+    );
+    expect(summary.tone).toBe("ok");
+    expect(summary.message).toMatch(/nothing to pull/i);
+    expect(summary.message).not.toMatch(/never synced/i);
+    expect(summary.latestSyncedAt).toBeNull();
+  });
+
+  it("a single completed resource among idle ones is not 'never synced'", () => {
+    // Scoped syncs touch products/prices/plans and leave the other five
+    // idle, so "some non-idle" is the right ever-ran signal, not "all".
+    const summary = deriveSyncSummary(
+      [
+        row({ resource: "products", status: "complete", lastSyncedAt: TEN_MIN_AGO }),
+        row({ resource: "customers" }),
+        row({ resource: "invoices" }),
+      ],
+      false,
+    );
+    expect(summary.tone).toBe("ok");
+    expect(summary.message).toMatch(/1 of 3 resources/);
+  });
 });
