@@ -86,7 +86,7 @@ arrives at all.
   boundary, failing closed (`membershipPricing.ts`,
   `docs/ai-context/security-model.md`).
 - Admins can still comp a membership — but through an entitlement, not a fake
-  payment.
+  payment, and not by setting a tier.
 - History is append-only (`membership_history`, `stripe_webhook_audit`).
 - No change to pricing, checkout UX, or the catalog-display path.
 
@@ -322,13 +322,54 @@ D1 no longer ships standalone ahead of these (David's earlier call): with the
 disclosure split closed and no real customers, its urgency was the reason for
 separating it, and both premises are gone. It lands in Phase 1.
 
+## Admin grants replace admin tier-setting (David, 2026-07-28)
+
+**Settled: both admin surfaces become entitlement grants.** An admin grants or
+revokes an *entitlement*; the tier follows by derivation. No admin surface sets
+`membership_tier` directly.
+
+The product already concedes these are two disconnected mechanisms. After
+revoking a lifetime entitlement, `users.tsx:299` tells the admin:
+
+> *"Legendary for Life revoked. Tier not changed — use the tier selector above
+> if needed."*
+
+That sentence is the defect stated in the UI: revoking the entitlement leaves
+the access it conferred in place, and a human is asked to remember the second
+step. Under a derived model it stops being possible to get wrong.
+
+**What changes:**
+
+- **`admin.ts:159-160`** — `membershipTier` leaves the PATCH-editable field set.
+- **`admin.ts:623-654`** — create-user stops accepting a tier. Creating a comped
+  account **atomically writes an `admin_grant` entitlement** in the same
+  transaction as the user, so the capability survives rather than being removed.
+- **`admin.ts:188`** (`resolveUserTierOnReinstatement`) — reinstatement
+  recomputes instead of resolving a tier itself.
+- **`admin.ts:601`** (revoke-lifetime) — **marks the entitlement revoked rather
+  than deleting the row**, per W1b's revocation semantics, recording revoking
+  admin and reason; then recomputes. Deleting destroyed the provenance that W1b
+  requires.
+- **Grants require a reason** (W1b), which today's grant path does not collect.
+- **`artifacts/overhype-me/src/pages/admin/users.tsx`** — the three-button tier
+  selector is removed from both the edit panel (`:1111-1121`) and the add-user
+  form (`:799-809`). Grant/revoke stay and become the only levers. The message
+  at `:299` goes away because the condition it describes cannot occur.
+
+**This is a visible admin-UI change**, not an internal refactor — it is the one
+place in this plan where David will see something different. Tier becomes
+*displayed* state everywhere in the admin UI, never *editable* state.
+
+**Acceptance:** an admin grant keeps the user Legendary through a subscription
+cancellation, a refund, and a reconciliation pass; revoking it recomputes rather
+than unconditionally downgrading, so a user with another valid source keeps
+access; reconciliation never attempts to validate an admin grant against Stripe;
+and no admin surface can produce a tier that contradicts the entitlements.
+
 ## Open product questions
 
-**One.** Two admin surfaces set a tier directly — the user-edit PATCH
-(`admin.ts:159-160`) and create-user (`admin.ts:623-654`). Both are incoherent
-under a derived model; the reconciler silently undoes them. Recommend both
-become entitlement grants (option 1 as put to David). Same underlying question,
-so they should be answered together.
+None. The `past_due` window (14 days), the normalisation depth, and the admin
+grant model are all settled above.
 
 ## External-claim verification
 
@@ -382,7 +423,7 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 10 | 2 | Stage classification | **Superseded by scope** — staged rollout removed with the migration risk. |
 | 11 | 2 | Reconcile sources before recomputing | **Resolved.** |
 | 12 | 2 | Lifetime-revoke in serialization | **Resolved.** |
-| 13 | 2 | Legendary at admin creation | **Escalated** — with the admin PATCH, as one question. |
+| 13 | 2 | Legendary at admin creation | **Resolved** — David settled it: both admin surfaces become entitlement grants; create-user atomically writes an `admin_grant`. |
 | 14 | 3 | Enforceable monotonic version | **Resolved** — token is a DB-issued `source_state_as_of`, taken at retrieval for Stripe-sourced writes and under lock for local ones. Stripe exposes no usable version; ours does. |
 | 15 | 3 | Specify the normalisation migration | **Resolved** — target DDL, keys and constraints stated; dual-write/backfill dropped as unnecessary given no live data. |
 | 16 | 3 | Phase 2 authorization in shadow mode | **Resolved** — no read-only phase exists in the two-phase split; the per-request authorization path is documented so one is never added naively. |
