@@ -27,7 +27,7 @@ picture, but not described here.
 |---|---|
 | Findings published here | 8 |
 | Findings in the private annex | 3 |
-| Areas confirmed correct | 7 |
+| Areas confirmed correct | 6 (1 originally listed here was retracted during review — see *Confirmed correct* item 2) |
 | Areas still unexamined | see the last section |
 
 ---
@@ -100,20 +100,48 @@ Stripe retries on any non-2xx. On the retry the insert hits the unique
 constraint, the handler logs `ignored_duplicate` and **returns without
 processing**. So the event is gone permanently.
 
+**Correction (Codex round 1, confirmed independently against the installed
+`drizzle-orm@0.45.1` error-wrapping code): the duplicate-detection check at
+`:1173-1175` does not actually work.** It reads `(err as {code?}).code ===
+"23505"`, but `drizzle-orm/pg-core`'s `queryWithCache` wraps every driver error
+as `throw new DrizzleQueryError(query, params, cause)` — the real Postgres
+error, with its `code`, lands on `.cause`, not on the thrown object itself.
+`stripe_processed_events.eventId` is also a bare `.primaryKey()` with no
+constraint named "unique," so the message-substring fallback never matches
+either. **Every retry of an already-claimed event is therefore misclassified
+as a fresh DB failure** — audited `idempotency_claim_failed`, not
+`ignored_duplicate` — and returns HTTP 400, same as the original failure. The
+end result below (the event never succeeds) is unchanged, but the mechanism is
+not "silently discarded as a duplicate"; it is "every retry independently
+re-fails the same broken check, indefinitely." This also means the claim
+primitive is not concurrency-safe as implemented — see the *Confirmed correct*
+correction below.
+
 **Failure scenario.** A customer buys Legendary. `checkout.session.completed`
 arrives. `handleSubscriptionActivated` calls `stripe.products.retrieve()` to
 check the membership tag (`webhookHandlers.ts:183`) and that call times out.
 The claim row is already committed. Stripe retries three more times over the
-next days; each retry is discarded as a duplicate. **The customer has paid and
-is never granted membership**, and the only trace is a `failed` row in
-`stripe_webhook_audit` that nothing alerts on.
+next days; each retry independently fails the same broken duplicate check and
+returns 400. **If the customer returns through the checkout success page**,
+`Profile.tsx`'s `runConfirmFlow` independently re-verifies and grants
+membership via `POST /stripe/checkout/confirm`, entirely outside this webhook
+— so the common redirect flow recovers on its own. Outside that path (tab
+closed before redirect, a non-redirect purchase flow, or the confirm call
+failing for the same underlying reason as the webhook), **the customer has
+paid and is never granted membership**, and the only trace is a `failed` row
+in `stripe_webhook_audit` that nothing alerts on.
 
 This is the brief's own lesson recurring: the system does not tell you.
 
-**Fix effort:** small. Either wrap the claim and the processing in one
-transaction, or delete the claim row in the catch before rethrowing. The claim
-primitive itself is right — see *Confirmed correct* — the bug is only the
-missing rollback.
+**Fix effort:** small–medium. Wrap the claim and the processing in one
+transaction (this also fixes the detection bug above, since a rolled-back
+claim never leaves a stray row to misdetect). **Do not** delete the claim row
+in the catch before rethrowing, even as a smaller interim fix: under
+overlapping deliveries of the same event, a second delivery can observe the
+first's already-committed claim, be acknowledged as a duplicate (Stripe stops
+retrying it), and then the first delivery's catch deletes the claim after that
+2xx has already gone out — permanently losing the event with no delivery left
+to retry it. A transaction closes this hole; deleting in the catch does not.
 
 ### 2. A partial refund revokes the entire membership — HIGH
 
@@ -176,17 +204,22 @@ two release cycles (PR #276).
 **Fix effort:** trivial — tag the synthetic product, and report the handler's
 actual outcome rather than a fixed string.
 
-### 5. 71 of 88 subscribed event types arrive unhandled, and we log none of them — MEDIUM
+### 5. 71 of 88 subscribed event types reach our domain switch with no case, and nothing distinguishes that from "not modeled on purpose" — MEDIUM
 
 `artifacts/api-server/src/lib/webhookHandlers.ts:613-1086`
 
 We subscribe to everything `stripe-replit-sync` supports (88 types) and handle
-17. The library logs an `unhandled` warning for its own dispatch, but
-`processDomainSwitch` has **no `default:` case** — an event reaching our domain
-switch with no matching case falls straight through to `break` with no record
-that it happened.
+17. **Correction (Codex round 1): the original title's "we log none of them"
+was wrong.** `stripe-replit-sync`'s own `processEvent` logs `Received webhook
+${event.id}: ${event.type} for ${entityId}` for every event in its 88-type map
+*before* our domain switch ever runs (confirmed reading the library's dist
+source) — a generic arrival record does exist for all 88. What's actually
+missing is narrower: `processDomainSwitch` has **no `default:` case**, so an
+event that reaches it with no matching `case` falls straight through to
+`break` with no domain-layer record — nothing distinguishes "we looked at this
+and decided not to model it" from "this fell through unnoticed."
 
-Business-relevant types currently arriving and being silently ignored include
+Business-relevant types currently falling through unclassified include
 `checkout.session.async_payment_succeeded` / `async_payment_failed`,
 `customer.subscription.paused` / `resumed`, `invoice.marked_uncollectible`,
 `refund.created` / `updated` / `failed`, and `review.opened` / `closed`.
@@ -194,8 +227,8 @@ Business-relevant types currently arriving and being silently ignored include
 Several of these are load-bearing. The consequences of two of them are in the
 private annex.
 
-**Fix effort:** small for the `default:` logging case; the individual handlers
-are separate decisions for David.
+**Fix effort:** small for the `default:` classification/warning case; the
+individual handlers are separate decisions for David.
 
 ### 6. Nothing enforces that a handler's event type is actually subscribed — MEDIUM (latent)
 
@@ -214,29 +247,41 @@ is that a recurring failure shape becomes a deterministic CI check.
 **Fix effort:** small. A test that asserts every `case` in `processDomainSwitch`
 appears in `getSupportedEventTypes()` makes the class impossible.
 
-### 7. The mode toggle's full sync is unawaited, so failures vanish — MEDIUM
+### 7. The mode toggle discards `runFullSync`'s result, so an in-flight sync silently blocks the new one — MEDIUM
 
-`artifacts/api-server/src/routes/admin.ts:2333-2343`
+`artifacts/api-server/src/routes/admin.ts:2333-2343`,
+`artifacts/api-server/src/lib/stripeSyncRunner.ts:341-413`
 
-Confirms and sharpens the brief's defect 7. `runFullSync(sync)` at `:2340` is
-called **without `await`**. Two consequences, not one:
+Confirms and narrows the brief's defect 7. `runFullSync(sync)` at `:2340` is
+called and its return value discarded. **Correction (Codex round 1): the
+original claim that this also produces an unhandled promise rejection was
+wrong.** `runFullSync` is synchronous — it returns a plain `RunScopedSyncResult`
+object, not a Promise — and the actual sync work runs inside a fire-and-forget
+`void` async IIFE (`stripeSyncRunner.ts:351-392`) whose own
+`try`/`catch`/`finally` swallows and logs every internal failure itself. It
+cannot reject, so the enclosing `try/catch` in `admin.ts` was never at risk of
+being bypassed, and `await`ing the call would change nothing.
 
-- Its return value is discarded, so an `alreadyRunning` short-circuit is never
-  seen and no target-mode sync is queued.
-- Because it is not awaited, a rejection escapes the enclosing `try/catch`
-  entirely as an unhandled rejection — despite that catch's log message reading
-  *"Stripe full sync error after mode toggle."* **The error handler that appears
-  to cover this cannot fire.**
+The real bug is narrower: discarding the return value means an `alreadyRunning`
+short-circuit is never observed, so if a sync is already holding the lock when
+the mode toggle fires, **no target-mode sync is ever queued**, and nothing
+reports that.
 
-**Fix effort:** small, but it needs a decision about whether the HTTP response
-should wait on the sync or the work should move to a queue.
+**Fix effort:** small — check the returned `alreadyRunning` flag and queue a
+follow-up sync (or surface it) when it's true. No `await`/promise-handling
+change needed.
 
-### 8. Carried forward: the 11 defects from PR #274
+### 8. Carried forward: 10 of the 11 defects from PR #274 remain unfixed
 
-Unchanged and unfixed. Full specification with four rounds of Codex findings
-resolved is at commit `07983fa` on `plan-review/stripe-billing-catalog-legibility`.
-Not re-derived here. Two of them (the hardcoded `"$3.99"` at `Pricing.tsx:328`
-and the unconditional `/100` in both money formatters) are the cheapest
+**Correction (Codex round 1): item 11 (the e2e spec's rotted `w-20` locator)
+was already fixed by PR #276 and is present in this checkout** — `git
+merge-base --is-ancestor 3a7d0c0 HEAD` confirms PR #276 is an ancestor, and
+`billing.tsx` / `adminBillingSync.spec.ts` both anchor on `data-testid` here.
+It should not have been counted as still open. The other 10 are unchanged and
+unfixed. Full specification with four rounds of Codex findings resolved is at
+commit `07983fa` on `plan-review/stripe-billing-catalog-legibility`. Not
+re-derived here. Two of them (the hardcoded `"$3.99"` at `Pricing.tsx:328` and
+the unconditional `/100` in both money formatters) are the cheapest
 customer-visible wins on this list.
 
 ---
@@ -251,10 +296,12 @@ effort. These were examined and are sound.
    CSRF exemption correct for a signature-verified endpoint (`app.ts:22`), and
    a genuinely useful error message if body-parser ordering ever regresses
    (`webhookHandlers.ts:1107-1112`).
-2. **The idempotency primitive.** Claiming via a unique-constraint insert and
-   treating `23505` as "already processed" (`:1172-1186`) is the correct
-   concurrency-safe pattern — it is atomic against simultaneous deliveries of
-   the same event. Finding 1 is about the missing rollback, not this design.
+2. ~~The idempotency primitive.~~ **Retracted (Codex round 1) — not confirmed
+   correct.** The unique-constraint-insert *design* is the right pattern, but
+   the `23505` detection at `:1173-1175` does not actually work as
+   implemented. Struck through rather than deleted so the correction stays
+   visible; see Finding 1, which now covers both the missing rollback and this
+   detection bug.
 3. **The membership allowlist.** Positive check on the product's
    `overhype_membership=true`, fail-closed on every ambiguous input, enforced at
    all three grant surfaces, symmetric on cancellation
