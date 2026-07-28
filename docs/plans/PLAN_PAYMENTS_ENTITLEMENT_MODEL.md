@@ -101,6 +101,11 @@ arrives at all.
 5. Reconciliation is automated.
 6. A partial refund does not revoke a full entitlement.
 7. Per-user serialization with an unconditional version guard.
+8. **Both admin surfaces become entitlement grants** (David) — the grant/revoke
+   endpoints and admin user-creation write an `admin_grant` entitlement, never a
+   tier and never a synthesized payment.
+9. **Grace expiry is enforced on the read path**, not by a scheduled job; the
+   sweep converges stored state rather than being the mechanism.
 
 ## Constraints W1a / W1b
 
@@ -171,18 +176,42 @@ lapses. This is a **local** scheduled sweep (rows where
 `grace_expires_at < now()`, recompute), independent of Stripe enumeration, and
 it ships with the policy it enforces.
 
-**The cadence is part of the policy, not an implementation detail.**
-Authorization reads the *stored* `membership_tier` (`authMiddleware.ts:98-134`,
+**A sweep cannot be the enforcement mechanism.** Authorization reads the
+*stored* `membership_tier` (`authMiddleware.ts:98-134`,
 `tierMiddleware.ts:69-84`), so a deadline passing revokes nothing until the
-sweep runs. "Plus a schedule" would let an implementation satisfy this plan
-while granting access materially beyond the settled 14 days.
+sweep runs — and a sweep is a job that can fail. Revision 7 answered this with
+an hourly cadence and a six-hour alert, which bounds the *good* case and leaves
+the bad one unbounded: bounded retry eventually stops, and an alert **reports**
+a wedged sweeper rather than expiring anyone. A guarantee that holds only while
+a background job is healthy is not a guarantee.
 
-**Specification:** the sweep runs **hourly**, with bounded retry on failure and
-a surfaced alert if it has not completed successfully within **six hours**. The
-guarantee is therefore *revocation within 14 days plus at most one sweep
-interval*, and that is the number to state to David rather than a bare "14
-days". Acceptance: advance a fake clock past the deadline with no Stripe event
-and assert revocation inside the stated bound.
+**Enforcement moves to the read path; the sweep becomes convergence.**
+
+- `users` gains **`membership_valid_until`** (nullable timestamptz), written by
+  the same single derivation that writes `membership_tier` — it is the
+  `graceExpiresAt` that `deriveEffectiveMembership` already returns, persisted
+  rather than discarded.
+- Authorization applies one comparison: if `membership_valid_until` is
+  non-null and `now() >= membership_valid_until`, the request is served at the
+  **non-qualifying** tier regardless of the stored `membership_tier`.
+- The sweep still runs **hourly** and still recomputes expired rows, but its
+  job is now to make the stored tier *agree* with what authorization is already
+  enforcing. If it dies, access is still revoked on the deadline; what degrades
+  is the accuracy of the stored value and anything reading it directly, which
+  the six-hour alert surfaces.
+
+This is **not** a second derivation, and that distinction is the whole reason
+it is acceptable. The derivation still computes both the tier and the instant
+its validity lapses in the absence of new events; the middleware evaluates a
+stored timestamp against the clock. No policy — not the status table, not the
+14-day window, not the episode-start rule — is duplicated in the hot path.
+Synchronously *re-deriving* on every request was rejected for exactly the
+reason this avoids: it would put a second copy of the policy where it can drift.
+
+**Guarantee:** revocation at the deadline, enforced, independent of scheduler
+health. Acceptance: advance a fake clock past the deadline with no Stripe event
+**and with every sweep attempt failing**, and assert the request is denied
+anyway; then assert a healthy sweep converges the stored tier.
 
 ### Concurrency
 
@@ -258,7 +287,8 @@ intention.
 | `granted_by_admin_id`, `grant_reason` | W1b grant provenance, admin-grant only |
 | `revoked_by_admin_id`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
-| `created_at`, `updated_at` | |
+| `entitlement_origin_at` | **when the entitlement itself came into existence**, not when this row was written — see below |
+| `created_at`, `updated_at` | local row timestamps |
 
 Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
 null (preserving today's two unique constraints and keeping idempotency);
@@ -269,6 +299,32 @@ whose `lifecycle_status = 'revoked'`. Without that second constraint a row could
 reach `revoked` with null provenance, which satisfies the letter of W1b's grant
 clause while defeating its revocation clause. **No column has a fail-open
 default** — qualification is always written explicitly.
+
+**`entitlement_origin_at`, and why `created_at` cannot do its job.** The revert
+precondition below has to answer "did this entitlement come into existence after
+cutover?" — and no local write timestamp can answer it. The expand step
+populates the table, and reconciliation inserts *historical* Stripe entitlements
+at whatever moment it happens to run, so `created_at` makes pre-cutover provider
+state look post-cutover and would abort every revert forever.
+
+`entitlement_origin_at` records the **originating event's** instant, taken from
+the authoritative source, never from the local clock:
+
+| Source type | Value |
+|---|---|
+| `stripe_subscription` | `subscription.created` |
+| `stripe_lifetime_payment` | `payment_intent.created` |
+| `admin_grant` | the instant the grant was performed, from `membership_history` |
+
+It is therefore **stable across rebuilds**: reconciliation re-deriving a
+pre-cutover subscription from Stripe reproduces the same value, so the row lands
+back on the correct side of the boundary. That is the property `created_at`
+lacks and the reason this column exists.
+
+**The boundary itself is durable, not inferred.** The expand migration writes a
+one-row `membership_model_cutover` marker (`cutover_at timestamptz`,
+`cutover_token bigint` from the ordering sequence). It is written once, in the
+same transaction that creates the table, and never updated.
 
 **Because the membership tables hold no real data (David, 2026-07-28)**, no
 dual-write boundary, row-by-row mapping or resumable backfill is needed. Rows
@@ -292,16 +348,82 @@ This is the one thing the discarded phase split was accidentally protecting,
 and it needs to come back — but as **schema** staging, not feature staging:
 
 1. **Expand (the model PR).** Create `membership_entitlements`, populate it,
-   move all code onto it. **The old two tables are left in place and
-   untouched.** Old instances keep serving against them for the length of the
-   rollout; new instances read and write only the new table.
-2. **Contract (a later, trivial deploy).** Drop `subscriptions` and
-   `lifetime_entitlements` once no instance references them. This is where the
-   disposability predicate and its `ACCESS EXCLUSIVE` lock apply — and by then
-   the tables are genuinely dead, not merely believed to be.
+   move all code onto it. **The old two tables are left in place**, and a
+   database-level bridge (below) carries old-instance writes forward. Old
+   instances keep serving against the old tables for the length of the rollout;
+   new instances read and write only the new table.
+2. **Contract (a later deploy).** Drop `subscriptions` and
+   `lifetime_entitlements` behind an executable gate (below). This is where the
+   disposability predicate and its `ACCESS EXCLUSIVE` lock apply.
 
-**Acceptance:** an old request and an old webhook delivered across the cutover
-must neither fail nor lose their write.
+##### Old instances must not write into a dead end
+
+"New instances ignore the old tables" is only half a cutover. During the
+overlap, an old instance still runs the *old* code — and the admin grant path
+(`admin.ts:541-579`, verified) writes `lifetime_entitlements`,
+`users.membership_tier` and `membership_history` and **nothing else**. A grant
+served by an old instance after the new table is populated would never reach
+`membership_entitlements`; the next derivation would see no source and revoke
+it, and the contract deploy would later delete the only row recording it.
+
+An application-level dual-write cannot fix this, because the writer whose
+behavior needs changing is *the binary being replaced*. The bridge has to live
+where every binary's writes pass through it:
+
+- **A trigger on each old table**, installed by the expand migration, mirrors
+  `INSERT` / `UPDATE` / `DELETE` into `membership_entitlements`. The revoke path
+  hard-`DELETE`s its row (`admin.ts:590-608`, verified), so the `DELETE` trigger
+  maps to `lifecycle_status = 'revoked'` on the new row — it does **not** delete
+  it, or the revocation provenance the target schema requires would be destroyed
+  by the very bridge meant to preserve it.
+- Mirrored rows take `source_state_as_of` from the ordering sequence at trigger
+  time and apply the same strictly-newer guard as every other write, so a
+  mirrored write can never clobber a newer new-path write outright.
+- The triggers are dropped by the contract migration, together with the tables.
+
+**One honest limitation, stated rather than papered over.** A trigger fires at
+*commit* time, while the ordering token is supposed to represent *observation*
+time. An old instance that retrieved stale Stripe state and committed late can
+therefore mirror a row with a token newer than its observation deserves. This
+window is exactly one rollout long, and the authoritative refresh converges it —
+which is why the contract gate below requires a clean reconciliation run *after*
+the last legacy write, rather than treating the bridge as exact.
+
+**Acceptance:** an old admin grant and an old Stripe webhook, both delivered
+after the new table is populated, appear in `membership_entitlements` with
+correct provenance and survive a subsequent derivation; an old revoke marks the
+row `revoked` rather than deleting it.
+
+##### The contract deploy needs an executable gate
+
+"Once no instance references them" is a description of a desired state, not a
+check anything can run — and `runMigrations()` executes before the process
+listens (`index.ts:270`, verified), so the contract deploy drops the tables the
+moment it boots, whatever else is still serving. If the model deploy had been
+reverted in the meantime, the drop lands while **old** binaries are live and
+recreates the exact failure expand/contract exists to prevent.
+
+**Specification.** The contract migration aborts before any DDL unless all
+three hold:
+
+1. The `membership_model_cutover` marker exists (proving the expand migration
+   ran and was not reverted away).
+2. **No legacy write for a configured quiet period.** The bridge triggers
+   maintain `last_legacy_write_at` on that marker row. A legacy write inside the
+   window is direct evidence that a pre-model binary is still serving, and is
+   the only signal available that does not depend on interrogating the
+   deployment platform.
+3. A reconciliation run has completed successfully *after* `last_legacy_write_at`
+   — closing the trigger-ordering window above.
+
+**And the boundary is one-way, which must be written down where an operator
+will see it:** once the contract migration has run, reverting to *any*
+pre-model binary is unsafe, because the tables it queries no longer exist. The
+contract deploy is the point of no return, not the model deploy.
+
+**Acceptance:** simulate a legacy write inside the quiet period and prove the
+drop aborts with the tables intact; simulate a missing marker and prove the
+same; then prove the drop succeeds only with all three conditions met.
 
 #### Rollback is roll-forward-only, with an executable precondition
 
@@ -312,18 +434,74 @@ entitlement created after cutover lives only in the new table and would be
 stranded by reverting the binary.
 
 **Specification:** the migration is **roll-forward-only**. Reverting requires an
-executable precondition that **aborts if any post-cutover row exists** in
-`membership_entitlements`, and a documented recovery for when it does:
+executable precondition that aborts if any row satisfies
+`entitlement_origin_at > (select cutover_at from membership_model_cutover)`,
+and a documented recovery for when it does.
 
-- **Stripe-backed sources** (subscription, lifetime payment) are rebuilt by
-  re-running reconciliation — they are derivable from the provider.
-- **`admin_grant` rows are not derivable from Stripe**, which is what makes
-  them the dangerous case. They are recoverable from `membership_history`,
-  which is append-only and records the grant with its `performedByAdminId`.
-  The recovery procedure re-grants from that trail rather than guessing.
+**Acceptance for the precondition itself, in both directions:** a rebuilt
+pre-cutover Stripe entitlement — inserted locally *after* cutover by
+reconciliation — must **permit** the revert, while a genuinely new source
+created after the boundary must **abort** it. A precondition that only ever
+aborts is indistinguishable from no revert path at all.
 
-**Acceptance:** create each source type after cutover and prove the documented
-recovery preserves both the entitlement and the derived tier.
+###### `membership_history` cannot currently replay a grant, and must be extended
+
+Revision 7 claimed `admin_grant` rows rebuild from `membership_history` because
+it records `performedByAdminId`. Having now read the schema
+(`lib/db/src/schema/memberships.ts:40-55`) rather than assuming it, that claim
+does not survive:
+
+- There is **no grant reason and no revocation reason** — both of which the
+  target table's `CHECK` constraints require. A replay would produce rows the
+  schema rejects.
+- There is **no correlation identity for revocations**. The grant writes
+  `event: "lifetime_purchase"` with the synthesized payment-intent id; the
+  revoke writes `event: "subscription_cancelled"`, `plan: "lifetime"`, and
+  **no** payment-intent id at all. Grant and revoke cannot be paired, so a user
+  granted, revoked, and re-granted replays as an indeterminate sequence.
+- The grant is filed under the same `event` value a real $99 purchase writes,
+  distinguishable only by `performed_by_admin_id` being non-null.
+
+**Specification:** the migration extends `membership_history` with
+`entitlement_correlation_id`, `grant_reason` and `revocation_reason`, and gives
+admin grant and revoke **distinct event values** rather than borrowing purchase
+and cancellation names. Both admin paths are being rewritten anyway — settled
+decision 3 makes them entitlement grants — so this is a field list on work
+already in scope, not new work. The correlation id is the entitlement's identity,
+written on every history row about it, which is what makes episodes pairable.
+(Settled decision 8 already rewrites both admin surfaces; this specifies what
+they must record.)
+
+**Acceptance:** replay an active grant, a revoked grant, and a
+granted→revoked→re-granted user, and assert every produced row satisfies all
+target `CHECK` constraints and the correct final `lifecycle_status`.
+
+###### Recovery is staged so the downgrade guard cannot block it
+
+The bounded-downgrade guard aborts a reconciliation run whose pre-apply change
+set exceeds a threshold. After a revert leaves `membership_entitlements` empty,
+a naive recovery runs straight into it: every admin-only Legendary user looks
+like a downgrade, so an over-threshold count **aborts before a single Stripe
+source is rebuilt**, and an under-threshold count applies exactly the admin
+losses recovery exists to prevent. A control that makes the disaster procedure
+unrunnable is worse than no control.
+
+The fix is ordering, not exemption — **source reconstruction and tier
+recomputation are separate phases**:
+
+1. **Reconstruct every source with no tier recomputation at all.** Replay
+   `admin_grant` rows from the extended history trail, then enumerate Stripe for
+   subscriptions and one-time payments. Nothing writes `users.membership_tier`
+   during this phase, so no intermediate state can reach a user.
+2. **One guarded recomputation over the complete source set.** The guard is
+   fully armed and now evaluates the *true* final delta rather than an artifact
+   of enumeration order. A genuine mass-downgrade still aborts; a recovery that
+   restores everyone correctly shows near-zero downgrades and proceeds.
+
+**Acceptance:** run recovery with more admin-only Legendary users than the
+configured threshold and assert it completes without aborting **and** without
+any user transiently losing access; then assert the guard still aborts a run
+where the provider genuinely reports mass cancellation.
 
 ### Webhook transaction boundary
 
@@ -352,7 +530,14 @@ missed-lifetime-grant and missed-refund fixtures.
 
 Runs on boot plus a schedule. Reports examined / unchanged / upgraded /
 downgraded / ambiguous / failed / skipped. Ambiguous surfaced, never guessed;
-history never deleted. It is also the grace-expiry trigger.
+history never deleted. It also opens grace windows for delinquencies whose
+`invoice.payment_failed` never arrived — but it is **no longer the grace-expiry
+mechanism**, which now lives on the read path (see *Grace expiry*).
+
+**Source reconstruction and tier recomputation are separable phases**, not only
+during recovery. The reconciler exposes them as distinct steps so the recovery
+procedure above can run the first without the second; normal operation runs both
+in sequence.
 
 **Bounded downgrades — a permanent runtime guard, not migration scaffolding.**
 Revision 4 dropped this as superseded by the pre-launch scope. That was wrong:
@@ -497,7 +682,22 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
   duplicate workers; reconciliation racing webhook processing.
 - **Reconciliation** — omitted cancellation webhook detected *and the source
   row repaired*; pagination; rate-limit backoff; partial failure; idempotent
-  repeated apply; grace expiry revokes with no Stripe event.
+  repeated apply.
+- **Grace expiry** — the deadline passes with no Stripe event **and every sweep
+  attempt failing**, and authorization denies anyway; a healthy sweep then
+  converges the stored tier; a recovered subscription clears
+  `membership_valid_until`.
+- **Cutover and contract** — an old-instance admin grant and an old webhook
+  delivered mid-rollout survive with provenance; an old revoke marks `revoked`
+  rather than deleting; the contract migration aborts on a missing marker, on a
+  legacy write inside the quiet period, and on a stale reconciliation, and
+  succeeds only with all three satisfied.
+- **Revert and recovery** — a reconciliation-rebuilt pre-cutover row permits the
+  revert while a genuinely post-cutover source aborts it; history replay of
+  active, revoked and re-granted entitlements produces constraint-valid rows;
+  staged recovery with more admin-only Legendary users than the downgrade
+  threshold completes without aborting and without transient revocation, while a
+  genuine mass provider cancellation still aborts.
 - **Portal** — missing/invalid configuration fails closed; sessions always
   carry the explicit id.
 - **Gates** — `pnpm run check:codegen-drift`, migration-snapshot validator,
@@ -535,9 +735,15 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 26 | 5 | Downgrade bounds around every refresh | **Resolved** — the guard ships with the first mutating refresh. |
 | 27 | 5 | Lock source tables before the disposability check | **Resolved** — explicit `ACCESS EXCLUSIVE` lock on both tables before the predicate; an ordinary `BEGIN` does not block application inserts. |
 | 28 | 5 | Route tokens minted after provider I/O | **Resolved** — Stripe-mutating routes stop writing provider state and go through the authoritative-refresh path instead. |
-| 29 | 6 | Schema compatibility during the deploy cutover | **Resolved** — expand/contract: the drop moves to a later deploy. `autoscale` overlaps instances, so create-and-drop in one deploy breaks every old instance still serving. **This is what the phase split was accidentally protecting.** |
-| 30 | 6 | Rollback strands post-cutover entitlements | **Resolved** — roll-forward-only with an executable precondition; recovery rebuilds Stripe-backed sources from the provider and `admin_grant` rows from `membership_history`. The snapshot validator covers DDL, not contents; my "symmetric rollback" claim was wrong. |
-| 31 | 6 | Grace-expiry latency bound undefined | **Resolved** — hourly sweep, six-hour alert threshold; the guarantee is 14 days *plus at most one sweep interval*. |
+| 29 | 6 | Schema compatibility during the deploy cutover | **Superseded by 32/33** — expand/contract was the right shape but only covered *reads*. Reopened in round 7 for writes and for the contract gate. |
+| 30 | 6 | Rollback strands post-cutover entitlements | **Superseded by 34/35/36** — roll-forward-only was right; the precondition had no way to identify a post-cutover row and the recovery it pointed at was not executable. |
+| 31 | 6 | Grace-expiry latency bound undefined | **Superseded by 37** — a cadence bounds the healthy case only. Reopened in round 7 and moved off the scheduler entirely. |
+| 32 | 7 | Old-instance writes lost during expansion | **Resolved** — database triggers bridge legacy writes into the new table; `DELETE` maps to `revoked` rather than deleting. An application dual-write cannot work when the writer being fixed is the binary being replaced. |
+| 33 | 7 | Contract migration not gated against reverted binaries | **Resolved** — three-part executable gate (marker present, legacy-write quiet period, clean reconciliation since); the one-way boundary is documented for operators. "Once no instance references them" was prose, not a check. |
+| 34 | 7 | Revert precondition has no durable cutover marker | **Resolved** — `membership_model_cutover` marker plus `entitlement_origin_at` taken from the originating event, stable across rebuilds. `created_at` would have aborted every revert forever. |
+| 35 | 7 | `membership_history` cannot replay valid admin grants | **Resolved** — history extended with correlation id, grant and revocation reasons, and distinct admin event values. My revision-7 claim was made without reading the schema; grant and revoke could not even be paired. |
+| 36 | 7 | Downgrade guard blocks the recovery it protects | **Resolved** — recovery stages source reconstruction before a single guarded recomputation, so the guard sees the true final delta and stays armed. |
+| 37 | 7 | Grace bound unenforced when sweeps fail | **Resolved** — `membership_valid_until` persisted and honoured at authorization; the sweep demoted to convergence. Enforcement no longer depends on a job's health. |
 
 | Round | Lens |
 |---|---|
@@ -547,4 +753,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 4 | Whether the pre-launch simplification cut anything load-bearing — **it had: two of three supersessions were overturned** |
 | 5 | Phase-boundary safety as a state space — **found the boundary wrong for the third time; the split has been removed** |
 | 6 | The collapsed single-PR shape — **it did: deploy-time schema compatibility, which returns as expand/contract staging** |
-| 7 | The recovery procedures themselves: are the documented rollback and reconciliation paths actually executable, or do they assume state they cannot guarantee? |
+| 7 | The recovery procedures themselves: are the documented rollback and reconciliation paths actually executable, or do they assume state they cannot guarantee? — **they assumed. All three round-6 resolutions superseded; six findings, the highest of any round** |
+| 8 | The mechanisms round 7 introduced — triggers, markers, a read-path expiry check and a staged recovery — reviewed as new attack surface rather than as fixes |
