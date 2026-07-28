@@ -576,6 +576,19 @@ have a draft plan, and the disclosure check passes:
     **Codex convergence is NOT plan approval** — *Plan approval is explicit only*
     still governs; only David approves.
 
+    **The split path needs one extra step (Codex review, PR #275).** After a
+    step-10 multi-subsystem split, each review branch holds only its own
+    subsystem's plan, so "the final plan file on the branch" names nothing —
+    the compiled document would exist only in chat, which is exactly the gap
+    retiring `SendUserFile` could otherwise open. So I commit the combined
+    plan as `docs/plans/PLAN_<SLUG>.md` on **one** dedicated
+    `plan-review/<slug>-combined` branch, push it, and link *that* file for
+    approval. It needs no PR and no review round of its own — the subsystem
+    loops already converged; the branch exists so the approved artifact has a
+    stable URL and a resolvable commit sha. That sha is what the
+    implementation PR's **Approved-plan source** line cites, which the
+    per-subsystem branches cannot supply.
+
 **Calibration (first ~3 real plans).** This is a pilot, not a proven
 replacement. For the first few plans I run the Codex loop *and* note where its
 review lands versus what the manual ChatGPT pass would have caught, and report
