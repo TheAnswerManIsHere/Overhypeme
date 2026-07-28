@@ -39,7 +39,7 @@ the source hunting for what the tests do not cover. That ordering mattered —
 the brief estimated the payments code was largely untested, but there are
 ~3,000 lines of payments tests (`webhookHandlers.integration.test.ts` alone is
 1,033). The defects below survived *because* of where the tests stop, not
-because tests are absent. Finding 1 is the clearest example: a unit test proves
+because tests are absent. Finding 4 is the clearest example: a unit test proves
 the guard works, and nothing tests that the caller passes it a real value.
 
 Every finding was read at the cited line. Line references are against `3a7d0c0`.
@@ -63,7 +63,7 @@ its confidence levels are honest.
    library's `getSupportedEventTypes()` (88 event types) against our
    `processDomainSwitch` cases (17). **All 17 are subscribed** — no handler is
    orphaned today. This was worth checking and it came back clean. The
-   *structural* risk remains, as finding 7.
+   *structural* risk remains, as finding 6.
 3. **Test coverage is far better than the brief implies** — see *How this audit
    was run*.
 4. **The receipt IDOR the brief ranked #3 is already closed.**
@@ -172,24 +172,41 @@ email. Their entitlement row now reads `refunded` with $89 still paid.
 **Fix effort:** small–medium. Needs `charge.amount` threaded into the handler
 and a policy decision from David on what partial refund, if any, should revoke.
 
-### 3. `POST /stripe/subscription/cancel` is permanently blocked by a refunded lifetime entitlement — MEDIUM
+### 3. The same unfiltered lifetime-row query blocks or mislabels a refunded user at five call sites — MEDIUM
 
-`artifacts/api-server/src/routes/stripe.ts:397-403`
+`artifacts/api-server/src/routes/stripe.ts:52-60, 397-403, 447-451, 503-508, 603-608`
 
-The lifetime-user guard queries `lifetimeEntitlementsTable` filtered on
-`userId` only — **no `status` filter**. Compare `userHasLifetimeEntitlement`
-(`webhookHandlers.ts:84-94`), which correctly filters `status = "active"`. Two
-lifetime predicates, two different answers.
+**Correction (Codex round 3): originally scoped to the cancel endpoint only —
+that undersold it.** The same query —
+`db.select().from(lifetimeEntitlementsTable).where(eq(..., userId)).limit(1)`,
+**no `status` filter** — is copy-pasted across five sites, three of which say
+so in their own comments ("same guard as switch-plan/cancel/reactivate"):
+`cancel` (`:397-403`), `reactivate` (`:447-451`, comment: *"same guard as
+cancel"*), `switch-preview` (`:503-508`), `switch-plan` (`:603-608`), and
+`GET /stripe/subscription` (`:52-60`, no guard — just reports `isLifetime`).
+Compare `userHasLifetimeEntitlement` (`webhookHandlers.ts:84-94`), which
+correctly filters `status = "active"`. Two lifetime predicates, six call
+sites, one right answer.
 
 **Failure scenario.** A user buys lifetime, is refunded (row → `refunded`,
-tier → `registered`), later subscribes monthly. They can never cancel: the
-endpoint returns *"Legendary for Life members do not have a recurring
-subscription to cancel."* Their only route out is the Stripe portal or support.
+tier → `registered`), later subscribes monthly. **All four mutating
+endpoints reject them** with a variant of *"Legendary for Life members do not
+have a recurring subscription to \<cancel/reactivate/switch\>."* Their only
+route out is the Stripe portal or support. Independently, **`GET
+/stripe/subscription`'s `isLifetime: true`** (`:72`) reaches
+`SubscriptionPanel.tsx:313-357`, which sets `isLegendary = true` and
+`showSubscriptionControls = isLegendary && !isLifetime && !!sub` — `false`,
+since `isLifetime` is true — so the frontend hides subscription controls
+entirely and labels a refunded, actively-paying-monthly user "Legendary for
+Life." This is a second, independent symptom of the same root cause, not a
+consequence of the four blocks above.
 
 This is precisely the defect class PR #260 centralised the membership predicate
-to prevent; this call site was not migrated.
+to prevent; none of these five call sites were migrated.
 
-**Fix effort:** trivial — reuse the existing active-filtered predicate.
+**Fix effort:** small — replace all five with the existing active-filtered
+predicate (`userHasLifetimeEntitlement` or equivalent), not just the one at
+`:397-403`.
 
 ### 4. The admin test-event route always reports success it did not achieve — MEDIUM
 
