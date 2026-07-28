@@ -108,6 +108,14 @@ forward.
      to him (plan converged & ready for approval, PR green/ready, build done) —
      the natural "come back" points. Not for routine progress. When unsure,
      bias to *fewer* notifications, not more.
+- **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
+  watching a PR, events that turn out to be my own comments bouncing back still
+  get the silent live-state check the watching rules require — but they produce
+  **zero chat output**. No "echo of my own reply — no action needed" lines:
+  David posted a screenshot of his chat window to show how those lines bury the
+  signal the sparse-chat rule exists to protect. Silence in chat does not mean
+  I skipped the verification; it means the verification found nothing worth his
+  attention.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
@@ -164,13 +172,26 @@ contract. David picks the mode explicitly so there's no guessing:
   loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
   gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
-- **Bug-fixing mode is the lightweight path, entered explicitly via the
-  `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
-  small bug), I switch to a fix-and-commit loop: fresh branch off
-  `origin/main`, one focused commit per bug, **no plan file, no plan review
-  (no Codex loop, no ChatGPT), no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
-  only open the PR when he explicitly says "create the PR." The full contract
-  lives in `.claude/skills/bugfix/SKILL.md`.
+- **Bug-fixing mode drops the *planning* ceremony, not the verification** —
+  entered explicitly via the `/bugfix` skill. When David invokes `/bugfix` (or
+  asks me to "just fix" a bug), I switch to a diagnose-classify-fix-ship loop:
+  fresh branch off `origin/main`, **one bug per branch per PR**, opened as soon
+  as the fix is verified. **No plan file and no plan-review loop** — that's the
+  expensive part a fix rarely needs. Everything else scales to what diagnosis
+  reveals: a **Tier A** fix ships with a regression test, a blast-radius note,
+  and the bugfix oracle in the PR body; a **Tier B** fix (sensitive subsystem,
+  or a structurally risky fix shape) moves to Opus and adds a UAT doc **if the
+  fix has any product-visible behavior** — a Tier B fix with none (a pure
+  CI/build-tooling/codegen correction) ships a written verification note
+  instead, same as feature mode's ship-the-UI-surface exception;
+  **Tier C** means it isn't a bug fix and leaves the mode. Codex still reviews
+  every bugfix diff and I drive that to convergence. The shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md); my enactment is
+  `.claude/skills/bugfix/SKILL.md`.
+
+  Note this is **not** "no ChatGPT review" — Codex *is* ChatGPT, and its
+  connector auto-reviews every non-draft PR on open. What bugfix mode skips is
+  **plan** review, not **code** review.
 
 What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
 that's really a behavior change is feature work — see the working rules), verify
@@ -345,6 +366,14 @@ through the public PR channel** — that plan stays on the manual/private review
 path (a public plan describing an exploit discloses it before the fix ships). I
 run this check every time, before creating the PR, not after.
 
+**And I record that it passed, in the PR body** (the *Public-disclosure check*
+section of the template below). An obligation that leaves no evidence decays —
+the same reasoning the plan-review contract applies to verification reporting.
+The attestation is deliberately contentless: it says the check passed, never
+what was screened out or why some other plan was judged sensitive, since that
+description would itself be the disclosure. A plan that fails the check never
+reaches this template at all.
+
 **External-claim verification is mine.** Codex's review environment is often
 network-restricted, so I don't outsource external verification to it. When a plan
 makes a material external API / SDK / model / pricing / rate-limit claim, **I**
@@ -367,6 +396,10 @@ have a draft plan, and the disclosure check passes:
    ## Review mode
    Plan review only. Never merge. Do not implement. Apply
    docs/ai-context/plan-review-contract.md.
+
+   ## Public-disclosure check
+   Passed. This plan contains no unpatched vulnerability details, secrets,
+   private customer information, fraud-enabling details, or embargoed material.
 
    ## Product intent
    <What David asked this feature to accomplish — verbatim or faithful.>
@@ -411,8 +444,15 @@ have a draft plan, and the disclosure check passes:
    the current head), weigh every comment on plan *substance*, revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit `@codex review` comment.
-   Codex has authority on plan *substance*, **none** on branch/PR/devops
-   mechanics (e.g. its "delete the branch" advice — I can't, and don't need to).
+   Codex is the independent technical reviewer. **Every substantive finding
+   must be fixed, rebutted with repository evidence, or escalated to David —
+   none may be silently ignored.** That's the real gate, and it's stronger than
+   "Codex has authority" (the wording this replaces), which read as though
+   Codex settled architecture or product direction: it doesn't, David does, and
+   a finding I can disprove from the repo is disposed of by showing that
+   evidence on the thread, not by deferring. Codex has **no** authority over
+   the branch/PR/devops ceremony this contract already governs (e.g. its
+   "delete the branch" advice — I can't, and don't need to).
    Codex's GitHub review posts only diff-anchored inline findings — confirmed
    against this repo's own PR history, its top-level review body is always
    fixed connector boilerplate, never custom text. So it cannot itself post a
@@ -608,7 +648,7 @@ Only ever do this to MY feature branch, never `main`. When in doubt,
 `git diff origin/main HEAD --stat` shows the true delta the PR will contain.
 
 **Pre-PR quality pass (David, 2026-07-22):** before opening an implementation
-PR (feature mode; bug-fix batches are exempt — they're already minimal), I run
+PR (feature mode; a bugfix PR is exempt — one bug's diff is already minimal), I run
 the `/simplify` pass over my changed code — dead weight, duplication,
 needless complexity — and fold in its fixes. Codex then reviews a cleaner
 diff, which means fewer mechanical review rounds. This is my discipline, not
@@ -616,17 +656,25 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
-1. Do the fetch + rebase-onto-`origin/main` above so the branch sits
-   exactly on top of current `main`.
+1. **Do not rebase.** Follow the git-constraints procedure above by branch
+   state: a fresh, never-pushed branch is already based on current `main` from
+   its creation — nothing to do. An **already-pushed** branch stays as-is
+   (GitHub's squash-merge 3-way-merges it against `main` at merge time, so it
+   doesn't need to "sit on top of main" first); only merge current `main` in
+   if the work genuinely needs something newly landed there, and even then
+   **merge, never rebase**, per above.
 2. Verify the branch has commits ahead of `origin/main`.
 3. Check `mcp__github__list_pull_requests` (head:
    `theanswermanishere:<branch>`, state: `open`) — is there already an
    open PR?
 4. If yes, the existing PR picks up the new push. Mention the PR URL
    in the closing message and stop.
-5. If no, open a new PR with `mcp__github__create_pull_request` (base:
-   `main`, head: the branch). Title + body describe the change. Return
-   the PR URL.
+5. If no, open a new PR with `mcp__github__create_pull_request` — base
+   `main`, **except a stacked bugfix PR** (a dependent bug branched from
+   another open bugfix PR's head — see `working-modes.md`'s *Dependent
+   bugs* note), which bases against that parent branch instead; basing it
+   on `main` would put both bugs in one diff. Title + body describe the
+   change. Return the PR URL.
 
 This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration
@@ -646,15 +694,46 @@ loop, or straight from the final approved plan document when the plan went
 through the manual/private review path instead (the disclosure carve-out or a
 broken-loop fallback, per *Automated plan review* above — there's no
 `[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
-Bugfix mode or a trivial change with no plan gets "n/a — no plan" there. See
+**A bugfix PR fills the same section with the *bugfix oracle*, not "n/a — no
+plan"** — a fix has no plan, but reviewing it against nothing but itself can't
+catch the one failure that matters most on a fix: the symptom disappears while
+a neighbor breaks. **Tier A/B** fills fix tier, reported symptom verbatim,
+intended correct behavior, must not change, root cause, blast radius. **Tier
+C's trivial-schema-fix exception fills a different, dedicated block instead**
+(symptom, root cause, why it's trivial, David's go-ahead, the
+migration-ceremony checklist) — it has no *intended correct behavior*, *must
+not change*, or *blast radius* fields, and using the Tier A/B block for it is
+wrong. See
+[`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)
+for both. Only a genuinely trivial change with no bug behind it gets "n/a — no
+plan."
+
+**I fill in *Approved-plan source* with the exact revision, not the title.**
+Across a 20-round plan-review loop, copying the oracle out of an earlier
+revision is an easy mistake and an invisible one — the PR would look fully
+oracled while the reviewer checks the code against a plan David never
+approved. So the provenance line names the artifact precisely: for the
+automated loop, `Plan-review PR #<N>, final plan commit <sha>, approved by
+David on <date>` (the `plan-review/*` branches are never deleted in this
+environment, so that sha stays resolvable); for the manual/private path where
+the plan was never committed, the filename plus a `shasum -a 256` of the exact
+file I delivered for approval, plus the date. See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
 ### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
-For **every** PR that has product-visible or testable behavior, I ship two
-docs in `docs/` named after the PR's number. Because the GitHub PR number
-doesn't exist until the PR is opened, the flow is **PR-first**:
+**This section is the feature-mode default: paired by default, unconditionally.**
+Bugfix mode does **not** inherit this pairing — its docs are conditional per
+tier, not paired, and its infra-only fixes may ship neither: see
+[`working-modes.md`](docs/ai-context/working-modes.md#tier-b--elevated-fix)
+(Tier A ships neither doc; Tier B ships a UAT only if the fix has
+product-visible behavior, and a TEST_RUN only if something genuinely needs
+Replit's live environment). What follows describes the feature-mode default.
+
+For **every** feature-mode PR that has product-visible or testable behavior, I
+ship two docs in `docs/` named after the PR's number. Because the GitHub PR
+number doesn't exist until the PR is opened, the flow is **PR-first**:
 
 1. Open the PR with the code (per the squash-merge workflow above), giving
    the body a temporary placeholder note:
@@ -832,9 +911,13 @@ since none was armed). While watching:
   says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
   round was meant to close and ask Codex to confirm each is actually resolved
-  in the code — not merely responded to. Same principle as the plan loop's
-  *Re-reviews*, in miniature: a reply on a thread is not evidence the defect is
-  gone.
+  in the code — not merely responded to. **The reviewer's side of this is the
+  shared contract, not my ceremony**: what makes a prior finding genuinely
+  closed, and how deep a re-review has to look, live in
+  [`code-review.md`](docs/engineering/code-review.md#re-reviews-round-2-onward)
+  so any reviewer and any future implementing agent get the same standard. What
+  stays mine here is who posts the trigger, what it names, and the git around
+  it.
 - **After 2+ fix rounds, ask for the cumulative diff, not just the latest
   commits (David, 2026-07-25).** A per-round `@codex review` only shows Codex
   the new commits since its last pass — fine for round 1's fix, but a fix in
@@ -844,7 +927,9 @@ since none was armed). While watching:
   Codex to check the branch's full diff against `main`
   (`git diff origin/main...HEAD --stat` gives me the file list to reference),
   not only the incremental commits — same "the diff is not the scope"
-  principle as the plan loop's re-reviews, applied to code.
+  principle as the plan loop's re-reviews, applied to code, and now stated for
+  the reviewer as invariant 5 of
+  [`code-review.md`'s *Re-reviews*](docs/engineering/code-review.md#re-reviews-round-2-onward).
 - **Never resolve review threads — that's David's.** I leave the reply but do
   **not** mark the thread resolved. David resolves threads himself after reviewing
   them, so the "require conversation resolution" merge gate stays a real
@@ -855,6 +940,34 @@ since none was armed). While watching:
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
+
+## I append to the loop ledger when a loop closes
+
+The obligation itself is **shared and lives in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
+binds Codex too, so it is not restated here. What is mine is only the
+enactment:
+
+- **When a PR I own merges or closes, its row is owed** before I consider the
+  work finished — but I do **not** open a dedicated PR to append it (that
+  would collide with "Always open a PR when work is done" and never
+  terminate; see `working-modes.md`'s *"a row is never its own dedicated PR"*
+  for why and how). I compute it right away and fold it into whatever PR I
+  open next, on any subject, as one ordinary commit.
+- **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
+  columns and never type them from memory** — or `--mcp-snapshot <file>` when
+  my environment has no direct `api.github.com` credential, which is this
+  container's own case (its `GITHUB_TOKEN` is proxy-scoped and 401s against
+  the real API; my working GitHub access here is the MCP tool integration).
+  My record on recalled numbers in this repo is poor — three figures produced
+  by inference during the work that created the ledger were all wrong; every
+  figure produced by counting a source held.
+- **I classify the judgment columns myself and say so**, including when the
+  causes are my own errors. Ambiguous causes go to self-inflicted.
+- **I dispatch the blind adjudication subagent** — this is a named exception to
+  the subagent-delegation rules below, for the same reason the fresh-context
+  preflight would be: its value is the *absence* of my context, which my main
+  loop cannot reproduce at any size.
 
 ## Standing devops rituals (David, 2026-07-22)
 
@@ -903,7 +1016,14 @@ calls. Two concrete, durable changes:
   question for any task is: **if this goes subtly wrong, will Codex's review or
   David's product-testing catch it before it does damage?** Yes → Sonnet is
   safe. No → Opus, because I'm the only guard.
-  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`).
+  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`)
+    for triage and diagnosis. **But the tier classification can send it back up:**
+    the moment I classify a fix as **Tier B** (a sensitive subsystem, or a
+    structurally risky fix shape — see
+    [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake)),
+    I say so and ask David to switch me to **Opus** before I write it. Those are
+    precisely the fixes where a subtle error slips both safety nets, which is the
+    deciding question in this whole table.
   - **Entering plan mode, or any "let's build/design/add X" feature-building
     request** → **`opusplan` now handles the plan-mode half automatically** (see
     *The `opusplan` default* below), so entering plan mode puts the session on

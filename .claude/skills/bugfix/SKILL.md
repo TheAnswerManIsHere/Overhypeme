@@ -1,165 +1,249 @@
 ---
 name: bugfix
-description: Enter bug-fixing mode — the lightweight workflow for small, well-understood fixes. Use when David says /bugfix, or asks to "just fix" a bug without the feature ceremony. Sets up a fresh bug branch off origin/main and switches to a fix-and-commit loop (one focused commit per bug, no plan file, no ChatGPT review, no TEST_RUN/UAT docs). Opposite of the default feature-building flow in CLAUDE.md.
+description: Enter bug-fixing mode — fix a bug without the planning ceremony. Use when David says /bugfix, or asks to "just fix" a bug. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
 ---
 
 # Bug-fixing mode
 
-> The shared, cross-agent definition of feature vs. bugfix mode is
-> `docs/ai-context/working-modes.md` (Codex uses it too). This skill is the
-> **Claude-specific** enactment of bugfix mode — same contract, my tooling.
+> The shared, cross-agent contract — the tier checklist, the loop, the bugfix
+> oracle, what's turned off and what's non-negotiable — is
+> **[`docs/ai-context/working-modes.md`](../../../docs/ai-context/working-modes.md)**
+> (Codex uses it too). **Read it; it is the source of truth.** This skill adds
+> only what is specific to *me*: git mechanics in this environment, the PR
+> template, the Codex trigger mechanics, and the model-tier prompts.
 
-This skill puts me in **bug-fixing mode**: the deliberately lightweight
-counterpart to the heavy feature-building flow that CLAUDE.md describes by
-default. David invokes it explicitly (`/bugfix`) so there is **zero
-inference** about which mode we're in — when this skill is active, the fast
-path below is in force across every message in the chat until the mode ends
-(see **Exiting bug-fixing mode** below). David invokes `/bugfix` **once per
-bug batch**, not per bug; after that he just sends bugs as plain messages and
-I stay in the lightweight loop.
+David invokes `/bugfix` explicitly so there is **zero inference** about the mode.
+Since bugfix mode no longer batches, he invokes it **per bug** — though the mode
+stays in force across messages, so a follow-up bug doesn't need a re-invocation
+(see *Exiting bug-fixing mode*). **It does need step 1 run again, explicitly** —
+see the note there. Skipping it is how a second bug lands on the first bug's
+already-pushed branch, silently breaking one-bug-per-PR.
 
-## What this mode turns OFF
+**The one-line summary of what this mode is:** it drops the *planning* ceremony
+(plan file, pre-plan conversation, the multi-round Codex plan-review loop), not
+the *verification*. A small-looking fix can still have wide consequences, so the
+verification scales to what diagnosis reveals the fix actually touches.
 
-While in bug-fixing mode, the following CLAUDE.md feature-ceremony steps are
-**suspended** — I do not do them, and I don't ask whether to:
+## 1. Before each bug — set up the branch
 
-- **No plan mode / no plan markdown file.** I don't draft a plan, don't write
-  a plan `.md`, don't `SendUserFile` a plan, don't `ExitPlanMode`. I just fix.
-- **No plan review** — no Codex draft-PR plan-review loop, no ChatGPT/external
-  review.
-- **No `docs/PR<N>_*_TEST_RUN.md` and no `docs/PR<N>_*_UAT.md`.** Bug-fix PRs
-  ship **neither doc** (David's standing call). The PR body itself carries a
-  short per-bug "what changed / how to verify" line instead.
-- **No "ship the UI surface" gate as a blocker.** A bug fix that's purely a
-  fix doesn't need a new /debug page. (If the fix genuinely needs a UI change
-  to be testable, include it — but don't manufacture surface ceremony.)
+**This step runs once per bug, not once per `/bugfix` invocation.** On the
+first bug it runs at `/bugfix`; on every bug after that — sent as a plain
+message with the mode still in force, no re-invocation — it runs again,
+*before* diagnosing that bug. Check state first: if the branch currently
+checked out already has a prior bug's fix pushed to it (its PR is open or
+merged), that branch is spoken for — cut a new one per below. Only skip this
+step if the current branch has no bug on it yet (fresh from `/bugfix`, nothing
+committed).
 
-## What this mode KEEPS (non-negotiable)
-
-- **Pause-and-ask on real ambiguity (CLAUDE.md rule 4).** If a "bug" turns out
-  to be a behavior change in disguise, or the intended correct behavior is
-  genuinely unclear, I stop and ask via `AskUserQuestion`. The bar is high —
-  most small bugs are unambiguous and I just fix them — but a fix that silently
-  changes what the product *does* is not a bug fix.
-- **Verify before committing.** For each fix I run the touched tests +
-  typecheck (the SessionStart hook already stands up the test DB). A fix that
-  breaks the build doesn't get committed.
-- **The squash-merge / never-force-push discipline** from CLAUDE.md still
-  applies when I open the PR.
-- **Bot-review engagement** (CLAUDE.md rule 6 + the auto-watch rules) still
-  applies once a bug-fix PR is open.
-
-## The loop
-
-### 1. On `/bugfix` — set up the branch
-
-David always squash-merges, so each batch gets a **fresh branch off current
-`origin/main`** (avoids phantom conflicts from prior squash-merges):
-
-Pick a short date slug, then **check for an existing branch of that name
-before creating** — and create with a **non-resetting** `-b`, never `-B`.
-`-B` *resets* the ref to `origin/main`, which would silently wipe an existing
-same-day batch's unpushed commits:
+One bug, one branch, one PR. Cut fresh from current `origin/main` (David
+squash-merges, so a fresh base avoids phantom conflicts), with a **topic** slug:
 
 ```
 git fetch origin main
-# Choose the slug, e.g. claude/bugfix-jun28. If a branch with that name
-# already exists for an unrelated open batch, pick a disambiguated slug FIRST
-# (claude/bugfix-jun28-2, or a topic word) — do this before any checkout.
-git checkout -b <chosen-slug> origin/main   # -b (not -B): fails if it exists, so it can't wipe unpushed work
+# Topic slug, not a date: claude/bugfix-annual-plan-lookup
+git checkout -b claude/bugfix-<topic> origin/main   # -b, never -B
 ```
 
-If the `-b` create fails because the branch already exists, that's the signal
-to pick a new slug and retry — **never** fall back to `-B`, `--force`, or any
-reset onto `origin/main` to "fix" it, since that's exactly what could destroy
-unpushed fixes. Then confirm to David: branch name + "bug-fixing mode is on,
-send me bugs."
+**Never `-B`.** `-B` *resets* the ref to `origin/main`, which would silently wipe
+an existing same-named branch's unpushed work. If `-b` fails because the name
+exists, that is the signal to pick a different slug — never fall back to `-B`,
+`--force`, or any reset. (`.claude/guard.sh` blocks force-push and
+`git reset --hard` outright; see CLAUDE.md's *This environment's git
+constraints*.)
 
-> Note: if I was already invoked on a designated working branch for this task,
-> stay on it rather than creating a new one — the fresh-branch step is for the
-> normal case where David starts a bug batch from scratch.
+> **The assigned-branch exception is scoped to an *unclaimed* branch.** If I was
+> invoked on a designated working branch and it has no bug on it yet, **stay on
+> it** — the fresh-branch step is for the normal case where David starts a bug
+> from scratch. But the "spoken for" check above still applies on every bug: the
+> moment that assigned branch carries a prior bug's pushed fix, it's claimed the
+> same as any other branch, and this exception no longer covers it. If the
+> environment also disallows creating a fresh branch (a runner that assigned
+> exactly one branch), don't put the second bug on the first bug's branch to
+> route around that — stop and ask David for a new assigned branch instead.
 
-### 2. Per bug — fix, verify, commit
+Then confirm: branch name + "bug-fixing mode is on."
 
-David feeds bugs one at a time or as a list. For **each** bug:
+## 2. Diagnose, classify, then fix
 
-1. Reproduce / locate the cause.
-2. **Write the regression test first: a test that fails on the current code
-   because of this bug** (David, 2026-07-22 — standing rule). This is the
-   difference between fixing a bug once and fixing it forever: the test
-   pins the behavior so no future change can silently reintroduce it.
-3. Make the **smallest correct fix** and confirm the new test now passes.
-4. Run the touched tests + typecheck.
-5. **One focused commit per bug** — fix + its regression test together —
-   message names the bug and the fix, so the PR is a clean, revertable,
-   one-commit-per-bug history. Don't batch multiple unrelated bugs into one
-   commit.
+Follow the loop in
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#per-bug--the-loop)
+— root cause, **tier classification**, regression test first, smallest correct
+fix, blast radius, verify, one commit.
 
-**Narrow carve-out:** if a fix is genuinely untestable at reasonable cost
-(e.g. a pure visual/CSS tweak with no assertable behavior), I may skip the
-regression test — but I say so explicitly in the commit message and the PR's
-per-bug line ("no regression test: <why>"), so the exception is always
-visible, never silent. "The test is annoying to write" does not qualify; a
-tokenizer, API, data, or logic bug always gets its test.
+**The classification is a real beat, not a formality.** I state the tier and the
+reason out loud before writing the fix, because the tier decides what ships with
+the PR. Tier A is the exception, by design.
 
-Keep going as David sends more. Don't open a PR yet — bug-fixing mode
-accumulates commits on the branch and **waits for David's explicit "create the
-PR."**
+**Model tier follows the classification (CLAUDE.md's *Token / cost discipline*):**
 
-### 3. On "create the PR" — ship the batch
+- **Entering `/bugfix`** — Sonnet is fine. Triage and diagnosis are usually
+  shallow, and Codex's diff review is the net.
+- **The moment I classify a fix as Tier B** — I say so and ask David to switch me
+  to **Opus** before I write it. That is the whole point of the tier: these are
+  the fixes where a subtle error slips both nets. I don't switch myself; a
+  system-reminder confirming the change is what tells me it happened.
+- **Tier C** — stop and escalate to David regardless of tier; it isn't a bug fix.
 
-1. `git fetch origin main` and rebase the branch onto `origin/main` so it sits
-   exactly on top of current `main` (per CLAUDE.md's squash-merge workflow).
-2. Re-run the touched tests + typecheck on the rebased state.
-3. `git push -u origin <branch>` (retry with backoff on network errors; never
-   force-push — `.claude/guard.sh` blocks it).
-4. Open the PR (`mcp__github__create_pull_request`, base `main`). **Body
-   format:** a short bullet list — one line per bug — each with *what was
-   wrong → what changed → how to verify*. **No TEST_RUN doc, no UAT doc.**
-5. Auto-subscribe to the PR's activity (CLAUDE.md auto-watch rules) and return
-   the PR URL.
+## 3. Ship it — PR immediately, no waiting
+
+As soon as the fix is verified, open the PR. **There is no "create the PR" gate
+anymore** — batching is gone, so nothing is waiting to accumulate, and holding
+the PR back only delays the review that catches things.
+
+1. Push the **actual current branch** — `git push -u origin HEAD` (retry with
+   backoff on network errors; never force-push). Don't hardcode the
+   `claude/bugfix-<topic>` name here: on the normal path that *is* the current
+   branch, but the preselected/assigned-branch exception in step 1 means the
+   real name can differ, and pushing a literal wrong name either fails or
+   targets an unrelated ref. The branch was cut from current `origin/main` and
+   has never been pushed, so **no rebase is needed or wanted** — see CLAUDE.md's
+   git constraints. If the branch later needs current `main`, **merge, don't
+   rebase**.
+2. Open the PR with `mcp__github__create_pull_request` — base `main` normally.
+   **Exception: a stacked fix bases against its parent's branch, not `main`**
+   (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
+   diff carries both bugs' commits until the parent merges, defeating the
+   one-bug-per-PR isolation this whole redesign is for. **Retarget to `main`
+   *before* the parent's PR is merged, not after** — this repo auto-deletes a
+   merged branch with no reliable window afterward (deletion can happen as
+   part of the merge itself), and a documented prior incident
+   ([`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../../../docs/CODEX_GITHUB_REVIEW_WORKFLOW.md))
+   shows exactly this orphaning; that doc's own required workflow says to
+   retarget before squash-merging, not after. Retargeting early leaves the
+   diff temporarily broad (it still shows the parent's unmerged commits) —
+   accept that, it's cosmetic. Once the parent has actually merged, narrow the
+   diff: `git fetch origin main && git merge origin/main` into this branch
+   (merge, never rebase, on an already-pushed branch), then push.
+   Use **`.github/pull_request_template.md`** — the
+   repo template applies to bug fixes too. Fill the **Approved-plan oracle**
+   section with the **bugfix oracle** instead of "n/a — no plan" — **which
+   block depends on the tier:**
+
+   **Tier A/B:**
+   ```markdown
+   **Fix tier:** <A or B> — <the Q1/Q2 triggers checked: which one fired (B),
+     or which were ruled out (A) — a bare tier letter isn't enough; A is the
+     classification a reviewer most needs to be able to challenge>
+   **Reported symptom:** <David's report, quoted verbatim>
+   **Intended correct behavior:** <what right looks like>
+   **Must not change:** <adjacent behaviors sharing this code path>
+   **Root cause:** <the mechanism, not the instance>
+   **Blast radius:** <what else calls this / shares this path, and what I checked>
+   ```
+
+   **Tier C, trivial schema fix** (David authorized migration ceremony directly
+   — a *different* block, not the one above):
+   ```markdown
+   **Fix tier:** C — trivial schema/migration fix, no plan
+   **Reported symptom:** <David's report, quoted verbatim>
+   **Root cause:** <the mechanism, not the instance>
+   **Why this is trivial:** <single-step, no data transformation, no behavior
+     change — the specific reason it didn't need a full plan>
+   **David's go-ahead:** <how/when confirmed>
+   **Migration ceremony checklist:** <idempotency, observable counts,
+     human-edited-row preservation, rollback for destructive ops>
+   ```
+
+   Then **Verification** (exact commands + results, and the click-through steps
+   to observe the fix), and the checklist.
+3. **Tier B, product-visible fix — ship the UAT doc on this same PR.** The
+   test is whether the fix has *any* product-visible behavior, not which
+   Q1/Q2 trigger put it in Tier B — a fix whose only surface is internal
+   (CI, build tooling, `lib/api-zod`/`lib/api-spec` codegen with no
+   frontend-visible type change) takes the **internal/infra-only exception**
+   instead: a written verification note in the PR body, no UAT doc (see
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
+   When a UAT doc is due, the filename needs the PR
+   number, so it is PR-first, exactly like feature mode: open the PR with a
+   "Docs pending" note, then commit `docs/PR<N>_<FEATURE>_UAT.md` to the **same
+   PR before merge** and replace the note with a link. Match the most recent
+   surviving `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
+   CLAUDE.md's plan/UAT delivery ritual). A `TEST_RUN` doc only if something
+   genuinely needs Replit's environment — per
+   [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md), it
+   is not a default. **This UAT commit lands after round 1 already fired on
+   PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
+   so it needs its own explicit `@codex review` once it's pushed, the same as
+   any other fix-round commit. Don't let the PR reach convergence with a
+   commit Codex never actually saw.
+4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
+   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately; on
+   Opus (which a Tier B fix will have put me on) → tell David the PR is ready to
+   watch and ask him to switch me to Sonnet first.
+
+## 4. Drive the review to convergence
+
+This is the part the old skill left to a dangling pointer, and it matters more
+here than in feature mode: with no plan and (on Tier A) no UAT doc, **Codex's
+diff review is carrying more of the weight.** It has also earned that trust —
+several entries in
+[`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)
+were caught by Codex review *after* the shipped tests passed.
+
+- **Round 1 is automatic.** The Codex connector reviews on "open a pull request
+  for review," so a non-draft PR triggers it with no comment from me. (This is
+  why the plan-review loop needs an explicit trigger and this doesn't — that PR
+  is a *draft*.) I don't post a redundant `@codex review` on open.
+- **Every fix round needs an explicit `@codex review`.** A push does **not**
+  reliably re-trigger it, and reactive fix code is exactly where subtle mistakes
+  hide. One comment per round (batched, never per-comment), naming which findings
+  the round was meant to close and asking Codex to confirm each is resolved *in
+  the code* — not merely responded to.
+- **After more than one fix round, ask for the cumulative branch diff**
+  (`git diff origin/main...HEAD --stat` gives the file list to name), not only
+  the newest commits — a fix in one file can break something from the original
+  diff that isn't re-shown.
+- **Reply inline on each comment's own thread**, one reply per comment. Never a
+  standalone summary comment; never resolve threads (that's David's).
+- **Fix the mechanical, escalate the substantive.** A design/architecture/
+  behavior-change call goes to David, not silently into the code — even on a
+  bot's say-so. Break after ~2 non-converging rounds and bring David the
+  diagnosis.
+- Unsubscribe once the PR merges or closes.
+
+The reviewer's own standard for all of this is shared, not my ceremony:
+[`code-review.md`](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
 
 ## Exiting bug-fixing mode
 
-Bug-fixing mode persists across messages within the chat. It ends in any of
-these ways — David never has to use the explicit phrase, but he always can:
+The mode persists across messages. It ends in any of these ways:
 
-1. **David exits explicitly.** Any clear exit phrase — "exit bugfix mode",
-   "done with bugs", "back to features", `/bugfix done` — ends the mode
-   immediately. I acknowledge ("bug-fixing mode off") and return to the
-   default feature workflow.
+1. **David exits explicitly** — "exit bugfix mode", "done with bugs", "back to
+   features", `/bugfix done`. I acknowledge and return to the feature workflow.
 
 2. **David signals feature work — I ASK, I don't assume.** If a request looks
-   like building/changing product functionality rather than fixing a bug —
-   "let's build X", "add a…", "I want a new…", a behavior or scope change, or
-   anything that would normally call for plan mode — I do **not** silently
-   treat it as a bug (skipping the feature ceremony) and I do **not** silently
-   flip modes. I **stop and ask** before doing either, e.g.:
+   like building or changing product functionality rather than fixing a bug, I do
+   **not** silently treat it as a fix and do **not** silently flip modes. I stop
+   and ask:
 
    > "It looks like you're ready to build new functionality — should I exit
    > bug-fixing mode and switch to the feature workflow?"
 
-   On **yes**, I exit and start the feature flow (pre-plan conversation, plan
-   file, etc.). On **no**, I stay in bug-fixing mode and handle it as a fix.
-   This is CLAUDE.md rule 4 made concrete: a "bug" that's actually feature
-   work is the exact case where guessing wrong is expensive — either I skip
-   the plan/UAT a feature needed, or I pile ceremony onto a one-line fix. The
-   confirm costs one question; guessing costs a wrong-shaped build.
+   This is the pause-and-ask rule
+   ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#mid-build-ambiguity-pause-and-ask))
+   made concrete: guessing wrong is expensive in both directions — either I skip
+   a plan the work needed, or I pile ceremony onto a one-line fix.
+
+   Note this is distinct from a **Tier C** finding, which is the same call
+   arriving from the other direction: David asked for a fix, and *diagnosis*
+   revealed it's really feature/migration work. Same escalation, different
+   trigger.
 
 3. **A new chat or entering plan mode resets to the default automatically.**
-   The skill's instructions don't carry into a fresh chat, and plan mode is
-   itself a feature signal — so in a new chat I start in feature mode and
-   David re-invokes `/bugfix` if he wants the lightweight path again.
 
-Not every non-bug message means "exit." Quick questions, status checks, and
-meta-discussion (like this paragraph) don't end the mode — the trigger in
-case 2 is specifically a request to **build or change product functionality.**
-When genuinely unsure whether a message is the next bug or a pivot to feature
-work, I ask rather than guess.
+Not every non-bug message means "exit." Questions, status checks, and
+meta-discussion don't end the mode — the trigger in case 2 is specifically a
+request to **build or change product functionality.** When genuinely unsure
+whether a message is the next bug or a pivot, I ask.
 
 ## When NOT to use this mode
 
-If the request is actually a feature, a behavior change, a schema change with
-product consequences, or anything where David needs to verify intent — that's
-**feature mode** (the CLAUDE.md default). Don't use `/bugfix` to sneak a
-feature through the lightweight path. When unsure which it is, ask.
+A feature, a behavior change, **any *database* schema change, migration, or
+backfill** (Tier C without exception, regardless of product consequence; not
+the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)),
+or anything where David needs to verify intent is out of the fast path — a
+non-trivial one goes to **feature mode**, a genuinely trivial database schema
+fix runs migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a
+feature through the fast path — and don't let a fix quietly become one
+mid-build; that's Tier C. When unsure, ask.

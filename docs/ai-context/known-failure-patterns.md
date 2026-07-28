@@ -635,3 +635,68 @@ missing-membership-filter half before it shipped. Both are now centralized in
 filter to `overhype_membership` first, then classify each remaining price by
 its own `recurring` field. See the decision in
 [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
+
+## Persisted sync/job failure invisible after reload
+
+**Looks like:** an admin sync/job progress panel that renders its per-resource
+status only while a condition like `syncing || finalMessage || inProgress` is
+true. **Dangerous:** all three go false the moment the page is left and
+reloaded — so a per-resource `error` status the backend already computed,
+persisted, and serves via its status endpoint is fetched and then silently
+discarded. What remains on screen (a stale-but-plausible "N products found ·
+last synced X ago") reads exactly like success, not "the last run partially
+failed." **Avoid:** always render the last-known persisted state on load,
+independent of whether a run is currently being watched — distinguish "last
+run failed" from "last run succeeded, N ago" from "never run," per the admin
+state-legibility rule in
+[`async-ui-status.md`](./async-ui-status.md#admin-state-legibility).
+**Overhype:** `stripeSyncRunner.ts`'s `readSyncStatus` correctly persists and
+returns each resource's `status`/`error_message`; `billing.tsx`'s progress
+panel just never rendered it outside an active run. This is why the "pricing
+page shows only one plan" bug (see
+[`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic))
+survived two unrelated code fixes (PR #255, #260), and re-running the sync
+silently fixed it: the actual failure was never visible enough to investigate.
+
+**A trap in how this was found, worth naming for future debugging:**
+reproducing one layer of a suspected pipeline in isolation proves *that
+layer* correct — it says nothing about whether the *live* run that produced
+the current symptom actually succeeded. Confirming the sync library's storage
+and read-query layers were faithful (by replaying its migrations and upsert
+SQL locally) correctly ruled out the pricing-selection code, but was twice
+over-read as "the sync is fine," when the live sync itself had simply failed
+on an earlier run. The faster test that would have settled it sooner:
+re-running the live operation and checking whether the symptom changes,
+before building a from-scratch reproduction of its internals.
+
+## A sample ordered by anything correlated with the outcome isn't representative
+
+**Looks like:** measuring some subset of items by sorting on a convenient,
+available field (creation order, an id, alphabetical) and taking a fixed
+fraction — because the field is deterministic and easy to reason about, not
+because it's independent of what you're trying to detect. **Dangerous:** if
+the ordering field correlates with the property under measurement, the
+sample can be composed entirely of the "easy" or "early" cases while the
+metric's own reason for existing — catching the hard, late cases — goes
+completely unchecked, and a validation gate built on that sample (a
+disagreement threshold, an acceptance test) can pass cleanly while being
+blind to exactly the failures it exists to catch. **Avoid:** either measure
+the full population when the cost allows it (deletes the whole class of
+defect), or stratify explicitly across whatever dimension correlates with
+the outcome (here: review round) rather than trusting a single convenient
+sort key. A "the sample is deterministic" property is not the same as "the
+sample is representative" — the first is about reproducibility, the second
+is about coverage, and a fix can satisfy one while still failing the other.
+**Overhype:** the loop-ledger's blind-adjudication sample (PR #270) first
+sorted findings by GitHub comment id ascending and took the first 30% — but
+comment ids track creation order, and propagation/wrong-fix findings (the
+metric's actual self-inflicted numerator) can only occur in round 2 onward,
+so the sample oversampled round 1's disproportionately-new-ground findings.
+The next fix, round-robin sampling across rounds, was still deterministic
+and still wrong: its "every round contributes" guarantee was false whenever
+a loop had more nonempty rounds than the sample size, and starting the
+robin at round 1 meant it systematically dropped the *latest* rounds —
+exactly where the numerator lives. Both defects were confirmed by
+independent review before the sampling design was replaced entirely with
+full-population adjudication. See
+[`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).

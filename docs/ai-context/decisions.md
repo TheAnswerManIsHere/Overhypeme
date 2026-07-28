@@ -13,6 +13,91 @@
 
 ---
 
+### 2026-07-28 · The "lifetime-only upgrade" bug's real root cause was a silently-failed Stripe sync, not plan-selection logic
+- **Decision:** When `/api/stripe/plans` or the admin Billing page appears to
+  be missing plans that exist and are correctly tagged in Stripe, check the
+  sync's own persisted per-resource status (`stripe._sync_status`, surfaced by
+  `GET /admin/stripe/sync/status`) **before** touching `selectPlanPrices` or
+  the `overhype_membership` allowlist again. A sync that completed short of
+  the live catalog looks, after a page reload, identical to one that completed
+  correctly — see the known-failure-pattern below.
+- **Why:** The upgrade page showed only the $99 "Forever" plan for months, and
+  was independently "fixed" twice — PR #255 (classify each price by its own
+  `recurring` field, not the parent product) and PR #260 (apply the same
+  `overhype_membership` filter to `SubscriptionPanel`'s fallback path). The
+  symptom survived both, because neither was the cause. Diagnosis (2026-07-28):
+  Stripe's sandbox catalog held all three membership prices (Monthly, Annual,
+  Forever); the app's synced local catalog held one. A from-scratch
+  reproduction of the sync library's storage/read layer — its own 53
+  migrations applied to a local Postgres, its own upsert SQL run against three
+  fixture products, `listProductsWithPrices`'s query run verbatim — returned
+  all three, correctly classified, ruling out the pricing-selection code
+  entirely. Re-running "Sync Stripe data" in the admin Billing page then
+  pulled all three products, with no other change: the sync had simply failed
+  partway through at some earlier point, and nothing in the app surfaced that
+  failure.
+- **Reference:** Diagnosed 2026-07-28; no code shipped yet (the fix was
+  re-running the sync). Visibility work — always render the sync's persisted
+  failure state; stop `selectPlanPrices` from silently dropping a duplicate or
+  unusual-cadence price — is planned but not yet built; see
+  [`current-roadmap.md`](./current-roadmap.md#in-progress-slices). See the
+  retired mistake in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#persisted-syncjob-failure-invisible-after-reload).
+- **Revisit if:** the planned visibility work ships — replace this entry's
+  Reference with the PR number rather than leaving this diagnosis as the
+  terminal account of the bug.
+
+---
+
+### 2026-07-27 · The loop ledger: every review loop gets a permanent, falsifiable row — adjudicated over the full population, not a sample
+- **Decision:** Every AI-agent-driven review loop (feature, bugfix, plan-review,
+  or any ad-hoc thread that escalated into a reviewed change) gets one
+  permanent row in [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md),
+  appended when the loop closes, by **both** Claude Code and Codex. Mechanical
+  columns (rounds, findings, size, review hours) are derived by
+  `scripts/loop-metrics.mjs` and never typed by hand; judgment columns (cause
+  per finding, breakers fired, preflight time) are hand-entered and visibly
+  marked as such. The causal classification is checked by **blind
+  adjudication over the full finding population** — not a sample — using a
+  five-category rubric (new ground / propagation / wrong fix / re-raised /
+  invalid) with explicit precedence rules.
+- **Why:** David asked directly whether a mechanism existed to track all
+  loop-invoking activity and confirm the workflow is optimizing the right
+  things, calling it "extremely important." At the time, nothing recorded a
+  single review round, so every efficacy claim about the workflow — including
+  claims that it was *degrading* — was unfalsifiable; three prior attempts to
+  characterize review history by recollection were each wrong and withdrawn.
+  Adjudication started as a 30%-of-findings sample (to bound *human*
+  effort), but the loop that built this ledger caught the assumption
+  underneath that: the adjudicator here is a subagent, so full coverage
+  costs tokens once per loop close, not anyone's time. The sample selection
+  rule also produced two confirmed bias defects in two consecutive review
+  rounds before being removed entirely (an id-sort that oversampled the
+  first round's disproportionately-new-ground findings, then a round-robin
+  whose "every round contributes" guarantee was false whenever a loop had
+  more review rounds than the sample size — silently dropping the *latest*
+  rounds, exactly where the metric's self-inflicted numerator lives).
+  Full-population adjudication deletes that whole class of defect and makes
+  the disagreement gate exact instead of estimated.
+- **Reference:** PR #270. Full contract and rubric in
+  [`working-modes.md`](./working-modes.md#the-loop-ledger); the ledger itself,
+  including the seed rows and their provenance notes, at
+  [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md).
+  PR #270's own row (16 review rounds, 34 findings, 64.7% self-inflicted,
+  confirmed by blind adjudication at 14.7% disagreement — under the 20% gate)
+  is the first row the mechanism produced rather than recalled into, and is
+  itself the acceptance test for the pipeline: snapshot → script → row →
+  independent adjudication, all in one pass.
+- **Revisit if:** the blind adjudicator is ever a human instead of an agent
+  (the cost calculus that justified full-population coverage would flip
+  back toward sampling), or the pending acceptance replay of PR #268's 40
+  findings disagrees with its retrospective classification beyond 20% (per
+  the ledger's own row-provenance notes) — that would mean the rubric isn't
+  trustworthy yet and needs another pass before its output is treated as a
+  measurement rather than an account.
+
+---
+
 ### 2026-07-26 · TEST_RUN checklists are scoped to what only Replit's live environment can verify
 - **Decision:** A `docs/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
   migration state, post-merge repo-health gates (**both**
@@ -120,8 +205,16 @@
      Change / Settled Decisions verbatim — from the `[PLAN REVIEW]` PR body
      for the normal automated loop, or from the final approved plan document
      when the plan went through the manual/private review path instead — for
-     any PR built from a plan; "n/a — no plan" for bugfix mode or a trivial
-     change. `code-review.md` now instructs reviewers to check the diff
+     any PR built from a plan; "n/a — no plan" for a trivial change with no
+     plan and no bug behind it. *(Superseded 2026-07-26 for bugfix mode: a
+     Tier A/B bug fix now carries its own **bugfix oracle** — reported
+     symptom, intended behavior, must not change, root cause, blast radius,
+     fix tier — instead of "n/a — no plan." A trivial Tier C schema fix
+     (also no longer "n/a — no plan") uses a separate dedicated oracle block
+     instead — symptom, root cause, why it's trivial, David's go-ahead, the
+     migration-ceremony checklist. See
+     [`working-modes.md`](./working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry).)*
+     `code-review.md` now instructs reviewers to check the diff
      against that oracle and flag a dropped or narrowed requirement even if
      the code itself never mentions it.
   2. **Fix-round re-reviews request the cumulative diff after round 2+.** A

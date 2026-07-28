@@ -1,8 +1,16 @@
 # Code Review Guide
 
 > A consistent checklist for reviewing Overhype.me changes (Codex, Claude, or
-> human). Priorities match the root [`AGENTS.md`](../../AGENTS.md). Reviewers use
-> **review-status labels, not approval language** — only David approves.
+> human). Priorities match the root [`AGENTS.md`](../../AGENTS.md).
+>
+> **Status language depends on the delivery surface** (see
+> [*Review output format*](#review-output-format)). On the **full assessment**
+> surface — a human reviewer, or an agent free to post one document — reviewers
+> use **review-status labels, not approval language**. On the **structured
+> defect pass** surface (the `@codex review` GitHub transport) reviewers post
+> only concrete diff-anchored findings, never a status label and never approval
+> language; that surface has no status channel at all. Either way, **only David
+> approves.**
 
 ## The review oracle: the PR body
 
@@ -22,9 +30,104 @@ must-not-change, does it match the settled decisions rather than a plausible
 alternative. Flag a dropped or narrowed requirement even if the code itself
 never mentions it — the absence is the finding.
 
-If a PR has no plan (bugfix mode, a trivial change) the oracle section reads
-"n/a — no plan," and this check doesn't apply; review the diff on its own
-terms as usual.
+The oracle also carries **Approved-plan source** — the exact final revision
+those words came from (plan-review PR + final plan commit sha, or the plan
+filename + content hash on the private/manual path), plus the date David
+approved it. In a multi-round plan review, an oracle pasted from an earlier
+revision is a plausible failure and an invisible one: the PR looks correctly
+oracled while the code is checked against a plan David never approved. A
+missing source, or one that names only a title or a mutable branch, is itself
+a finding — the oracle can't be trusted until it's pinned.
+
+**On the private/manual path, "pinned" is as far as an independent reviewer
+can verify — and that's accepted, not a gap to close.** That path exists
+specifically because the plan must never be committed anywhere (a
+security-sensitive or embargoed plan disclosed by its own review trail would
+defeat the purpose of keeping it private), so no reviewer — Codex or human —
+has access to the bytes the filename + hash claim to identify, and can't
+recompute the hash to check it. A reviewer on this path confirms the field is
+*present and specific* (a real filename, a real hash, a real date — not "n/a"
+or something vague) and stops there; verifying the hash actually matches the
+approved artifact is David's check alone, made when he compares the
+implementation PR's oracle text against the file he personally approved. Don't
+flag an unresolvable-by-you hash as a finding on this path — that's expected,
+not a defect.
+
+### The bugfix oracle (a PR with no plan)
+
+A bug fix has no approved plan, but it is **not** therefore oracle-free. Reviewing
+a fix against itself can't catch the characteristic bugfix failure: the diff makes
+the reported symptom disappear while breaking an adjacent behavior nobody wrote
+down, or patches the reported instance while the underlying class survives. Both
+are documented failure patterns here (*One-example bug fixes*, *Uniform default
+over a falsely-ambiguous space*).
+
+So a bugfix PR carries its own oracle in the same body section — see
+[`working-modes.md`](../ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry).
+**This field list is for a Tier A/B PR**: **Fix tier**, **Reported symptom**
+(David's words, verbatim), **Intended correct behavior**, **Must not change**,
+**Root cause**, **Blast radius**. A Tier C PR (the trivial-schema-fix exception
+below) uses a **different**, dedicated oracle block — symptom, root cause, why
+it's trivial, David's go-ahead, the migration-ceremony checklist — with no
+*Intended correct behavior*, *Must not change*, or *Blast radius* fields; don't
+flag a correctly filled Tier C block as incomplete for lacking Tier A/B fields
+it was never meant to carry. Review the diff against whichever block applies,
+and specifically ask:
+
+- **Is this the root cause or a symptom-level patch?** Does the fix address the
+  stated mechanism, or only the reported instance? If the root-cause line
+  describes a general mechanism but the diff special-cases one input, that gap is
+  the finding. (Both blocks carry Root cause — this applies to either.)
+- **Tier A/B only — did it miss a caller?** Check the blast-radius claim
+  against the code. An incomplete or absent blast-radius note on a fix to
+  shared code is itself a finding. The Tier C block has no *Blast radius*
+  field — don't flag its absence there.
+- **Tier A/B only — did it break a neighbor?** Anything under *Must not
+  change* that the diff touches, directly or through a shared path. The Tier
+  C block has no *Must not change* field — don't flag its absence there. For
+  Tier C, check instead that the **migration-ceremony checklist** field is
+  actually filled with real specifics (idempotency, observable counts,
+  human-edited-row preservation, rollback for destructive ops — see
+  [`migrations-and-backfills.md`](./migrations-and-backfills.md)), not a
+  placeholder.
+- **Does the regression test prove the invariant?** A test that only asserts the
+  reported input passes leaves the class open — negative cases required. (Tier
+  C has no separate regression-test field, but the fix's own tests still apply
+  this standard.)
+- **Is the tier right? Check Tier C first, then A vs. B.** The most
+  consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
+  **any** of: a behavior/product change; any *database* schema, migration, or
+  backfill work (not the generated `lib/api-zod` Zod schemas, which are Q1's
+  own Tier B trigger); a design flaw rather than a defect; needing a new
+  abstraction; or needing an external vendor (see
+  [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode))
+  — because that PR shouldn't be in bugfix mode's fast path at all,
+  regardless of which of those five it trips. Flag that first. **A
+  behavior/product change is unconditionally a full-plan finding —
+  there is no trivial exception for it, ever**; a bugfix PR can't carry
+  approval for a behavior change it has no plan for, full stop. The trivial
+  exception is narrower than "Tier C" and applies **only** to a
+  schema/migration/backfill fix, per `working-modes.md`'s Tier C section: a
+  **non-trivial** one needs a full plan and David's approval before it ran,
+  which a bugfix PR obviously can't have; a genuinely **trivial** one is
+  allowed to have run migration ceremony directly with David's go-ahead
+  instead, and that's not a finding. So on a Tier C PR: a behavior change is
+  always a finding; a schema/migration/backfill change is a finding only if
+  it's non-trivial. Only once Tier C is ruled out does the A-vs-B question
+  apply: a fix tagged Tier A that trips a Tier B trigger is
+  under-verified — flag the mis-tier, not just its consequences. Check
+  **both** halves of the A/B checklist in
+  [`working-modes.md`](../ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake):
+  the **subsystem** the fix lands in (payments/auth, tokenizer/grammar, the
+  visual pipeline, the async queue, enrichment/moderation, `lib/api-zod`,
+  dev-infra) as much as the fix's **shape** (shared code, a changed
+  predicate/default, concurrency or async state, persisted data, a
+  generalized fix, a shaky diagnosis, a previously untested path) — a leaf
+  edit in a Tier B subsystem is Tier B even if none of the shape triggers
+  fire.
+
+Only a genuinely trivial change with no plan and no bug behind it (a typo, a
+comment) reads "n/a — no plan"; there, review the diff on its own terms as usual.
 
 ## Review priorities (in order)
 
@@ -46,6 +149,13 @@ style nit.
 - Does it do what the plan/intent says, including edge cases?
 - Async: is a job's **terminal** state used, not enqueue-as-done?
 - Visual/enrichment: does runtime match the admin preview path?
+- When concurrent changes are possible, are validation and mutation tied to the
+  **same authoritative state** — through a transaction, version check,
+  conditional write, or equivalent stale-state guard? Checking one version of
+  state and then mutating a later one is the general shape behind TOCTOU
+  approval races, async results applied to input that has since changed,
+  stale admin actions, and unconditional writes after out-of-transaction
+  validation.
 
 ## Source-of-truth & data durability
 
@@ -108,13 +218,50 @@ style nit.
 - Smallest coherent change for the approved plan? No speculative abstraction, no
   new external vendor, no scope creep beyond intent?
 
+## Re-reviews (round 2 onward)
+
+A code review is a loop too: you review, the author pushes fixes, you review
+again. The plan-review contract's
+[*Re-reviews*](../ai-context/plan-review-contract.md#re-reviews-round-2-onward)
+section is the plan-side analog of this one; these are the code-side
+invariants, and they are the engineering standard regardless of which agent is
+reviewing:
+
+1. **Re-inspect the current code.** An author's reply, explanation, or claimed
+   fix is not evidence that the defect is gone. Read what the branch actually
+   does now.
+2. **Reconcile every specifically named prior finding** against the current
+   branch. A finding is closed only when the engineering defect is absent — not
+   because the thread received a response, and not because a commit message
+   says it was fixed.
+3. **Inspect related callers, invariants, and tests the fix could affect.** A
+   local correction can introduce a regression outside the edited line.
+4. **A regression introduced by the fix is a new finding**, weighted by the
+   priority order above like any other.
+5. **After more than one fix round, review the cumulative branch diff against
+   the base branch**, not only the latest incremental commits. A fix in one
+   file can break something that was part of the original diff and isn't
+   re-shown in the newest commits — the diff is not the scope.
+6. **A clean re-review is an empty findings list** on the structured defect
+   pass surface (see below). Don't manufacture a finding to prove the round
+   ran.
+
+Who posts the re-review trigger, which findings it names, who replies on which
+thread, and the git mechanics around all of it are the implementing agent's
+ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
+section defines only the reviewer's substantive standard.
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split
 as the [plan-review contract's *Output*](../ai-context/plan-review-contract.md#output),
-adapted for a code diff instead of a markdown plan.
+adapted for a code diff instead of a markdown plan. Names for the two, used
+throughout this doc: a **full assessment** (one complete document, with a
+status label) and a **structured defect pass** (diff-anchored findings only, no
+status label). Naming them is terminology, not permission to weaken either —
+the expectations on each surface are unchanged.
 
-### Full-document delivery (a human reviewer, or an agent free to post one document)
+### Full assessment — full-document delivery (a human reviewer, or an agent free to post one document)
 
 Produce concise, prioritized feedback. Label overall status (no approval
 language) — e.g. *No major technical disagreement · Directionally good, revisions
@@ -124,7 +271,7 @@ to a priority above), and a concrete suggestion. Separate **must-fix** from
 **nice-to-have**. Escalate design/architecture/trade-off calls to David rather than
 deciding them.
 
-### GitHub structured review (the `@codex review` transport)
+### Structured defect pass — GitHub structured review (the `@codex review` transport)
 
 Same confirmed limitation as the plan-review contract: this surface has no
 freestanding top-level write-up, only diff-anchored inline findings, and no

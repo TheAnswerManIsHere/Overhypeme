@@ -24,6 +24,23 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
+  row** (PR #270). Both Claude Code and Codex now append a row — mechanical
+  columns machine-derived, judgment columns hand-entered and marked as such —
+  every time a review loop closes, adjudicated over the **full** finding
+  population (not a sample; see `decisions.md` for why the sample was
+  removed). The PR's own 16-round, 34-finding loop produced its own row as
+  the pipeline's first real acceptance test. See
+  [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger).
+  **Open next step:** the ledger's designated acceptance test — a blind
+  adjudication replay of PR #268's 40 findings, checked against its existing
+  retrospective classification — hasn't run yet. Several other process
+  controls (from the plan that produced this ledger) are parked, unbuilt, on
+  the closed-unmerged PR #269; David's call was to resume them one at a time,
+  informed by the ledger's own data (the `pre-open preflight` column is
+  empty precisely because no control measures it yet), after that replay
+  validates the rubric — not before, and not as one combined effort.
 - **TEST_RUN checklist contract** (PR #263, #264). New
   [`docs/engineering/test-run-contract.md`](../engineering/test-run-contract.md)
   restructures per-PR TEST_RUN checklists around what only Replit's live
@@ -47,6 +64,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products)
   and
   [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
+  **Correction (2026-07-28):** this fix did not fully resolve the symptom —
+  David reported it recurring, and diagnosis found an unrelated cause (a
+  silently-failed Stripe sync with no visible failure state). See the newer
+  decision and failure-pattern entries in "In-progress slices" below.
 - **Variant independence: `parent_id` is kinship, never metadata inheritance**
   (PR #256). A variant now classifies from its own text only, owns its own
   stock/AI images (generation included, not just display), and the three
@@ -164,6 +185,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
+- **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
+  not yet through Codex plan-review. Phase 1 (admin-only): always render the
+  sync's persisted per-resource failure state (see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#persisted-syncjob-failure-invisible-after-reload)),
+  show which Stripe account is connected, and flag untagged/unsellable
+  products. Phase 2 (customer-facing): replace `selectPlanPrices`'s fixed
+  Monthly/Annual/Forever slots — which silently drop a duplicate price or an
+  unusual cadence like quarterly — with a function that renders every
+  membership price in the catalog. See
+  [`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic).
 
 ## Pre-launch hardening (must-do before go-live)
 
