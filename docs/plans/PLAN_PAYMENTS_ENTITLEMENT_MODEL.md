@@ -222,6 +222,35 @@ transaction commits and the `processed` audit insert then fails, the trail shows
 only `received` despite a successful mutation. Recovery is a reconciliation query
 for claims lacking a terminal audit row, surfaced not silently repaired.
 
+## Phasing (David, 2026-07-28)
+
+Two review rounds grew this past what one pull request should carry. It ships
+as **four phases, each its own PR**, plus one independent fix ahead of them.
+
+**Ahead of Phase 1 — one item from the withheld portion ships standalone.** It
+is small, independent of this model, and does not need the schema. Landing it
+first means it is not gated on a multi-PR programme. Details are private.
+
+- **Phase 1 — schema.** Entitlement-table normalisation with an explicit source
+  discriminator, grace fields, and the classification backfill. **No behaviour
+  change**: nothing reads the new shape yet. Corresponds to rollout steps 1–4.
+- **Phase 2 — derivation, read-path only.** `deriveEffectiveMembership`, the
+  per-user locking, the version guard. Wired for reads; **no path writes the
+  tier through it yet**. Rollout step 5.
+- **Phase 3 — cutover.** All 15 source-mutation sites move onto the model,
+  including the trust boundary and the bounded-grace policy. This is where
+  behaviour actually changes.
+- **Phase 4 — reconciliation.** The Stripe-enumerating reconciler, automated
+  downgrades, and the circuit breaker. Rollout step 6.
+
+**Each phase must be safe if the later ones never land.** That is a hard
+requirement, not an aspiration — this repository has been bitten before by a
+restructuring whose pieces were only correct in combination (three of five
+findings in one prior review round came from exactly that). Concretely: Phase 1
+must leave current behaviour untouched; Phase 2 must not revoke anything;
+Phase 3 must not depend on the reconciler existing; Phase 4 must be revertable
+without stranding the model.
+
 ## Open product questions
 
 Two, both surfaced by review rather than decided by me:
@@ -287,4 +316,4 @@ Claims relevant only to the withheld portion are recorded there.
 |---|---|
 | 1 | Correctness of the derivation model + W1 compliance |
 | 2 | Failure modes of the newly-added machinery |
-| 3 | Rollout reversibility and the normalisation migration's blast radius |
+| 3 | **Phase-boundary safety** — is each of the four phases genuinely safe if the later ones never land? Plus rollout reversibility and the normalisation migration's blast radius. |
