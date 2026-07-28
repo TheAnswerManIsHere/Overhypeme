@@ -1,27 +1,25 @@
 # Plan — Derive membership from entitlements, don't assign it per-event
 
-> **Scope note for reviewers.** This document is a *redacted* slice of a larger
-> remediation plan. Parts are withheld from this public channel under the
-> repository's disclosure rule and reviewed privately. What is here is complete
-> and self-contained as a specification of the **entitlement model, its
-> ingestion, its schema, its concurrency model, its rollout, and its
-> reconciliation path**. Where a withheld item constrains the design, the
-> constraint is stated abstractly (W1a/W1b).
+> **Revision 4 — no longer redacted.** Earlier revisions withheld three
+> findings from this channel under the repository's disclosure rule. Overhype
+> is **pre-launch with no real payment data**, so that protection was guarding
+> a harm that does not exist; the withheld material is folded in below and the
+> private review channel is closed.
 >
-> **Revision 3.** Incorporates Codex rounds 1–2 (13 findings, all accepted) and
-> a second private reviewer. Three of those findings invalidated designs this
-> plan had already recorded as resolved; those reversals are stated explicitly
-> rather than quietly patched.
+> The same fact removes most of revisions 2–3's complexity. The staged rollout,
+> the three-valued classification state, the resumable backfill and the
+> downgrade circuit breaker all existed to avoid revoking **real paying
+> members mid-migration**. There are none. That scaffolding is gone.
+>
+> **What survives is the correctness work**, which is defective regardless of
+> who is affected yet. Thirteen review findings across two Codex rounds plus
+> seven from a second reviewer are all still honoured.
 
 ## Context
 
 `users.membership_tier` is a **derived** value maintained by hand, by whichever
-code path happens to run, each with its own disagreeing guards.
-
-**Scope discovery across two rounds.** Revision 1 named 2 writers. Round 1
-found 7. Searching the **source tables** rather than the derived field finds
-**15 mutation sites** — the correct search, because what changes entitlement is
-a source mutation, not a tier write:
+code path runs, each with disagreeing guards. Searching the **source tables**
+(not the derived field) finds **15 mutation sites**:
 
 | Site | Note |
 |---|---|
@@ -29,19 +27,52 @@ a source mutation, not a tier write:
 | `webhookHandlers.ts:148,362,583,722` | Subscription upsert, refund, dispute, payment-failed |
 | `routes/stripe.ts:423,478,641` | Cancel / reactivate / switch-plan write local state |
 | `admin.ts:561` | Admin lifetime grant |
-| `admin.ts:601` | **Admin revoke-lifetime** — deletes the row (Codex round 2) |
-| `admin.ts:306-307` | User purge deletes both tables |
-| `dataLifecycle.ts:24,28` | Data-lifecycle updates to both tables |
+| `admin.ts:601` | Admin revoke-lifetime |
+| `admin.ts:306-307` | User purge |
+| `dataLifecycle.ts:24,28` | Data-lifecycle updates |
 
-Plus the 7 direct tier writers from round 1 (`webhookHandlers.ts:81`,
-`membershipGrant.ts:144`, `index.ts:151`, `admin.ts:569`, `admin.ts:159-160`,
-`admin.ts:188`, `admin.ts:623-654`).
+Plus 7 direct tier writers (`webhookHandlers.ts:81`, `membershipGrant.ts:144`,
+`index.ts:151`, `admin.ts:569`, `admin.ts:159-160`, `admin.ts:188`,
+`admin.ts:623-654`).
 
-**The boot reconciler is itself a defect.** `reconcileMembershipTiers()`
-(`index.ts:127-160`, invoked at `:399`) upgrades any user to `legendary` where a
-joined `subscriptions` row is `active` — **with no membership-allowlist check**,
-upgrade-only and unconditional. It would undo a correct revocation on every
-deploy while logging "Reconciled membership tier → legendary".
+## The three defects this plan closes (previously withheld)
+
+**D1 — the webhook grants lifetime membership without verifying payment.**
+`handleOneTimePayment` (`webhookHandlers.ts:300-305`) constructs
+`{ id, status: "succeeded", amount, currency }` — a **hardcoded literal** —
+discarding the real PaymentIntent status retrieved six lines earlier in the
+switch (`:660-665`). The switch also never checks `session.payment_status`.
+The guard at `membershipGrant.ts:239` (`pi.status !== "succeeded"`) is
+therefore structurally dead on this path: it compares a literal against itself.
+
+The confirm endpoint does both checks correctly (`membershipGrant.ts:331`,
+`:239`), so the two grant paths disagree — and `checkoutConfirm.test.ts:626`
+proves the guard works while nothing tests that the webhook caller passes a
+real status. That is why it survived review.
+
+Exposure is **latent**: no delayed-notification payment method (ACH, SEPA,
+Bacs, boleto, OXXO, Konbini, Pay by Bank, bank transfers, Canadian PADs) is
+enabled on the live account. Enabling one makes it live, and enabling a payment
+method is not a change anyone would route through security review.
+
+**D2 — a delinquent subscription can retain access indefinitely.**
+`customer.subscription.updated` (`webhookHandlers.ts:669-679`) acts only on
+`active`/`trialing`/`canceled`. `invoice.payment_failed` (`:702-729`) marks the
+local row `past_due` but never touches the tier. Stripe permits **"leave as
+`past_due`"** as a *terminal* dunning outcome, so a permanently failing card
+need never reach a handled status.
+
+**D3 — the Customer Portal runs on the account default configuration.**
+`routes/stripe.ts:357-360` creates portal sessions with no `configuration`
+parameter, so whatever the Dashboard default permits is available — outside the
+`overhype_membership` allowlist that every deliberate grant path enforces.
+[Stripe documents](https://docs.stripe.com/api/customer_portal/sessions/create)
+that omitting it uses the default configuration.
+
+**Also live, found during review:** `reconcileMembershipTiers()`
+(`index.ts:127-160`, run at `:399`) upgrades to `legendary` from
+`subscriptions.status = 'active'` alone — **no allowlist check** — upgrade-only
+and unconditional, on every boot.
 
 ## Product intent
 
@@ -54,59 +85,47 @@ arrives at all.
 - The `overhype_membership=true` allowlist stays the *product qualification*
   boundary, failing closed (`membershipPricing.ts`,
   `docs/ai-context/security-model.md`).
-- Admin-granted memberships keep working — but stop masquerading as payments.
+- Admins can still comp a membership — but through an entitlement, not a fake
+  payment.
 - History is append-only (`membership_history`, `stripe_webhook_audit`).
 - No change to pricing, checkout UX, or the catalog-display path.
 
 ## Settled decisions
 
 1. **Membership is derived, never assigned.** One module owns the write.
-2. **Bounded grace (David, 2026-07-28): 14 days from first failure.** See the
-   status table below — `past_due` qualifies *only within* that window.
-3. **Full entitlement-table normalisation (David, 2026-07-28)** with an explicit
-   source discriminator. Chosen over a narrower `entitlement_source` column.
+2. **Bounded grace: 14 days** from first failure (David). `past_due` qualifies
+   only inside that window.
+3. **Full entitlement-table normalisation** (David) with an explicit source
+   discriminator. Cheap now — there is no live data to migrate.
 4. Idempotency claim and domain processing share one transaction.
-5. Reconciliation is **automated**, bounded, and circuit-broken.
+5. Reconciliation is automated.
 6. A partial refund does not revoke a full entitlement.
-7. **Per-user serialization** with an unconditional version guard.
+7. Per-user serialization with an unconditional version guard.
 
 ## Constraints W1a / W1b
 
-Revision 2 stated a single W1 requiring type-level un-forgeability. **That was
-wrong and is withdrawn** — TypeScript cannot express provenance (a type
-assertion defeats any brand), and more importantly a validator taking
-caller-supplied Stripe-shaped objects proves only that its two arguments agree
-with each other, not that either came from Stripe.
+Revision 2 claimed a branded type made proof "un-forgeable at the type level."
+**That was wrong and is withdrawn** — a type assertion defeats any brand, and a
+validator taking caller-supplied Stripe-shaped objects proves only that its
+arguments agree with each other.
 
 > **W1a — paid entitlement provenance.** A durable *paid* entitlement may be
-> created only from authoritative payment-provider state retrieved **inside**
-> the trusted fulfillment boundary. The boundary accepts **identifiers only**;
-> no caller may supply payment-shaped objects.
+> created only from provider state retrieved **inside** the trusted boundary.
+> The boundary accepts **identifiers only**.
 
 > **W1b — non-payment entitlement authorization.** A durable *non-payment*
-> entitlement may be created only through an explicitly authorized source type,
-> recording actor, reason, timestamp, and revocation semantics. It must never
-> masquerade as a provider payment.
+> entitlement may be created only through an authorized source type recording
+> actor, reason, timestamp and revocation semantics, and must never masquerade
+> as a payment.
 
-**Trust boundary shape.** A module-private verifier takes a Checkout Session id,
-retrieves the session and PaymentIntent from Stripe itself, and establishes:
-session belongs to the expected user/customer; mode is `payment`; session and
-PaymentIntent identifiers correspond; `payment_status === "paid"` **and**
+The verifier takes a Checkout Session id, retrieves session and PaymentIntent
+itself, and binds: session↔user/customer; mode is `payment`;
+session↔PaymentIntent identity; `payment_status === "paid"` **and**
 `pi.status === "succeeded"`; line items contain an allowlisted membership
-product **with full pagination**; amount and currency taken from the
-authoritative objects. A brand on the result remains, demoted to an
-accidental-misuse guardrail — it is no longer the security boundary.
-
-**Acceptance:** no exported production API accepts caller-supplied `status`,
-`amount`, `currency`, or PaymentIntent-like proof and creates a paid
-entitlement. A test fabricating matching Session/PI objects cannot reach
-persistence without passing through the mocked retrieval boundary. A succeeded
-PaymentIntent for a different customer, session, product, or amount cannot mint
-an entitlement.
+product **with full pagination**; amount and currency from the authoritative
+objects. A brand remains as an accidental-misuse guardrail only.
 
 ## The model
-
-### Derivation
 
 ```
 deriveEffectiveMembership(sources, now) -> {
@@ -114,183 +133,236 @@ deriveEffectiveMembership(sources, now) -> {
 }
 ```
 
-Pure, no I/O, time-parameterised so grace is testable. **Set union, not
-priority** — Legendary if *any* valid source qualifies; no source's state can
-override another's.
+Pure, time-parameterised. **Set union, not priority** — Legendary if any valid
+source qualifies.
 
-### Source qualification is three separate concepts
-
-Revision 2 used one column named `qualifies_for_membership`, which conflated
-*product identity* with *current entitlement validity*. Split:
-
-- **`is_membership_product`** — is this a membership product? (allowlist result,
-  snapshotted at ingestion; reconciliation may deliberately refresh it)
-- **provider lifecycle status** — Stripe's status
-- **grace validity** — `grace_expires_at`, for delinquency
-
-Effective qualification derives from all three.
-
-### Status policy
+Three separate concepts, not one flag: **`is_membership_product`** (allowlist
+result, snapshotted at ingestion), **provider lifecycle status**, and **grace
+validity**.
 
 | Status | Qualifies |
 |---|---|
 | `active`, `trialing` | yes |
-| `past_due` | **only while `now < grace_expires_at`** (14 days from first failure) |
+| `past_due` | only while `now < grace_expires_at` |
 | `unpaid`, `canceled`, `incomplete`, `incomplete_expired`, `paused` | no |
 
-Grace starts on first entry to `past_due` for a delinquency episode; duplicate
-events **do not** extend it; recovery to `active` clears it; a later episode
-starts a new window. `paused` is the trial-without-payment-method status, not
-`pause_collection` (which leaves `status` unchanged; unused here).
+Grace starts on first entry to `past_due` per delinquency episode; duplicate
+events do not extend it; recovery clears it. `paused` is the
+trial-without-payment-method status, not `pause_collection` (unused here).
 
-**Expiry needs its own trigger.** No Stripe event arrives when grace lapses, so
-the scheduled reconciliation is what revokes. This is a hard dependency, not an
-optimisation.
+**Recovering the episode start when the failure webhook was missed.** "14 days
+from first failure" is unimplementable from the subscription alone — the Stripe
+`Subscription` type carries no first-failure or status-transition timestamp, so
+a reconciler discovering `past_due` for the first time can only revoke
+immediately (null deadline) or start a *fresh* 14 days, both wrong.
 
-### Concurrency — retrieval outside, guard inside
+The authoritative source is the **invoice**, not the subscription: the episode
+began with the earliest still-unpaid invoice for that subscription in the
+current delinquency. Reconciliation and any grace initialisation resolve
+`grace_started_at` from that invoice's timestamp, and match episodes by
+"contiguous run of unpaid invoices ending at the present" so a *previous,
+resolved* delinquency does not backdate a new one.
 
-Codex round 2 found revision 2's two mechanisms composed ambiguously, and it is
-right: retrieval *after* `FOR UPDATE` holds a row lock across network I/O;
-retrieval *before* lets two handlers read `active` and `canceled` then acquire
-the lock in reverse order, so the older snapshot wins.
+**Acceptance:** a subscription whose `invoice.payment_failed` was never
+delivered still yields the original deadline, not a fresh window.
 
-**Specification:**
+**Grace expiry needs its own trigger** — no Stripe event fires when a deadline
+lapses. This is a **local** scheduled sweep (rows where
+`grace_expires_at < now()`, recompute), independent of Stripe enumeration, and
+it ships in **Phase 1 with the policy it enforces**. Deferring it to the
+reconciliation phase would leave bounded grace unbounded in the interim, which
+is the same indefinite-access defect this plan exists to close.
 
-1. Stripe retrieval happens **outside** any transaction. No lock is ever held
+### Concurrency
+
+1. Stripe retrieval happens **outside** any transaction — no lock is held
    across network I/O.
-2. Then open a short transaction, take `SELECT … FOR UPDATE` on the user row,
-   and apply.
-3. **Every source write carries an unconditional monotonic guard** — persist the
-   authoritative object's version/timestamp and reject any write not newer than
-   the stored value. This is *not* a fallback for when retrieval is
-   unavailable; it is how ordering is enforced in all cases.
-4. Define **lock-timeout and retry** behaviour.
-5. Notification emission only **after** a committed tier transition.
+2. Then a short transaction: `SELECT … FOR UPDATE` on the user row, then apply.
+3. **Every source write carries an unconditional monotonic version guard** —
+   reject any write not newer than the stored value.
+4. Lock timeout and retry defined.
+5. Notification emitted only after a committed tier transition.
 
-**Acceptance:** concurrent cancellation, recovery, lifetime purchase, and refund
-converge to the same tier as serial processing of the final states; a stale
-event delivered after a newer one cannot regress the stored source.
+**The ordering token, named explicitly.** Revision 3 required a guard without
+saying what orders it, which is not implementable: the pinned Stripe 20.0.0
+`Subscription` type exposes only `created` (object creation), **no mutation
+version or update timestamp**, and the route-side writes in `routes/stripe.ts`
+have no Stripe event to order by at all.
 
-## Rollout — staged, because the naive order revokes everyone
+The token is **ours, not Stripe's**:
 
-Codex round 2: adding the column makes every existing row unclassified, and
-deploying fail-closed derivation before classification completes **downgrades
-every subscription-only member**. Ordering is a correctness property here.
+- Every source row carries `source_state_as_of` — a monotonic value obtained
+  from the **database** (`clock_timestamp()` / a sequence), never a wall clock
+  on the app instance, so multiple instances cannot disagree.
+- A path that retrieves from Stripe takes the token **at retrieval time**,
+  before the transaction, and carries it into the write. Two snapshots of the
+  same subscription are then ordered by when they were *observed*, which is the
+  ordering that actually matters — `Subscription.created` cannot provide this
+  and neither can `Event.created` for route-side writes.
+- Locally-originated writes (cancel / reactivate / switch-plan, admin
+  grant/revoke) take the token inside the lock: they are authoritative at the
+  moment they execute.
+- Inside the lock, a write whose token is not strictly newer than the stored
+  `source_state_as_of` is rejected.
 
-1. **Expand** — add columns/tables nullable, no default. Old writers unaffected.
-2. **Deploy dual-write** — new writes populate classification; derivation not
-   yet enabled; old behaviour still governs.
-3. **Backfill** — observable, resumable classification from authoritative Stripe
-   state. Ambiguous rows surfaced, never defaulted to qualifying.
-4. **Verify** — durable count of unclassified rows is acceptably zero.
-5. **Enable derivation** (read path) — still no automated downgrades.
-6. **Enable automated downgrades** last, behind the bounds below.
+**Acceptance:** two retrievals of one subscription applied in reverse order
+leave the newer state stored; a route-side write concurrent with a webhook
+write converges; an older snapshot can never win.
 
-Rollback defined after each phase. Unclassified never qualifies.
+### Schema
 
-## Reconciliation
+"Normalisation" is not a specification, and the two source tables are not
+trivially unionable — `subscriptions` requires `stripe_subscription_id` and
+carries lifecycle fields (`status`, `current_period_end`, `cancel_at_period_end`),
+while `lifetime_entitlements` requires `stripe_payment_intent_id` and carries
+`amount`/`currency`/`status`. The target must be stated as DDL, not as an
+intention.
 
-**It must reconcile sources, not just recompute from them.** Codex round 2:
-`reconcileMembershipTiers` reads only local `subscriptions`, and the shared
-derivation also reads local sources — so converting the loop **cannot detect an
-omitted cancellation webhook**, which is the entire acceptance criterion.
+**Target: one `membership_entitlements` table.**
 
-**Specification:** enumerate and retrieve **authoritative Stripe** subscriptions,
-handling pagination, deletions, rate limits, and partial failure; update the
-source row; **then** recompute. Cadence: boot plus a recurring schedule.
+| Column | Note |
+|---|---|
+| `id` | identity PK |
+| `user_id` | FK → `users.id`, indexed |
+| `source_type` | `stripe_subscription` / `stripe_lifetime_payment` / `admin_grant` |
+| `provider_ref` | subscription id, payment-intent id, or null for admin grants |
+| `is_membership_product` | allowlist result, snapshotted at ingestion |
+| `lifecycle_status` | Stripe status for subscriptions; `active`/`refunded` for lifetime; `active`/`revoked` for admin grants |
+| `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
+| `amount`, `currency` | payment-backed only, nullable |
+| `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
+| `granted_by_admin_id`, `grant_reason`, `revoked_by_admin_id`, `revoked_reason` | W1b provenance, admin-grant only |
+| `source_state_as_of` | the ordering token above |
+| `created_at`, `updated_at` | |
 
-**Bounds on automated downgrades** — it now revokes where before it only
-upgraded:
+Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
+null (preserving today's two unique constraints and keeping idempotency);
+`CHECK` that payment-backed rows have a `provider_ref` and admin grants have an
+actor and reason. **No column has a fail-open default** — qualification is
+always written explicitly.
 
-- **Pre-apply comparison** — compute and report the intended change set before
-  mutating.
-- **Configurable batch and rate limits.**
-- **Circuit breaker** — abort on downgrade / ambiguity / error counts exceeding
-  a threshold, leaving the run **visibly failed** for investigation rather than
-  completing partially.
-- Counts reported per the repo's row-state matrix; history never deleted.
+**Because the membership tables hold no real data (David, 2026-07-28)**, the
+migration creates the new table, drops the old two, and does **not** need a
+dual-write boundary, a row-by-row mapping, or a resumable backfill. Rows are
+rebuilt from authoritative Stripe state on first reconciliation.
 
-## Webhook transaction boundary
+**Rollback** is symmetric: recreate the two old tables from the snapshot
+validator's prior state. This is only safe while the disposability assumption
+holds.
+
+**Because the membership tables hold no real data (David, 2026-07-28), this is
+an ordinary migration.** No staged rollout, no three-valued classification
+state, no resumable backfill, no downgrade circuit breaker — all of which
+existed solely to protect live members. Existing rows are rebuilt from
+authoritative Stripe state on first reconciliation.
+
+**This assumption is load-bearing and must be re-verified immediately before
+the migration runs**, not just asserted here. If the tables have acquired real
+memberships by then, the staged approach from revision 3 comes back.
+
+### Webhook transaction boundary
 
 Wrap the idempotency claim (`webhookHandlers.ts:1172`) and domain processing in
 one transaction (precedent: `admin.ts:~560`), so a handler throw rolls the claim
 back and Stripe's retry can succeed.
 
-Audit writes stay **outside** that transaction so a `failed` record survives
-rollback — and the **post-commit** case is specified too: if the domain
-transaction commits and the `processed` audit insert then fails, the trail shows
-only `received` despite a successful mutation. Recovery is a reconciliation query
-for claims lacking a terminal audit row, surfaced not silently repaired.
+Audit writes stay **outside** it so a `failed` record survives rollback, with
+the post-commit case specified too: a committed mutation whose `processed`
+audit insert fails leaves the trail showing only `received`. Recovery is a query
+for claims lacking a terminal audit row.
 
-## Phasing (David, 2026-07-28)
+### Reconciliation
 
-Two review rounds grew this past what one pull request should carry. It ships
-as **four phases, each its own PR**, plus one independent fix ahead of them.
+**Reconciles sources, then recomputes** — recomputing from local rows can never
+detect a webhook that never arrived. Enumerates authoritative Stripe
+subscriptions with pagination, deletions, rate limits and partial-failure
+handling; updates source rows; then derives.
 
-**Ahead of Phase 1 — one item from the withheld portion ships standalone.** It
-is small, independent of this model, and does not need the schema. Landing it
-first means it is not gated on a multi-PR programme. Details are private.
+Runs on boot plus a schedule. Reports examined / unchanged / upgraded /
+downgraded / ambiguous / failed / skipped. Ambiguous surfaced, never guessed;
+history never deleted. It is also the grace-expiry trigger.
 
-- **Phase 1 — schema.** Entitlement-table normalisation with an explicit source
-  discriminator, grace fields, and the classification backfill. **No behaviour
-  change**: nothing reads the new shape yet. Corresponds to rollout steps 1–4.
-- **Phase 2 — derivation, read-path only.** `deriveEffectiveMembership`, the
-  per-user locking, the version guard. Wired for reads; **no path writes the
-  tier through it yet**. Rollout step 5.
-- **Phase 3 — cutover.** All 15 source-mutation sites move onto the model,
-  including the trust boundary and the bounded-grace policy. This is where
-  behaviour actually changes.
-- **Phase 4 — reconciliation.** The Stripe-enumerating reconciler, automated
-  downgrades, and the circuit breaker. Rollout step 6.
+### Portal configuration (D3)
 
-**Each phase must be safe if the later ones never land.** That is a hard
-requirement, not an aspiration — this repository has been bitten before by a
-restructuring whose pieces were only correct in combination (three of five
-findings in one prior review round came from exactly that). Concretely: Phase 1
-must leave current behaviour untouched; Phase 2 must not revoke anything;
-Phase 3 must not depend on the reconciler existing; Phase 4 must be revertable
-without stranding the model.
+Provision one explicit configuration per Stripe account via a controlled script
+— not at boot, not in a request path. Store the id per environment; pass
+`configuration` on every `billingPortal.sessions.create`; **fail closed** when
+absent rather than falling back to the default. Deployment verification
+retrieves it and confirms its feature/product allowlist. Recommend disabling
+plan switching outright rather than restricting the price list.
+
+## Phasing
+
+The four-phase split was premised on migration risk that no longer exists.
+**Two PRs:**
+
+- **Phase 1 — the model.** Normalised schema, derivation, locking and the
+  ordering token, trust boundary, bounded grace **and its local expiry sweep**,
+  and all 15 mutation sites moved onto it. D1 and D2 close here. Coherent as one
+  change because the schema and its only consumers land together.
+- **Phase 2 — reconciliation and portal.** The Stripe-enumerating reconciler
+  and D3's portal configuration.
+
+**Phase 1 must be safe if Phase 2 never lands.** Revision 4 initially put grace
+expiry in Phase 2 and called the gap "known, not broken" — that was wrong.
+Bounded grace whose bound never fires is unbounded access, which is D2 wearing
+a different hat. The expiry sweep is local (no Stripe enumeration needed) and
+moves into Phase 1 with the policy it enforces.
+
+**A note on cutover timing.** Request authorization is rebuilt from
+`membership_tier` on every request (`authMiddleware.ts:98-134`,
+`tierMiddleware.ts:69-84`), so there is no such thing as wiring derivation "for
+reads only" — the moment derivation feeds that path, effective access changes.
+The two-phase split avoids this by never staging a read-only phase. If one is
+ever reintroduced, it must be **shadow comparison only**, logging derived-vs-
+stored while authorization continues to use the stored tier, with a test
+asserting request authorization is unchanged.
+
+D1 no longer ships standalone ahead of these (David's earlier call): with the
+disclosure split closed and no real customers, its urgency was the reason for
+separating it, and both premises are gone. It lands in Phase 1.
 
 ## Open product questions
 
-Two, both surfaced by review rather than decided by me:
-
-1. **Generic admin PATCH of tier** (`admin.ts:159-160`) — incoherent under a
-   derived model; the next recomputation overwrites it. Retire in favour of
-   grant/revoke writing an entitlement row (recommended), or add an explicit
-   admin-override source.
-2. **Admin user creation with `legendary`** (`admin.ts:623-654`) — accepts the
-   tier while creating no entitlement, so the reconciler will later undo it.
-   Either remove Legendary from creation, or atomically create an admin
-   entitlement. Recommended: the latter, so the capability survives.
+**One.** Two admin surfaces set a tier directly — the user-edit PATCH
+(`admin.ts:159-160`) and create-user (`admin.ts:623-654`). Both are incoherent
+under a derived model; the reconciler silently undoes them. Recommend both
+become entitlement grants (option 1 as put to David). Same underlying question,
+so they should be answered together.
 
 ## External-claim verification
 
-Stripe subscription lifecycle and dunning outcomes checked 2026-07-28
-(https://docs.stripe.com/billing/subscriptions/overview) — the sole authority
-behind the status table, and the source of the correction that terminal
-`past_due` is a permitted Dashboard outcome, which is why grace must be
-code-owned rather than inferred from status.
+Checked 2026-07-28:
+[subscription lifecycle and dunning](https://docs.stripe.com/billing/subscriptions/overview)
+(source of the terminal-`past_due` correction and the `paused` semantics);
+[portal session default configuration](https://docs.stripe.com/api/customer_portal/sessions/create);
+[portal configuration features](https://docs.stripe.com/api/customer_portal/configurations/create)
+— which has **no pause feature**, so a suggestion to model one was dropped.
 
-Claims relevant only to the withheld portion are recorded there.
+**Unresolved and to be settled empirically, not from docs:** whether **Pix** or
+**Stablecoins/Crypto** — both enabled on the live account, neither on Stripe's
+documented delayed-notification list, both settling out-of-band — emit an
+unpaid `checkout.session.completed`. Capture the event sequence in sandbox
+(where both are enabled) and preserve fixtures as regression tests.
 
 ## Verification
 
 - **Pure derivation** — no sources; one active; multiple with one canceled;
   lifetime plus canceled subscription; admin grant plus refunded lifetime;
-  past-due within grace; past-due after grace; unpaid after past-due; recovered;
-  revoked admin grant with another active source; unclassified product.
-- **Compile-time / boundary** — fabricated Stripe-shaped values cannot reach
+  past-due within and beyond grace; unpaid after past-due; recovered; revoked
+  admin grant with another active source.
+- **Trust boundary** — fabricated Stripe-shaped values cannot reach
   persistence; wrong customer/session/product/amount fails closed; paginated
-  line items handled.
+  line items handled; unpaid completed grants nothing; later async success
+  grants exactly once; later async failure grants nothing.
 - **Concurrency** — barrier-interleaved removal against grant, asserting
-  sources, tier, history, **and notification count**; stale event after newer;
+  sources, tier, history **and notification count**; stale event after newer;
   duplicate workers; reconciliation racing webhook processing.
-- **Rollout** — interrupted and repeated backfill; deploying at each phase does
-  not revoke incorrectly; rollback at each phase.
-- **Reconciliation** — omitted cancellation webhook detected *and the source row
-  repaired*; pagination; rate-limit backoff; partial failure; circuit breaker
-  trips and leaves the run failed; idempotent repeated apply.
+- **Reconciliation** — omitted cancellation webhook detected *and the source
+  row repaired*; pagination; rate-limit backoff; partial failure; idempotent
+  repeated apply; grace expiry revokes with no Stripe event.
+- **Portal** — missing/invalid configuration fails closed; sessions always
+  carry the explicit id.
 - **Gates** — `pnpm run check:codegen-drift`, migration-snapshot validator,
   `node scripts/check-docs-accuracy.mjs` run bare.
 
@@ -298,22 +370,28 @@ Claims relevant only to the withheld portion are recorded there.
 
 | # | Round | Finding | Status |
 |---|---|---|---|
-| 1 | 1 | Payment proof authority-created | **Superseded** — the branded-type resolution was wrong; replaced by W1a's retrieval-by-identifier boundary. |
-| 2 | 1 | Serialize per-user mutations | **Superseded** — resolution incomplete; see round-2 finding 8. |
-| 3 | 1 | Route every tier write centrally | **Resolved** — 15 source-mutation sites now enumerated (source search, not field search). |
-| 4 | 1 | Backfill from current truth | **Superseded** — three-valued column was necessary but not sufficient; see round-2 finding 10. |
-| 5 | 1 | Terminal audit handling | **Resolved** — five ordering cases; recovery query. |
-| 6 | 1 | Authoritative ingestion | **Superseded** — retrieval alone is not monotonic; see round-2 finding 8. |
-| 7 | 1 | Automate reconciliation | **Superseded** — local-only recomputation cannot repair a missed webhook; see round-2 finding 11. |
-| 8 | 2 | Retrieval vs lock composition | **Resolved** — retrieval outside; unconditional version guard inside; lock timeout/retry. |
-| 9 | 2 | Bound automated downgrades | **Resolved** — pre-apply diff, batch/rate limits, circuit breaker, visibly-failed runs. |
-| 10 | 2 | Stage classification before fail-closed | **Resolved** — six-phase expand/deploy/backfill/verify/enable/enable-downgrades with rollback. |
-| 11 | 2 | Reconcile sources before recomputing | **Resolved** — enumerate from Stripe with pagination/rate limits, update source, then recompute. |
-| 12 | 2 | Lifetime-revoke in serialization | **Resolved** — `admin.ts:601` in the inventory; covered by the contention test. |
-| 13 | 2 | Legendary at admin creation | **Escalated** — concrete disposition needed; routed to David. |
+| 1 | 1 | Payment proof authority-created | **Resolved** via W1a (branded-type resolution superseded). |
+| 2 | 1 | Serialize per-user mutations | **Resolved** via the round-2 composition fix. |
+| 3 | 1 | Route every tier write centrally | **Resolved** — 15 source-mutation sites enumerated. |
+| 4 | 1 | Backfill from current truth | **Superseded by scope** — no live data to backfill; re-verify before migrating. |
+| 5 | 1 | Terminal audit handling | **Resolved.** |
+| 6 | 1 | Authoritative ingestion | **Resolved** via the unconditional version guard. |
+| 7 | 1 | Automate reconciliation | **Resolved** — sources reconciled before recompute. |
+| 8 | 2 | Retrieval vs lock composition | **Resolved.** |
+| 9 | 2 | Bound automated downgrades | **Superseded by scope** — no live members to protect; reporting retained. |
+| 10 | 2 | Stage classification | **Superseded by scope** — staged rollout removed with the migration risk. |
+| 11 | 2 | Reconcile sources before recomputing | **Resolved.** |
+| 12 | 2 | Lifetime-revoke in serialization | **Resolved.** |
+| 13 | 2 | Legendary at admin creation | **Escalated** — with the admin PATCH, as one question. |
+| 14 | 3 | Enforceable monotonic version | **Resolved** — token is a DB-issued `source_state_as_of`, taken at retrieval for Stripe-sourced writes and under lock for local ones. Stripe exposes no usable version; ours does. |
+| 15 | 3 | Specify the normalisation migration | **Resolved** — target DDL, keys and constraints stated; dual-write/backfill dropped as unnecessary given no live data. |
+| 16 | 3 | Phase 2 authorization in shadow mode | **Resolved** — no read-only phase exists in the two-phase split; the per-request authorization path is documented so one is never added naively. |
+| 17 | 3 | Ship grace expiry with the cutover | **Resolved** — local expiry sweep moved into Phase 1. My "known gap" framing was wrong. |
+| 18 | 3 | Recover the original grace start | **Resolved** — episode start resolved from the earliest unpaid invoice, not the subscription. |
 
 | Round | Lens |
 |---|---|
 | 1 | Correctness of the derivation model + W1 compliance |
 | 2 | Failure modes of the newly-added machinery |
-| 3 | **Phase-boundary safety** — is each of the four phases genuinely safe if the later ones never land? Plus rollout reversibility and the normalisation migration's blast radius. |
+| 3 | Implementability — is every mechanism buildable from what the pinned SDK and schema actually expose? |
+| 4 | Whether the pre-launch simplification cut anything load-bearing |
