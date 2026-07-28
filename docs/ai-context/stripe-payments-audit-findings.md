@@ -96,12 +96,12 @@ await processDomainSwitch(stripe, event)   ← throws
 audit "failed"; rethrow                    ← app.ts:157 returns HTTP 400
 ```
 
-Stripe retries on any non-2xx. On the retry the insert hits the unique
-constraint, the handler logs `ignored_duplicate` and **returns without
-processing**. So the event is gone permanently.
+Stripe retries on any non-2xx.
 
-**Correction (Codex round 1, confirmed independently against the installed
-`drizzle-orm@0.45.1` error-wrapping code): the duplicate-detection check at
+**Correction (Codex round 1, confirmed independently against the
+`drizzle-orm@0.45.2` error-wrapping code — the version `pnpm-lock.yaml`
+resolves at the audited `3a7d0c0`; the wrapping behavior is unchanged from the
+0.45.1 locally installed in this sandbox): the duplicate-detection check at
 `:1173-1175` does not actually work.** It reads `(err as {code?}).code ===
 "23505"`, but `drizzle-orm/pg-core`'s `queryWithCache` wraps every driver error
 as `throw new DrizzleQueryError(query, params, cause)` — the real Postgres
@@ -133,15 +133,26 @@ in `stripe_webhook_audit` that nothing alerts on.
 
 This is the brief's own lesson recurring: the system does not tell you.
 
-**Fix effort:** small–medium. Wrap the claim and the processing in one
-transaction (this also fixes the detection bug above, since a rolled-back
-claim never leaves a stray row to misdetect). **Do not** delete the claim row
-in the catch before rethrowing, even as a smaller interim fix: under
-overlapping deliveries of the same event, a second delivery can observe the
-first's already-committed claim, be acknowledged as a duplicate (Stripe stops
-retrying it), and then the first delivery's catch deletes the claim after that
-2xx has already gone out — permanently losing the event with no delivery left
-to retry it. A transaction closes this hole; deleting in the catch does not.
+**Fix effort:** small–medium, and it is **two independent fixes, not one.**
+
+1. **The rollback bug.** Wrap the claim and the processing in one transaction.
+   **Correction (Codex round 2): this does not also fix detection.** A
+   transaction only repairs the *failed-first-delivery* case — after a
+   *successful* first delivery, the claim row still commits and stays
+   committed, so any later, legitimate Stripe redelivery of that same event
+   still hits the unique constraint and still hits the same broken detection
+   below. **Do not** delete the claim row in the catch before rethrowing,
+   even as a smaller interim fix: under overlapping deliveries of the same
+   event, a second delivery can observe the first's already-committed claim,
+   be acknowledged as a duplicate (Stripe stops retrying it), and then the
+   first delivery's catch deletes the claim after that 2xx has already gone
+   out — permanently losing the event with no delivery left to retry it. A
+   transaction closes this hole; deleting in the catch does not.
+2. **The detection bug**, needed regardless of (1): inspect `err.cause` (or
+   walk the cause chain) for the real Postgres `code`, or switch to an insert
+   primitive whose result distinguishes a conflict directly (e.g.
+   `onConflictDoNothing()` plus checking whether a row was actually inserted)
+   instead of catching and pattern-matching an error.
 
 ### 2. A partial refund revokes the entire membership — HIGH
 
@@ -214,10 +225,12 @@ was wrong.** `stripe-replit-sync`'s own `processEvent` logs `Received webhook
 ${event.id}: ${event.type} for ${entityId}` for every event in its 88-type map
 *before* our domain switch ever runs (confirmed reading the library's dist
 source) — a generic arrival record does exist for all 88. What's actually
-missing is narrower: `processDomainSwitch` has **no `default:` case**, so an
-event that reaches it with no matching `case` falls straight through to
-`break` with no domain-layer record — nothing distinguishes "we looked at this
-and decided not to model it" from "this fell through unnoticed."
+missing is narrower: `processDomainSwitch` **does have** a `default:` case
+(`webhookHandlers.ts:1082-1083`), but it is `default: break;` — an event that
+reaches it with no matching `case` falls through to an existing branch that
+records nothing. The fix is to instrument that branch, not to add one; nothing
+distinguishes "we looked at this and decided not to model it" from "this fell
+through unnoticed."
 
 Business-relevant types currently falling through unclassified include
 `checkout.session.async_payment_succeeded` / `async_payment_failed`,
