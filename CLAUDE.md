@@ -697,8 +697,14 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
 
 This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration
-with no commits, or David has explicitly said "don't open a PR for
-this."
+with no commits, David has explicitly said "don't open a PR for
+this," or the branch is a **plan-review channel branch**
+(`plan-review/<slug>`, whose PR is opened by the plan-review loop itself and
+is never merged, and `plan-review/<slug>-combined`, which deliberately has
+**no** PR — see close-out step 11). Those carry a plan, not a unit of work;
+opening a merge-shaped PR for the combined branch would contradict the loop's
+own "never merged" rule and add a review round its subsystems already
+completed.
 
 **The PR body carries the approved plan as the reviewer's oracle
 (David, 2026-07-25).** The template's **Approved-plan oracle** section exists
@@ -731,12 +737,20 @@ plan."
 Across a 20-round plan-review loop, copying the oracle out of an earlier
 revision is an easy mistake and an invisible one — the PR would look fully
 oracled while the reviewer checks the code against a plan David never
-approved. So the provenance line names the artifact precisely: for the
-automated loop, `Plan-review PR #<N>, final plan commit <sha>, approved by
-David on <date>` (the `plan-review/*` branches are never deleted in this
-environment, so that sha stays resolvable); for the manual/private path where
-the plan was never committed, the filename plus a `shasum -a 256` of the exact
-file I delivered for approval, plus the date. See
+approved. So the provenance line names the artifact precisely, in one of three
+forms:
+
+- **Single-PR loop:** `Plan-review PR #<N>, final plan commit <sha>, approved by
+  David on <date>` (the `plan-review/*` branches are never deleted in this
+  environment, so that sha stays resolvable).
+- **Split loop (step 10):** the combined commit belongs to *no* PR, so citing one
+  subsystem PR would silently omit the others. Name them all plus the artifact
+  David actually approved: `Plan-review PRs #<N1>, #<N2>[, …]; combined plan
+  commit <sha> on plan-review/<slug>-combined, approved by David on <date>`.
+- **Manual/private path** (plan never committed): the filename plus a
+  `shasum -a 256` of the exact file I delivered for approval, plus the date.
+
+See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
