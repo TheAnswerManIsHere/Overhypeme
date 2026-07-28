@@ -69,6 +69,7 @@ and a round target would score both backwards.
 | 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | 744 | 214 | 18 | 40 | 16 | 19 | 5 | 0 | — | **60%** | — | none | — | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
 | 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | — | **27.5%** | — | none | — | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
 | 3 | [#270](https://github.com/TheAnswerManIsHere/Overhypeme/pull/270) | prose/contract | 6 | 1959 | 0 | 16 | 34 | 12 | 18 | 4 | 0 | 0 | **64.7%** | 2.2 | none | none | ✓ **14.7%** (5/34, full population) | First row produced by the mechanism (script over a fully-paginated, attested MCP snapshot), not recalled — the acceptance test for the whole pipeline. `rounds` is 16, not 15: it includes one review event with zero findings that the author's own round-by-round narration missed, exactly the recall-vs-count gap this file exists to close. High propagation share is dominated by defects in subsystems *added mid-loop* (the MCP adapter, the adjudication rubric itself) — the causal test charges those to propagation by design, not because fixes broke pre-existing code. 4 of 5 adjudication disagreements were prop-vs-wrong-fix (both self-inflicted, no effect on the share); the one boundary-crossing disagreement (author: propagation, adjudicator: new ground) makes the author's 64.7% the more self-critical of the two figures (adjudicator's independent share: 61.8%). |
+| 4 | [#276](https://github.com/TheAnswerManIsHere/Overhypeme/pull/276) | prose/contract | 6 | 683 | 35 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | ~6 | none | ✓ **0%** (1/1, full population) | Merged. §1.1 of the plan reviewed on #274, shipped alone after David cut the rest. Cohort is the script's own first-match output — the diff is majority code but carries two `PR276_*` docs, and `prose/contract` includes mixed. The single finding was against the original diff on the auto-review round, so no in-loop fix could have caused it: an empty Stripe catalog completes a sync with every `last_synced_at` still NULL (the pinned library writes that column only in `updateSyncCursor`), and the new module read a missing stamp as "never synced". `pre-open preflight` is wall-clock branch-cut→PR-open, not an estimate of effort. |
 
 ### Row provenance — read before using these numbers
 
@@ -118,3 +119,38 @@ recorded as `unmeasured`, not silently trusted. Row 3's own adjudication
 (14.7% disagreement, well under the gate) is a first proof the pipeline
 works — it is not a substitute for running the replay on rows 1 and 2,
 whose classifications predate the current five-category rubric.
+
+---
+
+## Owed: PR #274
+
+**A row for [#274](https://github.com/TheAnswerManIsHere/Overhypeme/pull/274) is
+owed and not yet computed.** It is recorded here rather than left implicit
+because the failure mode this ledger exists to prevent is exactly a loop that
+closes without a row and is quietly forgotten.
+
+The loop: a `[PLAN REVIEW]` draft PR, closed unmerged on 2026-07-28 after four
+reviewer rounds and 19 findings, when David chose to ship §1.1 alone (row 4)
+and re-plan the rest. Its plan file survives at `07983fa` on
+`plan-review/stripe-billing-catalog-legibility`.
+
+**Why it is blank rather than estimated.** The mechanical columns require a
+fully-paginated MCP snapshot of `get_reviews`, `get_files`, and
+`get_review_comments`, and the judgment columns require blind adjudication of
+all 19 findings. The session that ran the loop reached the end of its useful
+context before that work could be done to the standard the contract sets, and
+this file's own rule is that a recalled number is worse than a missing one —
+it borrows credibility it has not earned. Three figures produced by
+recollection during the work that created this ledger were later withdrawn as
+wrong.
+
+**Not `unmeasured`.** That value is reserved for a loop whose blind
+adjudication disagreed beyond 20%; using it for "not computed" would corrupt
+the one signal it carries. This row is absent, which is a different thing, and
+must not be counted as either a pass or a failure in any trend.
+
+**To close it:** page all three collections to completion, attest
+`complete: {reviews, files, reviewThreads}`, run
+`node scripts/loop-metrics.mjs --mcp-snapshot <file>`, adjudicate the 19
+findings blind against the five-category rubric, and fold the row into the
+next PR on any subject.
