@@ -168,9 +168,8 @@ the **Claude-specific** elaboration — my extra ceremony layered on the shared
 contract. David picks the mode explicitly so there's no guessing:
 
 - **Feature-building mode is the default.** The full ceremony in this file —
-  pre-plan conversation, plan markdown file, the automated Codex plan-review
-  loop, the full build, Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface
-  gate — applies. Plan mode and any "let's build / add / change X" request put
+  pre-plan conversation, the automated Codex plan-review loop, the full build,
+  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
 - **Bug-fixing mode drops the *planning* ceremony, not the verification** —
   entered explicitly via the `/bugfix` skill. When David invokes `/bugfix` (or
@@ -293,43 +292,48 @@ not start implementing, I do not re-fire the prompt in a loop, and I wait for
 David's explicit words. When unsure whether I've been approved, I assume I have
 not.
 
-## Deliver every proposed plan as a markdown file
+## The plan-review PR is the plan's delivery surface
 
 David works from the Claude Code on the Web iPad UI, where a plan rendered only in
-the plan/chat panel is awkward to capture, save, or forward. So **whenever I
-present a plan for David's approval, I also
-write it to a markdown file and surface it with `SendUserFile`** — automatically,
-without being asked — so he can copy or forward it from the iPad without scraping
-it out of the panel. The file mirrors the plan verbatim.
+the plan/chat panel is awkward to capture, save, or forward. Until 2026-07-28 I
+covered that two ways: a markdown file handed over with `SendUserFile` (a hard
+precondition on `ExitPlanMode`), plus a private Artifact web page for cleaner
+reading.
 
-**This is a hard precondition, not a nicety: I NEVER call `ExitPlanMode` without
-having delivered the current plan via `SendUserFile` in the same turn.** This
-applies to the first presentation AND to every revision or re-presentation — each
-time the plan changes (or I re-present it after an errored/transport-failed
-approval prompt), I re-deliver the up-to-date markdown file *before* the
-`ExitPlanMode` call, so the file in David's hands always matches what I'm asking him
-to approve. If I'm about to ask for approval and haven't sent the file this turn,
-I stop and send it first. David should never have to ask "where's the markdown
-file?" — if he does, I've broken this rule.
+**Both are retired (David, 2026-07-28): the Codex plan-review loop replaced
+them.** The loop commits the plan to `docs/plans/PLAN_<SLUG>.md` on the
+`plan-review/<slug>` branch, so GitHub renders it as formatted markdown at a
+stable, forwardable URL — which covers the sharing need the file existed for *and*
+the reading comfort the Artifact existed for. David's words: he only ever needed
+the markdown for sharing.
 
-**Artifact pages ride along (David, 2026-07-22):** in addition to the markdown
-file (which remains the hard precondition above — never a substitute for it), I
-also publish the plan as a private **Artifact web page** when presenting it —
-cleaner reading on iPad than a raw `.md`. The same applies to **UAT docs**: when
-I deliver a `docs/PR<N>_*_UAT.md`, I publish it as an Artifact page too (the
-committed markdown stays the canonical, durable copy). Artifacts start private;
-they're a reading surface, not a source of truth.
+So, for a plan going through the loop: I do **not** call `SendUserFile`, and I do
+**not** publish an Artifact page — not on first presentation, not on any revision.
+The plan-review PR is what David reads, links to, and forwards. `ExitPlanMode` no
+longer has a delivery precondition.
 
-The plan file is a **transient user-delivery artifact, not a repo deliverable**: I
-do not commit it, do not include it in any PR diff, and write it outside the repo
-(or to a gitignored scratch path) so it never shows up as untracked churn. I add a
-plan to the repository only if David explicitly asks for it as a doc.
+**The one case that still needs a hand-off:** a plan that never enters the public
+PR channel — the security/confidentiality carve-out, or a genuinely broken loop
+(see *Automated plan review* below). With no PR to render it, there is nothing for
+David to read, so **there** I write the markdown out and deliver it via
+`SendUserFile`. That is the exception, not the default; I say plainly that I'm on
+the fallback path when I use it.
 
-**One carve-out (David, 2026-07-22):** the automated Codex plan-review loop
-(next section) commits the plan file to a dedicated `plan-review/<slug>` branch
-on a **never-merged draft PR**, purely as the review channel. That branch is the
-only place a plan file gets committed; the plan still never lands on `main` and
-never rides an implementation PR.
+Two things this does **not** change:
+
+- ***Plan approval is explicit only* still governs.** Dropping the delivery
+  precondition removes a step before the approval prompt, not the meaning of
+  approval: the harness prompt is not David's approval, and neither is Codex
+  convergence.
+- **UAT docs still get Artifact pages** — see *Every PR ships with a Replit test
+  plan + a UAT* below. That rule was written in the same breath as the plan rule
+  but is independent of it: a UAT is a click-through David works from in the app,
+  not a specification under review.
+
+Where the plan file lives: `docs/plans/` on the **never-merged**
+`plan-review/<slug>` branch, purely as the review channel. That branch is the only
+place a plan file gets committed — the plan never lands on `main` and never rides
+an implementation PR, unless David explicitly asks to keep it as a doc.
 
 ## Automated plan review: the Codex draft-PR loop
 
@@ -385,9 +389,9 @@ current docs.
 In feature-building mode, once the pre-plan conversation has settled intent, I
 have a draft plan, and the disclosure check passes:
 
-1. **Open the review channel.** Commit the plan markdown (the same content I
-   deliver via `SendUserFile`, with the external-verification record folded in)
-   as `docs/plans/PLAN_<SLUG>.md` on a fresh branch `plan-review/<slug>` cut from
+1. **Open the review channel.** Commit the plan markdown (with the
+   external-verification record folded in) as `docs/plans/PLAN_<SLUG>.md` on a
+   fresh branch `plan-review/<slug>` cut from
    `origin/main`, push, and open a **draft PR** (base `main`) titled
    `[PLAN REVIEW] <title> — DO NOT MERGE`. The PR body uses this template — it is
    Codex's review oracle:
@@ -565,10 +569,12 @@ have a draft plan, and the disclosure check passes:
     on a new one; the upfront split only pays off when decided upfront.
 11. **Close out.** When converged: close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
-    final review status, unsubscribe, then deliver the final plan via
-    `SendUserFile` and ask for David's approval per the ritual above. **Codex
-    convergence is NOT plan approval** — *Plan approval is explicit only* still
-    governs; only David approves.
+    final review status, unsubscribe, then ask David for approval — linking the
+    final plan file on the branch, since that PR page is now the plan's delivery
+    surface and stays readable after closing (I do not hand over a markdown file
+    or an Artifact; see *The plan-review PR is the plan's delivery surface*).
+    **Codex convergence is NOT plan approval** — *Plan approval is explicit only*
+    still governs; only David approves.
 
 **Calibration (first ~3 real plans).** This is a pilot, not a proven
 replacement. For the first few plans I run the Codex loop *and* note where its
@@ -789,6 +795,15 @@ The two docs:
    for David. Written for the end user: where to click, what to expect vs.
    not expect, regression smoke table, a bug-report template, and known
    non-bug limitations.
+
+   **A UAT gets an Artifact page (David, 2026-07-22).** When I deliver a
+   `docs/PR<N>_*_UAT.md`, I also publish it as a private **Artifact web page** —
+   David works through it on an iPad while clicking around the app, and a typeset
+   page beats a raw `.md` for that. The committed markdown stays the canonical,
+   durable copy; the Artifact is a reading surface, not a source of truth. This
+   rule used to sit beside the now-retired plan-delivery ritual and is
+   independent of it — a UAT is something David *works from*, not a specification
+   under review, so dropping plan Artifacts did not drop these.
 
 **Structure, depth, and tone:** the TEST_RUN follows
 [`test-run-contract.md`](docs/engineering/test-run-contract.md) (which carries
