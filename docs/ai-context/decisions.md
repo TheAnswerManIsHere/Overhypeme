@@ -13,6 +13,42 @@
 
 ---
 
+### 2026-07-28 · The "lifetime-only upgrade" bug's real root cause was a silently-failed Stripe sync, not plan-selection logic
+- **Decision:** When `/api/stripe/plans` or the admin Billing page appears to
+  be missing plans that exist and are correctly tagged in Stripe, check the
+  sync's own persisted per-resource status (`stripe._sync_status`, surfaced by
+  `GET /admin/stripe/sync/status`) **before** touching `selectPlanPrices` or
+  the `overhype_membership` allowlist again. A sync that completed short of
+  the live catalog looks, after a page reload, identical to one that completed
+  correctly — see the known-failure-pattern below.
+- **Why:** The upgrade page showed only the $99 "Forever" plan for months, and
+  was independently "fixed" twice — PR #255 (classify each price by its own
+  `recurring` field, not the parent product) and PR #260 (apply the same
+  `overhype_membership` filter to `SubscriptionPanel`'s fallback path). The
+  symptom survived both, because neither was the cause. Diagnosis (2026-07-28):
+  Stripe's sandbox catalog held all three membership prices (Monthly, Annual,
+  Forever); the app's synced local catalog held one. A from-scratch
+  reproduction of the sync library's storage/read layer — its own 53
+  migrations applied to a local Postgres, its own upsert SQL run against three
+  fixture products, `listProductsWithPrices`'s query run verbatim — returned
+  all three, correctly classified, ruling out the pricing-selection code
+  entirely. Re-running "Sync Stripe data" in the admin Billing page then
+  pulled all three products, with no other change: the sync had simply failed
+  partway through at some earlier point, and nothing in the app surfaced that
+  failure.
+- **Reference:** Diagnosed 2026-07-28; no code shipped yet (the fix was
+  re-running the sync). Visibility work — always render the sync's persisted
+  failure state; stop `selectPlanPrices` from silently dropping a duplicate or
+  unusual-cadence price — is planned but not yet built; see
+  [`current-roadmap.md`](./current-roadmap.md#in-progress-slices). See the
+  retired mistake in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#persisted-syncjob-failure-invisible-after-reload).
+- **Revisit if:** the planned visibility work ships — replace this entry's
+  Reference with the PR number rather than leaving this diagnosis as the
+  terminal account of the bug.
+
+---
+
 ### 2026-07-25 · Stripe plan selection classifies by each price's own `recurring` field, and only from membership-tagged products
 - **Decision:** The customer-facing pricing page (and any future code that
   turns Stripe's product/price catalog into "which plan is this?") must
