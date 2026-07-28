@@ -635,3 +635,36 @@ missing-membership-filter half before it shipped. Both are now centralized in
 filter to `overhype_membership` first, then classify each remaining price by
 its own `recurring` field. See the decision in
 [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
+
+## Persisted sync/job failure invisible after reload
+
+**Looks like:** an admin sync/job progress panel that renders its per-resource
+status only while a condition like `syncing || finalMessage || inProgress` is
+true. **Dangerous:** all three go false the moment the page is left and
+reloaded — so a per-resource `error` status the backend already computed,
+persisted, and serves via its status endpoint is fetched and then silently
+discarded. What remains on screen (a stale-but-plausible "N products found ·
+last synced X ago") reads exactly like success, not "the last run partially
+failed." **Avoid:** always render the last-known persisted state on load,
+independent of whether a run is currently being watched — distinguish "last
+run failed" from "last run succeeded, N ago" from "never run," per the admin
+state-legibility rule in
+[`async-ui-status.md`](./async-ui-status.md#admin-state-legibility).
+**Overhype:** `stripeSyncRunner.ts`'s `readSyncStatus` correctly persists and
+returns each resource's `status`/`error_message`; `billing.tsx`'s progress
+panel just never rendered it outside an active run. This is why the "pricing
+page shows only one plan" bug (see
+[`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic))
+survived two unrelated code fixes (PR #255, #260), and re-running the sync
+silently fixed it: the actual failure was never visible enough to investigate.
+
+**A trap in how this was found, worth naming for future debugging:**
+reproducing one layer of a suspected pipeline in isolation proves *that
+layer* correct — it says nothing about whether the *live* run that produced
+the current symptom actually succeeded. Confirming the sync library's storage
+and read-query layers were faithful (by replaying its migrations and upsert
+SQL locally) correctly ruled out the pricing-selection code, but was twice
+over-read as "the sync is fine," when the live sync itself had simply failed
+on an earlier run. The faster test that would have settled it sooner:
+re-running the live operation and checking whether the symptom changes,
+before building a from-scratch reproduction of its internals.

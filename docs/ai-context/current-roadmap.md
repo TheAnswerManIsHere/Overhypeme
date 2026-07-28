@@ -36,6 +36,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products)
   and
   [`known-failure-patterns.md`](./known-failure-patterns.md#stripe-plan-selection-classify-by-price-identity-not-product-identity).
+  **Correction (2026-07-28):** this fix did not fully resolve the symptom —
+  David reported it recurring, and diagnosis found an unrelated cause (a
+  silently-failed Stripe sync with no visible failure state). See the newer
+  decision and failure-pattern entries in "In-progress slices" below.
 - **Variant independence: `parent_id` is kinship, never metadata inheritance**
   (PR #256). A variant now classifies from its own text only, owns its own
   stock/AI images (generation included, not just display), and the three
@@ -153,6 +157,16 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
+- **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
+  not yet through Codex plan-review. Phase 1 (admin-only): always render the
+  sync's persisted per-resource failure state (see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#persisted-syncjob-failure-invisible-after-reload)),
+  show which Stripe account is connected, and flag untagged/unsellable
+  products. Phase 2 (customer-facing): replace `selectPlanPrices`'s fixed
+  Monthly/Annual/Forever slots — which silently drop a duplicate price or an
+  unusual cadence like quarterly — with a function that renders every
+  membership price in the catalog. See
+  [`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic).
 
 ## Pre-launch hardening (must-do before go-live)
 
