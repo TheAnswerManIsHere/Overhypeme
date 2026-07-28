@@ -40,19 +40,26 @@ import { expect, test, type Page } from "@playwright/test";
 const RESOURCE_LABELS = ["Products", "Prices", "Plans"] as const;
 type ResourceLabel = (typeof RESOURCE_LABELS)[number];
 
+/** Map the human label back to the resource key used in `data-testid`. */
+const RESOURCE_KEYS: Record<ResourceLabel, string> = {
+  Products: "products",
+  Prices: "prices",
+  Plans: "plans",
+};
+
 /**
- * Locate one of the three rows inside the per-resource progress panel by its
- * leading label. Each row in the panel has the unique class signature
- * `flex items-center gap-2 text-xs flex-wrap` and contains a label span
- * (`span.font-medium.w-20`) plus a status text span. We anchor on the label
- * span's exact text to find the row, then read the row's full innerText.
+ * Locate one of the rows inside the per-resource progress panel.
+ *
+ * These used to anchor on Tailwind class signatures — `div.flex.items-center
+ * .gap-2.text-xs.flex-wrap` containing a `span.font-medium.w-20`. That was
+ * brittle by construction and had already silently rotted: the label span is
+ * `w-32` in the page, so the `w-20` filter matched nothing and
+ * `statusTextFor` fell through to its empty-string branch rather than
+ * failing. Anchoring on `data-testid` makes the coupling explicit and makes a
+ * broken locator a hard failure instead of a quiet "".
  */
 function progressRow(page: Page, label: ResourceLabel) {
-  return page
-    .locator("div.flex.items-center.gap-2.text-xs.flex-wrap")
-    .filter({
-      has: page.locator("span.font-medium.w-20", { hasText: new RegExp(`^${label}$`) }),
-    });
+  return page.getByTestId(`sync-row-${RESOURCE_KEYS[label]}`);
 }
 
 async function statusTextFor(page: Page, label: ResourceLabel): Promise<string> {
@@ -131,9 +138,7 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     //    There are TWO badges with this text (top "Stripe Mode" panel + Plans
     //    header). We scope to the precise inner row that holds the badge AND
     //    the Sync button (Plans section only).
-    const plansHeaderRow = page
-      .locator("div.flex.items-center.justify-between.mb-3.flex-wrap")
-      .filter({ has: syncButton });
+    const plansHeaderRow = page.getByTestId("plans-header");
     await expect(plansHeaderRow, "Plans section header row should be present").toHaveCount(1);
     await expect(plansHeaderRow.getByText(/^TEST$/), "Plans header should show TEST badge").toBeVisible();
     await expect(plansHeaderRow.getByText(/^LIVE$/)).toHaveCount(0);
@@ -256,6 +261,72 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
       // Sync button is enabled again.
       await expect(syncButton).toHaveText(/Sync Stripe data/, { timeout: 10_000 });
       await expect(syncButton).toBeEnabled();
+    });
+
+    // ──────────────── THE REGRESSION THIS PR EXISTS FOR ────────────────
+
+    await test.step("a failed sync is still visible after a full page reload", async () => {
+      // The original defect: the panel rendered only while a run was in
+      // flight (`syncing || syncFinalMessage || inProgress`). After a reload
+      // all three are false, so the persisted error was fetched from
+      // /admin/stripe/sync/status and then discarded unrendered — leaving
+      // "N products found · Last synced: …", which reads like success. That
+      // is how a broken Stripe sync stayed hidden through four rounds of
+      // investigation. Reload is the whole point of this assertion; do not
+      // relax it to a re-render.
+      await page.reload();
+
+      const panel = page.getByTestId("sync-progress-panel");
+      await expect(panel, "progress panel must render on load, not only during a run").toBeVisible({
+        timeout: 15_000,
+      });
+
+      // The per-resource row still reports the error, with its message.
+      await expect(progressRow(page, "Plans")).toHaveAttribute("data-status", "error", {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId("sync-row-plans-detail")).toContainText(
+        /Simulated failure for testing/,
+      );
+
+      // And the aggregate line says failed rather than staying quiet.
+      const summary = page.getByTestId("sync-summary");
+      await expect(summary).toHaveAttribute("data-tone", "error");
+      await expect(summary).toContainText(/Last sync failed/i);
+      await expect(summary).toContainText(/plans/i);
+    });
+
+    await test.step("an all-idle status still renders, as the never-synced state", async () => {
+      // readSyncStatus maps over SYNC_RESOURCES and defaults every absent row
+      // to `idle`, so a fresh install returns eight idle resources and no
+      // non-idle one. A gate keyed on "has a non-idle resource" would hide
+      // exactly the state the operator most needs to see.
+      await page.route("**/api/admin/stripe/sync/status", route =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            inProgress: false,
+            startedAt: null,
+            finishedAt: null,
+            durationMs: null,
+            resources: RESOURCE_LABELS.map(label => ({
+              resource: RESOURCE_KEYS[label],
+              status: "idle",
+              lastSyncedAt: null,
+              errorMessage: null,
+              syncedCount: null,
+            })),
+          }),
+        }),
+      );
+      await page.reload();
+
+      await expect(page.getByTestId("sync-progress-panel")).toBeVisible({ timeout: 15_000 });
+      const summary = page.getByTestId("sync-summary");
+      await expect(summary).toHaveAttribute("data-tone", "never");
+      await expect(summary).toContainText(/never synced/i);
+      await page.unroute("**/api/admin/stripe/sync/status");
     });
 
     await context.close();
