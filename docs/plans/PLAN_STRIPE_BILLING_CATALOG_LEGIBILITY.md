@@ -132,17 +132,17 @@ capability booleans (`charges_enabled`, `payouts_enabled`, `details_submitted`)
 for the account the **current secret key** resolves to — plus whether the synced
 catalog belongs to that account (match / mismatch / not-yet-resolved).
 
-Resolved with **no Stripe API call**: `hashApiKey(secretKey)` from
+**Rendering the panel costs no Stripe API call:** `hashApiKey(secretKey)` from
 `stripe-replit-sync`, looked up against `stripe.accounts.api_key_hashes`
 (GIN-indexed, union-appended by the library's `upsertAccount`, so test and live
 keys for one account coexist). This is what makes two Stripe environments
 distinguishable from inside the app — live and test here are genuinely different
-accounts, because the test key is a Sandbox key.
+accounts, because the test key is a Sandbox key. Freshness of the underlying row
+is a separate concern, handled by the per-sync refresh in §2.1 — one call per
+sync, never per page view.
 
 > **Not-yet-resolved is a first-class state, not a spinner.** No account row
 > exists until a sync has run once; render it as an actionable amber "run a sync."
-> Also note `_raw_data` is only refreshed on the library's Stripe-API fallback
-> branch, so the panel labels these fields as *last synced* values, not live ones.
 
 ### 1.3 What customers can actually buy
 
@@ -258,6 +258,56 @@ So the fallback is no longer "serve unfiltered when the hash lookup misses."
 > pricing page is diagnosable at all. Without this, a resolution bug is a silently
 > blank pricing page — the same invisible-failure class this plan exists to fix.
 
+#### 1.6a Resolution is bounded — this endpoint is public
+
+`GET /stripe/plans` has **no auth** (`routes/stripe.ts:32`). Adding a per-request
+DB lookup is fine; adding a *cold-path Stripe call* without bounds is not (Codex
+round 2, P2). The library's `getAccountId()` caches only **after a successful**
+`accounts.retrieve()` and coalesces nothing, so during a new-key/hash-miss window
+every anonymous request would trigger its own retrieve-and-retry — amplifying a
+Stripe outage and burning rate limit. "One API call on a cold path" was true per
+*resolution*, not per *request*, and the plan has to say which.
+
+- **Single-flight.** At most one in-flight resolution per key hash; concurrent
+  requests await the same promise.
+- **Bounded negative cache with backoff.** A failed resolution is remembered for a
+  short TTL so repeated failures serve step 3 without re-calling Stripe. Failure
+  must be as cached as success — caching only success is the bug.
+- **Keyed by mode + key hash, and invalidated by `invalidateStripeSync()`**
+  (`stripeClient.ts:111`), which the mode toggle already calls — so a live/test
+  switch cannot serve the previous mode's resolution.
+- Tests: concurrent cold requests produce **one** Stripe call; repeated failure
+  does not scale calls with request count; a mode switch isolates the two keys'
+  entries.
+
+#### 1.6b The live/test mode transition is a defined state, not a gap
+
+Verified at `routes/admin.ts:2334-2344`: the toggle writes the new mode, calls
+`invalidateStripeSync()`, then calls `runFullSync(sync)` and **discards its return
+value**. `runFullSync` returns `{ alreadyRunning }` — so if any sync already holds
+the in-process lock, the mode has changed and **no target-mode sync is ever
+queued**. The code comment anticipates the *opposite* direction (a manual click
+short-circuiting with 409) but not this one. Adding `_account_id` scoping on top
+of that turns a latent inconsistency into a visible one, so this plan must define
+the transition rather than inherit it:
+
+- **The toggle must not drop the result.** If `runFullSync` reports
+  `alreadyRunning`, the target-mode sync is queued to run when the lock releases,
+  or the toggle fails loudly — never "mode switched, nothing synced."
+- **Admin must not relabel stale rows.** During the window, retained old-mode
+  `plans` are shown as *the previous mode's catalog, pending resync*, never
+  badged as the new mode; and the §1.2 connected-account panel refetches, since
+  the key changed. The operator sees the target run's actual terminal state.
+- **The storefront during the window.** Once the mode flips, the previous
+  account's prices genuinely **must not** be sold — they'd be a dead CTA per the
+  finding above. So an empty target catalog renders the existing "no plans
+  available" state. This is the one case where empty is *correct*, which is why
+  the invariant below is scoped to an *unresolvable account*, not to a
+  legitimately-empty one. It must be brief and visible in admin, never silent.
+- Acceptance: toggle **while a sync is running**, and toggle **into a purged
+  target catalog** — in both, no old-mode offer is ever labelled or sold as
+  current, and admin shows the target run's real terminal state.
+
 ---
 
 ## Phase 2 — Sell every plan in the catalog
@@ -291,11 +341,32 @@ imported from `@/lib/stripePlans`.
   and zero-decimal currencies like JPY at once. Comparing raw minor units across
   them is meaningless — ¥500 vs $5.00 — and a savings badge computed across two
   currencies would assert a discount that doesn't exist. So: the storefront
-  currency is `stripe.accounts.default_currency` (already read for §1.2, and
-  authoritative for the connected account), falling back to `usd` when no account
-  row resolves. Offers are **filtered to that currency**; tagged prices in any
-  other currency are excluded from the customer surfaces and surfaced in §1.3's
-  readout as `wrong_currency`, so they are hidden but never invisible.
+  currency is `stripe.accounts.default_currency`, authoritative for the connected
+  account. Offers are **filtered to that currency**; tagged prices in any other
+  currency are excluded from the customer surfaces and surfaced in §1.3's readout
+  as `wrong_currency`, so they are hidden but never invisible.
+- **How the currency reaches the customer surfaces, and how it stays fresh**
+  (Codex round 2, P1 — reopened 1.5; the previous revision named the *source* and
+  never specified *delivery*, so the public selectors would have had to invent a
+  fallback, and the admin-only summary can't feed them):
+  - **Delivery:** `GET /stripe/plans` returns `storefrontCurrency` alongside
+    `plans`. It is account-level, non-secret, and already implicit in the prices
+    the endpoint returns, so it does not breach the never-echo-a-key rule. Both
+    public consumers — `Pricing.tsx` and `SubscriptionPanel.tsx` — read it from
+    that response; **neither hardcodes a currency**. `selectMembershipOffers`
+    takes it as a parameter rather than reaching for a global, which is also what
+    makes the non-USD unit tests possible.
+  - **Fallback:** `usd`, used **only** when no account row resolves at all, and
+    reported in §1.3 as part of the red "catalog not account-scoped" state so it
+    is never a silent default.
+  - **Refresh:** a hash hit returns early from `getAccountId()` without touching
+    Stripe, so `_raw_data` — and therefore `default_currency` — can stay stale
+    indefinitely. Fix: **each successful sync refreshes the account row** with one
+    `accounts.retrieve()` + `upsertAccount`. One call per sync, not per request,
+    which keeps §1.6a's bound intact; and it makes §1.2's identity panel genuinely
+    current rather than merely last-synced. Acceptance: both public consumers
+    render a non-USD account currency, and observe a change to it after a sync,
+    with no key rotation involved.
 - **Ordering:** ascending monthly-equivalent, one-time last. Deterministic —
   tie-break on price id, never on SQL row order. Since all compared offers now
   share a currency, the comparison is well-defined.
@@ -390,8 +461,14 @@ Phase 1's §1.3 consumed it, leaving Phase 1 with an unimplemented dependency).
 - `stripeStorage.ts` — `getConnectedAccount()` (hash lookup, then the library's
   API fallback per §1.6); `_account_id` filter in `listProductsWithPrices`.
   Imports `hashApiKey` from `stripe-replit-sync`.
-- `routes/stripe.ts` — §1.6's scoped resolution, its own nested try/catch, and the
-  `logger.error` in the previously-bare catch.
+- `routes/stripe.ts` — §1.6's scoped resolution, its own nested try/catch, the
+  `logger.error` in the previously-bare catch, §1.6a's single-flight + bounded
+  negative cache, and the new `storefrontCurrency` field on the response.
+- `routes/admin.ts` (mode toggle, `:2334-2344`) — §1.6b: stop discarding
+  `runFullSync`'s `alreadyRunning` result; queue or fail loudly.
+- `lib/stripeSyncRunner.ts` — refresh the `stripe.accounts` row once per
+  successful sync (§2.1's freshness fix), alongside the existing
+  `cleanStaleAccountData` call.
 - `routes/admin.ts` — extend `/admin/stripe/summary` (`:2543-2596`) with
   `connectedAccount` + `catalogAccountMatch`. **Identity and booleans only —
   never echo a key value**, matching the endpoint's existing `stripeEnv`
@@ -450,6 +527,19 @@ reimplemented. No app database migration.
   `{ plans: [] }`. **A mixed current/stale tagged catalog stays non-blank while
   every offer the page can select is valid for the current account** — the CTA
   finding's acceptance test.
+- **Bounded public resolution (§1.6a):** concurrent cold requests to the
+  unauthenticated `/stripe/plans` produce **one** `accounts.retrieve()`, not one
+  per request; repeated failures do not scale Stripe calls with request count;
+  a live/test switch isolates the two keys' cache entries.
+- **Mode transition (§1.6b):** toggling **while a sync holds the lock** still
+  results in a target-mode sync running (or a loud failure), never a silently
+  switched mode with no resync; toggling **into a purged target catalog** never
+  labels or sells an old-mode offer as current, and admin reports the target
+  run's real terminal state.
+- **Currency delivery and freshness (§2.1):** both public consumers render a
+  non-USD account currency taken from the `/stripe/plans` response rather than a
+  hardcoded default, and observe a change to `default_currency` after a sync with
+  no key rotation involved.
 - **e2e:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts` must still pass
   after re-anchoring, extended two ways: a **failed** sync's error is still visible
   **after a page reload** (the §1.1 regression, driven through the existing
@@ -478,8 +568,13 @@ reimplemented. No app database migration.
   work infers that an untagged product *should* be tagged**, and no surface
   suggests tagging one. The allowlist stays a positive, hand-set signal; a UI that
   nudges an operator toward tagging merch would undermine the whole gate.
-- The public pricing page must not go blank on an unresolvable account, or on any
-  throw inside the new account-resolution path (§1.6).
+- The public pricing page must not go blank **because the account could not be
+  resolved**, or on any throw inside the new account-resolution path (§1.6).
+  Scoped deliberately: an empty *target* catalog immediately after a live/test
+  toggle is a different thing — there the previous account's prices must not be
+  sold, so rendering the existing "no plans available" state is correct, and the
+  requirement is that it be brief and visible in admin (§1.6b), not that it be
+  papered over with stale offers.
 - **No offer the page can select may belong to a different Stripe account** in any
   state where account resolution succeeded — checkout retrieves the price against
   the current account before the membership predicate, so a cross-account price is
