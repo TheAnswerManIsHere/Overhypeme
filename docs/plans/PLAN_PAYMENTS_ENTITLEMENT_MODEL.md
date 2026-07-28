@@ -191,9 +191,13 @@ have no Stripe event to order by at all.
 
 The token is **ours, not Stripe's**:
 
-- Every source row carries `source_state_as_of` — a monotonic value obtained
-  from the **database** (`clock_timestamp()` / a sequence), never a wall clock
-  on the app instance, so multiple instances cannot disagree.
+- Every source row carries `source_state_as_of` — a value from a **database
+  sequence**, never a wall clock on an app instance. **Not `clock_timestamp()`**:
+  two concurrent calls can return the *same* timestamp, and under a "strictly
+  newer" guard that rejects a genuinely newer snapshot and never converges. The
+  guard needs strict uniqueness as well as monotonicity, which only a sequence
+  (or equivalent unique counter) gives. Acceptance includes simultaneous token
+  allocation yielding distinct ordered values.
 - A path that retrieves from Stripe takes the token **at retrieval time**,
   before the transaction, and carries it into the write. Two snapshots of the
   same subscription are then ordered by when they were *observed*, which is the
@@ -231,15 +235,20 @@ intention.
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
-| `granted_by_admin_id`, `grant_reason`, `revoked_by_admin_id`, `revoked_reason` | W1b provenance, admin-grant only |
+| `granted_by_admin_id`, `grant_reason` | W1b grant provenance, admin-grant only |
+| `revoked_by_admin_id`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
 | `created_at`, `updated_at` | |
 
 Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
 null (preserving today's two unique constraints and keeping idempotency);
 `CHECK` that payment-backed rows have a `provider_ref` and admin grants have an
-actor and reason. **No column has a fail-open default** — qualification is
-always written explicitly.
+actor and reason; plus a **status-conditional** `CHECK` requiring
+`revoked_by_admin_id`, `revoked_reason` **and** `revoked_at` on any admin grant
+whose `lifecycle_status = 'revoked'`. Without that second constraint a row could
+reach `revoked` with null provenance, which satisfies the letter of W1b's grant
+clause while defeating its revocation clause. **No column has a fail-open
+default** — qualification is always written explicitly.
 
 **Because the membership tables hold no real data (David, 2026-07-28)**, the
 migration creates the new table, drops the old two, and does **not** need a
@@ -256,9 +265,16 @@ state, no resumable backfill, no downgrade circuit breaker — all of which
 existed solely to protect live members. Existing rows are rebuilt from
 authoritative Stripe state on first reconciliation.
 
-**This assumption is load-bearing and must be re-verified immediately before
-the migration runs**, not just asserted here. If the tables have acquired real
-memberships by then, the staged approach from revision 3 comes back.
+**The migration itself must enforce this, not a human check beforehand.** A
+re-verification performed before running the migration is not atomic with the
+`DROP`: an old app instance can insert a payment row in between, and "the staged
+approach comes back" is a sentence, not an executable fallback.
+
+**Specification:** the migration opens a transaction, asserts the precise
+disposable-row predicate (no `stripe_lifetime_payment` or `stripe_subscription`
+rows outside the known-test set), and **aborts before any DDL** if it fails.
+Acceptance: a concurrent insert, or a non-empty table, leaves both old tables
+and all rows intact.
 
 ### Webhook transaction boundary
 
@@ -274,13 +290,32 @@ for claims lacking a terminal audit row.
 ### Reconciliation
 
 **Reconciles sources, then recomputes** — recomputing from local rows can never
-detect a webhook that never arrived. Enumerates authoritative Stripe
-subscriptions with pagination, deletions, rate limits and partial-failure
-handling; updates source rows; then derives.
+detect a webhook that never arrived.
+
+**Every Stripe-backed source type, not just subscriptions.** Revision 4 said
+"enumerate subscriptions", which leaves a missed one-time checkout, refund or
+dispute permanently unrepairable — a lifetime source could never be created or
+corrected, breaking the same convergence invariant for the *other* half of the
+model. Enumeration covers **subscriptions and one-time payments** (checkout
+sessions / payment intents, plus charges for refunds and disputes), each with
+pagination, deletions, rate limits and partial-failure handling. Acceptance adds
+missed-lifetime-grant and missed-refund fixtures.
 
 Runs on boot plus a schedule. Reports examined / unchanged / upgraded /
 downgraded / ambiguous / failed / skipped. Ambiguous surfaced, never guessed;
 history never deleted. It is also the grace-expiry trigger.
+
+**Bounded downgrades — a permanent runtime guard, not migration scaffolding.**
+Revision 4 dropped this as superseded by the pre-launch scope. That was wrong:
+the no-live-members premise covers the *initial cutover only*, while this
+reconciler runs forever. Once the database is populated, a bad classification, an
+account mismatch, or a broad provider-state error can revoke every member, and
+post-apply counts describe the damage rather than preventing it.
+
+**Specification:** a DB-configured threshold on downgrade / ambiguity / error
+counts, evaluated against the **pre-apply** change set, aborting **before any
+mutation** and leaving the run visibly failed. Acceptance: an over-threshold run
+changes no tiers and reports as failed.
 
 ### Portal configuration (D3)
 
@@ -298,16 +333,24 @@ The four-phase split was premised on migration risk that no longer exists.
 
 - **Phase 1 — the model.** Normalised schema, derivation, locking and the
   ordering token, trust boundary, bounded grace **and its local expiry sweep**,
-  and all 15 mutation sites moved onto it. D1 and D2 close here. Coherent as one
-  change because the schema and its only consumers land together.
-- **Phase 2 — reconciliation and portal.** The Stripe-enumerating reconciler
-  and D3's portal configuration.
+  **and authoritative source refresh for subscriptions and one-time payments**,
+  and all 15 mutation sites moved onto it. D1 and D2 close here.
+- **Phase 2 — scheduling and portal.** The recurring reconciliation cadence and
+  bounded-downgrade thresholds, plus D3's portal configuration.
 
-**Phase 1 must be safe if Phase 2 never lands.** Revision 4 initially put grace
-expiry in Phase 2 and called the gap "known, not broken" — that was wrong.
-Bounded grace whose bound never fires is unbounded access, which is D2 wearing
-a different hat. The expiry sweep is local (no Stripe enumeration needed) and
-moves into Phase 1 with the policy it enforces.
+**Why the refresh moved into Phase 1.** Revision 4 put the local expiry sweep in
+Phase 1 and authoritative refresh in Phase 2, which does not actually close D2:
+the sweep finds rows whose `grace_expires_at` has lapsed, but if
+`invoice.payment_failed` was itself missed, the subscription is still locally
+`active` and **has no grace deadline to find**. Phase 1 would fix "grace never
+expires" while leaving "grace never starts" — the same indefinite access, one
+step earlier. Phase 1 therefore has to be able to discover delinquency from
+Stripe on its own.
+
+**Phase 1 must be safe if Phase 2 never lands** — now genuinely, not
+nominally. It carries the policy, the sweep that expires it, and the refresh
+that starts it. Phase 2 adds cadence and bounds, which improve operational
+safety but are not required for Phase 1's correctness.
 
 **A note on cutover timing.** Request authorization is rebuilt from
 `membership_tier` on every request (`authMiddleware.ts:98-134`,
@@ -414,13 +457,13 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 1 | 1 | Payment proof authority-created | **Resolved** via W1a (branded-type resolution superseded). |
 | 2 | 1 | Serialize per-user mutations | **Resolved** via the round-2 composition fix. |
 | 3 | 1 | Route every tier write centrally | **Resolved** — 15 source-mutation sites enumerated. |
-| 4 | 1 | Backfill from current truth | **Superseded by scope** — no live data to backfill; re-verify before migrating. |
+| 4 | 1 | Backfill from current truth | **Resolved** (supersession overturned in round 4) — the migration now transactionally asserts disposability and aborts before DDL. |
 | 5 | 1 | Terminal audit handling | **Resolved.** |
 | 6 | 1 | Authoritative ingestion | **Resolved** via the unconditional version guard. |
 | 7 | 1 | Automate reconciliation | **Resolved** — sources reconciled before recompute. |
 | 8 | 2 | Retrieval vs lock composition | **Resolved.** |
-| 9 | 2 | Bound automated downgrades | **Superseded by scope** — no live members to protect; reporting retained. |
-| 10 | 2 | Stage classification | **Superseded by scope** — staged rollout removed with the migration risk. |
+| 9 | 2 | Bound automated downgrades | **Resolved** (supersession overturned in round 4) — restored as a permanent runtime guard; the pre-launch premise covered only the cutover, not a reconciler that runs forever. |
+| 10 | 2 | Stage classification | **Resolved** (supersession overturned in round 4) — subsumed by the transactional migration guard above. |
 | 11 | 2 | Reconcile sources before recomputing | **Resolved.** |
 | 12 | 2 | Lifetime-revoke in serialization | **Resolved.** |
 | 13 | 2 | Legendary at admin creation | **Resolved** — David settled it: both admin surfaces become entitlement grants; create-user atomically writes an `admin_grant`. |
@@ -430,9 +473,17 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 17 | 3 | Ship grace expiry with the cutover | **Resolved** — local expiry sweep moved into Phase 1. My "known gap" framing was wrong. |
 | 18 | 3 | Recover the original grace start | **Resolved** — episode start resolved from the earliest unpaid invoice, not the subscription. |
 
+| 19 | 4 | Sequence token, not a clock | **Resolved** — `clock_timestamp()` is not unique under concurrency; a sequence is required. |
+| 20 | 4 | Guard the empty cutover | **Resolved** — migration asserts the predicate transactionally. |
+| 21 | 4 | Reconcile lifetime sources too | **Resolved** — enumeration covers one-time payments, refunds and disputes, not only subscriptions. |
+| 22 | 4 | Restore downgrade bounds | **Resolved** — permanent pre-apply threshold and abort. |
+| 23 | 4 | Move missed-event repair to Phase 1 | **Resolved** — authoritative refresh moves into Phase 1; the sweep alone could not start a grace window that was never opened. |
+| 24 | 4 | Admin revocation provenance | **Resolved** — `revoked_at` plus a status-conditional constraint. |
+
 | Round | Lens |
 |---|---|
 | 1 | Correctness of the derivation model + W1 compliance |
 | 2 | Failure modes of the newly-added machinery |
 | 3 | Implementability — is every mechanism buildable from what the pinned SDK and schema actually expose? |
-| 4 | Whether the pre-launch simplification cut anything load-bearing |
+| 4 | Whether the pre-launch simplification cut anything load-bearing — **it had: two of three supersessions were overturned** |
+| 5 | Post-launch operation: does the model behave correctly once the database is populated and running for months? |
