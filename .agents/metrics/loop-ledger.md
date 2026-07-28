@@ -68,6 +68,7 @@ and a round target would score both backwards.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | [#268](https://github.com/TheAnswerManIsHere/Overhypeme/pull/268) | prose/contract | 8 | 744 | 214 | 18 | 40 | 16 | 19 | 5 | 0 | — | **60%** | — | none | — | ✗ **unadjudicated** | Baseline. Bugfix-mode rework. |
 | 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | — | **27.5%** | — | none | — | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
+| 3 | [#270](https://github.com/TheAnswerManIsHere/Overhypeme/pull/270) | prose/contract | 6 | 1959 | 0 | 16 | 34 | 12 | 18 | 4 | 0 | 0 | **64.7%** | 2.2 | none | none | ✓ **14.7%** (5/34, full population) | First row produced by the mechanism (script over a fully-paginated, attested MCP snapshot), not recalled — the acceptance test for the whole pipeline. `rounds` is 16, not 15: it includes one review event with zero findings that the author's own round-by-round narration missed, exactly the recall-vs-count gap this file exists to close. High propagation share is dominated by defects in subsystems *added mid-loop* (the MCP adapter, the adjudication rubric itself) — the causal test charges those to propagation by design, not because fixes broke pre-existing code. 4 of 5 adjudication disagreements were prop-vs-wrong-fix (both self-inflicted, no effect on the share); the one boundary-crossing disagreement (author: propagation, adjudicator: new ground) makes the author's 64.7% the more self-critical of the two figures (adjudicator's independent share: 61.8%). |
 
 ### Row provenance — read before using these numbers
 
@@ -103,8 +104,17 @@ against, not output of the mechanism it describes.
   denominator; the blind adjudication pass (which classifies against the
   current five-category rubric) is what will produce the corrected split.
 
-**The first row produced by the mechanism**, rather than recalled into it, will
-be this ledger's own implementation PR — computed once it closes and folded
-into whichever PR comes next, per `working-modes.md`'s *"a row is never its own
-dedicated PR"*. Not a dedicated ledger-only PR: that would require its own
-review, whose own close would owe another row, forever.
+**Row 3 is that first row.** PR #270 (this ledger's own implementation PR)
+closed, its row was computed by the mechanism end to end — MCP snapshot →
+`loop-metrics.mjs` → blind adjudication — and folded into the `/document`
+PR that followed, per `working-modes.md`'s *"a row is never its own
+dedicated PR"* rather than as a dedicated ledger-only PR (which would need
+its own review, whose own close would owe another row, forever).
+
+**#268 remains the designated acceptance replay** for the *retrospective*
+rows: if blind adjudication of its 40 findings disagrees with the
+hand-entered classification above beyond 20%, that causal figure gets
+recorded as `unmeasured`, not silently trusted. Row 3's own adjudication
+(14.7% disagreement, well under the gate) is a first proof the pipeline
+works — it is not a substitute for running the replay on rows 1 and 2,
+whose classifications predate the current five-category rubric.

@@ -24,6 +24,23 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
+  row** (PR #270). Both Claude Code and Codex now append a row — mechanical
+  columns machine-derived, judgment columns hand-entered and marked as such —
+  every time a review loop closes, adjudicated over the **full** finding
+  population (not a sample; see `decisions.md` for why the sample was
+  removed). The PR's own 16-round, 34-finding loop produced its own row as
+  the pipeline's first real acceptance test. See
+  [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger).
+  **Open next step:** the ledger's designated acceptance test — a blind
+  adjudication replay of PR #268's 40 findings, checked against its existing
+  retrospective classification — hasn't run yet. Several other process
+  controls (from the plan that produced this ledger) are parked, unbuilt, on
+  the closed-unmerged PR #269; David's call was to resume them one at a time,
+  informed by the ledger's own data (the `pre-open preflight` column is
+  empty precisely because no control measures it yet), after that replay
+  validates the rubric — not before, and not as one combined effort.
 - **Pricing page showed only one upgrade plan** (PR #255). Root cause: the
   page classified a whole Stripe *product* into monthly/annual/lifetime by
   its name (or defaulted to only its cheapest price), which collapses onto
