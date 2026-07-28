@@ -101,9 +101,11 @@ and re-check **each entry's revisit trigger**:
 Single message, five short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
-If the report is substantial, also publish it as an Artifact page (per the
-CLAUDE.md artifact-delivery preference) — the chat message remains the
-canonical copy.
+If the report is substantial, also publish it as an Artifact page — the chat
+message remains the canonical copy. (CLAUDE.md's combined Artifact-delivery
+paragraph this used to cite was retired; only its UAT-specific rule survives,
+under *Every PR ships with a Replit test plan + a UAT*, and it doesn't cover
+maintenance reports. This is now a standalone maintenance-skill rule.)
 
 ## Boundaries
 
