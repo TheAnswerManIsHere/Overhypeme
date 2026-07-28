@@ -158,7 +158,9 @@ the PR back only delays the review that catches things.
    "Docs pending" note, then commit `docs/PR<N>_<FEATURE>_UAT.md` to the **same
    PR before merge** and replace the note with a link. Match the most recent
    surviving `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
-   CLAUDE.md's plan/UAT delivery ritual). A `TEST_RUN` doc only if something
+   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section, which
+   now owns that rule — the combined plan/UAT delivery ritual it used to live in
+   was retired). A `TEST_RUN` doc only if something
    genuinely needs Replit's environment — per
    [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md), it
    is not a default. **This UAT commit lands after round 1 already fired on
