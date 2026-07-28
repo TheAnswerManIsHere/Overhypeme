@@ -203,15 +203,24 @@ The token is **ours, not Stripe's**:
   same subscription are then ordered by when they were *observed*, which is the
   ordering that actually matters — `Subscription.created` cannot provide this
   and neither can `Event.created` for route-side writes.
-- Locally-originated writes (cancel / reactivate / switch-plan, admin
-  grant/revoke) take the token inside the lock: they are authoritative at the
-  moment they execute.
+- **Admin** writes (grant / revoke) take the token inside the lock: they
+  originate locally and are authoritative when they execute.
+- **Stripe-mutating routes do not write provider state at all.** Cancel,
+  reactivate and switch-plan (`routes/stripe.ts:419-425`, `:474-480`,
+  `:634-643`) each complete their Stripe call *before* their local write, so a
+  token minted after the lock orders **database application, not provider
+  state**: a stalled route response can acquire the lock after a newer webhook
+  has stored `canceled`, mint the highest token, and overwrite it with stale
+  `active`. Instead, after mutating Stripe these routes invoke the **same
+  authoritative-refresh path the webhook uses** — retrieve current state, take
+  the token at retrieval, apply under the guard. That removes the special case
+  rather than trying to order it.
 - Inside the lock, a write whose token is not strictly newer than the stored
   `source_state_as_of` is rejected.
 
 **Acceptance:** two retrievals of one subscription applied in reverse order
-leave the newer state stored; a route-side write concurrent with a webhook
-write converges; an older snapshot can never win.
+leave the newer state stored; **a delayed route response applied after a newer
+webhook does not resurrect stale state**; an older snapshot can never win.
 
 ### Schema
 
@@ -269,11 +278,18 @@ re-verification performed before running the migration is not atomic with the
 `DROP`: an old app instance can insert a payment row in between, and "the staged
 approach comes back" is a sentence, not an executable fallback.
 
-**Specification:** the migration opens a transaction, asserts the precise
-disposable-row predicate (no `stripe_lifetime_payment` or `stripe_subscription`
-rows outside the known-test set), and **aborts before any DDL** if it fails.
-Acceptance: a concurrent insert, or a non-empty table, leaves both old tables
-and all rows intact.
+**A transaction alone is not enough.** Migrations run under an ordinary
+`BEGIN` (`lib/db/src/migrate.ts:161`), and the advisory lock around them
+serializes *migration runners*, not application inserts — so an old instance can
+insert and commit after the assertion and before `DROP TABLE` takes its own
+lock, losing a real payment row while the check reports success.
+
+**Specification:** the migration takes an explicit `ACCESS EXCLUSIVE` lock on
+**both** old tables *before* evaluating the predicate, so no insert can
+interleave between the check and the `DROP`; asserts the disposable-row
+predicate; and **aborts before any DDL** if it fails. Acceptance: a
+barrier-tested insert racing the check/drop either blocks or fails, and in the
+non-empty case both old tables and all rows survive intact.
 
 ### Webhook transaction boundary
 
@@ -325,44 +341,48 @@ absent rather than falling back to the default. Deployment verification
 retrieves it and confirms its feature/product allowlist. Recommend disabling
 plan switching outright rather than restricting the price list.
 
-## Phasing
+## Phasing — collapsed to one model PR plus portal
 
-The four-phase split was premised on migration risk that no longer exists.
-**Two PRs:**
+**Three consecutive review rounds found the same class of defect**: something
+Phase 1 needed had been left in Phase 2, so its stated "safe if Phase 2 never
+lands" condition was false. Round 3 found the grace policy without an expiry
+trigger. Round 4 found the expiry trigger with nothing to fire on, because the
+refresh that opens a grace window was deferred. Round 5 found the refresh
+present but **boot-only**, and the downgrade guard still deferred.
 
-- **Phase 1 — the model.** Normalised schema, derivation, locking and the
-  ordering token, trust boundary, bounded grace **and its local expiry sweep**,
-  **and authoritative source refresh for subscriptions and one-time payments**,
-  and all 15 mutation sites moved onto it. D1 and D2 close here.
-- **Phase 2 — scheduling and portal.** The recurring reconciliation cadence and
-  bounded-downgrade thresholds, plus D3's portal configuration.
+Each time I moved one component earlier and re-asserted the claim. The pattern
+is the diagnosis: **the split was drawn in the wrong place.** Everything Phase 2
+held turns out to be load-bearing for Phase 1's correctness — the recurring
+cadence (a long-lived process never re-checks without it) and the
+bounded-downgrade guard (Phase 1's own refresh can mass-revoke on a restart).
 
-**Why the refresh moved into Phase 1.** Revision 4 put the local expiry sweep in
-Phase 1 and authoritative refresh in Phase 2, which does not actually close D2:
-the sweep finds rows whose `grace_expires_at` has lapsed, but if
-`invoice.payment_failed` was itself missed, the subscription is still locally
-`active` and **has no grace deadline to find**. Phase 1 would fix "grace never
-expires" while leaving "grace never starts" — the same indefinite access, one
-step earlier. Phase 1 therefore has to be able to discover delinquency from
-Stripe on its own.
+**So it ships as one model PR, plus one small independent PR:**
 
-**Phase 1 must be safe if Phase 2 never lands** — now genuinely, not
-nominally. It carries the policy, the sweep that expires it, and the refresh
-that starts it. Phase 2 adds cadence and bounds, which improve operational
-safety but are not required for Phase 1's correctness.
+- **The model PR.** Normalised schema and migration, derivation, locking and the
+  sequence token, trust boundary, bounded grace with its expiry sweep,
+  authoritative source refresh **with its recurring cadence**, the
+  **bounded-downgrade guard around every mutating refresh**, and all 15 mutation
+  sites moved onto it. D1 and D2 close here.
+- **Portal configuration.** D3 — genuinely independent of the entitlement
+  model, touching only `billingPortal.sessions.create` and a provisioning
+  script. Safe in either order.
 
-**A note on cutover timing.** Request authorization is rebuilt from
+The guard ships with the first mutating refresh, not after it: a boot-time
+refresh on a populated database is exactly the mass-revocation risk the guard
+exists to bound, and shipping them apart recreates the defect in a new place.
+
+**A note on why this is not simply "one big PR".** The diff is large, but it is
+one coherent change — a derived value and every writer of it — and the review
+rounds have shown that carving it produces *incorrect* intermediate states
+rather than smaller safe ones. Given no live data, a single cutover is also
+cheaper to verify than a sequence of partial ones.
+
+**A note on request authorization.** Authorization is rebuilt from
 `membership_tier` on every request (`authMiddleware.ts:98-134`,
-`tierMiddleware.ts:69-84`), so there is no such thing as wiring derivation "for
-reads only" — the moment derivation feeds that path, effective access changes.
-The two-phase split avoids this by never staging a read-only phase. If one is
-ever reintroduced, it must be **shadow comparison only**, logging derived-vs-
-stored while authorization continues to use the stored tier, with a test
-asserting request authorization is unchanged.
-
-D1 no longer ships standalone ahead of these (David's earlier call): with the
-disclosure split closed and no real customers, its urgency was the reason for
-separating it, and both premises are gone. It lands in Phase 1.
+`tierMiddleware.ts:69-84`), so the cutover is instantaneous at deploy. Any
+future attempt to stage this must be **shadow comparison only** — logging
+derived-vs-stored while authorization continues to use the stored tier — with a
+test asserting request authorization is unchanged.
 
 ## Admin grants replace admin tier-setting (David, 2026-07-28)
 
@@ -478,6 +498,10 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 22 | 4 | Restore downgrade bounds | **Resolved** — permanent pre-apply threshold and abort. |
 | 23 | 4 | Move missed-event repair to Phase 1 | **Resolved** — authoritative refresh moves into Phase 1; the sweep alone could not start a grace window that was never opened. |
 | 24 | 4 | Admin revocation provenance | **Resolved** — `revoked_at` plus a status-conditional constraint. |
+| 25 | 5 | Schedule authoritative refresh in Phase 1 | **Resolved** — phasing collapsed; cadence ships with the model. |
+| 26 | 5 | Downgrade bounds around every refresh | **Resolved** — the guard ships with the first mutating refresh. |
+| 27 | 5 | Lock source tables before the disposability check | **Resolved** — explicit `ACCESS EXCLUSIVE` lock on both tables before the predicate; an ordinary `BEGIN` does not block application inserts. |
+| 28 | 5 | Route tokens minted after provider I/O | **Resolved** — Stripe-mutating routes stop writing provider state and go through the authoritative-refresh path instead. |
 
 | Round | Lens |
 |---|---|
@@ -485,4 +509,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 2 | Failure modes of the newly-added machinery |
 | 3 | Implementability — is every mechanism buildable from what the pinned SDK and schema actually expose? |
 | 4 | Whether the pre-launch simplification cut anything load-bearing — **it had: two of three supersessions were overturned** |
-| 5 | Post-launch operation: does the model behave correctly once the database is populated and running for months? |
+| 5 | Phase-boundary safety as a state space — **found the boundary wrong for the third time; the split has been removed** |
+| 6 | The collapsed single-PR shape: does removing the boundary introduce anything the split was accidentally protecting? |
