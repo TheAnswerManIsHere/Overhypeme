@@ -172,10 +172,13 @@ commit `07983fa` on branch `plan-review/stripe-billing-catalog-legibility`.
    holds the in-process lock, `alreadyRunning` comes back, is dropped, and no
    target-mode sync is ever queued. A pre-check on `isSyncRunning()` does not
    fix it — that's a read, and the config write is an `await`, so a sync can
-   take the lock in between. **Sharpened by the audit:** the call is also not
-   `await`ed, so a rejection escapes the enclosing `try/catch` as an unhandled
-   rejection — the error handler whose log line reads *"Stripe full sync error
-   after mode toggle"* cannot fire.
+   take the lock in between. **Sharpened by the audit, corrected in round 2 of
+   PR #278's review:** the call is also not `await`ed, but this does **not**
+   produce an unhandled rejection — `runFullSync` is synchronous and its
+   actual work runs in a `void` async IIFE that swallows and logs its own
+   failures internally, so it can never reject and the enclosing `try/catch`
+   was never at risk. See the findings doc's Finding 7 for the corrected
+   mechanism.
 
 8. **The admin Billing page classifies prices with no membership filter**
    (`billing.tsx:480-483`), and the Setup Checklist's *"Membership prices
