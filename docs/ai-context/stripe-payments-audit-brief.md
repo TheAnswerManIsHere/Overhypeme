@@ -9,6 +9,13 @@
 > **Read this first, then read the code.** Everything below marked **verified**
 > was read in the source at the cited line; everything marked **unexamined** is
 > honest ignorance, not a clean bill of health.
+>
+> **The audit this brief commissioned has since run.** Its results are in
+> [`stripe-payments-audit-findings.md`](./stripe-payments-audit-findings.md).
+> **Read the findings first** — they correct five things below, listed in that
+> document's *Corrections to the brief* section and flagged inline here. This
+> brief remains useful as the scope map and the history; it is no longer the
+> current picture of risk.
 
 ---
 
@@ -165,7 +172,13 @@ commit `07983fa` on branch `plan-review/stripe-billing-catalog-legibility`.
    holds the in-process lock, `alreadyRunning` comes back, is dropped, and no
    target-mode sync is ever queued. A pre-check on `isSyncRunning()` does not
    fix it — that's a read, and the config write is an `await`, so a sync can
-   take the lock in between.
+   take the lock in between. **Sharpened by the audit, corrected in round 2 of
+   PR #278's review:** the call is also not `await`ed, but this does **not**
+   produce an unhandled rejection — `runFullSync` is synchronous and its
+   actual work runs in a `void` async IIFE that swallows and logs its own
+   failures internally, so it can never reject and the enclosing `try/catch`
+   was never at risk. See the findings doc's Finding 7 for the corrected
+   mechanism.
 
 8. **The admin Billing page classifies prices with no membership filter**
    (`billing.tsx:480-483`), and the Setup Checklist's *"Membership prices
@@ -205,9 +218,12 @@ not findings.
    that races the webhook for the same purchase. Both can grant. Is that
    idempotent, and does it converge if they interleave?
 
-3. **`GET /stripe/invoice/:invoiceId/receipt` (`:222`).** An id in the path
+3. ~~**`GET /stripe/invoice/:invoiceId/receipt` (`:222`).** An id in the path
    returning a financial document. **Verify the ownership check** — this is the
-   classic IDOR shape.
+   classic IDOR shape.~~ **Resolved by the audit — not a defect.**
+   `receiptHandler.ts:29-49` compares the invoice's customer against the
+   caller's `stripeCustomerId` and returns 403 on mismatch. This item was
+   over-ranked at #3.
 
 4. **`POST /stripe/portal` (`:344`).** The Stripe Customer Portal can let users
    cancel, switch plans, and update payment methods *outside* our flows,
@@ -226,6 +242,10 @@ not findings.
 
 7. **Refunds and disputes.** There is an admin page (`admin/refundsDisputes.tsx`)
    and none of it was examined. Does a refund or chargeback revoke Legendary?
+   **Partly answered by the audit.** The webhook side is not a void —
+   `handleChargeRefunded:321` plus four dispute handlers exist and a refund
+   *does* revoke. The real defect is that it revokes too eagerly: see finding 2
+   in the findings doc. The admin page remains unread.
 
 8. **Money handling generally.** Currency is stored per price but no code path
    reviewed treats it as meaningful. Proration on plan switch. Tax — is any
@@ -237,6 +257,11 @@ not findings.
    (`api-server/src/index.ts:72`) and owns the entire `stripe.*` schema. It is
    not in our repo and not covered by our tests. Who maintains it? What is the
    upgrade story? A migration it ships runs against production automatically.
+   **Re-ranked #1 by the audit.** This is understated at #9: the package also
+   performs the *only* webhook signature verification
+   (`webhookHandlers.ts:1122` delegates to `sync.processWebhook`), so the trust
+   boundary gating every membership grant lives inside it. Still the largest
+   unexamined area.
 
 10. **Test coverage gaps.** `Pricing.tsx` and `SubscriptionPanel.tsx` have **no
     component tests**. No e2e covers the customer `/pricing` page at all. The
