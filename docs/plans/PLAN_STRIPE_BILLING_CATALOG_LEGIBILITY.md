@@ -306,14 +306,32 @@ the transition rather than inherit it:
   **before** `runFullSync` can report `alreadyRunning` at `:2340`, so returning an
   error afterward still leaves the forbidden "mode switched, nothing synced"
   state. An error that doesn't undo the write isn't a contract.)*
-  The route checks `isSyncRunning()` **before writing the config row**, and if a
-  sync holds the lock it rejects with `409` and changes nothing — persisted mode
-  unchanged, no partial transition to reason about. Chosen over the queue
-  alternative deliberately: queuing means new coalescing machinery in the sync
-  runner (what happens on two toggles before the lock frees?) for an admin-only
-  action taken rarely, where "a sync is running, try again in a moment" is a fine
-  answer. The test asserts the **persisted mode is unchanged** and no sync was
-  started — not "either outcome is acceptable."
+  The route **reserves the sync lock**, then writes the config row, then starts
+  the target-mode sync, then releases — rejecting with `409` if the lock is
+  already held.
+
+  > **A pre-check is not a reservation** *(Codex round 4, P1 — reconciliation;
+  > my round-3 fix was still racy).* I first specified "check `isSyncRunning()`
+  > before writing the config row," which reads as safe and isn't: the config
+  > write is an `await` against the database, so `POST /admin/stripe/sync` can
+  > acquire the runner lock in that window. The toggle then commits, its
+  > `runFullSync` returns `alreadyRunning`, and we land in the same forbidden
+  > "mode switched, nothing synced" state by a narrower path. The test I wrote
+  > would not have caught it — it holds the lock *before* the check, which is
+  > the easy case.
+  >
+  > So the lock is **acquired**, not sampled, and held across validation → mode
+  > write → target-sync start. That requires a small addition to
+  > `stripeSyncRunner`'s lock (a way to reserve it without running resources)
+  > rather than reusing `isSyncRunning()`, which is a read.
+
+  Chosen over the queue alternative deliberately: queuing means coalescing
+  semantics across repeated toggles, for an admin-only action taken rarely, where
+  "a sync is running, try again in a moment" is a fine answer.
+
+  The test starts a sync **between the check and the write** — the interleaving,
+  not just the held-lock case — and asserts the **persisted mode is unchanged**
+  and no sync started. Not "either outcome is acceptable."
 - **Admin must not relabel stale rows.** During the window, retained old-mode
   `plans` are shown as *the previous mode's catalog, pending resync*, never
   badged as the new mode; and the §1.2 connected-account panel refetches, since
@@ -392,11 +410,28 @@ imported from `@/lib/stripePlans`.
     eight rows show green while the currency and identity panel silently went
     stale — precisely the invisible-failure class this plan exists to remove,
     reintroduced by my own fix. So the refresh gets **its own persisted status**,
-    written through the existing `upsertResourceStatus` path so it renders in the
-    §1.1 panel like any other resource, with its `error_message` shown and an
-    actionable "re-run sync." It is **not** a `SyncResource` that gates the
-    catalog — a stale account row must not fail an otherwise-good catalog sync —
-    but it can never be invisible.
+    rendered in the §1.1 panel with its `error_message` and an actionable
+    "re-run sync."
+
+    **How that is actually reachable** *(Codex round 4, P1 — reconciliation; my
+    round-3 wording was unimplementable as written).* I said "written through
+    `upsertResourceStatus`, but not a `SyncResource`," which contradicts itself:
+    that helper's parameter *is* `SyncResource`, and `readSyncStatus` builds its
+    response by mapping `SYNC_RESOURCES` (`stripeSyncRunner.ts:537-549`), so a
+    non-member can neither be written nor read. Concretely instead:
+
+    - Add `"account"` as a **status-only** resource key: a new
+      `STATUS_RESOURCES = [...SYNC_RESOURCES, "account"]` used by
+      `readSyncStatus`'s map and by `upsertResourceStatus`'s parameter type.
+    - `SYNC_RESOURCES` is **unchanged**, so nothing in `runWithResources`,
+      `RESOURCE_TABLES`, or `readSyncedCounts` gains a member — the account
+      refresh still cannot gate or fail the catalog run.
+    - `RESOURCE_DISPLAY_ORDER` in `billing.tsx` gains the row, rendered last.
+    - `syncedCount` is `null` for it, which the existing label ladder already
+      handles.
+
+    Test: a forced refresh failure is readable in the panel **after a reload**,
+    while the eight catalog resources still report their own true states.
   - Acceptance: both public consumers render a non-USD account currency and
     observe a change to it after a sync, with no key rotation involved; and a
     **forced refresh failure** leaves the run visibly non-green with the error
@@ -496,6 +531,28 @@ and the `unit_amount: 0` guard, both noted above. `SubscriptionPanel.tsx`'s
 locally re-declared `PlanPrice`/`PlanProduct` (`:45-58`) are replaced with the
 shared types from `@/lib/stripePlans`, which they duplicate structurally today.
 
+**The backend must change with it — the picker is not a frontend-only change**
+*(Codex round 4, P1 — reconciliation; my §2.4 rewrite specified the UI and left
+the endpoints it calls untouched).* Verified at `routes/stripe.ts:622-626`:
+`switch-plan` enforces `currentSwitchInterval !== "month"` → 400 *"Plan switches
+are only supported from monthly to annual billing"*, and `switch-preview` carries
+the same rule. So a member picking quarterly gets rejected by the server, and a
+member already on quarterly or annual can't use the flow at all even when a
+cheaper eligible offer exists. Shipping the picker without this would be a UI
+that offers choices the backend refuses — a dead CTA again, in a new place.
+
+So Phase 2 also:
+
+- Replaces the hardcoded month→year rule in **both** `switch-preview` and
+  `switch-plan` with the **same eligibility rule §2.4 uses**, enforced
+  server-side rather than trusted from the client — the frontend list is a
+  convenience, the server is the gate.
+- Updates the persisted plan value, which is currently hardcoded to `annual`, to
+  reflect the actual target cadence.
+- Adds `routes/stripe.ts` to the Phase 2 file list (it was omitted).
+- Tests **every picker cadence against both endpoints**, not just the monthly →
+  annual path that works today.
+
 Fixture: a monthly + quarterly + annual catalog asserts the exact offer ids
 listed, their order, and that the member's current price is absent.
 
@@ -533,13 +590,6 @@ Phase 1's §1.3 consumed it, leaving Phase 1 with an unimplemented dependency).
   Imports `hashApiKey` from `stripe-replit-sync`. Test asserts the split
   directly: a hash miss on the summary route makes zero Stripe calls while the
   same miss on `/stripe/plans` escalates.
-- `artifacts/overhype-me/src/lib/formatMoney.ts` + `.test.ts` — **currency-minor-
-  unit formatter** *(Codex round 3, P2)*. `Pricing.tsx:132-134` and
-  `subscriptionHelpers.ts:33-35` both divide `unit_amount` by 100, so the JPY this
-  plan explicitly admits into its fixtures would render ¥500 as **¥5**. One shared
-  exponent-aware formatter, used by both consumers, with an exact zero-decimal
-  assertion — the mixed-currency ordering fixture does not cover display, and a
-  EUR-only acceptance test would pass straight through this bug.
 - `routes/stripe.ts` — §1.6's scoped resolution, its own nested try/catch, the
   `logger.error` in the previously-bare catch, §1.6a's single-flight + bounded
   negative cache, and the new `storefrontCurrency` field on the response.
@@ -570,8 +620,23 @@ comparison baseline), `pages/Pricing.tsx`, `SubscriptionPanel.tsx`. Phase 1 ship
   `components/subscriptionHelpers.ts` — migrated onto `membershipOffers.ts`.
 - `pages/pricingPlans.ts` + `.test.ts` — deleted; cases ported into
   `membershipOffers.test.ts` (§2.1).
+- **`routes/stripe.ts`** — `switch-preview` and `switch-plan`: replace the
+  hardcoded month→year rule with §2.4's eligibility rule enforced server-side,
+  and persist the real target cadence instead of a hardcoded `annual`. Omitted
+  from the first draft of this list (Codex round 4).
+- **`lib/formatMoney.ts` + `.test.ts`** — the exponent-aware currency formatter
+  (Codex round 3, P2): `Pricing.tsx:132-134` and `subscriptionHelpers.ts:33-35`
+  both divide `unit_amount` by 100, so a JPY price of 500 renders as **¥5**. One
+  shared formatter for both consumers, with an exact zero-decimal assertion —
+  the mixed-currency ordering fixture doesn't cover display, and a EUR-only test
+  passes straight through the bug. **Here rather than Phase 1** (Codex round 4):
+  currency is only observable once the page filters by it.
+- **`storefrontCurrency` end-to-end** — the `/stripe/plans` field, its use in
+  `selectMembershipOffers`, and `wrong_currency` in the admin readout. All three
+  land together; see the Sequencing note.
 - `pages/admin/stripeHealth.ts` + `.test.ts` — the `unrenderable` branch and its
-  test case removed, since nothing is dropped any more.
+  test case removed, since nothing is dropped any more; `wrong_currency` **added
+  here**, alongside the filtering that makes it accurate.
 
 **Not touched:** `membershipPricing.ts`, `membershipGrant.ts`,
 `webhookHandlers.ts`, and the grant layer. The allowlist is reused, never
@@ -679,9 +744,32 @@ reimplemented. No app database migration.
 
    | PR | Contents | Why separable |
    |---|---|---|
-   | **Phase 1** | §1.1-1.5 admin legibility, plus §1.6's `_account_id` filter and resolution escalation (§1.6 steps 1-3) | The customer-harm fix — the dead CTA — ships first and reviews as one unit. |
-   | **Phase 1b** | §1.6a bounded resolution, §1.6b mode transition | Both are hardening of a path Phase 1 establishes; neither changes what the catalog contains. Reviewable against a stable base. |
-   | **Phase 2** | §2.1-2.4 offer model and customer surfaces | Unchanged. |
+   | **Phase 1** | §1.1-1.5 admin legibility, plus **all of §1.6 including §1.6a** — the `_account_id` filter, resolution escalation, *and* the bounds on it | The customer-harm fix — the dead CTA — ships first and reviews as one unit. |
+   | **Phase 1b** | §1.6b mode transition only | Purely the admin toggle route; touches no public path and nothing the catalog contains. |
+   | **Phase 2** | §2.1-2.4 offer model and customer surfaces, **plus all currency behavior** | Unchanged in substance; currency moved in — see below. |
+
+   > **Two corrections to my first cut of this split (Codex round 4).** Both were
+   > cases where the phase boundary sliced through coupled behavior, which is
+   > worse than not splitting at all:
+   >
+   > **§1.6a must ship with the fallback it bounds.** My first cut put the
+   > unauthenticated API fallback in Phase 1 and its single-flight/deadline/
+   > negative-cache in Phase 1b. That is precisely the unbounded-amplification
+   > defect §1.6a exists to prevent, shipped deliberately and left live between
+   > two PRs. A bound is not hardening you add later; it is part of the thing.
+   > (It also contradicted the Files section, which had already assigned the
+   > bounds to Phase 1.) §1.6b stays separable because it is confined to the
+   > admin toggle route.
+   >
+   > **All currency behavior moves to Phase 2.** Phase 1's health readout cannot
+   > honestly report `wrong_currency` while Phase 1 leaves `Pricing.tsx` on
+   > `selectPlanPrices`, which reads no `storefrontCurrency` and applies no
+   > currency filter — admin would say "hidden" about a price the page can still
+   > sell. **Phase 1's classification must mirror what the current selector
+   > actually does**, so `wrong_currency` and `storefrontCurrency` both arrive in
+   > Phase 2 alongside the filtering that makes them true. Acceptance for Phase 1
+   > is that admin's displayed price ids and the customer page's agree exactly on
+   > a mixed-currency fixture.
 
    All on Opus (payments-adjacent). Phase 1 carries a UAT with a customer-facing
    check, because §1.6 stays in it. Phase 1b's behavior is operational rather than
