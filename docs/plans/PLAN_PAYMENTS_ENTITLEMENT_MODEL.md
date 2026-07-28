@@ -169,9 +169,20 @@ delivered still yields the original deadline, not a fresh window.
 **Grace expiry needs its own trigger** — no Stripe event fires when a deadline
 lapses. This is a **local** scheduled sweep (rows where
 `grace_expires_at < now()`, recompute), independent of Stripe enumeration, and
-it ships in **Phase 1 with the policy it enforces**. Deferring it to the
-reconciliation phase would leave bounded grace unbounded in the interim, which
-is the same indefinite-access defect this plan exists to close.
+it ships with the policy it enforces.
+
+**The cadence is part of the policy, not an implementation detail.**
+Authorization reads the *stored* `membership_tier` (`authMiddleware.ts:98-134`,
+`tierMiddleware.ts:69-84`), so a deadline passing revokes nothing until the
+sweep runs. "Plus a schedule" would let an implementation satisfy this plan
+while granting access materially beyond the settled 14 days.
+
+**Specification:** the sweep runs **hourly**, with bounded retry on failure and
+a surfaced alert if it has not completed successfully within **six hours**. The
+guarantee is therefore *revocation within 14 days plus at most one sweep
+interval*, and that is the number to state to David rather than a bare "14
+days". Acceptance: advance a fake clock past the deadline with no Stripe event
+and assert revocation inside the stated bound.
 
 ### Concurrency
 
@@ -259,37 +270,60 @@ reach `revoked` with null provenance, which satisfies the letter of W1b's grant
 clause while defeating its revocation clause. **No column has a fail-open
 default** — qualification is always written explicitly.
 
-**Because the membership tables hold no real data (David, 2026-07-28)**, the
-migration creates the new table, drops the old two, and does **not** need a
-dual-write boundary, a row-by-row mapping, or a resumable backfill. Rows are
-rebuilt from authoritative Stripe state on first reconciliation.
+**Because the membership tables hold no real data (David, 2026-07-28)**, no
+dual-write boundary, row-by-row mapping or resumable backfill is needed. Rows
+are rebuilt from authoritative Stripe state on first reconciliation.
 
 Note what this does **not** remove: the reconciler's bounded-downgrade guard is
 a permanent runtime control, not migration scaffolding, and is specified under
 *Reconciliation*. An earlier revision listed it here among things the
 pre-launch scope made unnecessary — that was wrong, and round 4 caught it.
 
-**Rollback** is symmetric: recreate the two old tables from the snapshot
-validator's prior state. This is only safe while the disposability assumption
-holds.
+#### The drop is a separate deploy — expand/contract, not create-and-drop
 
-**The migration itself must enforce this, not a human check beforehand.** A
-re-verification performed before running the migration is not atomic with the
-`DROP`: an old app instance can insert a payment row in between, and "the staged
-approach comes back" is a sentence, not an executable fallback.
+`.replit` sets `deploymentTarget = "autoscale"`, so **old and new instances
+overlap during a rollout**, and the new process runs `runMigrations()` before
+it listens (`index.ts:265-272`). Dropping the old tables in the same deploy
+means every still-serving old instance starts querying missing relations. The
+`ACCESS EXCLUSIVE` lock prevents interleaving only *until the migration
+commits*; it does nothing for the overlap that follows.
 
-**A transaction alone is not enough.** Migrations run under an ordinary
-`BEGIN` (`lib/db/src/migrate.ts:161`), and the advisory lock around them
-serializes *migration runners*, not application inserts — so an old instance can
-insert and commit after the assertion and before `DROP TABLE` takes its own
-lock, losing a real payment row while the check reports success.
+This is the one thing the discarded phase split was accidentally protecting,
+and it needs to come back — but as **schema** staging, not feature staging:
 
-**Specification:** the migration takes an explicit `ACCESS EXCLUSIVE` lock on
-**both** old tables *before* evaluating the predicate, so no insert can
-interleave between the check and the `DROP`; asserts the disposable-row
-predicate; and **aborts before any DDL** if it fails. Acceptance: a
-barrier-tested insert racing the check/drop either blocks or fails, and in the
-non-empty case both old tables and all rows survive intact.
+1. **Expand (the model PR).** Create `membership_entitlements`, populate it,
+   move all code onto it. **The old two tables are left in place and
+   untouched.** Old instances keep serving against them for the length of the
+   rollout; new instances read and write only the new table.
+2. **Contract (a later, trivial deploy).** Drop `subscriptions` and
+   `lifetime_entitlements` once no instance references them. This is where the
+   disposability predicate and its `ACCESS EXCLUSIVE` lock apply — and by then
+   the tables are genuinely dead, not merely believed to be.
+
+**Acceptance:** an old request and an old webhook delivered across the cutover
+must neither fail nor lose their write.
+
+#### Rollback is roll-forward-only, with an executable precondition
+
+`lib/db/scripts/validate-migration-snapshots.ts` describes **DDL, not table
+contents**, so "recreate the old tables from the prior snapshot" was never a
+data rollback — an earlier revision claimed it was, and that was wrong. Any
+entitlement created after cutover lives only in the new table and would be
+stranded by reverting the binary.
+
+**Specification:** the migration is **roll-forward-only**. Reverting requires an
+executable precondition that **aborts if any post-cutover row exists** in
+`membership_entitlements`, and a documented recovery for when it does:
+
+- **Stripe-backed sources** (subscription, lifetime payment) are rebuilt by
+  re-running reconciliation — they are derivable from the provider.
+- **`admin_grant` rows are not derivable from Stripe**, which is what makes
+  them the dangerous case. They are recoverable from `membership_history`,
+  which is append-only and records the grant with its `performedByAdminId`.
+  The recovery procedure re-grants from that trail rather than guessing.
+
+**Acceptance:** create each source type after cutover and prove the documented
+recovery preserves both the entitlement and the derived tier.
 
 ### Webhook transaction boundary
 
@@ -502,6 +536,9 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 26 | 5 | Downgrade bounds around every refresh | **Resolved** — the guard ships with the first mutating refresh. |
 | 27 | 5 | Lock source tables before the disposability check | **Resolved** — explicit `ACCESS EXCLUSIVE` lock on both tables before the predicate; an ordinary `BEGIN` does not block application inserts. |
 | 28 | 5 | Route tokens minted after provider I/O | **Resolved** — Stripe-mutating routes stop writing provider state and go through the authoritative-refresh path instead. |
+| 29 | 6 | Schema compatibility during the deploy cutover | **Resolved** — expand/contract: the drop moves to a later deploy. `autoscale` overlaps instances, so create-and-drop in one deploy breaks every old instance still serving. **This is what the phase split was accidentally protecting.** |
+| 30 | 6 | Rollback strands post-cutover entitlements | **Resolved** — roll-forward-only with an executable precondition; recovery rebuilds Stripe-backed sources from the provider and `admin_grant` rows from `membership_history`. The snapshot validator covers DDL, not contents; my "symmetric rollback" claim was wrong. |
+| 31 | 6 | Grace-expiry latency bound undefined | **Resolved** — hourly sweep, six-hour alert threshold; the guarantee is 14 days *plus at most one sweep interval*. |
 
 | Round | Lens |
 |---|---|
@@ -510,4 +547,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 3 | Implementability — is every mechanism buildable from what the pinned SDK and schema actually expose? |
 | 4 | Whether the pre-launch simplification cut anything load-bearing — **it had: two of three supersessions were overturned** |
 | 5 | Phase-boundary safety as a state space — **found the boundary wrong for the third time; the split has been removed** |
-| 6 | The collapsed single-PR shape: does removing the boundary introduce anything the split was accidentally protecting? |
+| 6 | The collapsed single-PR shape — **it did: deploy-time schema compatibility, which returns as expand/contract staging** |
+| 7 | The recovery procedures themselves: are the documented rollback and reconciliation paths actually executable, or do they assume state they cannot guarantee? |
