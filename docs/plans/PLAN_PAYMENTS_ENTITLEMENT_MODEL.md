@@ -255,15 +255,14 @@ migration creates the new table, drops the old two, and does **not** need a
 dual-write boundary, a row-by-row mapping, or a resumable backfill. Rows are
 rebuilt from authoritative Stripe state on first reconciliation.
 
+Note what this does **not** remove: the reconciler's bounded-downgrade guard is
+a permanent runtime control, not migration scaffolding, and is specified under
+*Reconciliation*. An earlier revision listed it here among things the
+pre-launch scope made unnecessary — that was wrong, and round 4 caught it.
+
 **Rollback** is symmetric: recreate the two old tables from the snapshot
 validator's prior state. This is only safe while the disposability assumption
 holds.
-
-**Because the membership tables hold no real data (David, 2026-07-28), this is
-an ordinary migration.** No staged rollout, no three-valued classification
-state, no resumable backfill, no downgrade circuit breaker — all of which
-existed solely to protect live members. Existing rows are rebuilt from
-authoritative Stripe state on first reconciliation.
 
 **The migration itself must enforce this, not a human check beforehand.** A
 re-verification performed before running the migration is not atomic with the
