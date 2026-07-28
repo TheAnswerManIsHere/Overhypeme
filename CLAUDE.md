@@ -330,10 +330,12 @@ Two things this does **not** change:
   but is independent of it: a UAT is a click-through David works from in the app,
   not a specification under review.
 
-Where the plan file lives: `docs/plans/` on the **never-merged**
-`plan-review/<slug>` branch, purely as the review channel. That branch is the only
-place a plan file gets committed — the plan never lands on `main` and never rides
-an implementation PR, unless David explicitly asks to keep it as a doc.
+Where the plan file lives: `docs/plans/` on a **never-merged** plan-review
+branch — `plan-review/<slug>` for the ordinary single-PR loop, and additionally
+`plan-review/<slug>-combined` for a step-10 split's compiled document (close-out
+step 11). Those two branch forms are the only places a plan file gets committed —
+the plan never lands on `main` and never rides an implementation PR, unless David
+explicitly asks to keep it as a doc.
 
 ## Automated plan review: the Codex draft-PR loop
 
