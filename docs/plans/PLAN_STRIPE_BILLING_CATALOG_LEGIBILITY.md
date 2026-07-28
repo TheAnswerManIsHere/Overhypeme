@@ -268,17 +268,26 @@ every anonymous request would trigger its own retrieve-and-retry — amplifying 
 Stripe outage and burning rate limit. "One API call on a cold path" was true per
 *resolution*, not per *request*, and the plan has to say which.
 
+Parameters are **exact, not adjectival** (Codex round 3, P2 — "short TTL" and
+"backoff" are not executable, and two implementations satisfying prose bullets
+would behave materially differently in an outage):
+
+| Parameter | Value | Why |
+|---|---|---|
+| Resolution deadline | **2 s** | A public page-load path. Past this the request stops waiting and serves step 3; single-flight alone caps *call count*, not *latency*, which is the half the previous revision missed. |
+| Negative-cache TTL | **fixed 30 s** | Not exponential backoff. A fixed TTL is one number to reason about and to test; per-key exponential state on a public endpoint is a second cache to get wrong for no benefit at this scale. |
+| Positive-cache TTL | **none — until invalidated** | The library already caches a resolved account; re-resolving a stable account has no value. |
+| Reset conditions | a successful resolution, or `invalidateStripeSync()` | The mode toggle already calls the latter (`stripeClient.ts:111`), so a live/test switch cannot serve the previous mode's entry. |
+
 - **Single-flight.** At most one in-flight resolution per key hash; concurrent
-  requests await the same promise.
-- **Bounded negative cache with backoff.** A failed resolution is remembered for a
-  short TTL so repeated failures serve step 3 without re-calling Stripe. Failure
-  must be as cached as success — caching only success is the bug.
-- **Keyed by mode + key hash, and invalidated by `invalidateStripeSync()`**
-  (`stripeClient.ts:111`), which the mode toggle already calls — so a live/test
-  switch cannot serve the previous mode's resolution.
-- Tests: concurrent cold requests produce **one** Stripe call; repeated failure
-  does not scale calls with request count; a mode switch isolates the two keys'
-  entries.
+  requests await the same promise, and each still honours its own 2 s deadline.
+- **Failure is cached exactly as success is.** Caching only success is the bug —
+  it is what makes the library's own `getAccountId()` unsafe to expose here.
+- **Keyed by mode + key hash**, so the two modes' entries never alias.
+- Tests are **clock-controlled**, not timing-dependent: a request during a
+  simulated Stripe hang returns within the deadline; concurrent cold requests
+  produce **one** call; a second failure inside 30 s makes **zero** calls and the
+  first after it makes one; a mode switch isolates the two keys' entries.
 
 #### 1.6b The live/test mode transition is a defined state, not a gap
 
@@ -291,9 +300,20 @@ short-circuiting with 409) but not this one. Adding `_account_id` scoping on top
 of that turns a latent inconsistency into a visible one, so this plan must define
 the transition rather than inherit it:
 
-- **The toggle must not drop the result.** If `runFullSync` reports
-  `alreadyRunning`, the target-mode sync is queued to run when the lock releases,
-  or the toggle fails loudly — never "mode switched, nothing synced."
+- **One executable contract: refuse the toggle up front.** *(Revised, Codex
+  round 3, P1 — the previous "queue it, or fail loudly" offered two alternatives
+  and one of them doesn't work. The config value is committed at `:2313-2324`,
+  **before** `runFullSync` can report `alreadyRunning` at `:2340`, so returning an
+  error afterward still leaves the forbidden "mode switched, nothing synced"
+  state. An error that doesn't undo the write isn't a contract.)*
+  The route checks `isSyncRunning()` **before writing the config row**, and if a
+  sync holds the lock it rejects with `409` and changes nothing — persisted mode
+  unchanged, no partial transition to reason about. Chosen over the queue
+  alternative deliberately: queuing means new coalescing machinery in the sync
+  runner (what happens on two toggles before the lock frees?) for an admin-only
+  action taken rarely, where "a sync is running, try again in a moment" is a fine
+  answer. The test asserts the **persisted mode is unchanged** and no sync was
+  started — not "either outcome is acceptable."
 - **Admin must not relabel stale rows.** During the window, retained old-mode
   `plans` are shown as *the previous mode's catalog, pending resync*, never
   badged as the new mode; and the §1.2 connected-account panel refetches, since
@@ -364,9 +384,23 @@ imported from `@/lib/stripePlans`.
     indefinitely. Fix: **each successful sync refreshes the account row** with one
     `accounts.retrieve()` + `upsertAccount`. One call per sync, not per request,
     which keeps §1.6a's bound intact; and it makes §1.2's identity panel genuinely
-    current rather than merely last-synced. Acceptance: both public consumers
-    render a non-USD account currency, and observe a change to it after a sync,
-    with no key rotation involved.
+    current rather than merely last-synced.
+  - **A failed refresh must not read as a green run** *(Codex round 3, P1)*. In
+    `runWithResources` every resource is marked complete **before** the post-loop
+    work runs (`stripeSyncRunner.ts:351-390`), and a throw there is only logged.
+    Dropping the refresh next to `cleanStaleAccountData` would therefore let all
+    eight rows show green while the currency and identity panel silently went
+    stale — precisely the invisible-failure class this plan exists to remove,
+    reintroduced by my own fix. So the refresh gets **its own persisted status**,
+    written through the existing `upsertResourceStatus` path so it renders in the
+    §1.1 panel like any other resource, with its `error_message` shown and an
+    actionable "re-run sync." It is **not** a `SyncResource` that gates the
+    catalog — a stale account row must not fail an otherwise-good catalog sync —
+    but it can never be invisible.
+  - Acceptance: both public consumers render a non-USD account currency and
+    observe a change to it after a sync, with no key rotation involved; and a
+    **forced refresh failure** leaves the run visibly non-green with the error
+    readable after a page reload.
 - **Ordering:** ascending monthly-equivalent, one-time last. Deterministic —
   tie-break on price id, never on SQL row order. Since all compared offers now
   share a currency, the comparison is well-defined.
@@ -430,13 +464,40 @@ part of the same rewrite, since it is the same code:
 
 ### 2.4 `SubscriptionPanel` switch flow
 
+**The member picks from all eligible offers (David, 2026-07-28).** Codex raised
+this as a `[Product Decision]` and it was escalated rather than settled in the
+loop: "switch to a longer-cadence offer" doesn't define behavior once monthly,
+quarterly, annual, and duplicate cadences coexist — four different
+implementations would satisfy that phrase. David chose the picker over a
+deterministic single target, for the same reason the pricing page is being
+rewritten: **code must not silently choose which plan a customer is allowed to
+see.**
+
+Concretely, replacing today's single `targetAnnualPriceId` dialog
+(`SubscriptionPanel.tsx:250-291`):
+
+- **Eligible** = every membership offer in the storefront currency whose
+  monthly-equivalent is **strictly lower** than the member's current price, minus
+  the current price itself. Ordered by §2.1's ordering.
+- **Duplicate cadences are listed separately**, distinguished by price — they are
+  genuinely different offers, and collapsing them is the original bug.
+- **One-time offers are excluded** from the switch flow. Moving a subscriber to a
+  lifetime price is a different transaction (`mode: "payment"`, not a subscription
+  update) and the existing `switch-preview`/`switch-plan` endpoints don't model
+  it. Out of scope here; noted so it's a decision rather than an oversight.
+- **Downgrades are excluded** by the strictly-lower rule — this flow only ever
+  offers a cheaper monthly-equivalent, as it does today.
+- **Empty list → no switch UI at all**, not a disabled button.
+
 `findAnnualPriceId` / `getAnnualSavingsPercent` (`subscriptionHelpers.ts:41-90`)
-become offer-based, so "switch to annual" generalises to "switch to a
-longer-cadence offer" and can't be silently wrong when a quarterly plan exists.
-This also closes the first-vs-last asymmetry between the two helpers' fallback
-paths and the `unit_amount: 0` guard, both noted above. `SubscriptionPanel.tsx`'s
+are replaced by an offer-based `selectSwitchOffers(offers, currentPriceId)`. That
+also closes the first-vs-last asymmetry between the two helpers' fallback paths
+and the `unit_amount: 0` guard, both noted above. `SubscriptionPanel.tsx`'s
 locally re-declared `PlanPrice`/`PlanProduct` (`:45-58`) are replaced with the
 shared types from `@/lib/stripePlans`, which they duplicate structurally today.
+
+Fixture: a monthly + quarterly + annual catalog asserts the exact offer ids
+listed, their order, and that the member's current price is absent.
 
 ---
 
@@ -458,9 +519,27 @@ Phase 1's §1.3 consumed it, leaving Phase 1 with an unimplemented dependency).
   computes `unrenderable`.
 
 **Backend:**
-- `stripeStorage.ts` — `getConnectedAccount()` (hash lookup, then the library's
-  API fallback per §1.6); `_account_id` filter in `listProductsWithPrices`.
-  Imports `hashApiKey` from `stripe-replit-sync`.
+- `stripeStorage.ts` — **two distinct entry points, not one helper** *(Codex
+  round 3, P2 — a single `getConnectedAccount()` collapsed §1.2's hash-only
+  contract and §1.6's escalating one, so an implementer could reasonably reuse it
+  and fire a Stripe call on every cold admin page load, violating §1.2)*:
+  - `lookupAccountByKeyHash()` — **hash only, never calls Stripe.** Returns the
+    row or `null`. This is what `/admin/stripe/summary` uses, so a hash miss
+    renders §1.2's `not-yet-resolved` state with **zero** Stripe calls.
+  - `resolveConnectedAccount()` — hash lookup, then the library's API fallback,
+    behind §1.6a's single-flight and negative cache. **Only** `/stripe/plans`
+    calls this.
+
+  Imports `hashApiKey` from `stripe-replit-sync`. Test asserts the split
+  directly: a hash miss on the summary route makes zero Stripe calls while the
+  same miss on `/stripe/plans` escalates.
+- `artifacts/overhype-me/src/lib/formatMoney.ts` + `.test.ts` — **currency-minor-
+  unit formatter** *(Codex round 3, P2)*. `Pricing.tsx:132-134` and
+  `subscriptionHelpers.ts:33-35` both divide `unit_amount` by 100, so the JPY this
+  plan explicitly admits into its fixtures would render ¥500 as **¥5**. One shared
+  exponent-aware formatter, used by both consumers, with an exact zero-decimal
+  assertion — the mixed-currency ordering fixture does not cover display, and a
+  EUR-only acceptance test would pass straight through this bug.
 - `routes/stripe.ts` — §1.6's scoped resolution, its own nested try/catch, the
   `logger.error` in the previously-bare catch, §1.6a's single-flight + bounded
   negative cache, and the new `storefrontCurrency` field on the response.
@@ -591,10 +670,24 @@ reimplemented. No app database migration.
 ## Sequencing
 
 1. This plan → Codex plan-review loop (`[PLAN REVIEW]` draft PR) → David's approval.
-2. Phase 1 PR, then Phase 2 PR. Both on Opus (payments-adjacent), each with a UAT
-   doc. Phase 1's UAT now includes a customer-facing check because §1.6 stays in
-   Phase 1 (David, 2026-07-28); Phase 2 is fully customer-facing, so its UAT is
-   the real gate.
+2. **Three PRs, not two (David, 2026-07-28).** §1.6 grew across three review
+   rounds from "add an `_account_id` filter at one choke point" into a filter
+   *plus* resolution escalation *plus* request-level caching *plus* a
+   mode-transition contract. Every piece was forced by a real finding, but that is
+   three unrelated risk profiles in one diff, and Codex's findings have clustered
+   on the newest mechanisms each round. So:
+
+   | PR | Contents | Why separable |
+   |---|---|---|
+   | **Phase 1** | §1.1-1.5 admin legibility, plus §1.6's `_account_id` filter and resolution escalation (§1.6 steps 1-3) | The customer-harm fix — the dead CTA — ships first and reviews as one unit. |
+   | **Phase 1b** | §1.6a bounded resolution, §1.6b mode transition | Both are hardening of a path Phase 1 establishes; neither changes what the catalog contains. Reviewable against a stable base. |
+   | **Phase 2** | §2.1-2.4 offer model and customer surfaces | Unchanged. |
+
+   All on Opus (payments-adjacent). Phase 1 carries a UAT with a customer-facing
+   check, because §1.6 stays in it. Phase 1b's behavior is operational rather than
+   product-visible, so it ships a written verification note unless the mode-toggle
+   change proves visible in admin — in which case a UAT. Phase 2 is fully
+   customer-facing, so its UAT is the real gate.
 
 **The Phase 1 / Phase 2 seam, stated once so the two PRs can't drift.**
 `membershipOffers.ts` is **Phase 1's** file — Phase 1's admin readout is its first
