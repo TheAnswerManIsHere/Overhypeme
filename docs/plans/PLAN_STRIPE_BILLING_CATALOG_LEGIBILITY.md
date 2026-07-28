@@ -97,10 +97,18 @@ now verified rather than assumed:
 
 ### 1.1 Always render persisted sync status *(the core defect)*
 
-Change the `billing.tsx:685` gate so the per-resource panel renders whenever
-`syncStatus` has any non-idle resource, not only during a run. The data is
-already in state from the mount fetch — this is a render-condition fix plus an
-honest summary line, not new plumbing.
+Change the `billing.tsx:685` gate so the per-resource panel renders **as soon as
+`syncStatus` has loaded at all** (`syncStatus !== null`), not only during a run.
+The data is already in state from the mount fetch — this is a render-condition fix
+plus an honest summary line, not new plumbing.
+
+> **The gate is "loaded," not "has a non-idle resource"** (Codex round 1, P2).
+> An earlier revision of this plan said non-idle, which would have hidden the panel
+> on exactly the case §1.1 promises to surface: `readSyncStatus` maps over
+> `SYNC_RESOURCES` and defaults every absent row to `idle`
+> (`stripeSyncRunner.ts:537-549`), so a fresh install — and a missing-schema
+> degrade — returns eight `idle` resources and no non-idle one. All-idle **is** the
+> never-synced state and must render.
 
 - An errored resource shows its `errorMessage` on load, using the existing label
   ladder at `:711-721`.
@@ -138,30 +146,56 @@ accounts, because the test key is a Sandbox key.
 
 ### 1.3 What customers can actually buy
 
-Enumerate **every** membership price in the catalog — not three fixed slots — via
-`selectMembershipOffers` (§2.1), and flag any the pricing page cannot render.
-Each entry resolves to one of:
+Enumerate **every** price in the catalog — not three fixed slots — and classify
+each one. Membership offers come from `selectMembershipOffers` (§2.1, created in
+**Phase 1** per the seam note below); non-membership prices are classified from
+the unfiltered catalog. Each entry resolves to one of:
 
 | State | Meaning | Action named |
 |---|---|---|
 | `sellable` | tagged product, renderable by the pricing page | none |
-| `untagged_product` | price exists, product lacks `overhype_membership=true` | "tag *&lt;product&gt;* in Stripe" |
-| `unrenderable` | tagged and valid, but the pricing page drops it | resolved by Phase 2 |
+| `not_membership` | product lacks `overhype_membership=true` | **none — stated as fact** |
+| `wrong_currency` | tagged, but not in the storefront currency (§2.1) | "price it in *&lt;currency&gt;*, or expect it to be hidden" |
+| `unrenderable` | tagged, valid, in-currency, but the pricing page drops it | resolved by Phase 2 |
 
-`untagged_product` is derived by classifying the **unfiltered** catalog and then
-asking whether the owning product passed the allowlist — the case the current UI
-cannot express at all.
+> **`not_membership` names a fact, never an inferred intent** (Codex round 1, P1).
+> An earlier revision called this `untagged_product` and paired it with the action
+> *"tag &lt;product&gt; in Stripe."* That was wrong and actively hazardous: absence of
+> the tag proves only that a product is **not** a membership product, and
+> `/api/stripe/plans` deliberately carries non-membership SKUs — render credits,
+> merch, tips (`security-model.md`'s C6 section says so explicitly, and it is the
+> reason the allowlist is positive). Telling an operator to tag merch, and having
+> them comply, is precisely how an unrelated purchase starts minting Legendary.
+> There is no signal anywhere in the catalog for *"this was meant to be a
+> membership plan,"* so the plan must not pretend to infer one. Admin shows the tag
+> state of every product and lets David judge.
+>
+> **The alarm keys on an unambiguous condition instead.** §1.4's banner fires when
+> **zero** membership offers are sellable, or when a **tagged** product's prices are
+> all non-sellable — both broken regardless of anyone's intent. It does not fire
+> because an untagged product exists.
 
 `unrenderable` is deliberately built even though Phase 2 removes it (David,
 2026-07-28): between the two PRs it is the only thing that stops admin reporting
 a quarterly or duplicate one-time price as `sellable` while the pricing page
 silently drops it. Phase 2 deletes one branch and its test case.
 
+> **How `unrenderable` is actually computed** (Codex round 1, P1). Not from the new
+> enumeration alone — that lists everything, so it cannot say what the *current*
+> page drops. Phase 1 diffs the enumeration against what `selectPlanPrices`
+> actually returns for its three slots; every enumerated in-currency offer absent
+> from that result is `unrenderable`, by exact price id. This is why
+> `selectPlanPrices` survives Phase 1 as the comparison baseline and is deleted
+> only in Phase 2.
+
 ### 1.4 Prominent warning + per-product badges
 
 An amber banner naming what customers will actually see and the specific next
-action, and a `membership` / `not sellable` badge on each product in the existing
-Plans list (`billing.tsx:741-764`) — the first time the tag is visible anywhere.
+action, fired on the unambiguous conditions above, plus a `membership` /
+`not a membership product` badge on each product in the existing Plans list
+(`billing.tsx:741-764`) — the first time the tag is visible anywhere. The badge
+wording is deliberately *not* "not sellable": merch is not broken for being
+unsellable as a membership, and the badge must not imply it needs fixing.
 
 ### 1.5 Honest Setup Checklist
 
@@ -177,24 +211,52 @@ repoint it at the offer list.
 `_account_id`. `cleanStaleAccountData` purges other accounts' catalog rows only
 **after a fully successful sync** (`stripeSyncRunner.ts:386`, skipped entirely if
 any resource throws) — so between a key switch and the next success, the public
-pricing page can advertise a previous account's prices, which checkout then
-rejects at the grant layer. Add the `_account_id` filter at its single call site's
-choke point.
+pricing page can advertise a previous account's prices. Add the `_account_id`
+filter at its single call site's choke point.
 
-Two hazards this must not create:
+**The harm is a dead CTA, not a wrongful grant** (Codex round 1, P1; mechanism
+verified in `routes/stripe.ts:120-142`). An earlier revision of this plan defended
+serving stale rows on the grounds that "the grant layer fails closed." That is
+true and irrelevant: it answers *"can merch mint Legendary?"* (no) rather than
+*"what happens to a customer who clicks?"* A previous account's price can be
+legitimately tagged `overhype_membership=true`, so it passes the frontend
+allowlist and reaches `POST /stripe/checkout` — which calls
+`stripe.prices.retrieve(priceId)` on the **current** account at `:120`, *before*
+the `priceGrantsMembership` predicate at `:136`. The current account doesn't own
+that price, so it throws `resource_missing`, which is not one of the graceful 400s
+and falls through to the generic outer catch. And because Phase 2 features the
+best monthly-equivalent recurring offer, a stale price can own the **primary CTA**
+while valid current-account offers sit below it. That is a broken storefront —
+the same failure class as the bug that started this plan.
 
-> **Deliberate deviation, flagged for review.** When the account can't be resolved
-> (no `stripe.accounts` row — possible on a catalog synced before the library
-> added `api_key_hashes`), serve **unfiltered** and surface a red "catalog not
-> account-scoped" state in admin, rather than blanking a working public pricing
-> page on an unknown-but-not-wrong condition.
+So the fallback is no longer "serve unfiltered when the hash lookup misses."
+**Resolution escalates before it degrades:**
+
+1. **Hash lookup** — `hashApiKey(secretKey)` against `api_key_hashes`. Free, no
+   API call, the normal path (§1.2).
+2. **Authoritative API fallback** — on a miss, the library's own
+   `getAccountId()` already falls back to `stripe.accounts.retrieve()`
+   (`dist/index.js:577-603`) and writes the row back via `upsertAccount`, which
+   self-heals a catalog synced before `api_key_hashes` existed. One API call on a
+   cold path only. §1.2's "no Stripe API call" claim is about the *admin readout*,
+   which stays hash-only; it was never a constraint on this path.
+3. **Only if both fail** — serve unfiltered, surface the red "catalog not
+   account-scoped" state in admin, and log it. This remains a deliberate
+   fail-open, but it is now reachable only when Stripe itself is unreachable *and*
+   no account row exists, rather than on the ordinary cold-cache case.
+
+> **Residual multi-account behavior, stated rather than left implicit.** In that
+> both-failed state the catalog may still mix accounts. The pricing page stays
+> populated (the invariant), but this is exactly the window where a stale CTA is
+> possible, so it is a **red** admin state naming "run a sync" as the action —
+> not a quiet amber one.
 
 > **The silent catch must not swallow this.** `routes/stripe.ts:38-40` currently
 > turns *any* throw into `{ plans: [] }`. Account resolution goes in its own
-> `try`/`catch` that degrades to unfiltered, and the outer bare `catch` gains a
-> `logger.error` so a blanked pricing page is diagnosable at all. Without this,
-> a resolution bug is a silently blank pricing page — the same invisible-failure
-> class this plan exists to fix.
+> `try`/`catch` that degrades to step 3, so a resolution failure can never reach
+> the outer catch; and the outer bare `catch` gains a `logger.error` so a blanked
+> pricing page is diagnosable at all. Without this, a resolution bug is a silently
+> blank pricing page — the same invisible-failure class this plan exists to fix.
 
 ---
 
@@ -215,31 +277,51 @@ as the original bug — a correctly-tagged price that never reaches the customer
 
 ### 2.1 `selectMembershipOffers` — replaces the three-slot model
 
-Returns an **ordered list** of offers, each carrying price id, amount, cadence
-(`interval` + `interval_count`), a normalised **monthly-equivalent** amount, and a
-display label. Keeps the `overhype_membership` allowlist unchanged, imported from
-`@/lib/stripePlans`.
+**Created in Phase 1**, consumed by Phase 1's §1.3 readout; Phase 2 migrates the
+customer-facing surfaces onto it. See the seam note under Sequencing.
 
+Returns an **ordered list** of offers, each carrying price id, amount, currency,
+cadence (`interval` + `interval_count`), a normalised **monthly-equivalent**
+amount, and a display label. Keeps the `overhype_membership` allowlist unchanged,
+imported from `@/lib/stripePlans`.
+
+- **One storefront currency, chosen from data, not assumed** (Codex round 1, P2).
+  The catalog preserves each price's `currency` (`stripeStorage.ts`'s SQL selects
+  it; `StripePlanPrice` carries it), so a valid tagged catalog can hold USD, EUR,
+  and zero-decimal currencies like JPY at once. Comparing raw minor units across
+  them is meaningless — ¥500 vs $5.00 — and a savings badge computed across two
+  currencies would assert a discount that doesn't exist. So: the storefront
+  currency is `stripe.accounts.default_currency` (already read for §1.2, and
+  authoritative for the connected account), falling back to `usd` when no account
+  row resolves. Offers are **filtered to that currency**; tagged prices in any
+  other currency are excluded from the customer surfaces and surfaced in §1.3's
+  readout as `wrong_currency`, so they are hidden but never invisible.
 - **Ordering:** ascending monthly-equivalent, one-time last. Deterministic —
-  tie-break on price id, never on SQL row order.
+  tie-break on price id, never on SQL row order. Since all compared offers now
+  share a currency, the comparison is well-defined.
 - **Labels:** derived from cadence (`1/month` → "Monthly", `3/month` →
   "Quarterly", `1/year` → "Annual", one-time → "Forever"), with a generic
   fallback ("Every 6 months", "Weekly") so no cadence is ever unlabelled.
 - **Savings badge:** against the highest monthly-equivalent recurring offer,
   replacing both today's hardcoded monthly-vs-annual comparisons —
-  `Pricing.tsx:127-130` and `getAnnualSavingsPercent`. Treats `unit_amount: 0` as
-  a real amount, not as missing.
+  `Pricing.tsx:127-130` and `getAnnualSavingsPercent`. `unit_amount: 0` is a real
+  amount, not "missing" — which today's `if (!monthlyAmount)` guard gets wrong —
+  but it cannot be a **denominator**: when the highest monthly-equivalent
+  recurring offer is 0, savings is `null` and no badge renders. Never `NaN`,
+  never `Infinity`, never a percentage against zero.
 - **Featured:** best monthly-equivalent recurring offer; one-time stays visually
   distinct as it is today.
 
-**`selectPlanPrices` is deleted, not kept as a wrapper.** The draft proposed
-keeping it "until callers migrate," but Phase 2 migrates both of its callers, so
-the wrapper would survive with zero production consumers, kept alive only by its
-own tests — dead code that `/simplify` and Codex would both flag. Its four
-regression cases (product carrying all three prices; a product named "forever"
-not swallowing its recurring prices; non-membership products ignored) are ported
-into `membershipOffers.test.ts` as equivalent assertions, so the regression net is
-preserved rather than dropped.
+**`selectPlanPrices` survives Phase 1 and is deleted in Phase 2 — never kept as a
+wrapper.** It has a real job in Phase 1: it *is* the definition of "what the
+current page renders," so §1.3 diffs the enumeration against it to compute
+`unrenderable` by exact price id. Phase 2 migrates both of its callers, at which
+point keeping it would leave a function with zero production consumers alive only
+by its own tests — dead code `/simplify` and Codex would both flag. So Phase 2
+deletes it and ports its four regression cases (product carrying all three prices;
+a product named "forever" not swallowing its recurring prices; non-membership
+products ignored) into `membershipOffers.test.ts` as equivalent assertions, so the
+regression net moves rather than disappearing.
 
 ### 2.2 Pricing page renders N offers
 
@@ -289,18 +371,27 @@ shared types from `@/lib/stripePlans`, which they duplicate structurally today.
 
 ## Files
 
-**New (pure + unit-tested — mirroring `components/admin/moderationQueueState.ts`
-+ `.test.ts`, the actual pure-module-with-test exemplar):**
-- `artifacts/overhype-me/src/lib/membershipOffers.ts` + `.test.ts` — §2.1.
-  Imports `filterMembershipPlans` from `@/lib/stripePlans`; declares no membership
-  logic of its own.
-- `artifacts/overhype-me/src/pages/admin/stripeHealth.ts` + `.test.ts` — §1.3.
+Split by phase, so each PR is self-contained and independently typechecks (Codex
+round 1, P1 — an earlier revision assigned `membershipOffers.ts` to Phase 2 while
+Phase 1's §1.3 consumed it, leaving Phase 1 with an unimplemented dependency).
+
+### Phase 1
+
+**New** (pure + unit-tested — mirroring `components/admin/moderationQueueState.ts`
++ `.test.ts`, the actual pure-module-with-test exemplar):
+- `artifacts/overhype-me/src/lib/membershipOffers.ts` + `.test.ts` — §2.1's
+  enumeration, created here because §1.3 needs it. Imports `filterMembershipPlans`
+  from `@/lib/stripePlans`; declares no membership logic of its own.
+- `artifacts/overhype-me/src/pages/admin/stripeHealth.ts` + `.test.ts` — §1.3's
+  classification, including the enumeration-vs-`selectPlanPrices` diff that
+  computes `unrenderable`.
 
 **Backend:**
-- `stripeStorage.ts` — `getConnectedAccount()`; `_account_id` filter in
-  `listProductsWithPrices`. Imports `hashApiKey` from `stripe-replit-sync`.
-- `routes/stripe.ts` — §1.6's scoped resolution and the `logger.error` in the
-  previously-bare catch.
+- `stripeStorage.ts` — `getConnectedAccount()` (hash lookup, then the library's
+  API fallback per §1.6); `_account_id` filter in `listProductsWithPrices`.
+  Imports `hashApiKey` from `stripe-replit-sync`.
+- `routes/stripe.ts` — §1.6's scoped resolution, its own nested try/catch, and the
+  `logger.error` in the previously-bare catch.
 - `routes/admin.ts` — extend `/admin/stripe/summary` (`:2543-2596`) with
   `connectedAccount` + `catalogAccountMatch`. **Identity and booleans only —
   never echo a key value**, matching the endpoint's existing `stripeEnv`
@@ -310,11 +401,21 @@ shared types from `@/lib/stripePlans`, which they duplicate structurally today.
 
 **Frontend:**
 - `pages/admin/billing.tsx` — §1.1-1.5, plus `data-testid` hooks.
-- `pages/Pricing.tsx`, `components/SubscriptionPanel.tsx`,
-  `components/subscriptionHelpers.ts` — Phase 2.
-- `pages/pricingPlans.ts` + `.test.ts` — deleted; cases ported (§2.1).
 - `e2e/adminBillingSync.spec.ts` — re-anchored onto the new test ids, extended per
   Verification below.
+
+**Unchanged in Phase 1:** `pages/pricingPlans.ts` (`selectPlanPrices` is the
+comparison baseline), `pages/Pricing.tsx`, `SubscriptionPanel.tsx`. Phase 1 ships
+**no customer-visible change except §1.6's account scoping.**
+
+### Phase 2
+
+- `pages/Pricing.tsx`, `components/SubscriptionPanel.tsx`,
+  `components/subscriptionHelpers.ts` — migrated onto `membershipOffers.ts`.
+- `pages/pricingPlans.ts` + `.test.ts` — deleted; cases ported into
+  `membershipOffers.test.ts` (§2.1).
+- `pages/admin/stripeHealth.ts` + `.test.ts` — the `unrenderable` branch and its
+  test case removed, since nothing is dropped any more.
 
 **Not touched:** `membershipPricing.ts`, `membershipGrant.ts`,
 `webhookHandlers.ts`, and the grant layer. The allowlist is reused, never
@@ -324,22 +425,38 @@ reimplemented. No app database migration.
 
 ## Verification
 
-- **Unit:** `membershipOffers.test.ts` — quarterly not displacing monthly,
+- **Unit — `membershipOffers.test.ts`:** quarterly not displacing monthly,
   duplicate one-time prices both surviving, unlabelled-cadence fallback, ordering
-  determinism under equal monthly-equivalents, `unit_amount: 0`, plus the four
-  ported `pricingPlans.test.ts` regressions. `stripeHealth.test.ts` —
-  `untagged_product` mirroring the real catalog's shape, and `unrenderable` for a
-  quarterly price.
+  determinism under equal monthly-equivalents, `unit_amount: 0` treated as a real
+  amount, plus the four ported `pricingPlans.test.ts` regressions (Phase 2).
+  **Currency fixtures (Codex round 1):** a mixed USD/EUR/JPY tagged catalog
+  asserts deterministic single-currency ordering and **no** cross-currency savings
+  badge; an all-zero recurring catalog asserts savings is `null`, never `NaN` or
+  `Infinity`.
+- **Unit — `stripeHealth.test.ts`:** `unrenderable` for a quarterly price and for
+  the second of two duplicate one-time prices, identified by **exact price id**
+  (this is the diff-against-`selectPlanPrices` behavior, so it must assert *which*
+  price is dropped, not just that one is). **`not_membership` acceptance (Codex
+  round 1):** a catalog holding a tagged membership product *and* an untagged merch
+  product asserts the merch is reported neutrally, carries **no** "tag it in
+  Stripe" action, and does **not** fire §1.4's banner. Plus `wrong_currency` for a
+  tagged non-storefront-currency price.
 - **Backend:** `routes.admin` — the new summary fields, and that no key value
   appears in the response body. Account-scoped plans returns only the connected
-  account's rows; an unresolvable account falls back to unfiltered **and** reports
-  the red state; a throw inside account resolution still returns a populated
-  catalog rather than `{ plans: [] }`.
+  account's rows. **Resolution escalation (§1.6):** a hash miss with Stripe
+  reachable resolves via the API fallback and scopes correctly; only a hash miss
+  *plus* an unreachable Stripe serves unfiltered, and then reports the red state.
+  A throw inside account resolution still returns a populated catalog rather than
+  `{ plans: [] }`. **A mixed current/stale tagged catalog stays non-blank while
+  every offer the page can select is valid for the current account** — the CTA
+  finding's acceptance test.
 - **e2e:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts` must still pass
-  after re-anchoring, extended so a **failed** sync's error is still visible
-  **after a page reload** — the §1.1 regression, driven through the existing
+  after re-anchoring, extended two ways: a **failed** sync's error is still visible
+  **after a page reload** (the §1.1 regression, driven through the existing
   dev-only `POST /admin/stripe/sync/_test/simulate` endpoint with
-  `{ failResource: "plans" }`.
+  `{ failResource: "plans" }`), and an **all-idle** status response on reload
+  renders the never-synced aggregate and per-resource state rather than hiding the
+  panel (Codex round 1, P2).
 - **Gates:** `pnpm --filter @workspace/overhype-me run test`,
   `... run typecheck`, api-server tests via `run-test.sh`, and
   `pnpm run check:codegen-drift`. **No `lib/api-zod` exposure:** the admin Stripe
@@ -348,21 +465,31 @@ reimplemented. No app database migration.
   already bitten twice.
 - **In-app (the real gate):** add a quarterly price in the sandbox → it appears on
   the pricing page and in the admin readout, and does **not** displace Monthly.
-  Un-tag a product → admin flags it `untagged_product` and it disappears from the
-  pricing page. Force a sync failure → the error is still on screen after a reload.
+  Un-tag a product → it disappears from the pricing page, and admin reports it as
+  `not_membership` **without** telling David to re-tag it. Force a sync failure →
+  the error is still on screen after a reload.
 
 ---
 
 ## Must not change
 
 - The grant layer — checkout, confirm, and webhook membership checks are untouched.
-- The `overhype_membership` allowlist semantics.
+- The `overhype_membership` allowlist semantics. **In particular: nothing in this
+  work infers that an untagged product *should* be tagged**, and no surface
+  suggests tagging one. The allowlist stays a positive, hand-set signal; a UI that
+  nudges an operator toward tagging merch would undermine the whole gate.
 - The public pricing page must not go blank on an unresolvable account, or on any
   throw inside the new account-resolution path (§1.6).
+- **No offer the page can select may belong to a different Stripe account** in any
+  state where account resolution succeeded — checkout retrieves the price against
+  the current account before the membership predicate, so a cross-account price is
+  a dead CTA, not merely an ungranted one.
 - No secret or key value is ever returned by an endpoint or rendered.
 - Customer/subscription/invoice rows stay un-scoped — only the three catalog
   tables are account-filtered, matching `cleanStaleAccountData`'s existing
   deliberate boundary.
+- **Each phase's PR typechecks and ships coherently on its own.** Phase 1 must be
+  correct and complete if Phase 2 never lands.
 
 ---
 
@@ -374,11 +501,24 @@ reimplemented. No app database migration.
    Phase 1 (David, 2026-07-28); Phase 2 is fully customer-facing, so its UAT is
    the real gate.
 
+**The Phase 1 / Phase 2 seam, stated once so the two PRs can't drift.**
+`membershipOffers.ts` is **Phase 1's** file — Phase 1's admin readout is its first
+consumer, so it cannot be deferred to Phase 2. What Phase 2 adds is not the
+module but the *migration onto it*: the customer surfaces stop calling
+`selectPlanPrices` and start calling `selectMembershipOffers`, after which
+`selectPlanPrices` and the `unrenderable` state both become dead and are deleted
+together. Concretely, in Phase 1 both selectors coexist on purpose — the new one
+enumerates what *could* be sold, the old one defines what *is* rendered, and the
+gap between them is the `unrenderable` list. If Phase 2 never lands, Phase 1 is
+still correct and still tells the truth; it just keeps reporting a gap nobody has
+closed yet.
+
 ## Public-disclosure check
 
 Passes. No unpatched-vulnerability details, secrets, auth-bypass specifics,
 fraud-enabling paths, or private customer data. The §1.6 account-scoping gap is a
-data-hygiene/UX defect, not a membership bypass — the grant layer fails closed
+broken-storefront defect (a cross-account price is a failed checkout — see the
+mechanism in §1.6), **not** a membership bypass: the grant layer fails closed
 independently at all three surfaces (`membershipPricing.ts`'s
 `productGrantsMembership` returns false for anything not explicitly tagged), and
 the allowlist design is already public in
