@@ -355,6 +355,21 @@ describe("PATCH /admin/users/:id", () => {
   });
 });
 
+// ── Removed routes ───────────────────────────────────────────────────────────
+
+describe("POST /admin/users/:id/data-delete (removed)", () => {
+  // Deleted deliberately: its hard phase was redundant with DELETE /admin/users/:id
+  // and threw 23503 on membership_history's FK. Authenticate as admin so a 404 here
+  // means "no such route" rather than "rejected before routing".
+  it("no longer exists — DELETE /admin/users/:id is the deletion path", async () => {
+    const res = await request(makeApp())
+      .post("/admin/users/some-id/data-delete")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ phase: "hard" });
+    assert.equal(res.status, 404);
+  });
+});
+
 // ── DELETE /admin/users/:id ───────────────────────────────────────────────────
 
 describe("DELETE /admin/users/:id", () => {

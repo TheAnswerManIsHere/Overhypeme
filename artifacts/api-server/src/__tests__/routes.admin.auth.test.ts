@@ -113,7 +113,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "delete", path: "/admin/email-queue" },
   { method: "post",   path: "/admin/email-queue/:id/retry" },
   { method: "get",    path: "/admin/users/:id/data-export" },
-  { method: "post",   path: "/admin/users/:id/data-delete" },
   { method: "post",   path: "/admin/retention/run" },
 ];
 
