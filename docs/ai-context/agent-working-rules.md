@@ -62,9 +62,28 @@ standing guidance (2026-07-21): **be brave.** Concretely, this lowers the bar on
   correctness (keep it).** Freezing render inputs to avoid a mid-job race, or a
   terminal-vs-retryable failure contract, protects *live* jobs, not historical
   rows — that stays. It's *historical-data preservation* that we can shed.
+- **Deployment-overlap compatibility is legacy compat, not runtime correctness
+  — take the maintenance window (David, 2026-07-29).** `.replit` sets
+  `deploymentTarget = "autoscale"`, so old and new instances overlap during a
+  rollout. Making a schema change survive that overlap requires bridge triggers,
+  compatibility views, cutover markers and revert preconditions — and it is
+  **migration paranoia**, because what it protects is a few seconds of requests
+  from users who do not exist yet. **A brief maintenance window is the correct
+  trade pre-launch.** Stripe retries webhooks for days, so nothing is lost.
+
+  This one has a price tag: the payments entitlement plan spent **four review
+  rounds and ~30 findings** building that machinery before it was cut, and two
+  of the mechanisms turned out to be **unbuildable anyway** — a PostgreSQL view
+  cannot serve `INSERT … ON CONFLICT (col) DO UPDATE` (verified on 16.13), and
+  no signal available to us proves an old instance has stopped serving. The
+  rule above already covered this; it was read past because "old code is still
+  running" *sounds* like runtime correctness. It is not. **The test is whether
+  the thing being protected is real, not whether it is live.**
 
 Revisit this at launch: once real users/data exist, the usual migration
-discipline (`docs/engineering/migrations-and-backfills.md`) reapplies in full.
+discipline (`docs/engineering/migrations-and-backfills.md`) reapplies in full —
+including deployment overlap, which becomes a genuine constraint the moment
+there is traffic worth not dropping.
 
 ## Ask vs. decide
 
