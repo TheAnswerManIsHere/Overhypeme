@@ -208,8 +208,55 @@ export type NcmecCall<T> =
   | { status: "err"; responseCode: number | null; message: string; retryable: boolean };
 ```
 
-Operations: `checkStatus()`, `submitReport(xml)`, `uploadFile(reportId, bytes, mime)`,
-`submitFileInfo(fileDetailsXml)`, `finishReport(reportId)`, `retractReport(reportId)`.
+**Operations, with the `T` each one resolves to and the response element it comes from.**
+Naming the operations is not enough to build against: without the payload types and the
+source elements, a fake-`fetch` test has to invent the protocol it is supposedly verifying,
+and the invention becomes the de-facto contract.
+
+| Operation | Method + path | `T` | Parsed from |
+|---|---|---|---|
+| `checkStatus()` | `GET /status` | `{ responseCode: number }` | `<reportResponse><responseCode>` |
+| `submitReport(xml)` | `POST /submit`, body = `<report>` XML | `{ reportId: string }` | `<reportResponse><reportId>` |
+| `uploadFile(reportId, bytes, mime)` | `POST /upload`, `multipart/form-data` with `id` + `file` | `{ fileId: string; hash: string }` | `<reportResponse><fileId>`, `<hash>` (MD5) |
+| `submitFileInfo(xml)` | `POST /fileinfo`, body = `<fileDetails>` XML | `{ reportId: string }` | `<reportResponse><reportId>` |
+| `finishReport(reportId)` | `POST /finish` | `{ reportId: string }` | `<reportDoneResponse><reportId>` |
+| `retractReport(reportId)` | `POST /retract` | `{ responseCode: number }` | `<reportResponse><responseCode>` |
+
+Every response carries `<responseCode>`; a non-`0` code produces the `err` branch, classified
+by the table below. A `2xx` HTTP status with a non-zero `responseCode` is an **error**, not a
+success — ISPWS signals failure in the body, not the status line.
+
+**The XML builders belong to this phase too**, and are named here so §6b phase 2 is a
+complete unit of work rather than a client with no callers:
+
+- **`buildReportXml(row, config)` → `<report>`** — takes an `ncmec_reports` row plus the
+  reporter identity (§5.7) and returns the submission document. Pure; no I/O.
+- **`buildFileDetailsXml(reportId, file, origin)` → `<fileDetails>`** — takes the
+  `/upload` result plus `content_origin`, and emits the annotations (`<generativeAi>`,
+  `<potentialMeme>`) per §5.6's mapping. Pure; no I/O.
+
+Both are pure functions of their inputs, so phase 2's tests assert exact documents without
+a database or a network.
+
+**Fixtures are committed, not fetched at test time.** Phase 2's verification claims to
+validate generated XML against NCMEC's schema, which is impossible offline unless the
+schema is in the repository. So, once, as part of phase 2:
+
+- **`GET /xsd` is fetched by hand and the result committed** to
+  `artifacts/api-server/src/__tests__/fixtures/ncmec/ispws.xsd`, with the fetch date and
+  source URL in a sibling `README.md`. It is a **pinned artifact**: a schema change is a
+  deliberate re-fetch and a visible diff, never a silent test-behavior change, and CI never
+  reaches NCMEC.
+- **One response fixture per outcome** under the same directory —
+  `submit-ok.xml`, `upload-ok.xml`, `fileinfo-ok.xml`, `finish-ok.xml`, and one each for
+  `1000`, `2000`, `3000`, `4100`, `5001`, `5102` — so the classification table is asserted
+  against real document shapes rather than hand-typed strings.
+- **The hostile fixtures** the hardening below requires: a DOCTYPE-bearing document with an
+  entity declaration, a harmless DOCTYPE with none, an oversized body, and a deeply-nested
+  one.
+
+Every test in phase 2 therefore runs with `fetchImpl` stubbed and **no network access at
+all**, which is what makes the phase independently verifiable.
 
 **How the worker reads evidence bytes — and what it must never use.** `uploadFile` needs
 the bytes, and the plan previously left the read path unspecified. That is not a harmless
@@ -503,27 +550,61 @@ Two layers instead:
   |---|---|
   | Queue | **`ncmec_incident_alert`**, registered beside `ncmec_submit` and `ncmec_reconcile`; lane `bulk` |
   | Payload | `{ incidentKey, environment, windowStart, windowEnd }` — identifiers only, **never rendered content** |
-  | On run | `SELECT … FROM ncmec_alert_incidents WHERE incident_key = $key` → if `notified_at IS NOT NULL`, this is a supplementary alert (below); run the §5.2.3 aggregate query over `ncmec_reports`; render; send; **then** stamp `notified_at = now()` |
+  | On run | Load the ledger row (`notified_at IS NOT NULL` → this is a supplementary alert); run the §5.2.3 aggregate over `ncmec_reports`, **retaining the row ids it matched**; render; send; **then**, in one transaction, stamp `notified_at` on the ledger row and `alert_notified_at` on exactly those row ids |
   | Delivery | Reuses the same provider path as `email`; only the *rendering* differs |
 
-  **A failure that commits after the grace still alerts — as a supplementary email.** The
-  2-minute grace covers transactions that begin before the boundary and commit shortly
-  after, but nothing bounds commit latency, so a transaction can stamp a pre-boundary
-  `failed_at` and commit *after* the window's alert has sent. That row must not be silent:
-  invariant 8 requires every terminal failure to be notified, and "it is in the ledger" is
-  not a notification.
+  **Coverage is tracked per row, not inferred from the window.** Invariant 8 requires
+  every terminal failure to be notified, and "it is in the ledger" is not a notification —
+  so the plan needs a durable answer to *has this specific row been in a sent alert?*
+  rather than an argument that it probably was.
 
-  It is covered without new machinery, because the queue's dedupe index covers **only
-  non-terminal** jobs. Once the window's alert job completes, a later enqueue with the same
-  `incident_key` no longer collides — it creates a **second** job, which sends a
-  supplementary alert for that window. The late row is reported.
+  The reason it cannot be an argument: **a row can commit inside the handler's own
+  execution and be lost.** The 2-minute grace covers transactions that begin before the
+  boundary and commit shortly after, but nothing bounds commit latency. Consider a failure
+  transaction that commits *after* the handler has run its aggregate query but *while that
+  job is still `processing`. The email has already been rendered without the row. The
+  row's own enqueue then **dedupes against the still-live job** — the index covers every
+  non-terminal job, and `processing` is non-terminal — so no second job is created, and
+  none is created later either, because the handler completes normally and nothing
+  re-examines the window. The row is silent forever. Relying on "the job has gone terminal,
+  so a later enqueue creates a supplementary job" only covers failures that land *outside*
+  that interval; it is a window-level argument, and the query-to-completion interval is a
+  hole in it.
 
-  The cost is stated rather than hidden: the supplementary email re-reports rows the first
+  So `ncmec_reports` carries **`alert_notified_at`** (§5.4), stamped **only on rows the
+  handler actually included in a sent email** — in the same transaction that stamps the
+  ledger's `notified_at`, using the exact row-id set the aggregate query returned, never a
+  re-run of the predicate:
+
+  ```sql
+  UPDATE ncmec_reports SET alert_notified_at = now() WHERE id = ANY($ids_from_the_query)
+  ```
+
+  That turns coverage into a queryable fact. **`submission_status = 'failed' AND
+  alert_notified_at IS NULL`** is now a durable, precise description of "a failure nobody
+  has been told about," and §5.3's reconciler — which already sweeps every five minutes —
+  enqueues a supplementary alert for any window containing such a row. A row that commits
+  mid-handler is picked up on the next pass; so is one that commits after the job goes
+  terminal; so is one missed by any failure mode neither of us has thought of, because the
+  predicate does not depend on knowing *why* it was missed.
+
+  This subsumes the earlier supplementary-alert rule rather than sitting beside it: the
+  supplementary alert still exists and still re-reports the whole window, but what
+  *triggers* it is now per-row state instead of a race with the dedupe index.
+
+  **This is not the derived state David's decision removed.** That decision was about not
+  maintaining a *counter and a dominant code* alongside rows that already carry the same
+  information — an aggregate that can drift from its source. `alert_notified_at` is
+  primary state about one row, of the same kind as `failed_at`, and it is not derivable
+  from anything else: nothing else in the system records which rows a given email
+  contained. It makes the design less inferential, not more.
+
+  The cost is stated rather than hidden: a supplementary email re-reports rows the first
   one already covered, because the handler always aggregates the whole window. So the
   §5.8 guarantee is **"at most one alert per environment per hour in the normal case, plus
-  a supplementary alert if a failure commits after that window was notified."** Weakening
-  the alert-count guarantee is the right trade against dropping a notification — the same
-  asymmetry as at-least-once delivery, for the same reason.
+  a supplementary alert whenever a failure lands after that window's alert was sent."**
+  Weakening the alert-count guarantee is the right trade against dropping a notification —
+  the same asymmetry as at-least-once delivery, for the same reason.
 
   **Windows are tumbling, not rolling.** A clock-derived key cannot produce a rolling
   window: two failures either side of a boundary fall in different buckets and send two
@@ -623,16 +704,69 @@ Arachnid hit with **no `ncmec_reports` row at all**. The reconciler cannot repai
 reconciler's whole design reads *from* `ncmec_reports`, and there is nothing to read.
 Every mechanism in this plan operates downstream of a row that was never created.
 
-Two changes, and the second is the durable one:
+Three changes. A link, a set of recovery inputs, and a uniqueness constraint — and the
+plan needs all three, because a link alone gives the sweep somewhere to look without
+telling it what to write or stopping it writing twice.
 
 - **`ncmec_reports.quarantine_id`** — a real FK to `quarantined_memes`, so the link is a
   column rather than an inference from timestamps. Without it there is no query that can
   find the orphan.
-- **The reconciler gains a second sweep**, over `quarantined_memes` rather than
-  `ncmec_reports`: a **reportable** quarantine row (per §5.6's source rules) with no
-  `ncmec_reports` row and no soft-delete tombstone gets one created, using the same
-  `isSubmittable`-gated enqueue as everything else. It is idempotent because the FK makes
-  "already has a report" a lookup.
+
+- **The quarantine row persists every input the report is built from**, because the sweep
+  runs minutes to days later and **must not re-derive anything from live state.** Two
+  concrete failures if it did:
+
+  - **Re-evaluating §5.6's classifier flag at sweep time makes reportability depend on
+    when the sweep runs.** The flag is mutable admin config. Flip it off and orphaned
+    classifier hits that *were* reportable at quarantine time are silently never reported;
+    flip it on and old hits that were *not* reportable acquire reports. Either direction
+    is a wrong answer to a legal question, produced by a scheduler.
+  - **Resolving the uploader live would violate §5.7**, whose whole point is that identity
+    is frozen at quarantine time — the account may since have been renamed, soft-deleted,
+    or had its email nulled.
+
+  So `quarantined_memes` gains three columns (§5.4): **`report_intent`** — the immutable
+  reportability decision as it stood at quarantine time; **`reporter_snapshot`** — the same
+  frozen identity §5.7 requires, written here first and copied to the report; and
+  **`request_metadata`** — the request context the report carries. Together with the
+  existing `evidence_object_path`, `source`, `match_type`, `user_id` and the new
+  `content_origin`, that is the complete input set: **the sweep is a pure function of the
+  quarantine row.**
+
+  `report_intent` is **nullable**, and null does not mean *false*. It means *this row
+  predates the column and its intent is unknowable* — those are pre-migration rows, which
+  the backlog audit (§7 step 2) owns and the sweep therefore **skips**. Defaulting them to
+  `false` would silently absolve the exact population the audit exists to examine.
+
+- **A unique index on `quarantine_id`, plus conflict-safe insertion.** The FK makes
+  "already has a report" a *lookup*; it does not make the lookup **idempotent**, and the
+  gap is not theoretical. `ncmec_reconcile` is subject to the same reclaim as any other job
+  (§5.2.2): a slow sweep can be requeued and run twice concurrently. Both executions read
+  "no report for this quarantine row," both insert, and now there are **two report rows for
+  one hit** — each with a *different* id, so their `ncmec:submit:<reportId>` dedupe keys
+  differ, both jobs are admitted, and **both file**. The duplicate-filing guard cannot see
+  this: §5.2.1 and §5.2.2 fence one report row against itself, not two rows against each
+  other.
+
+  ```sql
+  CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"
+    ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
+  ```
+
+  Postgres permits many NULLs in a unique index, so pre-existing and manually-created rows
+  are unaffected. The sweep inserts with `ON CONFLICT ("quarantine_id") DO NOTHING` and
+  treats zero affected rows as "another sweep won" — not an error. That makes the database
+  the arbiter rather than a read-then-write the reconciler cannot serialize on its own.
+
+**The sweep itself**, stated once so it is not reassembled from the three bullets above.
+`ncmec_reconcile` (§5.3) runs a second pass over `quarantined_memes`, selecting rows where
+`deleted_at IS NULL`, `report_intent IS TRUE`, and no `ncmec_reports` row references them.
+For each, in one transaction: insert the report from the persisted inputs with
+`ON CONFLICT ("quarantine_id") DO NOTHING`; if a row was inserted, evaluate `isSubmittable`
+and enqueue `ncmec:submit:<reportId>` under the §5.2.3 savepoint rule, exactly as §5.2.4's
+happy path does. If zero rows were inserted, another execution created it and this one
+stops — the report it lost to will be enqueued by that execution or by the *first* sweep on
+its next pass, so no path drops the row.
 
 Invariant 3 is preserved exactly: the report insert stays inside the caught block, so its
 failure still cannot block the rejection. What changes is that the failure is no longer
@@ -649,14 +783,27 @@ contract. The existing admin email stays — useful independently of automation.
 ### 5.3 The reconciler — nothing stays silently unreported
 
 The single mechanism that closes every "row stuck in a non-final state with nobody
-told" path. `ncmec_reconcile` runs periodically (`bulk` lane) and at boot, and repairs
-any `ncmec_reports` row in a non-final state by comparing it against its job:
+told" path. `ncmec_reconcile` runs periodically (`bulk` lane) and at boot, and makes
+**three** passes. The first is the original one — repair any `ncmec_reports` row in a
+non-final state by comparing it against its job:
 
 | Row state | Job state | Cause | Repair |
 |---|---|---|---|
 | `pending` / `in_progress` | **no job row** | Pre-migration legacy row; row created while submission was disabled; a crash window §5.2.4's transaction does not cover | Enqueue one — **only if `ncmec_submission_enabled`** |
 | `pending` / `in_progress` | `failed` | Terminal failure whose in-`run()` finalization was lost to a crash (§5.2.3) | Set row `failed` with the reconciliation code (below), enqueue an admin notification |
 | `pending` / `in_progress` | `done` | Handler returned success without finalizing | Re-enqueue if enabled — **unless already test-submitted in the current environment** (below) |
+
+The other two passes exist because the first can only repair rows that are **in
+`ncmec_reports` and non-final** — and two real failure modes sit outside that set:
+
+| Pass | Scope | Cause it repairs | Repair |
+|---|---|---|---|
+| **2. Orphaned quarantine** | `quarantined_memes` where `deleted_at IS NULL AND report_intent IS TRUE` and no report references the row | The report insert failed inside `quarantine.ts`'s caught block, so there is no `ncmec_reports` row to compare against anything (§5.2.4) | Insert the report from the row's persisted inputs with `ON CONFLICT (quarantine_id) DO NOTHING`, then enqueue if `isSubmittable` |
+| **3. Unalerted failures** | `ncmec_reports` where `submission_status = 'failed' AND alert_notified_at IS NULL` | A failure that committed after its window's alert had already rendered — including inside the handler's own execution, where the enqueue dedupes against the still-`processing` job (§5.2.3) | Enqueue a supplementary `ncmec_incident_alert` for that row's window |
+
+Pass 3 is the reason invariant 8 holds without an argument about timing. It does not need
+to know *why* a row went unalerted — the predicate is a fact, so any future mechanism that
+manages to skip a row is caught by the same sweep.
 
 **A completed test submission must not re-fire every five minutes.** §7 leaves a
 test-submitted row at `pending` so it stays eligible for a real filing — but a `pending`
@@ -876,6 +1023,7 @@ Additive on `ncmec_reports`:
 | `test_submission_started_at` | `timestamptz` | §5.8 — a `send-to-test` attempt is open. Set with `NULL` `test_report_id` means `exttest` may hold a submission whose id was lost |
 | `quarantine_id` | `bigint` | FK to `quarantined_memes` — §5.2.4's upstream linkage, so an orphaned quarantine row is findable by query rather than by inference |
 | `failed_at` | `timestamptz` | **When this row entered `failed`.** The bucketing timestamp §5.2.3's incident query reads — stamped in the same transaction as the status write, by **every** path that finalizes a row `failed`: in-`run()` terminal finalization (§5.2.3), retry exhaustion, and the reconciler's lost-finalization repair (§5.3, alongside `last_error_code = -1`). Uses the database clock (`now()`), never application time, so buckets cannot skew across hosts |
+| `alert_notified_at` | `timestamptz` | **When this row was included in a sent incident alert.** Stamped by the `ncmec_incident_alert` handler on exactly the row ids its aggregate query returned, in the transaction that stamps the ledger's `notified_at` — never by re-running the predicate. `submission_status = 'failed' AND alert_notified_at IS NULL` is §5.2.3's durable "nobody has been told" predicate, which §5.3 sweeps |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
 | `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
@@ -906,11 +1054,12 @@ The two columns therefore carry different provenance and are never conflated:
 | `incident_key` | `text primary key` | `'<environment>:<window start ISO>'` — derived from the clock, so concurrent workers compute the same key without coordinating |
 | `notified_at` | `timestamptz` | When this window's aggregated email actually sent. NULL = not yet |
 
-**Two columns, and deliberately no more.** This is a send-ledger, not an aggregate: no
-`failure_count`, no `dominant_code`, no stored first/last timestamps, and no 15-minute
-bucket. Every count, span and dominant code is computed from `ncmec_reports` at send time
-(§5.2.3), which is the whole point of the design — see that section for why a stored
-counter cannot be kept correct here.
+This is a send-ledger, not an aggregate: no `failure_count`, no `dominant_code`, no stored
+first/last timestamps, and no 15-minute bucket. Every count, span and dominant code is
+computed from `ncmec_reports` at send time (§5.2.3), which is the whole point of the design
+— see that section for why a stored counter cannot be kept correct here. Per-row alert
+coverage lives on `ncmec_reports.alert_notified_at`, not here, because it is a fact about
+a row rather than about a window.
 
 The primary key **is** the concurrency control: N simultaneous failures produce one row and
 one email job, with no lock taken and no coordination between workers.
@@ -961,15 +1110,26 @@ orphaned is not an audit trail.
 `/admin/safety` renders the log per report and as a global feed, with human-readable
 attribution, so a fabricated disposition stays detectable after later writes.
 
-**And additive on `quarantined_memes`** — §5.7's provenance requirement needs schema on
-this table too, not only on `ncmec_reports`:
+**And additive on `quarantined_memes`.** Two requirements land here, not one: §5.7's
+provenance, and §5.2.4's orphan sweep, which must be able to rebuild a report from this row
+alone without consulting live config or a live user record.
 
 | Column | Type | Purpose |
 |---|---|---|
 | `content_origin` | `varchar(16)` | `generated` \| `user_upload` \| `stock` \| `template` \| `identity`, **nullable** — null means genuinely unknown, and §5.7 omits the annotation rather than guessing |
+| `report_intent` | `boolean` | **The reportability decision as of quarantine time**, frozen. Written by `quarantine.ts` from the same expression that decides whether to call `submitNcmecReport()` (§5.6), in the same transaction as the row. **Nullable, and null ≠ false** — it means *pre-migration, intent unknowable*, which is the backlog audit's population (§7 step 2), so §5.2.4's sweep skips those rows rather than absolving them |
+| `reporter_snapshot` | `jsonb` | §5.7's frozen uploader identity, captured **here first** and copied to `ncmec_reports`. The quarantine row is the earlier write, so this is where the freeze actually happens |
+| `request_metadata` | `jsonb` | The request context the report carries, captured at the same moment for the same reason |
 
-Both columns carry a CHECK constraint over the same value list, kept in lockstep with a
-`CONTENT_ORIGINS` constant the same way `NCMEC_SUBMISSION_STATUSES` is.
+`content_origin` carries a CHECK constraint over its value list on **both** tables, kept in
+lockstep with a `CONTENT_ORIGINS` constant the same way `NCMEC_SUBMISSION_STATUSES` is.
+
+**Why the last three exist at all:** without them the §5.2.4 sweep has no honest way to
+construct a report. It would have to re-evaluate §5.6's *mutable* classifier flag — making
+whether a hit is reported depend on when a background job happened to run — and resolve the
+uploader **live**, which is precisely what §5.7 forbids, since the account may since have
+been renamed, soft-deleted, or had its email nulled (`dataLifecycle.ts:12`). Persisting the
+inputs makes the sweep a pure function of the row.
 
 **`is_generative` is not stored — do not add it as a derived column.** Persisting it
 alongside `content_origin` would be two representations of one fact and therefore two
@@ -1006,8 +1166,28 @@ and recreates the constraint and the constant is updated **in the same commit**,
 test asserting the two agree so the lockstep is enforced rather than remembered. Existing
 rows are all `pending` and remain valid.
 
-An index on `(submission_status, id)` filtered to the non-final statuses keeps the
-reconciler's sweep cheap as the ledger grows.
+**Indexes.** Three, each backing a query this design runs on a timer:
+
+```sql
+-- reconciler pass 1: non-final rows
+CREATE INDEX IF NOT EXISTS "IDX_ncmec_nonfinal"
+  ON "ncmec_reports" ("submission_status", "id")
+  WHERE "submission_status" IN ('pending','in_progress');
+
+-- reconciler pass 3 + the incident aggregate: unalerted and windowed failures
+CREATE INDEX IF NOT EXISTS "IDX_ncmec_failed_alerting"
+  ON "ncmec_reports" ("submission_environment", "failed_at")
+  WHERE "submission_status" = 'failed';
+
+-- reconciler pass 2's idempotency, and the §5.2.4 orphan guard
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"
+  ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
+```
+
+The third is a **correctness** constraint, not a performance one: it is what makes two
+concurrent orphan sweeps produce one report row instead of two independently-filable ones
+(§5.2.4). Postgres permits many NULLs in a unique index, so rows with no quarantine linkage
+— pre-existing rows, and any created by hand — are unaffected.
 
 **Migration authoring follows this repo's current reality, not the documented ideal.**
 `drizzle-kit generate` is broken on a malformed snapshot around 0063
@@ -1555,6 +1735,63 @@ did. The audit log is consequently the **only** control on this surface, which i
   assert the lock while leaving the window untested, which is how this defect would have
   reached production looking covered.
 
+#### 5.8.1 Endpoint contracts
+
+The prose above states each endpoint's *behaviour and constraints*; this table fixes its
+*wire contract*, so §6b phase 6 is verifiable without an implementer inventing request
+shapes, status codes, or audit payloads — and so phase 7's frontend has something stable to
+consume.
+
+**The API boundary, first, because it decides where these types live.** The `/admin/*`
+surface in this repo is **not** in `lib/api-spec/openapi.yaml` (only four admin paths are);
+admin pages call hand-written `fetch` against `/api/admin/...` with `credentials: "include"`
+and import shared types from `@workspace/api-zod` (`pages/admin/moderation.tsx:123` is the
+pattern). This plan follows that convention rather than introducing spec-generated clients
+for one surface. So:
+
+- Request/response types live in a new **`lib/api-zod/src/ncmecSafety.ts`**, with Zod
+  schemas as the single definition and TypeScript types inferred from them.
+- **That file's export line is added to `apiZodIndexLines` in
+  `lib/api-spec/patch-generated.mjs` in the same commit**, and `pnpm run check:codegen-drift`
+  is run immediately to confirm `lib/api-zod/src/index.ts` is clean. Codegen rewrites that
+  index from the hardcoded list on every run, so a hand-added export survives typecheck and
+  targeted tests and is then silently wiped — see `known-failure-patterns.md`. This is a
+  phase-6 acceptance step, not a cleanup.
+- The API server imports the same schemas for request validation, so client and server
+  cannot drift.
+
+**Common conventions**, stated once rather than repeated per row: every endpoint is
+`requireAdmin` (§8.4); every mutation writes exactly one `ncmec_safety_audit_log` row in its
+own transaction; `400` is schema validation failure, `403` non-admin, `404` unknown id,
+`409` a state precondition the operator can see and act on, `422` a domain refusal
+(`isSubmittable` terminal). `reason` is `z.string().min(10)` wherever it is required —
+long enough to be a sentence, because a one-word reason on a suppressed federal report is
+not an audit trail.
+
+| Endpoint | Request | Success (200) | Errors | Audit `before_state` → `after_state` |
+|---|---|---|---|---|
+| `GET /reports` | query: `status?`, `matchSource?`, `environment?`, `waitingState?`, `page` (default 1), `pageSize` (default 50, max 200) | `{ rows: NcmecReportRow[]; total: number; counts: WaitingStateCounts }` — `counts` is **global, not page-scoped**, keyed by `classifyWaitingState` branch | 400 | — (read) |
+| `GET /reports/:id` | — | `{ report: NcmecReportDetail; audit: AuditEntry[] }` — no `evidenceUri`, no storage path (§5.7) | 404 | — (read) |
+| `POST /reports/:id/retry` | `{ reason?: string }` | `{ enqueued: true }` | 404; **422** with `{ refusal: { class, reason } }` when `isSubmittable` refuses; **409** if the row is final | `{ submissionStatus, attemptCount }` → same, plus `{ enqueued: true }` |
+| `POST /reports/:id/mark-manually-filed` | `{ manualReportId: string (regex-validated), reason: string, confirm: "FILE MANUALLY" }` | `{ report: NcmecReportDetail }` | 400 on a bad `confirm` literal; 409 if already final | `{ submissionStatus, manualReportId, manuallyFiledAt }` → same |
+| `POST /reports/:id/correct-manual-filing` | `{ manualReportId: string, reason: string }` | `{ report: NcmecReportDetail }` | 409 unless the row is `filed_manually` | `{ manualReportId }` → `{ manualReportId }` |
+| `POST /reports/:id/reopen` | `{ reason: string, confirm: "REOPEN" }` | `{ report: NcmecReportDetail }` | 409 unless `filed_manually` | `{ submissionStatus, reportId, finishedAt, submittedAt }` → same, all three cleared (`manualReportId` **retained**) |
+| `POST /reports/:id/send-to-test` | `{ reason: string }` | `{ testReportId: string \| null }` — `null` means the attempt opened and its id was lost, leaving branch 3 of invariant 8 | 409 if `ncmec_ispws_environment ≠ 'test'`, if the row is final, or if the lease is held | Two rows sharing `attempt_id`: `send_to_test_started` `{}` → `{ testSubmissionStartedAt }`; `send_to_test_completed` `{ testSubmissionStartedAt }` → `{ testReportId, testSubmittedAt }` |
+| `POST /reports/:id/audit` | `{ disposition: "reportable" \| "not_reportable" \| "file_without_identity", note: string }` | `{ report: NcmecReportDetail }` | 409 if the row is outside the audit scope (`created_at >= cutoff`), or if the cutoff is unset | `{ backlogAuditedAt, identityOmissionApprovedAt }` → same |
+| `POST /backlog-audit/start` | `{}` | `{ cutoff: string }` | **409 if already set** — the write-once conditional update affected zero rows | `{ cutoff: null }` → `{ cutoff }` |
+| `POST /backlog-audit/complete` | `{}` | `{ completedAt: string }` | 409 if unaudited rows remain, or if the cutoff is unset | `{ completedAt: null }` → `{ completedAt }` |
+| `POST /config` | `{ submissionEnabled: boolean, ispwsEnvironment: "test" \| "production", reportClassifierHits: boolean }` — **the whole tuple, always** | `{ config: NcmecSafetyConfig }` | 409 with the failing precondition named, when the **resulting** tuple would be production-enabled without a completed audit | `{ …all three… }` → `{ …all three… }` |
+| `GET /connectivity` | — | `{ environment, responseCode, reachable: boolean, checkedAt }` | — (an unreachable host is a 200 with `reachable: false`, not a 5xx) | — (read) |
+
+**Config writes are the whole tuple, never one field, and that is a correctness
+requirement rather than an ergonomic preference.** The activation gate is evaluated against
+the *resulting* state (round 11): a single-field endpoint lets an operator flip
+`ispwsEnvironment` to `production` in one request and `submissionEnabled` to true in
+another, where neither request individually produces a gated tuple but the pair does. Taking
+all three together makes the resulting tuple a property of one request the gate can
+actually evaluate, and the write is serialized so two concurrent partial updates cannot
+interleave into an ungated state.
+
 **Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
 report is correct at one failure and actively harmful at two hundred — the volume trains an
 operator to filter the channel, which is a worse outcome than a quieter alert. So failures
@@ -1816,6 +2053,27 @@ Deployment, transition, and rollback (§7):
   and not one email reporting a count of one — and a failure after that window's job has
   sent produces a **new** incident and a new alert. Asserted against real concurrent
   transactions, since the whole mechanism is an `ON CONFLICT` upsert and a dedupe index.
+- **No failure is ever unalerted, including one that commits mid-handler.** Three cases,
+  because the row-level coverage predicate (§5.2.3) is what invariant 8 now rests on:
+  (a) a failure transaction held open across the handler's aggregate query **and its
+  completion** — the email omits the row, the row's own enqueue dedupes against the still
+  -`processing` job, and reconciler pass 3 must produce a supplementary alert containing
+  it; (b) a failure committing after the job goes terminal — same outcome by the ordinary
+  path; (c) every row in a sent alert carries `alert_notified_at`, and no row outside it
+  does. Case (a) is the one that fails without pass 3, so it is the one that must exist.
+- **Two concurrent orphan sweeps produce one report, not two.** Run two `ncmec_reconcile`
+  pass-2 executions against the same orphaned quarantine row with real transactions; assert
+  exactly one `ncmec_reports` row (the unique index rejected the second), exactly one
+  submit job, and that the losing execution completed **successfully** rather than raising.
+  Without the unique index this test yields two rows with different ids, two jobs whose
+  dedupe keys differ, and therefore two real filings — the failure this whole plan exists
+  to prevent.
+- **The orphan sweep never consults live state.** Create an orphaned classifier quarantine
+  row with `report_intent = true`, then **flip `ncmec_report_classifier_hits` to false**
+  and rename the uploader; the recovered report must still be created, and must carry the
+  reporter identity frozen at quarantine time, not the current one. The mirror case:
+  `report_intent = false` stays unreported even with the flag on. And `report_intent IS
+  NULL` (pre-migration) is skipped by the sweep entirely and appears in the backlog audit.
 - **The retry schedule crosses 72 hours**: with `max_attempts = 8` and
   `retry_delay_4_ms = 24 h`, the final attempt is scheduled more than 72 hours after the
   first failure — driven by an injected clock rather than by waiting.
@@ -1946,26 +2204,48 @@ to build first, so this section answers the question §7 cannot: is this one lar
 or a sequence, and which intermediate commits must stay green?
 
 It is a sequence. Each phase below is independently typecheck- and test-clean, and each
-verifies with the repository's own commands before the next begins. Nothing files a report
-until phase 6, and nothing files a *production* report until §7.
+verifies with the repository's own commands before the next begins.
 
 | # | Phase | Depends on | Verify with |
 |---|---|---|---|
-| 1 | Migration `0094` + schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`), no consumers | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts`; `pnpm run check:codegen-drift` |
-| 2 | ISPWS client `ncmecClient.ts` — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts`, incl. XSD + parser hardening |
+| 1 | Migration `0094` + schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the reserved-key policy and guarded config-write helper on both routes** — see below, this is one commit, not two | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts`; `pnpm run check:codegen-drift`; **both** config routes refuse a reserved key |
+| 2 | ISPWS client `ncmecClient.ts` + the two XML builders — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts` against the committed fixtures (§5.1); no network |
 | 3 | `isSubmittable` + `classifyWaitingState`, as pure functions with no callers | 1 | unit tests in `moderation.ncmecWorker.test.ts` |
-| 4 | Provenance + snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
-| 5 | Worker + reconciler + alert handler, registered but **gated off** by `ncmec_submission_enabled = false` | 2, 3, 4 | `moderation.ncmecWorker.test.ts` full suite |
-| 6 | Admin API + audit log + both config routes' reserved-key policy | 1, 3, 5 | `adminSafetyReports.test.ts`; both-routes activation gate |
+| 4 | Provenance, `report_intent`, and snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
+| 5 | Worker + reconciler (all three passes) + alert handler, registered but **gated off** | 2, 3, 4 | `moderation.ncmecWorker.test.ts` full suite |
+| 6 | Admin API + audit log + `lib/api-zod/src/ncmecSafety.ts` (§5.8.1) | 1, 3, 5 | `adminSafetyReports.test.ts`; `pnpm run check:codegen-drift` **again**, because phase 6 adds an `api-zod` export |
 | 7 | `/admin/safety` page + both route registries | 6 | `safety.test.tsx`; page resolves, endpoints mounted |
 | 8 | Classifier caller changes (§5.6), flag still off and worker still hard-refusing | 4 | per-flow tests, all four call sites |
 
-**Why this order and not another.** Phases 1–4 are additive: they add columns and functions
-nothing calls yet, so each can land alone. Phase 5 is the first phase that *could* file
-something, which is why the master switch must already exist (phase 1) and default false —
-merging phase 5 with the switch absent would violate invariant 6 for the duration of a
-deploy. Phase 8 is last because it is the only phase that changes existing call sites'
-behavior, and §5.6's hard refusal means it is inert until §8.2 is answered regardless.
+**Phase 1 carries the config guard, and separating them would open a real hole.** The
+migration **seeds the five NCMEC keys into `admin_config`**, and the repository's existing
+generic `PATCH /admin/config/:key` (`admin.ts:2198`) will happily write any key that exists
+there. If the reserved-key policy and the guarded write path arrived later — at phase 6,
+where the rest of the admin surface lives — then from the moment phase 1 lands, an admin
+could set `ncmec_submission_enabled = true` and `ncmec_ispws_environment = production`
+through a route that knows nothing about backlog audits. Once phase 5 registers the worker
+and reconciler, that configuration **files real reports with the activation gate bypassed**
+— the exact defect round 7 found in the route, reintroduced as a sequencing artifact rather
+than a code one.
+
+The guard has no dependency that forces it later: it is a route-level policy plus one
+helper, and everything it reads (the two audit keys, the unaudited count) exists as of
+phase 1. So it ships with the seeds.
+
+**Correcting a claim an earlier version of this section made.** It said "nothing files a
+report until phase 6." That is **false**, and the sequencing hole above is why it mattered:
+the first phase that can file anything is **phase 5**, when the worker and reconciler are
+registered. What is true is the weaker and more useful statement:
+
+> From phase 1 onward, filing requires an explicit config change that the guarded write
+> path refuses unless the backlog audit is complete — and the §7 rollout is the only
+> procedure that produces that state. No phase files a report as a side effect of landing.
+
+**Why this order and not another.** Phases 1–4 are additive: they add columns, guards and
+functions nothing calls yet, so each can land alone. Phase 5 is the first phase that could
+file, which is why both the master switch and its guard must already exist. Phase 8 is last
+because it is the only phase that changes existing call sites' behavior, and §5.6's hard
+refusal means it is inert until §8.2 is answered regardless.
 
 **The one ordering that is not negotiable** is phase 1 before anything that writes a new
 status value — migration 0043's CHECK constraint rejects `in_progress` and
