@@ -402,6 +402,53 @@ and see *Must not change* on history) and **grantor-label anonymisation** on the
 W1b provenance columns, which reference *admin* identities rather than the
 deleted user and therefore survive the cascade.
 
+**But "retain the history anonymisation" was not executable either, and the
+reason is a live bug in `main`.** `membership_history.user_id` is
+`varchar(...).notNull().references(() => usersTable.id)`
+(`lib/db/src/schema/memberships.ts:41`), and the constraint really exists in the
+database. Verified by execution against this repo's schema:
+
+```
+update membership_history set user_id='anon_probe' where user_id='probe_u';
+ERROR:  insert or update on table "membership_history" violates foreign key
+        constraint "membership_history_user_id_users_id_fk"
+DETAIL:  Key (user_id)=(anon_probe) is not present in table "users".
+```
+
+So `anonymizePaymentHistoryForUser` **throws today** for any user who has any
+membership history, and `POST /admin/users/:id/data-delete` with `phase: "hard"`
+fails before the deletion runs. **Hard deletion of a paying user is currently
+non-functional in production**, independent of this plan. That is a live defect
+this plan did not cause and should not silently absorb — it is recorded here and
+flagged to David as its own bugfix, because a broken data-deletion path is a
+compliance exposure that should not wait on an entitlement-model rewrite.
+
+**Specification for the retained half: a tombstone user.** `anonymizedUserRef`
+already produces a **per-user** reference, which is a deliberate and correct
+property — it severs identity while preserving the ability to group one deleted
+user's records for accounting. Preserve that and make the FK satisfiable:
+
+- The hard delete **inserts a tombstone `users` row** whose id is the anonymised
+  ref, before rewriting history to it. It carries **no personal data** — only
+  `id`; every other identity column in `users` is nullable or defaulted, so the
+  row is `insert into users (id, is_active) values ($ref, false)`. Verified
+  against the live table: `id` is the only non-defaulted `NOT NULL` column.
+- History rows re-point to the tombstone; the FK holds; the real user row is
+  then deleted, and its entitlements cascade.
+- The tombstone is marked as such (`is_active = false`, plus an explicit flag if
+  one is wanted for reporting) so it is never mistaken for an account.
+
+**Rejected alternative:** dropping the FK or nulling `user_id`. Both make the
+column stop meaning anything, and the FK is what guarantees the cascade in the
+first half of this fix actually fires. Trading a real constraint for an easier
+delete would undo entry 136's own resolution.
+
+**Acceptance:** hard-delete a user **with** membership history and assert the
+whole sequence completes — tombstone created, history re-pointed and carrying no
+personal data, entitlements cascaded, user gone — and assert the same sequence
+against the **current** code fails, so the regression test proves the live bug
+was real.
+
 **Acceptance:** a hard delete removes the user's entitlement rows via cascade
 with no FK violation; `membership_history` anonymisation still runs; a
 `admin_grant` row granted **by** the deleted admin to **another** user keeps its
@@ -832,6 +879,7 @@ intention.
 | `provider_ref` | subscription id, payment-intent id, or null for admin grants |
 | `is_membership_product` | allowlist result, snapshotted at ingestion |
 | `lifecycle_status` | Stripe status for subscriptions; `active`/`refunded` for lifetime; `active`/`revoked` for admin grants |
+| `plan` | **subscription-only, nullable.** The price/product identifier carried by `subscriptions.plan` today (`memberships.ts:10`) and returned as part of `appSubscription`. Distinct from `is_membership_product`, which took over only its *qualification* role |
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
@@ -874,7 +922,7 @@ Two axes, because one was not enough:
 | Column | `stripe_subscription` | `stripe_lifetime_payment` | `admin_grant` |
 |---|---|---|---|
 | `is_membership_product` | provider-derived, **re-evaluated** | provider-derived, **frozen** | n/a — W1b authorizes |
-| `lifecycle_status` | provider-derived, re-evaluated | locally-authored (`active`/`refunded`), untouched | locally-authored (`active`/`revoked`), untouched |
+| `lifecycle_status` | provider-derived, re-evaluated | **provider-derived, maintained** — see below | locally-authored (`active`/`revoked`), untouched |
 | `current_period_end`, `cancel_at_period_end` | provider-derived, re-evaluated | n/a | n/a |
 | `amount`, `currency` | **n/a** — see below | provider-derived, frozen | n/a |
 | `plan` | provider-derived, **re-evaluated** | n/a | n/a |
@@ -882,6 +930,29 @@ Two axes, because one was not enough:
 | `dispute_loss_revoked_at` | locally-authored, **untouched, set-once** | same | n/a |
 | W1b provenance columns | n/a | n/a | locally-authored, untouched |
 | `source_state_as_of` | **operational** | operational | operational |
+
+**Why a lifetime source's `lifecycle_status` is maintained, not untouched.**
+Revision 25 classified it locally-authored and untouched, on the reasoning that
+`active`/`refunded` is our vocabulary rather than Stripe's. The vocabulary is
+ours; **the fact is not.** A refund is a Stripe event, and the reconciliation
+section requires the reconciler to inspect charges and **repair a missed refund
+webhook** — which is a write to exactly this cell. Under *untouched* ("no
+refresh writes it, ever") that repair is forbidden, so a lifetime source whose
+refund webhook was dropped stays `active` and grants Legendary **indefinitely**.
+That is defect D1's blast radius reached by a different road, and it is the
+second time in three rounds that a category assigned for tidiness forbade a
+repair the plan requires (entry 132 was the first, for grace).
+
+**Specification:** the cell is **provider-derived, maintained**, with **both**
+writers named — the `charge.refunded` webhook handler and the reconciler's
+charge inspection — and the partial-refund rule (settled decision 6) unchanged:
+only a *full* refund moves the source to `refunded`; a partial one records
+history and leaves it active.
+
+The generalisation, since this is now twice: **a category that forbids a write
+the plan elsewhere requires is a wrong category, not a strict one.** When
+classifying a cell I check the reconciliation and repair paths, not only the
+happy-path writer.
 
 **Why subscription `amount` is inapplicable, not zero-writer.** Revision 25's
 matrix said every subscription refresh re-evaluates `amount`. Checking the
@@ -1932,6 +2003,9 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 136 | 24 | `anonymizePaymentHistoryForUser` writes a `user_id` the FK forbids | **Resolved** — `dataLifecycle.ts:18-33` rewrites `userId` to an `anon_*` reference on both entitlement tables before the hard delete. Ported to `membership_entitlements` that **violates the `user_id` FK** (no such user, by design); left unported it references dropped tables. The mutation inventory listed these two lines from revision 1 and never assigned them a disposition. The path now stops rewriting entitlement rows — `ON DELETE CASCADE` reaches the same end state — while keeping `membership_history` and grantor-label anonymisation, which the cascade does not cover. |
 | 137 | 24 | An unrecognised dispute status holds a source indefinitely | **Resolved** — the consistency `CHECK` from 130 passes an unknown status happily: it is not in the terminal set, so it classifies non-terminal, agrees with `is_terminal = false`, and holds access with **no transition able to resolve it**. Reachable despite the pinned union because the handlers cast status from runtime data. `status` is now domain-constrained to the eight values, and the writer classifies **before** writing: an unrecognised status produces no state change, creates no row on first observation, is reported, and **does not fail the transaction** (entry 130's lesson). Holding nothing matches entry 121's precedent — the uncertainty is about *what this is*, not about entitlement. |
 | 138 | 24 | Subscription `amount` was a required cell with no writer and no column | **Resolved by marking it n/a** — `subscriptions` (`memberships.ts:5-16`) has **no `amount` or `currency` column**; those exist only on `lifetime_entitlements`. I specified a refresh obligation for a value that has never existed, and filling it would be worse than leaving it: a Stripe `Subscription` has `items[]` with per-item price and quantity, so an implementer would invent an aggregation the webhook path and reconciliation could invent differently. **Running this round's own lens on my own matrix then found a second defect Codex did not raise: `subscriptions.plan` was dropped from the target schema entirely** — restored as provider-derived, re-evaluated. |
+| 139 | 25 | `untouched` on lifetime `lifecycle_status` forbids refund repair | **Resolved** — I classified it locally-authored because `active`/`refunded` is our vocabulary. The vocabulary is ours; the **fact** is Stripe's, and the reconciliation section requires the reconciler to inspect charges and repair a missed refund — a write to exactly this cell, which *untouched* forbids. A lifetime source whose refund webhook was dropped would stay `active` and grant Legendary **indefinitely**. Reclassified provider-derived/**maintained**, both writers named, partial-refund rule unchanged. **Second time in three rounds a category assigned for tidiness forbade a repair the plan requires** (132 was grace) — so: a category that forbids a required write is a wrong category, not a strict one. |
+| 140 | 25 | **136 Still Open** — the retained history anonymisation violates its own FK | **Resolved** — I fixed the entitlement half of 136 and retained a half with the identical defect. `membership_history.user_id` is a non-null FK to `users.id` (`memberships.ts:41`) and **the constraint is live**: verified by execution, the `anon_*` update raises `23503`. So `anonymizePaymentHistoryForUser` **throws today** — hard deletion of any user with payment history is **already non-functional in production**, a live bug this plan did not cause. Fixed with a **tombstone `users` row** per anonymised ref (only `id` is non-defaulted `NOT NULL`), preserving `anonymizedUserRef`'s per-user grouping while keeping the FK real. Flagged to David as its own bugfix. |
+| 141 | 25 | **138 Still Open** — `plan` was restored in the matrix and not in the DDL | **Resolved** — I wrote a reply about the *name it in one place, not the other* pattern and then committed instance eight of it in the same revision: `plan` went into the ownership matrix and the prose, and never into the target-schema table, which is the authoritative definition an implementer builds from. Added, subscription-only and nullable. **The pattern is not that I forget to wire things up — it is that I treat having written it somewhere as having written it.** |
 
 | Round | Lens |
 |---|---|
@@ -1960,4 +2034,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 23 | **The dispute record as a state machine, and what round 22 moved.** Round 22 replaced two columns with a table, added an absorbing terminal state, a source-local permanent revocation, a fourth conjunction term and a provider-mirror/source-local field taxonomy. **All of it is new.** Two angles not yet applied: (a) treat `entitlement_source_disputes` as a state machine — which of the eight statuses can follow which, which transitions have no writer, what a re-fetch returning a *non-terminal* status after a terminal one must do, and whether the CHECK and the re-fetch can deadlock or disagree; (b) the field taxonomy is a **new global invariant** asserted over a schema written before it existed — check every column's declared category against every writer in the plan, not just the dispute ones. Round 20's lesson applies: the taxonomy looks obviously correct, which is the condition under which it has never been tested |
 | 24 | **The writers, not the state.** Rounds 20–23 kept finding that a state existed but nothing wrote it, or the wrong thing wrote it — 120 (no column), 122 (no writer), 127 (wrong destination), 133 (unassigned handler), 134 (no synchronizer). That is one failure repeating in five costumes, and it is a **writer-enumeration** failure, not a modelling one. So: take the revision-25 schema and, for **every column × source type cell** in the new matrix, name every code path in this plan and in the existing codebase that writes it, and identify the cells with **zero** writers or **more than one**. Then the reverse sweep: take every handler in `processDomainSwitch` and every route in `routes/stripe.ts` and `admin.ts` and check each writes only cells its category owns. The matrix (131) and the transition writer (133) are both brand-new and both assert completeness over a codebase neither has been checked against exhaustively |
 | 25 | **Severity dropped this round for the first time in five — three P2s where rounds 20–23 ran three-to-five P1s each — and the findings moved from *the model is wrong* to *this cell has no writer*. Two readings fit: the plan is converging, or the writer sweep found the easy half and the hard half is the paths neither of us has enumerated.** So: the sweep again, but **starting from the codebase rather than from the plan**. Enumerate every file that writes `subscriptions`, `lifetime_entitlements`, `membership_history` or `users.membership_tier` — including ones this plan has never mentioned in 24 rounds (`dataLifecycle.ts` was inventoried in revision 1 and still had no disposition until round 24; there may be others with neither) — and for each, state what it becomes. A path the plan has never named cannot have been checked against the matrix. Also: the two things I flagged low confidence in and round 24 did not reach — whether a **source-local** write advances `source_state_as_of`, and whether `is_terminal` being both derived and constrained can diverge |
+| 26 | **Cross-artifact agreement, mechanically.** Round 25's three findings share one shape that is *not* writer enumeration: **two artifacts within this document disagree** — the matrix said `plan` exists and the DDL did not; the matrix said `untouched` and the reconciliation section required a write; the fix text said "retain history anonymisation" and the schema forbade it. Three instances in one round, and 138/136 were both marked Resolved by me while still open. So: **check the plan against itself**, pairwise and exhaustively — every column in the DDL against every cell in the matrix (both directions, so a column in one and not the other is caught); every *category* against every writer the plan requires elsewhere, especially in the reconciliation and repair paths; every acceptance criterion against the specification it claims to test. I am no longer a reliable checker of whether my own fix landed everywhere it had to, which is the actual finding of this round |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
