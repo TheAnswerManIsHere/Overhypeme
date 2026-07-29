@@ -56,8 +56,17 @@ defect regardless of what else the change achieves.
    | Waiting state | Predicate | Waiting on | Surfaced |
    |---|---|---|---|
    | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
-   | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL` | An operator dispositioning a legacy row | §5.7, §5.8 |
+   | **Test mode — not yet test-submitted** | `ncmec_ispws_environment = 'test'` and `test_submitted_at IS NULL` | An explicit `send-to-test`, or the production transition | §5.3, §5.8 |
+   | **Test mode — already test-submitted** | `ncmec_ispws_environment = 'test'` and `test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
+   | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL` and no `identity_omission_approved_at` | An operator dispositioning a legacy row | §5.7, §5.8 |
    | Unaudited backlog | `created_at < cutoff AND backlog_audited_at IS NULL` | The pre-activation audit | §7 step 2, §5.8 |
+
+   The two test-mode rows are the ones the previous revision missed, and the miss is
+   instructive: §5.3's fix — automatic enqueue requires `production` — **created** a
+   waiting state that satisfies none of the other predicates. Submission is *enabled*, the
+   row is audited, its identity resolves, and it still waits. Enumerated separately
+   because they wait on **different** operator actions: the first can be released by a
+   `send-to-test` *or* the production flip, the second only by the production flip.
 
    A row stuck outside both lists, with nobody told, is the worst outcome this subsystem
    can produce: it looks exactly like success from every surface. See §5.3.
@@ -437,8 +446,10 @@ hand and then left `pending` — but it is no longer load-bearing for the rollou
 **Two further classes are ineligible for automatic enqueue**, both because submitting them
 would file something the system cannot stand behind:
 
-- **`reporter_snapshot IS NULL AND user_id IS NOT NULL`** — identity unresolvable (§5.7).
-  Surfaced under "identity unresolved"; an operator resolves it explicitly.
+- **`reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at
+  IS NULL`** — identity unresolvable and not yet dispositioned (§5.7). Surfaced under
+  "identity unresolved". The third clause is what the operator's approval stamps, and
+  without it in the predicate the approval action would change nothing.
 - **`created_at < ncmec_backlog_audit_cutoff AND backlog_audited_at IS NULL`** —
   unaudited backlog (§7 step 2). This is belt-and-braces with the activation refusal in
   §5.8: the refusal stops the switch being thrown, and this stops a row slipping through
@@ -538,6 +549,39 @@ Additive on `ncmec_reports`:
 | `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
 | `backlog_audited_at` | `timestamptz` | §7 — this row has been through the pre-activation backlog audit |
 | `backlog_audit_note` | `text` | §7 — what the operator decided and why, for the rows the audit dispositioned by hand |
+| `identity_omission_approved_at` | `timestamptz` | §5.7 — an operator approved filing this legacy row with `<personOrUserReported>` omitted. **Write-once**; the reconciler reads it as the eligibility signal |
+
+**New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
+on `/admin/safety` alters state with legal consequence, and until this round the design
+recorded *no actor at all*: not on retry, bulk retry, `send-to-test`, audit, or manual
+filing. `admin_config.updated_by_id` preserves only the **latest** writer, so even a
+config write that remembers to set it is overwritten by the next one. An operator who
+marks forty rows `filed_manually` with fabricated report ids has permanently suppressed
+forty federal reports and left a ledger that reads as complete.
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | `bigserial` | |
+| `report_id` | `bigint` | FK to `ncmec_reports`, nullable — config writes are not row-scoped |
+| `actor_user_id` | `varchar` | Who. **`ON DELETE SET NULL` is not used**: the actor is denormalized below so deleting the account cannot erase attribution |
+| `actor_email_snapshot` | `text` | Actor identity as of the action — same immutability reasoning as `reporter_snapshot` |
+| `action` | `varchar(40)` | `retry` \| `bulk_retry` \| `send_to_test` \| `backlog_audit` \| `approve_identity_omission` \| `mark_manually_filed` \| `correct_manual_filing` \| `reopen` \| `config_write` |
+| `reason` | `text` | Operator-supplied; **required** for the destructive actions (§5.8) |
+| `before_state` | `jsonb` | The mutated fields as they were |
+| `after_state` | `jsonb` | The mutated fields as they became |
+| `batch_id` | `uuid` | Groups the per-row entries of one bulk action |
+| `created_at` | `timestamptz not null default now()` | |
+
+**Append-only is enforced, not merely intended**, following the precedent in
+`engineRevisionBumps.ts`: no application code path issues `UPDATE` or `DELETE` against
+this table, and §6 asserts that the module exports no such helper. Every entry is written
+**in the same transaction as the mutation it records**, so an action that commits without
+its audit row is impossible rather than unlikely — the same atomicity argument as
+§5.2.3's status-plus-notification pairing, for the same reason: an audit trail that can be
+orphaned is not an audit trail.
+
+`/admin/safety` renders the log per report and as a global feed, with human-readable
+attribution, so a fabricated disposition stays detectable after later writes.
 
 **And additive on `quarantined_memes`** — this table was missing from an earlier revision
 of this section entirely, so §5.7's provenance requirement had no schema behind it:
@@ -744,8 +788,27 @@ gate that does not exist.
 
   The second class is resolved by an operator decision, never by the worker: mark it
   `filed_manually` if it was already reported by hand, or take an explicit
-  **"file without uploader identity"** action that stamps `backlog_audit_note` with the
-  reason and makes the row eligible. Both are recorded; neither is silent.
+  **"file without uploader identity"** action. Both are recorded; neither is silent.
+
+  **That action needs its own persisted field, and an earlier revision gave it none.** It
+  was described as stamping `backlog_audit_note` — a `text` column — while the reconciler's
+  exclusion predicate reads `reporter_snapshot IS NULL AND user_id IS NOT NULL`. Neither of
+  those changes, so the row would stay ineligible forever and the action would silently do
+  nothing; the only ways to *make* it work would be to null out `user_id` (destroying the
+  linkage the report needs) or to make the reconciler parse a free-text field. So:
+
+  - **`identity_omission_approved_at`** (§5.4) is the dedicated, write-once disposition.
+  - The reconciler's predicate becomes `reporter_snapshot IS NULL AND user_id IS NOT NULL
+    AND identity_omission_approved_at IS NULL` — the stamp is what releases the row.
+  - The endpoint is constrained **server-side** to exactly
+    `reporter_snapshot IS NULL AND user_id IS NOT NULL`, refusing any other row.
+
+  That last constraint is the one that matters most. Without it the action is a
+  general-purpose "file this report without naming the uploader" button usable on *any*
+  row — including current rows that have a perfectly good snapshot. The narrow legacy
+  remedy would become a broad capability to strip identity from federal reports, which is
+  not what it was approved for. §6 asserts the refusal for rows with a snapshot, for
+  anonymous rows, and for non-legacy rows.
 
   The reason not to simply resolve `user_id` live for these rows — the obvious shortcut —
   is that it produces a filing that *looks* complete and states something the platform does
@@ -785,13 +848,23 @@ proposed setting `<generativeAi>` when the quarantine came from `createMemeRecor
   The mapping would have had to re-derive provenance from information that was never
   written down.
 
-So `quarantined_memes` and `ncmec_reports` gain explicit provenance — `content_origin`
-(`generated` | `user_upload` | `stock` | `template` | `identity`) and a derived
-`is_generative` — written at quarantine time from the **actual image origin** the caller
-already knows. `<generativeAi>` is set from that column and nothing else; where origin is
-genuinely unknown the annotation is omitted rather than guessed. Callers pass it
-explicitly, which also means a new quarantine call site cannot silently inherit a wrong
-default.
+So `quarantined_memes` and `ncmec_reports` gain **one** explicit provenance column —
+`content_origin` (`generated` | `user_upload` | `stock` | `template` | `identity`) —
+written at quarantine time from the **actual image origin** the caller already knows.
+Callers pass it explicitly, which also means a new quarantine call site cannot silently
+inherit a wrong default.
+
+**`<generativeAi>` is computed as `content_origin === 'generated'` at the point of use.
+There is no `is_generative` column and nothing ever writes one.** An earlier revision of
+this paragraph described `content_origin` *and* "a derived `is_generative`" both written at
+quarantine time, which is exactly the duplicate source of truth §5.4 rejects — and it
+survived the round that fixed §5.4, because only the schema section was corrected. Two
+representations of one fact are two things that can diverge, and the divergence would
+surface as a **wrong annotation on a federal report**, decided by which of the two the
+mapping happened to read.
+
+Where origin is genuinely unknown (`content_origin IS NULL`) the annotation is omitted
+rather than guessed — the same honest-omission rule the identity policy above uses.
 
 ### 5.8 Admin surface — `/admin/safety`
 
@@ -802,6 +875,16 @@ would be wrong on both structure and access-pattern grounds.
 
 Route module: `artifacts/api-server/src/routes/adminSafetyReports.ts`, `requireAdmin`
 on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
+
+**The authorization boundary is an open product question (§8.4), not settled here.**
+`requireAdmin` resolves to a single boolean — `users.is_admin` (`schema/auth.ts:22`,
+`admin.ts:97`) — and `PATCH /admin/users/:id` lets any admin set `isAdmin` on any account
+(`admin.ts:152`). So as designed, every administrator holds full authority over federal
+reporting state, and that authority is self-propagating. Whether this surface warrants a
+second, separately-granted capability is a scope decision that belongs to David; §8.4
+states the question. Everything below is written to hold under **either** answer — the
+audit log, the confirmations, and the server-side constraints are not substitutes for an
+authorization boundary and do not assume one.
 
 - `GET  /admin/safety/reports` — paginated ledger, filterable by status, match source,
   and environment.
@@ -827,6 +910,41 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   and sets `filed_manually`, taking the row out of the reconciler's scope (§5.3).
   Requires the operator to enter the CyberTipline report id from the manual filing, so
   the ledger stays complete rather than merely quiet.
+
+  **This is the sharpest edge on the whole surface, and it was unguarded.** It takes an
+  operator-typed report id, moves the row to a **final** status, and removes it from every
+  automatic repair path permanently — with no validation, no reason, and no way back. A
+  typo and a deliberate fabrication produce byte-identical rows, and both mean a
+  reportable hit is never filed while the ledger reads as complete. Invariant 8 is
+  satisfied *formally* — the row reached a final state — while being violated in
+  substance.
+
+  Four requirements:
+
+  - **Server-side normalization and format validation** of the report id (trim, case,
+    the documented ISPWS id shape), rejecting anything malformed. This catches typos, not
+    fabrication — those are different problems and only one of them is solvable here.
+  - **A mandatory `reason` and an explicit typed confirmation**, both recorded in the
+    audit log (§5.4) with actor and before/after state.
+  - **An audited correction path** — `POST …/correct-manual-filing` — that replaces the
+    report id while **preserving the original value** in the audit log's `before_state`.
+    The stored id is corrigible; the record of what was originally claimed is not.
+  - **An audited reopen path** — `POST …/reopen` — returning the row to `pending` for a
+    row that was never actually filed, subject to §5.2.2's lease fence like every other
+    state write.
+
+  **What the approver verifies before correcting or reopening, since the system cannot.**
+  ISPWS has no per-report status endpoint — `GET /status` is connectivity only (§4) — so
+  there is no programmatic way to confirm a manually-filed report exists. The evidence is
+  therefore external and the plan names it rather than leaving it to judgment: the
+  CyberTipline **submission confirmation email** NCMEC sends the filer, or the report's
+  presence in the manual portal at `report.cybertip.org/cybertip/login` under the filing
+  account. The reason field records which was checked. If neither can be produced, the
+  correct action is **reopen and let it file**, because a duplicate report is recoverable
+  through NCMEC and an unfiled one is not.
+
+  That asymmetry is the tie-breaker for every ambiguous case on this endpoint, and it is
+  stated here so the ambiguity does not get resolved the other way under time pressure.
 
   **This transition is fenced against active workers, in both directions.** A row sits at
   `pending` while a leased worker is inside `/submit` and before it persists the returned
@@ -867,6 +985,28 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   carrying the exhausted budget forward would make the button do nothing on the rows that
   most need it — the same class of defect as enqueuing a `failed` row that can never
   acquire its lease.
+
+  **The filter is bounded by a preview-and-confirm contract, not trusted.** As previously
+  written the endpoint took an unspecified filter with no maximum and no dry run, so an
+  omitted time or code condition submits the entire failed ledger to NCMEC in one click —
+  and every row it touches is a real report. "Typically filtered by time and code" is a
+  description of intent, not a constraint on the request.
+
+  - **Required filter fields**: environment, a time window, and an error-code set. A
+    request omitting any of them is rejected — there is no implicit "everything."
+  - **`POST …/bulk-retry/preview`** returns the exact matched count, the incident scope,
+    and a **short-lived confirmation token bound to that filter and the matched row-id
+    set**. Execution requires the token; a filter that changed since the preview does not
+    match it and cannot execute.
+  - **A hard per-batch limit**, so even a correct-looking filter cannot exceed it in one
+    action. Exceeding the limit is an explicit refusal naming the count, not a silent
+    truncation — a silently truncated recovery is indistinguishable from a complete one,
+    which is the failure this endpoint exists to prevent.
+  - **Per-row and aggregate results returned**, and one audit-log entry per affected row
+    sharing a `batch_id` (§5.4), so the blast radius is reconstructable afterwards.
+
+  §6 asserts that changing or omitting the previewed filter cannot execute, and that rows
+  outside the confirmed set are untouched.
 - `POST /admin/safety/reports/:id/send-to-test` — submits **one** selected row against
   `exttest`, writing `test_submitted_at` / `test_report_id` and leaving the status
   `pending` (§7). This exists because the reconciler does not auto-enqueue in the `test`
@@ -884,8 +1024,28 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   working?" answer that no amount of row-reading gives.
 - `POST /admin/safety/config` — the two switches. **Enabling submission with
   `ncmec_ispws_environment = 'production'` is refused while the unaudited-backlog count
-  (§7 step 2) is non-zero**, and the refusal names the count. The gate lives here, on the
-  write, rather than in the UI, so it holds however the config is changed.
+  (§7 step 2) is non-zero**, and the refusal names the count.
+
+  **This gate is worthless unless the generic config route is closed, and it is not.**
+  `router.patch("/admin/config/:key", requireAdmin, …)` (`admin.ts:2198`) accepts **any**
+  key that exists in `admin_config` and writes it with no per-key policy — it validates
+  data type and min/max and nothing else. Migration `0094` seeds the NCMEC keys into that
+  same table, so the moment this plan ships, `ncmec_submission_enabled` becomes writable
+  through a route that knows nothing about backlog audits. The activation gate would be a
+  door with a lock beside an open window.
+
+  Two changes, and the plan requires **both**:
+
+  - **A reserved-key policy on the generic route.** `admin.ts` gains an explicit set of
+    keys the generic `PATCH` refuses, returning a message naming the endpoint that owns
+    them. NCMEC's four keys are its first members.
+  - **One guarded helper owns every NCMEC config write.** Both routes call it; the gate
+    lives inside it. A second bypass then requires someone to deliberately route around a
+    named helper rather than to simply not know this policy exists.
+
+  §6 tests **both** routes refuse unsafe activation. Testing only the new endpoint would
+  assert the lock while leaving the window untested, which is how this defect would have
+  reached production looking covered.
 
 **Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
 report is correct at one failure and actively harmful at two hundred — the volume trains an
@@ -988,6 +1148,40 @@ Outage behavior (§5.2, §5.8):
   retryable failures around it — the test that would have caught the `-1`-outside-the-
   filter gap — and its `attempt_count` is reset, so an admin retry after an exhausted
   automatic budget actually runs.
+
+Admin surface as a privileged surface (§5.8):
+- **Both config routes refuse unsafe activation** — the new safety endpoint *and* the
+  generic `PATCH /admin/config/:key` (`admin.ts:2198`). Testing only the new one would
+  assert the lock and leave the window untested.
+- **Every mutation writes exactly one audit entry, in the mutation's own transaction**:
+  an injected failure after the state write and before the audit insert leaves **neither**.
+  Asserted for retry, bulk retry, `send-to-test`, audit, identity-omission approval,
+  manual filing, correction, reopen, and config write.
+- **The audit log is append-only**: the module exports no update or delete helper, and no
+  code path issues one against `ncmec_safety_audit_log`.
+- **Attribution survives account deletion** — `actor_email_snapshot` still identifies who
+  acted after the user row is gone.
+- **Identity omission is narrowly constrained**: refused for a row with a
+  `reporter_snapshot`, for an anonymous row (`user_id IS NULL`), and for a non-legacy row;
+  accepted only for `reporter_snapshot IS NULL AND user_id IS NOT NULL`, and the stamp is
+  what makes the reconciler pick the row up.
+- **`mark-manually-filed`**: a malformed report id is rejected; a missing reason is
+  rejected; correction preserves the original id in `before_state`; reopen returns the row
+  to `pending` and the reconciler picks it up again.
+- **Bulk retry**: a request missing environment, time window, or code set is rejected;
+  execution without a preview token is rejected; a token whose filter changed is rejected;
+  the per-batch limit refuses rather than truncates; rows outside the confirmed set are
+  untouched; every affected row shares one `batch_id`.
+- **Waiting-state counts are exhaustive and disjoint** across all five states, asserted in
+  four configurations: disabled+test, enabled+test before `send-to-test`, enabled+test
+  after it, and production. Every non-final row appears in exactly one count — the
+  assertion that would have caught the two test-mode states missing from invariant 8.
+
+Provenance has exactly one representation:
+- **No `is_generative` column exists**, and `<generativeAi>` is computed from
+  `content_origin === 'generated'` at the point of use. Asserted against the schema, not
+  only against the mapping, so the column cannot be reintroduced by a later revision
+  without a failing test.
 
 Deployment, transition, and rollback (§7):
 - **Migration-before-code**: applying `0094` while the *old* code serves leaves the old
@@ -1259,6 +1453,42 @@ there is a workstream beyond the abuse email. This is David's answer, not a code
 change — but the honest current answer is "the abuse email and nothing else," and
 `/admin/safety` is the first thing that would change that. Worth answering after this
 ships rather than before.
+
+**8.4 — Does `/admin/safety` need its own authorization boundary? (David's call.)**
+Raised by Codex in round 7 as a Product Decision, and it is genuinely one — it changes
+scope, not just implementation.
+
+The facts, verified: this repo has exactly one privilege level, the boolean
+`users.is_admin` (`schema/auth.ts:22`), and any admin can grant it to any account through
+the existing user editor (`admin.ts:152`). This plan's surface can suppress a federal
+report (`mark-manually-filed`), file one with the uploader stripped out
+(`approve-identity-omission`), re-submit in bulk, and flip production submission on. Under
+`requireAdmin` alone, every one of those is available to every administrator, and the role
+that grants them is self-propagating.
+
+Codex's proposal: keep read-only ledger and connectivity behind ordinary admin; require a
+separately-granted **NCMEC operator** capability for production retry and audit actions; a
+narrower **compliance approver** capability plus fresh confirmation for
+`mark-manually-filed`, identity omission, bulk retry, and production activation; and make
+the grant path itself restricted and audited rather than self-grantable.
+
+The trade-off, stated plainly because it is the reason this is David's and not mine:
+
+- **Adopting it** means introducing this repo's *first* capability system — a schema
+  change, a grant surface, migration of existing admins, and a real risk of locking David
+  out of his own safety surface at the worst moment. Correct for a mature compliance
+  organization; possibly ceremony for a platform whose admin set is currently one person.
+- **Declining it** leaves the audit log (§5.4) as the only control: every destructive
+  action is attributable and detectable after the fact, but none is *prevented*. That is a
+  defensible posture for a single-operator platform and an indefensible one the moment
+  admin access is granted to anyone whose judgment David would not stake a federal
+  reporting obligation on.
+
+My recommendation is to **decline for now and revisit when a second admin exists**,
+because the audit log delivers most of the protection at none of the lockout risk — but I
+am flagging it rather than deciding it, since the cost of being wrong here is borne
+legally rather than technically. Whatever David decides, this plan does not ship the
+capability system without an explicit yes.
 
 ## 9. Out of scope
 
