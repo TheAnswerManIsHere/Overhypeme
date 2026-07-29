@@ -283,8 +283,9 @@ produce a terminal backlog that never resumes on its own plus an alert storm tha
 an operator to ignore the alert that matters.
 
 So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** (adding 24 h and 48 h
-tail delays), which outlasts any plausible outage; and §5.8 adds a **bulk retry** action
-plus **incident-level alert aggregation** for the case where it does not.
+tail delays), which outlasts any plausible outage; and §5.8 adds **incident-level alert
+aggregation** so the case where it does not is one alert rather than hundreds. (Bulk retry
+was specified alongside it and is deferred — §5.8.)
 
 **What the queue does *not* provide, and this plan must therefore supply itself.**
 Three of its properties are load-bearing here and none of them work the way a naive
@@ -502,8 +503,8 @@ which is the same kind of acknowledged waiting state as `pending`-because-disabl
 
 Every eligibility condition above — environment, backlog audit, identity disposition —
 lived **only in the reconciler's query**. That is the wrong place for them to live alone,
-because the reconciler is not the only thing that enqueues: §5.8's retry and bulk-retry
-both create `ncmec_submit` jobs directly, and the worker's lease acquisition (§5.2.2)
+because the reconciler is not the only thing that enqueues: §5.8's retry creates
+`ncmec_submit` jobs directly, and the worker's lease acquisition (§5.2.2)
 checks only status and lease. So an admin could retry an unaudited legacy row, or a row
 whose identity omission was never approved, and it would **file** — passing every check
 the worker performs, because none of the checks that would have refused it are ones the
@@ -523,7 +524,7 @@ So the predicate is extracted:
   insert-plus-enqueue transaction and **enqueues only if it passes**; otherwise it commits
   the row alone, which is the already-designed "row with no job" state the reconciler owns.
 - **The reconciler** uses it to select rows.
-- **Retry and bulk-retry** evaluate it before enqueuing and refuse with the reason, so the
+- **Retry** evaluates it before enqueuing and refuses with the reason, so the
   operator is told *why* rather than watching a job appear and silently do nothing.
 - **The worker re-evaluates it inside `run()`, in the same transaction as lease
   acquisition**, and returns a terminal refusal if it no longer holds.
@@ -661,8 +662,7 @@ The two columns therefore carry different provenance and are never conflated:
 
 **New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
 on `/admin/safety` alters state with legal consequence, and until this round the design
-recorded *no actor at all*: not on retry, bulk retry, `send-to-test`, audit, or manual
-filing. `admin_config.updated_by_id` preserves only the **latest** writer, so even a
+recorded *no actor at all*: not on retry, `send-to-test`, audit, or manual filing. `admin_config.updated_by_id` preserves only the **latest** writer, so even a
 config write that remembers to set it is overwritten by the next one. An operator who
 marks forty rows `filed_manually` with fabricated report ids has permanently suppressed
 forty federal reports and left a ledger that reads as complete.
@@ -673,11 +673,11 @@ forty federal reports and left a ledger that reads as complete.
 | `report_id` | `bigint` | FK to `ncmec_reports`, nullable — config writes are not row-scoped |
 | `actor_user_id` | `varchar` | Who. **`ON DELETE SET NULL` is not used**: the actor is denormalized below so deleting the account cannot erase attribution |
 | `actor_label` | `text not null` | Human-readable actor identity as of the action. **`NOT NULL` is load-bearing** — see below |
-| `action` | `varchar(40)` | `retry` \| `bulk_retry` \| `send_to_test` \| `backlog_audit` \| `approve_identity_omission` \| `mark_manually_filed` \| `correct_manual_filing` \| `reopen` \| `config_write` |
+| `action` | `varchar(40)` | `retry` \| `send_to_test_started` \| `send_to_test_completed` \| `backlog_audit` \| `approve_identity_omission` \| `mark_manually_filed` \| `correct_manual_filing` \| `reopen` \| `config_write` |
 | `reason` | `text` | Operator-supplied; **required** for the destructive actions (§5.8) |
 | `before_state` | `jsonb` | The mutated fields as they were |
 | `after_state` | `jsonb` | The mutated fields as they became |
-| `batch_id` | `uuid` | Groups the per-row entries of one bulk action |
+| `attempt_id` | `uuid` | Pairs the two events of one `send-to-test` attempt (§5.8) |
 | `created_at` | `timestamptz not null default now()` | |
 
 **`actor_label` is `NOT NULL`, and the mutation is refused if one cannot be captured.**
@@ -1119,66 +1119,30 @@ did. The audit log is consequently the **only** control on this surface, which i
     (§5.2.2), so a worker that acquired earlier cannot resurrect a row an operator has
     since marked. Whichever ordering occurs, exactly one outcome survives and it is never
     a duplicate filing.
-- `POST /admin/safety/reports/bulk-retry` — resets and re-enqueues **every** `failed` row
-  matching a filter (typically "failed since <time> with `last_error_code` in the retryable
-  set"), using the same fenced per-row transition as single retry. This is the post-outage
-  recovery path: after a multi-day NCMEC outage the per-row button would mean enumerating
-  and clicking through the entire backlog by hand, which is not a recovery mechanism —
-  it is a way to miss reports.
+- **Bulk retry is deferred to a follow-up (David, 2026-07-29).** An earlier revision of
+  this plan specified `POST /admin/safety/reports/bulk-retry` with a preview endpoint, a
+  signed confirmation token bound to the filter and matched row-id set, per-row filter
+  revalidation at execution, batch audit grouping, and a hard per-batch limit.
 
-  **The filter is `retryable ∪ {-1}`, not the ISPWS retryable set alone.** §5.3 stamps
-  reconciled lost finalizations with `last_error_code = -1`, which is by construction not
-  an ISPWS code and therefore cannot appear in the retryable set — so a filter written as
-  "codes in the retryable set" excludes precisely the rows the reconciler repaired, and
-  the post-outage guarantee in §6 would be false for exactly the failure mode a long
-  outage produces most of. The filter therefore has an explicit **unknown/lost** bucket,
-  selectable alongside the retryable codes and selected by default in the incident view.
+  It was cut on Codex's round-9 assessment and David's decision: essentially all of that
+  machinery existed to make **one button** safe, the button is not required for the first
+  real report, and §1's ask — see reporting work, see failures, retry them — is satisfied
+  by single-row retry. Rounds 7 and 8 each found a P1 inside it, which is a poor return on
+  a mechanism outside the stated intent.
 
-  A `-1` row is *unknown*, not *known-terminal*: the original code was lost, so treating
-  it as non-retryable asserts something the system does not know. Retrying it is safe
-  because §5.2.1's retract-first makes a redundant attempt observable rather than
-  duplicative.
+  **What covers the outage case without it**, since that is what it was built for: the
+  8-attempt, 72-hour retry budget (§5.2) resumes automatically through any outage shorter
+  than three days without an operator touching anything. Beyond that, recovery is per-row
+  retry — which is genuinely worse, and is the accepted cost. An outage longer than 72
+  hours is a conversation with NCMEC, not a button.
 
-  **Any admin retry — single or bulk — resets `attempt_count` to zero and starts a fresh
-  budget.** The §7 eight-attempt budget governs *automatic* retries, whose purpose is to
-  ride out a transient outage without human attention. An operator clicking retry is a new
-  human decision with new information (the outage is over, the credentials are fixed), and
-  carrying the exhausted budget forward would make the button do nothing on the rows that
-  most need it — the same class of defect as enqueuing a `failed` row that can never
-  acquire its lease.
+  **Incident alert aggregation is NOT deferred** — see below. It arrived with bulk retry
+  in the same round-5 finding, but it is a few lines in the notification path rather than
+  an endpoint, and deferring it would make the remaining design worse rather than smaller.
 
-  **The filter is bounded by a preview-and-confirm contract, not trusted.** As previously
-  written the endpoint took an unspecified filter with no maximum and no dry run, so an
-  omitted time or code condition submits the entire failed ledger to NCMEC in one click —
-  and every row it touches is a real report. "Typically filtered by time and code" is a
-  description of intent, not a constraint on the request.
-
-  - **Required filter fields**: environment, a time window, and an error-code set. A
-    request omitting any of them is rejected — there is no implicit "everything."
-  - **`POST …/bulk-retry/preview`** returns the exact matched count, the incident scope,
-    and a **short-lived confirmation token bound to that filter and the matched row-id
-    set**. Execution requires the token; a filter that changed since the preview does not
-    match it and cannot execute.
-  - **Execution re-evaluates the filter per row, not just the id set.** A signed id set
-    proves *which rows were shown*, never that they still match what was confirmed — and
-    the two can diverge without anything unusual happening. A row previewed as `failed`
-    with retryable `1000` can be retried individually in the interval and fail again with
-    terminal `4100`: still `failed`, still in the signed set, and now something the
-    operator explicitly did **not** confirm retrying. So each row's update carries the
-    previewed filter's conditions in its `WHERE`, and rows that no longer satisfy them are
-    **reported as skipped with a reason**, never silently included or silently dropped.
-    Rows that entered the filter after the preview are excluded by the id set. The two
-    checks are complementary: the id set bounds the batch from growing, the per-row
-    conditions stop it from acting on rows whose meaning changed.
-  - **A hard per-batch limit**, so even a correct-looking filter cannot exceed it in one
-    action. Exceeding the limit is an explicit refusal naming the count, not a silent
-    truncation — a silently truncated recovery is indistinguishable from a complete one,
-    which is the failure this endpoint exists to prevent.
-  - **Per-row and aggregate results returned**, and one audit-log entry per affected row
-    sharing a `batch_id` (§5.4), so the blast radius is reconstructable afterwards.
-
-  §6 asserts that changing or omitting the previewed filter cannot execute, and that rows
-  outside the confirmed set are untouched.
+  Deferred with it: the `bulk_retry` audit action and the `batch_id` grouping column,
+  which have no other consumer. `attempt_id` (§5.8's `send-to-test` events) is a separate
+  column and stays.
 - `POST /admin/safety/reports/:id/send-to-test` — submits **one** selected row against
   `exttest`, writing `test_submitted_at` / `test_report_id` and leaving the status
   `pending` (§7). This exists because the reconciler does not auto-enqueue in the `test`
@@ -1232,8 +1196,7 @@ did. The audit log is consequently the **only** control on this surface, which i
   "closes" it — which cannot be done without either updating that entry (violating
   append-only, §5.4) or leaving it stale (violating the audit-in-the-mutating-transaction
   rule, and §6's assertion that every mutation writes an entry). Both events therefore
-  exist in their own right and share an **`attempt_id`** so they pair up; `batch_id`
-  already provides the grouping column, so this needs no new field.
+  exist in their own right and share an **`attempt_id`** (§5.4) so they pair up.
 
   This is the general shape wherever a mutation spans an external call: **an append-only
   log records events, never object states.** An entry that needs revising is a state
@@ -1286,6 +1249,16 @@ occurring within a rolling window collapse into **one incident alert** ("47 repo
 against `report.cybertip.org`, first at 03:12, last at 09:48, dominant code 1000") linking
 to the filtered ledger. Per-report `last_error` / `last_error_code` remain on each row —
 the aggregation is in the *notification*, never in the record.
+
+**This survives the bulk-retry deferral, and deliberately.** Aggregation and bulk retry
+both came out of round 5's outage finding, so it would be natural to cut them together.
+They are not the same kind of thing: bulk retry is an endpoint with a token protocol and a
+confirmation UX, while this is a few lines in the notification path. More importantly,
+deferring it would make the **remaining** design worse rather than smaller — invariant 8's
+guarantee that no failure is silent is delivered entirely through this alert channel, and
+two hundred emails in an hour is how an operator learns to ignore it. Cutting the recovery
+tool while keeping one report per row is a scope reduction; cutting the thing that keeps
+the alert channel usable is a reliability regression wearing a scope reduction's clothes.
 
 Frontend: `artifacts/overhype-me/src/pages/admin/safety.tsx`, modeled on
 `emailQueue.tsx` (815 lines — a durable-queue admin page with statuses, the closest
@@ -1401,19 +1374,19 @@ Client (fake `fetch`, no network):
   - XML nested beyond **50** levels is refused.
 
 Outage behavior (§5.2, §5.8):
-- A simulated outage **longer than the retry horizon** leaves every affected report either
-  automatically resumed or recoverable through one bulk-retry action — never requiring
-  manual enumeration.
+- A simulated outage **shorter than the 72-hour horizon** leaves every affected report
+  automatically resumed, with no operator action at all. One **longer** than it leaves
+  every affected row `failed` with a durable notification and visible in the ledger —
+  recoverable per row, which is the accepted cost of deferring bulk retry.
 - Two hundred concurrent failures produce **one** incident alert, not two hundred emails,
   while each row still carries its own `last_error_code`.
 - Notification dedupe keys are kind-scoped: an awaiting-activation alert still `pending`
   when a submission fails terminally does **not** suppress the failure alert.
 - A lost finalization repaired by the reconciler records `last_error_code = -1` and says
   the original code was lost, rather than reporting a code it cannot know.
-- **A reconciled `-1` row is recovered by the same bulk incident action** as the ordinary
-  retryable failures around it — the test that would have caught the `-1`-outside-the-
-  filter gap — and its `attempt_count` is reset, so an admin retry after an exhausted
-  automatic budget actually runs.
+- **A reconciled `-1` row is retryable by an admin** like the ordinary retryable failures
+  around it, and its `attempt_count` is reset, so a retry after an exhausted automatic
+  budget actually runs.
 
 Round-8 mechanisms — the new endpoints against the worker and reconciler:
 - **Eligibility cannot be bypassed by an admin enqueue**: retry on an unaudited row and on
@@ -1432,9 +1405,6 @@ Round-8 mechanisms — the new endpoints against the worker and reconciler:
 - **`actor_label` is always populated**: an admin whose `email` is NULL still produces a
   human-readable label, and a mutation that cannot capture one is **refused**, not
   recorded anonymously.
-- **Bulk retry revalidates per row**: a row previewed as retryable `1000` that becomes
-  terminal `4100` before execution is **skipped with a reason**, not retried on the
-  strength of the signed id set.
 - **Waiting-state counts come from `classifyWaitingState`**, one function shared by the
   table, the API, and these tests. Exhaustive-and-disjoint is asserted against it across
   disabled+test, enabled+test before and after `send-to-test`, and production — including
@@ -1449,7 +1419,7 @@ Admin surface as a privileged surface (§5.8):
   assert the lock and leave the window untested.
 - **Every mutation writes exactly one audit entry, in the mutation's own transaction**:
   an injected failure after the state write and before the audit insert leaves **neither**.
-  Asserted for retry, bulk retry, `send-to-test`, audit, identity-omission approval,
+  Asserted for retry, `send-to-test`, audit, identity-omission approval,
   manual filing, correction, reopen, and config write.
 - **Attribution survives account deletion** — `actor_label` still identifies who acted
   after the user row is gone, including for an actor whose `email` was already NULL.
@@ -1460,11 +1430,7 @@ Admin surface as a privileged surface (§5.8):
 - **`mark-manually-filed`**: a malformed report id is rejected; a missing reason is
   rejected; correction preserves the original id in `before_state`; reopen returns the row
   to `pending` and the reconciler picks it up again.
-- **Bulk retry**: a request missing environment, time window, or code set is rejected;
-  execution without a preview token is rejected; a token whose filter changed is rejected;
-  the per-batch limit refuses rather than truncates; rows outside the confirmed set are
-  untouched; every affected row shares one `batch_id`.
-- **Waiting-state counts are exhaustive and disjoint** across all five states, asserted in
+- **Waiting-state counts are exhaustive and disjoint** across all seven branches, asserted in
   four configurations: disabled+test, enabled+test before `send-to-test`, enabled+test
   after it, and production — **parameterised over the configurations rather than written
   out per scenario**. Every non-final row lands in exactly one branch, including the
@@ -1826,6 +1792,13 @@ decision is a recorded position rather than an omission:
 
 ## 9. Out of scope
 
+- **Bulk incident response** — bulk retry, its preview-and-confirm token, per-row filter
+  revalidation, batch audit grouping, and the hard-limit UX. **Deferred by David
+  (2026-07-29)** on Codex's round-9 assessment; the reasoning and what covers the outage
+  case without it are in §5.8. Incident **alert aggregation** is explicitly *not* part of
+  this deferral and ships with this plan. Revisit if an outage ever exceeds the 72-hour
+  automatic budget in practice, or once the ledger is large enough that per-row recovery
+  is unrealistic.
 - **All evidence deletion.** Companion plan. Nothing here calls `deleteObject`.
 - **Detection tuning.** No threshold, fail-open, or bypass semantics change.
 - **The manual reporting form.** It remains the human fallback when automation fails
