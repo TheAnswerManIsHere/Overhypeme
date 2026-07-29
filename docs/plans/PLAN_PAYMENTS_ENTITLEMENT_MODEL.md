@@ -318,12 +318,30 @@ qualification conjunction gains it as a disqualifier. The source stops
 qualifying permanently regardless of what Stripe later reports about the
 subscription's lifecycle.
 
-**General invariant this generalises to, stated once so it binds every future
-field:** an authoritative refresh writes **only** provider-mirror fields
-(`lifecycle_status`, `is_membership_product`, the version/fence, amounts). It
-**never** writes or clears source-local state — `dispute_loss_revoked_at`, or anything added later. A field's category is
-recorded in the schema section, and a new field must declare one. This is the
-class the finding belongs to, not just the instance.
+**General invariant, narrowed to what is actually true.** Revision 28 wrote this
+as *no authoritative refresh ever writes source-local state*, and entry 142 then
+split `dispute_loss_revoked_at` by writer — set-once by the dispute transition,
+including **its reconciliation form**, which is an authoritative refresh. So the
+global prohibition and the matrix contradicted each other: obey the prohibition
+and a missed chargeback loss qualifies forever; obey the matrix and the
+prohibition is violated. **I fixed the matrix row and left the prose invariant
+that governs it**, which is the same propagation failure as entries 129, 144 and
+151.
+
+> **An *ordinary provider-lifecycle refresh* writes only provider-derived and
+> locally-derived-policy cells.** It never writes or clears locally-authored
+> state. **Named non-lifecycle paths may write specific locally-authored cells
+> under stated conditions** — today exactly one: the dispute transition sets
+> `dispute_loss_revoked_at`, once. Every column declares a category and a new one
+> must too; a cell writable by a named path declares that path.
+
+**And the ordering token: a source-local write advances `source_state_as_of`.**
+This is the question I had flagged as unresolved for five rounds, and the answer
+falls out of narrowing the prohibition rather than being a separate decision. The
+dispute transition's set-once write **is** a source mutation, so it takes a token
+like any other; not advancing it would leave two writers disagreeing about what
+the token orders. The version guard therefore continues to mean *no write older
+than the stored state*, uniformly, with no carve-out.
 
 ### A terminal dispute absorbs a late open event
 
@@ -1480,8 +1498,18 @@ migration is one-way and the mitigation lives *before* it, not after:
 a no-op on a second run; **the boot test exercises the real
 `runMigrations()` → `ensureSchema()` sequence** rather than the migration alone,
 and the process reaches the point of binding its port; reconciliation populates
-entitlements from Stripe; a webhook delivered during the rollout is retried by
-Stripe and applied afterwards.
+entitlements from Stripe; and a webhook delivered during the rollout window and
+**permanently dropped** — never retried, never delivered — is **repaired by
+reconciliation**.
+
+*(Revisions up to 30 asserted here that such a webhook "is retried by Stripe and
+applied afterwards". Entry 149 made the retry guarantee explicitly contextual —
+mode-dependent, and nothing was supposed to depend on it — and this criterion
+still did, as did the one in* Verification. *Testing the retry also tests
+Stripe's behaviour rather than ours, and a sandbox rehearsal only gets three
+retries over a few hours. The dropped-webhook version tests the mechanism this
+plan actually owns, and is strictly stronger: if reconciliation repairs a
+permanently lost event, it repairs a late one too.)*
 
 ##### What deliberately survives the simplification
 
@@ -1781,6 +1809,40 @@ tier/horizon per user — **without mutating anything**. The threshold on
 downgrade / ambiguity / error counts is evaluated against that staged set. Only
 if it passes does the run commit, in one transaction; if it fails, nothing was
 ever written and the run reports as visibly failed.
+
+**The thresholds, with values — revision 30 named a guard it never defined.**
+Every prior revision referred to "the threshold" and no revision stated a value,
+unit, default or configuration key anywhere. An implementer had two choices,
+both wrong: invent a hardcoded bound, or set it so wide the guard never fires.
+A load-bearing protection against mass revocation that cannot be implemented
+from its own specification is not a protection.
+
+**DB-backed, in `admin_config`, so they are operable without a deploy** — which
+matters because the right value is not knowable before the first real run:
+
+| Key | Default | Unit | Counts |
+|---|---|---|---|
+| `reconcile_max_downgrades_per_run` | **50** | absolute users | users whose **effective tier** would drop this run |
+| `reconcile_max_downgrade_fraction` | **0.05** | fraction of users examined | the same set, as a proportion — whichever bound trips first aborts |
+| `reconcile_max_ambiguous_per_run` | **25** | absolute sources | sources the pass could not classify |
+| `reconcile_max_errors_per_run` | **10** | absolute | retrieval/pagination failures |
+
+**Both downgrade bounds exist because either alone is wrong at some scale:** an
+absolute bound is meaningless once the user base grows, and a fractional bound
+lets a small early population lose everyone to a 5% cap. Defaults are
+deliberately conservative — this pre-launch population is small enough that any
+real mass-revocation event trips 50 immediately.
+
+**Counting is per-run and pre-apply**, over the staged change set from the
+dry-run pass, so *the thresholds are evaluated before anything is written* and an
+over-threshold run aborts having mutated nothing. Entry 22's "arriving in
+pieces" defeat is why the count is over the whole staged set rather than
+incremental.
+
+**Trip behaviour:** abort the run, write no tiers and no source rows, **report
+the full staged change set** so an operator can inspect exactly what it would
+have done, and require an explicit override to proceed. Failing closed here
+means *not revoking*, which is the safe direction.
 
 **A staged tier is computed from a source set that may be obsolete by commit
 time.** A webhook can commit newer source state after staging and before the
@@ -2112,9 +2174,28 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
   `membership_valid_until`.
 - **Migration** — the migration runs clean on a copy of the live database; the
   app boots against the new schema; reconciliation populates entitlements from
-  Stripe on first run; the migration is a clean no-op on a second run; a
-  webhook delivered during the rollout is retried by Stripe and applied
-  afterwards.
+  Stripe on first run; the migration is a clean no-op on a second run; and a
+  webhook delivered during the rollout window and **permanently dropped** is
+  **repaired by reconciliation** — not "retried by Stripe and applied", which
+  tested Stripe's behaviour rather than ours and depended on a guarantee entry
+  149 made contextual.
+- **The trust boundary is exercised through both production callers, not the
+  verifier alone.** D1 exists *because* a verifier was correct and a caller
+  violated its contract, so verifier-only coverage reproduces the defect's exact
+  shape in the tests meant to prevent it. Worse, the coverage is currently
+  claimed but absent: `stripe.checkout.security.test.ts:10-15` states in its
+  header that *"the webhook enforcement [is proven] in
+  webhookHandlers.integration.test.ts"* — and that file has **no
+  `checkout.session.completed` grant scenario at all**. Its three references to
+  that string are one comment and two audit-row literals in a test of the audit
+  table's state transitions. A false coverage claim sitting in a header comment
+  is worse than a gap, because it is exactly what stops a reviewer looking.
+
+  **Specification:** paid, unpaid, wrong-customer and non-allowlisted cases run
+  through **both** entry points — the confirm endpoint **and** the
+  `checkout.session.completed` webhook — each asserting the **persisted source
+  row** and the **effective tier**, not the verifier's return value. And the
+  stale header claim is corrected as part of the work.
 - **Portal** — missing/invalid configuration fails closed; sessions always
   carry the explicit id.
 - **E2E fixtures encode the old source-of-truth boundary and must be migrated.**
@@ -2300,6 +2381,10 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 152 | 27 | **My "hard delete has never worked" claim was false** | **Resolved by retraction** — I ran `DELETE FROM users` as raw SQL, which bypasses both deletion routes, and generalised the FK error into a claim about the application. `DELETE /admin/users/:id` **works**: `admin.ts:304-325` deletes six child tables and nullifies seven columns — including `facts.submitted_by_id`, the exact constraint my probe hit — before deleting the user. Only `POST /admin/users/:id/data-delete` `phase: "hard"` is broken. **Thirteen was a fact about the schema and I stated it as a fact about the code**, then reported it to David as the basis for a scope decision. The decision survives on the correct reason; the claim is retracted. |
 | 153 | 28 | **146 Still Open** — two more existence readers, both in `admin.ts` | **Resolved** — `admin.ts:454` feeds `users.tsx:1146-1187`'s **"Legendary for Life"** badge and **revoke control**, so an admin checking a refunded user sees a current grant and a button to revoke what is already revoked. Verifying it surfaced a **seventh** the reviewer did not name: `admin.ts:76`, `if (lifetimeRows.length > 0) return "legendary"` — **not a display but a tier decision**, which under retention hands Legendary back from a refunded row. Count went 5 → 7. **My first enumeration searched the file the finding pointed at and I reported it complete; the class is defined by the question asked, not the file, so the search must be over the table.** |
 | 154 | 28 | E2E fixtures set the derived tier directly | **Resolved** — `memeUploadFlow.spec.ts:124-139` and `identityMemeFlow.spec.ts:178-181,385` unlock Legendary with `UPDATE users SET membership_tier='legendary'`. The target schema still stores that projection, so they pass unchanged **while bypassing entitlement creation, the trust boundary and the derivation writer** — green against a completely broken grant path, and then cited as evidence it works. Membership-focused E2E setups now grant through the supported boundary and assert source **and** effective tier. Same shape as D1's origin and the deleted `dataLifecycle.test.ts`: **a test that sets up state by bypassing the mechanism under test cannot fail when it breaks.** |
+| 155 | 29 | The global source-local prohibition still contradicted 142 | **Resolved** — revision 28 wrote *no authoritative refresh ever writes source-local state*; entry 142 then split `dispute_loss_revoked_at` by writer, set-once by the dispute transition **including its reconciliation form**, which *is* an authoritative refresh. Obey the prohibition and a missed chargeback loss qualifies forever; obey the matrix and the prohibition breaks. **I fixed the matrix row and left the prose invariant governing it** — fourth instance of that propagation failure (129, 144, 151). Narrowed to *ordinary provider-lifecycle refreshes*, with named non-lifecycle paths declaring the cells they may write. **Also resolves the `source_state_as_of` question I had carried unanswered for five rounds:** a source-local write is a source mutation and takes a token like any other. |
+| 156 | 29 | Two acceptance criteria still depended on Stripe's retry | **Resolved** — entry 149 made the retry guarantee contextual and said nothing depends on it; the migration acceptance **in two places** still required "a webhook delivered during the rollout is retried by Stripe and applied afterwards". Beyond the contradiction, it tests *Stripe's* behaviour rather than ours, and a sandbox rehearsal gets only three retries over a few hours. Both replaced with a **permanently dropped** webhook repaired by reconciliation — strictly stronger, since repairing a lost event repairs a late one too. |
+| 157 | 29 | Trust-boundary acceptance reproduced D1's own shape | **Resolved** — verifier-only coverage is exactly how D1 survived: the guard was correct and its caller violated the contract. And the claimed coverage is absent — `stripe.checkout.security.test.ts:10-15` asserts in its header that webhook enforcement is proven in `webhookHandlers.integration.test.ts`, which has **no `checkout.session.completed` grant scenario**; its three matches are a comment and two audit-row literals. **A false coverage claim in a header comment is worse than a gap — it is what stops a reviewer looking.** Paid/unpaid/wrong-customer/non-allowlisted now run through **both** entry points, asserting persisted source and effective tier. |
+| 158 | 29 | The reconciliation thresholds had no value, unit or key | **Resolved** — six references to "the threshold" across the document and **no definition anywhere**: no value, unit, default or config key. An implementer could only invent a bound or set it wide enough never to fire, so the guard against mass revocation — load-bearing since entry 22 — was unimplementable from its own specification. Now four `admin_config` keys with defaults: 50 absolute downgrades, 0.05 fractional, 25 ambiguous, 10 errors. **Both downgrade bounds, because either alone fails at some scale.** Counted pre-apply over the whole staged set (entry 22's "arriving in pieces"), aborting with nothing written and the full change set reported. |
 
 | Round | Lens |
 |---|---|
@@ -2332,4 +2417,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 27 | **The claims I make about my own verification.** Entry 142 is the round's real finding and it is not about disputes: I *told* you every `untouched` cell had been re-read against the repair paths, and named `dispute_loss_revoked_at` as having survived that check. It had not been checked. That is a different failure from the ones 120–141 catalogue — not a control I forgot to wire up, but a **verification I reported performing and did not perform**. Three of the last four rounds have now overturned something I marked Resolved. So: treat every claim in this document of the form *"I checked X"*, *"every Y was re-read"*, *"this was verified against Z"* as **unverified**, find them all, and test each against the artifact it claims to have checked. Start with the sweeps I reported completing in rounds 24–26. If the reported check cannot be reconstructed from what the document actually says, it did not happen |
 | 28 | **Readers, and only readers.** Entry 146 is the round's structural finding: three consecutive rounds swept *writers* and could not have found a *reader* asking a question the model invalidated. Retention changes what row-existence means, and this plan retains refunded, revoked and terminal rows everywhere. So: enumerate **every read** of `subscriptions`, `lifetime_entitlements`, `membership_history` and `users.membership_tier` — routes, middleware, admin endpoints, scheduled jobs, and **the frontend**, which entry 146 and 150 both reached into and no earlier round did — and for each, decide whether it wants *current qualification*, *historical existence*, or *the raw stored value*, and whether retention breaks its current answer. Entry 150 found two presentation surfaces; entry 146 found a UI component granting access in parallel. Both were outside every previous lens, and I have no reason to think the frontend has been examined at all |
 | 29 | **The existing test suite as a source of false confidence.** Round 28 dropped to two findings, both P2, **no P1 for the first time** — the loop's first convergence signal that is not simply my own assertion. But entry 154 opened a surface no round has swept: **the tests that already exist**. Three instances are now on record of a green test sitting beside a broken thing it names — `checkoutConfirm.test.ts:626` (D1's origin), the deleted `dataLifecycle.test.ts`, and these E2E fixtures. So: sweep the **existing** tests rather than the acceptance criteria. Which would still pass if this plan's model were implemented wrongly? Specifically — tests seeding `users.membership_tier` or a source row directly instead of granting; tests asserting a helper in isolation while its only caller violates its contract; fixtures that must change under the new schema but whose assertions would not catch it if they didn't. **A test that cannot fail is a liability the acceptance criteria cannot fix, because the acceptance criteria are new and these are already green** |
+| 30 | **Every remaining quantity, and every claim a comment makes about coverage.** Entry 158 is the shape to hunt: a control named consistently across many revisions, load-bearing, and **never given a number**. It survived 29 rounds because referring to "the threshold" reads as though it were defined somewhere earlier. So: find every quantity this plan depends on — timeouts, lease TTLs, retry counts, batch sizes, the grace window's own boundary conditions, sweep cadence, alert intervals — and check each has a **value, a unit, a default and a home** (constant, config key, or migration). A specification that says *"bounded"* without a bound is not a specification. Second, narrower: entry 157 found a **header comment asserting coverage that does not exist**. Prose claims inside test files are unversioned, unchecked, and precisely what stops a reviewer looking — sweep the test suite's comments for coverage claims and check each against what the file actually asserts |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
