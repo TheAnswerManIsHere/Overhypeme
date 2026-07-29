@@ -80,13 +80,13 @@ defect regardless of what else the change achieves.
    **normal steady state** rather than in some corner.
 
    **The signature therefore takes job state: `classifyWaitingState(row, job, config)`.**
-   A first attempt at this fix used a single *in flight* fallback computed from the row
-   alone, which is mathematically total but factually wrong: an eligible row whose job is
-   **missing** — just released by an audit or identity approval and not yet swept, or
-   stranded by queue loss — would be reported as *queued or running*. That is precisely the
-   condition §5.3's reconciler exists to detect and repair, displayed as though the system
-   were already working on it. A total function is not the same as a correct one, and
-   "eligible" cannot distinguish these two without consulting the job.
+   The tempting simplification — one *in flight* fallback computed from the row alone — is
+   mathematically total but factually wrong: an eligible row whose job is **missing** (just
+   released by an audit or identity approval and not yet swept, or stranded by queue loss)
+   would be reported as *queued or running*. That is precisely the condition §5.3's
+   reconciler exists to detect and repair, displayed as though the system were already
+   working on it. A total function is not the same as a correct one, and "eligible" cannot
+   distinguish branch 7 from branch 8 without consulting the job.
 
    `/admin/safety` renders branch 8 as active work, branch 7 as a short-lived transitional
    state with its own count, and branches 1–6 as things awaiting a person — which is the
@@ -114,11 +114,10 @@ defect regardless of what else the change achieves.
    disjoint against this function, which is only a meaningful assertion because there is
    one function to assert against.
 
-   Branches 4 and 5 were missing for three rounds, and the miss is instructive: §5.3's fix
-   — automatic enqueue requires `production` — **created** a waiting state satisfying none
-   of the then-existing predicates. They stay separate rather than merged because they
-   wait on different actions: 4 can be released by a `send-to-test` *or* the production
-   flip, 5 only by the flip.
+   Branches 4 and 5 stay separate rather than merged because they wait on different
+   actions: 4 can be released by a `send-to-test` *or* the production flip, 5 only by the
+   flip. Both exist because §5.3 requires `production` for automatic enqueue — a rule that
+   **creates** waiting states, which is exactly the coupling the paragraph below is about.
 
    A row stuck outside both lists, with nobody told, is the worst outcome this subsystem
    can produce: it looks exactly like success from every surface. See §5.3.
@@ -245,9 +244,8 @@ on every report and bury the real signal.
 **XML.** No workspace package depends on an XML library directly, so one is promoted to a
 direct dependency: **`fast-xml-parser`, pinned at `5.5.9`** — already present transitively
 (`pnpm-lock.yaml:3855`), so this adds no new code to the tree, only an explicit contract
-with a version we control. An earlier revision described it as having *zero runtime
-dependencies*; that was asserted without checking and is **wrong** — 5.5.9 carries runtime
-dependencies of its own.
+with a version we control. It is **not** dependency-free — 5.5.9 carries runtime
+dependencies of its own, which is a cost this adoption accepts rather than one it avoids.
 
 Hand-rolling is still worse: a subtle escaping bug in a legally-significant federal
 submission is exactly what a maintained library prevents.
@@ -295,16 +293,16 @@ require per-row manual retry — while emitting one alert each. A day-long outag
 produce a terminal backlog that never resumes on its own plus an alert storm that trains
 an operator to ignore the alert that matters.
 
-So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** — but **not** by the
-mechanism an earlier revision claimed. That revision said the schedule "adds 24 h and 48 h
-tail delays," which this queue **cannot express**: `getRetryConfig` reads exactly four
-delay keys (`async_job_<queue>_retry_delay_1..4_ms`) and returns a five-element array
-(`asyncJobs.ts:138-147`); there is no fifth or sixth slot to put a tail delay in. Raising
-`maxAttempts` past 5 does not fail — `finalizeJob` falls back to
-`retryDelays[retryDelays.length - 1]` for any attempt beyond the array
-(`asyncJobs.ts:452-453`) — it simply **repeats the last delay**. So the plan was
-describing a curve the shared infrastructure has no way to produce, and adding slots would
-mean changing that shared contract for one consumer, which §5.2.2 explicitly refuses to do.
+So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** — and the shape of that
+schedule is dictated by what the queue can actually express, which is narrower than it
+looks. **Do not try to specify a per-attempt tail curve** (say, 24 h then 48 h): the queue
+cannot represent one. `getRetryConfig` reads exactly four delay keys
+(`async_job_<queue>_retry_delay_1..4_ms`) and returns a five-element array
+(`asyncJobs.ts:138-147`) — there is no fifth or sixth slot. Raising `maxAttempts` past 5
+does not fail loudly; `finalizeJob` falls back to `retryDelays[retryDelays.length - 1]` for
+any attempt beyond the array (`asyncJobs.ts:452-453`) and simply **repeats the last delay**.
+Adding slots would mean changing a shared contract for one consumer, which §5.2.2
+explicitly refuses to do.
 
 The horizon is reached with the four slots that exist, by widening the last one:
 
@@ -453,23 +451,21 @@ Two layers instead:
   required alert is lost permanently. A durable notification that can be orphaned is not
   durable.
 
-  **The notification is incident-scoped, not report-scoped — and an earlier revision had
-  these two requirements flatly contradicting each other.** §5.8 promises that two hundred
-  failures produce one alert; this paragraph previously specified a per-report dedupe key
-  `ncmec:notify:failed:<reportId>`, which produces two hundred distinct keys and therefore
-  two hundred emails. Neither `enqueueJob`'s dedupe path nor anything else in the plan
-  updated an existing job's payload or maintained a running count, so the aggregation §5.8
-  describes had **no mechanism at all** — it was a property asserted in one section and
-  contradicted by the key format in another.
+  **The notification is incident-scoped, not report-scoped.** §5.8 requires that two
+  hundred failures produce one alert, and the dedupe key is what delivers that. A
+  per-report key — `ncmec:notify:failed:<reportId>` — is the obvious choice and the wrong
+  one: it produces two hundred distinct keys and therefore two hundred emails. Nothing in
+  `enqueueJob` updates an existing job's payload or maintains a running count, so a
+  per-report key leaves the aggregation with no mechanism behind it at all.
 
-  **The mechanism — and it no longer keeps a counter.** An earlier revision maintained
-  `failure_count` and `dominant_code` on an incident row. Codex found two independent
-  defects in that — a first-write `dominant_code` later failures never correct, and no
-  per-code data to recompute it from — and both are the same mistake: **maintaining a
-  derived aggregate beside the source of truth.** The report rows already record every
-  failure, its code, and its time. So the incident table keeps only what cannot be derived
-  — *whether this window's alert has been sent* — and every number in the email is computed
-  from `ncmec_reports` at send time.
+  **The mechanism keeps no counter.** The natural design — `failure_count` and
+  `dominant_code` maintained on an incident row — fails two ways: a `dominant_code` written
+  on first insert is never corrected by later failures, and there is no per-code data to
+  recompute it from. Both are the same mistake, **maintaining a derived aggregate beside
+  the source of truth**, and the report rows already record every failure, its code, and
+  its time. So the incident table keeps only what cannot be derived — *whether this
+  window's alert has been sent* — and every number in the email is computed from
+  `ncmec_reports` at send time.
 
   1. **A derived window identity.** `incident_key = '<environment>:<window start>'` on a
      **one-hour tumbling bucket**. Derived from the clock, so N workers failing at once
@@ -529,14 +525,13 @@ Two layers instead:
   the alert-count guarantee is the right trade against dropping a notification — the same
   asymmetry as at-least-once delivery, for the same reason.
 
-  **Windows are tumbling, and the plan now says so instead of claiming a rolling window.**
-  §5.8 previously described "a rolling window" and illustrated it with a single alert
-  spanning 03:12 to 09:48. A derived key cannot produce that: two failures either side of a
-  boundary fall in different windows and send two alerts. Rather than build the
-  close-and-quiet-period protocol a true rolling window needs, the guarantee is stated as
-  what it actually is — **at most one alert per environment per hour**. A six-hour outage
-  sends six emails rather than two hundred, which is the harm this exists to prevent, and
-  §5.8's example is corrected to match.
+  **Windows are tumbling, not rolling.** A clock-derived key cannot produce a rolling
+  window: two failures either side of a boundary fall in different buckets and send two
+  alerts, so a single alert spanning a whole multi-hour outage is not achievable this way.
+  Building the close-and-quiet-period protocol a true rolling window needs would reintroduce
+  coordination state, so the guarantee is stated as what a tumbling bucket actually
+  delivers — **at most one alert per environment per hour**. A six-hour outage sends six
+  emails rather than two hundred, which is the harm this exists to prevent.
 
   **Delivery is at-least-once, deliberately.** `notified_at` cannot be committed atomically
   with an HTTP send to Resend, so a crash between provider acceptance and the local commit
@@ -580,13 +575,12 @@ Two layers instead:
   intent: `ncmec:submit:<reportId>` from §5.2.4's insert-plus-enqueue, from §5.3's
   reconciler repairs, **and from §5.8's admin retry** — which shares its mutation/audit
   transaction and can hit the same conflict whenever the operator retries a `pending` or
-  stale `in_progress` row that still has a live job. An earlier revision of this list
-  omitted retry, which is the one of the three an operator triggers by hand and therefore
-  the one whose transaction rollback would be noticed as "the button did nothing."
-  Also `ncmec:notify:awaiting:<reportId>` (§5.5) and this incident enqueue. Each of
-  those was specified as "share the caller's transaction" on the assumption that a dedupe
-  hit is a benign no-op — and on the *first* concurrent duplicate, none of them would have
-  committed.
+  stale `in_progress` row that still has a live job. Retry is the easiest of the three to
+  overlook and the worst to get wrong: it is the one an operator triggers by hand, so its
+  rolled-back transaction surfaces as "the button did nothing" with no way to distinguish
+  *already queued* from *broken*. Also `ncmec:notify:awaiting:<reportId>` (§5.5) and this
+  incident enqueue. Every one of these shares a caller transaction, so every one of them
+  needs the savepoint — a dedupe hit is **not** a benign no-op.
 
   Changing `enqueueJob` to `ON CONFLICT DO NOTHING` would be the cleaner fix and is the
   right long-term shape, but it alters a shared API's return contract for every queue in
@@ -609,10 +603,10 @@ Two layers instead:
 `quarantine.ts` inserts the `ncmec_reports` row and then calls `enqueueJob()`. These are
 two writes; a crash between them commits a `pending` row with no job.
 
-**Both fixes apply, and they are not alternatives.** An earlier revision of this plan
-chose reconciliation over atomicity on the stated grounds that atomicity would require
-threading a transaction handle through `enqueueJob` for one caller. That reasoning was
-wrong: `enqueueJob(options, dbOverride)` already takes one (`asyncJobs.ts:247`). So:
+**Both fixes apply, and they are not alternatives.** The tempting trade — take
+reconciliation *instead of* atomicity, on the grounds that atomicity would mean threading a
+transaction handle through `enqueueJob` for one caller — rests on a false premise:
+`enqueueJob(options, dbOverride)` already takes one (`asyncJobs.ts:247`). So:
 
 - **The insert and the enqueue share one transaction.** Cheap, available today, and it
   removes the crash window rather than compensating for it.
@@ -725,11 +719,11 @@ So the predicate is extracted:
 > environment is `production`; not unaudited backlog; identity resolved or omission
 > approved; not `filed_manually`.
 
-**The master switch belongs in the predicate, and leaving it out had a concrete hole.**
-An earlier revision enumerated every condition except `ncmec_submission_enabled`, on the
-implicit assumption that the disabled check lived in the callers — it did, in the
-reconciler's own query, which is exactly the mistake this extraction was meant to end. The
-gap opens during the §7 rollout: between setting the environment to `production` and
+**The master switch belongs in the predicate, and leaving it to the callers has a concrete
+hole.** It is natural to omit `ncmec_submission_enabled` here on the assumption that the
+disabled check already lives in each caller — it does live in the reconciler's own query,
+which is exactly the duplication this extraction exists to end. The gap opens during the
+§7 rollout: between setting the environment to `production` and
 re-enabling submission (steps 2 and 4 of the transition), a fresh hit passes the predicate,
 gets a `ncmec_submit` job, and contradicts §5.5's load-bearing claim that disabled rows
 have **no job** and are represented by the awaiting-activation path. The window is small
@@ -745,8 +739,10 @@ and it is precisely the window the ordered transition creates.
   acquisition**, and refuses if it no longer holds — **but the *kind* of refusal depends on
   why.**
 
-**`isSubmittable` returns a reason with a class: `reversible` or `terminal`.** Returning a
-flat terminal refusal was wrong, and wrong in the direction that destroys reports.
+**`isSubmittable` returns a reason with a class: `reversible` or `terminal`.** A flat
+terminal refusal would be wrong in the direction that destroys reports — step 1 of §7's
+documented production transition is *disable submission*, which would drive every valid
+in-flight report to final `failed`.
 
 - **Reversible** — the blocker is a config value an operator can change back:
   submission disabled, environment not `production`. The handler returns **success** and
@@ -910,13 +906,11 @@ The two columns therefore carry different provenance and are never conflated:
 | `incident_key` | `text primary key` | `'<environment>:<window start ISO>'` — derived from the clock, so concurrent workers compute the same key without coordinating |
 | `notified_at` | `timestamptz` | When this window's aggregated email actually sent. NULL = not yet |
 
-**This table previously carried `first_failure_at`, `last_failure_at`, `failure_count` and
-`dominant_code` on a 15-minute window, and that version is dead.** It was the derived-state
-design round 11 removed — every count, span and dominant code is now computed from
-`ncmec_reports` at send time (§5.2.3). This section was not updated when §5.2.3 was
-rewritten, so the plan carried both designs at once and an implementer could reasonably
-have built either. Anything specifying a stored counter, a stored dominant code, or a
-15-minute window is superseded; §5.2.3 is the single contract.
+**Two columns, and deliberately no more.** This is a send-ledger, not an aggregate: no
+`failure_count`, no `dominant_code`, no stored first/last timestamps, and no 15-minute
+bucket. Every count, span and dominant code is computed from `ncmec_reports` at send time
+(§5.2.3), which is the whole point of the design — see that section for why a stored
+counter cannot be kept correct here.
 
 The primary key **is** the concurrency control: N simultaneous failures produce one row and
 one email job, with no lock taken and no coordination between workers.
@@ -942,8 +936,8 @@ forty federal reports and left a ledger that reads as complete.
 | `created_at` | `timestamptz not null default now()` | |
 
 **`actor_label` is `NOT NULL`, and the mutation is refused if one cannot be captured.**
-An earlier revision specified a nullable `actor_email_snapshot`, which does not survive
-contact with this schema: `users.email` is **nullable** (`schema/auth.ts:9`),
+The obvious alternative — a nullable `actor_email_snapshot` — does not survive contact with
+this schema: `users.email` is **nullable** (`schema/auth.ts:9`),
 `PATCH /admin/users/:id` lets an admin clear it (`admin.ts:157`), and
 `softDeleteUserLifecycle` nulls it outright (`dataLifecycle.ts:12`). So an admin with no
 email could suppress a report and leave an audit entry whose only identity is a `user_id`
@@ -967,8 +961,8 @@ orphaned is not an audit trail.
 `/admin/safety` renders the log per report and as a global feed, with human-readable
 attribution, so a fabricated disposition stays detectable after later writes.
 
-**And additive on `quarantined_memes`** — this table was missing from an earlier revision
-of this section entirely, so §5.7's provenance requirement had no schema behind it:
+**And additive on `quarantined_memes`** — §5.7's provenance requirement needs schema on
+this table too, not only on `ncmec_reports`:
 
 | Column | Type | Purpose |
 |---|---|---|
@@ -977,17 +971,15 @@ of this section entirely, so §5.7's provenance requirement had no schema behind
 Both columns carry a CHECK constraint over the same value list, kept in lockstep with a
 `CONTENT_ORIGINS` constant the same way `NCMEC_SUBMISSION_STATUSES` is.
 
-**`is_generative` is not stored.** An earlier revision described it as a derived column
-alongside `content_origin`, which is two representations of one fact and therefore two
-things that can disagree — the report would then depend on which one the mapping happened
-to read. It is computed where it is used (`content_origin === 'generated'`) and nowhere
-persisted.
+**`is_generative` is not stored — do not add it as a derived column.** Persisting it
+alongside `content_origin` would be two representations of one fact and therefore two
+things that can disagree, and the report's `<generativeAi>` annotation would then depend on
+which one the mapping happened to read. It is computed where it is used
+(`content_origin === 'generated'`) and nowhere persisted.
 
-**`reporter_snapshot` is a column, not a key inside `request_metadata`.** An earlier
-revision of this plan said both — this table listed a column while §5.7's prose said the
-snapshot lived inside `request_metadata` — leaving the implementation two places to write
-it and the report builder two places to read it. For a field that determines *who a federal
-report names*, two possible sources is the defect, independent of which one is better.
+**`reporter_snapshot` is a column, not a key inside `request_metadata`.** One location,
+stated once, because this field determines *who a federal report names* — two possible
+sources is the defect, independent of which one would be better in isolation.
 
 The column wins for three reasons: `request_metadata` is an untyped grab-bag of request
 context (`ip`, `userAgent`, `route`, `requestId`) and identity is not request context; a
@@ -1002,8 +994,8 @@ No new column needed — the existing one was declared for exactly this.
 `filed_manually`. Final states are `submitted`, `filed_manually`, and `failed`; non-final
 are `pending` and `in_progress`.
 
-**No `retracted` status.** An earlier revision proposed one. It was wrong: retraction is a
-step within an attempt (§5.2.1), not somewhere a report rests, and adding it would create
+**No `retracted` status — do not add one.** Retraction is a step within an attempt
+(§5.2.1), not somewhere a report rests, and adding a status would create
 a non-final state a crash could strand a row in, outside every reconciler repair — a
 direct violation of invariant 8. `retracted_at` remains as a timestamp for audit; the row's
 status stays `in_progress` throughout, which is already covered.
@@ -1021,8 +1013,8 @@ reconciler's sweep cheap as the ledger grows.
 `drizzle-kit generate` is broken on a malformed snapshot around 0063
 (`migrations-and-backfills.md:21-26`), and recent migrations use hand-written idempotent
 SQL plus a `SNAPSHOT_EXEMPT_TAGS` entry in `lib/db/scripts/check-migration-snapshots.ts`.
-An earlier revision of this plan promised a generated snapshot, which cannot currently be
-produced. So `0094` ships as: hand-authored idempotent SQL (`ADD COLUMN IF NOT EXISTS`,
+A **generated** snapshot cannot currently be produced, so do not plan on one. `0094` ships
+as: hand-authored idempotent SQL (`ADD COLUMN IF NOT EXISTS`,
 `CREATE INDEX IF NOT EXISTS`), a `SNAPSHOT_EXEMPT_TAGS` entry carrying the one-line
 explanation that file requires, and both snapshot checks passing.
 
@@ -1049,12 +1041,11 @@ NCMEC_ISPWS_PASSWORD
 | `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` (24 h) | §5.2 — **seeded by `0094`**, not left to the default of 8 h |
 
 **The two retry keys are seeded by the migration, and that is load-bearing rather than
-tidy.** An earlier revision computed the 72-hour horizon correctly and then never said
-where the values come from — so production would have kept the queue defaults (5 attempts,
-8-hour fourth delay) and exhausted at **≈10.5 hours**, while the plan claimed ≈98.6 and the
-bulk-retry deferral (§9) rested on that claim. Tests that inject the config would have
-passed against a production that never had it. §6 therefore asserts the schedule **from
-post-migration defaults, with no fixture injecting them.**
+tidy.** Computing the 72-hour horizon is not enough — without a seed, production keeps the
+queue defaults (5 attempts, 8-hour fourth delay) and exhausts at **≈10.5 hours** while the
+plan claims ≈98.6, and the bulk-retry deferral (§9) rests on that claim. A test that
+injects the config would pass against a production that never had it. §6 therefore asserts
+the schedule **from post-migration defaults, with no fixture injecting them.**
 
 **A hit quarantined while submission is disabled must still be durably visible.** The
 existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
@@ -1078,10 +1069,9 @@ one alone: `/admin/safety` renders **one count per branch** of
 `classifyWaitingState` — currently **eight**: six awaiting a person, *awaiting
 reconciliation*, and *in flight* shown as active work — never one undifferentiated
 "pending" number. The count is stated as a number here only to be checkable against the
-table; the list itself is derived from the classifier, so adding a branch adds a count. The count list is derived from
-the classifier rather than enumerated here, so adding a branch adds a count automatically;
-an earlier revision hardcoded "three" in this paragraph and was already stale by the time
-two more branches existed.
+table; the list itself is derived from the classifier, so adding a branch adds a count
+automatically. **Do not hardcode the number of waiting states in prose or in code** — the
+branch set has grown repeatedly during design and any literal count goes stale silently.
 
 Collapsing them would hide the only thing that distinguishes "waiting on a switch" from
 "waiting on a decision nobody knows they owe," and the unaudited count additionally gates
@@ -1192,12 +1182,12 @@ gate that does not exist.
   `filed_manually` if it was already reported by hand, or take an explicit
   **"file without uploader identity"** action. Both are recorded; neither is silent.
 
-  **That action needs its own persisted field, and an earlier revision gave it none.** It
-  was described as stamping `backlog_audit_note` — a `text` column — while the reconciler's
-  exclusion predicate reads `reporter_snapshot IS NULL AND user_id IS NOT NULL`. Neither of
-  those changes, so the row would stay ineligible forever and the action would silently do
-  nothing; the only ways to *make* it work would be to null out `user_id` (destroying the
-  linkage the report needs) or to make the reconciler parse a free-text field. So:
+  **That action needs its own persisted field — a note is not enough.** Stamping
+  `backlog_audit_note` (a `text` column) would leave the reconciler's exclusion predicate,
+  `reporter_snapshot IS NULL AND user_id IS NOT NULL`, unchanged: the row stays ineligible
+  forever and the action silently does nothing. The only ways to make a note work would be
+  to null out `user_id` (destroying the linkage the report needs) or to make the reconciler
+  parse free text. So:
 
   - **`identity_omission_approved_at`** (§5.4) is the dedicated, write-once disposition.
   - The reconciler's predicate becomes `reporter_snapshot IS NULL AND user_id IS NOT NULL
@@ -1206,8 +1196,8 @@ gate that does not exist.
     `reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at
     IS NULL AND created_at < ncmec_backlog_audit_cutoff`, refusing any other row.
 
-  **That last clause is the actual legacy boundary, and the previous revision had no
-  such thing.** "Snapshot missing and user id present" does not mean *legacy* — it means
+  **That last clause is the actual legacy boundary, and it cannot be omitted.**
+  "Snapshot missing and user id present" does not mean *legacy* — it means
   *the snapshot is absent*, and a **current** row can satisfy it through a capture defect:
   a new call site that forgets to pass the snapshot, or a bug in the quarantine
   transaction. Such a row has a live, knowable uploader, and the action would let an
@@ -1250,9 +1240,9 @@ gate that does not exist.
 - `<fileAnnotations>` — `<generativeAi>` and `<potentialMeme>`, from **persisted
   provenance**, never inferred from the calling function.
 
-**Provenance must be recorded at quarantine time, not derived later.** An earlier revision
-proposed setting `<generativeAi>` when the quarantine came from `createMemeRecord.ts` or
-`aiMemePipeline.ts`. That is wrong twice over:
+**Provenance must be recorded at quarantine time, not derived later.** The inviting
+shortcut — set `<generativeAi>` when the quarantine came from `createMemeRecord.ts` or
+`aiMemePipeline.ts` — is wrong twice over:
 
 - `createMemeRecord()` is **not** exclusively a generation path — its `ImageSourceSchema`
   accepts template, stock, upload, and identity images. Treating every one of its
@@ -1270,13 +1260,11 @@ Callers pass it explicitly, which also means a new quarantine call site cannot s
 inherit a wrong default.
 
 **`<generativeAi>` is computed as `content_origin === 'generated'` at the point of use.
-There is no `is_generative` column and nothing ever writes one.** An earlier revision of
-this paragraph described `content_origin` *and* "a derived `is_generative`" both written at
-quarantine time, which is exactly the duplicate source of truth §5.4 rejects — and it
-survived the round that fixed §5.4, because only the schema section was corrected. Two
-representations of one fact are two things that can diverge, and the divergence would
-surface as a **wrong annotation on a federal report**, decided by which of the two the
-mapping happened to read.
+There is no `is_generative` column and nothing ever writes one.** Writing `content_origin`
+*and* a derived `is_generative` at quarantine time is the duplicate source of truth §5.4
+rejects: two representations of one fact are two things that can diverge, and the
+divergence would surface as a **wrong annotation on a federal report**, decided by which of
+the two the mapping happened to read.
 
 Where origin is genuinely unknown (`content_origin IS NULL`) the annotation is omitted
 rather than guessed — the same honest-omission rule the identity policy above uses.
@@ -1363,7 +1351,7 @@ did. The audit log is consequently the **only** control on this surface, which i
     the record of what the operator originally asserted, and the reason the row is being
     reopened is usually that the assertion was wrong.
 
-    §6 tests the case Codex named: a reopened row whose operator-entered id was valid but
+    §6 tests the sharpest case: a reopened row whose operator-entered id was valid but
     identified an unrelated finished report must not be marked `submitted` — and with the
     id in `manual_report_id` and `report_id` cleared, the guard never sees it at all.
 
@@ -1392,13 +1380,13 @@ did. The audit log is consequently the **only** control on this surface, which i
     (§5.2.2), so a worker that acquired earlier cannot resurrect a row an operator has
     since marked. Whichever ordering occurs, exactly one outcome survives and it is never
     a duplicate filing.
-- **Bulk retry is deferred to a follow-up (David, 2026-07-29).** An earlier revision of
-  this plan specified `POST /admin/safety/reports/bulk-retry` with a preview endpoint, a
-  signed confirmation token bound to the filter and matched row-id set, per-row filter
-  revalidation at execution, batch audit grouping, and a hard per-batch limit.
+- **Bulk retry is deferred to a follow-up (David, 2026-07-29).** Making it safe would take
+  `POST /admin/safety/reports/bulk-retry` plus a preview endpoint, a signed confirmation
+  token bound to the filter and matched row-id set, per-row filter revalidation at
+  execution, batch audit grouping, and a hard per-batch limit.
 
-  It was cut on Codex's round-9 assessment and David's decision: essentially all of that
-  machinery existed to make **one button** safe, the button is not required for the first
+  It was cut on David's decision: essentially all of that
+  machinery exists to make **one button** safe, the button is not required for the first
   real report, and §1's ask — see reporting work, see failures, retry them — is satisfied
   by single-row retry. Rounds 7 and 8 each found a P1 inside it, which is a poor return on
   a mechanism outside the stated intent.
@@ -1423,10 +1411,9 @@ did. The audit log is consequently the **only** control on this surface, which i
   refuses when `ncmec_ispws_environment` is `production` — the button's whole purpose is
   that it cannot file for real.
 
-  **It is a submission, so it obeys every rule submissions obey.** The previous revision
-  described it as if a config read were sufficient protection. It is not: a config check
-  is a point-in-time read, and the operation that follows makes external calls for up to
-  the full sequence duration.
+  **It is a submission, so it obeys every rule submissions obey.** A config read is not
+  sufficient protection: it is a point-in-time check, and the operation that follows makes
+  external calls for up to the full sequence duration.
 
   > **Rule, stated once and applying everywhere: any code path that makes an ISPWS call
   > is a submission path.** The lease (§5.2.2), the captured environment, the
@@ -1574,10 +1561,10 @@ operator to filter the channel, which is a worse outcome than a quieter alert. S
 occurring within **one hourly window** collapse into **one incident alert** ("47 reports
 failed against `report.cybertip.org` between 03:12 and 03:58, dominant code 1000") linking
 to the filtered ledger. The window is **tumbling, not rolling** — a six-hour outage sends
-six emails, one per hour, not one spanning the whole outage. An earlier revision of this
-sentence said "rolling" and illustrated it with a single 03:12–09:48 alert, which the
-derived-key design cannot produce; §5.2.3 carries the reasoning. Per-report `last_error` / `last_error_code` remain on each row —
-the aggregation is in the *notification*, never in the record.
+six emails, one per hour, not one spanning the whole outage — a clock-derived key cannot
+produce a single alert across a boundary, and §5.2.3 carries the reasoning. Per-report
+`last_error` / `last_error_code` remain on each row — the aggregation is in the
+*notification*, never in the record.
 
 **Kept, on David's explicit decision (2026-07-29), after being put to him twice.** When
 bulk retry was deferred (round 9) I argued aggregation had to survive; round 10 then found
@@ -1624,8 +1611,8 @@ file ids. There is no operational need to look at the bytes — the classificati
 hash are what the ledger is for — and building a viewer for suspected CSAM creates legal
 exposure and a new exfiltration surface for no benefit.
 
-**And the storage path is not shown either.** An earlier revision displayed `evidence_uri`
-as text, reasoning that text is not an image. That was wrong on two counts: the path
+**And the storage path is not shown either.** Displaying `evidence_uri` as text looks safe
+— text is not an image — and is wrong on two counts: the path
 `restricted/quarantine/…/<uuid>.<ext>` is a **precise locator for a restricted object**, so
 publishing it to a browser DOM and an API response widens the set of places an attacker or
 a misconfigured log has to reach to find one; and it puts a raw internal UUID on an admin
@@ -1636,9 +1623,10 @@ the DOM. §6 asserts that neither the endpoint payload nor the rendered page con
 `restricted/` or the object UUID — an assertion on the response body, not just on what the
 component chooses to render.
 
-**What replaces it is the retention deadline, not a claim that the evidence exists.** An
-earlier revision showed "evidence preserved · expires 2028-03-01" — but this plan persists
-no deletion or existence marker, and it cannot depend on the companion plan to add one. A
+**What replaces it is the retention deadline, not a claim that the evidence exists.**
+"Evidence preserved · expires 2028-03-01" would be the natural phrasing and is not
+supportable: this plan persists no deletion or existence marker, and it cannot depend on
+the companion plan to add one. A
 report row plus a future expiry proves preservation is *required*; it proves nothing about
 whether the object is still there. "Preserved" would be an assertion the system has no
 basis for, displayed on the one surface an operator would trust for exactly that question.
@@ -1649,14 +1637,13 @@ lands its lifecycle marker, this can become an existence claim honestly.
 
 ## 6. Testing
 
-Following [`docs/engineering/testing-guide.md`](../engineering/testing-guide.md) — an
-earlier revision cited `docs/engineering/testing.md`, which **does not exist**; the guide
-is `testing-guide.md`, and citing a non-existent standard is how a plan appears to have
-one.
+Following [`docs/engineering/testing-guide.md`](../engineering/testing-guide.md) — note the
+filename; there is no `docs/engineering/testing.md`.
 
-**Files and runners, named rather than implied.** The previous revision listed two new
-files and one extension, then went on to require API, migration, and frontend assertions
-that fit in none of them — so a third of the list had nowhere to live.
+**Files and runners, named rather than implied.** The assertions below span the ISPWS
+client, the worker, the API, the migration and the frontend, and they do not all fit in one
+or two files — so every area gets a named file and a named runner rather than an implied
+home.
 
 | Area | File | Runner |
 |---|---|---|
@@ -1698,9 +1685,9 @@ Client (fake `fetch`, no network):
   `fast-xml-parser` cannot do this and nothing else in the workspace can either. It is
   present in this dev container at `/usr/bin/xmllint` but **CI does not install it** —
   `.github/workflows/build.yml:120-121` installs only `postgresql-client-16`, so
-  `libxml2-utils` is added to that same `apt-get install` line. Naming an outcome without
-  naming a mechanism is what left the previous revision unimplementable; the mechanism is
-  a system package, an apt line, and a test that shells out to it.
+  `libxml2-utils` is added to that same `apt-get install` line. "Validate against the XSD"
+  is not an implementable instruction on its own; the mechanism is a system package, an apt
+  line, and a test that shells out to it.
 
   A **negative fixture** is required alongside the positive one: a document that is
   well-formed but schema-invalid, which the test asserts the validator **rejects**.
@@ -1955,8 +1942,8 @@ this repo has hit twice (`known-failure-patterns.md`).
 
 **This ships incrementally, and every phase leaves the tree green.** §7 is *deployment and
 activation* order — what an operator does after the code exists. It says nothing about what
-to build first, and an earlier revision of this plan had no build order at all, which left
-a cold implementer unable to tell whether this is one large landing or a sequence.
+to build first, so this section answers the question §7 cannot: is this one large landing
+or a sequence, and which intermediate commits must stay green?
 
 It is a sequence. Each phase below is independently typecheck- and test-clean, and each
 verifies with the repository's own commands before the next begins. Nothing files a report
@@ -2026,10 +2013,10 @@ this plan and should come back rather than be worked around by landing two phase
    **`ncmec_backlog_audit_cutoff`** holds the timestamp at which the audit **began** —
    captured by `/backlog-audit/start` before any review, immutable thereafter — so rows
    created afterwards need no audit and the scope cannot silently grow. Completion is a
-   **separate** key, `ncmec_backlog_audit_completed_at`. An earlier revision of this
-   sentence described the cutoff as recording completion, which is the single-key design
-   round 9 replaced: it would leave the boundary unavailable to §5.7's identity-omission
-   predicate *during* the audit, which is exactly when that predicate is used.
+   **separate** key, `ncmec_backlog_audit_completed_at`. **Two keys, not one:** a single
+   key recording completion would leave the scope boundary unavailable to §5.7's
+   identity-omission predicate *during* the audit, which is exactly when that predicate is
+   used.
 
    **The prerequisite is enforced, not remembered.** The unaudited count is
 
@@ -2112,12 +2099,12 @@ the next boot. **Do not roll the migration back** to re-file them: dropping the 
 CHECK while rows hold the new values would fail, and dropping `report_id`-adjacent state is
 how a report already accepted by NCMEC becomes invisible and gets filed twice.
 
-**A test submission must never consume a real report's one filing.** An earlier revision
-of this rollout had the reconciler pick up the audited backlog while the environment was
-`test`. Those genuinely reportable rows would have reached final `submitted` stamped
-`test` — and neither the reconciler (which skips final rows) nor the retry endpoint
-(which skips final rows) would ever file them for real after the flip to production. The
-rollout designed to prove the system works would have permanently swallowed the backlog
+**A test submission must never consume a real report's one filing.** This is why §5.3
+refuses to enqueue outside `production`, and the refusal is not fussiness: if the
+reconciler picked up the audited backlog while the environment was `test`, those genuinely
+reportable rows would reach final `submitted` stamped `test` — and neither the reconciler
+nor the retry endpoint (both skip final rows) would ever file them for real after the flip.
+The rollout designed to prove the system works would permanently swallow the backlog
 it was meant to file.
 
 So the environments are separated in the data model, not just the URL:
