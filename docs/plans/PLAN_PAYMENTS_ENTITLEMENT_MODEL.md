@@ -372,8 +372,10 @@ The token is **ours, not Stripe's**:
 retrieval that stalls past a cancellation and returns `canceled`, racing a
 later-issued retrieval served older `active` state — leaves **`canceled`**
 stored; a lease expiring under a slow holder causes that holder's write to be
-rejected rather than applied late; **a delayed route response applied after a newer
-webhook does not resurrect stale state**; an older snapshot can never win.
+rejected rather than applied late; **a delayed route response applied after a
+newer webhook does not resurrect stale state**. The claim is now *under the
+lease, an older snapshot cannot win* — earlier revisions asserted that
+unconditionally, which is what round 11 disproved.
 
 ### Schema
 
