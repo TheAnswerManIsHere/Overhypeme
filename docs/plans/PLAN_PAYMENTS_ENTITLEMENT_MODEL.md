@@ -211,7 +211,8 @@ concept and then never using it in the rule is the whole defect.
    source types. `admin_grant` sources qualify independently of it: they are
    authorized by W1b, not by a product.
 2. **No access hold** — no non-terminal row in `entitlement_source_disputes`
-   for this source. See *Disputes* below.
+   for this source — the hold is **only** this query; there is no hold column.
+   See *Disputes* below.
 3. **No terminal dispute loss** — `dispute_loss_revoked_at IS NULL`. Separate
    from the hold because it is permanent and, unlike the hold, must survive
    every subsequent authoritative refresh. Folding it into the hold would have
@@ -257,9 +258,16 @@ than an array element.
 | `first_seen_at`, `resolved_at` | Observability |
 
 **The hold is a query, not a flag:** a source is held while a row exists for it
-whose status is in the open set. `access_hold_reason` survives as the *reason*
-discriminator on the source row; `open_dispute_ids` is **deleted** — it was an
-array pretending to be a state machine.
+whose status is in the open set. **Both** revision 23 columns are deleted —
+`open_dispute_ids` (an array pretending to be a state machine) and
+`access_hold_reason`. Revision 24 kept the latter "as the reason discriminator"
+and specified **no writer that synchronizes it**, which is this plan's most
+persistent mistake in its purest form: a control named in one place and wired up
+in none. Concretely it permitted an open dispute with a null reason, and a
+source whose disputes are all terminal still reading `dispute` — two answers to
+"is this source held", which is one more than a derived model may have. The
+reason is **derived from `entitlement_source_disputes`** when anything needs to
+display it.
 
 ### Every terminal shape, enumerated from the pinned types
 
@@ -313,8 +321,7 @@ subscription's lifecycle.
 **General invariant this generalises to, stated once so it binds every future
 field:** an authoritative refresh writes **only** provider-mirror fields
 (`lifecycle_status`, `is_membership_product`, the version/fence, amounts). It
-**never** writes or clears source-local state — `access_hold_reason`,
-`dispute_loss_revoked_at`, or anything added later. A field's category is
+**never** writes or clears source-local state — `dispute_loss_revoked_at`, or anything added later. A field's category is
 recorded in the schema section, and a new field must declare one. This is the
 class the finding belongs to, not just the instance.
 
@@ -339,6 +346,30 @@ for **one**.
    transition may move a row out of a terminal status. Mechanism 1 is the
    common path; mechanism 2 is what holds when retrieval fails or the row is
    reached by any path that did not re-fetch. Either alone leaves a gap.
+
+### One transition writer, and all three dispute events route through it
+
+Revision 24 said "every transition re-fetches and persists authoritative status"
+and never said **which handlers** perform a transition. Reading
+`processDomainSwitch`, `charge.dispute.updated` (`webhookHandlers.ts:991-1023`)
+does **only** deadline-alert work — and its own comment says Stripe sends it for
+"evidence updates, **status transitions**, etc." So the event that most often
+carries a non-terminal status change was not assigned to the writer, and
+`needs_response → under_review` or `warning_under_review →
+warning_needs_response` would leave the table stale until reconciliation
+happened to sweep it.
+
+**Specification:** `charge.dispute.created`, `.updated` and `.closed` all invoke
+**one** state-transition function — map to source, acquire the lease, re-fetch
+the authoritative dispute, apply through the conditional upsert, recompute. The
+`.updated` handler's existing alert behaviour is **preserved alongside** it, not
+replaced: the evidence-deadline alert is a separate concern that happens to ride
+the same event, and dropping it would be an unrelated regression.
+
+**Acceptance:** non-terminal transitions in **both** directions
+(`needs_response ↔ under_review`, and the `warning_*` pair) reach the table from
+an `.updated` event alone, with no reconciliation pass; and the deadline alert
+still fires on the same event under its existing predicate.
 
 ### The source mapping, unchanged from revision 23
 
@@ -744,21 +775,75 @@ intention.
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
-| `access_hold_reason` | **source-local.** Nullable enum — currently only `dispute`. Null means no hold. Named rather than boolean so a future hold reason does not overload it. The hold *itself* is a query over `entitlement_source_disputes`, not a column |
 | `dispute_loss_revoked_at` | **source-local.** Nullable timestamp, **set once, never cleared.** A lost dispute disqualifies the source permanently; it is not written into `lifecycle_status`, which a provider refresh would overwrite — see *Disputes* |
 | `granted_by_admin_id`, `granted_by_admin_label`, `grant_reason` | W1b grant provenance, admin-grant only — see *actor durability* |
 | `revoked_by_admin_id`, `revoked_by_admin_label`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
 | `created_at`, `updated_at` | local row timestamps |
 
-**Every column above is either a provider mirror or source-local, and a new one
-must declare which.** An authoritative refresh writes provider mirrors only
-(`is_membership_product`, `lifecycle_status`, `current_period_end`,
-`cancel_at_period_end`, `amount`, `currency`, `source_state_as_of`) and never
-touches source-local state (`access_hold_reason`, `dispute_loss_revoked_at`,
-the grace window, the W1b provenance columns). Revision 23 lost a chargeback
-revocation by writing it into a mirror field; the categories exist so that is a
-schema error rather than a subtle one.
+### Field ownership is per (column, source type, writer) — not per column
+
+Revision 24 asserted a **column-global** split into provider mirrors and
+source-local state. That is wrong, and wrong in a way this plan already
+contradicts elsewhere: `is_membership_product` is re-evaluated on every refresh
+for a subscription and **frozen at creation** for a lifetime purchase (entry
+119, in this same document); `lifecycle_status` comes from Stripe for a
+subscription and is written locally for admin grants; `source_state_as_of` is
+allocated by every local writer and mirrors nothing. A refresh helper built from
+the global list would reclassify a completed lifetime purchase after a metadata
+edit, and collide with the admin grant/revoke transactions.
+
+Two axes, because one was not enough:
+
+| Origin | Meaning |
+|---|---|
+| **provider-derived** | the value comes from the retrieved provider object |
+| **locally-derived policy** | computed by *our* policy from provider facts plus local rules — the refresh owns it, but Stripe does not supply it |
+| **locally-authored** | authored here, not derivable from the provider at all |
+| **operational** | lease/ordering metadata, allocated locally by every writer by protocol |
+
+| Refresh discipline | Meaning |
+|---|---|
+| **re-evaluated** | the authoritative refresh recomputes it every time |
+| **frozen** | written once at creation; no refresh may change it |
+| **maintained** | the refresh may open, extend or clear it in the **same fenced apply**, while preserving every field it does not own |
+| **untouched** | no refresh writes it, ever |
+
+**The matrix.** A writer may write only the cells its (source type, origin) owns:
+
+| Column | `stripe_subscription` | `stripe_lifetime_payment` | `admin_grant` |
+|---|---|---|---|
+| `is_membership_product` | provider-derived, **re-evaluated** | provider-derived, **frozen** | n/a — W1b authorizes |
+| `lifecycle_status` | provider-derived, re-evaluated | locally-authored (`active`/`refunded`), untouched | locally-authored (`active`/`revoked`), untouched |
+| `current_period_end`, `cancel_at_period_end` | provider-derived, re-evaluated | n/a | n/a |
+| `amount`, `currency` | provider-derived, re-evaluated | provider-derived, frozen | n/a |
+| `grace_started_at`, `grace_expires_at` | **locally-derived policy, maintained** | n/a | n/a |
+| `dispute_loss_revoked_at` | locally-authored, **untouched, set-once** | same | n/a |
+| W1b provenance columns | n/a | n/a | locally-authored, untouched |
+| `source_state_as_of` | **operational** | operational | operational |
+
+**Why grace is its own category, and why revision 24 broke it.** Classifying the
+window as source-local-and-never-touched contradicts two writers this plan
+requires: reconciliation must **open** a window when it discovers a missed
+`invoice.payment_failed`, and a refresh to a recovered `active` must **clear**
+the episode. Under revision 24's boundary the first is forbidden — so a missed
+failure never gets its 14-day deadline — and the second is forbidden too, so
+stale grace timestamps survive recovery. *Maintained* is the category that was
+missing: the subscription refresh owns the window, updates it in the same fenced
+apply, and touches nothing else.
+
+**Acceptance for the matrix itself**, since it is now a load-bearing invariant:
+a lifetime refresh **preserves** `is_membership_product` across a product
+metadata edit while a subscription refresh **re-evaluates** it; an admin
+grant/revoke writes `lifecycle_status` without any refresh contesting it; a
+missed `invoice.payment_failed` discovered by reconciliation **opens** a window
+with the correct deadline; a recovery to `active` **clears** it; and a refresh in
+every case leaves `dispute_loss_revoked_at` and the W1b provenance columns
+byte-identical.
+
+Revision 23 lost a chargeback revocation by writing it into a mirror field, and
+revision 24 fixed that instance with a rule too coarse to be true. The matrix is
+the version that survives contact with all three source types.
 
 **`entitlement_source_disputes`** — one row per dispute, per *Disputes*:
 
@@ -767,12 +852,50 @@ schema error rather than a subtle one.
 | `source_id` | FK → the entitlement source, **`ON DELETE CASCADE`**, indexed |
 | `stripe_dispute_id` | **PK.** One row per dispute, ever — which is what makes a late `created` an upsert rather than a re-open |
 | `status` | the Stripe `Dispute.Status`, as re-fetched under the source's lease |
-| `is_terminal` | derived from `status`; **absorbing** — a CHECK forbids any transition out of a terminal status |
+| `is_terminal` | derived from `status`. **Absorbing — enforced by a conditional upsert and a trigger, not a CHECK** (see below) |
 | `first_seen_at`, `resolved_at` | observability |
 
 A source is held while a row exists for it with a non-terminal status. The
 partial index `(source_id) WHERE NOT is_terminal` makes that a cheap existence
 check on the qualification path.
+
+**Absorption is enforced by an executable rule, because a `CHECK` cannot express
+it.** A `CHECK` validates only the row being proposed, so updating
+`('won', true)` to `('needs_response', false)` satisfies any status↔flag
+consistency check — it is a perfectly consistent *new* row. Verified by
+execution on this repo's PostgreSQL 16.13: that exact update **succeeds** under
+such a constraint. Revision 24's "a CHECK forbids any transition out of a
+terminal status" was not implementable as written.
+
+**Specification:**
+
+1. **The writer is a conditional upsert**, whose `DO UPDATE` carries a `WHERE`
+   on the *existing* row:
+   `... ON CONFLICT (stripe_dispute_id) DO UPDATE SET status = EXCLUDED.status,
+   is_terminal = EXCLUDED.is_terminal, resolved_at = ... WHERE NOT
+   entitlement_source_disputes.is_terminal`.
+   A terminal row is therefore a **silent no-op, not an error** — and
+   `RETURNING` yields no row, which is the signal that the anomaly occurred.
+2. **A `BEFORE UPDATE` trigger** rejects a terminal→non-terminal transition
+   reaching the table by any path that did not use the upsert. This is the
+   backstop for a writer I have not enumerated, which this loop's record says to
+   assume exists.
+3. **The `CHECK` stays for what it can actually do** — `is_terminal` agreeing
+   with `status` on the proposed row. It is a consistency constraint, not a
+   transition constraint, and the plan no longer claims otherwise.
+
+**Resolving the instruction revision 24 left contradictory.** It said both
+"apply the retrieved status" and "never leave terminal", with no disposition
+when a re-fetch returns non-terminal for a terminal row. The answer is: **the
+terminal row is retained, the write is a no-op, and the anomaly is reported.**
+It is explicitly **not** an error — raising one would roll back the claim/domain
+transaction, Stripe would retry, and the same anomaly would recur indefinitely,
+turning an observation into a stuck event.
+
+**Acceptance:** a terminal→non-terminal re-fetch leaves the row terminal and
+emits the anomaly report **without failing the transaction**; a writer that
+bypasses the upsert is rejected by the trigger; and a normal non-terminal
+progression still applies.
 
 Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
 null (preserving today's two unique constraints and keeping idempotency);
@@ -1684,7 +1807,7 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 117 | 20 | The migration cannot boot — legacy seed DDL survives the drop | **Resolved** — `ensureSchema()` runs immediately after `runMigrations()` and **before the port binds** (`index.ts:271-274`), and `seed.ts:562-565` still runs `ALTER TABLE lifetime_entitlements …`. `IF NOT EXISTS` guards the **column, not the table**, so the drop makes it raise `42P01` outside the runner's `SAVEPOINT` recovery and **abort startup**. Retiring that seed entry is part of the migration; the boot acceptance now exercises the real `runMigrations() → ensureSchema()` sequence. **The plan's highest-risk change, dead on arrival, found in round 20.** |
 | 118 | 20 | W1a had no verifier for subscription sources | **Resolved** — the specified verifier requires a `mode = payment` Checkout Session and a PaymentIntent, so it cannot create or refresh a `stripe_subscription` source, which is how subscription webhooks, the routes and reconciliation all arrive. An identifier-only **subscription** verifier binds subscription↔customer↔user, allowlisted product with pagination, and lifecycle — one of the two paid source types had no trust boundary at all. |
 | 119 | 20 | "Snapshotted at ingestion" is ambiguous on refresh | **Resolved** — the two source types need opposite answers: a subscription's snapshot is **re-evaluated on every authoritative refresh** (or a portal switch to a non-membership price retains access forever), while a lifetime purchase's is **frozen at creation** (or later metadata edits retroactively revoke a completed purchase). |
-| 120 | 21 | `access_hold` existed only in prose | **Resolved** — no column, so a dispute would not survive a restart and the first authoritative refresh would restore access to someone actively charging back. Persisted on the source row. (`open_dispute_ids` was **superseded at 126/128** by the `entitlement_source_disputes` table; `access_hold_reason` survives as the reason discriminator.) I specified a state that participates in **every** qualification decision and never added it to the schema section three hundred lines below. |
+| 120 | 21 | `access_hold` existed only in prose | **Resolved** — no column, so a dispute would not survive a restart and the first authoritative refresh would restore access to someone actively charging back. Persisted on the source row. (**Fully superseded at 126/128/134** — both columns are gone; the hold is an existence query over `entitlement_source_disputes`.) I specified a state that participates in **every** qualification decision and never added it to the schema section three hundred lines below. |
 | 121 | 21 | The hold cannot reach the right source | **Resolved** — `resolveUserForDispute` (`webhookHandlers.ts:407-460`) resolves a **user**; all three of its lookups terminate at a user id, which is all tier-level revocation ever needed. A source-local hold needs charge → invoice → subscription (or payment-intent → lifetime). Mapping runs before any write, under that source's lease; an unresolvable dispute **holds nothing and is reported**, because holding every source would revoke an unrelated entitlement. |
 | 122 | 21 | A boolean hold clears while another dispute is open | **Resolved** — keyed by dispute id (`open_dispute_ids`), held while non-empty. Also: **the subscription loss writer did not exist** — today's handler only marks a *lifetime* entitlement `refunded`, so revision 22's "the subscription's own resulting status" described code that is not there. Named a writer — but aimed at the wrong field, **superseded at 127**: `lifecycle_status` is a provider mirror a refresh overwrites, so the loss now sets source-local `dispute_loss_revoked_at`. |
 | 123 | 21 | Identity-only re-retrieval does not reach charges and disputes | **Resolved** — refunds and disputes are states of objects **not present** on a re-retrieved `Subscription` or `PaymentIntent`, and finding 65's completeness rule could not map an *unseen* dispute to a source, since the missing page is what supplies the mapping. Auxiliary identities are re-fetched under the source's lease, and every relevant collection must be complete before a source is staged as unheld. |
@@ -1694,6 +1817,11 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 127 | 22 | The dispute-loss writer aimed at a field refreshes overwrite | **Resolved** — 122 fixed "no terminal writer exists" by naming `lifecycle_status = 'canceled'`, which is a **provider mirror**, and this plan's own entry-119 rule re-evaluates subscription sources on **every authoritative refresh**. A chargeback does not cancel the Stripe subscription, so the next refresh restores `active` and re-qualifies. Loss is now source-local `dispute_loss_revoked_at`, set once, never cleared — plus a **general invariant**: refreshes write provider mirrors only, every column declares a category, and a new field must too. Two rounds to get one writer right, because I fixed the *absence* without checking the *destination*. |
 | 128 | 22 | A terminal dispute could be re-opened by a late event | **Resolved** — `closed` processed before a delayed `created` for the **same** dispute: the close removes the id, the late create adds it back, permanent hold on a settled dispute. The lease and version guard only serialize arrival order, which is exactly the wrong order, and neither says anything about the *dispute's* state. Revision 23's acceptance covered ordering between **two** disputes, never two events for **one**. Fixed with both mechanisms: authoritative status re-fetched under the lease, **and** `is_terminal` absorbing under a CHECK — either alone leaves a gap. |
 | 129 | 22 | The withdrawn `finalized_at` fallback still governed the body | **Resolved** — entry 125 withdrew it and I corrected only the **ledger row**, leaving the plan body still specifying the fallback *and* the disproven "under 0.3%" bound. An implementer reads the body. Removed from the body, its acceptance case inverted to assert **no revocation occurs**, and the ledger/body pair checked for agreement rather than assumed. **The correction was less complete than the record of it**, which is the failure mode a ledger is supposed to prevent. |
+| 130 | 23 | A `CHECK` cannot enforce an absorbing transition — **128 was Still Open** | **Resolved** — a `CHECK` validates only the *proposed* row, so `('won', true)` → `('needs_response', false)` is a perfectly consistent new row and passes. **Verified by execution on PostgreSQL 16.13: that update succeeds.** Revision 24's "a CHECK forbids any transition out of a terminal status" was not implementable. Now a conditional upsert (`DO UPDATE … WHERE NOT existing.is_terminal`) with a `BEFORE UPDATE` trigger as backstop; the CHECK is demoted to the status↔flag consistency it can actually enforce. **The first Still Open in 23 rounds**, and it was mine — I asserted a database behaviour without running it, in a plan whose whole method is checking claims against the pinned artifact. |
+| 131 | 23 | The field-ownership taxonomy was column-global and therefore false | **Resolved** — ownership is per **(column, source type, writer)**: `is_membership_product` is re-evaluated for a subscription and **frozen** for a lifetime purchase (which entry 119 says *in this same document*); `lifecycle_status` is provider-derived for subscriptions and locally authored for admin grants; `source_state_as_of` mirrors nothing. A refresh helper built from the global list reclassifies a completed purchase after a metadata edit. Replaced with a two-axis matrix (origin × refresh discipline) across all three source types, with its own acceptance. **127's fix was correct about the instance and too coarse to be true as a rule.** |
+| 132 | 23 | "Source-local, never touched" forbids the grace writers the plan requires | **Resolved** — reconciliation must **open** a window on discovering a missed `invoice.payment_failed`, and a refresh to recovered `active` must **clear** it; revision 24's boundary forbade both, so a missed failure would never get its 14-day deadline and stale timestamps would survive recovery. Grace is **locally-derived policy, maintained** — the subscription refresh owns it in the same fenced apply while preserving every field it does not own. The missing category, not a missing exception. |
+| 133 | 23 | `charge.dispute.updated` was never assigned to the transition writer | **Resolved** — it does only deadline-alert work (`webhookHandlers.ts:991-1023`) while its own comment says Stripe sends it for "evidence updates, **status transitions**, etc." So the event most likely to carry a non-terminal change had no writer, and `needs_response → under_review` would sit stale until a reconciliation sweep. All three dispute events now route through one transition function; the `.updated` alert is preserved alongside, not replaced. |
+| 134 | 23 | `access_hold_reason` was a second, unsynchronized answer to "is this held" | **Resolved by deletion** — the hold is the existence query; the column was kept "as the reason discriminator" with **no writer specified to synchronize it**, permitting an open dispute with a null reason and an all-terminal source still reading `dispute`. The reason is derived from `entitlement_source_disputes` when displayed. **Recurring pattern, fourth instance: a control named in one place and wired up in none** — and this time I introduced it in the very revision that fixed the previous instance. |
 
 | Round | Lens |
 |---|---|
@@ -1720,4 +1848,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 21 | **The core again, immediately — round 20 changed what this loop believes about itself.** Seven findings, four P1, on the part I had called stable since round 11, including an allowlist bypass and a migration that could not boot. The correct response to that is not to move on but to **stay on the core for a second pass**, now that revision 22 has added an `access_hold` state, a three-term qualification conjunction, a second verifier, per-source-type snapshot semantics, a re-retrieval rule in enumeration and a seed-DDL retirement. Every one of those is new and unreviewed, and this plan's most reliable pattern is that a round's fixes are the next round's defects |
 | 22 | **Disputes, third pass.** Rounds 20 and 21 both landed hardest on dispute handling — a state that did not exist, then a state that was not persisted, not keyed, and could not find its own source. Revision 23 adds `open_dispute_ids`, a charge→invoice→subscription mapping, a named subscription loss writer, auxiliary-collection re-fetch under lease, and locally-resolved ownership. **Every one of those is new.** Attack the dispute path end to end as a single story — open, concurrent, won, lost, unresolvable, arriving out of order, racing a cancellation — and check whether the mapping and the completeness rule can disagree about the same source |
 | 23 | **The dispute record as a state machine, and what round 22 moved.** Round 22 replaced two columns with a table, added an absorbing terminal state, a source-local permanent revocation, a fourth conjunction term and a provider-mirror/source-local field taxonomy. **All of it is new.** Two angles not yet applied: (a) treat `entitlement_source_disputes` as a state machine — which of the eight statuses can follow which, which transitions have no writer, what a re-fetch returning a *non-terminal* status after a terminal one must do, and whether the CHECK and the re-fetch can deadlock or disagree; (b) the field taxonomy is a **new global invariant** asserted over a schema written before it existed — check every column's declared category against every writer in the plan, not just the dispute ones. Round 20's lesson applies: the taxonomy looks obviously correct, which is the condition under which it has never been tested |
+| 24 | **The writers, not the state.** Rounds 20–23 kept finding that a state existed but nothing wrote it, or the wrong thing wrote it — 120 (no column), 122 (no writer), 127 (wrong destination), 133 (unassigned handler), 134 (no synchronizer). That is one failure repeating in five costumes, and it is a **writer-enumeration** failure, not a modelling one. So: take the revision-25 schema and, for **every column × source type cell** in the new matrix, name every code path in this plan and in the existing codebase that writes it, and identify the cells with **zero** writers or **more than one**. Then the reverse sweep: take every handler in `processDomainSwitch` and every route in `routes/stripe.ts` and `admin.ts` and check each writes only cells its category owns. The matrix (131) and the transition writer (133) are both brand-new and both assert completeness over a codebase neither has been checked against exhaustively |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
