@@ -659,6 +659,13 @@
       "when": 1782600000000,
       "tag": "0093_facts_ai_meme_backfill_status",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0094_membership_entitlements",
+      "breakpoints": true
     }
   ]
 }

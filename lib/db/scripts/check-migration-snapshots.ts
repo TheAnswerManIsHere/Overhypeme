@@ -312,6 +312,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // durable queue). Hand-authored idempotent DDL mirroring 0075's own
   // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
   "0093_facts_ai_meme_backfill_status",
+
+  // Entitlement model part 1: creates membership_entitlements,
+  // entitlement_source_disputes, membership_leases, the two ordering sequences
+  // and users.membership_valid_until, plus the admin_config seeds. Hand-authored
+  // idempotent DDL — drizzle-kit generate stays broken on the malformed 0063
+  // snapshot, and the file carries triggers and partial/conditional constraints
+  // Drizzle's snapshot format cannot represent anyway. Source of truth:
+  // lib/db/src/schema/membershipEntitlements.ts + auth.ts.
+  "0094_membership_entitlements",
 ]);
 
 interface JournalEntry {
