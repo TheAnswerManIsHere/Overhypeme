@@ -368,6 +368,12 @@ void logLastStripeEvent();
 
 // Non-blocking background tasks — failures are logged but never crash the server.
 initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
+// Grace convergence + authoritative reconciliation. The first is cosmetic if it
+// dies (the read path already enforces the deadline); the second is this model's
+// answer to "regardless of whether the event arrives at all".
+import("./lib/membershipSchedules")
+  .then((m) => m.scheduleMembershipJobs())
+  .catch((err: unknown) => logger.error({ err }, "Membership job scheduling failed"));
 backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
 backfillEmbeddings()
   .then(({ processed, failed }) => {

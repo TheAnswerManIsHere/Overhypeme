@@ -78,6 +78,8 @@ export type DisqualificationReason =
 export interface EntitlementSourceSnapshot {
   id: number;
   sourceType: EntitlementSourceType;
+  /** Subscription or payment-intent id; null for admin grants. Identity, never re-pointed. */
+  providerRef: string | null;
   /** Allowlist result. Null only for admin grants, which are authorized by W1b instead. */
   isMembershipProduct: boolean | null;
   lifecycleStatus: string;

@@ -34,6 +34,7 @@ function source(over: Partial<EntitlementSourceSnapshot> = {}): EntitlementSourc
   return {
     id: nextId++,
     sourceType: "stripe_subscription",
+    providerRef: `sub_${nextId}`,
     isMembershipProduct: true,
     lifecycleStatus: "active",
     graceExpiresAt: null,

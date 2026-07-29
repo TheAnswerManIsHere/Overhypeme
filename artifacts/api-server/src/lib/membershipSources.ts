@@ -70,6 +70,7 @@ export async function loadSourceSnapshots(
     .select({
       id: membershipEntitlementsTable.id,
       sourceType: membershipEntitlementsTable.sourceType,
+      providerRef: membershipEntitlementsTable.providerRef,
       isMembershipProduct: membershipEntitlementsTable.isMembershipProduct,
       lifecycleStatus: membershipEntitlementsTable.lifecycleStatus,
       graceExpiresAt: membershipEntitlementsTable.graceExpiresAt,
