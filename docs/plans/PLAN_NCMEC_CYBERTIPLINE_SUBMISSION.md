@@ -53,20 +53,42 @@ defect regardless of what else the change achieves.
    enumerated here and each of which is *itself* durably surfaced with its own count on
    `/admin/safety`:
 
-   | Waiting state | Predicate | Waiting on | Surfaced |
-   |---|---|---|---|
-   | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
-   | **Test mode — not yet test-submitted** | `ncmec_ispws_environment = 'test'` and `test_submitted_at IS NULL` | An explicit `send-to-test`, or the production transition | §5.3, §5.8 |
-   | **Test mode — already test-submitted** | `ncmec_ispws_environment = 'test'` and `test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
-   | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL` and no `identity_omission_approved_at` | An operator dispositioning a legacy row | §5.7, §5.8 |
-   | Unaudited backlog | `created_at < cutoff AND backlog_audited_at IS NULL` | The pre-activation audit | §7 step 2, §5.8 |
+   **These are the branches of one ordered classifier, not five independent predicates.**
+   A row can genuinely satisfy several at once — a disabled deployment sits in the default
+   `test` environment, so *every* waiting row matches both "submission disabled" and a
+   test-mode branch; an identity-unresolved legacy row is usually also unaudited.
+   Evaluating the predicates independently and counting each would double-count rows and
+   make "every non-final row appears in exactly one count" unsatisfiable. So the plan
+   defines **`classifyWaitingState(row, config)`**, a single function returning **exactly
+   one** label by taking the first matching branch in this order:
 
-   The two test-mode rows are the ones the previous revision missed, and the miss is
-   instructive: §5.3's fix — automatic enqueue requires `production` — **created** a
-   waiting state that satisfies none of the other predicates. Submission is *enabled*, the
-   row is audited, its identity resolves, and it still waits. Enumerated separately
-   because they wait on **different** operator actions: the first can be released by a
-   `send-to-test` *or* the production flip, the second only by the production flip.
+   | # | Waiting state | Branch condition | Waiting on | Surfaced |
+   |---|---|---|---|---|
+   | 1 | Unaudited backlog | `created_at < cutoff AND backlog_audited_at IS NULL` | The pre-activation audit | §7 step 2, §5.8 |
+   | 2 | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at IS NULL` | An operator dispositioning a legacy row | §5.7, §5.8 |
+   | 3 | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
+   | 4 | Test mode — not yet test-submitted | `environment = 'test' AND test_submitted_at IS NULL` | A `send-to-test`, or the production transition | §5.3, §5.8 |
+   | 5 | Test mode — already test-submitted | `environment = 'test' AND test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
+
+   **The order is the design, not an implementation detail.** It runs from *most specific
+   blocker the operator must personally resolve* to *most general state of the
+   deployment*, so a row is reported against the thing actually standing in its way. The
+   per-row blockers (1, 2) outrank the global switches (3, 4, 5) because turning
+   submission on does **not** release them — telling an operator a row is "waiting on
+   activation" when it is really waiting on their own unmade decision is the specific
+   misdirection this ordering prevents.
+
+   **One classifier serves the table, the API counts, and the tests.** Three
+   implementations of five overlapping predicates would drift, and the drift would be
+   invisible: the counts would still add up to something. §6 asserts exhaustive-and-
+   disjoint against this function, which is only a meaningful assertion because there is
+   one function to assert against.
+
+   Branches 4 and 5 were missing for three rounds, and the miss is instructive: §5.3's fix
+   — automatic enqueue requires `production` — **created** a waiting state satisfying none
+   of the then-existing predicates. They stay separate rather than merged because they
+   wait on different actions: 4 can be released by a `send-to-test` *or* the production
+   flip, 5 only by the flip.
 
    A row stuck outside both lists, with nobody told, is the worst outcome this subsystem
    can produce: it looks exactly like success from every surface. See §5.3.
@@ -459,6 +481,43 @@ Neither is a silent skip. Both are counted on `/admin/safety`, and both are non-
 rows that invariant 8 requires be visible — they are waiting on a *named human decision*,
 which is the same kind of acknowledged waiting state as `pending`-because-disabled.
 
+#### Eligibility is a shared predicate the worker enforces, not a reconciler-local rule
+
+Every eligibility condition above — environment, backlog audit, identity disposition —
+lived **only in the reconciler's query**. That is the wrong place for them to live alone,
+because the reconciler is not the only thing that enqueues: §5.8's retry and bulk-retry
+both create `ncmec_submit` jobs directly, and the worker's lease acquisition (§5.2.2)
+checks only status and lease. So an admin could retry an unaudited legacy row, or a row
+whose identity omission was never approved, and it would **file** — passing every check
+the worker performs, because none of the checks that would have refused it are ones the
+worker performs.
+
+That is not a hypothetical path. Retry deliberately accepts `pending` rows (round 1's fix
+for exactly this class of row), which means the button most likely to be pointed at a
+stuck legacy row is the one that bypasses the rules governing legacy rows.
+
+So the predicate is extracted:
+
+> **`isSubmittable(row, config)`** — one function, returning submittable or a named
+> refusal reason. Conditions: non-final status; environment is `production`; not
+> unaudited backlog; identity resolved or omission approved; not `filed_manually`.
+
+- **The reconciler** uses it to select rows.
+- **Retry and bulk-retry** evaluate it before enqueuing and refuse with the reason, so the
+  operator is told *why* rather than watching a job appear and silently do nothing.
+- **The worker re-evaluates it inside `run()`, in the same transaction as lease
+  acquisition**, and returns a terminal refusal if it no longer holds.
+
+The third is the one that actually makes the rule true. The first two are checks at
+enqueue time, and the gap between enqueue and execution is exactly where a cutoff gets
+set, an environment gets flipped, or an approval gets revoked. A check that has to be
+remembered at every call site is a rule with as many holes as future call sites; a check
+in the worker is the one place every submission provably passes through.
+
+§6 asserts the bypass directly: an admin retry on an unaudited row and on an
+identity-unresolved row both refuse, and a row that becomes ineligible *after* its job is
+enqueued is refused by the worker rather than filed.
+
 `pending` and `in_progress` are the only non-final states, and every one of them appears
 above — that exhaustiveness is what makes invariant 8 checkable rather than aspirational.
 There is deliberately **no `retracted` status** (§5.4): retraction is a step *inside* an
@@ -544,12 +603,28 @@ Additive on `ncmec_reports`:
 | `submission_lease_until` | `timestamptz` | §5.2.2 fencing — lease expiry |
 | `manually_filed_at` | `timestamptz` | §5.3 — filed by a human through the manual form |
 | `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
+| `test_submission_started_at` | `timestamptz` | §5.8 — a `send-to-test` attempt is open. Set with `NULL` `test_report_id` means `exttest` may hold a submission whose id was lost |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
 | `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
 | `backlog_audited_at` | `timestamptz` | §7 — this row has been through the pre-activation backlog audit |
 | `backlog_audit_note` | `text` | §7 — what the operator decided and why, for the rows the audit dispositioned by hand |
 | `identity_omission_approved_at` | `timestamptz` | §5.7 — an operator approved filing this legacy row with `<personOrUserReported>` omitted. **Write-once**; the reconciler reads it as the eligibility signal |
+| `manual_report_id` | `varchar(64)` | §5.8 — the CyberTipline id an **operator typed** for a hand-filed report. Deliberately **not** `report_id` |
+
+**`manual_report_id` exists because operator-asserted and machine-observed ids must never
+share a column.** `report_id` means "ISPWS returned this to us from our own `/submit`",
+and §5.2.1 treats a non-null value as proof of an earlier automated attempt — it retracts
+against it. An operator-typed id put in that column would be read by the duplicate guard
+as our own prior attempt, so a `reopen` (§5.8) would send `/retract` against an id we
+never obtained. If that id is valid but identifies **someone else's finished report**, the
+guard receives `5102`, concludes "our previous attempt landed," and marks this row
+`submitted` — a report that was never filed, now permanently final, on the strength of a
+typo.
+
+The two columns therefore carry different provenance and are never conflated:
+`report_id` is written only by `/submit`'s response; `manual_report_id` is written only by
+`mark-manually-filed`; and §5.2.1 reads only `report_id`.
 
 **New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
 on `/admin/safety` alters state with legal consequence, and until this round the design
@@ -564,13 +639,28 @@ forty federal reports and left a ledger that reads as complete.
 | `id` | `bigserial` | |
 | `report_id` | `bigint` | FK to `ncmec_reports`, nullable — config writes are not row-scoped |
 | `actor_user_id` | `varchar` | Who. **`ON DELETE SET NULL` is not used**: the actor is denormalized below so deleting the account cannot erase attribution |
-| `actor_email_snapshot` | `text` | Actor identity as of the action — same immutability reasoning as `reporter_snapshot` |
+| `actor_label` | `text not null` | Human-readable actor identity as of the action. **`NOT NULL` is load-bearing** — see below |
 | `action` | `varchar(40)` | `retry` \| `bulk_retry` \| `send_to_test` \| `backlog_audit` \| `approve_identity_omission` \| `mark_manually_filed` \| `correct_manual_filing` \| `reopen` \| `config_write` |
 | `reason` | `text` | Operator-supplied; **required** for the destructive actions (§5.8) |
 | `before_state` | `jsonb` | The mutated fields as they were |
 | `after_state` | `jsonb` | The mutated fields as they became |
 | `batch_id` | `uuid` | Groups the per-row entries of one bulk action |
 | `created_at` | `timestamptz not null default now()` | |
+
+**`actor_label` is `NOT NULL`, and the mutation is refused if one cannot be captured.**
+An earlier revision specified a nullable `actor_email_snapshot`, which does not survive
+contact with this schema: `users.email` is **nullable** (`schema/auth.ts:9`),
+`PATCH /admin/users/:id` lets an admin clear it (`admin.ts:157`), and
+`softDeleteUserLifecycle` nulls it outright (`dataLifecycle.ts:12`). So an admin with no
+email could suppress a report and leave an audit entry whose only identity is a `user_id`
+that becomes an orphaned opaque string once the account is deleted — the exact attribution
+this table promises, absent in the exact case where it matters.
+
+The label is built at write time from the first available of email, display name, or
+`admin:<user_id>`, so it is always populable and never silently empty; if even that cannot
+be resolved, the mutation is refused rather than recorded anonymously. Refusing is the
+right failure here: with no authorization boundary (§8.4), an unattributable destructive
+action is strictly worse than a blocked one.
 
 **Append-only is enforced, not merely intended**, following the precedent in
 `engineRevisionBumps.ts`: no application code path issues `UPDATE` or `DELETE` against
@@ -800,8 +890,21 @@ gate that does not exist.
   - **`identity_omission_approved_at`** (§5.4) is the dedicated, write-once disposition.
   - The reconciler's predicate becomes `reporter_snapshot IS NULL AND user_id IS NOT NULL
     AND identity_omission_approved_at IS NULL` — the stamp is what releases the row.
-  - The endpoint is constrained **server-side** to exactly
-    `reporter_snapshot IS NULL AND user_id IS NOT NULL`, refusing any other row.
+  - The endpoint is constrained **server-side** to
+    `reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at
+    IS NULL AND created_at < ncmec_backlog_audit_cutoff`, refusing any other row.
+
+  **That last clause is the actual legacy boundary, and the previous revision had no
+  such thing.** "Snapshot missing and user id present" does not mean *legacy* — it means
+  *the snapshot is absent*, and a **current** row can satisfy it through a capture defect:
+  a new call site that forgets to pass the snapshot, or a bug in the quarantine
+  transaction. Such a row has a live, knowable uploader, and the action would let an
+  operator file it with that uploader stripped out — while §6 claimed non-legacy rows were
+  refused. The cutoff timestamp is a durable boundary the row cannot drift across, so
+  "legacy" becomes a fact about the row rather than an inference from a missing field.
+
+  A current row with a missing snapshot is a **bug to fix, not a row to file anonymously**,
+  and this predicate is what keeps those two responses distinct.
 
   That last constraint is the one that matters most. Without it the action is a
   general-purpose "file this report without naming the uploader" button usable on *any*
@@ -938,6 +1041,20 @@ did. The audit log is consequently the **only** control on this surface, which i
     row that was never actually filed, subject to §5.2.2's lease fence like every other
     state write.
 
+    **Reopen must also clear `report_id`, and this is the step that is easy to miss.**
+    Moving a row out of a final state puts it back under §5.2.1's retract-first guard,
+    which treats a non-null `report_id` as our own unfinished prior attempt. Any stale
+    automated id left on the row would be retracted against — and a `5102` reply would
+    mark the row `submitted` without filing anything. So reopen sets `report_id`,
+    `finished_at`, and `submitted_at` to NULL in the same transaction, preserving all
+    three in the audit entry's `before_state`. `manual_report_id` is **retained**: it is
+    the record of what the operator originally asserted, and the reason the row is being
+    reopened is usually that the assertion was wrong.
+
+    §6 tests the case Codex named: a reopened row whose operator-entered id was valid but
+    identified an unrelated finished report must not be marked `submitted` — and with the
+    id in `manual_report_id` and `report_id` cleared, the guard never sees it at all.
+
   **What the approver verifies before correcting or reopening, since the system cannot.**
   ISPWS has no per-report status endpoint — `GET /status` is connectivity only (§4) — so
   there is no programmatic way to confirm a manually-filed report exists. The evidence is
@@ -1003,6 +1120,17 @@ did. The audit log is consequently the **only** control on this surface, which i
     and a **short-lived confirmation token bound to that filter and the matched row-id
     set**. Execution requires the token; a filter that changed since the preview does not
     match it and cannot execute.
+  - **Execution re-evaluates the filter per row, not just the id set.** A signed id set
+    proves *which rows were shown*, never that they still match what was confirmed — and
+    the two can diverge without anything unusual happening. A row previewed as `failed`
+    with retryable `1000` can be retried individually in the interval and fail again with
+    terminal `4100`: still `failed`, still in the signed set, and now something the
+    operator explicitly did **not** confirm retrying. So each row's update carries the
+    previewed filter's conditions in its `WHERE`, and rows that no longer satisfy them are
+    **reported as skipped with a reason**, never silently included or silently dropped.
+    Rows that entered the filter after the preview are excluded by the id set. The two
+    checks are complementary: the id set bounds the batch from growing, the per-row
+    conditions stop it from acting on rows whose meaning changed.
   - **A hard per-batch limit**, so even a correct-looking filter cannot exceed it in one
     action. Exceeding the limit is an explicit refusal naming the count, not a silent
     truncation — a silently truncated recovery is indistinguishable from a complete one,
@@ -1018,6 +1146,47 @@ did. The audit log is consequently the **only** control on this surface, which i
   environment at all, so exercising the pipeline has to be an explicit, per-row act. It
   refuses when `ncmec_ispws_environment` is `production` — the button's whole purpose is
   that it cannot file for real.
+
+  **It is a submission, so it obeys every rule submissions obey.** The previous revision
+  described it as if a config read were sufficient protection. It is not: a config check
+  is a point-in-time read, and the operation that follows makes external calls for up to
+  the full sequence duration.
+
+  - **It acquires and renews the §5.2.2 lease** on the same terms as the worker, and
+    every post-call write is conditional on the token and non-final status. Without the
+    lease, an operator running `send-to-test` while the production transition happens
+    leaves the row `pending` and visible to the next reconciler pass — which starts a
+    **production** worker concurrently, after which the test path's completion write can
+    land `test_submitted_at` and `submission_environment` over newer production state.
+    Two writers, one row, and the loser is the real filing.
+  - **The environment is captured once, at lease acquisition, and every subsequent write
+    is conditional on it being unchanged.** Re-reading config mid-sequence, or trusting
+    the initial read, both allow a sequence that started in `test` to finish writing after
+    a flip to `production`.
+  - **It runs the §5.3 `isSubmittable` check** for everything except the environment
+    clause, which it inverts. A test submission of a row that is not allowed to be filed
+    is not a useful rehearsal.
+
+  **The remote call cannot be inside the local transaction, so an intention is recorded
+  before it.** `/finish` succeeding at `exttest` and the process dying before the local
+  commit would leave NCMEC holding a test submission with no `test_report_id` and no
+  audit row — and a retry would submit it again. That is the same problem §5.2.1 solves
+  for production, and it needs the same shape here rather than an assumption that a test
+  submission does not matter:
+
+  1. **Before the first remote call**, commit a durable audited *attempt* record —
+     `send_to_test` in the audit log with `after_state` marking the attempt open, and a
+     `test_submission_started_at` stamp on the row.
+  2. Perform the sequence.
+  3. **After `/finish`**, commit `test_submitted_at` / `test_report_id` and close the
+     attempt.
+
+  A row with an open attempt and no `test_report_id` is a **recoverable** state, surfaced
+  on `/admin/safety` rather than retried blindly: the operator can see that `exttest` may
+  hold a submission whose id was lost. It resolves by inspection in NCMEC's test portal,
+  and re-running `send-to-test` is an explicit decision rather than an automatic one.
+  Consequences in the test environment are low — which is the argument for *not* building
+  the full production guard here, and not an argument for leaving the state undefined.
 - `POST /admin/safety/reports/:id/audit` — records the pre-activation backlog disposition
   (§7 step 2): stamps `backlog_audited_at` and `backlog_audit_note`. Its
   **"file without uploader identity"** variant is the operator's explicit resolution for a
@@ -1154,6 +1323,34 @@ Outage behavior (§5.2, §5.8):
   filter gap — and its `attempt_count` is reset, so an admin retry after an exhausted
   automatic budget actually runs.
 
+Round-8 mechanisms — the new endpoints against the worker and reconciler:
+- **Eligibility cannot be bypassed by an admin enqueue**: retry on an unaudited row and on
+  an identity-unresolved row both refuse with a named reason; and a row that becomes
+  ineligible **after** its job is enqueued is refused **by the worker**, not filed.
+- **Reopen clears `report_id`**: a reopened row whose `manual_report_id` was valid but
+  identified an unrelated finished report is **not** marked `submitted` — the duplicate
+  guard never sees an operator-typed id, because §5.2.1 reads only `report_id`.
+- **`send-to-test` is lease-fenced**: it acquires the §5.2.2 lease, and a `send-to-test`
+  racing the production transition cannot write `test_submitted_at` or
+  `submission_environment` over production state. A production worker and the test path
+  cannot both hold the row.
+- **`send-to-test` crash after `/finish`** leaves an open attempt with no `test_report_id`,
+  surfaced as recoverable on `/admin/safety` — asserted rather than left undefined, and
+  **not** retried automatically.
+- **`actor_label` is always populated**: an admin whose `email` is NULL still produces a
+  human-readable label, and a mutation that cannot capture one is **refused**, not
+  recorded anonymously.
+- **Bulk retry revalidates per row**: a row previewed as retryable `1000` that becomes
+  terminal `4100` before execution is **skipped with a reason**, not retried on the
+  strength of the signed id set.
+- **Waiting-state counts come from `classifyWaitingState`**, one function shared by the
+  table, the API, and these tests. Exhaustive-and-disjoint is asserted against it across
+  disabled+test, enabled+test before and after `send-to-test`, and production — including
+  the overlapping cases (disabled *and* test; identity-unresolved *and* unaudited) that
+  made the previous independent-predicate version unsatisfiable.
+- **Identity omission is bounded by the cutoff**: a **current** row with a missing
+  snapshot — a capture defect, not a legacy row — is refused.
+
 Admin surface as a privileged surface (§5.8):
 - **Both config routes refuse unsafe activation** — the new safety endpoint *and* the
   generic `PATCH /admin/config/:key` (`admin.ts:2198`). Testing only the new one would
@@ -1164,8 +1361,8 @@ Admin surface as a privileged surface (§5.8):
   manual filing, correction, reopen, and config write.
 - **The audit log is append-only**: the module exports no update or delete helper, and no
   code path issues one against `ncmec_safety_audit_log`.
-- **Attribution survives account deletion** — `actor_email_snapshot` still identifies who
-  acted after the user row is gone.
+- **Attribution survives account deletion** — `actor_label` still identifies who acted
+  after the user row is gone, including for an actor whose `email` was already NULL.
 - **Identity omission is narrowly constrained**: refused for a row with a
   `reporter_snapshot`, for an anonymous row (`user_id IS NULL`), and for a non-legacy row;
   accepted only for `reporter_snapshot IS NULL AND user_id IS NOT NULL`, and the stamp is
