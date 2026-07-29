@@ -24,6 +24,13 @@ import { db as defaultDb } from "@workspace/db";
 import { asyncJobsTable, type AsyncJobRow, type AsyncJobStatus } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
+import {
+  stampLaneScheduled,
+  stampTickCompleted,
+  publishInFlight,
+  decrementInFlight,
+  pruneDepartedInstances,
+} from "./workerHeartbeats";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
@@ -574,9 +581,25 @@ export async function asyncJobsTick(
   });
 
   const maxConcurrency = options?.maxConcurrency ?? ASYNC_JOBS_MAX_CONCURRENCY;
-  await mapWithConcurrency(claimed, maxConcurrency, (row) =>
-    processClaimedJob(dbInstance, row, lane),
-  );
+
+  // Publish the in-flight count HERE — after the claim transaction has
+  // committed, before a single handler is awaited. Writing it at tick
+  // completion instead would be useless for the case that matters: a wedged
+  // tick never completes, so the durable count would sit at its previous value
+  // (normally zero) while `worker_lane_wedged` waits for `in_flight_count > 0`.
+  if (lane && claimed.length > 0) {
+    await publishInFlight(lane, claimed.length);
+  }
+
+  await mapWithConcurrency(claimed, maxConcurrency, async (row) => {
+    try {
+      await processClaimedJob(dbInstance, row, lane);
+    } finally {
+      // Per job, as it leaves the in-flight set — so a long tail of one slow
+      // handler reads as "1 in flight", not as the whole original batch.
+      if (lane) await decrementInFlight(lane);
+    }
+  });
 }
 
 // ─── Stuck-row recovery (on boot) ───────────────────────────────────────────
@@ -784,18 +807,55 @@ export function createLaneRunner(
           logger.error({ lane: config.lane, err, queue }, `[asyncJobs:${config.lane}] retention purge failed`);
         }
       }
+      // Same cadence as the purge: drop heartbeat rows for instances that have
+      // stopped writing. Without this, every autoscale scale-down leaves a row
+      // that never advances again and the lane reads as permanently stalled.
+      const pruned = await pruneDepartedInstances();
+      if (pruned > 0) {
+        logger.info({ lane: config.lane, pruned }, `[asyncJobs:${config.lane}] pruned departed worker heartbeats`);
+      }
     }
   };
 
   const body = deps.runTick ?? defaultBody;
 
   const tick = async (): Promise<void> => {
-    if (ticking) return;
+    // Stamped BEFORE the re-entrancy guard, deliberately. This column is pure
+    // scheduler liveness: a lane whose timer fires every interval while its
+    // previous tick is still running is *healthy but slow*, and it must not read
+    // as dead. Writing this only on ticks that actually run would conflate a
+    // stopped timer with a slow handler — two conditions with two different
+    // remediations, which is exactly why they get two different signals.
+    //
+    // AWAITED rather than fire-and-forget. Fire-and-forget looks safer — it
+    // keeps telemetry off the tick's critical path — but it makes the signal
+    // non-deterministic: two rapid fires can land out of order, so
+    // `last_scheduled_at` can go backwards, and nothing can observe whether the
+    // write happened at all.
+    //
+    // Started but NOT awaited before the body: telemetry must never delay
+    // claiming. Awaiting here puts a database round-trip in front of every
+    // tick, which on the `fast` lane is a meaningful fraction of its interval —
+    // and it broke the lane-isolation test guarding PR #216/#256's invariant,
+    // which is precisely the regression that rule exists to catch. The promise
+    // is awaited before `tick()` resolves instead, so the write is
+    // deterministic for tests without ever sitting in front of real work.
+    const scheduled = stampLaneScheduled(config.lane);
+    if (ticking) {
+      // A skipped tick does no work, so there is nothing left to delay.
+      await scheduled;
+      return;
+    }
     ticking = true;
     try {
       await body(config);
+      // Reached only when the tick finished. A wedged tick never gets here,
+      // which is what makes the gap between this and `last_scheduled_at`
+      // meaningful.
+      await stampTickCompleted(config.lane);
     } finally {
       ticking = false;
+      await scheduled;
     }
   };
 
