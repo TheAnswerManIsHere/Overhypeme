@@ -466,32 +466,31 @@ Two alert shapes, handled differently:
 The distinction is a column on the alert kind, not a judgement call at each
 call site, so a future alert kind must declare which shape it is.
 
-**The pending-occurrence watermark** *(added, Codex round 1 — this was a real
-defect in the first draft)*. My first version had the dispatcher select rows
-`WHERE notified_at IS NULL` while coalescing bumped `occurrence_count` on that
-same unacknowledged row. The two do not compose: once the first dispatch stamped
-`notified_at`, every subsequent occurrence coalesced into a row the dispatcher
-would never select again, so **failures continuing after the first digest would
-go unreported until an admin acknowledged the original alert** — and the
-cooldown/escalation logic had no "count since last digest" to evaluate against
-in the first place.
+**The pending-occurrence watermark, per channel.** Pending-ness is a
+**quantity**, not a boolean, and it is tracked **independently per channel**:
 
-The fix is to make pending-ness a *quantity*, not a boolean:
+- **pending for a channel** = `alert.occurrence_count -
+  dispatch.dispatched_count` for that `(alert_id, channel)` row;
+- the dispatcher selects channels where that difference is `> 0` **and**
+  (never dispatched **or** that channel's `last_dispatched_at` is older than the
+  cooldown), or where the difference exceeds the escalation threshold regardless
+  of cooldown;
+- on **successful** delivery it advances that channel's `dispatched_count` to
+  the `occurrence_count` **captured before sending**, so occurrences arriving
+  mid-dispatch are not swallowed into a span that was never reported;
+- on failure it advances nothing for that channel, so the next tick retries the
+  same span — while a healthy channel is unaffected, and a failing channel does
+  not inherit a healthy one's cooldown.
 
-- **pending occurrences** = `occurrence_count - dispatched_count`;
-- the dispatcher selects rows where that difference is `> 0` **and**
-  (`last_dispatched_at IS NULL` **or** older than the cooldown), or where the
-  difference exceeds the escalation threshold regardless of cooldown;
-- on **successful** delivery it advances `dispatched_count` to the
-  `occurrence_count` it actually read (captured before sending, so occurrences
-  arriving mid-dispatch are not silently swallowed) and stamps
-  `last_dispatched_at` plus the per-channel entry;
-- on failure it advances nothing, so the next tick retries the same pending
-  span.
-- **Channels are tracked independently** so a webhook success plus an email
-  failure does not mark the alert delivered — each channel advances its own
-  entry, and `dispatched_count` advances only on the channels that succeeded,
-  tracked per channel rather than as one global counter.
+*(Two rounds of correction produced this shape. Round 1: the original design
+selected on `notified_at IS NULL` while coalescing bumped `occurrence_count` on
+the same row, so alerting went permanently quiet after the first digest until an
+admin acknowledged — the counter-based watermark replaced it. Round 2: the
+round-1 schema still had **one global** `dispatched_count` plus per-channel
+*timestamps*, which cannot represent partial channel success at all — advancing
+the global count loses the failing channel's retry, not advancing it makes the
+healthy channel resend, and a timestamp cannot identify which occurrences are
+new. Hence the normalized child table above.)*
 
 **A2. Recording happens inside the finalize transaction.** In
 `processClaimedJob`, the same transaction that writes `status = 'failed'` also
@@ -779,76 +778,57 @@ deferred beyond `email_defer_alert_hours` (default 6).
 
 ### Part C — The health surface
 
-**C1. `worker_lane_heartbeats`** — one row per **`(instance_id, lane)`**
-(`instance_id`, `lane`, `worker_version`, `last_scheduled_at`,
-`last_tick_completed_at`, `in_flight_count`, `last_claim_count`).
+**C1. `worker_lane_heartbeats`** — one row per **`(instance_id, lane)`**, with
+`worker_version`, `last_scheduled_at`, `last_tick_completed_at`,
+`in_flight_count`, `last_claim_count`.
 
-**Keyed by instance, not by lane alone** *(corrected, Codex round 2)*. My first
-two drafts had one row per lane, which on an autoscaled deployment is actively
-harmful rather than merely imprecise: every instance overwrites the same
-timestamps and `in_flight_count`, so **a healthy idle instance continuously
-refreshes the row and masks a wedged handler on a different instance.** The
-`worker_lane_wedged` alert could not fire, and the displayed in-flight count
-would be whichever instance wrote last. A monitoring table that hides the
-failure it exists to reveal is worse than not having it.
-
-Consequently:
-
-- **Primary key `(instance_id, lane)`.** `instance_id` comes from
-  `REPLIT_DEPLOYMENT_ID` plus a per-process uuid (the deployment id alone is
-  shared across instances of one deployment; `instrument.ts:29` and
-  `admin.ts:2939` already read it, so the convention exists).
-- **`worker_version`** — a build-stamped constant. This is what makes the 3b
-  rollout barrier real; see the rollout protocol.
-- **Health aggregates across live instances**, and each condition is evaluated
-  with the right quantifier, which is not the same one for both:
-  `worker_lane_stalled` is **∀ instances** (no instance has scheduled that lane
-  recently — the lane is dead fleet-wide), while `worker_lane_wedged` is
-  **∃ an instance** (any instance with a live timer and a stuck tick is a real
-  wedge, even if its peers are fine). Collapsing to one row destroyed both
-  quantifiers.
-- **Departed instances are pruned** — a row whose `last_scheduled_at` is older
-  than `instance_heartbeat_ttl_minutes` (default 15) is deleted by the same
-  sweep and excluded from health evaluation beforehand, so a scaled-down
-  instance does not read as a permanently stalled lane. This is the one piece
-  that needs care: prune too eagerly and a briefly-paused instance is
-  forgotten; too lazily and a scale-down raises a false `stalled`. The TTL is
-  admin-config for that reason, and acceptance covers a scale-down explicitly.
-
-**Scheduler liveness and tick completion are separate facts** *(corrected, Codex
-round 1)*. My first draft stamped a single `last_tick_at` at the end of each
-tick. That cannot distinguish a stopped timer from a legitimately long tick,
-because `asyncJobsTick` does not return until every claimed handler finishes
-(`asyncJobs.ts:577-579`) — so a 4-minute render on the `render` lane and a dead
-`render` timer produce an identical signal. Any threshold tight enough to catch
-the stopped 5-second lane promptly would flag the healthy long render as
-stalled, and the alert would be trained into noise within a day.
-
-Three separate stamps, written at different moments:
+**Three stamps, written at three different moments**, because scheduler liveness
+and tick completion are different facts:
 
 - **`last_scheduled_at`** — written when the timer *fires*, before any work,
-  including on the re-entrancy early-return (`if (ticking) return`). This is
-  pure scheduler liveness: if the interval is alive, this advances, no matter
-  how long the work takes.
-- **`last_tick_completed_at`** — written when a tick finishes, as before.
-- **`in_flight_count`** — how many jobs that lane currently holds, so a long
-  tick is legible as *working* rather than inferred from silence.
+  **including on the `if (ticking) return` early-return**. Pure scheduler
+  liveness, unaffected by how long a handler takes.
+- **`last_tick_completed_at`** — written when a tick finishes.
+- **`in_flight_count`** — how many jobs that instance's lane currently holds, so
+  a long tick reads as *working* rather than being inferred from silence.
 
-**Stall thresholds**, stated concretely rather than left to implementation:
+**Keyed by instance, and evaluated with the right quantifier per condition:**
 
-- **Lane stalled** — `last_scheduled_at` older than `max(3 × interval, 60s)`.
-  For `fast` that is 60s; for the 5s lanes, 60s; it keys off the scheduler, so
-  it is unaffected by handler duration.
-- **Lane wedged** — `last_scheduled_at` is current (timer alive) but
-  `last_tick_completed_at` is older than the lease duration **and**
-  `in_flight_count > 0` for longer than `wedged_lane_alert_minutes`
-  (default 30). This is the genuinely-hung-handler case, which the first draft
-  could not express at all, and it is a *different* alert kind
-  (`worker_lane_wedged`) with different remediation.
+- **`worker_lane_stalled`** — **∀ live instances**, none has scheduled that lane
+  within `max(3 × interval, 60s)`. The lane is dead fleet-wide. Keyed off the
+  scheduler, so handler duration cannot trigger it.
+- **`worker_lane_wedged`** — **∃ a live instance** whose timer is current but
+  whose `last_tick_completed_at` is older than the lease **and**
+  `in_flight_count > 0` beyond `wedged_lane_alert_minutes` (default 30). A
+  genuinely hung handler, needing different remediation than a dead timer.
 
-Acceptance tests both directions explicitly: a long healthy handler must **not**
-raise either alert, and a stopped scheduler must raise `worker_lane_stalled`
-within its threshold.
+**`worker_version`** is stamped on every tick, which is what makes the 3b
+rollout barrier provable rather than inferred — see the rollout protocol.
+
+**Departed instances are pruned:** a row whose `last_scheduled_at` is older than
+`instance_heartbeat_ttl_minutes` (default 15) is excluded from evaluation and
+then deleted, so a scaled-down instance does not read as a permanently stalled
+lane. Admin-config because the trade-off cuts both ways — prune eagerly and a
+briefly-paused instance is forgotten; lazily and a scale-down raises a false
+stall.
+
+*(Two rounds of correction produced this shape. Round 1: a single
+`last_tick_at` stamped at completion could not distinguish a stopped 5-second
+timer from a legitimate 4-minute render, because `asyncJobsTick` does not return
+until every claimed handler finishes (`asyncJobs.ts:577-579`) — any threshold
+tight enough for the former would have flagged the latter, training the alert
+into noise. Round 2: one row **per lane** is worse than imprecise on an
+autoscaled fleet — every instance overwrites the same row, so a healthy idle
+instance continuously masks a wedged handler on another, and `worker_lane_wedged`
+could never fire. Collapsing to one row also destroyed both quantifiers above;
+applying either one alone would half-fix it, since `∀` lets a wedged instance
+hide behind healthy peers and `∃` raises a false stall whenever one instance is
+slow to schedule.)*
+
+Acceptance covers all three states explicitly: a long healthy handler raises
+neither alert; a stopped scheduler raises `stalled`; a live scheduler with a
+wedged handler raises `wedged` and not `stalled` — plus a wedge on instance A
+while B is healthy and idle, and a scale-down that must not raise a false stall.
 
 **C2. `GET /admin/queue-health`** — per queue: pending / processing / failed /
 done-24h, oldest-pending age, abandoned-24h; per lane: last-tick age and
