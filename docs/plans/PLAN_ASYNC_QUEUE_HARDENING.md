@@ -367,10 +367,10 @@ all instances of, and each is fixed below:
 
 | Mechanism | Single-instance assumption | Multi-instance fix |
 |---|---|---|
-| Alert dispatch | closure-local `ticking` guard prevents double-send | advisory lock per `(dedupe_key, channel)`, held across the send (A3a) |
+| Alert dispatch | closure-local `ticking` guard prevents double-send | one advisory lock **per channel** — not per `(dedupe_key, channel)`, since a digest groups many keys into one send — held across the whole build-and-send (A3a) |
 | Lane heartbeats | one row per lane | keyed `(instance_id, lane)`, aggregated for health, pruned on departure (C1) |
 | Lease reclaim | read expired rows, then update | single fenced atomic statement with `SKIP LOCKED` (B4) |
-| 3b rollout gate | poll for NULL-token `processing` rows | version-stamped instance heartbeats as a real drain barrier (rollout §2) |
+| 3b rollout gate | poll for NULL-token `processing` rows | **no automated gate exists** — enablement is an explicit operator action; version-stamped heartbeats are a **block-only interlock** that can refuse but never enable (rollout protocol) |
 | Alert watermark | one global `dispatched_count` | per-channel dispatch rows (A1) |
 
 **The governing rule this plan now states explicitly, so no later step
@@ -385,15 +385,21 @@ process-local guard.*
 | Queued work + its lifecycle | `async_jobs` rows | Unchanged. New columns are additive bookkeeping (lease, alert linkage); no new table duplicates job state. |
 | Who currently owns a running job | *Nothing today* — `status='processing'` plus a wall-clock guess | **New:** `lease_token` + `lease_expires_at` on the same row. Still one source; the ownership fact moves from implicit to explicit. |
 | Whether a failure has been notified | *Nothing today* — it is transient in-process intent | **New:** `job_alerts` rows. This is genuinely new state, not a duplicate: nothing records it today, which is finding 3. |
-| Worker liveness | *Nothing today* | **New:** `worker_lane_heartbeats`, one row per **`(instance_id, lane)`** — the fleet's composition is itself the state, which is what makes the 3b drain barrier provable. Operational telemetry, not job state. |
+| Worker liveness | *Nothing today* | **New:** `worker_lane_heartbeats`, one row per **`(instance_id, lane)`** — the fleet's composition is itself the state, which is what lets the 3b interlock **refuse** an unsafe enable. It cannot prove a drain: a wedged instance stops heartbeating while still able to finalize, so absence is never an all-clear (see the rollout protocol). Operational telemetry, not job state. |
 | Whether an alert has been delivered, per channel | *Nothing today* | **New:** `job_alert_dispatches`, one row per `(alert_id, channel)`. Kept out of `job_alerts` deliberately: a single global counter cannot represent partial channel success. |
 | Tunable operational settings | `admin_config` | Extended, per the repo's stated preference for DB-backed config over constants. |
 | Retry/backoff policy | `admin_config` + `RETRY_DELAYS_MS` fallback | Unchanged. |
 | Admin notification recipients | `users.isAdmin && adminNotifications && isActive` | Unchanged — the alert dispatcher reuses `adminNotify.ts`'s existing query rather than inventing a second recipient rule. |
 
 No concept acquires a second authority. The one risk of that is the health page,
-which must derive everything it shows from `async_jobs` and
-`worker_lane_heartbeats` by query — it stores no counters of its own.
+which must derive everything it shows **by query, from the three durable sources
+above, each answering only for its own concept**: job state and tallies from
+`async_jobs`, worker liveness from `worker_lane_heartbeats`, and notification
+state — alerts, acknowledgement, escalation — from `job_alerts` and
+`job_alert_dispatches`. It stores no counters of its own. Naming only the first
+two would be worse than incomplete: the alert UI would either be unbuildable or
+get built by re-deriving notification state from job rows, which is exactly the
+competing authority this section forbids.
 
 ## Proposed Design
 
@@ -414,6 +420,8 @@ which must derive everything it shows from `async_jobs` and
 | `state` | `active` \| `resolved` — see the incident lifecycle below |
 | `resolved_at` | when the underlying condition cleared |
 | `acknowledged_at` / `acknowledged_by` | admin ack from the health page |
+| `escalation_tier` | int, default 0 — boundaries crossed by a still-true condition |
+| `acknowledged_tier` | int, default 0 — `escalation_tier` at the moment of ack; the banner returns when `escalation_tier` exceeds it |
 
 **Dispatch state is a child table, not columns** *(corrected, Codex round 2)*.
 My round-1 fix put a single global `dispatched_count` on the alert plus a
@@ -427,13 +435,24 @@ implement. So `job_alert_dispatches`:
 | Column | Purpose |
 |---|---|
 | `alert_id` | fk → `job_alerts` |
-| `channel` | `webhook` \| `email` \| `in_app` |
+| `channel` | `webhook` \| `email` — **push channels only**, see below |
 | `dispatched_count` | occurrences this channel has successfully delivered |
+| `dispatched_tier` | int, default 0 — the escalation boundary this channel has delivered |
 | `last_dispatched_at` | this channel's cooldown watermark |
 | `last_error` / `failure_count` | per-channel delivery diagnostics |
 
 Primary key `(alert_id, channel)`. Each channel advances independently; pending
 for a channel is `alert.occurrence_count - dispatch.dispatched_count`.
+
+**`in_app` is deliberately not a dispatch channel.** This table records *pushes
+that can fail and must be retried*. In-app "delivery" is not a push at all — it
+is the existence of the `job_alerts` row itself, which the page and banner read
+directly (A4), so there is no send to succeed, no failure to record, and no
+watermark to advance. Creating an `in_app` row here would leave it permanently
+pending (`occurrence_count > 0`, `dispatched_count = 0`) and therefore eligible
+on **every** dispatcher tick forever — a row the dispatcher can never satisfy.
+The enum is the two push channels; in-app needs no entry because the ledger row
+*is* the record.
 
 A partial unique index on `(dedupe_key)` where `state = 'active'` makes
 "record or coalesce" a single idempotent upsert.
@@ -707,7 +726,9 @@ delivered digest.
   are logged and surfaced **in-app only** — a webhook failure must never create
   an alert that tries to dispatch over the webhook.
 - **In-app (the record).** The Queue Health page (Part C) plus a persistent
-  banner in `AdminLayout` while any unacknowledged `critical` alert exists.
+  banner in `AdminLayout` while any `critical` alert is **attention-worthy** —
+  `acknowledged_at IS NULL OR escalation_tier > acknowledged_tier` — so an
+  acknowledged condition that crosses a boundary brings the banner back.
 - **Email (retained, now honest).** The existing abandoned-email alert moves
   behind the same dispatcher, and the config gate is *seeded* by migration so it
   is finally togglable in the admin UI. It stays off by default — the webhook
@@ -953,8 +974,10 @@ and tick completion are different facts:
   `in_flight_count > 0` beyond `wedged_lane_alert_minutes` (default 30). A
   genuinely hung handler, needing different remediation than a dead timer.
 
-**`worker_version`** is stamped on every tick, which is what makes the 3b
-rollout barrier provable rather than inferred — see the rollout protocol.
+**`worker_version`** is stamped on every tick. It powers the 3b **block-only
+interlock** — an operator enabling reclaim while a pre-lease version is visible
+is refused — and nothing more. Its *absence* enables nothing, because a silent
+process is indistinguishable from a departed one; see the rollout protocol.
 
 **Departed instances are pruned:** a row whose `last_scheduled_at` is older than
 `instance_heartbeat_ttl_minutes` (default 15) is excluded from evaluation and
@@ -1029,12 +1052,24 @@ runnable:
 - **Phase 1 response:** queue tallies (raw and derived), lane liveness, and
   nothing else. No alert fields at all — not an empty array, which would read as
   "no alerts" rather than "alerts do not exist yet."
-- **Phase 2 extends it** with `unacknowledgedAlerts`, in the same PR that
-  creates the table.
+- **Phase 2 extends it** with **`activeAlerts`** — *not* `unacknowledgedAlerts`,
+  which would be the wrong set. A1 requires an acknowledged-but-still-true
+  condition to stay visible on this page (acknowledgement hides the alarm, never
+  the fact), and an acknowledged alert past an escalation boundary must reclaim
+  attention while `acknowledged_at` is still set. A response filtered to
+  unacknowledged rows can express neither. So the field carries every
+  `state = 'active'` row with its `acknowledged_at`, `escalation_tier` and
+  `acknowledged_tier`, and the **attention predicate is computed from those**:
+  `acknowledged_at IS NULL OR escalation_tier > acknowledged_tier`. The banner
+  (C4) reads exactly that predicate, so page and banner cannot disagree.
+  Acceptance covers three rows, not two: unacknowledged, acknowledged-and-quiet,
+  and acknowledged-past-a-boundary — the third being the one a
+  two-state fixture would miss.
 
 Acceptance covers **each phase's response separately**: Phase 1 asserts the
 endpoint is complete and correct without any alert key present; Phase 2 asserts
-the added key against a seeded mix of acknowledged and unacknowledged alerts.
+the added key against three rows: unacknowledged, acknowledged-and-quiet, and
+acknowledged-past-an-escalation-boundary.
 
 **C3. `/admin/queue-health` page**, following `async-ui-status.md`'s two
 altitudes: an **aggregate** row per queue ("`enrichment` — 4 pending · 1
@@ -1050,8 +1085,11 @@ a no-retry abandonment **at both altitudes**: counted in the queue's aggregate
 row and rendered with their own state on expansion. Polls on a steady cadence;
 imposes no timeout.
 
-**C4. `AdminLayout` banner** while any unacknowledged `critical` alert exists,
-linking to the page. Acknowledging is an explicit admin action, so a real
+**C4. `AdminLayout` banner** while any `critical` alert satisfies the attention
+predicate (`acknowledged_at IS NULL OR escalation_tier > acknowledged_tier`) —
+the same expression C2 exposes the inputs for, so the banner and the page can
+never disagree about what needs attention. It links
+to the page. Acknowledging is an explicit admin action, so a real
 failure cannot be cleared by a page reload.
 
 **C5. `GET /health/queues`** — unauthenticated, no payload detail, returning
@@ -1135,14 +1173,19 @@ EXISTS`, `CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a
 
 **Row-state matrix for 0096** (the only migration touching existing rows):
 
+Every row also receives `delivery_generation = 0`, which is why the column is
+listed in each cell below rather than only in the lease ones: a row mid-ladder
+keeps the exact idempotency key it already used, so the migration cannot itself
+cause a resend or a suppressed send.
+
 | Existing row state | After migration | Correct? |
 |---|---|---|
-| `pending`, never run | `lease_token` NULL, `lease_expires_at` NULL | Yes — claimed normally, gets a token then. |
-| `pending`, previously failed | NULL lease columns, `attempts` preserved | Yes — retry ladder unaffected. |
-| `processing`, genuinely in flight during deploy | NULL lease | **See the rollout protocol below — the migration alone does not make this safe.** |
-| `processing`, actually stranded pre-migration | NULL lease | **Not reclaimed during 3a** — the rollout protocol below disables *all* reclaim for the overlap, so a genuinely stranded row waits, visibly, until 3b is enabled. |
-| `done` / `failed` (terminal) | NULL lease, untouched | Yes — never re-claimed. |
-| Row inserted *during* the migration | NULL lease | Yes — same as legacy pending. |
+| `pending`, never run | `lease_token` NULL, `lease_expires_at` NULL, `delivery_generation` 0 | Yes — claimed normally, gets a token then; first send uses generation 0. |
+| `pending`, previously failed | NULL lease columns, `attempts` preserved, `delivery_generation` 0 | Yes — retry ladder unaffected, and the key is unchanged from what earlier attempts used. |
+| `processing`, genuinely in flight during deploy | NULL lease, `delivery_generation` 0 | **See the rollout protocol below — the migration alone does not make this safe.** The generation default is safe here specifically *because* it does not change the in-flight row's key. |
+| `processing`, actually stranded pre-migration | NULL lease, `delivery_generation` 0 | **Not reclaimed during 3a** — the rollout protocol below disables *all* reclaim for the overlap, so a genuinely stranded row waits, visibly, until 3b is enabled. |
+| `done` / `failed` (terminal) | NULL lease, `delivery_generation` 0, otherwise untouched | Yes — never re-claimed. A later **admin** retry increments the generation, which is the intended way its key changes. |
+| Row inserted *during* the migration | NULL lease, `delivery_generation` 0 | Yes — same as legacy pending. |
 
 Purely additive; no backfill rewrites existing data. **Observability:** each
 migration reports affected counts per the repo's migration-observability rule.
@@ -1403,7 +1446,7 @@ matters:
 - Alert row is written **in the same transaction** as `status='failed'` — assert
   that a forced failure of the alert write rolls back the status write too, so
   the pair cannot diverge.
-- Every queue produces an alert on exhaustion, including the nine with no
+- Every queue produces an alert on exhaustion, including the **six** with no
   `onAbandon` — parameterized over the registered queue list so a future queue
   added without an `onAbandon` is covered automatically.
 - A terminal failure produces `job_terminal_failed` and does **not** invoke
@@ -1538,14 +1581,22 @@ before the machine changes (settled decision 5).
    `acknowledged_tier` alongside `acknowledged_at`, so a later escalation
    boundary reactivates the banner without any write that undoes the
    acknowledgement itself.
-11a. **Extend `GET /admin/queue-health` with `unacknowledgedAlerts`** — the
-   field Phase 1 deliberately omitted, added in the same phase that creates the
-   table it reads. Phase 1's response test is updated here rather than being
+11a. **Extend `GET /admin/queue-health` with `activeAlerts`** — the field Phase 1
+   deliberately omitted, added in the same phase that creates the table it
+   reads. It carries **every `state = 'active'` row**, acknowledged or not, each
+   with `acknowledged_at` / `escalation_tier` / `acknowledged_tier`, so the page
+   can show an acknowledged-but-still-true condition and the banner can apply
+   the tier predicate. Phase 1's response test is updated here rather than being
    left asserting an absence that is no longer true.
 
 **Phase 3a — Fence-compatible (safe alongside an old worker).**
 12. Migration 0096: lease columns + index + config, with the ratio invariant
-    enforced at both write time and read time.
+    enforced at both write time and read time, **plus
+    `async_jobs.delivery_generation`** (int, not null, default 0 — existing rows
+    all start at generation 0, so the key for a row already in flight is
+    unchanged by the migration itself). Step 17 depends on this column; listing
+    only the lease columns here would let an implementer reach the idempotency
+    work without it.
 13. Claim writes `lease_token` + `lease_expires_at`; **every** finalize is
     fenced on `(id, token, status='processing')` and checks its affected row
     count.
@@ -1721,7 +1772,7 @@ mutation rollback leaves no job row.
 | Risk | Mitigation |
 |---|---|
 | **Fencing is the riskiest change in the plan** — it touches every finalize path. A mistake strands jobs in `processing`. | It lands in Phase 3, *after* the health page and alerting are live, so a stranded row is visible within a poll rather than discovered weeks later. The lost-lease branch logs loudly and never writes. |
-| **Attempt-on-reclaim could burn budgets during ordinary deploys.** | Graceful shutdown (step 16) lands in the same phase and releases in-flight rows without incrementing. Tested in both directions. |
+| **Attempt-on-reclaim could burn budgets during ordinary deploys.** | Graceful shutdown (step 15) lands in the same phase and releases in-flight rows without incrementing. Tested in both directions. |
 | **Resend's idempotency keys expire after 24 hours** (verified below), while the retry ladder spans ~10.6h — inside the window, but a raised `maxAttempts` or a much later manual retry falls outside it, and a duplicate becomes possible again. | Documented in code at the call site. An admin retry mints a genuinely different key by incrementing `delivery_generation` (B5) — not by relying on the row id, which the retry route does not change. A `maxAttempts` raise past the window is called out in `known-failure-patterns.md`. |
 | **Cooldown folding hides a distinct failure** (David's accepted trade-off, decision 4). | Narrowed two ways without reopening the decision: `dedupe_key` includes queue + error class so genuinely different failures never fold together, and the escalation multiplier forces an immediate dispatch when volume jumps by an order of magnitude. |
 | **Total process death cannot be self-detected.** | Stated plainly rather than designed around; `/health/queues` exists so an external monitor can close it. This is the one gap the plan does not claim to fix internally. |
