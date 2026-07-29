@@ -765,11 +765,27 @@ leases and reconciliation make it correct — not because an email arrived. The
 product requirement this plan exists to satisfy is unaffected by all of it.
 
 **Handed to the email-system rebuild**, with evidence, so nothing found here is
-lost: the four defects above, plus the two the boundary had already deferred —
-`asyncJobs` finalizers update by id with no claim predicate, so a stale worker
-can overwrite a reclaimed row's terminal state; and the queue has no
-skipped/deferred handler outcome, so a worker cannot decline a row it should not
-process.
+lost:
+
+1. the four defects above;
+2. `asyncJobs` finalizers update by id with **no claim predicate**
+   (`asyncJobs.ts:435-465`), so a worker whose row was reclaimed by
+   `recoverStuckProcessing` can overwrite the reclaimer's terminal state;
+3. the queue has **no skipped/deferred handler outcome** (`HandlerResult`,
+   `:49-52`), so a worker cannot decline a row it should not process;
+4. **abandonment is not atomic** — the exhausted-attempt transaction updates
+   `async_jobs` only, then calls `onAbandon` *after* commit as best-effort and
+   catches its failure, so any durable record of abandonment can be lost while
+   the job stays `failed`;
+5. **`POST /admin/email-queue/:id/retry` exists** (`admin.ts:3086-3105`) and
+   resets a `failed` email row to `pending` with `attempts: 0`. Any future
+   design that records delivery state *outside* `async_jobs` has to account for
+   this path, which can restart an attempt behind a record that believes it is
+   closed. Found in round 18 — a surface nobody in this review had enumerated
+   until then, including me.
+6. `deferEmailWhileDeliveryDisabled` records **no durable deferral evidence** —
+   it touches `updated_at` and nothing else, so "how long has this been
+   deferred, and how often" is not answerable from the schema today.
 
 This is the third and largest scope cut on this plan, and the same distinction
 governs all three: **shed what is adjacent, keep what is load-bearing for
