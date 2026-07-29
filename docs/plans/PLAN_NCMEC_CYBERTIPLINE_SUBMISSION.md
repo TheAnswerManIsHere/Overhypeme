@@ -814,6 +814,7 @@ Additive on `ncmec_reports`:
 | `manually_filed_at` | `timestamptz` | §5.3 — filed by a human through the manual form |
 | `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
 | `test_submission_started_at` | `timestamptz` | §5.8 — a `send-to-test` attempt is open. Set with `NULL` `test_report_id` means `exttest` may hold a submission whose id was lost |
+| `failed_at` | `timestamptz` | **When this row entered `failed`.** The bucketing timestamp §5.2.3's incident query reads — stamped in the same transaction as the status write, by **every** path that finalizes a row `failed`: in-`run()` terminal finalization (§5.2.3), retry exhaustion, and the reconciler's lost-finalization repair (§5.3, alongside `last_error_code = -1`). Uses the database clock (`now()`), never application time, so buckets cannot skew across hosts |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
 | `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
@@ -836,21 +837,24 @@ The two columns therefore carry different provenance and are never conflated:
 `report_id` is written only by `/submit`'s response; `manual_report_id` is written only by
 `mark-manually-filed`; and §5.2.1 reads only `report_id`.
 
-**New table `ncmec_alert_incidents`** — the durable identity behind §5.2.3's aggregation.
-One row per `(environment, 15-minute window)`, created and incremented by an `ON CONFLICT`
-upsert inside the failing worker's own transaction.
+**New table `ncmec_alert_incidents` — a send-ledger, not an aggregate.** One row per
+`(environment, one-hour window)`. **Two columns, and deliberately no more:**
 
 | Column | Type | Purpose |
 |---|---|---|
 | `incident_key` | `text primary key` | `'<environment>:<window start ISO>'` — derived from the clock, so concurrent workers compute the same key without coordinating |
-| `first_failure_at` | `timestamptz not null` | |
-| `last_failure_at` | `timestamptz not null` | Advanced on every upsert |
-| `failure_count` | `integer not null default 1` | Incremented by the upsert, never read-modify-written |
-| `dominant_code` | `integer` | The most common `last_error_code` in the window |
-| `notified_at` | `timestamptz` | When the aggregated email actually sent |
+| `notified_at` | `timestamptz` | When this window's aggregated email actually sent. NULL = not yet |
 
-The primary key **is** the concurrency control: two hundred simultaneous failures produce
-one row and one email job, with no lock taken and no coordination between workers.
+**This table previously carried `first_failure_at`, `last_failure_at`, `failure_count` and
+`dominant_code` on a 15-minute window, and that version is dead.** It was the derived-state
+design round 11 removed — every count, span and dominant code is now computed from
+`ncmec_reports` at send time (§5.2.3). This section was not updated when §5.2.3 was
+rewritten, so the plan carried both designs at once and an implementer could reasonably
+have built either. Anything specifying a stored counter, a stored dominant code, or a
+15-minute window is superseded; §5.2.3 is the single contract.
+
+The primary key **is** the concurrency control: N simultaneous failures produce one row and
+one email job, with no lock taken and no coordination between workers.
 
 **New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
 on `/admin/safety` alters state with legal consequence, and until this round the design
@@ -1502,9 +1506,12 @@ did. The audit log is consequently the **only** control on this surface, which i
 **Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
 report is correct at one failure and actively harmful at two hundred — the volume trains an
 operator to filter the channel, which is a worse outcome than a quieter alert. So failures
-occurring within a rolling window collapse into **one incident alert** ("47 reports failed
-against `report.cybertip.org`, first at 03:12, last at 09:48, dominant code 1000") linking
-to the filtered ledger. Per-report `last_error` / `last_error_code` remain on each row —
+occurring within **one hourly window** collapse into **one incident alert** ("47 reports
+failed against `report.cybertip.org` between 03:12 and 03:58, dominant code 1000") linking
+to the filtered ledger. The window is **tumbling, not rolling** — a six-hour outage sends
+six emails, one per hour, not one spanning the whole outage. An earlier revision of this
+sentence said "rolling" and illustrated it with a single 03:12–09:48 alert, which the
+derived-key design cannot produce; §5.2.3 carries the reasoning. Per-report `last_error` / `last_error_code` remain on each row —
 the aggregation is in the *notification*, never in the record.
 
 **Kept, on David's explicit decision (2026-07-29), after being put to him twice.** When
@@ -1914,9 +1921,13 @@ this repo has hit twice (`known-failure-patterns.md`).
    So the disposition is persisted per row. Auditing stamps **`backlog_audited_at`** (and
    `backlog_audit_note` where the operator's reasoning matters), whichever way the row is
    dispositioned; `mark-manually-filed` stamps it implicitly. A durable cutoff config key
-   **`ncmec_backlog_audit_cutoff`** holds the timestamp at which the audit was declared
-   complete, so rows created afterwards — written by the new code, with snapshots — need
-   no audit and the audit scope cannot silently grow.
+   **`ncmec_backlog_audit_cutoff`** holds the timestamp at which the audit **began** —
+   captured by `/backlog-audit/start` before any review, immutable thereafter — so rows
+   created afterwards need no audit and the scope cannot silently grow. Completion is a
+   **separate** key, `ncmec_backlog_audit_completed_at`. An earlier revision of this
+   sentence described the cutoff as recording completion, which is the single-key design
+   round 9 replaced: it would leave the boundary unavailable to §5.7's identity-omission
+   predicate *during* the audit, which is exactly when that predicate is used.
 
    **The prerequisite is enforced, not remembered.** The unaudited count is
 
