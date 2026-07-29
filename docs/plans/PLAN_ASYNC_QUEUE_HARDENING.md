@@ -268,10 +268,10 @@ Code:
   named in the deferred-work item.
 - `aiMemeBackfillJobs.ts:157-180` — the crash-recovery replay guard that makes
   finding 6's original paid-call example wrong.
-- All 16 `sendEmail` call sites across 9 files (step 23's inventory), including
+- All 16 `sendEmail` call sites across 9 files (step 22's inventory), including
   `routes/users.ts:342-360`'s three-write non-atomic sequence.
 - `node_modules/.../drizzle-orm/pg-core/query-builders/insert.js:100-110` — the
-  `onConflictDoNothing` emission that resolves step 21's spike.
+  `onConflictDoNothing` emission that resolves step 20's spike.
 - `artifacts/overhype-me/src/components/admin/AdminLayout.tsx:45` — admin nav
   item shape; `src/App.tsx:35,391` — lazy route registration pattern.
 - `artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts` — the
@@ -692,19 +692,22 @@ notifications, neither complete.
 `pg_try_advisory_xact_lock(hashtext('alert_dispatch:' || channel))`, acquired
 **before selection** and held across the whole build-and-send for that channel:
 
-- `try_` rather than blocking: a second instance that cannot take the lock skips
-  that alert this tick and moves on — the next tick retries, and dispatch has no
-  latency requirement that would justify queueing behind a peer.
+- `try_` rather than blocking: an instance that cannot take the lock skips
+  **that channel** for this tick — not one alert, since selection happens only
+  *after* the lock is acquired — and moves on to its other channels. The next
+  tick retries, and dispatch has no latency requirement that would justify
+  queueing behind a peer.
 - `_xact_` so the lock is released on commit **or** on crash, with no unlock
   path to forget. A process killed mid-dispatch cannot wedge the alert forever.
 - Keyed per **channel**, so a slow webhook POST does not block the email
   channel — while guaranteeing exactly one digest per channel per tick
   fleet-wide, which is what the acceptance criterion actually asserts.
 - `hashtext()` collisions are bounded and safe here: two colliding channel keys
-  would make one instance *skip* a dispatch it would have retried on the next
+  would make one instance *skip* a channel it would have retried on the next
   tick — a delay, never a missed alert, since the watermark advances only on
-  actual delivery. With three channel values a collision is theoretical; the
-  property is stated because it must survive future channels being added.
+  actual delivery. With **two** channel values (`webhook`, `email` — `in_app`
+  is not a dispatch channel, see A1) a collision is theoretical; the property is
+  stated because it must survive future channels being added.
 
 The residual window is honest and small: an instance that takes the lock, POSTs
 successfully, and dies before commit will re-send that digest on a later tick.
@@ -1040,8 +1043,16 @@ time.
 **C2. `GET /admin/queue-health`** — per queue: pending / processing / failed /
 done-24h, oldest-pending age, abandoned-24h, **plus the derived tallies C2a
 defines** (`skipped`, `abandoned_no_retry`), so the two altitudes agree; per
-lane: last-tick age and configured interval. Read-only aggregation over
-`async_jobs` + `worker_lane_heartbeats`; it stores nothing.
+lane: last-tick age and configured interval. **In Phase 2 it also reads the
+alert ledger** — `job_alerts` for `activeAlerts` (kind, severity, queue,
+`first_seen_at` / `last_seen_at`, `occurrence_count`, `acknowledged_at`,
+`escalation_tier`, `acknowledged_tier`) and `job_alert_dispatches` for
+per-channel delivery diagnostics (`last_dispatched_at`, `failure_count`,
+`last_error`), so an operator can see *"the alert fired but the webhook has
+failed 6 times"* rather than only that an alert exists. Read-only aggregation
+over `async_jobs` + `worker_lane_heartbeats` in Phase 1, and those two plus
+`job_alerts` + `job_alert_dispatches` from Phase 2 — each answering only for
+its own concept, per the source-of-truth section. It stores nothing.
 
 **Its shape is staged across two phases, because the alert ledger does not exist
 in Phase 1.** `job_alerts` arrives with migration 0095 in Phase 2, while this
@@ -1141,10 +1152,13 @@ cannot leave that arithmetic untouched:
 
 ## Data Model and Migration Impact
 
-Four hand-authored, idempotent migrations, one per phase, following the
-broken-generator convention (`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT
-EXISTS`, `CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a
-`_journal.json` entry each. Next free index is **0094**.
+**Three** hand-authored, idempotent migrations — 0094, 0095, 0096, one per
+schema-changing phase — following the broken-generator convention
+(`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`,
+`CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a `_journal.json`
+entry each. Phase 4 needs **no migration at all**; 0097 is listed below only so
+that "no schema change" is a stated conclusion rather than an omission — no
+empty migration file is created for it. Next free index is **0094**.
 
 - **0094** (Phase 1) — `worker_lane_heartbeats`, primary key
   `(instance_id, lane)`, with `worker_version`; index on `last_scheduled_at` for
@@ -1174,15 +1188,31 @@ EXISTS`, `CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a
 **Row-state matrix for 0096** (the only migration touching existing rows):
 
 Every row also receives `delivery_generation = 0`, which is why the column is
-listed in each cell below rather than only in the lease ones: a row mid-ladder
-keeps the exact idempotency key it already used, so the migration cannot itself
-cause a resend or a suppressed send.
+listed in each cell below rather than only in the lease ones.
+
+**What that default does and does not buy, stated precisely.** Generation 0 is
+the **first** key a row has ever carried — *no* provider idempotency key exists
+before Phase 3a, since B5 and step 17 introduce it alongside this very
+migration. So the default makes every *post*-migration attempt on a row
+mutually deduplicable, and it cannot retroactively cover attempts made before
+it. Concretely: a `pending` email row already mid-ladder whose earlier
+provider request **succeeded but lost its response** has no key recorded
+against that send, so its next attempt is a first-time key and Resend will
+deliver it again.
+
+That is a real, bounded, one-time exposure at the 3a deploy — at most one
+duplicate per email row that is mid-ladder *and* hit a lost-response timeout —
+and it is stated here and in *Risks* rather than papered over. It is not
+created by the migration; it is the pre-existing gap (finding 8) persisting for
+exactly one more attempt on rows that were already in flight when the fix
+landed. Nothing about the migration widens it, and every row enqueued after
+0096 is covered from its first send.
 
 | Existing row state | After migration | Correct? |
 |---|---|---|
 | `pending`, never run | `lease_token` NULL, `lease_expires_at` NULL, `delivery_generation` 0 | Yes — claimed normally, gets a token then; first send uses generation 0. |
-| `pending`, previously failed | NULL lease columns, `attempts` preserved, `delivery_generation` 0 | Yes — retry ladder unaffected, and the key is unchanged from what earlier attempts used. |
-| `processing`, genuinely in flight during deploy | NULL lease, `delivery_generation` 0 | **See the rollout protocol below — the migration alone does not make this safe.** The generation default is safe here specifically *because* it does not change the in-flight row's key. |
+| `pending`, previously failed | NULL lease columns, `attempts` preserved, `delivery_generation` 0 | Retry ladder unaffected. **Its next attempt carries the row's first-ever key**, so it dedupes later retries but cannot cover a pre-migration lost-response send — see the note above. |
+| `processing`, genuinely in flight during deploy | NULL lease, `delivery_generation` 0 | **See the rollout protocol below — the migration alone does not make this safe.** The generation column is inert for this row: its in-flight attempt was made without any key, so nothing about the default alters what that attempt does. |
 | `processing`, actually stranded pre-migration | NULL lease, `delivery_generation` 0 | **Not reclaimed during 3a** — the rollout protocol below disables *all* reclaim for the overlap, so a genuinely stranded row waits, visibly, until 3b is enabled. |
 | `done` / `failed` (terminal) | NULL lease, `delivery_generation` 0, otherwise untouched | Yes — never re-claimed. A later **admin** retry increments the generation, which is the intended way its key changes. |
 | Row inserted *during* the migration | NULL lease, `delivery_generation` 0 | Yes — same as legacy pending. |
@@ -1410,7 +1440,7 @@ matters:
 - **Scale-down does not raise a false `worker_lane_stalled`:** an instance stops
   heartbeating, its row is pruned at TTL, the lane stays healthy because a live
   instance still schedules it.
-- **The 3b barrier holds against an idle old instance** — a pre-lease
+- **The 3b interlock refuses against an idle old instance** — a pre-lease
   `worker_version` heartbeating with zero jobs still blocks enabling reclaim,
   which is the case the round-1 row-predicate gate passed by mistake.
 
@@ -1629,7 +1659,7 @@ four condition producers, step 7a.)*
 
 **Phase 3b — Enable lease-driven reclaim (only once no pre-lease worker
 remains).**
-19. **Operator-enabled reclaim, with a block-only interlock.** Lease reclaim is
+18. **Operator-enabled reclaim, with a block-only interlock.** Lease reclaim is
     switched on by an **explicit operator action** — a deploy flag or admin
     toggle — taken after confirming in the Replit deployment console that the
     previous revision has zero running instances. The `worker_version` check
@@ -1640,24 +1670,24 @@ remains).**
     instance stops heartbeating while remaining able to finalize. Depends on
     Phase 1's per-instance heartbeats for the interlock — a cross-phase
     dependency, stated so 3b cannot ship without it.
-20. Lease-expiry reclaim as a **fenced atomic transition** (`SKIP LOCKED` +
+19. Lease-expiry reclaim as a **fenced atomic transition** (`SKIP LOCKED` +
     conditional update on the observed `(status, lease_token, lease_expires_at)`),
     with attempt increment, token rotation, and poison-pill termination; legacy
     `updatedAt` fallback retained for one retention window.
 
 **Phase 4 — Transactional enqueue.**
-21. Rewrite `enqueueJob`'s dedupe onto
+20. Rewrite `enqueueJob`'s dedupe onto
     `onConflictDoNothing({ target: [queue, dedupeKey], where: <partial-index
     predicate> })`, retiring `isDedupeConflict`. **The spike is resolved — see
     below; no `SAVEPOINT` fallback is needed.** Add a generated-SQL assertion
     plus an integration test proving concurrent dedupe returns the existing
     non-terminal row.
-22. Accept a caller transaction through the whole enqueue path, including the
+21. Accept a caller transaction through the whole enqueue path, including the
     conflict-recovery read that hardcodes `defaultDb` today.
-23. **Enumerate every enqueue caller and decide atomicity per site** — see the
+22. **Enumerate every enqueue caller and decide atomicity per site** — see the
     call-site inventory below. Close the `deferred-work.md` item.
 
-### Step 21's unknown is resolved (Codex round 1)
+### Step 20's unknown is resolved (Codex round 1)
 
 My first draft flagged as a genuine unknown whether drizzle can target a
 *partial* unique index, and proposed a `SAVEPOINT` fallback. Codex resolved it,
@@ -1682,7 +1712,7 @@ the relevant behavior unchanged between them. The API conclusion holds; the
 build should re-confirm against 0.45.2 as a one-line check rather than assume
 it, since the reading was taken from 0.45.1.
 
-### Step 23's call-site inventory (Codex rounds 1 and 2)
+### Step 22's call-site inventory (Codex rounds 1 and 2)
 
 Codex is right that making the helper transaction-capable does not by itself
 close finding 9, and that my step-21 scope — "`sendEmail` and the two
@@ -1774,6 +1804,7 @@ mutation rollback leaves no job row.
 | **Fencing is the riskiest change in the plan** — it touches every finalize path. A mistake strands jobs in `processing`. | It lands in Phase 3, *after* the health page and alerting are live, so a stranded row is visible within a poll rather than discovered weeks later. The lost-lease branch logs loudly and never writes. |
 | **Attempt-on-reclaim could burn budgets during ordinary deploys.** | Graceful shutdown (step 15) lands in the same phase and releases in-flight rows without incrementing. Tested in both directions. |
 | **Resend's idempotency keys expire after 24 hours** (verified below), while the retry ladder spans ~10.6h — inside the window, but a raised `maxAttempts` or a much later manual retry falls outside it, and a duplicate becomes possible again. | Documented in code at the call site. An admin retry mints a genuinely different key by incrementing `delivery_generation` (B5) — not by relying on the row id, which the retry route does not change. A `maxAttempts` raise past the window is called out in `known-failure-patterns.md`. |
+| **Email rows already mid-ladder when 0096 lands cannot be deduplicated for their next attempt.** No provider idempotency key exists before Phase 3a, so a `pending` row whose earlier send succeeded but lost its response has nothing recorded against that send; its first post-migration attempt is a first-time key and Resend delivers again. | Accepted and bounded, not fixed: at most one duplicate per email row that is *both* mid-ladder and hit a lost-response timeout at the moment of the 3a deploy. It is finding 8's pre-existing gap persisting one more attempt for in-flight rows, not something the migration introduces — every row enqueued after 0096 is covered from its first send. Deploying 3a at a low-email-volume moment shrinks the window further; the row-state matrix states the property explicitly so nobody reads generation 0 as retroactive protection. |
 | **Cooldown folding hides a distinct failure** (David's accepted trade-off, decision 4). | Narrowed two ways without reopening the decision: `dedupe_key` includes queue + error class so genuinely different failures never fold together, and the escalation multiplier forces an immediate dispatch when volume jumps by an order of magnitude. |
 | **Total process death cannot be self-detected.** | Stated plainly rather than designed around; `/health/queues` exists so an external monitor can close it. This is the one gap the plan does not claim to fix internally. |
 | **Alert fatigue turning the banner into wallpaper.** | Only `critical` raises the banner, and severity is a **static property of the alert kind** in `ALERT_KINDS` — there is no per-queue severity override, and an earlier draft's claim that one existed pointed at a mechanism no step builds. The real noise controls are the ones the plan does specify: error-class-scoped `dedupe_key`s so unrelated failures never share a digest, `alert_cooldown_minutes`, and explicit recorded acknowledgement. If a specific queue proves chatty in practice, the fix is its dedupe key or its threshold, both already admin-config. |
@@ -1784,7 +1815,7 @@ mutation rollback leaves no job row.
 | **A stale owner's heartbeat could extend the new owner's lease**, postponing recovery indefinitely. | Renewal is fenced on `(id, token, status)` pairs exactly like finalize; a zero-row renewal is the signal to drop the job from the lane's in-flight set. Tested directly. |
 | **The alert dispatcher could be starved by a hung handler.** | It runs on an independent timer with its own re-entrancy guard, never behind an awaited `asyncJobsTick`. `recoverStuckProcessing` moves off the same blocked position in 3a. Regression-tested by blocking a bulk handler and asserting dispatch still fires. |
 | **Alerting continues after the first digest but is never re-dispatched.** | Per-channel `job_alert_dispatches` rows make pending-ness a quantity rather than a boolean; the dispatcher selects on `occurrence_count > dispatched_count`, independently per channel. |
-| **The deployment is autoscaled, so every mechanism here runs N times concurrently** — the assumption that broke most of round 2. | A stated governing rule (correctness proven by the database, never by a process-local guard) plus five specific fixes: advisory-locked dispatch, `(instance_id, lane)` heartbeats, fenced atomic reclaim, version-based 3b barrier, per-channel watermarks. Every one is tested with two runners. |
+| **The deployment is autoscaled, so every mechanism here runs N times concurrently** — the assumption that broke most of round 2. | A stated governing rule (correctness proven by the database, never by a process-local guard) plus five specific fixes: advisory-locked dispatch, `(instance_id, lane)` heartbeats, fenced atomic reclaim, the block-only 3b version interlock (enablement is an operator action, never inferred), per-channel watermarks. Every one is tested with two runners. |
 | **Autoscale makes finding 6 a live defect, not a latent one** — boot recovery reclaims another instance's in-flight row on every scale-up. | Raised with David separately as a possible hoisted fix ahead of the phased plan; within the plan it is closed by 3a's fencing, which is why 3a is deliberately deployable alongside old workers. |
 | **Condition alerts could re-fire immediately after acknowledgement**, making the banner permanent and the button useless. | Edge-triggered lifecycle with explicit `resolved` state; acknowledgement suppresses notification without resolving, and re-alerts only after recovery or the escalation boundary. |
 | **The ledger grows without bound and quietly retains recipient addresses.** | Resolved-alert purge at 90 days (indexed on `(state, resolved_at)`), `sample_payload` redaction at 7 days, and the redundant legacy `retainDuringPurge` exemption removed rather than left running beside it. |
