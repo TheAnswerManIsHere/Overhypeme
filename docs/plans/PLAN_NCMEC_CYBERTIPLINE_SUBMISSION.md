@@ -47,11 +47,18 @@ defect regardless of what else the change achieves.
    to be filed. Real submission turns on only by an explicit admin-config change.
 7. **Exactly one report per reportable hit.** Duplicate filings to a federal
    clearinghouse are a serious defect, not a cosmetic one. See §5.2.1 and §5.2.2.
-8. **No reportable hit is ever silently unreported.** Every `ncmec_reports` row reaches
-   a final state — `submitted`, `filed_manually`, or `failed` **with a durable
-   notification** — no matter where a crash lands. A row stuck at `pending` with nobody
-   told is the worst outcome this subsystem can produce: it looks exactly like success
-   from every surface. See §5.3.
+8. **No reportable hit is ever silently unreported.** Every `ncmec_reports` row either
+   reaches a final state — `submitted`, `filed_manually`, or `failed` **with a durable
+   notification** — or sits in the **one acknowledged waiting state**: `pending` because
+   submission is disabled, which is *itself* durably surfaced (§5.5). A row stuck outside
+   both, with nobody told, is the worst outcome this subsystem can produce: it looks
+   exactly like success from every surface. See §5.3.
+
+   The carve-out is stated because the earlier phrasing — "every row reaches a final
+   state" — was **contradicted by the design's own disabled path**, which deliberately
+   parks rows at `pending` indefinitely. An invariant a design knowingly violates is
+   worse than no invariant: it makes review look satisfied. The waiting state is
+   legitimate; being unsurfaced was not.
 
 ## 3. What exists today
 
@@ -132,6 +139,19 @@ export type NcmecCall<T> =
 Operations: `checkStatus()`, `submitReport(xml)`, `uploadFile(reportId, bytes, mime)`,
 `submitFileInfo(fileDetailsXml)`, `finishReport(reportId)`, `retractReport(reportId)`.
 
+**How the worker reads evidence bytes — and what it must never use.** `uploadFile` needs
+the bytes, and the plan previously left the read path unspecified. That is not a harmless
+omission: `ObjectStorageService.getObjectEntityDownloadURL()` (`objectStorage.ts:245-251`)
+signs **any** private subpath and has no `restricted/` guard — it is the natural helper to
+reach for, and reaching for it would mint a time-limited, credential-free **bearer URL to
+suspected CSAM**. Invariant 4 would be broken without anyone adding a route, which is
+exactly the kind of violation route-level review would miss.
+
+So the plan is explicit: the worker reads evidence via `getObjectEntityFile(evidenceUri)`
+and an **in-process** byte read, streaming into the multipart body. **Signed URLs and proxy
+routes are forbidden for evidence, categorically.** §6 asserts `getObjectEntityDownloadURL`
+is never called on a `restricted/` path during submission.
+
 **Response-code classification** — this is the client's most important job, because it
 decides whether the worker retries:
 
@@ -149,12 +169,29 @@ decides whether the worker retries:
 `4100` being terminal matters: a validation bug would otherwise burn the retry budget
 on every report and bury the real signal.
 
-**XML.** The workspace has no XML library (checked `artifacts/api-server/package.json`).
-I propose adding **`fast-xml-parser`** — zero runtime dependencies, actively
-maintained, handles both build and parse. Hand-rolling is tempting since we control
-the outbound shape, but a subtle escaping bug in a legally-significant federal
-submission is exactly the failure worth spending a dependency to avoid. Flagging it
-explicitly because a new dependency in this repo deserves a deliberate nod.
+**XML.** No workspace package depends on an XML library directly, so one is promoted to a
+direct dependency: **`fast-xml-parser`, pinned at `5.5.9`** — already present transitively
+(`pnpm-lock.yaml:3855`), so this adds no new code to the tree, only an explicit contract
+with a version we control. An earlier revision described it as having *zero runtime
+dependencies*; that was asserted without checking and is **wrong** — 5.5.9 carries runtime
+dependencies of its own.
+
+Hand-rolling is still worse: a subtle escaping bug in a legally-significant federal
+submission is exactly what a maintained library prevents.
+
+**Parser hardening is part of the dependency decision, not an afterthought.** We parse
+responses from a remote host, and a malformed or hostile document must not become an
+availability or memory problem:
+
+- **DTDs rejected and custom entity processing disabled** — `processEntities: false`, no
+  DOCTYPE accepted. Entity expansion is the classic XML attack and the parser enables
+  custom entities by default.
+- **Response body capped** before parsing, with a nesting-depth limit.
+- Advisories and the changelog for the pinned version reviewed at adoption, and the pin
+  recorded so an upgrade is a deliberate decision rather than a transitive drift.
+
+§6 adds hostile-DTD and oversized-response tests, so the hardening is asserted rather than
+configured-and-hoped.
 
 ### 5.2 The submission worker — and the duplicate-report problem
 
@@ -466,6 +503,21 @@ NCMEC_ISPWS_PASSWORD
 | `ncmec_ispws_environment` | `test` | `test` → `exttest.cybertip.org`; `production` → `report.cybertip.org`. |
 | `ncmec_report_classifier_hits` | `false` | §5.5. |
 
+**A hit quarantined while submission is disabled must still be durably visible.** The
+existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
+by design, so an email failure or a crash right after the insert leaves the row `pending`
+with nobody told, indefinitely. Since the disabled path deliberately creates no job, the
+reconciler will not touch it either, so nothing else surfaces it.
+
+Two changes make the waiting state honest:
+
+- **The disabled-path notification is enqueued as an `email` job in the same transaction
+  as the row insert** (§5.2.4's transaction), with `dedupeKey: ncmec:notify:<reportId>`.
+  Durable, retried by the queue, and impossible to orphan.
+- **`/admin/safety` surfaces an explicit "awaiting activation" count** rather than letting
+  those rows read as an ordinary backlog. A number an operator can see is what turns a
+  parked row into a decision.
+
 Three deliberate safety properties:
 
 - Merging this plan changes **nothing** in production until two separate config keys
@@ -539,9 +591,21 @@ gate that does not exist.
 - `<internetDetails>` — the Overhype.me URL/service context: the *platform where the
   content appeared* is Overhype.me, while the *registered reporting entity* is
   Availeron. Both appear; they are different fields and conflating them would misfile.
-- `<personOrUserReported>` — uploader identity when known: `user_id` resolved to email,
-  plus captured network context. Anonymous uploads omit the element rather than sending
-  empty values.
+- `<personOrUserReported>` — uploader identity **from an immutable snapshot taken at
+  quarantine time**, never resolved live at submission time.
+
+  Resolving `user_id` → email when the job runs reports whoever that account is *then*,
+  which can differ from who it was at the incident — and the gap is not hypothetical:
+  `ncmec_reports.user_id` is `ON DELETE SET NULL`, so an account deleted before the job
+  runs produces an **anonymous filing for a report that had an identified uploader**, and
+  an email change produces a filing stating something that was not true at the incident.
+  The window is wide by construction, since rows sit `pending` for the entire time
+  submission is disabled and across every retry.
+
+  So `request_metadata` carries a `reporterSnapshot` — email and display identity as of
+  quarantine — written in the same transaction as the row, and the XML is built from that.
+  `user_id` remains for linkage; it is not the source of reported identity. Anonymous
+  uploads omit the element rather than sending empty values.
 
   **The captured context is not currently stored on most paths, and the plan must add it
   rather than assume it.** Only the Arachnid branch of `userImageUpload.ts` passes
@@ -649,11 +713,23 @@ looks like "the feature is missing" rather than "a wiring step was skipped," so 
 listed here as part of the change set rather than left to be discovered.
 
 **Hard invariant: the admin UI never renders the evidence image.** No thumbnail, no
-preview, no signed URL, no proxy route. Admins see metadata, hashes, classifications,
-and file ids. There is no operational need to look at the bytes — the classification
-and the hash are what the ledger is for — and building a viewer for suspected CSAM
-creates legal exposure and a new exfiltration surface for no benefit. The detail view
-shows the storage path as text only.
+preview, no signed URL, no proxy route. Admins see status, classifications, hashes, and
+file ids. There is no operational need to look at the bytes — the classification and the
+hash are what the ledger is for — and building a viewer for suspected CSAM creates legal
+exposure and a new exfiltration surface for no benefit.
+
+**And the storage path is not shown either.** An earlier revision displayed `evidence_uri`
+as text, reasoning that text is not an image. That was wrong on two counts: the path
+`restricted/quarantine/…/<uuid>.<ext>` is a **precise locator for a restricted object**, so
+publishing it to a browser DOM and an API response widens the set of places an attacker or
+a misconfigured log has to reach to find one; and it puts a raw internal UUID on an admin
+surface, which this repo's conventions do not exempt admins from.
+
+`evidenceUri` and any storage path are therefore omitted from **both** the API response and
+the DOM, replaced by a human-readable preservation status ("evidence preserved · expires
+2028-03-01"). §6 asserts that neither the endpoint payload nor the rendered page contains
+`restricted/` or the object UUID — an assertion on the response body, not just on what the
+component chooses to render.
 
 ## 6. Testing
 
@@ -662,15 +738,45 @@ Following `docs/engineering/testing.md`. New: `moderation.ncmecClient.test.ts`,
 
 Client (fake `fetch`, no network):
 - **Schema-validate generated `<report>` and `<fileDetails>` against a version-pinned copy
-  of NCMEC's XSD** (fetched once from `GET /xsd` and committed as a fixture). Round-tripping
+  of NCMEC's XSD**, committed as a fixture (fetched once from `GET /xsd`). Round-tripping
   through `fast-xml-parser` proves well-formedness and escaping only — wrong element
   ordering, wrong nesting, an invalid enum, or a missing required element all round-trip
-  cleanly and then come back from NCMEC as `4100`. Since `4100` is classified terminal
-  (§5.1), a schema error would burn the report rather than retry it, which makes catching
-  it at build time rather than at filing time the difference between a caught bug and an
-  unfiled report.
+  cleanly and then come back as `4100`. Since `4100` is terminal (§5.1), a schema error
+  burns the report rather than retrying it.
+
+  **The validator is `xmllint` (libxml2), invoked from the test**, because
+  `fast-xml-parser` cannot do this and nothing else in the workspace can either. It is
+  present in this dev container at `/usr/bin/xmllint` but **CI does not install it** —
+  `.github/workflows/build.yml:120-121` installs only `postgresql-client-16`, so
+  `libxml2-utils` is added to that same `apt-get install` line. Naming an outcome without
+  naming a mechanism is what left the previous revision unimplementable; the mechanism is
+  a system package, an apt line, and a test that shells out to it.
+
+  A **negative fixture** is required alongside the positive one: a document that is
+  well-formed but schema-invalid, which the test asserts the validator **rejects**.
+  Without it, a silently-skipped or misconfigured validator looks identical to a passing one.
 - XML escaping of hostile characters in filenames and metadata, asserted separately from
   schema conformance.
+- **Parser hardening** (§5.1): a response containing a hostile DTD / entity-expansion
+  payload is rejected rather than expanded, and an oversized response is refused before
+  parsing.
+
+Evidence handling:
+- **`getObjectEntityDownloadURL` is never called with a `restricted/` path** during
+  submission — asserted on a spy. The helper signs any private subpath without a guard
+  (`objectStorage.ts:245-251`), so this is the test that keeps invariant 4 true for the
+  worker as well as for routes.
+- The admin detail response and rendered page contain **neither `restricted/` nor the
+  object UUID** — asserted against the API payload, not only the DOM.
+
+Identity and disabled-state visibility:
+- **Uploader email changes between quarantine and submission** → the report carries the
+  email as of quarantine.
+- **Uploader account deleted before the job runs** (`user_id` → NULL) → the report still
+  identifies the uploader from the snapshot rather than filing anonymously.
+- **Submission disabled**: the durable notification job is committed with the row, and an
+  injected failure between the two leaves neither — so a retry produces both. The row is
+  counted under "awaiting activation" in the admin surface.
 - Each response code maps to the right retryable/terminal classification.
 - Multipart shape of `/upload` matches the documented `id` + `file` fields.
 
