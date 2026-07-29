@@ -220,15 +220,32 @@ semantics — the same facts as `architecture-map.md:90-127`. Two homes, already
 Worse, the two copies have **already diverged**: the per-lane poll intervals
 (2s / 5s) exist **only** in the chapter, not in the spec.
 
-So the plan now **de-forks** rather than preserving it, and the direction is
-migrate-then-reduce so nothing is lost:
+So the plan now **de-forks** rather than preserving it. The ordering is
+migrate-then-reduce, and — corrected in round 2 — the migration list is
+**derived, never enumerated from memory**:
 
-1. Relocate chapter-only facts (poll intervals, the never-auto-retried
-   `ai_meme_backfill` rationale) **into** `architecture-map.md`.
-2. Reduce the chapter's "The machinery" section to product-level narrative —
-   *why* independent lanes exist, what kind of work each is for, why one durable
-   table beats an in-memory queue — with a link for the enumerated mechanics.
-3. Verify the reduced chapter still reads as narrative, not as a stub.
+1. **Pre-edit fact inventory (a hard gate, before either file is touched).**
+   Enumerate **every** claim in the chapter's machinery section and map each one
+   to exactly one disposition: **relocate** (spec-only fact the chapter
+   currently owns), **retain as narrative** (product-level "why," stays in the
+   chapter), or **replace with link** (mechanics the spec already owns). The
+   completed mapping is PR 1's verification evidence and goes in its body.
+2. Apply the relocations to `architecture-map.md` **first**.
+3. Only then reduce the chapter's machinery section per the mapping.
+4. Confirm the reduced chapter still satisfies all five template sections — a
+   de-fork must not turn a written chapter into a stub, which would violate the
+   manual's own quality bar.
+
+**Why the inventory must come first, in the plan's own words rather than as a
+process nicety:** round 2 disproved my round-1 list. I had named two
+chapter-only facts (poll intervals, the never-auto-retried `ai_meme_backfill`
+rationale); Codex found a third I had missed — the chapter's crash-reclaim
+guarantee at `background-work.md:87-88` ("a crash mid-run leaves a row safely
+reclaimable rather than stuck forever"), which I then verified appears **nowhere**
+in `docs/ai-context/` (`grep -rn -iE "reclaim" docs/ai-context/` returns
+nothing). A *post*-edit claim inventory structurally cannot catch this, because
+deleted prose leaves nothing to inventory. So the inventory is a precondition,
+and any enumerated list in this plan is an example, not the source of truth.
 
 This lands as its own PR **before** any new chapter, so the no-two-homes
 Definition of Done is true when the rest of the pass is measured against it.
@@ -417,6 +434,9 @@ every chapter and spec:
       chapter does **not** count as complete.
    3. **Never** silently drop the claim and count the chapter done.
 
+   *(The payments case below resolves to disposition 1. Note also the close-out
+   gate in *Implementation Steps*: a rung-2 chapter blocks PR 12 outright.)*
+
    The payments chapter is the concrete case, and it resolves to disposition 1:
    `stripe-payments-audit-findings.md:82-129` documents that a transient webhook
    failure can leave a customer **paid but never granted membership** (the
@@ -425,6 +445,32 @@ every chapter and spec:
    payments chapter cannot omit that. Disclosure is not a concern here because
    that finding is **already committed publicly on `main`** — writing it as a
    known limitation adds no new disclosure.
+
+8. **Chapters are re-grounded against intervening merges, not verified once**
+   (added in round 2). A 13-PR pass runs while `main` keeps moving: a chapter
+   verified at PR 2 can be falsified by an unrelated feature merging before
+   PR 12, and CI cannot catch it — `scripts/check-docs-accuracy.mjs` validates
+   link targets and the existence of path-shaped backticks, **not behavioral
+   claims**, so green CI is silent on a chapter that has become wrong. So:
+
+   1. **Every chapter records its grounding baseline durably, in the chapter
+      itself** — a single closing line, `Verified against <sha> (<date>)`. It is
+      overwritten, never appended to, so it is a current-state fact rather than
+      a changelog (which the manual's charter forbids). It doubles as something
+      genuinely useful to a reader: how current this chapter is. The PR body
+      records the same sha plus the sources consulted.
+   2. **Before PR 12, sweep every chapter**: diff its baseline against current
+      `main`, restricted to that chapter's cited sources and paths, and
+      **re-ground any claim whose enforcement path or callers changed** —
+      updating the chapter and its baseline line.
+   3. **Repeat the sweep if PR 12's base advances** before it merges. Close-out
+      evidence must cover every intervening merge, not just the tree each
+      chapter PR saw.
+
+   In-repo baselines are deliberate: PR bodies are not in the repository, so a
+   baseline recorded only there would be undiscoverable at close-out. Using each
+   file's last-touching commit instead was rejected — a later typo fix would
+   silently advance the baseline and make the sweep skip real drift.
 
 ### The gate change
 
@@ -499,11 +545,29 @@ verification:
 independent" claim was false (round 1, F6). The real graph:
 
 - **PR 0 blocks everything** (it establishes the TOC shape and the gate).
+- **PR 1 (the async-lane de-fork) blocks PRs 2–11.** Added in round 2: the
+  de-fork section and PR 1's own entry both said it must land before any new
+  chapter, but this graph omitted the edge and said everything else was
+  parallel — so an executor following the graph could land PR 2 first and
+  measure it against still-duplicated lane truth. Every ordering constraint
+  stated in the steps is now represented here.
 - **PR 7 (payments) depends on PR 6 (accounts)** — tier semantics build on
   account truth. My own plan said so while also claiming independence.
-- **PR 12 (close-out) depends on PRs 0–11**, because retiring the roadmap entry
-  announces the backfill is finished.
+- **PR 12 (close-out) depends on PRs 0–11 having landed *and* on zero chapters
+  sitting at *partial — pending fix*** (see the close-out gate below).
 - Everything else is genuinely parallel and may land in any order.
+
+**The close-out gate (round 2).** "PRs 0–11 landed" is not sufficient for PR 12.
+A rung-2 chapter (disposition ladder, method step 7) does not count as complete,
+so while any TOC row reads *partial — pending fix*, PR 12 is **blocked** — it
+cannot retire the roadmap entry and declare the manual complete. Notifying David
+does not clear it. Exactly one of these unblocks it:
+
+1. The underlying code fix lands and the omitted claim is grounded and written
+   (the row flips to written), or
+2. **David explicitly revises the promised coverage** — in which case PR 12's
+   roadmap entry says the manual is complete **except** that area, naming it,
+   rather than claiming full coverage.
 
 <!-- -->
 
@@ -618,8 +682,19 @@ subsystem narrative into it would blur what it is for.
       could pass with 3 old + 5 new (round 1, F7).
 - [ ] **5 new specs** exist in `docs/ai-context/` and are routed from
       `AGENTS.md`.
-- [ ] No chapter's TOC row is left marked *partial — pending fix* without David
-      having been told why (method step 7, disposition 2).
+- [ ] **Zero TOC rows read *partial — pending fix*** — and if one does, PR 12 is
+      blocked, not merely accompanied by a notification (round 2: telling David
+      was previously enough, which reopened the same completion loophole F5
+      identified). Cleared only by the fix landing and the claim being grounded,
+      or by David explicitly revising the promised coverage so close-out names
+      the excluded area instead of claiming full coverage.
+- [ ] **Every chapter carries a `Verified against <sha> (<date>)` line**, and the
+      pre-close-out re-grounding sweep (method step 8) has been run against
+      current `main` — including a re-run if PR 12's base advanced.
+- [ ] **PR 1's pre-edit fact inventory exists** and shows a disposition
+      (relocate / retain as narrative / replace with link) for every claim in
+      `background-work.md`'s machinery section, with the reduced chapter still
+      satisfying all five template sections.
 - [ ] `docs/manual/README.md`'s TOC matches reality — every row's status is
       correct, no row claims a file that does not exist and none omits one.
 - [ ] `docs/manual/` is in `LIBRARY_DIRS`; `node scripts/check-docs-accuracy.mjs`
@@ -658,3 +733,17 @@ Every one verified against the repo before acting; none rebutted.
 | F7 | 1 | DoD said "8 chapters exist" but the target is 12 files — could pass with 3 old + 5 new | P2 | **Resolved** — DoD now enumerates all 12 by name |
 | S1 | 1 (self) | `health.ts` / `routeStats.ts` / Sentry / CF notes assigned nowhere — found by my own route sweep, not by Codex | — | **Resolved as explicit non-goal** (decision 10), flagged to David to overrule |
 | S2 | 1 (self) | `storage.ts` (media upload + public/private object serving) assigned nowhere | — | **Resolved** — named section in `meme-and-video-studio.md`, authz stays in `security-model.md` |
+
+**Round 2 — lens: execution-time durability + the two mechanisms round 1
+created.** 4 findings (3×P1, 1×P2) against `7695bba`; three were
+*Reconciliation — Still Open* re-openings of F1, F5, F6 rather than new ground,
+which is the loop working as intended. All verified; none rebutted.
+
+| # | Round | Finding | Severity | Status |
+| --- | --- | --- | --- | --- |
+| F1b | 2 | **F1 still open:** migrate-then-reduce named only *some* chapter-only facts, and a *post*-edit inventory cannot detect deleted prose. Codex found a third fact I had missed — the crash-reclaim guarantee at `background-work.md:87-88`, verified absent from all of `docs/ai-context/` | P1 | **Resolved** — the fact inventory is now a **pre-edit hard gate** mapping every machinery claim to relocate / retain / link, and the plan states that its own enumerated lists are examples, not the source of truth |
+| F5b | 2 | **F5 still open:** the DoD let a *partial — pending fix* row persist on notification alone, and PR 12 keyed only on "PRs 0–11 landed" — so close-out could still declare a complete manual with a defect-affected behavior omitted | P1 | **Resolved** — added an explicit close-out gate: any partial row **blocks PR 12**, cleared only by the fix landing or by David revising the promised coverage so close-out names the exclusion |
+| R2-3 | 2 | **New:** chapters are verified once, so a chapter grounded at PR 2 can be falsified by an unrelated merge before PR 12, and CI can't catch it (the gate checks links/paths, not behavior) | P1 | **Resolved** — method step 8: an in-chapter `Verified against <sha>` baseline, a pre-close-out re-grounding sweep, and a re-run if PR 12's base advances |
+| F6b | 2 | **F6 still open:** the dependency graph omitted the `PR 2–11 → PR 1` edge that the steps stated twice — an executor following the graph could land a chapter before the de-fork | P2 | **Resolved** — edge added; graph now represents every ordering constraint stated in the steps |
+
+**Still open: 0.**
