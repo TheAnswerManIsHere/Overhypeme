@@ -405,7 +405,7 @@ which must derive everything it shows from `async_jobs` and
 |---|---|
 | `id` | pk |
 | `kind` | one of the shared `ALERT_KINDS` registry below |
-| `dedupe_key` | grouping key, e.g. `job_abandoned:email:auth_error` |
+| `dedupe_key` | grouping key, e.g. `job_abandoned:email:auth` |
 | `severity` | `warning` \| `critical` |
 | `queue` | nullable — set for job-scoped kinds |
 | `sample_payload` | jsonb: representative job id, last error, recipient etc. |
@@ -501,16 +501,37 @@ Two alert shapes, handled differently:
   implementer lands either on "stays silent forever" or "re-alerts on every tick
   past 4 hours," and both read as following the spec.
 
-  So `job_alerts` carries **`escalation_tier`** (int, default 0), and the sweep
-  computes `tier = floor(hours_since_first_seen / condition_escalation_hours)`
-  (default 4) inside its locked transaction. When `tier > escalation_tier` it
-  bumps the column and marks the alert dispatchable **once**; between boundaries
-  the comparison is false and nothing dispatches. The bump and the dispatchable
-  marking share the transaction, so two evaluators cannot both cross the same
-  boundary. Volume escalation stays what it is — the right metric for event
-  alerts. Acceptance: exactly one notification and one banner reactivation at
-  each boundary, and **zero** between them — the "zero between" half is the one
-  that catches the every-tick failure.
+  So the boundary is expressed as **three durable counters that the existing
+  watermark machinery already knows how to compare** — a tier bump alone would
+  not do it, because the dispatcher selects on `occurrence_count >
+  dispatched_count` and a tier bump changes neither count, and the banner reads
+  `acknowledged_at`, which a tier bump does not clear:
+
+  - **`job_alerts.escalation_tier`** (int, default 0). The sweep computes
+    `tier = floor(hours_since_first_seen / condition_escalation_hours)`
+    (default 4) inside its locked transaction and bumps the column when
+    `tier > escalation_tier`. Between boundaries the comparison is false and
+    nothing is written, so two evaluators cannot both cross the same boundary.
+  - **`job_alert_dispatches.dispatched_tier`** (int, default 0) — the
+    **per-channel** half. The dispatcher's selection predicate gains
+    `OR alert.escalation_tier > dispatch.dispatched_tier`, and a successful
+    delivery advances `dispatched_tier` to the alert's `escalation_tier` in the
+    same write that advances `dispatched_count`. Partial-channel behavior is
+    therefore identical to the occurrence watermark's: a failed channel advances
+    neither counter and retries the same boundary next tick, while a healthy
+    channel is unaffected.
+  - **`job_alerts.acknowledged_tier`** (int, default 0), set to the alert's
+    current `escalation_tier` when an admin acknowledges. The banner shows an
+    alert while `state = 'active' AND (acknowledged_at IS NULL OR
+    escalation_tier > acknowledged_tier)`, so a boundary reactivates the banner
+    exactly once with **no clearing write** — acknowledgement is never undone
+    behind the admin's back, it is simply out of date.
+
+  Volume escalation stays what it is — the right metric for event alerts.
+  Acceptance: exactly one notification per channel and one banner reactivation
+  at each boundary, **zero** between them (the half that catches the every-tick
+  failure), and a boundary crossed while one channel is failing redispatches
+  only that channel once it recovers.
 
 The distinction is a column on the alert kind, not a judgement call at each
 call site, so a future alert kind must declare which shape it is.
@@ -523,9 +544,12 @@ call site, so a future alert kind must declare which shape it is.
 - the dispatcher selects channels where that difference is `> 0` **and**
   (never dispatched **or** that channel's `last_dispatched_at` is older than the
   cooldown), or where the difference exceeds the escalation threshold regardless
-  of cooldown;
+  of cooldown, **or where `alert.escalation_tier > dispatch.dispatched_tier`**
+  (the duration-escalation boundary above, which produces no new occurrences and
+  so must have its own term in this predicate);
 - on **successful** delivery it advances that channel's `dispatched_count` to
-  the `occurrence_count` **captured before sending**, so occurrences arriving
+  the `occurrence_count` **captured before sending** (and its `dispatched_tier`
+  to the `escalation_tier` captured with it), so occurrences arriving
   mid-dispatch are not swallowed into a span that was never reported;
 - on failure it advances nothing for that channel, so the next tick retries the
   same span — while a healthy channel is unaffected, and a failing channel does
@@ -721,6 +745,12 @@ of matchers over the provider error, else `unknown`. **Nothing else ever reaches
 schedule (A6). Tests exercise real handler failure shapes from the repo's
 existing fixtures, not two synthetic strings, and assert the enum is total.
 
+**Every `dedupe_key` example and test fixture in this plan uses the exact enum
+value** — `job_abandoned:email:auth`, never a near-miss like `auth_error`. A
+near-miss in prose is not cosmetic: if one producer is written from the example
+and another from the enum, the same Resend outage splits into two `active`
+incidents and bypasses the coalescing the whole cooldown design rests on.
+
 **A6. Retention for the ledger itself** *(added, Codex round 2)*. Migration 0095
 creates a durable table and no phase bounded its growth — every resolved alert
 and its `sample_payload` (which carries a recipient and a provider error string)
@@ -862,11 +892,28 @@ Acceptance: two simultaneous reclaimers against one expired row produce exactly
 one attempt increment and one outcome.
 
 **B5. Provider idempotency for email.** `deliverFromOutbox` passes
-`idempotencyKey: \`async-job/${row.id}\`` — stable across the retries of one
-row, unique per row, and 15 characters against Resend's 256 limit. Retry after a
-lost response no longer re-sends. An **admin retry** from `/admin/email-queue`
-deliberately mints a *new* key, because "retry" from a human means "send it";
-see *Risks* for the 24-hour window this interacts with.
+`idempotencyKey: \`async-job/${row.id}/${row.deliveryGeneration}\`` — stable
+across the automatic retries of one row, unique per row, and comfortably inside
+Resend's 256-character limit. Retry after a lost response no longer re-sends.
+
+**The generation counter is what makes an admin retry actually send.** An admin
+retry means "send it," so it must mint a *different* key — but the existing
+`POST /admin/email-queue/:id/retry` route (`routes/admin.ts:3087-3125`) resets
+**that same row** to `pending` with `attempts = 0` rather than inserting a new
+one, so a key derived from `row.id` alone would be byte-identical to the one
+Resend already saw. Inside the 24-hour retention window Resend would replay the
+original response and the admin's retry would silently do nothing, with a
+`success: true` on screen — the looks-fine-while-broken shape this plan exists
+to remove, in the one control an operator reaches for when delivery is already
+suspect.
+
+So migration 0096 adds `async_jobs.delivery_generation` (int, default 0) and
+that route's existing atomic conditional update increments it in the same
+statement that resets the row. Automatic retries leave it untouched, so the
+key stays stable exactly where it must; a human retry changes it, so the send
+is real. Acceptance asserts both halves against one row: stable across the
+retry ladder, different after the admin route runs. See *Risks* for the 24-hour
+window this interacts with.
 
 **B6. Deferred-email age alarm.** The unconfigured-email defer path keeps
 deferring without burning attempts (correct — a missing key is not the job's
@@ -968,24 +1015,55 @@ Acceptance seeds a large backlog and asserts bounded response size and query
 time.
 
 **C2. `GET /admin/queue-health`** — per queue: pending / processing / failed /
-done-24h, oldest-pending age, abandoned-24h; per lane: last-tick age and
-configured interval; plus unacknowledged alerts. Read-only aggregation over
+done-24h, oldest-pending age, abandoned-24h, **plus the derived tallies C2a
+defines** (`skipped`, `abandoned_no_retry`), so the two altitudes agree; per
+lane: last-tick age and configured interval. Read-only aggregation over
 `async_jobs` + `worker_lane_heartbeats`; it stores nothing.
+
+**Its shape is staged across two phases, because the alert ledger does not exist
+in Phase 1.** `job_alerts` arrives with migration 0095 in Phase 2, while this
+endpoint and its page ship in Phase 1 — so a Phase 1 response that included
+alert fields could not be built, and the phase would not be independently
+runnable:
+
+- **Phase 1 response:** queue tallies (raw and derived), lane liveness, and
+  nothing else. No alert fields at all — not an empty array, which would read as
+  "no alerts" rather than "alerts do not exist yet."
+- **Phase 2 extends it** with `unacknowledgedAlerts`, in the same PR that
+  creates the table.
+
+Acceptance covers **each phase's response separately**: Phase 1 asserts the
+endpoint is complete and correct without any alert key present; Phase 2 asserts
+the added key against a seeded mix of acknowledged and unacknowledged alerts.
 
 **C3. `/admin/queue-health` page**, following `async-ui-status.md`'s two
 altitudes: an **aggregate** row per queue ("`enrichment` — 4 pending · 1
-working · 2 failed · oldest 6m"), and **per-item** detail on expand (the
-individual failing rows with their `lastError`, `attempts`, `nextAttemptAt`).
-`fact_ai_meme_backfill`'s never-retried rows render as a distinct terminal
-state, not as a generic failure, per the rule that "skipped" and "still running"
-are first-class. Polls on a steady cadence; imposes no timeout.
+working · 2 failed · 1 skipped · oldest 6m"), and **per-item** detail on expand
+— **every paginated row C2a returns, in all four raw statuses and both derived
+ones**, with `lastError`, `attempts`, `nextAttemptAt`. Expansion limited to
+failing rows would drop `pending`, `processing`, and skipped items from the
+per-item altitude entirely. `fact_ai_meme_backfill`'s never-retried rows render
+as `abandoned_no_retry` and a handler-level skip as `skipped` — distinct
+terminal states, never a generic failure or a checkmark, per the rule that
+"skipped" and "still running" are first-class. Frontend tests assert a skip and
+a no-retry abandonment **at both altitudes**: counted in the queue's aggregate
+row and rendered with their own state on expansion. Polls on a steady cadence;
+imposes no timeout.
 
 **C4. `AdminLayout` banner** while any unacknowledged `critical` alert exists,
 linking to the page. Acknowledging is an explicit admin action, so a real
 failure cannot be cleared by a page reload.
 
 **C5. `GET /health/queues`** — unauthenticated, no payload detail, returning
-non-200 when any lane's heartbeat is stale. **This is the only design in the
+non-200 when a lane is stalled **fleet-wide**. It applies C1's live-instance
+filter and quantifier verbatim: departed and TTL-expired instances are excluded
+first, then a lane counts as unhealthy only when **no live instance** has
+scheduled it inside the threshold. "Any stale heartbeat" would be wrong on the
+deployment this plan is written for — one instance pausing or scaling down while
+another keeps scheduling the lane is normal autoscale behavior, and reporting it
+as an outage to an external monitor manufactures pages for a healthy fleet.
+Acceptance runs one stale instance alongside one healthy instance and asserts
+200. **This is the only design in the
 plan that survives total process death**: an in-process watchdog cannot detect
 its own absence. David can point any external monitor at it. Stated as a
 limitation rather than papered over.
@@ -1001,7 +1079,10 @@ cannot leave that arithmetic untouched:
 
 - heartbeat renewal is **one statement per lane per interval**, deliberately
   batched, adding no per-job connection demand;
-- the dispatcher and purge share the existing maintenance runner's slot;
+- dispatch, condition evaluation, and the ledger purge run on the **independent
+  alert runner** (A3), so their demand is counted as that runner's own — they
+  cannot be folded into the bulk maintenance slot, which is exactly what A3
+  exists to escape;
 - **Phase 1 sets an explicit `max`, derived from the fleet's budget — and
   cannot ship without it.** Each autoscaled instance constructs its **own**
   `pg.Pool` (`lib/db/src/index.ts:45`), so the fleet ceiling is `max × N`, not
@@ -1031,9 +1112,10 @@ EXISTS`, `CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a
   `(instance_id, lane)`, with `worker_version`; index on `last_scheduled_at` for
   the prune sweep. Seed `instance_heartbeat_ttl_minutes` (15).
 - **0095** (Phase 2) — `job_alerts` (with `state` / `resolved_at` /
-  `escalation_tier`) + its partial
+  `escalation_tier` / `acknowledged_tier`) + its partial
   unique index on `(dedupe_key) WHERE state = 'active'`, plus the
-  `job_alert_dispatches` child table keyed `(alert_id, channel)` and an index on
+  `job_alert_dispatches` child table keyed `(alert_id, channel)` — carrying
+  `dispatched_count`, `dispatched_tier`, `last_dispatched_at` — and an index on
   `(state, resolved_at)` for the retention purge. Seed the `admin_config` rows:
   `email_admin_abandoned_alerts_enabled` (value `false`, finally present so the
   UI can toggle it), `alert_cooldown_minutes` (30),
@@ -1042,7 +1124,10 @@ EXISTS`, `CREATE INDEX IF NOT EXISTS`) plus `SNAPSHOT_EXEMPT_TAGS` and a
   `condition_escalation_hours` (4), `alert_webhook_timeout_ms` (5000),
   `wedged_lane_alert_minutes` (30), `job_alert_retention_days` (90),
   `job_alert_sample_redact_days` (7).
-- **0096** (Phase 3) — `async_jobs.lease_token`, `async_jobs.lease_expires_at`,
+- **0096** (Phase 3) — `async_jobs.delivery_generation` (int, not null,
+  default 0 — the value that lets an admin retry mint a *different* provider
+  idempotency key on the same row; see B5), plus
+  `async_jobs.lease_token`, `async_jobs.lease_expires_at`,
   plus an index on `(status, lease_expires_at)` for the reclaim sweep; seed
   `async_job_lease_seconds` (120) and `async_job_heartbeat_seconds` (40).
 - **0097** (Phase 4) — none expected; listed so the phase's "no schema change"
@@ -1156,13 +1241,15 @@ instead of looping forever.
 
 **Resend key is revoked.** `resendAuthDisabled` latches as today; email jobs
 exhaust and abandon. Alerts are recorded per job, coalesced by
-`job_abandoned:email:auth_error`, and dispatched **over the webhook** — the
+`job_abandoned:email:auth`, and dispatched **over the webhook** — the
 channel that does not depend on Resend. This is the exact scenario that is
 silent today.
 
-**A lane's timer stops.** Its heartbeat goes stale; `worker_lane_stalled` is
-recorded and dispatched, the banner appears, and `/health/queues` returns
-non-200 for an external monitor.
+**A lane's timer stops on every live instance.** Its heartbeats go stale
+fleet-wide; `worker_lane_stalled` is recorded and dispatched, the banner
+appears, and `/health/queues` returns non-200 for an external monitor. (One
+instance going quiet while another still schedules the lane is *not* this case
+and raises nothing — see C5.)
 
 **Email delivery is unconfigured** (dev, or a missing key in production). Rows
 defer as today without burning attempts; past 6 hours, one
@@ -1252,10 +1339,14 @@ the example):
   *and* clamped at read time (covering debug values and direct SQL edits), plus
   a renewal/reclaim boundary race at the ratio limit.
 - **Mixed-version overlap:** a 3a-era worker (fence-honoring, **reclaim
-  disabled**)
-  and a 3b-era worker (lease reclaim) against the same table produce no
-  double-finalize; and 3b's startup precondition defers enabling reclaim while
-  any NULL-token `processing` row exists.
+  disabled**) and a 3b-era worker (lease reclaim) against the same table produce
+  no double-finalize.
+- **Enablement is operator-driven and the interlock only blocks:** reclaim stays
+  off with no operator action even when *no* pre-lease `worker_version` is
+  visible (absence is not an enable signal), and an operator enable **is
+  refused** while a pre-lease version is visible. Both directions, because a
+  test of the refusal alone would still pass against the superseded design that
+  enabled on TTL absence.
 - **The accepted duplicate-execution window is asserted, not assumed** — a
   handler stalled past its lease is reclaimed and does run twice; only one run
   writes. This encodes settled decision 3 as a test rather than leaving it as
@@ -1330,6 +1421,13 @@ matters:
   delivered overall.
 - Dispatch failure advances no watermark and is retried on the next tick — the
   durability property finding 3 lacks.
+- **Condition escalation, all three counters:** an acknowledged, still-true
+  condition crosses `condition_escalation_hours` → exactly **one** notification
+  per channel and one banner reactivation (`escalation_tier > acknowledged_tier`
+  becomes true once); **zero** dispatches on every tick between boundaries; and
+  a boundary crossed while the email channel is failing advances neither of that
+  channel's counters and redispatches it once it recovers, without re-notifying
+  the webhook.
 - **The dispatcher is not blocked by a hung handler** — block a `bulk` handler
   indefinitely, record an alert from another lane, and assert the webhook
   dispatch still happens on cadence. This is the regression test for the
@@ -1339,16 +1437,21 @@ matters:
 
 **Email:**
 
-- `idempotencyKey` is passed and is stable across retries of one row, and
-  **differs** after an admin retry.
+- `idempotencyKey` is passed and is stable across the **automatic** retries of
+  one row, and **differs** after an admin retry — asserted against the real
+  `POST /admin/email-queue/:id/retry` route, which must increment
+  `delivery_generation` on the same row. A test that only checks two different
+  row ids would pass against the broken design.
 - The dev fallback still delivers nothing and throws nothing.
 
 **Health surface:**
 
 - Route auth (added to the existing admin-auth table test).
 - Aggregation correctness against a seeded mix of queue states.
-- `/health/queues` returns non-200 on a stale heartbeat and leaks no queue
-  detail in either state.
+- `/health/queues` applies the **fleet-wide** quantifier, not "any stale
+  heartbeat": one stale instance alongside one healthy instance still scheduling
+  the lane returns **200**; only a lane no live instance is scheduling returns
+  non-200. It leaks no queue detail in either state.
 - **Long-healthy vs. genuinely-stopped, both directions:** a 4-minute handler on
   the `render` lane raises neither `worker_lane_stalled` nor
   `worker_lane_wedged`; a stopped scheduler raises `stalled` within its
@@ -1390,7 +1493,11 @@ before the machine changes (settled decision 5).
 3. Apply the derived pool `max`; record the fleet arithmetic (`max × N`) in
    `deferred-work.md` and close that item.
 4. `GET /admin/queue-health` (aggregating **across live instances**, with the
-   ∀/∃ quantifiers per condition) + `GET /health/queues`.
+   ∀/∃ quantifiers per condition) + `GET /health/queues` (same live-instance
+   filter and fleet-wide quantifier — not "any stale heartbeat"). The Phase 1
+   response carries **no alert fields at all**: `job_alerts` does not exist
+   until migration 0095 in Phase 2, so including them here — even as an empty
+   array — would be unbuildable or a lie. Phase 2 step 11a adds them.
 4a. **`GET /admin/queue-health/jobs` (C2a) — in Phase 1, before the page.** The
    aggregate deliberately cannot carry a large backlog, so without the paginated
    per-item endpoint the page cannot deliver its per-item altitude and Phase 1
@@ -1406,6 +1513,12 @@ before the machine changes (settled decision 5).
 7a. **`evaluateAlertConditions()`** — the producer sweep for the four
    condition-shaped kinds, opening `active` alerts and **resolving** them when
    the condition clears. Without this step the condition alerts have no sensor.
+   **This includes B6, the deferred-email age alarm** (`queue_deferred_stale`).
+   It is one of the four condition kinds, so Phase 2's own acceptance requires
+   its open/clear test; an earlier draft listed it as a separate Phase 3a step,
+   which would have left the Phase 2 criterion unimplementable *and* made the
+   3a step duplicate shipped work. It needs nothing from Phase 3 — the defer
+   path it observes already exists on `main`.
 8. `createAlertDispatchRunner()` — its **own** timer and re-entrancy guard, not
    the bulk maintenance block: grouping, cooldown, escalation, per-channel
    watermark advancement.
@@ -1421,7 +1534,14 @@ before the machine changes (settled decision 5).
    history properly (A6).
 10a. Retention purge for `job_alerts` + `sample_payload` redaction.
 11. Banner + acknowledge action, with acknowledgement suppressing notification
-   without resolving a still-true condition.
+   without resolving a still-true condition. Acknowledging stamps
+   `acknowledged_tier` alongside `acknowledged_at`, so a later escalation
+   boundary reactivates the banner without any write that undoes the
+   acknowledgement itself.
+11a. **Extend `GET /admin/queue-health` with `unacknowledgedAlerts`** — the
+   field Phase 1 deliberately omitted, added in the same phase that creates the
+   table it reads. Phase 1's response test is updated here rather than being
+   left asserting an absence that is no longer true.
 
 **Phase 3a — Fence-compatible (safe alongside an old worker).**
 12. Migration 0096: lease columns + index + config, with the ratio invariant
@@ -1441,21 +1561,34 @@ before the machine changes (settled decision 5).
     recreates the clobber — a Phase-2 worker's slow row exceeds the cutoff, 3a
     requeues and re-claims it, the old worker finalizes by id over the new run.
     The reclaim never needed to be short-lease to cause that.)*
-17. Resend idempotency key.
+17. Resend idempotency key — `async-job/${row.id}/${row.deliveryGeneration}`,
+    **plus the one-line change to `POST /admin/email-queue/:id/retry`** that
+    increments `delivery_generation` in its existing atomic conditional update.
+    Without that half the key never changes and an admin retry is a no-op
+    inside Resend's 24-hour window.
 17a. **Audit the remaining handlers for replayed external side effects** and
     record the result in the plan's per-queue table — `image_generation` and
     `image_prompt_generation` first, since `email` and `fact_ai_meme_backfill`
     are already characterised. Any handler found to replay a paid or
     user-visible call gets provider-level or domain-level idempotency in this
     step, not later.
-18. Deferred-email age alarm.
+
+*(The deferred-email age alarm (B6) is **not** here — it is one of Phase 2's
+four condition producers, step 7a.)*
 
 **Phase 3b — Enable lease-driven reclaim (only once no pre-lease worker
 remains).**
-19. **Version-based drain barrier:** enable lease reclaim only when no
-    `worker_lane_heartbeats` row carries a pre-lease `worker_version` within the
-    staleness window. Depends on Phase 1's per-instance heartbeats — a
-    cross-phase dependency, stated so 3b cannot ship without it.
+19. **Operator-enabled reclaim, with a block-only interlock.** Lease reclaim is
+    switched on by an **explicit operator action** — a deploy flag or admin
+    toggle — taken after confirming in the Replit deployment console that the
+    previous revision has zero running instances. The `worker_version` check
+    runs at enable time and can only **refuse**: if a pre-lease version is still
+    visible the worker declines and logs. It never enables anything on its own.
+    Absence of a recent pre-lease heartbeat is **not** the enable condition —
+    that is the TTL inference the rollout protocol proves unsafe, since a wedged
+    instance stops heartbeating while remaining able to finalize. Depends on
+    Phase 1's per-instance heartbeats for the interlock — a cross-phase
+    dependency, stated so 3b cannot ship without it.
 20. Lease-expiry reclaim as a **fenced atomic transition** (`SKIP LOCKED` +
     conditional update on the observed `(status, lease_token, lease_expires_at)`),
     with attempt increment, token rotation, and poison-pill termination; legacy
@@ -1589,11 +1722,11 @@ mutation rollback leaves no job row.
 |---|---|
 | **Fencing is the riskiest change in the plan** — it touches every finalize path. A mistake strands jobs in `processing`. | It lands in Phase 3, *after* the health page and alerting are live, so a stranded row is visible within a poll rather than discovered weeks later. The lost-lease branch logs loudly and never writes. |
 | **Attempt-on-reclaim could burn budgets during ordinary deploys.** | Graceful shutdown (step 16) lands in the same phase and releases in-flight rows without incrementing. Tested in both directions. |
-| **Resend's idempotency keys expire after 24 hours** (verified below), while the retry ladder spans ~10.6h — inside the window, but a raised `maxAttempts` or a much later manual retry falls outside it, and a duplicate becomes possible again. | Documented in code at the call site. Admin retry mints a fresh key deliberately. A `maxAttempts` raise past the window is called out in `known-failure-patterns.md`. |
+| **Resend's idempotency keys expire after 24 hours** (verified below), while the retry ladder spans ~10.6h — inside the window, but a raised `maxAttempts` or a much later manual retry falls outside it, and a duplicate becomes possible again. | Documented in code at the call site. An admin retry mints a genuinely different key by incrementing `delivery_generation` (B5) — not by relying on the row id, which the retry route does not change. A `maxAttempts` raise past the window is called out in `known-failure-patterns.md`. |
 | **Cooldown folding hides a distinct failure** (David's accepted trade-off, decision 4). | Narrowed two ways without reopening the decision: `dedupe_key` includes queue + error class so genuinely different failures never fold together, and the escalation multiplier forces an immediate dispatch when volume jumps by an order of magnitude. |
 | **Total process death cannot be self-detected.** | Stated plainly rather than designed around; `/health/queues` exists so an external monitor can close it. This is the one gap the plan does not claim to fix internally. |
-| **Alert fatigue turning the banner into wallpaper.** | Only `critical` raises the banner; acknowledgement is explicit and recorded; per-queue severity is admin-config so a chatty queue is tuned rather than ignored. |
-| **Pool exhaustion from the new steady-state queries.** | Heartbeat renewal is one batched statement per lane per interval; dispatcher and purge share the existing maintenance slot; Phase 1 raises `max` explicitly. |
+| **Alert fatigue turning the banner into wallpaper.** | Only `critical` raises the banner, and severity is a **static property of the alert kind** in `ALERT_KINDS` — there is no per-queue severity override, and an earlier draft's claim that one existed pointed at a mechanism no step builds. The real noise controls are the ones the plan does specify: error-class-scoped `dedupe_key`s so unrelated failures never share a digest, `alert_cooldown_minutes`, and explicit recorded acknowledgement. If a specific queue proves chatty in practice, the fix is its dedupe key or its threshold, both already admin-config. |
+| **Pool exhaustion from the new steady-state queries.** | Heartbeat renewal is one batched statement per lane per interval. Dispatch, condition evaluation, and the alert-ledger purge all run on the **independent alert runner** (A3) — *not* the bulk maintenance slot, which sits behind an awaited lane tick and would reintroduce the headline failure — so the pool arithmetic counts that runner's own concurrent demand. Phase 1 sets `max` to the derived fleet-safe value. |
 | **Four phases is a long runway before the headline finding closes.** | Phase 2 closes it, and Phase 1 is deliberately small. If David wants alerts sooner, Phases 1 and 2 can merge into one PR — the ordering rationale is about Phase 3, not about splitting 1 from 2. |
 | ~~**`onConflictDoNothing` against a partial unique index may not be expressible in drizzle 0.45.2.**~~ | **Resolved, Codex round 1** — the API is `onConflictDoNothing({ target, where })` and it emits the predicate in the index-predicate position. Verified in the installed source. No `SAVEPOINT` fallback needed; re-confirm against 0.45.2 during the build, since the reading was taken from the sandbox's 0.45.1. |
 | **Mixed-version deploys defeat fencing** — an old worker finalizes by id and cannot see the fence. | Phase 3 splits into 3a (fence-honoring, **all reclaim disabled** — safe alongside old workers because nothing requeues their rows) and 3b (lease reclaim, enabled by an explicit operator action after confirming zero old instances, with the `worker_version` check as a block-never-enable interlock). Graceful shutdown ships in 3a so the window is short. Rolling back past 3a with leased rows in flight is the unsafe direction. |
@@ -1620,7 +1753,8 @@ not duplicate the email.
   `Idempotency-Key` HTTP header, `Resend-Idempotency-Key` over SMTP, or the
   Node SDK's `idempotencyKey` option passed as the second argument to
   `resend.emails.send(payload, { idempotencyKey })`.
-- **Key limit:** up to 256 characters. Our `async-job/${row.id}` is ~15.
+- **Key limit:** up to 256 characters. Our
+  `async-job/${row.id}/${row.deliveryGeneration}` is ~17.
 - **Retention: 24 hours.** This is the constraint that shapes the design — our
   five-attempt ladder spans ~10.6h and fits; anything beyond the window does
   not. Recorded as a risk above rather than glossed.
@@ -1667,14 +1801,20 @@ written down, not a value chosen because it looked reasonable.
 
 **Nothing else is outstanding.** The four product decisions were settled in the
 pre-plan conversation and are recorded under *Settled Decisions*. Two things I
-decided from the repository rather than asking — the phase ordering and raising
-the pool `max` at all — are recorded there too, with their reasoning, so they
-can be overridden in one line if David disagrees.
+decided from the repository rather than asking — the phase ordering, and setting
+the pool `max` explicitly at all — are recorded there too, with their reasoning,
+so they can be overridden in one line if David disagrees.
 
-One item that is a *notification*, not a question: Phase 1 raises the connection
-pool's `max`, which `deferred-work.md` had parked as "an infra/cost decision,
-not a code change to make proactively." Its stated revisit trigger has arrived —
-this plan is the thing that was being waited on.
+One item that is a *notification*, not a question: Phase 1 **sets** the
+connection pool's `max` to the derived fleet-safe value, which `deferred-work.md`
+had parked as "an infra/cost decision, not a code change to make proactively."
+Its stated revisit trigger has arrived — this plan is the thing that was being
+waited on. Note the direction is *derived, not assumed*: `floor(budget /
+max_instances)` may land **below** today's effective 10, and in that case the
+plan applies the lower value rather than protecting the current ceiling — an
+over-subscribed fleet is the problem, not the baseline. Acceptance includes that
+case explicitly: given a budget and instance count that derive a max under 10,
+the configured value is the derived one and the fleet arithmetic still closes.
 
 ## Definition of Done
 
