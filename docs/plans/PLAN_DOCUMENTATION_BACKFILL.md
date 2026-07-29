@@ -362,14 +362,79 @@ their subsystem chapter (`moderation`, `taxonomy-health`, `videoStyles`).
 | Comment **moderation** admin surface (`admin/comments.tsx`) | section in `admin-console.md`, cross-linked from `community-and-engagement.md` | The engagement chapter owns what comments *are*; the admin chapter owns the surface that moderates them. |
 | Legal/safety moderation (`quarantined_memes`, `ncmec_reports`, `lib/moderation/`) | additive section in `moderation.md`, **in its own PR** | `architecture-map.md` establishes two separate moderation systems; the chapter documents only content-quality review today. Split out of the studio PR per F6 so a chapter repair doesn't share an unrelated PR's review boundary. |
 
+### Reading order — the manual is a walkthrough, not 12 essays (round 3)
+
+The coverage map above is organized for *checkability*, and round 3 caught what
+that costs: nothing in the plan said what order a **reader** meets these
+chapters in, so a cold executor could satisfy every filename and five-heading
+check and still ship twelve isolated subsystem essays. The Definition of Done
+promises a front-to-back walkthrough; that has to be specified, not hoped for.
+
+`product-brief.md` already supplies the spine — **personalize → submit →
+moderate & enrich → render → share → the next visitor personalizes.** The TOC
+ships in that order, not in coverage-map order:
+
+| # | Chapter | Where it sits in the loop |
+| --- | --- | --- |
+| — | **Orientation** (in `README.md`, not a chapter) | The core loop in one page, and how to read the manual |
+| 1 | `personalization-and-grammar.md` | **Personalize** — the thing a visitor does first, and the product's foundation |
+| 2 | `content-lifecycle.md` | **Submit** — a fact's journey begins; the two entrances |
+| 3 | `moderation.md` ✅ | **Moderate** — the three human gates |
+| 4 | `taxonomy-and-enrichment.md` ✅ | **Enrich** — classification and versioned refresh |
+| 5 | `visual-pipeline.md` | **Render (authoring side)** — how a moderator's Visual Concept becomes an image |
+| 6 | `meme-and-video-studio.md` | **Render (reader side)** — what an end user makes, free vs. Legendary |
+| 7 | `public-site-and-sharing.md` | **Share** — the surfaces the meme escapes through, and the loop closing |
+| 8 | `community-and-engagement.md` | What returning visitors do once inside the loop |
+| 9 | `accounts-and-auth.md` | Who the reader is |
+| 10 | `payments-and-membership.md` | What they pay for, and what that unlocks |
+| 11 | `admin-console.md` | The operator's view of everything above |
+| 12 | `background-work.md` ✅ | The machinery underneath it all |
+
+Chapters 1–7 follow the loop; 8–10 are the reader's own relationship to the
+product; 11–12 are the machinery, last because a reader doesn't need them to
+understand the product. Each chapter ends by pointing at the next, so
+front-to-back actually reads as a sequence.
+
+**The visual-pipeline ↔ studio boundary, stated explicitly** because round 3 was
+right that "separate chapters" alone leaves an executor guessing and invites
+overlap:
+
+- **`visual-pipeline.md` (ch. 5) is authoring-time and moderator-facing:** the
+  Visual Concept as the authoritative scene, the frontier planner, the prompt
+  compiler, render modes, frozen inputs, readable-text policy. Its actor is a
+  **moderator** deciding whether a gag works as a picture.
+- **`meme-and-video-studio.md` (ch. 6) is use-time and end-user-facing:** what a
+  visitor does in the meme/video builders, photo memes (free) vs. AI image and
+  video memes (Legendary), the video stages, where media lives and how it's
+  served. Its actor is a **reader making a meme of themselves**.
+- Neither restates the other; ch. 6 links ch. 5 for how an image is actually
+  produced, and ch. 5 links ch. 6 for what an end user ultimately gets.
+
 ### The verification method (the load-bearing part)
 
 David chose verify-against-code, so the method is explicit and identical for
 every chapter and spec:
 
-1. **Draft, then inventory.** After drafting, extract every factual claim
-   (behavioral, structural, numeric) into a per-chapter checklist in the
-   scratchpad. Prose is not reviewed for truth in place; a claim list is.
+1. **Draft, then inventory — and the inventory is a durable artifact, not a
+   scratchpad note** (corrected in round 3). After drafting, extract every
+   factual claim (behavioral, structural, numeric) into a table of
+   **claim → disposition → grounding source**. Prose is not reviewed for truth
+   in place; a claim list is.
+
+   **The complete table is posted in the PR body**, one row per claim, not
+   summarized. A grouped note like "routes grounded against API code" is exactly
+   what makes a skipped or rubber-stamped claim undetectable, so it does not
+   satisfy this. Two consequences worth stating because they're what make the
+   table auditable later:
+
+   - The `Verified against <sha>` line in each chapter (step 8) also names the
+     PR that carries its table — `Verified against <sha> (<date>) · claim
+     inventory in PR #<N>` — so the repo points at the evidence. A reviewer, or
+     a fresh agent doing close-out, can trace any claim to its enforcement
+     source without access to my session.
+   - This replaces the old "short verification note" in step 6, which promised
+     less than the *Risks* section promised reviewers. That inconsistency was
+     real; the full table resolves it in favor of the stronger obligation.
 2. **Ground each claim against whatever actually enforces it — the grounding
    source depends on the claim's type, not on a global precedence** (corrected
    in round 1, F4; the original ordering let a test outrank a `CHECK`
@@ -415,9 +480,11 @@ every chapter and spec:
    memory. This lands mainly in `payments-and-membership.md` and
    `video-pipeline.md`.
 6. **Per-PR evidence.** Docs PRs ship no TEST_RUN/UAT (documentation-workflow
-   Step 5). Instead each PR body carries a short **verification note**: what was
-   grounded and against what, what is marked Needs David confirmation, and what
-   drift was corrected. An obligation with no evidence trail decays.
+   Step 5). Instead each PR body carries **the full claim table from step 1**
+   (every claim, its disposition, its grounding source), plus what is marked
+   Needs David confirmation, what drift was corrected, and which disposition
+   rung (step 7) applied. An obligation with no evidence trail decays — and a
+   *summarized* trail is not an evidence trail (round 3).
 7. **When a real defect would make the chapter misleading — the disposition
    ladder** (added in round 1, F5). Step 3's "drop the ungroundable claim" had a
    hole: a chapter could omit a defect-affected behavior and still be counted
@@ -454,18 +521,41 @@ every chapter and spec:
    claims**, so green CI is silent on a chapter that has become wrong. So:
 
    1. **Every chapter records its grounding baseline durably, in the chapter
-      itself** — a single closing line, `Verified against <sha> (<date>)`. It is
-      overwritten, never appended to, so it is a current-state fact rather than
-      a changelog (which the manual's charter forbids). It doubles as something
-      genuinely useful to a reader: how current this chapter is. The PR body
-      records the same sha plus the sources consulted.
-   2. **Before PR 12, sweep every chapter**: diff its baseline against current
-      `main`, restricted to that chapter's cited sources and paths, and
-      **re-ground any claim whose enforcement path or callers changed** —
-      updating the chapter and its baseline line.
+      itself** — a single closing line, `Verified against <sha> (<date>) · claim
+      inventory in PR #<N>`. It is overwritten, never appended to, so it is a
+      current-state fact rather than a changelog (which the manual's charter
+      forbids). It doubles as something genuinely useful to a reader: how
+      current this chapter is, and where its evidence lives.
+   2. **Before PR 12, sweep every chapter by re-running the inventory — not by
+      diffing the paths the chapter happens to cite** (corrected in round 3).
+      Citation-scoped diffing has a hole big enough to matter: per
+      `docs/manual/README.md`, a chapter cites **only stable, high-value entry
+      points** and is explicitly *not* a code map, so a **newly added** writer,
+      route, or caller — precisely the thing most likely to break a documented
+      invariant — was never cited at the baseline and would never enter a
+      citation-scoped diff. Instead, for each chapter:
+
+      - **Re-derive the enforcement set** the way initial grounding did: for an
+        invariant claim, re-enumerate **every writer** to the relevant
+        table/field (not just the one the chapter names) and confirm the
+        constraint or guard still governs all of them; for a behavior claim,
+        re-enumerate the **current** route/handler set for that surface.
+      - **Diff the whole owning subsystem** between baseline and `main`
+        (e.g. `artifacts/api-server/src/routes/`, the relevant `src/lib/`
+        subtree, `lib/db/src/schema/`, and new migrations) — not only the files
+        cited.
+      - Re-ground anything that moved, and update the chapter plus its baseline
+        line.
    3. **Repeat the sweep if PR 12's base advances** before it merges. Close-out
       evidence must cover every intervening merge, not just the tree each
       chapter PR saw.
+
+   **This is already live rather than hypothetical:** while this plan was under
+   review, `main` gained `fix(async-jobs): stop autoscale scale-ups reclaiming
+   live jobs` (`6b545dde`) — which touches the async-jobs *reclaim* behavior,
+   i.e. exactly the crash-reclaim guarantee the PR 1 de-fork must migrate. The
+   de-fork therefore grounds that fact against post-`6b545dde` code, not against
+   what the chapter says today.
 
    In-repo baselines are deliberate: PR bodies are not in the repository, so a
    baseline recorded only there would be undiscoverable at close-out. Using each
@@ -571,13 +661,34 @@ does not clear it. Exactly one of these unblocks it:
 
 <!-- -->
 
-- **PR 0 — Foundation (no prose claims).** Restructure `docs/manual/README.md`'s
-  TOC to the final 12-chapter map (unwritten ones listed *not yet written*), fix
-  its stale "no substantive chapters exist yet" line, correct
+- **PR 0 — Foundation.** Restructure `docs/manual/README.md`'s TOC to the final
+  12 chapters **in reading order** (unwritten ones listed *not yet written*),
+  fix its stale "no substantive chapters exist yet" line, correct
   `current-roadmap.md`'s deferred entry (background work is written; drop the
   resolved **Needs David confirmation** on timing — but **do not retire the
   entry**, that is PR 12), and add `"docs/manual"` to `LIBRARY_DIRS` with the
-  negative test below.
+  negative test below. Two additions from round 3, both of which have to live in
+  the **shipped** README rather than only in this plan (which never reaches
+  `main`):
+
+  - **The orientation section** — the core loop in one page plus "how to read
+    this manual," so the reading order is navigable rather than implicit in row
+    order.
+  - **An "Outside this manual" section** naming what deliberately lives
+    elsewhere and linking it: operations and diagnostics
+    (`docs/SENTRY.md`, `health.ts`/`routeStats.ts`), edge/CDN behavior
+    (`docs/cloudflare-rate-limits.md`, `docs/cloudflare-gaesa-og-fix.md`), local
+    dev tooling (`scripts/dev-supervisor.sh`), the agent-facing spec layer
+    (`docs/ai-context/`), and the generated
+    [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md). Without this, the
+    delivered README claims full coverage while giving a new collaborator no
+    hint that diagnostics and deployment material exists at all — the exclusion
+    decision would die with this plan-review PR. This is the *navigational*
+    half of decision 10; it does not reverse the decision.
+
+  PR 0 is still the "no prose claims" PR: the orientation text restates the
+  core loop from `product-brief.md` and links it, and the outside-this-manual
+  list is pointers only.
 - **PR 1 — De-fork the async-lane truth.** Migrate chapter-only lane facts into
   `architecture-map.md`, then reduce `background-work.md`'s machinery section to
   narrative + link (see *Source-of-Truth Analysis*). Lands before any new
@@ -676,10 +787,26 @@ subsystem narrative into it would blur what it is for.
       `admin-console`, `accounts-and-auth`, `payments-and-membership`,
       `community-and-engagement`, `public-site-and-sharing`,
       `meme-and-video-studio`), each with real content across all five template
-      sections, **plus the 3 existing** carrying their specified edits
-      (`background-work` de-forked, `moderation` + `taxonomy-and-enrichment`
-      with their additive sections). Counted this way because "8 chapters exist"
-      could pass with 3 old + 5 new (round 1, F7).
+      sections, **plus the 3 existing** carrying exactly the edits the coverage
+      map assigns them — corrected in round 3, because this list previously
+      contradicted the map and would have had an executor writing unplanned
+      taxonomy prose while skipping required email-queue coverage:
+      - `background-work.md` — **both** its de-fork (PR 1) **and** its
+        email-queue-mechanics additive section.
+      - `moderation.md` — its legal/safety additive section (PR 11).
+      - `taxonomy-and-enrichment.md` — **drift corrections only**; no additive
+        section is planned for it, and adding one is out of scope.
+
+      Enumerated rather than counted because "8 chapters exist" could pass with
+      3 old + 5 new (round 1, F7).
+- [ ] **The manual reads front-to-back as a walkthrough**, not as 12 isolated
+      essays: the README carries the orientation section and its TOC is in
+      reading order, each chapter points at the next, and the
+      visual-pipeline (authoring-time) / studio (use-time) boundary holds with
+      neither restating the other (round 3).
+- [ ] **The README's "Outside this manual" section exists** and links the
+      operational, edge, dev-tooling, spec-layer, and generated-reference homes —
+      so the ops exclusion is navigable after this plan-review PR closes.
 - [ ] **5 new specs** exist in `docs/ai-context/` and are routed from
       `AGENTS.md`.
 - [ ] **Zero TOC rows read *partial — pending fix*** — and if one does, PR 12 is
@@ -688,9 +815,15 @@ subsystem narrative into it would blur what it is for.
       identified). Cleared only by the fix landing and the claim being grounded,
       or by David explicitly revising the promised coverage so close-out names
       the excluded area instead of claiming full coverage.
-- [ ] **Every chapter carries a `Verified against <sha> (<date>)` line**, and the
-      pre-close-out re-grounding sweep (method step 8) has been run against
-      current `main` — including a re-run if PR 12's base advanced.
+- [ ] **Every chapter carries a `Verified against <sha> (<date>) · claim
+      inventory in PR #<N>` line**, and the pre-close-out re-grounding sweep
+      (method step 8) has been run against current `main` — **by re-deriving each
+      chapter's enforcement set and diffing its whole owning subsystem**, not by
+      diffing only the paths the chapter cites (round 3) — including a re-run if
+      PR 12's base advanced.
+- [ ] **Every PR body carries its chapter's full claim table** (claim →
+      disposition → grounding source), not a grouped summary, so any claimed
+      verification is traceable without my session (round 3).
 - [ ] **PR 1's pre-edit fact inventory exists** and shows a disposition
       (relocate / retain as narrative / replace with link) for every claim in
       `background-work.md`'s machinery section, with the reduced chapter still
@@ -746,4 +879,18 @@ which is the loop working as intended. All verified; none rebutted.
 | R2-3 | 2 | **New:** chapters are verified once, so a chapter grounded at PR 2 can be falsified by an unrelated merge before PR 12, and CI can't catch it (the gate checks links/paths, not behavior) | P1 | **Resolved** — method step 8: an in-chapter `Verified against <sha>` baseline, a pre-close-out re-grounding sweep, and a re-run if PR 12's base advances |
 | F6b | 2 | **F6 still open:** the dependency graph omitted the `PR 2–11 → PR 1` edge that the steps stated twice — an executor following the graph could land a chapter before the de-fork | P2 | **Resolved** — edge added; graph now represents every ordering constraint stated in the steps |
 
-**Still open: 0.**
+**Round 3 — lens: cold-start executability + whether the promised artifact is
+actually a good manual.** 5 findings (3×P1, 2×P2) against `558dc10`. One
+re-opened R2-3; four were new, and two of them (R3-3, R3-5) are the first
+findings in this loop about **reader value** rather than process. All verified;
+none rebutted.
+
+| # | Round | Finding | Severity | Status |
+| --- | --- | --- | --- | --- |
+| R2-3b | 3 | **R2-3 still open:** the sweep was scoped to each chapter's *cited* paths, but `docs/manual/README.md` deliberately limits citations to a few stable entry points — so a **newly added** writer/route/caller, the likeliest thing to break a documented invariant, would never enter the sweep | P1 | **Resolved** — the sweep now **re-derives the enforcement set** (every writer to the field, the current handler set) and diffs the **whole owning subsystem**, not the cited files |
+| R3-2 | 3 | The only complete claim inventory lived in a scratchpad; the PR body kept a summary — making the promised verification unauditable, and contradicting the *Risks* section's promise to give reviewers the claim set | P1 | **Resolved** — the full claim → disposition → source table goes in every PR body, and each chapter's baseline line names the PR carrying it |
+| R3-3 | 3 | **No reader-first sequence.** PR 0 only installed a TOC; ordering came from the coverage map. A cold executor could pass every filename and heading check and ship 12 isolated subsystem essays, with the visual-pipeline/studio boundary unspecified | P1 | **Resolved** — added a reading-order section following `product-brief.md`'s core loop, an orientation section in the shipped README, an explicit authoring-time vs. use-time boundary, and a front-to-back DoD item |
+| R3-4 | 3 | The DoD's per-file criteria contradicted the coverage map — it demanded an additive taxonomy section (map says drift corrections only) and described background-work as only de-forked (map also assigns it the email-queue section) | P2 | **Resolved** — per-file criteria now match the map exactly |
+| R3-5 | 3 | The ops exclusion existed only in this plan, which never reaches `main` — so the shipped README would claim full coverage with no pointer to where diagnostics/deployment material lives | P2 | **Resolved** — PR 0 adds an "Outside this manual" section to the shipped README; the decision survives this PR's closure |
+
+**Still open: 0.** Rounds completed: 3.
