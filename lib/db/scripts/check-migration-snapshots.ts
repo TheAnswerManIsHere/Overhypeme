@@ -321,6 +321,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Drizzle's snapshot format cannot represent anyway. Source of truth:
   // lib/db/src/schema/membershipEntitlements.ts + auth.ts.
   "0094_membership_entitlements",
+
+  // Entitlement model part 2: drops the legacy `subscriptions` and
+  // `lifetime_entitlements` tables once every writer has moved onto
+  // membership_entitlements. Two DROP statements — no schema delta drizzle-kit
+  // can express against a snapshot chain it cannot regenerate. Source of truth:
+  // lib/db/src/schema/memberships.ts (both tables removed).
+  "0095_drop_legacy_membership_tables",
 ]);
 
 interface JournalEntry {

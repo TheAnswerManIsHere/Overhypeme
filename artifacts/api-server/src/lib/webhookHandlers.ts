@@ -10,7 +10,6 @@ import {
 } from "@workspace/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
-import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
 import { checkoutLineItemsGrantMembership, subscriptionGrantsMembership } from "./membershipPricing";
 import { notifyAdminsOfDispute, notifyAdminsOfFraudWarning } from "./adminNotify";
 import { notifyUserAccessRevoked } from "./userNotify";

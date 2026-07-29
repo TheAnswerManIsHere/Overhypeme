@@ -31,6 +31,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import {
   deriveEffectiveMembership,
+  qualifySource,
   GRACE_WINDOW_MS,
   type DerivedMembership,
   type EntitlementSourceSnapshot,
@@ -459,6 +460,27 @@ export async function applyDisputeTransition(
   }
 
   return { outcome: "applied", isTerminal, lostRevocationWritten };
+}
+
+/**
+ * Does this user hold a lifetime entitlement that currently QUALIFIES?
+ *
+ * The seven callers this replaces all asked "does a lifetime row exist", which
+ * is the wrong question under a model that deliberately RETAINS refunded and
+ * dispute-revoked rows for the audit trail. A refunded purchase keeps its row
+ * forever, so bare existence would report the user as a lifetime member
+ * indefinitely — and, at the routes that block lifetime members from cancelling,
+ * would lock a refunded user out of managing a subscription they do have.
+ *
+ * Answered by the same derivation as the tier, so the two cannot disagree.
+ */
+export async function hasQualifyingLifetimeSource(userId: string): Promise<boolean> {
+  const sources = await loadSourceSnapshots(db, userId);
+  const asOf = new Date();
+  return sources.some(
+    (source) =>
+      source.sourceType === "stripe_lifetime_payment" && qualifySource(source, asOf).qualifies,
+  );
 }
 
 /** Resolve the EXACT source a dispute attaches to. A hold on the wrong source revokes the wrong thing. */

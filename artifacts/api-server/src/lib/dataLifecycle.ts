@@ -1,5 +1,5 @@
 import { db, usersTable, sessionsTable, emailVerificationTokensTable, passwordResetTokensTable } from "@workspace/db";
-import { searchHistoryTable, subscriptionsTable, membershipHistoryTable, lifetimeEntitlementsTable } from "@workspace/db/schema";
+import { searchHistoryTable, membershipHistoryTable, membershipEntitlementsTable } from "@workspace/db/schema";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 
 export function anonymizedUserRef(userId: string): string {
@@ -21,13 +21,27 @@ export async function anonymizePaymentHistoryForUser(userId: string) {
     .set({ userId: ref, stripePaymentIntentId: sql`COALESCE(${membershipHistoryTable.stripePaymentIntentId}, '') || ${'_' + ref}` as unknown as string })
     .where(eq(membershipHistoryTable.userId, userId));
 
-  await db.update(lifetimeEntitlementsTable)
-    .set({ userId: ref, stripeCustomerId: `deleted_${ref}` })
-    .where(eq(lifetimeEntitlementsTable.userId, userId));
-
-  await db.update(subscriptionsTable)
-    .set({ userId: ref, stripeCustomerId: `deleted_${ref}` })
-    .where(eq(subscriptionsTable.userId, userId));
+  // Entitlement rows are NOT rewritten here any more, and cannot be: their
+  // user_id FK has no matching users row once the anonymised reference is
+  // substituted, which is the whole point of an anonymised reference. The
+  // ON DELETE CASCADE on membership_entitlements.user_id removes them with the
+  // user, which is the same end state this anonymisation was reaching for by a
+  // route the FK forbids.
+  //
+  // What DOES still need doing is the grantor label: the W1b provenance columns
+  // reference an ADMIN identity, not the deleted user, so they survive the
+  // cascade and would otherwise leave a purged admin's email in another user's
+  // row forever. `docs/data-lifecycle-retention-matrix.md` already answers this
+  // — irreversible anonymisation where audit integrity is required — so the
+  // label is replaced with a stable opaque token derived from the actor, which
+  // keeps one actor distinguishable from another while removing the identifier.
+  const grantorToken = `deleted-admin-${ref}`;
+  await db.update(membershipEntitlementsTable)
+    .set({ grantedByAdminLabel: grantorToken })
+    .where(eq(membershipEntitlementsTable.grantedByAdminId, userId));
+  await db.update(membershipEntitlementsTable)
+    .set({ revokedByAdminLabel: grantorToken })
+    .where(eq(membershipEntitlementsTable.revokedByAdminId, userId));
 
   return { anonymizedRef: ref };
 }

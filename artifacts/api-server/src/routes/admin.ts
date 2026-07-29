@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -55,6 +55,14 @@ import {
   validateMembershipConfigWrite,
 } from "../lib/membershipTiming";
 import { effectiveTierExpr } from "../lib/membershipState";
+import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
+import {
+  hasQualifyingLifetimeSource,
+  recomputeMembership,
+  writeAdminGrant,
+  writeAdminRevocation,
+} from "../lib/membershipSources";
+import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
 import {
   FACT_ENRICHMENT_CONFIG_KEYS,
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
@@ -73,25 +81,32 @@ import { logger } from "../lib/logger";
 
 const _styleStorage = new ObjectStorageService();
 
+/**
+ * Reinstatement recomputes from AUTHORITATIVE state, not from local rows.
+ *
+ * The old version asked "does a lifetime row exist" and "is there a subscription
+ * whose period has not ended" — two bare-existence reads that both say yes for a
+ * user whose purchase was refunded, or whose subscription Stripe has already
+ * cancelled while the webhook was dropped. And reinstatement is a manual action
+ * that can easily precede a reconciliation pass.
+ *
+ * So it refreshes every Stripe-backed source first. This is a rare,
+ * high-consequence operation, so the extra retrieval is free.
+ */
 async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
-  const lifetimeRows = await db
-    .select({ id: lifetimeEntitlementsTable.id })
-    .from(lifetimeEntitlementsTable)
-    .where(eq(lifetimeEntitlementsTable.userId, userId))
-    .limit(1);
-  if (lifetimeRows.length > 0) return "legendary";
+  try {
+    const { getUncachableStripeClient } = await import("../lib/stripeClient");
+    const stripe = await getUncachableStripeClient();
+    await refreshAllSourcesForUser(stripe, userId);
+  } catch (err) {
+    // Stripe unreachable. Recompute from what we have rather than block the
+    // reinstatement — the result fails CLOSED, since a source we could not
+    // refresh keeps whatever status it last had.
+    logger.warn({ err, userId }, "reinstatement could not refresh Stripe sources — recomputing from local state");
+  }
 
-  const activeSubRows = await db
-    .select({ id: subscriptionsTable.id })
-    .from(subscriptionsTable)
-    .where(and(
-      eq(subscriptionsTable.userId, userId),
-      gt(subscriptionsTable.currentPeriodEnd, new Date()),
-    ))
-    .limit(1);
-  if (activeSubRows.length > 0) return "legendary";
-
-  return "registered";
+  const result = await db.transaction((tx) => recomputeMembership(tx, userId));
+  return result?.tier === "legendary" ? "legendary" : "registered";
 }
 
 const router: IRouter = Router();
@@ -174,8 +189,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
-  if (body["membershipTier"] !== undefined && ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"])))
-    updates.membershipTier = String(body["membershipTier"]) as "unregistered" | "registered" | "legendary";
+  // `membershipTier` is deliberately NOT accepted here. It is derived from
+  // entitlement sources, and accepting it would let an admin write a value the
+  // next recompute silently reverts — the failure mode being that the change
+  // appears to work and then does not. Comping a membership is
+  // POST /admin/users/:id/grant-lifetime, which writes an entitlement.
   if (body["pronouns"] !== undefined) {
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
@@ -291,11 +309,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 2.5: Cancel active Stripe subscription (non-fatal — user is being permanently deleted)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -303,13 +325,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[hard-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[hard-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -321,8 +345,11 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 3: Delete records with NOT NULL user_id FKs and no cascade
       currentStage = "membership";
       await db.delete(stripeCheckoutRequestLedgerTable).where(eq(stripeCheckoutRequestLedgerTable.userId, id));
-      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
-      await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+      // membership_entitlements is NOT deleted here: its user_id FK is
+      // ON DELETE CASCADE, so the rows go with the user in step 5. Deleting
+      // them explicitly would also destroy the disputes that cascade off them
+      // before the user row is gone, for no benefit.
+
       await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
       await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
       await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
@@ -357,11 +384,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 1: Cancel active Stripe subscription (non-fatal)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -369,13 +400,23 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
+              // Apply the cancellation LOCALLY rather than waiting for the
+              // webhook. Under a derived model, leaving the row `active` means a
+              // later reinstatement recomputes Legendary for a user whose
+              // subscription Stripe has already cancelled — and "the webhook
+              // usually closes the gap" is exactly what this model refuses.
+              await refreshSubscriptionSource(stripe, subscriptionId, {
+                transitionEvent: "subscription_cancelled",
+              });
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[soft-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -410,26 +451,41 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   const id = String(req.params["id"] ?? "");
   try {
     const [lifetimeRows, subRows, historyRows] = await Promise.all([
+      // A lifetime PURCHASE and an admin GRANT are now different source types,
+      // where the old schema conflated them: a comp was a lifetime row with a
+      // synthesized payment-intent id and amount 0. This screen shows both, and
+      // says which is which.
       db.select({
-        id: lifetimeEntitlementsTable.id,
-        userId: lifetimeEntitlementsTable.userId,
-        stripePaymentIntentId: lifetimeEntitlementsTable.stripePaymentIntentId,
-        stripeCustomerId: lifetimeEntitlementsTable.stripeCustomerId,
-        amount: lifetimeEntitlementsTable.amount,
-        currency: lifetimeEntitlementsTable.currency,
-        status: lifetimeEntitlementsTable.status,
-        grantedByAdminId: lifetimeEntitlementsTable.grantedByAdminId,
-        createdAt: lifetimeEntitlementsTable.createdAt,
-        grantedByAdminDisplayName: usersTable.displayName,
-        grantedByAdminEmail: usersTable.email,
+        id: membershipEntitlementsTable.id,
+        userId: membershipEntitlementsTable.userId,
+        sourceType: membershipEntitlementsTable.sourceType,
+        stripePaymentIntentId: membershipEntitlementsTable.providerRef,
+        amount: membershipEntitlementsTable.amount,
+        currency: membershipEntitlementsTable.currency,
+        status: membershipEntitlementsTable.lifecycleStatus,
+        isMembershipProduct: membershipEntitlementsTable.isMembershipProduct,
+        disputeLossRevokedAt: membershipEntitlementsTable.disputeLossRevokedAt,
+        grantedByAdminId: membershipEntitlementsTable.grantedByAdminId,
+        grantedByAdminLabel: membershipEntitlementsTable.grantedByAdminLabel,
+        grantReason: membershipEntitlementsTable.grantReason,
+        createdAt: membershipEntitlementsTable.createdAt,
       })
-        .from(lifetimeEntitlementsTable)
-        .leftJoin(usersTable, eq(lifetimeEntitlementsTable.grantedByAdminId, usersTable.id))
-        .where(eq(lifetimeEntitlementsTable.userId, id))
-        .limit(1),
-      db.select().from(subscriptionsTable)
-        .where(eq(subscriptionsTable.userId, id))
-        .orderBy(desc(subscriptionsTable.createdAt))
+        .from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          or(
+            eq(membershipEntitlementsTable.sourceType, "stripe_lifetime_payment"),
+            eq(membershipEntitlementsTable.sourceType, "admin_grant"),
+          ),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
+        .limit(5),
+      db.select().from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
         .limit(1),
       (() => {
         const adminUsers = alias(usersTable, "admin_users");
@@ -457,10 +513,10 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
     const appSub = subRows[0] ?? null;
 
     let stripeSub: Record<string, unknown> | null = null;
-    if (appSub?.stripeSubscriptionId) {
+    if (appSub?.providerRef) {
       const result = await db.execute(
         sql`SELECT s.id, s.status, s.current_period_start, s.current_period_end, s.cancel_at_period_end, s.canceled_at, s.created
-            FROM stripe.subscriptions s WHERE s.id = ${appSub.stripeSubscriptionId} LIMIT 1`,
+            FROM stripe.subscriptions s WHERE s.id = ${appSub.providerRef} LIMIT 1`,
       );
       stripeSub = (result.rows[0] as Record<string, unknown>) ?? null;
     }
@@ -469,7 +525,8 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
     const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
 
     res.json({
-      isLifetime: lifetimeRows.length > 0,
+      // Qualification, not existence: a refunded purchase keeps its row.
+      isLifetime: await hasQualifyingLifetimeSource(id),
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
@@ -556,45 +613,59 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
   }
 });
 
-// POST /admin/users/:id/grant-lifetime — manually grant Legendary for Life
+// POST /admin/users/:id/grant-lifetime — comp a membership
+//
+// W1b: an admin comp is an ENTITLEMENT with an actor, a label and a reason —
+// never a payment. What this replaces inserted a `lifetime_entitlements` row
+// with a synthesized payment-intent id (`admin_grant_<timestamp>_<random>`),
+// `stripeCustomerId: "admin_grant"` and `amount: 0`, which is indistinguishable
+// from a real purchase in any payment audit, and then set the tier by hand.
 router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const [existing, userRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
-      db.select({ stripeCustomerId: usersTable.stripeCustomerId }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
+    const [userRows] = await Promise.all([
+      db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
     ]);
-    if (existing.length > 0) {
-      res.status(400).json({ error: "User already has Legendary for Life" });
-      return;
-    }
     if (!userRows[0]) {
       res.status(404).json({ error: "User not found" });
       return;
     }
 
-    const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.insert(lifetimeEntitlementsTable).values({
-        userId: id,
-        stripePaymentIntentId: fakePaymentIntentId,
-        stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
-        amount: 0,
-        currency: "usd",
-        grantedByAdminId: adminUserId,
-      });
-      await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
+    const actor = req.user!;
+    // The only constructor for a grant. It throws rather than returning a
+    // partial record, so a blank actor or reason cannot reach the database and
+    // be discovered at a constraint — or not at all, if a future writer bypasses
+    // the constraint's shape.
+    const grant = authorizeAdminGrant({
+      userId: id,
+      grantedByAdminId: actor.id,
+      grantedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+      grantReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Comped by an administrator",
+    });
+
+    const outcome = await db.transaction(async (tx) => {
+      const { created } = await writeAdminGrant(tx, grant);
+      if (!created) return { created: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "lifetime_purchase",
-        plan: "lifetime",
-        amount: 0,
-        currency: "usd",
-        stripePaymentIntentId: fakePaymentIntentId,
-        performedByAdminId: adminUserId,
+        event: "admin_grant",
+        performedByAdminId: actor.id,
       });
+      // The tier is DERIVED, not assigned. This is the same recompute every
+      // other writer calls.
+      await recomputeMembership(tx, id);
+      return { created: true as const };
     });
+
+    if (!outcome.created) {
+      // The partial unique index on active admin grants makes a duplicate
+      // submission — or a retry after an uncertain response — a no-op rather
+      // than a second qualifying row that would survive a later revoke.
+      res.status(400).json({ error: "User already has an active admin grant" });
+      return;
+    }
 
     const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     res.json({ success: true, user: updated });
@@ -604,26 +675,39 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
   }
 });
 
-// POST /admin/users/:id/revoke-lifetime — remove Legendary for Life entitlement
+// POST /admin/users/:id/revoke-lifetime — revoke an admin grant
+//
+// W1b's revocation clause: the grant is marked revoked WITH provenance, never
+// deleted. Deleting it — which is what this replaces — destroys the record that
+// a human granted and a human took it away, and history is append-only.
 router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const existing = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1);
-    if (existing.length === 0) {
-      res.status(400).json({ error: "User does not have Legendary for Life" });
-      return;
-    }
+    const actor = req.user!;
+    const revocation = authorizeAdminRevocation({
+      revokedByAdminId: actor.id,
+      revokedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+      revokedReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Revoked by an administrator",
+    });
 
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+    const outcome = await db.transaction(async (tx) => {
+      const { revoked } = await writeAdminRevocation(tx, id, revocation);
+      if (!revoked) return { revoked: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "subscription_cancelled",
-        plan: "lifetime",
-        performedByAdminId: adminUserId,
+        event: "admin_revoke",
+        performedByAdminId: actor.id,
       });
+      await recomputeMembership(tx, id);
+      return { revoked: true as const };
     });
+
+    if (!outcome.revoked) {
+      res.status(400).json({ error: "User does not have an active admin grant" });
+      return;
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -667,10 +751,49 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
-    const [created] = await db
-      .insert(usersTable)
-      .values({ email, passwordHash, displayName, membershipTier, isAdmin, isActive: true })
-      .returning();
+    // Settled decision 8: admin user-creation writes an ENTITLEMENT, never a
+    // tier. Creating a user at `legendary` directly would put the one field this
+    // whole model derives back under manual control, and the first recompute
+    // would silently undo it — the user would appear Legendary until any event
+    // touched them, then drop.
+    const actor = req.user!;
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(usersTable)
+        .values({
+          email,
+          passwordHash,
+          displayName,
+          // Never `legendary`: that tier is granted below, through the model.
+          membershipTier: membershipTier === "legendary" ? "registered" : membershipTier,
+          isAdmin,
+          isActive: true,
+        })
+        .returning();
+
+      if (membershipTier === "legendary") {
+        await writeAdminGrant(
+          tx,
+          authorizeAdminGrant({
+            userId: row.id,
+            grantedByAdminId: actor.id,
+            grantedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+            grantReason: "Created as a Legendary member by an administrator",
+          }),
+        );
+        await tx.insert(membershipHistoryTable).values({
+          userId: row.id,
+          event: "admin_grant",
+          performedByAdminId: actor.id,
+        });
+        await recomputeMembership(tx, row.id);
+        const [refreshed] = await tx.select().from(usersTable).where(eq(usersTable.id, row.id)).limit(1);
+        return refreshed ?? row;
+      }
+
+      return row;
+    });
+
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
   } catch (err: unknown) {
