@@ -183,10 +183,23 @@ submission is exactly what a maintained library prevents.
 responses from a remote host, and a malformed or hostile document must not become an
 availability or memory problem:
 
-- **DTDs rejected and custom entity processing disabled** — `processEntities: false`, no
-  DOCTYPE accepted. Entity expansion is the classic XML attack and the parser enables
-  custom entities by default.
-- **Response body capped** before parsing, with a nesting-depth limit.
+- **DTDs rejected by an explicit pre-parse gate, not by a parser option.**
+  `processEntities: false` disables *expansion* but does **not** reject a document
+  containing a DOCTYPE — 5.5.9 parses
+  `<!DOCTYPE foo [<!ENTITY x "boom">]><foo>&x;</foo>` successfully under that option and
+  returns the literal reference. So the mechanism is ours: **before the body reaches the
+  parser, reject any response whose content contains a `<!DOCTYPE` declaration**, with
+  `processEntities: false` retained as defence in depth rather than as the control.
+
+  The hostile-DTD test therefore asserts that a **harmless** DOCTYPE with no entity
+  declaration is *also* rejected. Otherwise the test could pass because expansion happened
+  to be off, while the gate it is supposed to prove does not exist.
+- **Response body capped at 1 MiB, read as a bounded stream.** `response.text()` and
+  `arrayBuffer()` buffer the entire remote body *before* any size check could run, so the
+  cap must be enforced during the read: consume `response.body` and abort once the
+  threshold is crossed. ISPWS responses are small XML acknowledgements; 1 MiB is orders of
+  magnitude of headroom.
+- **Nesting depth capped at 50** via the parser's `maxNestedTags`.
 - Advisories and the changelog for the pinned version reviewed at adoption, and the pin
   recorded so an upgrade is a deliberate decision rather than a transitive drift.
 
@@ -199,6 +212,19 @@ configured-and-hoped.
 (`lib/asyncJobs.ts`) rather than building a bespoke worker. It provides durable rows,
 `FOR UPDATE SKIP LOCKED` claiming, exponential backoff, boot-time reclaim of stuck
 rows, and `terminalFailure(code, error)` for non-retryable outcomes. Lane: `bulk`.
+
+**The retry budget must be set explicitly — the queue's default is wrong for this.**
+`getRetryConfig`'s defaults give five attempts at 5 min / 30 min / 2 h / 8 h, so a report
+goes final `failed` after roughly **10.5 hours**. NCMEC being unreachable for a day is an
+ordinary event, and under the default every report in that window would exhaust, land
+`failed`, drop out of the reconciler's scope (which only repairs non-final rows), and
+require per-row manual retry — while emitting one alert each. A day-long outage would
+produce a terminal backlog that never resumes on its own plus an alert storm that trains
+an operator to ignore the alert that matters.
+
+So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** (adding 24 h and 48 h
+tail delays), which outlasts any plausible outage; and §5.8 adds a **bulk retry** action
+plus **incident-level alert aggregation** for the case where it does not.
 
 **What the queue does *not* provide, and this plan must therefore supply itself.**
 Three of its properties are load-bearing here and none of them work the way a naive
@@ -325,8 +351,15 @@ Two layers instead:
   required alert is lost permanently. A durable notification that can be orphaned is not
   durable.
 
-  The notification insert carries a report-scoped `dedupeKey` (`ncmec:notify:<reportId>`)
-  so a retried finalization cannot produce duplicate alerts.
+  The notification insert carries a **kind-scoped** dedupe key —
+  `ncmec:notify:failed:<reportId>`, never a bare `ncmec:notify:<reportId>`. The dedupe
+  index covers any non-terminal job for a `(queue, dedupe_key)` pair, so a single key
+  shared with the "awaiting activation" alert (§5.5) would mean: the disabled-state email
+  is still `pending` when submission is enabled, the submission then fails terminally, the
+  failure alert enqueues, **the index returns the existing awaiting-activation job**, and
+  the row commits as final `failed` with nobody ever told it failed. One collided string
+  would have silently defeated invariant 8. Every notification kind gets its own key
+  segment.
 - **The reconciler (§5.3) is the backstop** for every case `run()` cannot cover:
   a crash mid-finalization, exhaustion-boundary crashes, and rows whose job vanished. Its
   repairs are transactional on the same terms (§5.3).
@@ -363,7 +396,7 @@ any `ncmec_reports` row in a non-final state by comparing it against its job:
 | Row state | Job state | Cause | Repair |
 |---|---|---|---|
 | `pending` / `in_progress` | **no job row** | Pre-migration legacy row; row created while submission was disabled; a crash window §5.2.4's transaction does not cover | Enqueue one — **only if `ncmec_submission_enabled`** |
-| `pending` / `in_progress` | `failed` | Terminal failure whose in-`run()` finalization was lost to a crash (§5.2.3) | Set row `failed`, record the code, enqueue an admin notification |
+| `pending` / `in_progress` | `failed` | Terminal failure whose in-`run()` finalization was lost to a crash (§5.2.3) | Set row `failed` with the reconciliation code (below), enqueue an admin notification |
 | `pending` / `in_progress` | `done` | Handler returned success without finalizing | Re-enqueue if enabled — **unless already test-submitted in the current environment** (below) |
 
 **A completed test submission must not re-fire every five minutes.** §7 leaves a
@@ -405,6 +438,15 @@ live worker or an admin retry, must not double-enqueue or clobber. Every repair 
   non-final, there is **no unexpired lease**, and there is still no non-terminal job for
   that key. A stale `failed` observation must not mark a row failed after an admin retry
   has already acquired its lease.
+
+**The reconciler cannot recover the ISPWS code, and must not pretend to.** `async_jobs`
+persists only `last_error`; `HandlerResult.code` is never written to the queue row
+(`asyncJobs.ts` finalizer, `schema/asyncJobs.ts`), and this plan forbids re-deriving a
+code by parsing an error string. So when in-`run()` finalization is lost, the true ISPWS
+code is genuinely gone. The repair writes an explicit **`last_error_code = -1`
+("reconciled — original code lost")** rather than inventing a plausible one, and the
+notification says so. A wrong code is worse than a missing one here: it would be
+classified, filtered, and acted on as though it were real.
 
 **The lease predicate must be `submission_lease_until IS NULL OR submission_lease_until <
 now()`** — identical to acquisition (§5.2.2), never a bare `< now()`. In Postgres
@@ -453,6 +495,25 @@ Additive on `ncmec_reports`:
 | `manually_filed_at` | `timestamptz` | §5.3 — filed by a human through the manual form |
 | `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
+| `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
+
+**And additive on `quarantined_memes`** — this table was missing from an earlier revision
+of this section entirely, so §5.7's provenance requirement had no schema behind it:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `content_origin` | `varchar(16)` | `generated` \| `user_upload` \| `stock` \| `template` \| `identity`, **nullable** — null means genuinely unknown, and §5.7 omits the annotation rather than guessing |
+
+Both columns carry a CHECK constraint over the same value list, kept in lockstep with a
+`CONTENT_ORIGINS` constant the same way `NCMEC_SUBMISSION_STATUSES` is.
+
+**`is_generative` is not stored.** An earlier revision described it as a derived column
+alongside `content_origin`, which is two representations of one fact and therefore two
+things that can disagree — the report would then depend on which one the mapping happened
+to read. It is computed where it is used (`content_origin === 'generated'`) and nowhere
+persisted.
+
+| `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable |
 
 `report_id` (existing, `varchar(64)`) holds the ISPWS-assigned **production** report id.
 No new column needed — the existing one was declared for exactly this.
@@ -512,8 +573,10 @@ reconciler will not touch it either, so nothing else surfaces it.
 Two changes make the waiting state honest:
 
 - **The disabled-path notification is enqueued as an `email` job in the same transaction
-  as the row insert** (§5.2.4's transaction), with `dedupeKey: ncmec:notify:<reportId>`.
-  Durable, retried by the queue, and impossible to orphan.
+  as the row insert** (§5.2.4's transaction), with
+  `dedupeKey: ncmec:notify:awaiting:<reportId>` — kind-scoped, distinct from the
+  terminal-failure key (§5.2.3), so a still-pending awaiting-activation alert can never
+  swallow a later failure alert.
 - **`/admin/safety` surfaces an explicit "awaiting activation" count** rather than letting
   those rows read as an ordinary backlog. A number an operator can see is what turns a
   parked row into a decision.
@@ -694,9 +757,23 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
     (§5.2.2), so a worker that acquired earlier cannot resurrect a row an operator has
     since marked. Whichever ordering occurs, exactly one outcome survives and it is never
     a duplicate filing.
+- `POST /admin/safety/reports/bulk-retry` — resets and re-enqueues **every** `failed` row
+  matching a filter (typically "failed since <time> with `last_error_code` in the retryable
+  set"), using the same fenced per-row transition as single retry. This is the post-outage
+  recovery path: after a multi-day NCMEC outage the per-row button would mean enumerating
+  and clicking through the entire backlog by hand, which is not a recovery mechanism —
+  it is a way to miss reports.
 - `GET  /admin/safety/connectivity` — calls ISPWS `GET /status` and reports
   reachability and which environment is configured. This is the "is it actually
   working?" answer that no amount of row-reading gives.
+
+**Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
+report is correct at one failure and actively harmful at two hundred — the volume trains an
+operator to filter the channel, which is a worse outcome than a quieter alert. So failures
+occurring within a rolling window collapse into **one incident alert** ("47 reports failed
+against `report.cybertip.org`, first at 03:12, last at 09:48, dominant code 1000") linking
+to the filtered ledger. Per-report `last_error` / `last_error_code` remain on each row —
+the aggregation is in the *notification*, never in the record.
 
 Frontend: `artifacts/overhype-me/src/pages/admin/safety.tsx`, modeled on
 `emailQueue.tsx` (815 lines — a durable-queue admin page with statuses, the closest
@@ -726,10 +803,20 @@ a misconfigured log has to reach to find one; and it puts a raw internal UUID on
 surface, which this repo's conventions do not exempt admins from.
 
 `evidenceUri` and any storage path are therefore omitted from **both** the API response and
-the DOM, replaced by a human-readable preservation status ("evidence preserved · expires
-2028-03-01"). §6 asserts that neither the endpoint payload nor the rendered page contains
+the DOM. §6 asserts that neither the endpoint payload nor the rendered page contains
 `restricted/` or the object UUID — an assertion on the response body, not just on what the
 component chooses to render.
+
+**What replaces it is the retention deadline, not a claim that the evidence exists.** An
+earlier revision showed "evidence preserved · expires 2028-03-01" — but this plan persists
+no deletion or existence marker, and it cannot depend on the companion plan to add one. A
+report row plus a future expiry proves preservation is *required*; it proves nothing about
+whether the object is still there. "Preserved" would be an assertion the system has no
+basis for, displayed on the one surface an operator would trust for exactly that question.
+
+So the field reads **"preservation required until 2028-03-01"** — derivable entirely from
+`evidence_retention_until`, and true regardless of storage state. When the companion plan
+lands its lifecycle marker, this can become an existence claim honestly.
 
 ## 6. Testing
 
@@ -757,9 +844,26 @@ Client (fake `fetch`, no network):
   Without it, a silently-skipped or misconfigured validator looks identical to a passing one.
 - XML escaping of hostile characters in filenames and metadata, asserted separately from
   schema conformance.
-- **Parser hardening** (§5.1): a response containing a hostile DTD / entity-expansion
-  payload is rejected rather than expanded, and an oversized response is refused before
-  parsing.
+- **Parser hardening** (§5.1), asserted against the real mechanisms rather than the
+  intent:
+  - A hostile DTD (`<!DOCTYPE foo [<!ENTITY x "boom">]>…`) is **rejected**.
+  - A **harmless** DOCTYPE with no entity declaration is **also rejected** — the case that
+    distinguishes a real pre-parse gate from expansion merely being disabled.
+  - Byte cap: a body at **exactly 1 MiB** is accepted, **one byte over** is refused, and
+    the refusal happens **during** the read — asserted with a missing and with a
+    deliberately false `Content-Length`, since a cap that trusts the header is not a cap.
+  - XML nested beyond **50** levels is refused.
+
+Outage behavior (§5.2, §5.8):
+- A simulated outage **longer than the retry horizon** leaves every affected report either
+  automatically resumed or recoverable through one bulk-retry action — never requiring
+  manual enumeration.
+- Two hundred concurrent failures produce **one** incident alert, not two hundred emails,
+  while each row still carries its own `last_error_code`.
+- Notification dedupe keys are kind-scoped: an awaiting-activation alert still `pending`
+  when a submission fails terminally does **not** suppress the failure alert.
+- A lost finalization repaired by the reconciler records `last_error_code = -1` and says
+  the original code was lost, rather than reporting a code it cannot know.
 
 Evidence handling:
 - **`getObjectEntityDownloadURL` is never called with a `restricted/` path** during
