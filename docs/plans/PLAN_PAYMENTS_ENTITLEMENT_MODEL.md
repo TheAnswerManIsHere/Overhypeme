@@ -774,10 +774,46 @@ transactional outbox was adopted to prevent, reached by a different route.
    claim back so Stripe's retry can redo the whole unit. Swallowing is
    acceptable only outside a transaction, where there is nothing to roll back.
 
+**The worker does not "already answer it" — that claim was wrong.** Revision 15
+justified moving the early returns by saying the handler returns `ok` when
+Resend is unconfigured (`email.ts:233-236`). **The handler is never reached.**
+`asyncJobsTick` calls `deferEmailWhileDeliveryDisabled` *inside the claim
+transaction, before* the `processing` update (`asyncJobs.ts:564`), and when
+delivery is unconfigured that helper resets the row to `pending` with a
+five-minute `next_attempt_at` and returns true, so the loop `continue`s
+(`:172-190`). An unconfigured deployment would therefore cycle every
+newly-unconditional email row forever rather than no-op it.
+
+**Specification, corrected — and deliberately narrow.** The existing deferral
+is *not* changed: leaving mail pending until delivery is configured is
+sensible, and rewriting queue policy is out of scope (see *Scope boundary*).
+What changes is only the enqueue and the claim made about it:
+
+- The outbox row is written unconditionally, as above. It records that a
+  notification is **owed**.
+- When delivery is unconfigured, that row **stays pending** until it is
+  configured. It is not delivered and it is not no-opped. The plan's earlier
+  acceptance ("the worker records a no-op delivery") is **withdrawn**.
+
+**Test-key isolation needs enqueue-time metadata, because suppression moved.**
+Today the test-key check suppresses the *enqueue* (`email.ts:136-147`), which
+is what stops a real-key dev worker sharing the database from delivering test
+rows — the hazard that comment describes. Making the enqueue unconditional
+removes that protection, and a worker holding a real key cannot infer that some
+other process enqueued a row under `re_test_dummy`.
+
+**Specification:** the enqueue records a durable, non-secret **key-mode
+discriminator** (`test` / `live`) on the job payload, and the handler delivers
+only when the running process's mode matches. Suppression moves from
+enqueue-time to delivery-time without losing the isolation, and it is a
+property of the row rather than of whichever process happens to pick it up.
+
 **Acceptance:** with Resend unconfigured, a refund still writes its outbox row
-and the worker records a no-op delivery; force the outbox insert to fail inside
-apply and assert the mutation **and** the claim roll back and Stripe's retry
-succeeds.
+and that row **remains pending**, undelivered, until delivery is configured —
+then delivers once; force the outbox insert to fail inside apply and assert the
+mutation **and** the claim roll back and Stripe's retry succeeds; and run **two
+workers against one database**, one with a real key and one with a test key,
+and assert neither delivers the other's rows.
 
 **No fire-and-forget `void` call may appear inside apply.** Every one of the
 seven sites above is awaited with the executor; "it's only a notification" is
@@ -841,24 +877,64 @@ now depends on:
 
 **Specification:**
 
-- Every side effect enqueued during apply carries a **`side_effect_key`**:
-  `<stripe_event_id>/<notification-kind>/<recipient-id>`. It is written on the
-  claim's transaction, is **unique** (so a redelivered job cannot double-enqueue),
-  and doubles as the Resend `Idempotency-Key` above — one identity, both jobs.
-- **The set of side effects an event owes is derived, not remembered:** the same
-  prepare step that describes the intended writes describes the intended
-  notifications, so recovery can recompute what *should* exist for an event and
-  compare.
-- **Recovery checks both directions**: a claim with no terminal audit row; a
-  `processed` event whose owed side-effect keys have no jobs; and a job whose
-  event has no committed mutation. `ignored_duplicate` is **not** treated as
-  terminal for the original processing outcome — only `processed` or `failed`
-  is.
+**"Derived, not remembered" is withdrawn — the owed set is not recomputable.**
+Revision 15 said recovery could re-run prepare and compare. It cannot, because
+**notification eligibility depends on the pre-apply state, which apply then
+destroys.** The refund path is the proof: `webhookHandlers.ts:370-378` captures
+`wasLegendary` *before* `setMembershipTier`, and notifies only if it was true.
+After apply commits the downgrade — or after any later event moves the user —
+re-running prepare sees `registered`, concludes no notification was owed, and
+so **cannot detect that a job was deleted**. The acceptance I wrote could never
+have passed.
+
+**Specification: the owed set is persisted, on the claim's transaction.** A
+**`membership_side_effects`** table is written in the same transaction as the
+claim and the mutation:
+
+| Column | Note |
+|---|---|
+| `side_effect_key` | **unique, all-lifetime** — `<stripe_event_id>/<kind>/<recipient-id>` |
+| `stripe_event_id`, `kind`, `recipient_id` | the components, for querying |
+| `owed_at` | when the event established the obligation |
+| `job_id` | the `async_jobs` row enqueued for it, nullable |
+| `delivered_at` | set when that job reaches `done`, nullable |
+
+This is the durable record; the `async_jobs` row is a **delivery attempt
+derived from it**, not the record itself. Distinct kinds or recipients for one
+event get distinct keys, so an event owing two notifications is expressible.
+
+**This is also why uniqueness lives here rather than on `async_jobs`.**
+Mapping `side_effect_key` onto the existing `dedupeKey` cannot give the
+all-lifetime uniqueness the plan claimed: `async_jobs_dedupe_idx` covers only
+`pending`/`processing` rows (`schema/asyncJobs.ts:38-41`), and `enqueueJob`
+**deliberately** inserts again once a prior row is `done` or `failed` — its own
+doc comment says so, because repeatable actions depend on it. Broadening that
+index would change queue semantics for every other caller, which is both a
+regression and outside this plan's boundary. Putting the constraint on **our**
+table gets the guarantee without touching theirs.
+
+**Recovery checks both directions, against the manifest:**
+
+- a claim with no terminal audit row;
+- a manifest row with **no job**, or whose job vanished — re-enqueue from the
+  manifest, which is possible precisely because the obligation was persisted
+  rather than recomputed;
+- a job with no manifest row — an orphan, reported;
+- an event with a `processed` audit row and **no manifest rows at all** — the
+  pre-state is unrecoverable, so this is **reported for human review, never
+  guessed**.
+
+`ignored_duplicate` is **not** terminal for the original processing outcome —
+only `processed` or `failed` is.
 
 **Acceptance:** commit a mutation, fail its `processed` audit insert, let
 Stripe's retry append `ignored_duplicate`, and assert recovery still reports the
-event as lacking a recorded outcome; separately, delete an owed job and assert
-recovery detects the `processed`-without-job direction.
+event as lacking a recorded outcome; **delete an owed job immediately and assert
+recovery re-enqueues it from the manifest; then delete another owed job, change
+the user's membership by a later event, and assert recovery still re-enqueues
+correctly** — the case the recompute design could not survive; attempt the same
+`side_effect_key` after its job reaches `done` **and** after `failed`, and
+assert both are rejected while two distinct kinds for one event both succeed.
 
 **Acceptance:** inject a failure after a source write inside apply and prove
 **both** the mutation and the idempotency claim roll back, so Stripe's retry
@@ -898,6 +974,27 @@ and its terminal behaviour was never examined. It is:
    [async-status principle](../ai-context/async-ui-status.md) applied to a queue
    that already has an admin Email Queue page — a query against an existing
    table rendered in an existing surface, not new infrastructure.
+
+**Retention alone does not protect the evidence — a delete endpoint bypasses
+it.** `retainDuringPurge` only governs the *scheduled* sweep. The authenticated
+`DELETE /admin/email-queue?status=failed` route (`admin.ts:3058-3078`) deletes
+**every** email row of that status directly, without consulting the handler or
+looking at `kind`. One admin bulk-clear therefore erases the critical evidence
+and silently clears the indicator that was supposed to be persistent — so the
+mechanism specified above is defeated by an existing button, not by an edge
+case.
+
+**Specification:** critical kinds in terminal `failed` are **excluded
+server-side from generic bulk deletion**, and are removable only through an
+explicit **acknowledgement** — a deliberate act that records who acknowledged
+the failure and when, and which is what clears the indicator. Bulk-clear keeps
+working for ordinary mail. The point is that dismissing a lost dispute alert
+should be a decision someone made and signed, not a side effect of tidying a
+queue.
+
+**Acceptance:** with an unacknowledged critical failure present, call the bulk
+clear and assert the row survives and the indicator stays; acknowledge it and
+assert the indicator clears and the row becomes removable.
 
 **Deliberately not built:** external paging, a third-party alerting dependency,
 or a second delivery channel. Those are real infrastructure, and the failure
@@ -1314,13 +1411,13 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 1 | 1 | Payment proof authority-created | **Resolved** via W1a (branded-type resolution superseded). |
 | 2 | 1 | Serialize per-user mutations | **Resolved** via the round-2 composition fix. |
 | 3 | 1 | Route every tier write centrally | **Resolved** — 15 source-mutation sites enumerated. |
-| 4 | 1 | Backfill from current truth | **Resolved** (supersession overturned in round 4) — the migration now transactionally asserts disposability and aborts before DDL. |
+| 4 | 1 | Backfill from current truth | **Superseded by scope decision 57** (migration machinery deleted). The transactional disposability assertion and its DDL abort are **not built** — the migration is a plain create-and-drop. Do not implement the guard this row describes. |
 | 5 | 1 | Terminal audit handling | **Resolved.** |
 | 6 | 1 | Authoritative ingestion | **Resolved** via the unconditional version guard. |
 | 7 | 1 | Automate reconciliation | **Resolved** — sources reconciled before recompute. |
 | 8 | 2 | Retrieval vs lock composition | **Resolved.** |
 | 9 | 2 | Bound automated downgrades | **Resolved** (supersession overturned in round 4) — restored as a permanent runtime guard; the pre-launch premise covered only the cutover, not a reconciler that runs forever. |
-| 10 | 2 | Stage classification | **Resolved** (supersession overturned in round 4) — subsumed by the transactional migration guard above. |
+| 10 | 2 | Stage classification | **Superseded by scope decision 57** (migration machinery deleted). Stage classification is **not built**; there are no stages. |
 | 11 | 2 | Reconcile sources before recomputing | **Resolved.** |
 | 12 | 2 | Lifetime-revoke in serialization | **Resolved.** |
 | 13 | 2 | Legendary at admin creation | **Resolved** — David settled it: both admin surfaces become entitlement grants; create-user atomically writes an `admin_grant`. |
@@ -1330,14 +1427,14 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 17 | 3 | Ship grace expiry with the cutover | **Resolved** — local expiry sweep moved into Phase 1. My "known gap" framing was wrong. |
 | 18 | 3 | Recover the original grace start | **Resolved** — episode start resolved from the earliest unpaid invoice, not the subscription. |
 | 19 | 4 | Sequence token, not a clock | **Resolved** — `clock_timestamp()` is not unique under concurrency; a sequence is required. |
-| 20 | 4 | Guard the empty cutover | **Resolved** — migration asserts the predicate transactionally. |
+| 20 | 4 | Guard the empty cutover | **Superseded by scope decision 57** (migration machinery deleted). No cutover predicate is asserted — there is no cutover to guard. |
 | 21 | 4 | Reconcile lifetime sources too | **Resolved** — enumeration covers one-time payments, refunds and disputes, not only subscriptions. |
 | 22 | 4 | Restore downgrade bounds | **Resolved** — permanent pre-apply threshold and abort. |
 | 23 | 4 | Move missed-event repair to Phase 1 | **Resolved** — authoritative refresh moves into Phase 1; the sweep alone could not start a grace window that was never opened. |
 | 24 | 4 | Admin revocation provenance | **Resolved** — `revoked_at` plus a status-conditional constraint. |
 | 25 | 5 | Schedule authoritative refresh in Phase 1 | **Resolved** — phasing collapsed; cadence ships with the model. |
 | 26 | 5 | Downgrade bounds around every refresh | **Resolved** — the guard ships with the first mutating refresh. |
-| 27 | 5 | Lock source tables before the disposability check | **Resolved** — explicit `ACCESS EXCLUSIVE` lock on both tables before the predicate; an ordinary `BEGIN` does not block application inserts. |
+| 27 | 5 | Lock source tables before the disposability check | **Superseded by scope decision 57** (migration machinery deleted). **No `ACCESS EXCLUSIVE` lock is taken**, because there is no disposability check to protect. |
 | 28 | 5 | Route tokens minted after provider I/O | **Resolved** — Stripe-mutating routes stop writing provider state and go through the authoritative-refresh path instead. |
 | 29 | 6 | Schema compatibility during the deploy cutover | **Superseded by 32/33** — expand/contract was the right shape but only covered *reads*. Reopened in round 7 for writes and for the contract gate. |
 | 30 | 6 | Rollback strands post-cutover entitlements | **Superseded by 34/35/36** — roll-forward-only was right; the precondition had no way to identify a post-cutover row and the recovery it pointed at was not executable. |
@@ -1348,18 +1445,18 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 35 | 7 | `membership_history` cannot replay valid admin grants | **Superseded by 45** — extending the schema fixed future events only, which is not the population that needs recovering. |
 | 36 | 7 | Downgrade guard blocks the recovery it protects | **Superseded by 46** — staging fixed the guard's view and missed that authorization reads a *second* derived field the revert does not clear. |
 | 37 | 7 | Grace bound unenforced when sweeps fail | **Superseded by 47/48** — read-path enforcement was right; the value was undefined over a source *union*, and I secured only the middleware readers. |
-| 38 | 8 | Bridge trigger cannot write constraint-valid legacy admin rows | **Resolved** — `provenance_completeness` gates the provenance `CHECK`s, so a bridged row records "unknown" honestly instead of raising inside the old instance's transaction or inventing a reason. |
-| 39 | 8 | Legacy `DELETE` conflates revoke with user purge | **Resolved** — `user_id` FK becomes `ON DELETE CASCADE`; the database resolves the ambiguity the trigger cannot see. **Also surfaced that the purge deletes `membership_history`, so the append-only invariant is already false in shipped code** — now an open question for David. |
-| 40 | 8 | Mirrored writes leave `membership_valid_until` stale | **Resolved** — the bridge invokes the full serialized derivation, not a row copy; an old binary's recovery clears the deadline it cannot see. |
-| 41 | 8 | Row trigger is not a commit-time fence | **Superseded by 42** — real, and moot once the gate it supported is gone. |
-| 42 | 8 | A quiet period cannot prove old binaries are gone | **Resolved** — contract replaces the legacy tables with **updatable views** instead of dropping them. A straggler request becomes correct rather than fatal, which removes the obligation to prove absence at all. |
-| 43 | 8 | Marker cardinality unenforced — revert fails **open** | **Resolved** — singleton enforced in DDL; consumers abort unless exactly one row exists, checked before any entitlement is evaluated. |
-| 44 | 8 | Whole-second Stripe timestamps vs sub-second boundary | **Resolved** — boundary truncated to the second and the comparison biased so a same-second entitlement counts as post-cutover and aborts the revert. |
-| 45 | 8 | Legacy history rows remain unreplayable | **Resolved** — deterministic translation table plus a fail-closed disposition; untranslatable rows are reported and refuse recovery rather than being guessed. |
-| 46 | 8 | Stale expiry demotes users during reconstruction | **Resolved** — phase 0 clears `membership_valid_until` before reconstruction; the fail-open window is bounded, operator-initiated and reported. |
+| 38 | 8 | Bridge trigger cannot write constraint-valid legacy admin rows | **Superseded by scope decision 57** (migration machinery deleted). **No bridge trigger exists**; nothing described here is built. |
+| 39 | 8 | Legacy `DELETE` conflates revoke with user purge | **Superseded by scope decision 57** (migration machinery deleted). **No bridge trigger exists.** (39's *separate* discovery survives on its own: the purge deletes `membership_history`, which David formally exempted — see *Must not change*.) |
+| 40 | 8 | Mirrored writes leave `membership_valid_until` stale | **Superseded by scope decision 57** (migration machinery deleted). **No bridge trigger exists**; nothing described here is built. |
+| 41 | 8 | Row trigger is not a commit-time fence | **Superseded by 42, then by scope decision 57** — no gate, no trigger, nothing to fence. |
+| 42 | 8 | A quiet period cannot prove old binaries are gone | **Superseded by scope decision 57** (migration machinery deleted). **No compatibility views exist** — and they were also unbuildable: a view cannot serve `INSERT … ON CONFLICT (col) DO UPDATE` (verified on 16.13). |
+| 43 | 8 | Marker cardinality unenforced — revert fails **open** | **Superseded by scope decision 57** (migration machinery deleted). **No cutover marker exists.** |
+| 44 | 8 | Whole-second Stripe timestamps vs sub-second boundary | **Superseded by scope decision 57** (migration machinery deleted). **No revert boundary exists**, so there is no timestamp comparison to bias. |
+| 45 | 8 | Legacy history rows remain unreplayable | **Superseded by scope decision 57** (migration machinery deleted). **No bridge trigger exists**; nothing described here is built. |
+| 46 | 8 | Stale expiry demotes users during reconstruction | **Superseded by scope decision 57** (migration machinery deleted). **No phase 0 exists**; nothing clears `membership_valid_until` in bulk. |
 | 47 | 8 | `membership_valid_until` undefined over a source union | **Resolved** — null when any indefinitely-valid source qualifies, otherwise the max of the grace-bound deadlines; coexistence tests added. |
-| 48 | 8 | Permission and spending readers bypass expiry | **Resolved** — one shared `getEffectiveMembership` helper; `createMemeRecord.ts:149-179` and `budgetGate.ts:77-98` confirmed as real authorization readers, and the full reader inventory is built by searching the column, not the middleware. |
-| 49 | 9 | Aborted recovery leaves expiry permanently disabled | **Resolved** — the global clear is gone with the revert-recovery procedure it belonged to; recovery is now "redeploy the previous build", which touches no derived state. |
+| 48 | 8 | Permission and spending readers bypass expiry | **Amended by 70/76/79** — the chokepoint stands, but the primitive is the SQL **expression**, the row helper is defined from it, and agreeing surfaces share one instant. **Resolved** — one shared `getEffectiveMembership` helper; `createMemeRecord.ts:149-179` and `budgetGate.ts:77-98` confirmed as real authorization readers, and the full reader inventory is built by searching the column, not the middleware. |
+| 49 | 9 | Aborted recovery leaves expiry permanently disabled | **Superseded by 60** — this row's own resolution ("recovery is redeploy the previous build") was **disproved** in round 10: `migrate.ts` skips applied hashes, so the old build never recreates the dropped tables. Recovery is **roll-forward-only**. Do not implement or rely on a redeploy rollback. |
 | 50 | 9 | Bridge would launder D1's fabricated payment status | **Superseded by 57** — no bridge exists. The principle it established survives as an invariant: no path creates a qualifying paid entitlement from a caller-supplied status. |
 | 51 | 9 | A view cannot serve the legacy `ON CONFLICT` upsert | **Superseded by 57** — verified on PostgreSQL 16.13; the view-based contract is deleted rather than fixed. |
 | 52 | 9 | Revert precondition used `>` against a `>=` rule | **Superseded by 57** — the precondition is deleted. |
@@ -1368,19 +1465,19 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 55 | 9 | Purge policy wrongly called non-blocking | **Resolved** — settled by David: the purge is formally exempted, *Must not change* states the scoped invariant, and it is on the launch revisit list. |
 | 56 | 9 | Verification still demanded the removed contract gate | **Resolved** — acceptance criteria re-derived from the sections they belong to; orphaned items removed. |
 | 57 | — | **Scope decision (David, 2026-07-29): maintenance window.** | The zero-downtime overlap requirement is withdrawn. Findings 29–54 that existed only to serve it are superseded *by the requirement going away*, not by a better mechanism — recorded honestly so nobody rebuilds them believing they were solved. |
-| 58 | 10 | Sequence token taken *after* retrieval is not causal | **Resolved** — the token is taken **before** issuing the retrieval. A stalled older retrieval could otherwise take the larger token and resurrect canceled access; the new ordering fails safe (drops a fresher snapshot, repaired by reconciliation) instead of fail-open. |
+| 58 | 10 | Sequence token taken *after* retrieval is not causal | **Superseded by 66** — token-before-retrieval was the *second* failed ordering scheme. Ordering over provider state cannot be derived from any locally-allocated number. The mechanism is **per-source leases with a fencing token** (73); `source_state_as_of` survives only as defence in depth. |
 | 59 | 10 | Downgrade guard ran after sources were persisted | **Resolved** — the recovery-only phase split is removed; a run stages source *and* tier changes with no mutation, guards once, then commits. Also closes the piecemeal-downgrade path that evaded the bound. |
 | 60 | 10 | "Redeploy the previous build" is not an executable rollback | **Resolved** — verified in `migrate.ts`: applied hashes are skipped, so the old build never recreates the tables. Declared **roll-forward-only**, with the mitigation moved before the migration rather than after. |
 | 61 | 10 | Destructive migration not specified as idempotent | **Resolved** — guarded DDL plus a **second-run no-op** acceptance case. `migrate.ts` already rescues `42P07`/`42P01` via `SAVEPOINT`, but depending on error-code recovery for an expected condition is fragile. |
 | 62 | 10 | The maintenance gate does not exist | **Resolved by deletion** — confirmed no maintenance control exists anywhere in the repo. Rather than build one, the plan states plainly that old instances will error during the rollout and that this costs nothing pre-launch. I had written a runbook step for a control I never checked for. |
-| 63 | 10 | Actor FK breaks when a *grantor* is purged | **Resolved** — actor recorded twice: `_id` (`ON DELETE SET NULL`) and an immutable `_label` snapshot, with the provenance `CHECK` requiring the label. Every single-FK behaviour was wrong: cascade deletes a recipient's entitlement, restrict blocks admin deletion, set-null violates W1b. |
+| 63 | 10 | Actor FK breaks when a *grantor* is purged | **Amended by 71** — the twice-recorded actor (id `ON DELETE SET NULL`, label `NOT NULL`) stands, but the label is **not immutable**: it is overwritten with a stable opaque token on hard delete, per the retention matrix. |
 | 64 | 11 | Staged tier can be committed against a source set a webhook has superseded | **Resolved** — a version-guard rejection invalidates that user's staged tier; re-derive under the lock or drop the user from the run. A hole in round 10's own fix. |
 | 65 | 11 | Incomplete enumeration is indistinguishable from deletion | **Resolved** — completeness tracked per collection; users with a source in an unproven collection are skipped with rows preserved, reported as its own category rather than folded into `failed`. |
 | 66 | 11 | Token-before-issuance still is not causal | **Superseded by per-source leases** — Codex was right and my own text contradicted itself. **Two token schemes both failed**; ordering over *provider state* cannot be derived from any locally-allocated number, so retrieval-and-apply is serialized per source by a committed lease with expiry, holding no transaction across I/O. `source_state_as_of` demoted to a lease-expiry backstop. |
 | 67 | 11 | Webhook transaction would span Stripe I/O | **Resolved** — prepare/apply split; provider retrieval happens before the transaction opens, and every domain write takes a transaction executor so it cannot reach the global `db`. Two long-standing sections that contradicted each other and had never been read together. |
 | 68 | 11 | Reconciliation is not a cross-process singleton | **Resolved** — DB-backed single-flight lease with expiry. Resumable staging and per-item durable status **explicitly deferred** as scale controls, recorded rather than omitted. |
 | 69 | 11 | Two active admin grants possible; revoke marks only one | **Resolved** — partial unique index on one active `admin_grant` per user. The main constraint excluded them because `provider_ref` is null. |
-| 70 | 11 | `getEffectiveMembership` cannot serve set-based readers | **Resolved** — a reusable SQL `effectiveTierPredicate` is the primitive and the row helper is defined from it. The mailing list (`stripeStorage.ts:55-63`) and admin counts (`admin.ts:2543-2556`) filter in SQL and would have kept emailing expired members. Third instance of the same enumeration error. |
+| 70 | 11 | `getEffectiveMembership` cannot serve set-based readers | **Amended by 76** — the shared SQL definition stands, but the primitive is an **expression** (`effectiveTierExpr`), not a predicate; a predicate has no answer for `registered`. Per 79, surfaces that must agree are also evaluated at **one instant**. |
 | 71 | 11 | Immutable actor label conflicts with the retention matrix | **Resolved by existing policy** — `data-lifecycle-retention-matrix.md` already requires anonymization of direct identifiers in payment records, so the label is overwritten with a stable opaque token on hard delete rather than kept forever. Not escalated: the repo had already decided it. |
 | 72 | 11 | No create-time control for a comped account | **Resolved** — explicit "Grant membership" checkbox plus required reason replaces the removed tier selector; the atomic-create capability would otherwise have been silently lost. |
 | 73 | 12 | An expired per-source lease holder is not fenced | **Resolved** — a fence value from a sequence, validated inside the apply transaction under `SELECT … FOR UPDATE`, with compare-and-release. Revision 12 gave that job to `source_state_as_of`, which cannot do it: a successor still retrieving has stored no newer token, so the late write passes the guard. **Third failure of the ordering design**, and the first one whose fix does not depend on a number meaning something it does not. |
@@ -1397,6 +1494,11 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 84 | 14 | "Exactly once" delivery was never true | **Resolved** — the worker claims `processing`, calls Resend, then marks `done` in a *separate* transaction, so a crash redelivers. At-least-once adopted explicitly, narrowed by Resend's `Idempotency-Key` (24 h window vs. a ~10.6 h maximum job lifetime — verified against current docs and `asyncJobs.ts:133`). I had read the enqueue side and claimed a property of the delivery side. |
 | 85 | 14 | Ledger entry 75 still offered the deleted post-commit option | **Resolved** — entry 75 rewritten. A resolution row is an implementation instruction, so a superseded one contradicts the section that superseded it. First finding in this review against the ledger itself rather than the plan body. |
 | 86 | — | **Scope decision (David, 2026-07-29): the notification subsystem stops at revision 15.** | Rounds 11–14 produced 22 findings and **none against the entitlement model** — each round moved one subsystem outward, ending in the async-job queue's adequacy as a payment-alert transport. Entries 80–85 are frozen as specified; further queue-capability findings are recorded as separate work rather than absorbed. See *Scope boundary* for the in/out table. Same shape as 57, and the same governing distinction from round 4: **shed what is adjacent, keep what is load-bearing for correctness.** |
+| 87 | 15 | Moving the enqueue decision breaks disabled-delivery and test-key isolation (#80 Still Open) | **Resolved** — the handler is **never reached** when delivery is unconfigured: `deferEmailWhileDeliveryDisabled` re-pends the row inside the claim loop (`asyncJobs.ts:564`, `:172-190`), so revision 15 would have cycled every email row forever. The deferral is left alone (queue policy, out of bounds); the *claim* is corrected — an owed row simply stays pending. Test-key isolation moves from enqueue-time to delivery-time via a durable key-mode discriminator, because suppressing the enqueue was what protected a shared database. **My change's blast radius outside the payment paths, which is exactly what the round's lens was for.** |
+| 88 | 15 | The owed side-effect set cannot be recomputed (#81 Still Open) | **Resolved by persisting it** — eligibility depends on **pre-apply** state that apply destroys (`webhookHandlers.ts:370-378` captures `wasLegendary` before the downgrade), so "derived, not remembered" was unimplementable and its acceptance could never have passed. A `membership_side_effects` manifest is written on the claim's transaction; the job is a delivery attempt derived from it. |
+| 89 | 15 | `side_effect_key` uniqueness is not achievable on `async_jobs` | **Resolved** — `async_jobs_dedupe_idx` covers only non-terminal rows and `enqueueJob` deliberately re-inserts after `done`/`failed`. Broadening it would change semantics for every other caller — a regression *and* out of bounds. The all-lifetime constraint lives on the manifest table instead, so we get the guarantee without touching the queue. |
+| 90 | 15 | Fourteen ledger rows still instruct withdrawn mechanisms | **Resolved** — entries 4, 10, 20, 27, 38–46 marked **superseded by scope decision 57** with an explicit "not built"; 49's own resolution was disproved by 60 and now says roll-forward-only; 58, 63, 70 and 48 amended to point at 66/73, 71, and 76/79. Round 14 established a resolution row is an implementation instruction; this is that principle applied to the whole ledger rather than one row. |
+| 91 | 15 | Bulk-delete erases the critical-failure evidence (#82 Still Open) | **Resolved** — `retainDuringPurge` governs only the scheduled sweep, while `DELETE /admin/email-queue?status=failed` (`admin.ts:3058-3078`) deletes every failed row regardless of kind. Critical kinds are excluded from generic deletion and clear only via an explicit, attributed acknowledgement. The retention mechanism was defeated by an existing button. |
 
 | Round | Lens |
 |---|---|
@@ -1415,4 +1517,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not — **3 findings, and it answered all three questions in the affirmative: a third unfenced lease, the post-commit list losing required work, and one expression evaluated at two instants** |
 | 14 | **Durability and recovery of the outbox now that everything is transactional.** Round 13 moved every required side effect into `async_jobs` rows written on the claim's transaction and deleted the only escape hatch, so the outbox is now load-bearing for refund, dispute and fraud alerts. Attack that: whether the async-job worker's retry/failure semantics match what a *payment* alert requires, whether a job enqueued on the claim transaction can be orphaned or duplicated, what happens when a job permanently fails, and whether the audit trail (still deliberately outside the transaction) can now disagree with the outbox about what happened. Also: the reconciliation commit now holds many lease locks plus many user locks in one transaction — press on its duration and on what a lock timeout mid-commit does — **6 findings, five of them P1: the largest round since 8. The outbox was adopted for its crash behaviour without anyone reading the worker that drains it, and the lock question was the right one — a *held* lease blocks rather than failing a fence, so the per-source drop was unreachable and the livelock came straight back** |
 | 15 | **Everything round 14 touched is specified against code I read for the first time this round** — the async-job worker, the email helpers' swallow behaviour, `SKIP LOCKED`. So: does each new specification actually match what that code does, or have I described a mechanism that does not behave as assumed, a second time? Specifically — moving the Resend-unconfigured early return out of `sendEmail` changes behaviour for **every other caller in the app**, not just the payment paths; `side_effect_key` uniqueness has to sit inside the existing `enqueueJob` shape and survive redelivery; `SKIP LOCKED` on a *user* row can skip for reasons other than lease contention; and the critical-alert admin indicator is a new read path over `async_jobs` nobody has checked against its indexes. **Blast radius outside the payment paths is the lens** — this remains the right question under the scope boundary below, because containing the blast radius of *my own* changes is explicitly in scope even though deepening the queue is not |
+| 16 | The scope boundary's **first live test**, plus the ledger audit — **5 findings, all five inside the boundary and none needing the boundary invoked. Three were defects in revision 15's own new specifications; one was the ledger instructing 14 withdrawn mechanisms** |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
