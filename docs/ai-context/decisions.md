@@ -13,6 +13,59 @@
 
 ---
 
+### 2026-07-29 · Codex "Exhaustive code review" ON, review trigger stays "On PR open" — and the switch is a dated boundary in the ledger
+- **Decision:** In the Codex connector's code-review settings, **Exhaustive
+  code review is enabled** ("keep looking for additional findings until it
+  stops finding new issues") and the **Review trigger stays `On PR open`** —
+  not `On every push`, and not `Smart Trigger`. Because this changes review
+  behaviour repo-wide, **2026-07-29 is a boundary line in the loop ledger**:
+  rows for loops that closed before this date and rows after it are not
+  measuring the same reviewer, and any trend drawn across the boundary must
+  say so.
+- **Why:** The two settings cut in opposite directions against this repo's
+  workflow. **Exhaustive** attacks a weakness the convergence rules already
+  name and cannot otherwise close — a round that runs short and emits no
+  defect is indistinguishable from a genuinely complete pass, and the only
+  mitigation available was running many rounds under different stated lenses,
+  which is an expensive workaround for shallow rounds. It also changes depth
+  per round rather than cadence, so it disturbs neither the trigger discipline
+  nor the ledger's round accounting. **On every push** was rejected because
+  the manual `@codex review` trigger is not merely a trigger: the plan-review
+  contract requires each round's comment to state the lens and name the prior
+  findings to reconcile, and `code-review.md`'s re-review invariants require
+  asking for the cumulative branch diff after 2+ fix rounds. An automatic
+  push-triggered review carries none of that and sees only the incremental
+  commits — strictly the weaker review those rules exist to force. It would
+  also corrupt the ledger: `rounds` counts completed reviewer events, and
+  convergence criterion (c) requires each round to have had a trigger comment
+  naming a fresh lens, so push-triggered rounds would inflate the count while
+  contributing no lens, and a silent clean auto-round would be
+  indistinguishable from real convergence.
+- **What would reopen the trigger question:** whether draft PRs are exempt
+  from auto-review. Every plan-review PR is a draft, so if drafts are exempt,
+  `On every push` would only affect implementation PRs — where automatic
+  re-review of fix commits *is* a real gain, since that is exactly the code
+  that currently reaches a squash-merge unreviewed when a manual trigger is
+  forgotten. Checked on 2026-07-29: OpenAI's published Codex GitHub docs
+  document neither the trigger options nor draft handling; the only relevant
+  line is that Codex reviews "whenever someone opens a new PR **for review**."
+  This repo's own ledger independently records that draft plan-review PRs
+  receive zero auto-reviews on open — evidence for the *open* case only. The
+  push case cannot be established without enabling it and observing.
+- **Reference:** Enabled by David 2026-07-29 in the ChatGPT → Settings → Code
+  review panel (personal preference; the repository row inherits it via
+  "Follow personal"). The connector's review behaviour is not versioned in
+  this repo, so this entry is the only durable record of when it changed. See
+  [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md) for
+  the rows either side of the boundary.
+- **Revisit if:** post-boundary rows show round counts falling without the
+  self-inflicted finding share falling (exhaustive is finding more per round
+  but the extra findings are our own churn, not new ground); or if the
+  draft-exemption question above is ever settled, which reopens `On every
+  push` for implementation PRs specifically.
+
+---
+
 ### 2026-07-28 · The "lifetime-only upgrade" bug's real root cause was a silently-failed Stripe sync, not plan-selection logic
 - **Decision:** When `/api/stripe/plans` or the admin Billing page appears to
   be missing plans that exist and are correctly tagged in Stripe, check the
