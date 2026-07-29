@@ -22,10 +22,12 @@ import { membershipEntitlementsTable, membershipHistoryTable, usersTable } from 
 import { and, eq } from "drizzle-orm";
 
 import {
+  listAllPages,
   verifyMembershipSubscription,
   verifyOneTimeMembershipPurchase,
   type EntitlementRetriever,
   type UserBinding,
+  type PagedResult,
   type VerificationDeps,
 } from "./entitlementVerification.js";
 import {
@@ -48,13 +50,10 @@ import {
   recomputeMembership,
   runSourceRefresh,
 } from "./membershipSources.js";
-import { GRACE_WINDOW_MS } from "./membershipState.js";
 import { logger } from "./logger.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** How many pages of a Stripe list this module will walk before calling it incomplete. */
-const MAX_PAGES = 20;
 const PAGE_SIZE = 100;
 
 // ---------------------------------------------------------------------------
@@ -202,32 +201,14 @@ async function firstPaymentIntentForInvoice(
   return null;
 }
 
+/** Every charge on a PaymentIntent, or an explicit "could not read them all". */
 async function listAllCharges(
   stripe: Stripe,
   paymentIntentId: string,
-): Promise<{ complete: true; items: Stripe.Charge[] } | { complete: false; reason: string }> {
-  const items: Stripe.Charge[] = [];
-  let startingAfter: string | undefined;
-
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    let response: Stripe.ApiList<Stripe.Charge>;
-    try {
-      response = await stripe.charges.list({
-        payment_intent: paymentIntentId,
-        limit: PAGE_SIZE,
-        ...(startingAfter ? { starting_after: startingAfter } : {}),
-      });
-    } catch (error) {
-      return { complete: false, reason: `page ${page} failed: ${(error as Error).message}` };
-    }
-    items.push(...response.data);
-    if (!response.has_more) return { complete: true, items };
-    const last = response.data[response.data.length - 1];
-    if (!last) return { complete: false, reason: "has_more with no cursor" };
-    startingAfter = last.id;
-  }
-
-  return { complete: false, reason: `exceeded ${MAX_PAGES} pages` };
+): Promise<PagedResult<Stripe.Charge>> {
+  return listAllPages<Stripe.Charge>((params) =>
+    stripe.charges.list({ payment_intent: paymentIntentId, ...params }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -804,5 +785,3 @@ function subscriptionIdForInvoice(invoice: Stripe.Invoice): string | null {
   if (legacy && typeof legacy === "object") return legacy.id;
   return null;
 }
-
-export { GRACE_WINDOW_MS };

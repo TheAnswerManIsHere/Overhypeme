@@ -140,9 +140,21 @@ const PAGE_SIZE = 100;
 /** Bounds a runaway loop. Hitting it is an incomplete enumeration, not a result. */
 const MAX_PAGES = 20;
 
-async function listAll<T extends { id: string }>(
+export type PagedResult<T> =
+  | { complete: true; items: T[] }
+  | { complete: false; reason: string };
+
+/**
+ * Walk a Stripe list to the end, or say why it could not.
+ *
+ * Exported because the rule — a NEGATIVE conclusion over a paginated list is
+ * only sound if the whole list was seen — applies wherever this codebase draws
+ * one, not only inside the verifiers. Two copies of a bounded loop are two
+ * places for the bound to drift.
+ */
+export async function listAllPages<T extends { id: string }>(
   fetchPage: (params: { limit: number; starting_after?: string }) => Promise<Stripe.ApiList<T>>,
-): Promise<{ complete: true; items: T[] } | { complete: false; reason: string }> {
+): Promise<PagedResult<T>> {
   const items: T[] = [];
   let startingAfter: string | undefined;
 
@@ -284,7 +296,7 @@ export async function verifyOneTimeMembershipPurchase(
     );
   }
 
-  const lineItems = await listAll<Stripe.LineItem>((params) =>
+  const lineItems = await listAllPages<Stripe.LineItem>((params) =>
     deps.retriever.listCheckoutLineItems(sessionId, params),
   );
   if (!lineItems.complete) {
@@ -355,7 +367,7 @@ export async function verifyMembershipSubscription(
   // than fit on one page would have the rest silently unexamined, and "no
   // membership item" over a truncated list is exactly the unsound negative
   // conclusion this boundary must not draw.
-  const items = await listAll<Stripe.SubscriptionItem>((params) =>
+  const items = await listAllPages<Stripe.SubscriptionItem>((params) =>
     deps.retriever.listSubscriptionItems(subscriptionId, params),
   );
   if (!items.complete) {
