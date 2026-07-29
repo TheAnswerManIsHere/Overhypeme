@@ -62,13 +62,30 @@ defect regardless of what else the change achieves.
    defines **`classifyWaitingState(row, config)`**, a single function returning **exactly
    one** label by taking the first matching branch in this order:
 
-   | # | Waiting state | Branch condition | Waiting on | Surfaced |
+   | # | State | Branch condition | Waiting on | Surfaced |
    |---|---|---|---|---|
    | 1 | Unaudited backlog | `created_at < cutoff AND backlog_audited_at IS NULL` | The pre-activation audit | §7 step 2, §5.8 |
    | 2 | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at IS NULL` | An operator dispositioning a legacy row | §5.7, §5.8 |
-   | 3 | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
-   | 4 | Test mode — not yet test-submitted | `environment = 'test' AND test_submitted_at IS NULL` | A `send-to-test`, or the production transition | §5.3, §5.8 |
-   | 5 | Test mode — already test-submitted | `environment = 'test' AND test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
+   | 3 | **Test attempt uncertain** | `test_submission_started_at IS NOT NULL AND test_report_id IS NULL` | Portal inspection — `exttest` may hold a submission whose id was lost | §5.8 |
+   | 4 | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
+   | 5 | Test mode — not yet test-submitted | `environment = 'test' AND test_submitted_at IS NULL` | A `send-to-test`, or the production transition | §5.3, §5.8 |
+   | 6 | Test mode — already test-submitted | `environment = 'test' AND test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
+   | 7 | **In flight** | none of the above — eligible, in enabled production | Nothing. It is queued or running | §5.8, as *active*, not as waiting |
+
+   **Branch 7 is why this is a classification of non-final rows, not a list of waiting
+   states.** An audited, identity-resolved row in enabled production is not waiting on
+   anybody — it is queued or executing — and the previous version had no branch for it,
+   which made "every non-final row appears in exactly one count" unsatisfiable in the
+   **normal steady state** rather than in some corner. The classifier now covers every
+   non-final row; `/admin/safety` renders branch 7 as active work and branches 1–6 as
+   things awaiting someone, which is the distinction an operator actually needs.
+
+   **Branch 3 sits above the test-mode branches deliberately.** A crashed `send-to-test`
+   leaves `test_submission_started_at` set with no `test_report_id`, and under the
+   previous ordering that row was absorbed by branch 5 and reported as "waiting for a
+   `send-to-test`" — inviting exactly the blind re-submission §5.8 says must not happen.
+   It is waiting on portal inspection, which is a different action, so it gets its own
+   branch above both test-mode ones.
 
    **The order is the design, not an implementation detail.** It runs from *most specific
    blocker the operator must personally resolve* to *most general state of the
@@ -502,17 +519,33 @@ So the predicate is extracted:
 > refusal reason. Conditions: non-final status; environment is `production`; not
 > unaudited backlog; identity resolved or omission approved; not `filed_manually`.
 
+- **The initial enqueue in `quarantine.ts`** (§5.2.4) evaluates it inside the
+  insert-plus-enqueue transaction and **enqueues only if it passes**; otherwise it commits
+  the row alone, which is the already-designed "row with no job" state the reconciler owns.
 - **The reconciler** uses it to select rows.
 - **Retry and bulk-retry** evaluate it before enqueuing and refuse with the reason, so the
   operator is told *why* rather than watching a job appear and silently do nothing.
 - **The worker re-evaluates it inside `run()`, in the same transaction as lease
   acquisition**, and returns a terminal refusal if it no longer holds.
 
-The third is the one that actually makes the rule true. The first two are checks at
+The **worker** check is the one that actually makes the rule true. The others are checks at
 enqueue time, and the gap between enqueue and execution is exactly where a cutoff gets
 set, an environment gets flipped, or an approval gets revoked. A check that has to be
 remembered at every call site is a rule with as many holes as future call sites; a check
 in the worker is the one place every submission provably passes through.
+
+**The initial enqueue was the call site I forgot, and forgetting it had a specific
+consequence.** With submission enabled in `test`, a fresh hit would get an ordinary
+`ncmec_submit` job; the worker would then terminal-refuse it on the production-only
+predicate, and the reconciler would finalize the row `failed` — a **new, genuinely
+reportable hit driven to a terminal failure state during the rollout rehearsal**, before
+the operator ever ran the explicit `send-to-test` action. The worker check alone catches
+it, but "catches it" here means recording a failure for something that was never wrong.
+
+Enqueuing only eligible rows means an ineligible one lands in the state this design
+already handles well — a row with no job, visible in its waiting-state count, picked up by
+the reconciler the moment it becomes eligible. That is the difference between deferring
+work and failing it.
 
 §6 asserts the bypass directly: an admin retry on an unaudited row and on an
 identity-unresolved row both refuse, and a row that becomes ineligible *after* its job is
@@ -749,7 +782,8 @@ NCMEC_ISPWS_PASSWORD
 | `ncmec_submission_enabled` | `false` | Master switch. False → the job no-ops and the row stays `pending`, exactly today's behavior. |
 | `ncmec_ispws_environment` | `test` | `test` → `exttest.cybertip.org`; `production` → `report.cybertip.org`. |
 | `ncmec_report_classifier_hits` | `false` | §5.6 — hard-blocked until §8.2 is answered, not merely defaulted off. |
-| `ncmec_backlog_audit_cutoff` | unset | §7 step 2 — timestamp at which the pre-activation backlog audit was declared complete. Rows created after it need no audit. Unset means the audit has not been run, so the entire non-final backlog counts as unaudited. |
+| `ncmec_backlog_audit_cutoff` | unset | §7 step 2 — the audit **scope** boundary, captured **before** review begins. Rows created at or after it are new-code rows and need no audit. **Write-once**: once set it is never moved, or the scope of an in-progress audit would shift under the operator. |
+| `ncmec_backlog_audit_completed_at` | unset | §7 step 2 — the audit **completion** marker, set when the operator declares the audit finished. Separate from the cutoff on purpose (below). |
 
 **A hit quarantined while submission is disabled must still be durably visible.** The
 existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
@@ -768,12 +802,17 @@ Two changes make the waiting state honest:
   those rows read as an ordinary backlog. A number an operator can see is what turns a
   parked row into a decision.
 
-The same treatment applies to the other two waiting states in invariant 8's table, so the
-page carries **three** distinct counts — awaiting activation, identity unresolved,
-unaudited backlog — never one undifferentiated "pending" number. Collapsing them would
-hide the only thing that distinguishes "waiting on a switch" from "waiting on a decision
-nobody knows they owe," and the unaudited count additionally gates production activation
-(§5.8), so it has to be computed rather than eyeballed regardless.
+The same treatment applies to **every** branch of invariant 8's classifier, not to this
+one alone: `/admin/safety` renders **one count per branch** of
+`classifyWaitingState` — currently seven, six awaiting someone plus *in flight* shown as
+active work — never one undifferentiated "pending" number. The count list is derived from
+the classifier rather than enumerated here, so adding a branch adds a count automatically;
+an earlier revision hardcoded "three" in this paragraph and was already stale by the time
+two more branches existed.
+
+Collapsing them would hide the only thing that distinguishes "waiting on a switch" from
+"waiting on a decision nobody knows they owe," and the unaudited count additionally gates
+production activation (§5.8), so it has to be computed rather than eyeballed regardless.
 
 Three deliberate safety properties:
 
@@ -1182,12 +1221,23 @@ did. The audit log is consequently the **only** control on this surface, which i
   for production, and it needs the same shape here rather than an assumption that a test
   submission does not matter:
 
-  1. **Before the first remote call**, commit a durable audited *attempt* record —
-     `send_to_test` in the audit log with `after_state` marking the attempt open, and a
-     `test_submission_started_at` stamp on the row.
+  1. **Before the first remote call**, commit a `send_to_test_started` audit entry plus a
+     `test_submission_started_at` stamp on the row, in one transaction.
   2. Perform the sequence.
-  3. **After `/finish`**, commit `test_submitted_at` / `test_report_id` and close the
-     attempt.
+  3. **After `/finish`**, commit `test_submitted_at` / `test_report_id` plus a
+     **second** audit entry, `send_to_test_completed`, in one transaction.
+
+  **Two append-only events, not one entry that gets opened and closed.** The previous
+  wording said the first entry's `after_state` marks the attempt "open" and the completion
+  "closes" it — which cannot be done without either updating that entry (violating
+  append-only, §5.4) or leaving it stale (violating the audit-in-the-mutating-transaction
+  rule, and §6's assertion that every mutation writes an entry). Both events therefore
+  exist in their own right and share an **`attempt_id`** so they pair up; `batch_id`
+  already provides the grouping column, so this needs no new field.
+
+  This is the general shape wherever a mutation spans an external call: **an append-only
+  log records events, never object states.** An entry that needs revising is a state
+  record wearing an event's clothes.
 
   A row with an open attempt and no `test_report_id` is a **recoverable** state, surfaced
   on `/admin/safety` rather than retried blindly: the operator can see that `exttest` may
@@ -1282,8 +1332,42 @@ lands its lifecycle marker, this can become an existence claim honestly.
 
 ## 6. Testing
 
-Following `docs/engineering/testing.md`. New: `moderation.ncmecClient.test.ts`,
-`moderation.ncmecWorker.test.ts`; extensions to `moderation.quarantine.test.ts`.
+Following [`docs/engineering/testing-guide.md`](../engineering/testing-guide.md) — an
+earlier revision cited `docs/engineering/testing.md`, which **does not exist**; the guide
+is `testing-guide.md`, and citing a non-existent standard is how a plan appears to have
+one.
+
+**Files and runners, named rather than implied.** The previous revision listed two new
+files and one extension, then went on to require API, migration, and frontend assertions
+that fit in none of them — so a third of the list had nowhere to live.
+
+| Area | File | Runner |
+|---|---|---|
+| ISPWS client | `artifacts/api-server/src/__tests__/moderation.ncmecClient.test.ts` | `pnpm --filter api-server test` |
+| Worker, lease, reconciler, eligibility | `.../moderation.ncmecWorker.test.ts` | same |
+| Admin endpoints, audit log, activation gate | `.../adminSafetyReports.test.ts` | same |
+| Quarantine funnel changes | extends `.../moderation.quarantine.test.ts` | same |
+| Migration `0094` and status/constant lockstep | `.../migrations.0094.test.ts` | same |
+| `/admin/safety` page | `artifacts/overhype-me/src/pages/admin/__tests__/safety.test.tsx` | `pnpm --filter overhype-me test` (vitest) |
+
+The api-server suite runs sharded via `scripts/run-tests-sharded.sh`, and its `pretest`
+applies migrations — which is why the migration test belongs there rather than standing
+alone.
+
+**Cut deliberately, so the list stays executable.** A test list nobody can finish gets
+abandoned wholesale, and the ceremonial entries take the load-bearing ones with them.
+Removed: the standalone "no `is_generative` column" and "module exports no
+update/delete helper" architecture negatives (both are assertions about source text, better
+served by the schema itself and by review), the first-attempt-does-not-retract case
+(subsumed by the retract-first cases), and the separate token-reuse test (subsumed by the
+lease-interleaving case). The waiting-state and test-environment matrices are folded into
+**parameterised** state-machine coverage rather than repeated per scenario.
+
+**Retained without negotiation**, because each is the only check on a property nothing
+else catches: XSD validation with its negative fixture, the lease races, `isSubmittable`
+enforcement in the worker, the activation gate on both config routes, evidence isolation
+(`getObjectEntityDownloadURL` never called on a `restricted/` path), and the core admin
+flows including audit atomicity.
 
 Client (fake `fetch`, no network):
 - **Schema-validate generated `<report>` and `<fileDetails>` against a version-pinned copy
@@ -1367,8 +1451,6 @@ Admin surface as a privileged surface (§5.8):
   an injected failure after the state write and before the audit insert leaves **neither**.
   Asserted for retry, bulk retry, `send-to-test`, audit, identity-omission approval,
   manual filing, correction, reopen, and config write.
-- **The audit log is append-only**: the module exports no update or delete helper, and no
-  code path issues one against `ncmec_safety_audit_log`.
 - **Attribution survives account deletion** — `actor_label` still identifies who acted
   after the user row is gone, including for an actor whose `email` was already NULL.
 - **Identity omission is narrowly constrained**: refused for a row with a
@@ -1384,14 +1466,10 @@ Admin surface as a privileged surface (§5.8):
   untouched; every affected row shares one `batch_id`.
 - **Waiting-state counts are exhaustive and disjoint** across all five states, asserted in
   four configurations: disabled+test, enabled+test before `send-to-test`, enabled+test
-  after it, and production. Every non-final row appears in exactly one count — the
-  assertion that would have caught the two test-mode states missing from invariant 8.
-
-Provenance has exactly one representation:
-- **No `is_generative` column exists**, and `<generativeAi>` is computed from
-  `content_origin === 'generated'` at the point of use. Asserted against the schema, not
-  only against the mapping, so the column cannot be reintroduced by a later revision
-  without a failing test.
+  after it, and production — **parameterised over the configurations rather than written
+  out per scenario**. Every non-final row lands in exactly one branch, including the
+  steady-state *in flight* case and a crashed test attempt, which are the two the
+  assertion was previously unsatisfiable without.
 
 Deployment, transition, and rollback (§7):
 - **Migration-before-code**: applying `0094` while the *old* code serves leaves the old
@@ -1582,6 +1660,34 @@ this repo has hit twice (`known-failure-patterns.md`).
    is non-zero**, with the count in the refusal message. A checklist step a deploy can
    skip is not a safeguard; this is the same reasoning that made §5.6's classifier gate a
    hard refusal rather than a default.
+
+   **An unset cutoff blocks activation unconditionally — the count is not consulted.**
+   This is the correction to a defect that inverted the whole gate: §5.5 previously said
+   an unset cutoff means "the entire non-final backlog is unaudited," but the query above
+   evaluates `created_at < NULL` as *unknown*, so it returns **zero** and the gate
+   **passes**. On a fresh deployment — the one deployment where nothing has been audited
+   and the entire backlog is at risk — the safeguard would have opened. A three-valued
+   comparison silently produced the opposite of the stated semantics.
+
+   So the cutoff is captured **before** the audit begins rather than derived from its
+   completion, and the two facts are separate keys (§5.5):
+
+   1. **Start the audit** — the operator sets `ncmec_backlog_audit_cutoff` to now. This
+      freezes the scope: exactly the rows that exist at this instant. It is **write-once**,
+      because moving it mid-audit would silently change what "done" means.
+   2. **Work the backlog** — every in-scope row gets a `backlog_audited_at` disposition.
+   3. **Declare completion** — the operator sets `ncmec_backlog_audit_completed_at`, which
+      the endpoint refuses while the unaudited count is non-zero.
+
+   Production activation therefore requires **all three**: cutoff set, completion marker
+   set, unaudited count zero. Each is refused with a message naming which one is missing,
+   so an operator is never left guessing why the switch will not move.
+
+   This also removes the ordering contradiction the single key created: §5.7's
+   identity-omission endpoint requires `created_at < cutoff`, so under the old scheme it
+   was unusable until the audit was *complete* — while dispositioning identity-unresolved
+   rows is part of doing the audit. Capturing the cutoff first makes the boundary
+   available throughout, which is when it is actually needed.
 3. **Set `ncmec_ispws_environment=test` and `ncmec_submission_enabled=true`.** Exercise
    the connectivity check first.
 
