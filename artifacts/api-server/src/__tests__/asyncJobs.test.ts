@@ -12,8 +12,10 @@ import {
   createLaneRunner,
   enqueueJob,
   queuesForLane,
+  recoverStuckProcessing,
   registerJobHandler,
   terminalFailure,
+  RECOVER_STUCK_CUTOFF_MIN,
   type JobHandler,
 } from "../lib/asyncJobs.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
@@ -388,4 +390,74 @@ describe("asyncJobs worker", () => {
     clearTimeout(bulkRunner.handle);
     clearTimeout(fastRunner.handle);
   });
+
+  // ── Stuck-row reclaim cutoff ────────────────────────────────────────────
+  // Regression guard for the autoscale double-execution defect: this
+  // deployment is `deploymentTarget = "autoscale"` and every instance starts
+  // the worker, so recovery runs against rows OTHER live instances are
+  // actively processing. Because finalize matches on row id alone (no fencing
+  // token yet — Phase 3a), reclaiming a still-running row means both runs
+  // execute and one silently overwrites the other.
+
+  it("does not reclaim a processing row younger than the cutoff", async () => {
+    // 12 minutes: inside the OLD 10-minute cutoff's reclaim window, outside the
+    // new one. This is the row a scaling-up instance would have stolen from a
+    // healthy peer mid-render.
+    const claimedAt = new Date(Date.now() - 12 * 60_000);
+    const [row] = await db
+      .insert(asyncJobsTable)
+      .values({
+        queue: `test_stuck_${randomUUID().slice(0, 8)}`,
+        payload: {},
+        status: "processing",
+        updatedAt: claimedAt,
+      })
+      .returning();
+    jobIds.push(row!.id);
+
+    await recoverStuckProcessing(db, RECOVER_STUCK_CUTOFF_MIN);
+
+    const after = await getJob(row!.id);
+    assert.equal(
+      after.status,
+      "processing",
+      "a row claimed 12 minutes ago must NOT be reclaimed — another instance may still be running it",
+    );
+  });
+
+  it("reclaims a processing row older than the cutoff", async () => {
+    const claimedAt = new Date(Date.now() - (RECOVER_STUCK_CUTOFF_MIN + 1) * 60_000);
+    const [row] = await db
+      .insert(asyncJobsTable)
+      .values({
+        queue: `test_stuck_${randomUUID().slice(0, 8)}`,
+        payload: {},
+        status: "processing",
+        updatedAt: claimedAt,
+      })
+      .returning();
+    jobIds.push(row!.id);
+
+    await recoverStuckProcessing(db, RECOVER_STUCK_CUTOFF_MIN);
+
+    const after = await getJob(row!.id);
+    assert.equal(
+      after.status,
+      "pending",
+      "a genuinely stranded row must still be recovered — the cutoff bounds the race, it does not disable recovery",
+    );
+  });
+
+  it("keeps the reclaim cutoff clear of the slowest real handler", () => {
+    // The image-prompt planner alone can run ~180s before image generation
+    // starts, and that is one handler on one instance. A cutoff anywhere near
+    // it re-opens the reclaim race this constant exists to close, so guard the
+    // floor rather than the exact value — 30 is the current choice, 15 is the
+    // point below which the margin stops being real.
+    assert.ok(
+      RECOVER_STUCK_CUTOFF_MIN >= 15,
+      `RECOVER_STUCK_CUTOFF_MIN is ${RECOVER_STUCK_CUTOFF_MIN}; below 15 minutes a slow handler can be reclaimed mid-run and executed twice`,
+    );
+  });
+
 });
