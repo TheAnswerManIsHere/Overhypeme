@@ -768,10 +768,38 @@ a background job is healthy is not a guarantee.
 - Authorization applies one comparison: if `membership_valid_until` is
   non-null and `now() >= membership_valid_until`, the request is served at the
   **non-qualifying** tier regardless of the stored `membership_tier`.
-- The sweep still runs **hourly** and still recomputes expired rows, but its
+- The sweep still runs on a schedule and still recomputes expired rows, but its
   job is now to make the stored tier *agree* with what authorization is already
   enforcing. If it dies, access is still revoked on the deadline; what degrades
-  is the accuracy of the stored value, which the six-hour alert surfaces.
+  is the accuracy of the stored value, which the alert surfaces.
+
+**Both recurring schedules get a cadence, a home and a default** — revision 7
+said "hourly" and "six-hour" with neither a constant nor a key, and the
+**authoritative reconciliation had no cadence at all**, only "plus a schedule".
+That second one matters more: reconciliation is this plan's answer to *regardless
+of whether the event arrives at all*, so an unspecified interval means a
+permanently dropped subscription, refund or dispute event sits unrepaired for
+however long an implementer happens to choose.
+
+| Setting | Default | Unit | Home |
+|---|---|---|---|
+| `grace_sweep_interval_seconds` | **3600** (hourly) | s | `admin_config` |
+| `grace_sweep_alert_after_seconds` | **21600** (6h) | s | `admin_config` |
+| `reconcile_interval_seconds` | **21600** (6h) | s | `admin_config` |
+
+The two are **distinct settings and not one shared value**, because they do
+different jobs: the sweep converges a stored projection that the read path
+already enforces correctly, so lateness is cosmetic; reconciliation repairs
+*source* state that nothing else will discover, so lateness is a correctness
+window. Reconciliation is the more expensive of the two — it enumerates Stripe —
+which is why it is six-hourly rather than hourly, and that trade is stated here
+rather than left implicit in a number.
+
+**Acceptance against a fake clock at each boundary:** the sweep fires at its
+interval and not before; the alert fires only after the sweep has been failing
+for `grace_sweep_alert_after_seconds`; and a **permanently dropped** subscription
+event is repaired within one `reconcile_interval_seconds`, asserted by advancing
+the clock rather than by waiting.
 
 **It is the union's horizon, not one source's deadline.** `graceExpiresAt` is
 singular and the model is a **set union**, so persisting "the" deadline is
@@ -934,7 +962,38 @@ anyway; then assert a healthy sweep converges the stored tier.
 2. Then a short transaction: `SELECT … FOR UPDATE` on the user row, then apply.
 3. **Every source write carries an unconditional monotonic version guard** —
    reject any write not newer than the stored value.
-4. Lock timeout and retry defined.
+4. **Lock timeout and retry, with actual values** — revision 3 wrote "defined"
+   and defined nothing, which is entry 158's shape in the concurrency section.
+   Every parameter below has a value, a unit, a default and a home:
+
+| Parameter | Default | Unit | Home | Why this value |
+|---|---|---|---|---|
+| `lease_ttl_seconds` (per source) | **60** | s | `admin_config` | Must comfortably exceed one Stripe retrieval plus the short apply. Too short and a valid holder expires mid-work, its fenced write aborts, and the source churns; too long and a crashed holder wedges that one source until expiry |
+| `lease_waiter_timeout_seconds` | **5** | s | `admin_config` | A waiter that times out **abandons its write** (reconciliation repairs it) rather than proceeding unordered, so this trades latency for nothing — it may be short |
+| `apply_lock_timeout_ms` | **3000** | ms | constant | PostgreSQL `lock_timeout` for the apply transaction. Bounded because the transaction holds no network I/O by construction |
+| `apply_retry_attempts` | **3** | count | constant | Retries on lock timeout only |
+| `apply_retry_backoff_ms` | **100** | ms, exponential | constant | 100 / 200 / 400 |
+
+**The reconciliation run-lease is *not* a long TTL, and that is the point your
+finding surfaces.** A whole staging run has no bounded duration — it depends on
+the population and on Stripe's latency — so any fixed TTL is either shorter than
+some legitimate run (the holder expires mid-run, and with the fence it then
+aborts, so the run can *never* complete on a slow day) or long enough that a
+crashed run blocks repair for that whole period. Both failure modes are real and
+picking a number chooses which one to have.
+
+**Specification: the run lease is heartbeated.** `reconcile_run_lease_ttl_seconds`
+defaults to **120**, and the holder **renews it every 30s** while working.
+Expiry then means *the holder stopped heartbeating* — crashed, wedged, or
+killed — rather than *the holder is slow*, which is the property a TTL alone
+cannot express. A run whose renewal fails abandons rather than continuing
+unfenced.
+
+**Acceptance at the boundaries, not just the happy path:** a retrieval that
+outlasts the per-source TTL has its apply **aborted by the fence** and the source
+repaired on the next pass; a heartbeating run that outlasts the run-lease TTL
+**completes normally**; a run that stops heartbeating is **taken over** after
+expiry; and a waiter that times out writes nothing.
 5. ~~Notification emitted only after a committed tier transition.~~ **Withdrawn at revision 20** — notifications are out of scope; see *Notifications are out of scope*. They now fire after the commit, which orders them correctly but guarantees nothing about delivery, and a half-true invariant is worse than none.
 
 **The ordering token, named explicitly.** Revision 3 required a guard without
@@ -1823,15 +1882,73 @@ matters because the right value is not knowable before the first real run:
 | Key | Default | Unit | Counts |
 |---|---|---|---|
 | `reconcile_max_downgrades_per_run` | **50** | absolute users | users whose **effective tier** would drop this run |
-| `reconcile_max_downgrade_fraction` | **0.05** | fraction of users examined | the same set, as a proportion — whichever bound trips first aborts |
+| `reconcile_max_downgrade_fraction` | **0.05** | fraction of the **currently qualifying population** | the same set, as a proportion — whichever bound trips first aborts |
 | `reconcile_max_ambiguous_per_run` | **25** | absolute sources | sources the pass could not classify |
 | `reconcile_max_errors_per_run` | **10** | absolute | retrieval/pagination failures |
 
 **Both downgrade bounds exist because either alone is wrong at some scale:** an
 absolute bound is meaningless once the user base grows, and a fractional bound
-lets a small early population lose everyone to a 5% cap. Defaults are
-deliberately conservative — this pre-launch population is small enough that any
-real mass-revocation event trips 50 immediately.
+lets a small early population lose everyone to a 5% cap.
+
+**The denominator is the currently qualifying population, not users examined —
+and revision 31 got this wrong in a way that defeated both guards at once.**
+Measured against *examined*, a run over 10,000 users of whom only 40 are
+Legendary can revoke **all forty**: that is 0.4%, under the 5% fraction, and 40
+is under the absolute 50. A complete wipeout of the membership passes both
+bounds. The fraction has to be *of the thing being protected*, and the thing
+being protected is the members — the population examined is mostly people who
+were never Legendary and cannot be downgraded.
+
+**Boundary semantics, stated because "max" is ambiguous and this is exactly
+where ambiguity costs:**
+
+- A bound **trips when the count exceeds it** — 50 downgrades proceed, 51
+  aborts. `max` is literal.
+- **Zero denominator** (no currently qualifying users): the fraction is
+  undefined and is **skipped**, not treated as infinite or as zero. There is
+  nothing to protect, no downgrade is possible, and the absolute bound still
+  applies. Treating it as a trip would wedge every run on an empty database.
+- The two bounds are evaluated independently and **either** trips the abort.
+
+Defaults are deliberately conservative — at this population any real
+mass-revocation event trips the absolute bound immediately, and the fraction is
+what keeps that true after growth.
+
+**Acceptance for the denominator specifically**, since this is the case revision
+31 would have passed: a run examining **10,000 users of whom 40 currently
+qualify**, staging all 40 for downgrade, **aborts** — the fraction is 100% of the
+qualifying population, not 0.4% of those examined. And a run on a database with
+**no qualifying users** completes normally rather than dividing by zero or
+aborting.
+
+**Naming a config key does not make it operable, and revision 31 claimed it
+did.** In this repo `getAllConfig` (`adminConfig.ts:205-208`) returns **only
+stored rows**, and `PATCH /admin/config/:key` (`admin.ts:2218-2226`) returns
+**404 when the row is absent**. So a key that exists only as a code fallback is
+invisible in the admin list and un-editable — the operator cannot inspect it or
+change it without a deploy, which is the exact opposite of what "DB-backed, so
+they are operable without a deploy" promised. The same applies to every key
+introduced by this plan, not only the thresholds.
+
+**Specification:** the migration performs **idempotent inserts** for every key it
+introduces — `ON CONFLICT (key) DO NOTHING`, so re-running never overwrites a
+value an operator has since tuned — each with its declared **type** and a
+**validation range** enforced on write:
+
+| Key | Type | Valid range |
+|---|---|---|
+| `reconcile_max_downgrades_per_run` | integer | ≥ 0 |
+| `reconcile_max_downgrade_fraction` | numeric | 0 ≤ x ≤ 1 |
+| `reconcile_max_ambiguous_per_run` | integer | ≥ 0 |
+| `reconcile_max_errors_per_run` | integer | ≥ 0 |
+| `lease_ttl_seconds`, `lease_waiter_timeout_seconds`, `reconcile_run_lease_ttl_seconds` | integer | ≥ 1 |
+| `grace_sweep_interval_seconds`, `grace_sweep_alert_after_seconds`, `reconcile_interval_seconds` | integer | ≥ 1 |
+
+**Acceptance:** after the migration, **all** of these keys are visible in
+`GET /admin/config` and editable via `PATCH` — asserted by listing and by a
+successful edit, not by the migration's own return value. Re-running the
+migration leaves an operator-modified value **unchanged**. An out-of-range write
+is rejected.
 
 **Counting is per-run and pre-apply**, over the staged change set from the
 dry-run pass, so *the thresholds are evaluated before anything is written* and an
@@ -2385,6 +2502,10 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 156 | 29 | Two acceptance criteria still depended on Stripe's retry | **Resolved** — entry 149 made the retry guarantee contextual and said nothing depends on it; the migration acceptance **in two places** still required "a webhook delivered during the rollout is retried by Stripe and applied afterwards". Beyond the contradiction, it tests *Stripe's* behaviour rather than ours, and a sandbox rehearsal gets only three retries over a few hours. Both replaced with a **permanently dropped** webhook repaired by reconciliation — strictly stronger, since repairing a lost event repairs a late one too. |
 | 157 | 29 | Trust-boundary acceptance reproduced D1's own shape | **Resolved** — verifier-only coverage is exactly how D1 survived: the guard was correct and its caller violated the contract. And the claimed coverage is absent — `stripe.checkout.security.test.ts:10-15` asserts in its header that webhook enforcement is proven in `webhookHandlers.integration.test.ts`, which has **no `checkout.session.completed` grant scenario**; its three matches are a comment and two audit-row literals. **A false coverage claim in a header comment is worse than a gap — it is what stops a reviewer looking.** Paid/unpaid/wrong-customer/non-allowlisted now run through **both** entry points, asserting persisted source and effective tier. |
 | 158 | 29 | The reconciliation thresholds had no value, unit or key | **Resolved** — six references to "the threshold" across the document and **no definition anywhere**: no value, unit, default or config key. An implementer could only invent a bound or set it wide enough never to fire, so the guard against mass revocation — load-bearing since entry 22 — was unimplementable from its own specification. Now four `admin_config` keys with defaults: 50 absolute downgrades, 0.05 fractional, 25 ambiguous, 10 errors. **Both downgrade bounds, because either alone fails at some scale.** Counted pre-apply over the whole staged set (entry 22's "arriving in pieces"), aborting with nothing written and the full change set reported. |
+| 159 | 30 | "Lock timeout and retry defined" defined neither | **Resolved** — entry 158's shape in the concurrency section: revision 3 wrote the word *defined* and supplied no value, unit, default or home for the per-source lease TTL, run-lease TTL, waiter timeout, PostgreSQL `lock_timeout`, retry count or backoff. All six now specified. **The run lease was the real finding:** a staging run has no bounded duration, so *any* fixed TTL either expires a legitimately slow run — which the fence then aborts, so it can never complete on a slow day — or lets a crashed run block repair. **Heartbeated instead**: renewal every 30s against a 120s TTL, so expiry means *stopped*, not *slow* — a property a TTL alone cannot express. |
+| 160 | 30 | The fractional bound I added at 158 defeated both guards | **Resolved** — measured against *users examined*, a run over 10,000 users of whom 40 are Legendary can revoke **all forty**: 0.4% is under the 5% fraction and 40 is under the absolute 50, so **a complete wipeout of the membership passes both bounds.** The denominator must be *the thing being protected* — the currently qualifying population — not a population mostly composed of people who were never members and cannot be downgraded. Also specified: trips when the count **exceeds** the bound (50 proceeds, 51 aborts), and a **zero denominator skips the fraction** rather than dividing by zero or wedging every run on an empty database. **The numbers were one round old and the guard they were meant to restore was still a no-op.** |
+| 161 | 30 | Naming an `admin_config` key does not create it | **Resolved** — `getAllConfig` (`adminConfig.ts:205-208`) returns only **stored** rows and `PATCH /admin/config/:key` (`admin.ts:2218-2226`) **404s when the row is absent**, so a key existing only as a code fallback is invisible and un-editable. My claim that they were "operable without a deploy" was therefore false for every key this plan introduces. Migration now performs **idempotent** `ON CONFLICT DO NOTHING` inserts with declared types and validation ranges; acceptance asserts each key is listable **and** editable after migration, and that re-running leaves an operator-tuned value unchanged. |
+| 162 | 30 | Two recurring schedules, no cadence between them | **Resolved** — the grace sweep said "hourly" and "six-hour" with no constant or key; **authoritative reconciliation had no cadence at all**, only "plus a schedule". The second is the serious one: reconciliation is this plan's answer to *regardless of whether the event arrives at all*, so an unspecified interval leaves a permanently dropped event unrepaired for an implementer-chosen period. Three distinct settings with defaults and homes, kept separate deliberately — sweep lateness is cosmetic because the read path already enforces expiry; reconciliation lateness is a correctness window. |
 
 | Round | Lens |
 |---|---|
@@ -2418,4 +2539,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 28 | **Readers, and only readers.** Entry 146 is the round's structural finding: three consecutive rounds swept *writers* and could not have found a *reader* asking a question the model invalidated. Retention changes what row-existence means, and this plan retains refunded, revoked and terminal rows everywhere. So: enumerate **every read** of `subscriptions`, `lifetime_entitlements`, `membership_history` and `users.membership_tier` — routes, middleware, admin endpoints, scheduled jobs, and **the frontend**, which entry 146 and 150 both reached into and no earlier round did — and for each, decide whether it wants *current qualification*, *historical existence*, or *the raw stored value*, and whether retention breaks its current answer. Entry 150 found two presentation surfaces; entry 146 found a UI component granting access in parallel. Both were outside every previous lens, and I have no reason to think the frontend has been examined at all |
 | 29 | **The existing test suite as a source of false confidence.** Round 28 dropped to two findings, both P2, **no P1 for the first time** — the loop's first convergence signal that is not simply my own assertion. But entry 154 opened a surface no round has swept: **the tests that already exist**. Three instances are now on record of a green test sitting beside a broken thing it names — `checkoutConfirm.test.ts:626` (D1's origin), the deleted `dataLifecycle.test.ts`, and these E2E fixtures. So: sweep the **existing** tests rather than the acceptance criteria. Which would still pass if this plan's model were implemented wrongly? Specifically — tests seeding `users.membership_tier` or a source row directly instead of granting; tests asserting a helper in isolation while its only caller violates its contract; fixtures that must change under the new schema but whose assertions would not catch it if they didn't. **A test that cannot fail is a liability the acceptance criteria cannot fix, because the acceptance criteria are new and these are already green** |
 | 30 | **Every remaining quantity, and every claim a comment makes about coverage.** Entry 158 is the shape to hunt: a control named consistently across many revisions, load-bearing, and **never given a number**. It survived 29 rounds because referring to "the threshold" reads as though it were defined somewhere earlier. So: find every quantity this plan depends on — timeouts, lease TTLs, retry counts, batch sizes, the grace window's own boundary conditions, sweep cadence, alert intervals — and check each has a **value, a unit, a default and a home** (constant, config key, or migration). A specification that says *"bounded"* without a bound is not a specification. Second, narrower: entry 157 found a **header comment asserting coverage that does not exist**. Prose claims inside test files are unversioned, unchecked, and precisely what stops a reviewer looking — sweep the test suite's comments for coverage claims and check each against what the file actually asserts |
+| 31 | **The numbers, now that there are numbers.** Round 30 was the quantity sweep and it worked — but entry 160 is the warning: **the bound I added one round earlier was itself a no-op**, because I picked a denominator that made the guard measure the wrong population. Supplying a value is not the same as supplying a *correct* one, and a plausible number is harder to question than a missing one. So: take every quantity now in this document — the four thresholds, the six lease/lock parameters, the three schedules — and for each ask what happens **at the extremes of the population it governs**: an empty database, a database of one, a population where the protected subset is a tiny fraction of the whole (160's case), a run where every source errors, a lease under a Stripe outage. Which numbers stop protecting anything? Which trip constantly? Check the **units and denominators** in particular — 160 was a denominator error, not a magnitude error, and no amount of tuning the value would have fixed it |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
