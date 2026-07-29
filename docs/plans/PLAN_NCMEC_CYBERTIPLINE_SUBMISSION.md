@@ -1507,7 +1507,22 @@ against `report.cybertip.org`, first at 03:12, last at 09:48, dominant code 1000
 to the filtered ledger. Per-report `last_error` / `last_error_code` remain on each row —
 the aggregation is in the *notification*, never in the record.
 
-**This survives the bulk-retry deferral, and deliberately.** Aggregation and bulk retry
+**Kept, on David's explicit decision (2026-07-29), after being put to him twice.** When
+bulk retry was deferred (round 9) I argued aggregation had to survive; round 10 then found
+it had **no mechanism at all**, and round 11 found four more defects in the mechanism that
+replaced it — a transaction-aborting enqueue, a wrong dominant code, tumbling windows
+described as rolling, and unachievable exactly-once delivery. That is the same
+defects-per-round profile that justified deferring bulk retry, so it was put to David again
+rather than defended a second time.
+
+He chose to keep it as rewritten. The rewrite is why: the version that generated those
+findings maintained **derived state** (a counter and a dominant code beside the rows that
+already held both), and every one of those four defects came from that choice. The current
+design holds no derived state — a send-ledger row and a query — so the class of bug is
+gone rather than patched. What remains is honestly scoped: at most one alert per
+environment per hour, at-least-once delivery, numbers computed from the source of truth.
+
+**This also survives the bulk-retry deferral, and deliberately.** Aggregation and bulk retry
 both came out of round 5's outage finding, so it would be natural to cut them together.
 They are not the same kind of thing: bulk retry is an endpoint with a token protocol and a
 confirmation UX, while this is a few lines in the notification path. More importantly,
