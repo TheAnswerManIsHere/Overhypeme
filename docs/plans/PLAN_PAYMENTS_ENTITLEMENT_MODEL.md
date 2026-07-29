@@ -718,6 +718,35 @@ rolled back moments later. Moving them past the commit is the minimum required
 to make the transaction boundary mean anything — and it is all this plan does
 about them.
 
+**"Move them after the commit" is not yet a mechanism, and one detail makes it
+non-trivial.** Notification eligibility is decided from **pre-mutation** state
+inside the domain switch — `wasLegendary` at `webhookHandlers.ts:370-378` is
+read before `setMembershipTier` and gates the email. Lifting the calls out
+without carrying that decision would mean recomputing it after apply, which
+reads the *post*-mutation state and **changes behaviour**: the refund email
+would stop being sent at all, because by then the user is already `registered`.
+
+**Specification:** the apply phase returns a **transient list of notification
+actions**, decided from the locked pre-state at the moment the transition is
+applied, and the caller executes them **after the transaction commits** and only
+if it committed. In memory, not persisted; **lost on a crash between commit and
+execution, and that loss is accepted** — see *Notifications are out of scope*.
+
+Two consequences worth stating explicitly rather than leaving to inference:
+
+- **This is the mechanism revision 14 deleted** as option 2, and ledger entry 78
+  is superseded accordingly. The reversal is deliberate, not an oversight: then
+  it was carrying obligations the plan claimed to *guarantee*, and losing them
+  silently was a defect. Now it carries best-effort courtesy emails whose loss
+  is documented. **The mechanism did not become correct; the requirement it
+  serves became weaker.**
+- **`processDomainSwitch` has two callers** — `processWebhook` (`:1189`) and
+  `processEventDirectly` (`:1096-1101`, test-mode QA). Both execute the returned
+  actions after their domain work succeeds. Returning a value from a function
+  with a second caller is exactly how a behaviour silently disappears from the
+  path nobody was thinking about, and test-mode QA quietly ceasing to send
+  notifications would be discovered slowly and confusingly.
+
 **Invariant 5 is withdrawn.** *"Notification emitted only after a committed tier
 transition"* has been in this plan since round 2 and was never true of the code;
 after this change it is true of *ordering* and still not a delivery guarantee. A
@@ -797,6 +826,22 @@ Audit writes stay **outside** the transaction so a `failed` record survives
 rollback. The post-commit case is specified too: a committed mutation whose
 `processed` audit insert fails leaves the trail showing only `received`.
 
+**But that only holds if the two failures are told apart, and today they are
+not.** `processWebhook` puts the domain call and the `processed` audit insert in
+**one `try`**, whose `catch` appends `failed` (`webhookHandlers.ts:1188-1195`).
+So after the domain transaction commits, a one-shot failure of the `processed`
+insert lands in that catch and writes **`failed`** — a terminal row. Recovery
+then reads the claim as terminal and never reports it, while the mutation it
+describes did commit and its outcome was never recorded. Excluding
+`ignored_duplicate` does not help here: the row genuinely says `failed`.
+
+**Specification: the `processed` audit insert gets its own error handling,
+outside the domain `try`.** A domain failure writes `failed`; a post-commit
+audit-write failure writes **nothing**, leaving the trail at `received` — which
+is precisely the state recovery already looks for. `failed` then means *the
+domain work failed*, and nothing else, which is what every consumer of that
+value already assumes.
+
 **A retry can forge terminality, and that survives the notification cut**
 because it is about the *entitlement* record rather than about email. After a
 committed mutation whose `processed` insert failed, Stripe's retry hits the
@@ -810,9 +855,12 @@ queries for claims lacking a genuinely terminal row.
 **both** the mutation and the idempotency claim roll back, so Stripe's retry
 succeeds; assert **no Stripe call occurs between `BEGIN` and `COMMIT`**; assert
 **no notification is emitted before the commit**, and that a rolled-back apply
-emits none at all; commit a mutation, fail its `processed` audit insert, let
-Stripe's retry append `ignored_duplicate`, and assert recovery **still** reports
-the event as lacking a recorded outcome.
+emits none at all; commit a mutation, fail its `processed` audit insert, and assert the
+trail shows **`received` and not `failed`**, that recovery reports the event as
+lacking a recorded outcome, and that it still does so after Stripe's retry
+appends `ignored_duplicate`; and assert **both** callers of the domain switch
+execute the returned notification actions after a successful commit, and neither
+executes them after a rollback.
 
 ### Reconciliation
 
@@ -1259,7 +1307,7 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Partly superseded by 104** — the transaction boundary stands: every **domain write** takes the executor and cannot reach the global `db`. The notification half is cut; those calls move after the commit and keep today's best-effort semantics rather than becoming transactional. |
 | 76 | 12 | The tier predicate has no answer for `registered` (#70 Still Open) | **Resolved** — the primitive becomes an effective-tier `CASE` **expression**; predicates derive from it. Revision 12 fixed the dashboard's over-count and introduced an under-count in the adjacent query (`admin.ts:2555`), because an expiry *filter* answers "is this user still X" while the readers ask "what is this user's tier". |
 | 77 | 13 | Reconciliation's commit fences the run but not each staged **source** | **Resolved** — the commit validates every staged source's lease before touching any user row; a failed fence drops that source and its dependent users rather than aborting the run (a whole-run abort would **livelock** under steady webhook traffic). Lock ordering fixed: leases by scope key, then users by id — the same relative order the webhook path uses. **Third instance of "a lease without a fence", and the second time I fixed one lease and left another.** |
-| 78 | 13 | The post-commit action list loses required notifications on crash | **Resolved by deleting the option** — the claim commits, the process dies, and Stripe's retry is discarded as a duplicate at `webhookHandlers.ts:1170-1179`, so the refund/dispute/fraud alert is lost permanently. Every required side effect is now a durable `async_jobs` row enqueued through the transaction executor. Not new machinery: `sendEmail` already writes `async_jobs` and already takes `dbOverride`. **The idempotency claim that makes retries safe is what makes a post-commit list unsafe** — the two mechanisms had never been considered together. |
+| 78 | 13 | The post-commit action list loses required notifications on crash | **Superseded by scope decision 104** — the post-commit action list is **reinstated**, deliberately. Entry 78's reasoning was sound *for guaranteed obligations*: the claim commits, the process dies, Stripe's retry is discarded as a duplicate, and the work is lost. Under 104 the actions are best-effort courtesy emails and that loss is an accepted, documented cost rather than a defect. **The mechanism did not become correct; the requirement became weaker.** |
 | 79 | 13 | One shared expression is not one shared instant | **Resolved** — `now()` is the *transaction* timestamp, and the dashboard runs its two counts as two statements in a `Promise.all`, so a user crossing the horizon between them is counted twice or not at all. One conditional-aggregation statement, or a bound `asOf` passed to every surface. The acceptance criterion I wrote (the counts sum to the same total) would have failed against the very query it was written for. |
 | 80 | 14 | The outbox row is not actually guaranteed | **Superseded by scope decision 104** (notifications out of scope). Enqueue is neither unconditional nor transactional — notification calls simply move after the commit and keep today's best-effort semantics. **Not built.** |
 | 81 | 14 | Audit and outbox cannot be correlated | **Partly superseded by 104** — the outbox correlation is cut with the manifest. What survives is the **audit half**, which is about the entitlement record rather than email: recovery still detects a claim with no terminal audit row, and `ignored_duplicate` is still **not** terminal for the original outcome. |
@@ -1292,6 +1340,8 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 108 | 18 | Delivery and abandonment have no precedence rule | **Superseded by scope decision 104** — correct, and in machinery that no longer exists. Set-once delivery does not prevent a *later* `abandoned_at`, so a row could read delivered **and** failed. Lesson kept: **adding a marker obliges you to state its precedence against every existing marker**, not only the one the finding named — I added two markers and specified each only against recovery. |
 | 109 | 18 | The admin retry endpoint is missing from the state machine | **Superseded by scope decision 104** — correct, and in machinery that no longer exists. **The most valuable of the round.** `POST /admin/email-queue/:id/retry` (`admin.ts:3086-3105`) resets a `failed` email row to `pending` with `attempts: 0` — a surface **seventeen rounds of review had not enumerated**, including my own audits of what mutates these rows. Handoff item 5, stated as a constraint on any future design. |
 | 110 | 18 | Ledger entry 97 still gated recovery on `delivered_at` alone | **Superseded by scope decision 104** — correct, and in machinery that no longer exists. Fourth consecutive round with a stale ledger row, and a fourth class: noun right, position right, **condition** out of date. Rule strengthened to its final form — *when a finding changes a mechanism's shape, position **or condition**, every row mentioning that mechanism is in scope for revision.* |
+| 111 | 19 | "Move the calls after the commit" was not yet a mechanism | **Resolved** — eligibility is decided from **pre-mutation** state (`wasLegendary`, `webhookHandlers.ts:370-378`), so lifting the calls out without carrying that decision would recompute it post-mutation and **stop sending the refund email entirely**. Apply now returns a transient notification-action list decided from the locked pre-state, executed after commit by **both** callers — `processDomainSwitch` has a second one in `processEventDirectly` that a returned value would silently bypass. Entry 78 superseded: the post-commit list is reinstated because the requirement weakened, not because the mechanism improved. |
+| 112 | 19 | An audit-write failure masquerades as a domain failure | **Resolved** — the domain call and the `processed` insert share one `try` whose catch writes `failed` (`:1188-1195`), so a post-commit audit failure produces a **terminal** row and recovery never reports a committed mutation whose outcome went unrecorded. Excluding `ignored_duplicate` was insufficient because the row genuinely says `failed`. The audit insert gets its own error handling; `failed` now means the domain work failed and nothing else. **The surviving half of the recovery check was incoherent on its own** — exactly what the round's lens asked. |
 
 | Round | Lens |
 |---|---|
@@ -1314,4 +1364,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 17 | **The manifest's second pass.** Round 16 hit it from six angles at once and every one landed; the fixes are correspondingly interlocking — derivation moved under the lock, a stored payload, a claim-time mode check, `obligations_derived_at`, `delivered_at` gating recovery. So: do those five agree with *each other*? Specifically — apply now does fence check, user lock, source write, tier write, claim insert, obligation derivation, manifest insert and enqueue, in one transaction whose duration matters; the worker now writes to a table this plan owns; and `obligations_derived_at` plus `delivered_at` plus `job_id` are three nullable state markers that can disagree. **Look for the pair that contradicts, not the single mechanism that fails** |
 | 18 | **The obligation state machine.** Rounds 16 and 17 have grown the manifest to five state markers — `job_id`, `delivered_at`, `abandoned_at`, `acknowledged_at`, plus `obligations_derived_at` on the claim — and three writers: apply, the worker's finalizer, and recovery. Treat it as a state machine and look for the transition nobody owns: which marker combinations are reachable, which writer sets each, what happens when two fire concurrently, and whether `stranded` (99) is a sixth state or a view over `pending`. **The manifest was one column wide two rounds ago; it is now the most stateful object in the plan** |
 | 19 | **The plan after the notification cut** — the same question round 10 asked after the migration machinery was deleted, and it found six defects then. Did anything load-bearing go with it? Specifically: does the transaction boundary still mean anything now that the only side effects inside it are domain writes; is the surviving audit-half recovery coherent on its own; and is there a section still written as though the manifest exists. Round 10's lesson was that a large cut leaves *dangling references*, not holes |
+| 20 | **The narrowest lens yet, because the surface is now small.** Round 19 dropped to two findings — the first decline since round 13 — and both were dangling references from the cut rather than defects in the model. So: attack the **entitlement model itself**, which has had no finding against it since round 11 and has therefore been reviewed least recently. The derivation and its set-union semantics, W1a/W1b and the identifier-only verifier, the per-source leases and fences, read-path expiry and the effective-tier expression, the schema and its constraints, the migration, reconciliation's stage-guard-commit. **Nine rounds is long enough that "stable" may mean "unexamined"** |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
