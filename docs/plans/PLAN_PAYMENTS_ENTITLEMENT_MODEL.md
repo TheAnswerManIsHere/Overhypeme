@@ -354,7 +354,7 @@ anyway; then assert a healthy sweep converges the stored tier.
 3. **Every source write carries an unconditional monotonic version guard** —
    reject any write not newer than the stored value.
 4. Lock timeout and retry defined.
-5. Notification emitted only after a committed tier transition.
+5. ~~Notification emitted only after a committed tier transition.~~ **Withdrawn at revision 20** — notifications are out of scope; see *Notifications are out of scope*. They now fire after the commit, which orders them correctly but guarantees nothing about delivery, and a half-true invariant is worse than none.
 
 **The ordering token, named explicitly.** Revision 3 required a guard without
 saying what orders it, which is not implementable: the pinned Stripe 20.0.0
@@ -699,529 +699,104 @@ A handler that cannot reach `db` directly cannot accidentally write outside the
 claim's transaction — the same reason the trust boundary takes identifiers
 rather than objects.
 
-**Signatures are not the boundary — the whole call graph is.** Changing the
-domain writers' parameters does not stop `processDomainSwitch` from reaching the
-global `db` *transitively*, and today it does, in two different ways:
+**Notifications are out of scope from revision 20 (David, 2026-07-29).** The
+apply transaction contains **domain writes only**. Every notification call —
+`sendEmail` at `webhookHandlers.ts:778`, `:841`, `:888`, and the fire-and-forget
+`notifyUserAccessRevoked` / `notifyAdminsOfDispute` / `notifyAdminsOfFraudWarning`
+at `:378`, `:487`, `:513`, `:598`, `:925`, `:1014`, `:1039` — moves **after the
+commit** and keeps exactly today's semantics: best-effort, unguaranteed, lost on
+a crash. See *Notifications are out of scope* below for what that costs and why
+it is deliberate.
 
-| Path | How it escapes |
+That move is not optional housekeeping: those calls sit inside the region this
+section wraps in a transaction, and `email.ts:19` / `userNotify.ts:14` /
+`adminNotify.ts:13` all import the global `db`. Left where they are, an awaited
+`sendEmail` would commit an outbox row **independently** of the claim (so a
+rollback leaves a queued email for a grant that never happened), and a
+fire-and-forget call could **outlive** the transaction and notify on state that
+rolled back moments later. Moving them past the commit is the minimum required
+to make the transaction boundary mean anything — and it is all this plan does
+about them.
+
+**Invariant 5 is withdrawn.** *"Notification emitted only after a committed tier
+transition"* has been in this plan since round 2 and was never true of the code;
+after this change it is true of *ordering* and still not a delivery guarantee. A
+half-true invariant is worse than none, so it is struck rather than reworded.
+
+#### Notifications are out of scope (David, 2026-07-29)
+
+**Rounds 13 through 17 produced twenty findings and every one of them was in
+machinery built to guarantee notification delivery** — the transactional outbox,
+the `membership_side_effects` manifest, its five state markers, three writers,
+recovery, key-mode isolation, stranded detection, critical-alert retention and
+acknowledgement. Nothing in that stretch touched the entitlement model. Each
+round's fix produced the next round's defects, and by revision 19 the delivery
+guarantee was a more intricate system than the thing it notified about.
+
+**David's decision: cut all of it. The email system is being rebuilt in its own
+session.**
+
+| Cut | Kept |
 |---|---|
-| `sendEmail(...)` **awaited** at `webhookHandlers.ts:778`, `:841`, `:888` | `email.ts:19` imports the global `db`; the outbox insert commits **independently** of the claim's transaction. A rollback leaves a queued email for a grant that never happened, and Stripe's retry enqueues a second one. |
-| `void notifyUserAccessRevoked(...)` at `:378`, `:513`, `:598`; `void notifyAdminsOfDispute(...)` at `:487`, `:1014`, `:1039`; `void notifyAdminsOfFraudWarning(...)` at `:925` | Fire-and-forget. `userNotify.ts:14` imports the global `db`. These are not merely outside the transaction — they can **outlive** it, reading state that is rolled back moments later and notifying on it. |
+| The `membership_side_effects` manifest and every marker on it — `job_id`, `delivered_at`, `abandoned_at`, `acknowledged_at` — and `obligations_derived_at` on the claim | The **prepare/apply split** and the transaction boundary: claim + every domain write in one short transaction, provider retrieval outside it, no Stripe call between `BEGIN` and `COMMIT` |
+| Obligation derivation under the lock, side-effect keys, provider idempotency keys, at-least-once delivery semantics | **Domain writes take the transaction executor** — a handler that cannot reach the global `db` cannot write outside the claim's transaction |
+| Recovery and re-enqueue of lost notifications; the both-directions job/manifest reconciliation | The **audit-trail half** of that recovery, which is about the *entitlement* record rather than email: a claim with no terminal audit row is still detected, and `ignored_duplicate` is still **not** treated as terminal for the original outcome |
+| Unconditional enqueue, key-mode discriminator, stale-mode/stranded detection, drain path | Notification calls **move after the commit** — the minimum that makes the boundary real |
+| Critical-alert classification, retention past purge, bulk-delete exclusion, operator acknowledgement, the admin indicator | Everything about the entitlement model: derivation, W1a/W1b, leases and fences, read-path expiry, reconciliation, the schema, the migration |
 
-This also contradicts an invariant this plan has carried since round 2 —
-*"notification emitted only after a committed tier transition"* (Concurrency,
-invariant 5). Under the current call graph a notification can be emitted after a
-transition that never committed. Two sections, each read as correct on its own.
+**What this costs, stated plainly rather than buried.** These defects are real,
+they are **live in the code today**, and this plan leaves them exactly as it
+found them:
 
-**Specification: the apply phase performs no un-transacted side effect.** Every
-helper reachable from apply must be one of:
+- a notification lost to a crash after commit is **lost permanently**, because
+  Stripe's retry is discarded as a duplicate (`webhookHandlers.ts:1170-1179`);
+- notification helpers **swallow** their own failures (`userNotify.ts:36-55`,
+  `adminNotify.ts:174-197`), so a failure to alert is invisible;
+- an alert that exhausts its retries leaves a `failed` row that is purged after
+  30 days and can be cleared by the admin bulk-delete endpoint
+  (`admin.ts:3058-3078`);
+- `sendEmail` skips the enqueue entirely when Resend is unconfigured or the key
+  is a test key (`email.ts:121-147`).
 
-1. **Transactional** — it takes the executor and is **awaited**, so its writes,
-   including outbox enqueues, commit or roll back with the claim. `sendEmail`
-   already accepts a `dbOverride` parameter (`email.ts:117-120`), so this is
-   passing an argument that exists, not new machinery: the enqueue becomes a
-   proper transactional outbox and delivery stays the async worker's job, which
-   by construction only ever sees committed rows. That satisfies invariant 5
-   **structurally** rather than by convention.
-2. ~~**Deferred** — returned as an explicit post-commit action the caller runs
-   after the transaction commits.~~ **Withdrawn — an in-memory post-commit
-   list silently drops required work.** The claim and the mutation commit; the
-   process dies before the list runs; Stripe retries; and the retry is
-   **discarded as a duplicate** at `webhookHandlers.ts:1170-1179`, which
-   returns without reprocessing. The notification is then lost *permanently* —
-   and the notifications in question are the refund, dispute and fraud alerts,
-   the highest-value messages this system sends. The idempotency claim that
-   makes retries safe is exactly what makes a post-commit list unsafe.
+**The distinction that makes this acceptable is worth naming:** every one of
+those is a failure to *tell someone* about a state change. **None of them makes
+the state wrong.** A user's entitlement is correct because the derivation, the
+leases and reconciliation make it correct — not because an email arrived. The
+product requirement this plan exists to satisfy is unaffected by all of it.
 
-**So there is only option 1.** Every required side effect is a **durable
-`async_jobs` row enqueued through the transaction executor**, committing with
-the claim. This is not extra machinery: `sendEmail` already writes to
-`async_jobs` and already takes `dbOverride`, and every notification helper
-(`userNotify.ts`, `adminNotify.ts`) routes through it — so the outbox row is
-what these paths produce anyway. The change is only *which connection* inserts
-it.
+**Handed to the email-system rebuild**, with evidence, so nothing found here is
+lost: the four defects above, plus the two the boundary had already deferred —
+`asyncJobs` finalizers update by id with no claim predicate, so a stale worker
+can overwrite a reclaimed row's terminal state; and the queue has no
+skipped/deferred handler outcome, so a worker cannot decline a row it should not
+process.
 
-Anything that genuinely cannot be an outbox row must be named explicitly, with
-its loss-on-crash stated. Nothing in the current call graph qualifies.
+This is the third and largest scope cut on this plan, and the same distinction
+governs all three: **shed what is adjacent, keep what is load-bearing for
+correctness.**
 
-#### The outbox row must actually be written — three conditions today prevent it
-
-"Pass the transaction executor" was necessary and **not sufficient**. Passing
-it changes *which connection* inserts the row; it does not make the insert
-happen, and three existing behaviours skip or swallow it:
-
-| Behaviour | Effect |
-|---|---|
-| `sendEmail` returns before enqueuing when Resend is unconfigured (`email.ts:121-135`) or when the key is a test key (`:136-147`) | No outbox row at all — the enqueue is at `:155-158`, after both returns |
-| `notifyUserAccessRevoked` wraps its whole body in `try/catch` and logs (`userNotify.ts:36-55`) | An enqueue failure is swallowed; apply proceeds and commits |
-| `notifyAdminsOfDispute` / `notifyAdminsOfFraudWarning` do the same (`adminNotify.ts:174-197` and the fraud-warning helper) | Same — documented as "safe to call without await — errors are swallowed and logged" |
-
-In every case the claim and the mutation commit, the audit can say `processed`,
-and Stripe's retry is discarded — with no job to deliver. Exactly the loss the
-transactional outbox was adopted to prevent, reached by a different route.
-
-**Specification:**
-
-1. **Enqueue is unconditional and independent of delivery configuration.** The
-   outbox row records *that a notification is owed*; whether Resend is
-   configured is a **delivery-time** question and belongs in the worker, which
-   already handles it (`email.ts:233-236` returns `ok` when Resend is not
-   configured). The two early returns move out of `sendEmail` and into the
-   handler. The test-key suppression stays but becomes a *delivery* suppression
-   rather than an *enqueue* suppression.
-2. **Inside apply, enqueue failures propagate.** The notification helpers gain
-   an apply-path form that does not catch — a failed enqueue must roll the
-   claim back so Stripe's retry can redo the whole unit. Swallowing is
-   acceptable only outside a transaction, where there is nothing to roll back.
-
-**The worker does not "already answer it" — that claim was wrong.** Revision 15
-justified moving the early returns by saying the handler returns `ok` when
-Resend is unconfigured (`email.ts:233-236`). **The handler is never reached.**
-`asyncJobsTick` calls `deferEmailWhileDeliveryDisabled` *inside the claim
-transaction, before* the `processing` update (`asyncJobs.ts:564`), and when
-delivery is unconfigured that helper resets the row to `pending` with a
-five-minute `next_attempt_at` and returns true, so the loop `continue`s
-(`:172-190`). An unconfigured deployment would therefore cycle every
-newly-unconditional email row forever rather than no-op it.
-
-**Specification, corrected — and deliberately narrow.** The existing deferral
-is *not* changed: leaving mail pending until delivery is configured is
-sensible, and rewriting queue policy is out of scope (see *Scope boundary*).
-What changes is only the enqueue and the claim made about it:
-
-- The outbox row is written unconditionally, as above. It records that a
-  notification is **owed**.
-- When delivery is unconfigured, that row **stays pending** until it is
-  configured. It is not delivered and it is not no-opped. The plan's earlier
-  acceptance ("the worker records a no-op delivery") is **withdrawn**.
-
-**Test-key isolation needs enqueue-time metadata, because suppression moved.**
-Today the test-key check suppresses the *enqueue* (`email.ts:136-147`), which
-is what stops a real-key dev worker sharing the database from delivering test
-rows — the hazard that comment describes. Making the enqueue unconditional
-removes that protection, and a worker holding a real key cannot infer that some
-other process enqueued a row under `re_test_dummy`.
-
-**Specification:** the enqueue records a durable, non-secret **key-mode
-discriminator** (`test` / `live`) on the job payload and on the manifest row.
-
-**The check must happen at *claim* time, not in the handler.** Putting it in
-the handler does not work, and the reason is structural: `HandlerResult` is
-`{ok:true}` or `{ok:false, error, retryable?}` (`asyncJobs.ts:49-52`) — there
-is **no skipped or deferred outcome**. Every configured email worker claims
-every pending email row, so a live-mode worker that claims a test-mode row has
-only two moves, and both are wrong: return `ok` and the row is marked `done`
-having **never been delivered**, or return failure and it burns retries until
-it is `failed`. Either way the test worker never gets it.
-
-The extension point already exists, in the function I had decided not to touch:
-`deferEmailWhileDeliveryDisabled` runs inside the claim loop and **re-pends a
-row without consuming an attempt** (`asyncJobs.ts:172-190`, called at `:564`).
-A mode mismatch is the same shape of condition — "not for this process, leave
-it pending" — so it becomes one more condition in that same helper rather than
-a new mechanism, a new handler outcome, or a change to the generic worker.
-
-I had ruled that function out of bounds on the grounds that rewriting queue
-*policy* is out of scope. Adding a condition to the deferral hook is not that:
-it is the codebase's existing answer to "this worker should not take this row",
-and using it is how the blast radius of **my** change gets contained.
-
-**A deferral that never resolves must be visible.** Re-pending without consuming
-an attempt is right while a matching worker is coming; it is a silent leak when
-one never does — a test-key deployment replaced by live-key workers strands
-those rows forever. They never reach `failed`, so the critical-alert indicator
-cannot see them; recovery sees a live `pending` job and leaves them alone;
-terminal-only purging never removes them. Invisible on **every** surface this
-plan added, which is exactly the failure the async-status principle exists to
-prevent.
-
-**Specification:** a row deferred for mode mismatch past a **stale-mode
-threshold** (both an age and a deferral count, so neither a long quiet period
-nor a fast poll alone trips it) is reported as **stranded** — surfaced on the
-same admin indicator as terminal critical failures, with its recorded mode
-shown, and drainable by an explicit operator action that either re-modes it or
-abandons the obligation with attribution. A stranded critical alert is exactly
-as urgent as a failed one; only the reason differs.
-
-**Acceptance:** with Resend unconfigured, a refund still writes its outbox row
-and that row **remains pending**, undelivered, until delivery is configured —
-then delivers once; force the outbox insert to fail inside apply and assert the
-mutation **and** the claim roll back and Stripe's retry succeeds; run **two
-workers against one database**, one with a real key and one with a test key,
-and assert neither delivers the other's rows; and the stronger case — **run
-only the wrong-mode worker first** and assert the row is still `pending` with
-its attempt count unchanged, then start a matching worker and assert it
-delivers.
-
-**No fire-and-forget `void` call may appear inside apply.** Every one of the
-seven sites above is awaited with the executor; "it's only a notification" is
-precisely the reasoning that put an un-rollback-able side effect inside a
-transaction that exists to be rollback-able.
-
-**Enforcement is a test, not a convention:** exercise the full apply call graph
-with an executor that fails any statement not on its transaction, and assert no
-nested helper performs a global write. The structural half — apply-phase helpers
-take an executor parameter with **no default** — makes the omission a type
-error rather than a runtime one.
-
-#### Delivery is at-least-once, not exactly-once
-
-Revision 14's acceptance said "delivered, exactly once". **That is not what the
-worker provides, and the plan should not claim it.** `asyncJobs.ts` claims a job
-by committing `processing` (`:567-571`), runs the handler — which calls Resend —
-and marks `done` in a **separate** transaction (`:411-420`). A crash in between
-leaves the row `processing`; `recoverStuckProcessing` resets it to `pending`
-after five minutes (`:589-597`) and it is delivered again. That is a correct
-queue design; it is simply **at-least-once**, and my claim came from reading the
-enqueue side only.
-
-**Specification: at-least-once is adopted explicitly, and narrowed with a
-provider idempotency key.** Resend accepts an `Idempotency-Key` header on
-`POST /emails`, up to 256 characters, with a **24-hour** window
-([Resend docs](https://resend.com/docs/dashboard/emails/idempotency-keys),
-checked 2026-07-29). Each email job carries a stable key derived from its
-side-effect identity (below), so a redelivery inside the window is deduplicated
-by the provider rather than by us.
-
-The window is comfortably wider than the job's lifetime: default retry delays
-are 0 / 5 min / 30 min / 2 h / 8 h over five attempts (`asyncJobs.ts:133`,
-`:140`) — about **10.6 hours** — and the crash-recovery cutoff is five minutes.
-So the key covers every retry a job can make. Beyond 24 hours delivery is
-plainly at-least-once, and a duplicate "your access was revoked" email is a
-nuisance rather than a correctness failure. **We do not build our own
-deduplication for that residue.**
-
-**Acceptance:** kill the worker *after* Resend accepts the send but *before* the
-`done` update, and assert the job is redelivered and the provider deduplicates
-it — the window revision 14's acceptance never exercised.
-
-#### The audit trail and the outbox must be correlatable
+#### The audit trail, and what recovery still checks
 
 Audit writes stay **outside** the transaction so a `failed` record survives
-rollback. But revision 14 then claimed recovery was "a query for claims lacking
-a terminal audit row", and that query cannot check the invariant this section
-now depends on:
+rollback. The post-commit case is specified too: a committed mutation whose
+`processed` audit insert fails leaves the trail showing only `received`.
 
-- **Email jobs carry no event identity.** `EmailJobPayload` is
-  `{ to, subject, text, html, kind }` (`email.ts:149-155`) — nothing joins a job
-  to the Stripe event that owed it, so "claim committed, job missing" is
-  undetectable.
-- **It only looks in one direction.** A `processed` event with no job is
-  invisible to it.
-- **A retry can forge terminality.** After a committed mutation whose
-  `processed` insert failed, Stripe's retry hits the duplicate branch and
-  appends `ignored_duplicate` (`webhookHandlers.ts:1176-1179`) — the claim now
-  *has* a terminal audit row while the original outcome was never recorded.
-
-**Specification:**
-
-**"Derived, not remembered" is withdrawn — the owed set is not recomputable.**
-Revision 15 said recovery could re-run prepare and compare. It cannot, because
-**notification eligibility depends on the pre-apply state, which apply then
-destroys.** The refund path is the proof: `webhookHandlers.ts:370-378` captures
-`wasLegendary` *before* `setMembershipTier`, and notifies only if it was true.
-After apply commits the downgrade — or after any later event moves the user —
-re-running prepare sees `registered`, concludes no notification was owed, and
-so **cannot detect that a job was deleted**. The acceptance I wrote could never
-have passed.
-
-**Specification: the owed set is persisted, on the claim's transaction.** A
-**`membership_side_effects`** table is written in the same transaction as the
-claim and the mutation:
-
-| Column | Note |
-|---|---|
-| `side_effect_key` | **unique, all-lifetime** — `<stripe_event_id>/<kind>/<recipient-id>` |
-| `stripe_event_id`, `kind`, `recipient_id` | the components, for querying |
-| `payload` | the **immutable, fully-rendered** enqueue payload — see below |
-| `key_mode` | `test` / `live` at the moment the obligation was recorded |
-| `owed_at` | when the event established the obligation |
-| `job_id` | the `async_jobs` row enqueued for it, nullable |
-| `delivered_at` | set when that job reaches `done`, nullable |
-
-This is the durable record; the `async_jobs` row is a **delivery attempt
-derived from it**, not the record itself.
-
-**The payload must be stored, not reconstructed — identity is not enough.**
-Revision 17 listed only identity, timestamps and `job_id`, and then promised
-re-enqueue. That is not implementable: `EmailJobPayload` needs `to`, `subject`,
-`text`, `html` and `kind` (`email.ts:149-155`), the revised design adds key mode
-and the provider idempotency key, and dispute and fraud copy additionally
-depends on **event-specific** values — amount, currency, dashboard identifiers,
-livemode — that are nowhere in those columns. Once the `async_jobs` row is
-purged, nothing could rebuild the message. So the manifest stores the rendered
-payload itself, immutably, at the moment the obligation is recorded.
-
-**The copy is frozen; the address is not.** `EmailJobPayload.to` is part of
-that rendered payload, so a delayed or recovered notification would go to the
-address held at `owed_at` — and after an email change that address may no longer
-belong to the user at all. Sending *"your Legendary access was revoked"* to a
-stranger is a disclosure, and the real user gets nothing. This repo already
-takes that class of concern seriously (`data-lifecycle-retention-matrix.md`), so
-it is applied rather than escalated.
-
-**Specification:** the manifest freezes the **copy and the recipient identity**
-(`recipient_id`); the **address is resolved at send time** from that identity.
-An obligation whose recipient no longer exists is closed as undeliverable rather
-than sent anywhere. `to` therefore leaves the stored payload — it is the one
-field that must not be immutable, because it names a moving target rather than a
-fact about the event.
-
-**One recipient per row, which settles the fan-out question.**
-`notifyAdminsOfDispute` selects every opted-in admin and sends one email each
-(`adminNotify.ts:180-193`), so a dispute owes **N** obligations, not one with N
-addresses. N manifest rows, N distinct `side_effect_key`s, N jobs — and the
-recipient set is frozen at `owed_at`, so an admin who opts out later still has
-their obligation honoured and an admin who opts in later does not retroactively
-acquire one. That is the correct semantics for an alert about a past event, and
-it falls out of the key shape rather than needing a rule.
-
-**This is also why uniqueness lives here rather than on `async_jobs`.**
-Mapping `side_effect_key` onto the existing `dedupeKey` cannot give the
-all-lifetime uniqueness the plan claimed: `async_jobs_dedupe_idx` covers only
-`pending`/`processing` rows (`schema/asyncJobs.ts:38-41`), and `enqueueJob`
-**deliberately** inserts again once a prior row is `done` or `failed` — its own
-doc comment says so, because repeatable actions depend on it. Broadening that
-index would change queue semantics for every other caller, which is both a
-regression and outside this plan's boundary. Putting the constraint on **our**
-table gets the guarantee without touching theirs.
-
-**Obligations are derived under the user lock, not during prepare.** Revision 17
-persisted the manifest but still *computed* it in prepare — which runs outside
-any transaction and **before** the user lock, so the pre-state it reads is not
-the pre-state apply acts on. Two concrete races:
-
-- A refund prepares while the user is Legendary; an admin grant commits before
-  apply; the locked derivation correctly leaves the user Legendary — and the
-  manifest, computed earlier, still sends an **access-revoked notice to someone
-  who was not revoked.**
-- A version-guard rejection (#64) discards the mutation, but a manifest row
-  staged in prepare would commit alongside the claim — **an obligation recorded
-  for a transition that never happened.**
-
-**Specification:** prepare produces only the *provider* description — what
-retrieval found. Every **transition-dependent** obligation is derived **inside
-the apply transaction, under the user lock, after the fence and version guard
-have accepted the source write**, from the locked pre-state read there. The
-manifest rows are inserted in that same transaction. If the guard rejects, no
-obligation is derived at all, because the transition did not occur.
-
-This does not reintroduce "derived, not remembered": the obligation is derived
-**once**, at the only moment the true pre-state is visible, and then persisted.
-What was unimplementable was deriving it *again later*.
-
-**Recovery checks both directions, against the manifest:**
-
-- a claim with no terminal audit row;
-- a manifest row that is **still owed** — `delivered_at`, `abandoned_at` and
-  `acknowledged_at` all null — and has no live job: re-enqueue from the stored
-  payload, **under a lock on that manifest row, enqueuing and writing the new
-  `job_id` in one transaction** (see *Recovery must serialize with itself*);
-- a job with no manifest row — an orphan, reported;
-- an event with a `processed` audit row and **`obligations_derived_at` unset**
-  — the pre-state is unrecoverable, so this is **reported for human review,
-  never guessed**.
-
-**`delivered_at` is what stops recovery becoming a spam engine.** Revision 17
-said "a manifest row whose job vanished — re-enqueue", and jobs vanish
-*routinely*: `purgeTerminalJobs` deletes `done` rows after the configured
-retention (30 days by default). That rule would therefore re-send **every
-successfully delivered notification** a month after it was delivered, and again
-a month after each resend — a permanent, self-sustaining duplicate loop, from a
-clause I wrote as a safety net. Recovery applies **only while the obligation is
-still owed**, and the worker sets `delivered_at` on the manifest row **in the
-same finalize transaction that marks its `job_id` done**.
-
-**"Still owed" needs three markers, not one — `delivered_at` alone re-sends
-abandoned and dismissed alerts.** A job that exhausts its retries is `failed`
-with `delivered_at` still null, so a `delivered_at`-only gate treats it as
-outstanding and re-enqueues it — defeating max-attempts entirely. Worse, an
-acknowledged critical failure becomes removable, and once its row is gone
-recovery sees "no live job" and re-enqueues **an alert an operator explicitly
-dismissed**. The gate I wrote to stop one infinite resend loop created two more.
-
-**Specification: the manifest carries the obligation's own terminal
-disposition**, independent of any job's state:
-
-| Marker | Meaning | Recovery |
-|---|---|---|
-| `delivered_at` | delivery confirmed | done — never re-enqueue |
-| `abandoned_at` | attempts exhausted; the alert failed | **excluded** — surfaced by the critical-alert indicator instead |
-| `acknowledged_at` | an operator saw the failure and dismissed it, with attribution | **excluded** — a dismissal must stick |
-| all three null | still owed | eligible |
-
-Abandonment and acknowledgement are recorded on the **manifest**, not inferred
-from `async_jobs`, precisely because those rows are deleted — by retention, and
-by the admin bulk-clear. An obligation's fate must outlive the attempts made on
-it.
-
-**Recovery must serialize with itself.** Two invocations can observe the same
-null or dangling `job_id` and both enqueue before either links its new job; and
-a crash between enqueue and the `job_id` write produces the same duplicate on
-the next pass. Neither the manifest's uniqueness nor Resend's key saves this —
-the unique key constrains *obligations*, not delivery attempts, and the
-provider key expires after 24 hours while recovery runs indefinitely.
-
-**Specification:** recovery takes `SELECT … FOR UPDATE` on the manifest row and
-performs the enqueue **and** the `job_id` replacement in **one transaction**, so
-a second invocation blocks and then sees the linked job. This is the third time
-in this review that a new writer was introduced without asking what serializes
-it against itself — the per-source leases, the reconciliation run, and now
-recovery. **A component that can run twice needs its own answer, every time.**
-
-**`delivered_at` is set once and is authoritative over job status.** The
-existing worker cannot make the two agree by itself: `recoverStuckProcessing`
-re-pends any `processing` row older than five minutes (`asyncJobs.ts:589-597`),
-and **both finalizers update `async_jobs` by id with no claim or version
-predicate** (`:435-445`, `:453-465`). So a slow worker A can deliver, exceed the
-cutoff, have its row reclaimed by B, then commit `done` + `delivered_at` — after
-which B's failure finalizer moves the *job* back to `pending` or `failed`.
-Revision 18 claimed the two "cannot disagree because they commit together";
-they commit together and are then **overwritten by a third party**, which is a
-different property.
-
-The consequence is bounded and acceptable, and worth stating rather than
-fixing in the wrong place:
-
-- `delivered_at` is **set-once and never cleared**, and recovery trusts **it**,
-  not the job's status — so a contradicted job row cannot resurrect the
-  obligation.
-- The duplicate B may send is minutes after A's, comfortably inside Resend's
-  24-hour idempotency window, so the provider suppresses it.
-
-**Adding a claim token to the generic finalizers would fix this at the root,
-and that is out of bounds** (entry 86 — queue capability). It is therefore
-**recorded as separate work** with this evidence, not absorbed: *`asyncJobs`
-finalizers update by id with no claim predicate, so a stale worker can overwrite
-a reclaimed row's terminal state.* First use of the boundary that accepts a
-finding, fixes this plan's side, and hands the root cause on.
-
-**An empty obligation set is a legitimate outcome and must be recorded as one.**
-Plenty of processed events owe nothing — a refund that does not change effective
-membership, a dispute when no admin is opted in. Revision 17 would have reported
-every one of those as a missing-manifest incident, forever, because the table
-cannot distinguish "the owed set was empty" from "the manifest write was
-skipped". **Specification:** the claim row carries **`obligations_derived_at`**,
-set inside apply in the same transaction, whether the derived set is empty or
-not. `processed` **and** `obligations_derived_at` set **and** zero manifest rows
-is a normal, silent outcome; `processed` with `obligations_derived_at` unset is
-the incident.
-
-`ignored_duplicate` is **not** terminal for the original processing outcome —
-only `processed` or `failed` is.
-
-**Acceptance:** commit a mutation, fail its `processed` audit insert, let
-Stripe's retry append `ignored_duplicate`, and assert recovery still reports the
-event as lacking a recorded outcome; **delete an owed job immediately and assert
-recovery re-enqueues it from the manifest; then delete another owed job, change
-the user's membership by a later event, and assert recovery still re-enqueues
-correctly** — the case the recompute design could not survive; attempt the same
-`side_effect_key` after its job reaches `done` **and** after `failed`, and
-assert both are rejected while two distinct kinds for one event both succeed.
+**A retry can forge terminality, and that survives the notification cut**
+because it is about the *entitlement* record rather than about email. After a
+committed mutation whose `processed` insert failed, Stripe's retry hits the
+duplicate branch and appends `ignored_duplicate` (`webhookHandlers.ts:1176-1179`)
+— so the claim now *has* a terminal audit row while the original outcome was
+never recorded. **`ignored_duplicate` is therefore not treated as terminal for
+the original processing outcome; only `processed` or `failed` is**, and recovery
+queries for claims lacking a genuinely terminal row.
 
 **Acceptance:** inject a failure after a source write inside apply and prove
 **both** the mutation and the idempotency claim roll back, so Stripe's retry
-succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`; **inject
-that same failure after a notification-producing write and assert no email is
-queued and no notification is sent** — then let the retry succeed and assert
-exactly one job, not two; and **kill the process immediately after the commit
-and assert the notification is still eventually delivered** — the crash window
-that killed the post-commit list.
-
-#### A permanently failed payment alert must surface without the email path
-
-The outbox is now the only delivery path for refund, dispute and fraud alerts,
-and its terminal behaviour was never examined. It is:
-
-- five attempts, then a terminal `failed` row (`asyncJobs.ts:448-503`);
-- `onAbandon` alerts admins only if `email_admin_abandoned_alerts_enabled` is
-  `"true"`, and it **defaults to `"false"`** (`email.ts:243-245`);
-- and when enabled it sends that alert **through the same email queue**
-  (`:247-254`), so a Resend outage loses the dispute alert and the alert about
-  losing it together;
-- `retainDuringPurge` keeps only `admin_abandoned_email_alert` rows
-  (`:257-260`), so the failed dispute-alert row itself is purged at the default
-  30 days (`asyncJobs.ts:617`).
-
-**Specification, kept to mechanisms this repo already has:**
-
-1. **Classify critical payment alerts** by `kind` — refund, dispute opened,
-   dispute lost, fraud warning, access revoked.
-2. **They are retained, not purged.** `retainDuringPurge` returns true for a
-   critical kind in terminal `failed`, so the evidence outlives 30 days.
-3. **The abandonment alert is not config-gated for critical kinds** — the
-   default-false switch stays for ordinary mail.
-4. **The operator signal does not depend on email.** The admin surface shows a
-   persistent indicator whenever any critical alert job is terminally `failed`,
-   read straight from `async_jobs`. This is the repo's own
-   [async-status principle](../ai-context/async-ui-status.md) applied to a queue
-   that already has an admin Email Queue page — a query against an existing
-   table rendered in an existing surface, not new infrastructure.
-
-**Retention alone does not protect the evidence — a delete endpoint bypasses
-it.** `retainDuringPurge` only governs the *scheduled* sweep. The authenticated
-`DELETE /admin/email-queue?status=failed` route (`admin.ts:3058-3078`) deletes
-**every** email row of that status directly, without consulting the handler or
-looking at `kind`. One admin bulk-clear therefore erases the critical evidence
-and silently clears the indicator that was supposed to be persistent — so the
-mechanism specified above is defeated by an existing button, not by an edge
-case.
-
-**Specification:** critical kinds in terminal `failed` are **excluded
-server-side from generic bulk deletion**, and are removable only through an
-explicit **acknowledgement** — a deliberate act that records who acknowledged
-the failure and when, and which is what clears the indicator. Bulk-clear keeps
-working for ordinary mail. The point is that dismissing a lost dispute alert
-should be a decision someone made and signed, not a side effect of tidying a
-queue.
-
-**Acceptance:** with an unacknowledged critical failure present, call the bulk
-clear and assert the row survives and the indicator stays; acknowledge it and
-assert the indicator clears and the row becomes removable.
-
-**Deliberately not built:** external paging, a third-party alerting dependency,
-or a second delivery channel. Those are real infrastructure, and the failure
-they cover — an admin not looking at the admin app while Resend is down — is
-not one this account has yet. Recorded here so the omission is a decision.
-
-**Acceptance:** force a critical alert to exhaust its attempts; assert the row
-is terminal `failed`, survives a retention purge, and raises the admin-surface
-indicator **with email delivery disabled entirely**.
-
-#### Scope boundary: the notification subsystem stops here (David, 2026-07-29)
-
-**Everything specified above stands. Nothing further about the async-job queue
-enters this plan.**
-
-The reason is a pattern rather than any one finding. Rounds 11–14 produced 22
-findings and **not one of them was against the entitlement model** — the
-derivation, the trust boundary and the schema have been stable since round 10.
-Every finding has been against machinery *attached* to the model, and each
-round moved one subsystem outward: per-source leases, then the transactional
-outbox, then the worker that drains the outbox. Round 14 was substantially
-about whether `async_jobs` is an adequate transport for dispute and fraud
-alerts. Those findings were real and are fixed above — but they are about the
-notification subsystem, not about membership being derived correctly, and the
-trajectory had no natural stopping point.
-
-**The line, stated precisely so it is testable rather than a mood:**
-
-| In scope — stays here | Out of scope — logged, not absorbed |
-|---|---|
-| Whether the entitlement model's own writes and side effects are correct and durable **at the boundary of the claim's transaction** — the outbox row written on that transaction, unconditionally, with failures propagating (80); `side_effect_key` correlation and two-direction recovery, because that is how we know an event was fully processed (81) | The queue's **capability**: retry policy, backoff tuning, concurrency, worker scheduling, delivery guarantees beyond what 84 already states |
-| Regressions this plan's own changes introduce in **non-payment** callers — moving the enqueue decision out of `sendEmail` touches every caller in the app, and that blast radius is mine to contain | Improvements to alert escalation, retention or operator surfacing **beyond** what 82 already specifies |
-| The specifications already written above (80–85), which are frozen as-is | Anything requiring a new dependency, a second delivery channel, or a new subsystem |
-
-A finding on the right-hand side is **not dismissed** — it is recorded as
-separate work with its evidence intact, so nothing found here is lost. It is
-simply not fixed inside this plan.
-
-This is the second time David has cut scope on this plan, and the two cuts
-have the same shape: the migration machinery (57) protected users who do not
-exist; this one bounds a subsystem the entitlement model merely *uses*. The
-distinction round 4 established still governs — **shed what is adjacent, keep
-what is load-bearing for correctness** — and the table above is where the line
-falls this time.
+succeeds; assert **no Stripe call occurs between `BEGIN` and `COMMIT`**; assert
+**no notification is emitted before the commit**, and that a rolled-back apply
+emits none at all; commit a mutation, fail its `processed` audit insert, let
+Stripe's retry append `ignored_duplicate`, and assert recovery **still** reports
+the event as lacking a recorded outcome.
 
 ### Reconciliation
 
@@ -1665,35 +1240,36 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 72 | 11 | No create-time control for a comped account | **Resolved** — explicit "Grant membership" checkbox plus required reason replaces the removed tier selector; the atomic-create capability would otherwise have been silently lost. |
 | 73 | 12 | An expired per-source lease holder is not fenced | **Resolved** — a fence value from a sequence, validated inside the apply transaction under `SELECT … FOR UPDATE`, with compare-and-release. Revision 12 gave that job to `source_state_as_of`, which cannot do it: a successor still retrieving has stored no newer token, so the late write passes the guard. **Third failure of the ordering design**, and the first one whose fix does not depend on a number meaning something it does not. |
 | 74 | 12 | An expired reconciliation holder can still commit its staged run | **Resolved** — the same fence, taken by the guard-once commit transaction; a superseded run commits nothing and reports as its own outcome. Same defect as 73 in the second lease, which I built without carrying the mechanism across. |
-| 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Resolved** — the boundary is the whole call graph, not the signatures: `sendEmail` (awaited, global-`db` outbox insert) and seven `void` fire-and-forget notification calls all escape or outlive the transaction. Every apply-reachable helper is now **transactional-and-awaited, full stop** — the post-commit-action alternative this entry originally offered was deleted in revision 14 (see 78) and must not be read as still available; `sendEmail` already accepts `dbOverride`, so this is an existing affordance. **Also resolves a contradiction with invariant 5** ("notification only after a committed transition"), which the call graph has violated all along. |
+| 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Partly superseded by 104** — the transaction boundary stands: every **domain write** takes the executor and cannot reach the global `db`. The notification half is cut; those calls move after the commit and keep today's best-effort semantics rather than becoming transactional. |
 | 76 | 12 | The tier predicate has no answer for `registered` (#70 Still Open) | **Resolved** — the primitive becomes an effective-tier `CASE` **expression**; predicates derive from it. Revision 12 fixed the dashboard's over-count and introduced an under-count in the adjacent query (`admin.ts:2555`), because an expiry *filter* answers "is this user still X" while the readers ask "what is this user's tier". |
 | 77 | 13 | Reconciliation's commit fences the run but not each staged **source** | **Resolved** — the commit validates every staged source's lease before touching any user row; a failed fence drops that source and its dependent users rather than aborting the run (a whole-run abort would **livelock** under steady webhook traffic). Lock ordering fixed: leases by scope key, then users by id — the same relative order the webhook path uses. **Third instance of "a lease without a fence", and the second time I fixed one lease and left another.** |
 | 78 | 13 | The post-commit action list loses required notifications on crash | **Resolved by deleting the option** — the claim commits, the process dies, and Stripe's retry is discarded as a duplicate at `webhookHandlers.ts:1170-1179`, so the refund/dispute/fraud alert is lost permanently. Every required side effect is now a durable `async_jobs` row enqueued through the transaction executor. Not new machinery: `sendEmail` already writes `async_jobs` and already takes `dbOverride`. **The idempotency claim that makes retries safe is what makes a post-commit list unsafe** — the two mechanisms had never been considered together. |
 | 79 | 13 | One shared expression is not one shared instant | **Resolved** — `now()` is the *transaction* timestamp, and the dashboard runs its two counts as two statements in a `Promise.all`, so a user crossing the horizon between them is counted twice or not at all. One conditional-aggregation statement, or a bound `asOf` passed to every surface. The acceptance criterion I wrote (the counts sum to the same total) would have failed against the very query it was written for. |
-| 80 | 14 | The outbox row is not actually guaranteed | **Resolved** — enqueue made unconditional and independent of delivery configuration (`sendEmail` returns before enqueuing when Resend is unconfigured), and apply-path notification helpers stop swallowing enqueue failures. "Pass the executor" changed *which connection* inserts the row and never made the insert happen. |
-| 81 | 14 | Audit and outbox cannot be correlated | **Amended by 88 and 92** — a unique `side_effect_key` (`event/kind/recipient`) written on the claim's transaction and reused as the provider idempotency key; recovery checks both directions and stops treating `ignored_duplicate` as terminal. **The owed set is NOT derived during prepare** — that instruction is withdrawn. 88 showed it cannot be recomputed after apply, and 92 showed computing it *before* the lock sends a false access-revoked notice when a grant commits in between. It is derived **once, inside apply, under the user lock, after the fence and version guard accept**, and persisted to the manifest. |
-| 82 | 14 | A permanently failed payment alert is invisible | **Resolved within existing mechanisms** — critical kinds classified, retained past the 30-day purge, exempt from the default-false abandonment-alert gate, and surfaced by an admin indicator read from `async_jobs` that does not depend on email. External paging explicitly **not** built, and recorded as a decision. |
+| 80 | 14 | The outbox row is not actually guaranteed | **Superseded by scope decision 104** (notifications out of scope). Enqueue is neither unconditional nor transactional — notification calls simply move after the commit and keep today's best-effort semantics. **Not built.** |
+| 81 | 14 | Audit and outbox cannot be correlated | **Partly superseded by 104** — the outbox correlation is cut with the manifest. What survives is the **audit half**, which is about the entitlement record rather than email: recovery still detects a claim with no terminal audit row, and `ignored_duplicate` is still **not** terminal for the original outcome. |
+| 82 | 14 | A permanently failed payment alert is invisible | **Superseded by scope decision 104** (notifications out of scope). No critical-alert classification, retention override, or admin indicator. A failed payment alert stays as invisible as it is today. **Not built** — handed to the email rebuild. |
 | 83 | 14 | A *held* lease blocks; the per-source drop is unreachable (#77 Still Open) | **Resolved** — locks taken with `SKIP LOCKED`, so contention becomes the same outcome as a stale fence rather than a `lock_timeout` that aborts the run. My drop rule was correct about a *stale* lease and silent about a *held* one, which reinstated the exact livelock it was written to prevent. The webhook path deliberately still blocks: it is the only carrier of its event and cannot skip. |
-| 84 | 14 | "Exactly once" delivery was never true | **Resolved** — the worker claims `processing`, calls Resend, then marks `done` in a *separate* transaction, so a crash redelivers. At-least-once adopted explicitly, narrowed by Resend's `Idempotency-Key` (24 h window vs. a ~10.6 h maximum job lifetime — verified against current docs and `asyncJobs.ts:133`). I had read the enqueue side and claimed a property of the delivery side. |
+| 84 | 14 | "Exactly once" delivery was never true | **Superseded by scope decision 104** (notifications out of scope). No provider idempotency key and no delivery-semantics claim; the plan makes none. **Not built.** |
 | 85 | 14 | Ledger entry 75 still offered the deleted post-commit option | **Resolved** — entry 75 rewritten. A resolution row is an implementation instruction, so a superseded one contradicts the section that superseded it. First finding in this review against the ledger itself rather than the plan body. |
 | 86 | — | **Scope decision (David, 2026-07-29): the notification subsystem stops at revision 15.** | Rounds 11–14 produced 22 findings and **none against the entitlement model** — each round moved one subsystem outward, ending in the async-job queue's adequacy as a payment-alert transport. Entries 80–85 are frozen as specified; further queue-capability findings are recorded as separate work rather than absorbed. See *Scope boundary* for the in/out table. Same shape as 57, and the same governing distinction from round 4: **shed what is adjacent, keep what is load-bearing for correctness.** |
-| 87 | 15 | Moving the enqueue decision breaks disabled-delivery and test-key isolation (#80 Still Open) | **Resolved** — the handler is **never reached** when delivery is unconfigured: `deferEmailWhileDeliveryDisabled` re-pends the row inside the claim loop (`asyncJobs.ts:564`, `:172-190`), so revision 15 would have cycled every email row forever. The deferral is left alone (queue policy, out of bounds); the *claim* is corrected — an owed row simply stays pending. Test-key isolation moves from enqueue-time to delivery-time via a durable key-mode discriminator, because suppressing the enqueue was what protected a shared database. **My change's blast radius outside the payment paths, which is exactly what the round's lens was for.** |
-| 88 | 15 | The owed side-effect set cannot be recomputed (#81 Still Open) | **Resolved by persisting it** — eligibility depends on **pre-apply** state that apply destroys (`webhookHandlers.ts:370-378` captures `wasLegendary` before the downgrade), so "derived, not remembered" was unimplementable and its acceptance could never have passed. A `membership_side_effects` manifest is written on the claim's transaction; the job is a delivery attempt derived from it. |
-| 89 | 15 | `side_effect_key` uniqueness is not achievable on `async_jobs` | **Resolved** — `async_jobs_dedupe_idx` covers only non-terminal rows and `enqueueJob` deliberately re-inserts after `done`/`failed`. Broadening it would change semantics for every other caller — a regression *and* out of bounds. The all-lifetime constraint lives on the manifest table instead, so we get the guarantee without touching the queue. |
+| 87 | 15 | Moving the enqueue decision breaks disabled-delivery and test-key isolation (#80 Still Open) | **Superseded by scope decision 104** (notifications out of scope). No enqueue change, so no disabled-delivery or test-key regression to contain. **Not built.** |
+| 88 | 15 | The owed side-effect set cannot be recomputed (#81 Still Open) | **Superseded by scope decision 104** (notifications out of scope). No manifest. The owed set is neither persisted nor recomputed, because nothing recovers a lost notification. **Not built.** |
+| 89 | 15 | `side_effect_key` uniqueness is not achievable on `async_jobs` | **Superseded by scope decision 104** (notifications out of scope). No `side_effect_key`, so no uniqueness contract to satisfy anywhere. **Not built.** |
 | 90 | 15 | Fourteen ledger rows still instruct withdrawn mechanisms | **Resolved** — entries 4, 10, 20, 27, 38–46 marked **superseded by scope decision 57** with an explicit "not built"; 49's own resolution was disproved by 60 and now says roll-forward-only; 58, 63, 70 and 48 amended to point at 66/73, 71, and 76/79. Round 14 established a resolution row is an implementation instruction; this is that principle applied to the whole ledger rather than one row. |
-| 91 | 15 | Bulk-delete erases the critical-failure evidence (#82 Still Open) | **Resolved** — `retainDuringPurge` governs only the scheduled sweep, while `DELETE /admin/email-queue?status=failed` (`admin.ts:3058-3078`) deletes every failed row regardless of kind. Critical kinds are excluded from generic deletion and clear only via an explicit, attributed acknowledgement. The retention mechanism was defeated by an existing button. |
-| 92 | 16 | Obligations still derived in prepare, outside the lock (#81 Still Open) | **Resolved** — prepare produces only the provider description; every transition-dependent obligation is derived **inside apply, under the user lock, after the fence and version guard accept**. Two races closed: a grant committing between prepare and apply would have sent an access-revoked notice to a user who was not revoked, and a version-guard rejection would have recorded an obligation for a transition that never happened. I persisted the manifest in revision 17 and left the *computation* where it always was. |
+| 91 | 15 | Bulk-delete erases the critical-failure evidence (#82 Still Open) | **Superseded by scope decision 104** (notifications out of scope). No acknowledgement and no bulk-delete exclusion; the endpoint keeps its current behaviour. **Not built.** |
+| 92 | 16 | Obligations still derived in prepare, outside the lock (#81 Still Open) | **Superseded by scope decision 104** (notifications out of scope). No obligation derivation at all, so nothing to move under the lock. **Not built.** (The finding's *reasoning* survives as a caution: state read before a lock is not the state the lock acts on.) |
 | 93 | 16 | Entry 66 still called `source_state_as_of` a lease-expiry backstop (#90 Still Open) | **Resolved** — rewritten to match the body: 73 proved it cannot fence an expired holder while the successor is still retrieving, so it survives only as defence in depth against paths that bypass the lease. My own fourteen-row audit missed a row that contradicted the section the audit was checking against. |
-| 94 | 16 | The manifest cannot rebuild a job — identity is not the payload | **Resolved** — the rendered `EmailJobPayload` is stored immutably on the manifest row, with `key_mode`. Dispute and fraud copy depends on event-specific amount, currency, dashboard ids and livemode that no identity column carries, and `purgeTerminalJobs` deletes the job that held them. Also settles fan-out: `adminNotify.ts:180-193` mails each opted-in admin, so a dispute owes **N** obligations with N keys, and the recipient set is frozen at `owed_at`. |
-| 95 | 16 | A wrong-mode worker consumes the row (#87 Still Open) | **Resolved** — `HandlerResult` has no skipped outcome (`asyncJobs.ts:49-52`), so a live worker claiming a test row either marks it `done` undelivered or burns its retries. The mode check moves to **claim time**, as one more condition in `deferEmailWhileDeliveryDisabled` — the existing re-pend-without-consuming-an-attempt hook. I had ruled that function out of bounds; the extension point was already inside it. |
-| 96 | 16 | An empty obligation set is indistinguishable from a skipped write | **Resolved** — the claim row carries `obligations_derived_at`, set inside apply whether the set is empty or not. Without it, every refund that changed nothing and every dispute with no opted-in admin would be reported as a missing-manifest incident forever. |
-| 97 | 16 | "Job vanished → re-enqueue" would resend every delivered notification | **Resolved** — `purgeTerminalJobs` deletes `done` rows after 30 days, so that clause would have re-sent every delivered notification a month later, and again after each resend: a self-sustaining duplicate loop written as a safety net. Recovery applies only while `delivered_at IS NULL`, and the worker sets `delivered_at` in the same finalize transaction that marks its job done. |
-| 98 | 17 | Recovery does not serialize against itself | **Resolved** — recovery takes `SELECT … FOR UPDATE` on the manifest row and does the enqueue **and** the `job_id` write in one transaction. Two invocations, or a crash between enqueue and link, would each produce a duplicate; the manifest's unique key constrains *obligations*, not attempts, and Resend's key expires after 24 h while recovery runs indefinitely. **Third new writer in this review introduced without asking what serializes it against itself** — after the per-source leases and the reconciliation run. |
-| 99 | 17 | A row deferred for a retired key mode is stranded and invisible | **Resolved** — re-pending without consuming an attempt is right while a matching worker is coming and a silent leak when one never arrives: never `failed`, so the indicator cannot see it; a live `pending` job, so recovery skips it; non-terminal, so purging never removes it. A stale-mode threshold (age **and** deferral count) marks it **stranded**, surfaced on the same indicator with a drain path. Invisible on every surface this plan had added. |
-| 100 | 17 | `delivered_at`-only gating re-sends abandoned and dismissed alerts | **Resolved** — an exhausted job is `failed` with `delivered_at` still null, so the gate treated it as outstanding and re-enqueued it, defeating max-attempts; and once an acknowledged failure's row was removed, recovery re-sent **an alert an operator had explicitly dismissed**. The manifest now carries `abandoned_at` and `acknowledged_at` alongside `delivered_at`, on the obligation rather than inferred from jobs that get deleted. The gate written to stop one resend loop had created two more. |
-| 101 | 17 | A stale finalizer can overwrite the terminal pair | **Resolved on this plan's side; root cause recorded as separate work** — `recoverStuckProcessing` re-pends any 5-minute-old `processing` row and **both finalizers update by id with no claim predicate** (`asyncJobs.ts:435-465`), so a slow worker can commit `done` + `delivered_at` after its row was reclaimed, and the reclaimer's failure finalizer then moves the job back. Revision 18's "they cannot disagree because they commit together" was wrong: they commit together and are *overwritten by a third party*. `delivered_at` is **set-once and authoritative over job status**, and the duplicate falls inside Resend's 24 h window. A queue-side claim token is **out of bounds (86)** and handed on with evidence — the boundary's first partial use. |
-| 102 | 17 | Ledger entry 81 still instructed prepare-time derivation | **Resolved** — rewritten to point at apply-time derivation under the lock. Following it would have restored 92's false access-revocation race. **Third consecutive round finding a stale ledger row**, and the second of the withdrawn-role class rather than the deleted-object class. |
-| 103 | 17 | A frozen `to` sends to an address the user may no longer own | **Resolved by policy** — the copy and the **recipient identity** are frozen; the **address is resolved at send time** from that identity, and an obligation whose recipient no longer exists is closed as undeliverable. Sending "your access was revoked" to a reassigned address is a disclosure, and the real user gets nothing. Applied rather than escalated, consistent with how 71 was handled. |
+| 94 | 16 | The manifest cannot rebuild a job — identity is not the payload | **Superseded by scope decision 104** (notifications out of scope). No stored payload, because there is no re-enqueue. **Not built.** |
+| 95 | 16 | A wrong-mode worker consumes the row (#87 Still Open) | **Superseded by scope decision 104** (notifications out of scope). No key-mode discriminator, so no wrong-mode claim. **Not built** — the missing skipped/deferred handler outcome is handed to the email rebuild. |
+| 96 | 16 | An empty obligation set is indistinguishable from a skipped write | **Superseded by scope decision 104** (notifications out of scope). No `obligations_derived_at`. **Not built.** |
+| 97 | 16 | "Job vanished → re-enqueue" would resend every delivered notification | **Superseded by scope decision 104** (notifications out of scope). No recovery of notifications, so no resend loop to gate. **Not built.** |
+| 98 | 17 | Recovery does not serialize against itself | **Superseded by scope decision 104** (notifications out of scope). No recovery component to serialize. **Not built.** (The *lesson* stands and is stated in the plan: a component that can run twice needs its own answer for racing itself.) |
+| 99 | 17 | A row deferred for a retired key mode is stranded and invisible | **Superseded by scope decision 104** (notifications out of scope). No deferral hook change, so nothing strands. **Not built.** |
+| 100 | 17 | `delivered_at`-only gating re-sends abandoned and dismissed alerts | **Superseded by scope decision 104** (notifications out of scope). No terminal dispositions, because there is no obligation record to dispose of. **Not built.** |
+| 101 | 17 | A stale finalizer can overwrite the terminal pair | **Superseded by scope decision 104** (notifications out of scope). No `delivered_at` to be contradicted. **Not built** — the finalizer claim-predicate gap is handed to the email rebuild, where it was already going. |
+| 102 | 17 | Ledger entry 81 still instructed prepare-time derivation | **Resolved, then largely superseded by 104** — entry 81 was rewritten to apply-time derivation, and the derivation itself is now cut. The finding's real value is the third class of stale ledger row it identified: a surviving mechanism described at the **wrong point in the sequence**, where every noun is still real and only the ordering is wrong. |
+| 103 | 17 | A frozen `to` sends to an address the user may no longer own | **Superseded by scope decision 104** (notifications out of scope). No frozen payload, so no stale address. **Not built.** |
+| 104 | — | **Scope decision (David, 2026-07-29): notifications are out of scope.** | Rounds 13–17 produced **20 findings and every one was in notification-delivery machinery**; nothing in that stretch touched the entitlement model, and each round's fix generated the next round's defects. The outbox, the manifest, its five markers, three writers, recovery, key-mode isolation, stranded detection, retention and acknowledgement are all **cut**. Notification calls move after the commit and keep today's best-effort semantics; their existing defects are documented and handed to the email-system rebuild. **What is kept is the transaction boundary itself** — claim plus domain writes in one transaction, retrieval outside it, executor-only domain writes — because that is entitlement correctness rather than delivery. Third and largest scope cut; same governing distinction as 57 and 86. |
 
 | Round | Lens |
 |---|---|
@@ -1715,4 +1291,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 16 | The scope boundary's **first live test**, plus the ledger audit — **5 findings, all five inside the boundary and none needing the boundary invoked. Three were defects in revision 15's own new specifications; one was the ledger instructing 14 withdrawn mechanisms** |
 | 17 | **The manifest's second pass.** Round 16 hit it from six angles at once and every one landed; the fixes are correspondingly interlocking — derivation moved under the lock, a stored payload, a claim-time mode check, `obligations_derived_at`, `delivered_at` gating recovery. So: do those five agree with *each other*? Specifically — apply now does fence check, user lock, source write, tier write, claim insert, obligation derivation, manifest insert and enqueue, in one transaction whose duration matters; the worker now writes to a table this plan owns; and `obligations_derived_at` plus `delivered_at` plus `job_id` are three nullable state markers that can disagree. **Look for the pair that contradicts, not the single mechanism that fails** |
 | 18 | **The obligation state machine.** Rounds 16 and 17 have grown the manifest to five state markers — `job_id`, `delivered_at`, `abandoned_at`, `acknowledged_at`, plus `obligations_derived_at` on the claim — and three writers: apply, the worker's finalizer, and recovery. Treat it as a state machine and look for the transition nobody owns: which marker combinations are reachable, which writer sets each, what happens when two fire concurrently, and whether `stranded` (99) is a sixth state or a view over `pending`. **The manifest was one column wide two rounds ago; it is now the most stateful object in the plan** |
+| 19 | **The plan after the notification cut** — the same question round 10 asked after the migration machinery was deleted, and it found six defects then. Did anything load-bearing go with it? Specifically: does the transaction boundary still mean anything now that the only side effects inside it are domain writes; is the surviving audit-half recovery coherent on its own; and is there a section still written as though the manifest exists. Round 10's lesson was that a large cut leaves *dangling references*, not holes |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
