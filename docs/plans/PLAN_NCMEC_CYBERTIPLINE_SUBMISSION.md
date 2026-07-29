@@ -222,24 +222,44 @@ guard cannot see this, because the guard keys off a report id that does not exis
 The fix is a lease on `ncmec_reports`, owned by the domain rather than the queue —
 this plan must not change the shared queue's contract for one consumer:
 
-1. **Acquire before any ISPWS call**, as a conditional update:
+1. **The lease owner is a fresh token minted per handler invocation** — a `randomUUID()`
+   generated at the top of `run()`, never a process id, worker id, or `async_jobs` row id.
+   Those can all be **reused**: a reclaimed execution of the same job row would present
+   the same identity as the execution it replaced, which is precisely the collision the
+   lease exists to detect.
+2. **Acquire before any ISPWS call**, as a conditional update:
    ```sql
    UPDATE ncmec_reports
-      SET submission_lease_owner = $workerId,
+      SET submission_lease_owner = $token,
           submission_lease_until = now() + interval '3 minutes'
     WHERE id = $id
+      AND submission_status IN ('pending','in_progress')      -- never a final row (§5.3)
       AND (submission_lease_until IS NULL OR submission_lease_until < now())
    ```
-   **Zero rows updated → another worker holds the lease → return a retryable failure
-   immediately and make no ISPWS call at all.** This is the fence.
-2. **Renew between steps.** Each renewal re-asserts `submission_lease_owner = $workerId`
-   in the `WHERE`. A renewal that updates zero rows means the lease was lost (we
-   overran); the worker **aborts the sequence without calling `/finish`** and returns
-   retryable. The stranded report is then handled by §5.2.1's retract-first on the next
-   attempt.
-3. **Hard sequence deadline of 3 minutes**, strictly below the 5-minute boot-recovery
+   **Zero rows updated → another worker holds the lease, or the row is already final →
+   return a retryable failure immediately and make no ISPWS call at all.** This is the
+   fence.
+3. **Renewal requires the token *and* an unexpired lease:**
+   ```sql
+   ... WHERE id = $id
+         AND submission_lease_owner = $token
+         AND submission_lease_until >= now()
+   ```
+   Checking the owner alone is not enough. After expiry, the overrunning worker could
+   renew *first* and resurrect a lease a replacement was entitled to take — two live
+   workers, which is the original defect wearing a lease. Requiring `>= now()` means an
+   expired lease is unrenewable by anyone; it must be re-acquired through step 2, and only
+   one caller can win that.
+4. **A renewal that updates zero rows means the lease is lost.** The worker **aborts
+   without calling `/finish`** and returns retryable. The stranded report is resolved by
+   §5.2.1's retract-first on the next attempt.
+5. **Hard sequence deadline of 3 minutes**, strictly below the 5-minute boot-recovery
    cutoff, with per-call timeouts summing under it. Exceeding the deadline aborts before
    `/finish` rather than racing it.
+6. **Every state write after acquisition is conditional on still owning the lease and the
+   row still being non-final** — the same `WHERE` predicate as renewal. A worker that lost
+   its lease, or whose row was marked `filed_manually` by an operator meanwhile (§5.8),
+   cannot overwrite that decision.
 
 The lease is what makes "only one report can finish" true. `5102` is what makes
 "and we can tell afterwards" true. Both are needed; neither alone suffices.
@@ -255,23 +275,44 @@ could leave the NCMEC row sitting at `pending`/`in_progress` forever with nobody
 Two layers instead:
 
 - **The handler finalizes its own domain row inside `run()`**, before returning
-  `terminalFailure(...)`: sets `submission_status='failed'`, `last_error_code`, and
-  **enqueues** an admin notification as an `email` job rather than sending inline, so
-  the notification is itself durable. This mirrors the established pattern the queue's
-  own comment cites — the image-prompt handler persists its terminal code inside
-  `run()` for exactly this reason.
+  `terminalFailure(...)` — and does it in **one transaction**: the
+  `submission_status='failed'` / `last_error_code` update **and** the admin notification
+  are committed together. The notification is an `email` job rather than an inline send,
+  so it is durable, and `enqueueJob(options, dbOverride)` already accepts a transaction
+  handle (`asyncJobs.ts:247`), so both writes share the caller's transaction with no
+  change to the shared queue API.
+
+  Atomicity is load-bearing here, not decorative: if the status update commits and the
+  process dies before the notification is inserted, the row is now **final** — so the
+  reconciler, which only repairs non-final rows, will never look at it again, and the
+  required alert is lost permanently. A durable notification that can be orphaned is not
+  durable.
+
+  The notification insert carries a report-scoped `dedupeKey` (`ncmec:notify:<reportId>`)
+  so a retried finalization cannot produce duplicate alerts.
 - **The reconciler (§5.3) is the backstop** for every case `run()` cannot cover:
-  a crash mid-finalization, exhaustion-boundary crashes, and rows whose job vanished.
+  a crash mid-finalization, exhaustion-boundary crashes, and rows whose job vanished. Its
+  repairs are transactional on the same terms (§5.3).
 
 #### 5.2.4 Enqueue is not atomic with the row — the reconciler owns that
 
-`quarantine.ts` inserts the `ncmec_reports` row and then calls `enqueueJob()`. These
-are two writes; a crash between them commits a `pending` row with no job, which nothing
-would ever process. Rather than force atomicity through the shared queue (which would
-mean threading a transaction handle through `enqueueJob` for one caller), **the row is
-the source of truth and the job is derived from it.** The reconciler makes any
-`pending` row without a live job actionable, which covers the crash window, disabled
-periods, and pre-migration rows with one mechanism (§5.3).
+`quarantine.ts` inserts the `ncmec_reports` row and then calls `enqueueJob()`. These are
+two writes; a crash between them commits a `pending` row with no job.
+
+**Both fixes apply, and they are not alternatives.** An earlier revision of this plan
+chose reconciliation over atomicity on the stated grounds that atomicity would require
+threading a transaction handle through `enqueueJob` for one caller. That reasoning was
+wrong: `enqueueJob(options, dbOverride)` already takes one (`asyncJobs.ts:247`). So:
+
+- **The insert and the enqueue share one transaction.** Cheap, available today, and it
+  removes the crash window rather than compensating for it.
+- **The reconciler remains** (§5.3), because atomicity only closes *this* window. Rows
+  created while submission was disabled, pre-migration rows, and rows whose job went
+  terminal without finalizing are all states no transaction can prevent, and they need
+  a mechanism that derives desired state from actual state.
+
+The governing principle stands either way: **the `ncmec_reports` row is the source of
+truth and the job is derived from it**, never the reverse.
 
 `submitNcmecReport()` keeps its signature and its "never throw into the caller"
 contract. The existing admin email stays — useful independently of automation.
@@ -284,10 +325,39 @@ any `ncmec_reports` row in a non-final state by comparing it against its job:
 
 | Row state | Job state | Cause | Repair |
 |---|---|---|---|
-| `pending` / `in_progress` | **no job row** | Crash between insert and enqueue (§5.2.4); pre-migration legacy row; row created while submission was disabled | Enqueue one — **only if `ncmec_submission_enabled`** |
+| `pending` / `in_progress` | **no job row** | Pre-migration legacy row; row created while submission was disabled; a crash window §5.2.4's transaction does not cover | Enqueue one — **only if `ncmec_submission_enabled`** |
 | `pending` / `in_progress` | `failed` | Terminal failure whose in-`run()` finalization was lost to a crash (§5.2.3) | Set row `failed`, record the code, enqueue an admin notification |
-| `pending` / `in_progress` | `done` | Handler no-opped (submission disabled) or returned success without finalizing | Re-enqueue if enabled; otherwise leave `pending` — it is not lost, the reconciler will find it again |
-| `in_progress` | any, lease expired > 1 h | Worker died mid-sequence | Re-enqueue; §5.2.1's retract-first resolves whatever NCMEC still holds |
+| `pending` / `in_progress` | `done` | Handler returned success without finalizing | Re-enqueue if enabled; otherwise leave `pending` — not lost, the next pass finds it |
+
+`pending` and `in_progress` are the only non-final states, and every one of them appears
+above — that exhaustiveness is what makes invariant 8 checkable rather than aspirational.
+There is deliberately **no `retracted` status** (§5.4): retraction is a step *inside* an
+attempt, not a resting state, and adding it as a status would create a fourth non-final
+state that a crash could park a row in, outside every repair.
+
+**Scheduling — the reconciler does not run merely by being registered.**
+`registerJobHandler()` only populates a registry and `runAsyncJobsWorker()` only claims
+rows that were already enqueued; there is no recurring-job abstraction in this codebase.
+So the schedule is specified explicitly, following the pattern the queue already uses for
+its own stuck-row backstop (`asyncJobs.ts:751-757`):
+
+- **A boot pass**, once per process start.
+- **A periodic timer in the bulk runner**, every 5 minutes, enqueuing an
+  `ncmec_reconcile` job with the fixed dedupe key `ncmec:reconcile` — the partial unique
+  index on non-terminal `(queue, dedupe_key)` means concurrent instances collapse to one
+  in-flight pass rather than N.
+- Without this, the "backstop" would run once at boot and silently stop, which is worse
+  than no backstop because the plan would claim coverage it does not have.
+
+**Repairs are transactional and conditional.** Two overlapping passes, or a pass racing a
+live worker or an admin retry, must not double-enqueue or clobber. Every repair therefore:
+
+- Uses the report-scoped dedupe key **`ncmec:submit:<reportId>`** on the enqueue, so two
+  reconcilers observing "no job" produce one job, not two.
+- Re-reads the row `FOR UPDATE` and re-checks, inside the transaction: the status is still
+  non-final, there is **no unexpired lease** (`submission_lease_until < now()`), and there
+  is still no non-terminal job for that key. A stale `failed` observation must not mark a
+  row failed after an admin retry has already acquired its lease.
 
 Three properties make this the right shape:
 
@@ -323,24 +393,42 @@ Additive on `ncmec_reports`:
 | `submission_environment` | `varchar(16)` | `test` or `production` — which host received it |
 | `uploaded_files` | `jsonb` | `[{ fileId, md5 }]` from `/upload` |
 | `retracted_at` | `timestamptz` | When we retracted a stranded report |
-| `submission_lease_owner` | `text` | §5.2.2 fencing — worker holding the lease |
+| `submission_lease_owner` | `text` | §5.2.2 fencing — per-invocation token, not a worker id |
 | `submission_lease_until` | `timestamptz` | §5.2.2 fencing — lease expiry |
 | `manually_filed_at` | `timestamptz` | §5.3 — filed by a human through the manual form |
+| `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
+| `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 
-`report_id` (existing, `varchar(64)`) holds the ISPWS-assigned report id. No new column
-needed — the existing one was declared for exactly this.
+`report_id` (existing, `varchar(64)`) holds the ISPWS-assigned **production** report id.
+No new column needed — the existing one was declared for exactly this.
 
-**Status vocabulary** extends from `pending | submitted | failed` to add `in_progress`,
-`retracted`, and `filed_manually`. This is a CHECK constraint change; the schema comment
-in `moderation.ts:81` warns to keep it in lockstep with migration 0043, so the migration
-drops and recreates the constraint and `NCMEC_SUBMISSION_STATUSES` is updated in the
-same commit. Existing rows are all `pending` and remain valid.
+**Status vocabulary** extends from `pending | submitted | failed` to add `in_progress` and
+`filed_manually`. Final states are `submitted`, `filed_manually`, and `failed`; non-final
+are `pending` and `in_progress`.
 
-An index on `(submission_status, id)` filtered to non-final statuses keeps the
+**No `retracted` status.** An earlier revision proposed one. It was wrong: retraction is a
+step within an attempt (§5.2.1), not somewhere a report rests, and adding it would create
+a non-final state a crash could strand a row in, outside every reconciler repair — a
+direct violation of invariant 8. `retracted_at` remains as a timestamp for audit; the row's
+status stays `in_progress` throughout, which is already covered.
+
+This is a CHECK constraint change; the schema comment in `moderation.ts:81` requires
+`NCMEC_SUBMISSION_STATUSES` to stay in lockstep with migration 0043, so the migration drops
+and recreates the constraint and the constant is updated **in the same commit**, with a
+test asserting the two agree so the lockstep is enforced rather than remembered. Existing
+rows are all `pending` and remain valid.
+
+An index on `(submission_status, id)` filtered to the non-final statuses keeps the
 reconciler's sweep cheap as the ledger grows.
 
-Per `docs/engineering/`, the migration ships with its snapshot and passes the
-migration-snapshot validator.
+**Migration authoring follows this repo's current reality, not the documented ideal.**
+`drizzle-kit generate` is broken on a malformed snapshot around 0063
+(`migrations-and-backfills.md:21-26`), and recent migrations use hand-written idempotent
+SQL plus a `SNAPSHOT_EXEMPT_TAGS` entry in `lib/db/scripts/check-migration-snapshots.ts`.
+An earlier revision of this plan promised a generated snapshot, which cannot currently be
+produced. So `0094` ships as: hand-authored idempotent SQL (`ADD COLUMN IF NOT EXISTS`,
+`CREATE INDEX IF NOT EXISTS`), a `SNAPSHOT_EXEMPT_TAGS` entry carrying the one-line
+explanation that file requires, and both snapshot checks passing.
 
 ### 5.5 Configuration and environment safety
 
@@ -466,6 +554,19 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   and sets `filed_manually`, taking the row out of the reconciler's scope (§5.3).
   Requires the operator to enter the CyberTipline report id from the manual filing, so
   the ledger stays complete rather than merely quiet.
+
+  **This transition is fenced against active workers, in both directions.** A row sits at
+  `pending` while a leased worker is inside `/submit` and before it persists the returned
+  id — so without a fence, an operator could mark it `filed_manually` in that window and
+  the worker would then overwrite the status and finish a second, real report. The
+  operator's decision must win:
+  - The manual transition **rejects** any row with an unexpired `submission_lease_until`
+    or a non-null `report_id`, telling the operator a submission is in flight rather than
+    silently racing it.
+  - Lease acquisition and every subsequent state write require a non-final status
+    (§5.2.2), so a worker that acquired earlier cannot resurrect a row an operator has
+    since marked. Whichever ordering occurs, exactly one outcome survives and it is never
+    a duplicate filing.
 - `GET  /admin/safety/connectivity` — calls ISPWS `GET /status` and reports
   reachability and which environment is configured. This is the "is it actually
   working?" answer that no amount of row-reading gives.
@@ -510,18 +611,43 @@ Worker state machine — the cases that matter:
 Lease and reclaim (§5.2.2) — the duplicate-filing race:
 - **Reclaim during the `/submit`-to-persist window.** Job requeued while worker A is
   mid-sequence; worker B claims it, fails to acquire the lease, makes **zero ISPWS
-  calls**, and returns retryable. Only one report is ever finished. This is the test
-  Codex's round-1 finding demanded and the one I would not ship without.
-- Lease lost mid-sequence (renewal updates zero rows) → worker aborts **before**
-  `/finish`.
+  calls**, and returns retryable. Only one report is ever finished. The test I would not
+  ship without.
+- **Renewal racing re-acquisition after expiry.** The overrunning worker attempts renewal
+  at the same moment a replacement attempts acquisition; the expired lease is
+  **unrenewable**, the replacement wins, and the original aborts before `/finish`.
+- **Token reuse.** Two successive executions of the same `async_jobs` row present
+  *different* lease tokens, so the second cannot inherit the first's lease.
+- Lease lost mid-sequence → worker aborts **before** `/finish`.
 - Sequence exceeding the 3-minute deadline aborts before `/finish`.
-- An expired lease is acquirable by a later worker.
+
+Manual filing vs. active worker (§5.8) — both orderings:
+- Operator marks `filed_manually` while a worker holds a lease → **rejected**, operator
+  told a submission is in flight.
+- Worker holds a lease, row becomes `filed_manually` → the worker's next conditional write
+  updates zero rows and it aborts without finishing. The human decision is never
+  overwritten, and no second report is filed.
+
+Environment separation (§7):
+- A row exercised end-to-end against `test` has `test_report_id` set and is **still
+  `pending`**; `report_id` and `finished_at` remain null.
+- After flipping to `production`, that same row files **exactly once**.
 
 Reconciler (§5.3) — the "nothing is silently unreported" cases:
-- Crash between the `ncmec_reports` insert and `enqueueJob` → reconciler enqueues.
 - Terminal failure whose in-`run()` finalization was lost → reconciler sets `failed`
   and enqueues the notification.
 - Retry exhaustion with a crash at the `onAbandon` boundary → same.
+- **Atomic terminal finalization**: an injected failure between the status update and the
+  notification insert leaves **neither** committed, so the row stays non-final and the
+  next pass repairs it. Asserted at every boundary between the two writes.
+- **Two overlapping reconciler passes** produce **one** job, not two (report-scoped
+  dedupe key).
+- **A pass racing a live worker**: the reconciler observes an unexpired lease and makes no
+  repair.
+- **A stale `failed` observation racing an admin retry** that already acquired a lease →
+  the conditional re-check inside the transaction refuses the repair.
+- **The scheduled pass actually recurs**: a row created *after* the boot pass is repaired
+  by a later periodic pass, proving the backstop does not stop after one run.
 - **`disabled → enabled` transition**: rows accumulated while the flag was off are all
   enqueued on the first pass after it flips. Asserted end-to-end.
 - Pre-migration legacy `pending` rows are picked up by that same pass.
@@ -552,15 +678,35 @@ this repo has hit twice (`known-failure-patterns.md`).
    step is a prerequisite, not a cleanup task: enabling submission with an unaudited
    backlog is precisely how the reconciler would duplicate real reports.
 3. Set `ncmec_ispws_environment=test`, `ncmec_submission_enabled=true`. Exercise the
-   connectivity check, then let a real quarantine hit flow end to end against
+   connectivity check, then let a quarantine hit flow end to end against
    `exttest.cybertip.org`.
-4. Verify in the ledger: report id assigned, `finished_at` set, `submission_environment`
-   = `test`. Confirm the backlog from step 2 was picked up by the reconciler and that no
-   `filed_manually` row was touched.
-5. Flip to `production` only after David has seen a complete test-environment
-   submission and NCMEC has confirmed receipt on their side.
-6. Classifier reporting stays off through all of the above. It is a separate decision
-   on separate evidence.
+4. Verify in the ledger: `test_report_id` assigned, `test_submitted_at` set — and the row
+   **still `pending`**, because a test submission is not a filing.
+5. Flip to `production` only after David has seen a complete test-environment submission
+   and NCMEC has confirmed receipt. The real backlog is filed on this transition.
+6. Classifier reporting stays off throughout. Separate decision, separate evidence.
+
+**A test submission must never consume a real report's one filing.** An earlier revision
+of this rollout had the reconciler pick up the audited backlog while the environment was
+`test`. Those genuinely reportable rows would have reached final `submitted` stamped
+`test` — and neither the reconciler (which skips final rows) nor the retry endpoint
+(which skips final rows) would ever file them for real after the flip to production. The
+rollout designed to prove the system works would have permanently swallowed the backlog
+it was meant to file.
+
+So the environments are separated in the data model, not just the URL:
+
+- A submission against `exttest` writes **`test_submitted_at` and `test_report_id`, and
+  leaves `submission_status` at `pending`.** `report_id`, `finished_at`, and `submitted`
+  mean a production filing and nothing else.
+- Consequently every genuinely reportable row remains eligible for **exactly one**
+  production filing regardless of how many test runs preceded it, and the §5.2.1 duplicate
+  guard operates only over production reports — a test report id can never be mistaken for
+  one to retract.
+- `submission_environment` stays on the row as the record of which host last handled it.
+
+§6 asserts this directly: a row exercised end-to-end against `test` is still `pending`,
+and after flipping to `production` it files exactly once.
 
 ## 8. Open questions
 
