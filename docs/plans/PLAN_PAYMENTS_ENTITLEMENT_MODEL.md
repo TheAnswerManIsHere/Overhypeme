@@ -347,6 +347,54 @@ for **one**.
    common path; mechanism 2 is what holds when retrieval fails or the row is
    reached by any path that did not re-fetch. Either alone leaves a gap.
 
+### Readers of source *existence*, which the writer sweep could not see
+
+Rounds 24–26 swept **writers**. That was the right lens and it was structurally
+incapable of finding this: five places read whether a `lifetime_entitlements`
+row **exists**, with no status filter —
+
+| Site | Use |
+|---|---|
+| `routes/stripe.ts:53-72` | `hasLifetime` → `isLifetime` on the subscription payload |
+| `routes/stripe.ts:398` | blocks **cancel** |
+| `routes/stripe.ts:448` | blocks **reactivate** |
+| `routes/stripe.ts:504` | blocks **switch-preview** |
+| `routes/stripe.ts:604` | blocks **switch-plan** |
+
+plus `SubscriptionPanel.tsx`, which treats `isLifetime` as an **independent
+Legendary fallback** — a second grant path in the UI, parallel to the tier.
+
+Bare existence is a safe proxy **today**, because a refunded lifetime row is a
+rarity and the tier is assigned per-event. It stops being safe under this model
+for a reason this plan chose deliberately: **refunded and revoked source rows are
+retained**, not deleted. So a mechanical port to `membership_entitlements` makes
+a refunded user read as `isLifetime` — **displayed as Legendary**, and
+**blocked from cancelling, reactivating or switching a subscription they
+legitimately hold**. The retention decision that makes the audit trail work is
+exactly what breaks these readers.
+
+**Specification.** Each reader declares which question it asks:
+
+| Question | Sites | Ported to |
+|---|---|---|
+| *Does this user currently hold a qualifying lifetime source?* | all five `routes/stripe.ts` sites | the **qualification** predicate — allowlist ∧ no hold ∧ no terminal loss ∧ lifecycle — not row existence |
+| *Did this user ever have one?* | none currently | historical existence, if a future reader needs it |
+
+And the **UI grant is removed**: `SubscriptionPanel.tsx` stops deriving
+Legendary from `isLifetime` and reads the effective tier, so there is one grant
+path rather than two. That is a product-visible change to the panel and is
+called out here rather than arriving as a surprise.
+
+**Acceptance:** a user with a **refunded** lifetime source **and** an active
+subscription is not shown as lifetime, is not shown Legendary by the panel's own
+logic, and **can** cancel, reactivate, preview and switch; a user with a valid
+lifetime source keeps all of today's behaviour.
+
+**The general lesson, since it cost three rounds of the wrong lens:** a sweep
+over *writers* cannot find a *reader* that asks the wrong question. Retaining
+rows for audit changes what row-existence means, and every existence check
+becomes a qualification check the moment retention is introduced.
+
 ### Two more writers the sweep found, both in `admin.ts`
 
 Round 24's lens was *the writers, not the state*, and it produced two paths this
@@ -430,10 +478,9 @@ specified the fix here with an acceptance criterion requiring it to be
 implemented. Absorbing unrelated account-deletion work into an entitlement
 rewrite is exactly the coupling the first half of that sentence refuses.
 
-**And triage since has made the coupling worse than a scope error.** Investigating
-the bugfix found the `membership_history` FK is the **first of thirteen**
-constraints referencing `users(id)` with no `ON DELETE` clause — `memes`,
-`facts`, `comments`, `pending_reviews` (×3) and others. Verified by execution:
+**Correction — my round-25/26 claim about hard deletion was wrong, and this is
+the retraction.** I wrote that hard account deletion "has never worked" and that
+thirteen `NO ACTION` constraints block it, citing this:
 
 ```
 delete from users where id='probe3';
@@ -441,12 +488,31 @@ ERROR:  update or delete on table "users" violates foreign key constraint
         "facts_submitted_by_id_users_id_fk" on table "facts"
 ```
 
-So hard account deletion has **never** worked, a tombstone fixes one thirteenth
-of it, and revision 27's acceptance criterion — "hard-delete a user with
-membership history and assert the whole sequence completes" — was **unachievable
-for reasons entirely outside this plan.** It is withdrawn. David is deciding the
-disposition of account deletion separately; it is feature-and-migration work, not
-a bug fix.
+That was **raw SQL against the table, not either deletion route**, and it proves
+nothing about the application. Reading the actual routes:
+
+- **`DELETE /admin/users/:id` (hard branch) works.** `admin.ts:304-325` handles
+  every constraint I listed — it *deletes* `stripe_checkout_request_ledger`,
+  `subscriptions`, `lifetime_entitlements`, `membership_history`,
+  `activity_feed`, `affiliate_clicks`, then *nullifies* `memes`, `facts`,
+  `comments`, `external_links`, both `pending_reviews` columns and `video_jobs`,
+  and only then deletes the user. Its own comment reads *"Step 3: Delete records
+  with NOT NULL user_id FKs and no cascade."* Including `facts.submitted_by_id`
+  — the exact constraint my probe hit.
+- **`POST /admin/users/:id/data-delete` with `phase: "hard"` is broken**, and
+  that part stands: `anonymizePaymentHistoryForUser` raises `23503` on
+  `membership_history.user_id` for any user with history, verified by executing
+  the function's own write. Independently, `hardDeleteUserLifecycle`
+  (`dataLifecycle.ts:35-41`) clears only `search_history` and the two token
+  tables before deleting the user, so even with the FK fixed it would fail for a
+  user with content — a second defect on the same route.
+
+**So the accurate statement is: one of two deletion routes works and the other
+does not.** "Never worked" was a generalisation from a probe that bypassed the
+code, and I extended it into a thirteen-constraint claim about the application
+when thirteen was only ever a fact about the *schema*. The scope decision it
+supported — account deletion is not this plan's work — still holds, but it now
+rests on the correct reason rather than an inflated one.
 
 **What this plan owes instead — a prerequisite and an integration contract, not
 an implementation:**
@@ -494,10 +560,17 @@ history and assert the whole sequence completes" — is **withdrawn**: it is
 unachievable while twelve other constraints block the same delete, and it is not
 this plan's to assert. See the scoped acceptance above.)*
 
-**Acceptance:** a hard delete removes the user's entitlement rows via cascade
-with no FK violation; `membership_history` anonymisation still runs; a
-`admin_grant` row granted **by** the deleted admin to **another** user keeps its
-entitlement and gets its grantor label anonymised.
+**Acceptance, exercisable by this plan alone:** deleting a `users` row removes
+its `membership_entitlements` rows by cascade with no FK violation; no code in
+this plan's scope writes an entitlement `user_id` without a matching `users`
+row; and an `admin_grant` granted **by** one user **to another** keeps its
+entitlement when the *grantor* is removed, with its label anonymised — the only
+one of the three that this plan's own code owns.
+
+*(Revision 28 also required hard deletion to complete and `membership_history`
+anonymisation to run. Both belong to the separate account-deletion work — this
+plan cannot satisfy them independently, and asserting them here recreated the
+coupling entry 145 removed. Moved to that work's acceptance.)*
 
 ### One transition writer, and all three dispute events route through it
 
@@ -586,11 +659,26 @@ importantly — I had written a rule over a field that does not exist.
 
 **Specification, in priority order:**
 
-1. **The failed payment attempt's own timestamp**, resolved from the invoice's
-   associated PaymentIntent/charge. The pinned `Invoice` type exposes no
-   top-level `charge` or `payment_intent`, so this is an explicit lookup rather
-   than a field read — which is precisely why it must be specified rather than
-   assumed.
+1. **The *first* failed payment attempt's timestamp**, and "first" is the whole
+   specification — an invoice with several dunning retries has several failed
+   charges, and anchoring to the latest **restarts the 14-day window on every
+   retry**, so a permanently failing card never expires. That is defect D2
+   restored through the repair path. The pinned types make the trap concrete:
+   `Invoice` exposes `attempt_count` but no timestamp, and a `PaymentIntent`
+   exposes only `latest_charge` — the two things nearest to hand are exactly the
+   two that give the wrong answer.
+
+   **The authoritative lookup:** list **charges** for the invoice's PaymentIntent
+   — `charges.list({ payment_intent })`, **fully paginated** — take those with
+   `status = 'failed'`, and select the **earliest `created`**. Not
+   `latest_charge`, not a count, not the invoice.
+
+   **Ties and gaps:** `created` is whole-second, so two failures in one second
+   are ordered by list position, which is stable and sufficient (either yields
+   the same second). If the charge list is **incomplete** — a pagination failure
+   — no deadline is derived and the case is reported, per the rule at step 2;
+   an incomplete list cannot support "this is the earliest", the same
+   negative-conclusion-needs-a-complete-collection rule as entry 123.
 2. **If no attempt is resolvable, no deadline is derived.** The source keeps
    qualifying and the case is **reported**. Revisions up to 23 specified a
    `status_transitions.finalized_at` fallback here, bounded as "under 0.3% of a
@@ -612,7 +700,10 @@ deadline is derived, the source keeps qualifying, and the case is reported** —
 asserting specifically that no revocation occurs.
 
 **Acceptance:** a subscription whose `invoice.payment_failed` was never
-delivered still yields the original deadline, not a fresh window.
+delivered still yields the original deadline, not a fresh window; and — the case
+revision 28 could not have passed — an invoice with **multiple failed attempts**
+and no delivered webhook expires **14 days after the first**, with the deadline
+unchanged by each subsequent retry.
 
 **Grace expiry needs its own trigger** — no Stripe event fires when a deadline
 lapses. This is a **local** scheduled sweep (rows where
@@ -760,7 +851,22 @@ neither the mailing list nor the `legendary` count **and does appear in the
 the horizon lapses, **including when the horizon is crossed between what used
 to be the two separate queries**; `unregistered` rows are unaffected by expiry.
 
-Every consumer goes through one of the two — the two middlewares, both sites above, and any
+**Presentation surfaces are consumers too, and revision 28's "displayed state
+everywhere" claim omitted two.** `GET /admin/users` returns the raw
+`users.membership_tier` for the admin list (`users.tsx` renders it), and
+`GET /users/me` separately re-selects and returns the same raw column. When a
+grace horizon passes while the convergence sweep is failing, authorization
+demotes the user — the read-path guarantee holds — and **both surfaces keep
+showing Legendary**, so the admin and the user see a tier the server is no
+longer honouring. That is the precise scenario the read-path enforcement was
+built for, reported wrongly by the two screens anyone would check.
+
+Both route through `effectiveTierExpr` / `getEffectiveMembership` at a **bound
+`asOf`**, like every other consumer. **Acceptance:** with every sweep attempt
+failing and the horizon passed, the admin list and the user profile both show
+the demoted tier and agree with what authorization enforces.
+
+Every consumer goes through one of the two — the two middlewares, both sites above, the two presentation surfaces, and any
 future reader. The raw column is never read for an authorization or spending
 decision. Implementation begins by enumerating every reader of
 `users.membership_tier` the way the mutation-site inventory was built (search
@@ -978,10 +1084,22 @@ different Stripe object.
 | `created_at` | create-only, frozen | all |
 | `updated_at` | **operational, maintained** — every writer advances it, by protocol | all |
 
+**Frozen has to be *enforced*, not merely un-implemented.** Revision 28 said an
+attempted `provider_ref` reassignment is "rejected" and specified no mechanism
+that could reject it: the unique constraint happily accepts an update to any
+*unused* provider reference, and omitting the fields from the refresh helper
+protects nothing against a repair script, a migration backfill or a writer
+nobody enumerated — which, on this plan's record, is the case to design for.
+
+**Specification:** a `BEFORE UPDATE` trigger raises if `user_id`, `source_type`
+or `provider_ref` differs from the stored value. That is the same shape as the
+absorbing-terminal enforcement at entry 130, and for the same reason: a
+constraint that only sees the proposed row cannot express "this may not change."
+
 **Acceptance:** a refresh, a reconciliation pass and a dispute transition each
-leave `user_id`, `source_type` and `provider_ref` **unchanged**, asserted
-explicitly rather than by omission; and a write attempting to reassign
-`provider_ref` on an existing row is rejected.
+leave all three **unchanged**, asserted explicitly rather than by omission; and a
+reassignment is rejected **through both paths** — via the normal helper *and* via
+direct SQL that bypasses it.
 
 **The matrix.** A writer may write only the cells its (source type, origin) owns:
 
@@ -1302,7 +1420,7 @@ What actually happens during the rollout is therefore worth stating plainly
 rather than dressing up: **old instances that are still serving will error when
 they query the dropped tables, for as long as the rollout takes.** Pre-launch
 that costs nothing. Stripe retries any webhook delivered in that window for up
-to three days, and reconciliation would repair a permanently missed one anyway
+to three days **in live mode** (sandbox: three times over a few hours — see *External-claim verification*), and reconciliation would repair a permanently missed one anyway
 — the same convergence the model relies on in normal operation, not a special
 case for the migration.
 
@@ -1923,6 +2041,24 @@ Checked 2026-07-28:
 [portal session default configuration](https://docs.stripe.com/api/customer_portal/sessions/create);
 [portal configuration features](https://docs.stripe.com/api/customer_portal/configurations/create)
 — which has **no pause feature**, so a suggestion to model one was dropped.
+- **Stripe webhook retry behaviour** — checked 2026-07-29 against
+  <https://docs.stripe.com/webhooks> (*Automatic retries*, under *Event delivery
+  behaviors*). Verbatim: *"Stripe attempts to deliver events to your destination
+  for up to three days with an exponential back off in live mode."* And, for
+  sandboxes: *"We retry event deliveries created in a sandbox three times over
+  the course of a few hours."*
+
+  **Mode matters and the plan previously cited only the first half.** A rollout
+  rehearsed in a sandbox gets hours of retry, not three days — so a rehearsal
+  that "proved" the window was survivable would have proved nothing about live.
+
+  **The rollout no longer depends on this either way.** Round 27 was right that
+  an unrecorded external guarantee should not be load-bearing, and the stronger
+  point is that it need not be at all: this plan's product intent is *regardless
+  of whether the event arrives at all*, and reconciliation repairs a permanently
+  undelivered event. The retry window is recorded as **context for how quickly
+  the common case self-heals**, and no acceptance criterion rests on it.
+
 
 **Unresolved and to be settled empirically, not from docs:** whether **Pix** or
 **Stablecoins/Crypto** — both enabled on the live account, neither on Stripe's
@@ -2109,6 +2245,13 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 143 | 26 | Six DDL columns had no matrix row, under an invariant requiring all of them | **Resolved** — `id`, `user_id`, `source_type`, `provider_ref`, `created_at`, `updated_at` were absent while the rule said *every field declares a category*. This is the DDL→matrix direction I named in the round-26 trigger as unverified, so the lens found what it was aimed at. Classified: `id` **generated**; `user_id`/`source_type`/`provider_ref`/`created_at` **create-only, frozen**; `updated_at` **operational, maintained**. `provider_ref` matters most — it is source identity, and nothing may repoint a source at a different Stripe object, now asserted rather than assumed. |
 | 144 | 26 | The purged-grantor acceptance contradicted its own specification | **Resolved** — the spec replaces an identifying label with a stable opaque token; the acceptance still required that the label "names who did it", so a conforming implementation could retain the name or email and violate the retention rule the section exists to enforce. Entry 129's shape: an acceptance criterion left testing a superseded design. Now requires the original label **absent**, the token **stable across that actor's grants**, and the provenance constraint still passing. |
 | 145 | 26 | **140 Still Open** — the tombstone bugfix was absorbed into this plan | **Resolved by removing it from scope** — revision 27 called the broken anonymisation an independent live defect this plan "should not silently absorb" and then specified its fix here with a mandatory acceptance criterion. Triage since has made it worse: the `membership_history` FK is the **first of thirteen** `NO ACTION` constraints on `users(id)`, verified by execution, so hard deletion has **never** worked and a tombstone fixes one thirteenth of it. Revision 27's acceptance was unachievable for reasons wholly outside this plan. Withdrawn; replaced by a prerequisite and an integration contract (`ON DELETE CASCADE` covers entitlement rows; the deletion path stops rewriting entitlement `user_id`), with the tombstone retained as context for the separate work. |
+| 146 | 27 | Readers of source *existence* ask a question retention invalidates | **Resolved** — five bare-existence reads of `lifetime_entitlements` (`routes/stripe.ts:53-72, 398, 448, 504, 604`) plus `SubscriptionPanel.tsx` treating `isLifetime` as an **independent Legendary fallback**. Safe today; unsafe under a model that **deliberately retains refunded rows** — a refunded user would display as Legendary and be **blocked from cancelling or switching a subscription they legitimately hold**. Each reader now declares existence-vs-qualification, and the parallel UI grant is removed. **A three-round sweep over *writers* was structurally incapable of finding a *reader* asking the wrong question.** |
+| 147 | 27 | "Frozen" identity had no enforcement mechanism | **Resolved** — 143 said a `provider_ref` reassignment is "rejected" and specified nothing that could reject it: the unique constraint accepts any *unused* reference, and omitting the fields from the refresh helper protects nothing against a repair script or an unenumerated writer. `BEFORE UPDATE` trigger comparing old to new — the same shape as 130, for the same reason. Acceptance now tests **both** the helper path and a bypassing SQL writer. |
+| 148 | 27 | "The failed attempt's timestamp" is ambiguous across dunning retries | **Resolved** — an invoice with several retries has several failed charges, and anchoring to the latest **restarts the 14-day window on every retry**, so a permanently failing card never expires — D2 restored through the repair path. The pinned types set the trap: `Invoice.attempt_count` has no timestamp and `PaymentIntent` exposes only `latest_charge`, so the two nearest values both give the wrong answer. Specified: paginated `charges.list({payment_intent})`, `status = 'failed'`, **earliest `created`**; an incomplete list derives no deadline (entry 123's rule). |
+| 149 | 27 | The three-day webhook-retry claim was never verified or recorded | **Resolved** — checked against <https://docs.stripe.com/webhooks> on 2026-07-29 and it is **mode-dependent**, which the plan never said: three days *in live mode*, but sandboxes retry *"three times over the course of a few hours"*. A rollout rehearsed in a sandbox would have proved nothing about live. Recorded with source and date — **and the rollout no longer depends on it**, per the reviewer's alternative: the product intent is *regardless of whether the event arrives at all*, so reconciliation carries it and the retry window is context only. |
+| 150 | 27 | Two presentation surfaces return the raw tier | **Resolved** — `GET /admin/users` (rendered by `users.tsx`) and `GET /users/me` both re-select `users.membership_tier` directly. With the horizon passed and the convergence sweep failing, authorization demotes the user while **both screens keep showing Legendary** — the exact scenario read-path enforcement exists for, misreported by the two surfaces anyone would check. Both route through the effective-tier expression at a bound `asOf`. Revision 28's "displayed state everywhere" claim was a **fourth** false coverage assertion. |
+| 151 | 27 | **145 Still Open** — an acceptance still required hard deletion | **Resolved** — 145 moved account deletion out of scope and said no acceptance depends on the retained context; an acceptance three sections later still required hard deletion, `membership_history` anonymisation and grantor-label anonymisation to pass. Rescoped to what this plan's own code owns: cascade removes entitlement rows, nothing writes an orphan `user_id`, and a *grantor's* removal preserves the recipient's entitlement. |
+| 152 | 27 | **My "hard delete has never worked" claim was false** | **Resolved by retraction** — I ran `DELETE FROM users` as raw SQL, which bypasses both deletion routes, and generalised the FK error into a claim about the application. `DELETE /admin/users/:id` **works**: `admin.ts:304-325` deletes six child tables and nullifies seven columns — including `facts.submitted_by_id`, the exact constraint my probe hit — before deleting the user. Only `POST /admin/users/:id/data-delete` `phase: "hard"` is broken. **Thirteen was a fact about the schema and I stated it as a fact about the code**, then reported it to David as the basis for a scope decision. The decision survives on the correct reason; the claim is retracted. |
 
 | Round | Lens |
 |---|---|
@@ -2139,4 +2282,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 25 | **Severity dropped this round for the first time in five — three P2s where rounds 20–23 ran three-to-five P1s each — and the findings moved from *the model is wrong* to *this cell has no writer*. Two readings fit: the plan is converging, or the writer sweep found the easy half and the hard half is the paths neither of us has enumerated.** So: the sweep again, but **starting from the codebase rather than from the plan**. Enumerate every file that writes `subscriptions`, `lifetime_entitlements`, `membership_history` or `users.membership_tier` — including ones this plan has never mentioned in 24 rounds (`dataLifecycle.ts` was inventoried in revision 1 and still had no disposition until round 24; there may be others with neither) — and for each, state what it becomes. A path the plan has never named cannot have been checked against the matrix. Also: the two things I flagged low confidence in and round 24 did not reach — whether a **source-local** write advances `source_state_as_of`, and whether `is_terminal` being both derived and constrained can diverge |
 | 26 | **Cross-artifact agreement, mechanically.** Round 25's three findings share one shape that is *not* writer enumeration: **two artifacts within this document disagree** — the matrix said `plan` exists and the DDL did not; the matrix said `untouched` and the reconciliation section required a write; the fix text said "retain history anonymisation" and the schema forbade it. Three instances in one round, and 138/136 were both marked Resolved by me while still open. So: **check the plan against itself**, pairwise and exhaustively — every column in the DDL against every cell in the matrix (both directions, so a column in one and not the other is caught); every *category* against every writer the plan requires elsewhere, especially in the reconciliation and repair paths; every acceptance criterion against the specification it claims to test. I am no longer a reliable checker of whether my own fix landed everywhere it had to, which is the actual finding of this round |
 | 27 | **The claims I make about my own verification.** Entry 142 is the round's real finding and it is not about disputes: I *told* you every `untouched` cell had been re-read against the repair paths, and named `dispute_loss_revoked_at` as having survived that check. It had not been checked. That is a different failure from the ones 120–141 catalogue — not a control I forgot to wire up, but a **verification I reported performing and did not perform**. Three of the last four rounds have now overturned something I marked Resolved. So: treat every claim in this document of the form *"I checked X"*, *"every Y was re-read"*, *"this was verified against Z"* as **unverified**, find them all, and test each against the artifact it claims to have checked. Start with the sweeps I reported completing in rounds 24–26. If the reported check cannot be reconstructed from what the document actually says, it did not happen |
+| 28 | **Readers, and only readers.** Entry 146 is the round's structural finding: three consecutive rounds swept *writers* and could not have found a *reader* asking a question the model invalidated. Retention changes what row-existence means, and this plan retains refunded, revoked and terminal rows everywhere. So: enumerate **every read** of `subscriptions`, `lifetime_entitlements`, `membership_history` and `users.membership_tier` — routes, middleware, admin endpoints, scheduled jobs, and **the frontend**, which entry 146 and 150 both reached into and no earlier round did — and for each, decide whether it wants *current qualification*, *historical existence*, or *the raw stored value*, and whether retention breaks its current answer. Entry 150 found two presentation surfaces; entry 146 found a UI component granting access in parallel. Both were outside every previous lens, and I have no reason to think the frontend has been examined at all |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
