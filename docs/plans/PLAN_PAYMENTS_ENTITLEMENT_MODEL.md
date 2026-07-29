@@ -998,10 +998,37 @@ after a crash, and would still lose to a slow-enough day; bounding the request
 makes the relationship between the two numbers hold by construction rather than
 by luck.
 
-**These two must stay related, and the plan says so rather than leaving it to a
-future editor:** `stripe_request_timeout_ms × (1 + stripe_max_network_retries)`
-must remain **well below** `lease_ttl_seconds`. Changing either without the other
-reintroduces this defect silently.
+**The lease must cover the whole operation, and "well below" is not enforcement.**
+Revision 33 stated the request-vs-lease relationship in **prose**, which the
+config route does not read — `lease_ttl_seconds` still validated at `≥ 1`, so an
+operator could set it to 5s and reintroduce entry 164 through the supported UI.
+And the formula was **request-only**: it ignored the retry *sleep* between
+attempts, and the entire apply path, whose three lock-timeout attempts plus
+exponential backoff consume the same lease.
+
+**Specification — the whole budget, computed and enforced:**
+
+```
+retrieval_budget = stripe_request_timeout_ms × (1 + stripe_max_network_retries)
+                 + stripe_retry_sleep_budget_ms          (2000 default)
+apply_budget     = apply_lock_timeout_ms × apply_retry_attempts
+                 + backoff_sum(apply_retry_backoff_ms, apply_retry_attempts)
+lease_ttl_seconds ≥ ceil((retrieval_budget + apply_budget) / 1000) × 1.5
+```
+
+At the defaults: retrieval `10_000 × 2 + 2_000 = 22s`; apply `3_000 × 3 + 300 =
+9.3s`; total `31.3s`; × 1.5 margin → **≥ 47s**. The 60s default clears it, but
+only just — which is itself the finding, since I had called 60s "comfortable"
+against a budget I had not actually added up.
+
+The **1.5× margin** covers what the arithmetic cannot: scheduling jitter, a slow
+database on the apply, and clock granularity. It is a named constant so the
+reasoning is visible rather than baked into a number.
+
+**Enforced on write of *any* component** — lowering the lease, or raising the
+timeout, retries, lock timeout or attempts — is rejected if the resulting set
+violates the inequality. Enforcing on one side only would let the same defect in
+through the other.
 
 **Acceptance:** **sustained** degraded responses — not one slow attempt — still
 converge; a retrieval exceeding the request budget fails fast and is retried on
@@ -1941,33 +1968,53 @@ where ambiguity costs:**
   undefined and is **skipped**, not treated as infinite or as zero. There is
   nothing to protect, no downgrade is possible, and the absolute bound still
   applies. Treating it as a trip would wedge every run on an empty database.
-- The two bounds are evaluated independently and **either** trips the abort.
-- **The fraction applies only above a cohort floor** — `reconcile_fraction_min_cohort`,
-  default **20**. Below that, the absolute bound governs alone.
+**One rule, monotone in cohort size — replacing three patches of the same
+guard.** Entries 158, 160 and 163 each adjusted this control and each opened the
+opposite hole: too weak to stop a wipeout (158), then rigid enough to block every
+ordinary repair (160), then — with the cohort floor — **weak again for small
+cohorts**, because skipping the fraction below 20 lets all 19 users be staged
+under an absolute cap of 50. Three revisions, three failures, because each was a
+patch at one end of the range rather than a rule over the whole of it.
 
-**Why the floor exists: entry 160's fix broke the opposite case.** With the
-fraction evaluated unconditionally, a qualifying population of 1–19 makes *any*
-single downgrade exceed 5% — `1/19 = 5.3%` — so **every** legitimate one-user
-revocation aborts, and either bound aborting means the absolute cap cannot
-rescue it. Early in launch, that is precisely the population we have: a
-permanently dropped cancellation, refund or dispute could **never** be repaired
-by scheduled reconciliation without a manual override, which contradicts this
-plan's own automated-convergence requirement. I fixed a guard that was too weak
-and made it, for the population that actually exists today, absolutely rigid.
+> **allowed = min(`max_downgrades_per_run`, max(`min_downgrade_allowance`,
+> ⌊`max_downgrade_fraction` × cohort⌋))**
+>
+> The run aborts when **staged > allowed**. `cohort` is the **currently
+> qualifying population**.
 
-The floor is set at 20 because that is where 1/N first falls below the 5%
-fraction, so the two regimes meet without a discontinuity: below 20 the absolute
-bound (50) is strictly the binding one anyway, and above it the fraction starts
-to do real work.
+| Key | Default | Type | Range |
+|---|---|---|---|
+| `reconcile_max_downgrades_per_run` | 50 | integer | ≥ 1 |
+| `reconcile_max_downgrade_fraction` | 0.05 | float | 0 < x ≤ 1 |
+| `reconcile_min_downgrade_allowance` | **3** | integer | ≥ 1 |
 
-**Acceptance at both ends of the floor:** a **one-user** qualifying population
-with that user staged for downgrade **proceeds**; a **nineteen-user** population
-with one downgrade **proceeds**; a twenty-user population with two downgrades
-(10%) **aborts**.
+**Why this is a rule and not a fourth patch.** It is monotone: `allowed` never
+decreases as the cohort grows, so there is no size at which the guard suddenly
+tightens. It admits an isolated repair at **every** cohort size, including one —
+the `max(...)` floor guarantees it, which is what entry 163 needed. And it never
+admits a wipeout of any cohort larger than the allowance — at 19 qualifying
+users, `allowed = max(3, 0) = 3`, so **three** repairs proceed and staging all
+nineteen aborts, which is what entry 158 needed and what the cohort floor gave
+back. `reconcile_fraction_min_cohort` is **deleted**; the floor was the wrong
+shape for the problem.
 
-Defaults are deliberately conservative — at this population any real
-mass-revocation event trips the absolute bound immediately, and the fraction is
-what keeps that true after growth.
+Worked, so the behaviour is checkable rather than asserted:
+
+| Cohort | allowed | 1 staged | all staged |
+|---|---|---|---|
+| 1 | 3 | proceeds | proceeds (1 = the whole cohort, and it is one user) |
+| 19 | 3 | proceeds | **aborts** |
+| 100 | 5 | proceeds | **aborts** |
+| 10,000 | 50 (capped) | proceeds | **aborts** |
+
+**The three settings are validated together, not independently.** Codex's second
+point: independently editable values are coherent only at today's defaults —
+raising the fraction changes the cohort size at which one downgrade becomes
+permissible, and lowering the allowance below 1 disables isolated repair
+entirely. The validator rejects any write that leaves
+`min_downgrade_allowance > max_downgrades_per_run`, or a fraction outside
+`(0, 1]`, or an allowance below 1. A relational invariant enforced on one side
+only is not enforced.
 
 **Acceptance for the denominator specifically**, since this is the case revision
 31 would have passed: a run examining **10,000 users of whom 40 currently
@@ -1993,8 +2040,9 @@ value an operator has since tuned — each with its declared **type** and a
 | Key | Type | Valid range |
 |---|---|---|
 | `reconcile_max_downgrades_per_run` | integer | ≥ 0 |
-| `reconcile_max_downgrade_fraction` | **`float`** | 0 ≤ x ≤ 1 |
-| `reconcile_fraction_min_cohort` | integer | ≥ 1 |
+| `reconcile_max_downgrade_fraction` | **`float`** | 0 < x ≤ 1 |
+| `reconcile_min_downgrade_allowance` | integer | ≥ 1, and ≤ `reconcile_max_downgrades_per_run` |
+| `reconcile_heartbeat_interval_seconds` | integer | ≥ 5 |
 | `reconcile_max_ambiguous_per_run` | integer | ≥ 0 |
 | `reconcile_max_errors_per_run` | integer | ≥ 0 |
 | `lease_ttl_seconds`, `lease_waiter_timeout_seconds` | integer | ≥ 1 |
@@ -2601,6 +2649,9 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 164 | 31 | The lease was shorter than a single Stripe request | **Resolved** — verified in the pinned SDK: `stripe.core.js:18` sets `DEFAULT_TIMEOUT = 80000` and `:73-74` defaults `maxNetworkRetries` to **2**, and `stripeClient.ts:70-72` passes only `apiVersion`. One degraded retrieval can run **80s** — worst case near **four minutes** with retries — against a **60s** lease. And it does not fail once: the fence correctly discards the late apply, and if latency stays high **every subsequent pass does the same**, so "repaired on the next pass" never occurs and the source is stuck for as long as Stripe is slow. Fixed by **bounding the request** (`timeout: 10_000`, `maxNetworkRetries: 1`) rather than lengthening the lease, with the required relationship between the two stated so a future edit cannot silently break it. **I flagged this exact number as low-confidence in the round-31 trigger and was right to — but I had not thought to read the SDK's own defaults.** |
 | 165 | 31 | The TTL range let an operator disable the heartbeat | **Resolved** — `≥ 1` permitted `reconcile_run_lease_ttl_seconds` below the 30s heartbeat, so the lease expires before its **first** renewal and every run is taken over; values just above 30 leave no room for a missed beat, which is the whole property entry 159 added. Heartbeat interval is now a named setting and the TTL carries a **relational minimum** — `≥ 3 ×` the interval: one to send, one to miss, one for jitter — enforced on write rather than written as a comment. |
 | 166 | 31 | `numeric` is not a type this repo validates | **Resolved** — `PATCH /admin/config/:key` validates ranges only for `"integer"` (`admin.ts:2236`) and `"float"` (`:2250`); a `numeric` row matches **neither**, so it gets no parsing and no min/max check and would accept arbitrary text. That would have made the acceptance criterion I wrote **in the same revision** — "an out-of-range write is rejected" — fail against the real route while the plan read as though validation existed. Declared `float`, bounds exercised through the actual route. |
+| 167 | 32 | The cohort floor gave back the wipeout it was added to avoid | **Resolved by replacing the control, not patching it a fourth time** — skipping the fraction below 20 left the absolute cap (50) alone, so **all 19 users of a small cohort could be staged and pass both bounds**: the exact complete-membership wipeout 158 existed to stop. Three revisions, three failures, each a patch at one end of the range: too weak (158), too rigid (160), weak again for small cohorts (163). Replaced with one **monotone** rule — `allowed = min(cap, max(allowance, ⌊fraction × cohort⌋))` — which admits an isolated repair at every cohort size *and* never admits a wipeout above the allowance. `reconcile_fraction_min_cohort` deleted. The three settings are validated **together**, since independently editable values were coherent only at today's defaults. |
+| 168 | 32 | `reconcile_heartbeat_interval_seconds` was named but never seeded | **Resolved** — entry 161's defect, one round later, on the setting introduced **to fix 165**: only stored `admin_config` rows are listable or patchable, so a key with no seed row has no type, no range and no way for an operator to tune it — while the relational TTL validator must *read* it. An implementer would hardcode 30 or invent schema behaviour. Added to the idempotent seed table with type and range; acceptance exercises edits to **both** sides of the relation through `PATCH`. |
+| 169 | 32 | The lease relationship was prose, and covered only the request | **Resolved** — revision 33 stated the request-vs-lease constraint in text the config route does not read, leaving `lease_ttl_seconds ≥ 1` intact, so an operator could reintroduce entry 164 through the supported UI. And the formula was request-only: it omitted the retry **sleep** and the entire **apply** path (three lock-timeout attempts plus backoff), which consume the same lease. Full budget now computed — 22s retrieval + 9.3s apply, ×1.5 margin ⇒ **≥ 47s** — and **enforced on write of any component**, not just the lease. I had called 60s "comfortable" against a budget I never added up; it clears by 13 seconds. |
 
 | Round | Lens |
 |---|---|
@@ -2636,4 +2687,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 30 | **Every remaining quantity, and every claim a comment makes about coverage.** Entry 158 is the shape to hunt: a control named consistently across many revisions, load-bearing, and **never given a number**. It survived 29 rounds because referring to "the threshold" reads as though it were defined somewhere earlier. So: find every quantity this plan depends on — timeouts, lease TTLs, retry counts, batch sizes, the grace window's own boundary conditions, sweep cadence, alert intervals — and check each has a **value, a unit, a default and a home** (constant, config key, or migration). A specification that says *"bounded"* without a bound is not a specification. Second, narrower: entry 157 found a **header comment asserting coverage that does not exist**. Prose claims inside test files are unversioned, unchecked, and precisely what stops a reviewer looking — sweep the test suite's comments for coverage claims and check each against what the file actually asserts |
 | 31 | **The numbers, now that there are numbers.** Round 30 was the quantity sweep and it worked — but entry 160 is the warning: **the bound I added one round earlier was itself a no-op**, because I picked a denominator that made the guard measure the wrong population. Supplying a value is not the same as supplying a *correct* one, and a plausible number is harder to question than a missing one. So: take every quantity now in this document — the four thresholds, the six lease/lock parameters, the three schedules — and for each ask what happens **at the extremes of the population it governs**: an empty database, a database of one, a population where the protected subset is a tiny fraction of the whole (160's case), a run where every source errors, a lease under a Stripe outage. Which numbers stop protecting anything? Which trip constantly? Check the **units and denominators** in particular — 160 was a denominator error, not a magnitude error, and no amount of tuning the value would have fixed it |
 | 32 | **The relationships between the numbers, not the numbers themselves.** Round 31 found four defects and **every one was in a value I had added in the previous two rounds** — and three of the four were *relational*: a fraction that fought the absolute cap below a cohort size (163), a lease shorter than the request it must outlive (164), a TTL shorter than the heartbeat inside it (165). Individually each number was defensible; the defect lived in the pair. So: enumerate every pair of quantities in this plan where **one must be larger, smaller, or a multiple of another**, state the relationship explicitly, and check whether the plan enforces it or merely happens to satisfy it at the current defaults. Candidates: request budget vs. lease TTL (now stated); heartbeat vs. run TTL (now stated); waiter timeout vs. lease TTL; grace window vs. sweep interval; sweep interval vs. alert interval; reconcile interval vs. run duration; absolute vs. fractional downgrade bounds vs. cohort floor. **A relationship that holds only because of the current defaults is a defect waiting for an operator to tune one side** |
+| 33 | **Whether any relational invariant is enforced where it is actually written.** Rounds 31 and 32 produced seven findings between them and **every one lived in a relationship rather than a value** — and entry 169 shows the follow-on failure mode: I *stated* a relationship correctly and left it in prose that no validator reads. So the question is not "is the relationship right" but "**is it enforced, and enforced on every side that can break it**". Take each relational invariant now in the plan — the downgrade triple, the lease-vs-operation-budget inequality, the TTL-vs-heartbeat multiple — and check: is there a stated validator; does it fire on writes to **every** participating key or only the obvious one; and does any acceptance criterion actually exercise the rejection through the real route rather than asserting it. Entry 166 is the warning about the last of those: an acceptance that cannot pass against the production path is worse than none |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
