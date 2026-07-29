@@ -70,15 +70,28 @@ defect regardless of what else the change achieves.
    | 4 | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
    | 5 | Test mode — not yet test-submitted | `environment = 'test' AND test_submitted_at IS NULL` | A `send-to-test`, or the production transition | §5.3, §5.8 |
    | 6 | Test mode — already test-submitted | `environment = 'test' AND test_submitted_at IS NOT NULL` | The production transition (a test submission is not a filing) | §5.3, §7, §5.8 |
-   | 7 | **In flight** | none of the above — eligible, in enabled production | Nothing. It is queued or running | §5.8, as *active*, not as waiting |
+   | 7 | **Awaiting reconciliation** | eligible, but **no non-terminal `ncmec_submit` job exists** | The next reconciler pass (≤5 min) | §5.3, §5.8 |
+   | 8 | **In flight** | eligible, and a non-terminal job exists | Nothing. It is queued or running | §5.8, as *active*, not as waiting |
 
-   **Branch 7 is why this is a classification of non-final rows, not a list of waiting
-   states.** An audited, identity-resolved row in enabled production is not waiting on
-   anybody — it is queued or executing — and the previous version had no branch for it,
+   **Branches 7 and 8 are why this is a classification of non-final rows, not a list of
+   waiting states.** An audited, identity-resolved row in enabled production is not waiting
+   on anybody — it is queued or executing — and an earlier version had no branch for it,
    which made "every non-final row appears in exactly one count" unsatisfiable in the
-   **normal steady state** rather than in some corner. The classifier now covers every
-   non-final row; `/admin/safety` renders branch 7 as active work and branches 1–6 as
-   things awaiting someone, which is the distinction an operator actually needs.
+   **normal steady state** rather than in some corner.
+
+   **The signature therefore takes job state: `classifyWaitingState(row, job, config)`.**
+   A first attempt at this fix used a single *in flight* fallback computed from the row
+   alone, which is mathematically total but factually wrong: an eligible row whose job is
+   **missing** — just released by an audit or identity approval and not yet swept, or
+   stranded by queue loss — would be reported as *queued or running*. That is precisely the
+   condition §5.3's reconciler exists to detect and repair, displayed as though the system
+   were already working on it. A total function is not the same as a correct one, and
+   "eligible" cannot distinguish these two without consulting the job.
+
+   `/admin/safety` renders branch 8 as active work, branch 7 as a short-lived transitional
+   state with its own count, and branches 1–6 as things awaiting a person — which is the
+   distinction an operator actually needs. A branch-7 count that does not drain within a
+   reconciler interval is itself the signal that the reconciler has stopped.
 
    **Branch 3 sits above the test-mode branches deliberately.** A crashed `send-to-test`
    leaves `test_submission_started_at` set with no `test_report_id`, and under the
@@ -440,15 +453,59 @@ Two layers instead:
   required alert is lost permanently. A durable notification that can be orphaned is not
   durable.
 
-  The notification insert carries a **kind-scoped** dedupe key —
-  `ncmec:notify:failed:<reportId>`, never a bare `ncmec:notify:<reportId>`. The dedupe
-  index covers any non-terminal job for a `(queue, dedupe_key)` pair, so a single key
-  shared with the "awaiting activation" alert (§5.5) would mean: the disabled-state email
-  is still `pending` when submission is enabled, the submission then fails terminally, the
-  failure alert enqueues, **the index returns the existing awaiting-activation job**, and
-  the row commits as final `failed` with nobody ever told it failed. One collided string
-  would have silently defeated invariant 8. Every notification kind gets its own key
-  segment.
+  **The notification is incident-scoped, not report-scoped — and an earlier revision had
+  these two requirements flatly contradicting each other.** §5.8 promises that two hundred
+  failures produce one alert; this paragraph previously specified a per-report dedupe key
+  `ncmec:notify:failed:<reportId>`, which produces two hundred distinct keys and therefore
+  two hundred emails. Neither `enqueueJob`'s dedupe path nor anything else in the plan
+  updated an existing job's payload or maintained a running count, so the aggregation §5.8
+  describes had **no mechanism at all** — it was a property asserted in one section and
+  contradicted by the key format in another.
+
+  The mechanism:
+
+  1. **A durable incident identity, derived not allocated.** A new table
+     `ncmec_alert_incidents` keyed by
+     `incident_key = '<environment>:' || to_char(date_trunc('hour', now()) + …)` — a
+     **15-minute window bucket** plus the submission environment. Deriving the key from the
+     clock means two hundred workers failing simultaneously compute the *same* key without
+     coordinating.
+  2. **A concurrency-safe upsert, in the same transaction as the status write.**
+     ```sql
+     INSERT INTO ncmec_alert_incidents (incident_key, first_failure_at, last_failure_at,
+                                        failure_count, dominant_code)
+     VALUES ($key, now(), now(), 1, $code)
+     ON CONFLICT (incident_key) DO UPDATE
+       SET failure_count = ncmec_alert_incidents.failure_count + 1,
+           last_failure_at = now()
+     ```
+     One row per incident, correct under any concurrency, no read-modify-write.
+  3. **One email job per incident**, enqueued in that same transaction with
+     `dedupeKey = 'ncmec:notify:incident:' || $key` and
+     **`nextAttemptAt` = the end of the window**. The partial unique index on non-terminal
+     `(queue, dedupe_key)` collapses every concurrent enqueue to a single job; the delay is
+     what lets failures accumulate before it sends. (`enqueueJob` already accepts
+     `nextAttemptAt` — `asyncJobs.ts:261` — and claiming requires `next_attempt_at <= now`,
+     `:548`. No queue change.)
+  4. **The payload is computed at send time, not at enqueue time** — the handler reads
+     `ncmec_alert_incidents` by key and renders the counts then. Embedding a count at
+     enqueue would freeze it at 1, which is the failure mode this whole mechanism exists to
+     avoid.
+
+  Per-row atomicity is preserved exactly as before: the status update, the incident upsert,
+  and the job insert are one transaction, so a row can never commit `failed` without its
+  alert being accounted for. What changed is that the *unit* of alerting is the incident
+  while the *unit of record* stays the row — which is what §5.8 always claimed.
+
+  A window that has already sent still alerts for later failures, because the next failure
+  falls in a new bucket and produces a new key, a new incident row, and a new job.
+
+  **Kind-scoping still applies.** `ncmec:notify:incident:<key>` and
+  `ncmec:notify:awaiting:<reportId>` (§5.5) are deliberately distinct namespaces: the
+  dedupe index covers any non-terminal job for a `(queue, dedupe_key)` pair, so a shared
+  key would let a still-pending awaiting-activation email swallow a terminal-failure alert
+  and commit the row as final `failed` with nobody told. One collided string would silently
+  defeat invariant 8.
 - **The reconciler (§5.3) is the backstop** for every case `run()` cannot cover:
   a crash mid-finalization, exhaustion-boundary crashes, and rows whose job vanished. Its
   repairs are transactional on the same terms (§5.3).
@@ -545,8 +602,19 @@ stuck legacy row is the one that bypasses the rules governing legacy rows.
 So the predicate is extracted:
 
 > **`isSubmittable(row, config)`** — one function, returning submittable or a named
-> refusal reason. Conditions: non-final status; environment is `production`; not
-> unaudited backlog; identity resolved or omission approved; not `filed_manually`.
+> refusal reason. Conditions: **`ncmec_submission_enabled` is true**; non-final status;
+> environment is `production`; not unaudited backlog; identity resolved or omission
+> approved; not `filed_manually`.
+
+**The master switch belongs in the predicate, and leaving it out had a concrete hole.**
+An earlier revision enumerated every condition except `ncmec_submission_enabled`, on the
+implicit assumption that the disabled check lived in the callers — it did, in the
+reconciler's own query, which is exactly the mistake this extraction was meant to end. The
+gap opens during the §7 rollout: between setting the environment to `production` and
+re-enabling submission (steps 2 and 4 of the transition), a fresh hit passes the predicate,
+gets a `ncmec_submit` job, and contradicts §5.5's load-bearing claim that disabled rows
+have **no job** and are represented by the awaiting-activation path. The window is small
+and it is precisely the window the ordered transition creates.
 
 - **The initial enqueue in `quarantine.ts`** (§5.2.4) evaluates it inside the
   insert-plus-enqueue transaction and **enqueues only if it passes**; otherwise it commits
@@ -687,6 +755,22 @@ typo.
 The two columns therefore carry different provenance and are never conflated:
 `report_id` is written only by `/submit`'s response; `manual_report_id` is written only by
 `mark-manually-filed`; and §5.2.1 reads only `report_id`.
+
+**New table `ncmec_alert_incidents`** — the durable identity behind §5.2.3's aggregation.
+One row per `(environment, 15-minute window)`, created and incremented by an `ON CONFLICT`
+upsert inside the failing worker's own transaction.
+
+| Column | Type | Purpose |
+|---|---|---|
+| `incident_key` | `text primary key` | `'<environment>:<window start ISO>'` — derived from the clock, so concurrent workers compute the same key without coordinating |
+| `first_failure_at` | `timestamptz not null` | |
+| `last_failure_at` | `timestamptz not null` | Advanced on every upsert |
+| `failure_count` | `integer not null default 1` | Incremented by the upsert, never read-modify-written |
+| `dominant_code` | `integer` | The most common `last_error_code` in the window |
+| `notified_at` | `timestamptz` | When the aggregated email actually sent |
+
+The primary key **is** the concurrency control: two hundred simultaneous failures produce
+one row and one email job, with no lock taken and no coordination between workers.
 
 **New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
 on `/admin/safety` alters state with legal consequence, and until this round the design
@@ -1245,6 +1329,19 @@ did. The audit log is consequently the **only** control on this surface, which i
 - `GET  /admin/safety/connectivity` — calls ISPWS `GET /status` and reports
   reachability and which environment is configured. This is the "is it actually
   working?" answer that no amount of row-reading gives.
+- `POST /admin/safety/backlog-audit/start` — sets `ncmec_backlog_audit_cutoff` to now,
+  freezing the audit scope (§7 step 2). **Write-once**: a second call is refused, naming
+  the existing value, because moving the cutoff mid-audit silently redefines what "done"
+  means for rows already dispositioned against the old boundary.
+- `POST /admin/safety/backlog-audit/complete` — sets `ncmec_backlog_audit_completed_at`.
+  Refused if the cutoff is unset, or while the unaudited count is non-zero.
+
+  **These two operations were specified nowhere.** §7 step 2 described a three-step audit
+  lifecycle and §5.5 defined both keys, but the endpoint inventory exposed only "the two
+  switches" — so the activation gate depended on two values with **no operation that could
+  ever set them**, while the generic config route (which might otherwise have served) is
+  now required to refuse exactly these keys. The gate was unreachable rather than strict.
+
 - `POST /admin/safety/config` — the two switches. **Enabling submission with
   `ncmec_ispws_environment = 'production'` is refused while the unaudited-backlog count
   (§7 step 2) is non-zero**, and the refusal names the count.
@@ -1261,7 +1358,12 @@ did. The audit log is consequently the **only** control on this surface, which i
 
   - **A reserved-key policy on the generic route.** `admin.ts` gains an explicit set of
     keys the generic `PATCH` refuses, returning a message naming the endpoint that owns
-    them. NCMEC's four keys are its first members.
+    them. **All five NCMEC keys** are its first members — `ncmec_submission_enabled`,
+    `ncmec_ispws_environment`, `ncmec_report_classifier_hits`,
+    `ncmec_backlog_audit_cutoff`, and `ncmec_backlog_audit_completed_at`. An earlier
+    revision said "four," written before the audit cutoff was split in two (§7 step 2);
+    a reserved-key list that is one short is a list with a hole in exactly the key that
+    was added last.
   - **One guarded helper owns every NCMEC config write.** Both routes call it; the gate
     lives inside it. A second bypass then requires someone to deliberately route around a
     named helper rather than to simply not know this policy exists.
@@ -1484,9 +1586,25 @@ Deployment, transition, and rollback (§7):
   exactly the selected row. This is the acceptance check for §7 step 3.
 - **Failed production preflight files nothing**: running the transition sequence with a
   connectivity check that fails leaves **zero** production submit jobs enqueued.
-- **Activation is gated on the audit**: enabling production submission with a non-zero
-  unaudited count is refused, and the refusal names the count; stamping the last row's
-  `backlog_audited_at` makes the same call succeed.
+- **Activation's three preconditions are asserted separately, not as one happy path** —
+  each refusal names which one is missing: (a) **cutoff unset** refuses unconditionally,
+  without consulting the count, which is the fresh-deployment case where `created_at <
+  NULL` silently returned zero; (b) **completion marker unset** refuses even with a zero
+  count; (c) **non-zero unaudited count** refuses and names the count. Plus:
+  **duplicate cutoff write** is refused and names the existing value, and a **successful
+  activation** with all three satisfied is asserted as its own case — otherwise the tests
+  prove only that the gate can say no.
+- **The audit lifecycle endpoints exist and enforce their order**: `complete` before
+  `start` is refused; `start` twice is refused; `complete` with rows outstanding is
+  refused.
+- **Incident aggregation is concurrency-correct**: two hundred simultaneous terminal
+  commits produce **one** email reporting a count of two hundred — not two hundred emails
+  and not one email reporting a count of one — and a failure after that window's job has
+  sent produces a **new** incident and a new alert. Asserted against real concurrent
+  transactions, since the whole mechanism is an `ON CONFLICT` upsert and a dedupe index.
+- **The retry schedule crosses 72 hours**: with `max_attempts = 8` and
+  `retry_delay_4_ms = 24 h`, the final attempt is scheduled more than 72 hours after the
+  first failure — driven by an injected clock rather than by waiting.
 - **Legacy identity policy**: a legacy row with `user_id` and no `reporter_snapshot` is
   not auto-enqueued and appears under "identity unresolved"; one with neither submits with
   `<personOrUserReported>` omitted; and **no code path resolves `user_id` to an identity at
@@ -1776,14 +1894,15 @@ The facts, verified: this repo has exactly one privilege level, the boolean
 `users.is_admin` (`schema/auth.ts:22`), and any admin can grant it to any account through
 the existing user editor (`admin.ts:152`). This plan's surface can suppress a federal
 report (`mark-manually-filed`), file one with the uploader stripped out
-(`approve-identity-omission`), re-submit in bulk, and flip production submission on. Under
+(`approve-identity-omission`), retry a submission, and flip production submission on. Under
 `requireAdmin` alone, every one of those is available to every administrator, and the role
 that grants them is self-propagating.
 
 Codex's proposal: keep read-only ledger and connectivity behind ordinary admin; require a
 separately-granted **NCMEC operator** capability for production retry and audit actions; a
 narrower **compliance approver** capability plus fresh confirmation for
-`mark-manually-filed`, identity omission, bulk retry, and production activation; and make
+`mark-manually-filed`, identity omission, and production activation (its proposal also
+named bulk retry, since deferred — §9); and make
 the grant path itself restricted and audited rather than self-grantable.
 
 The trade-off, stated plainly because it is the reason this is David's and not mine:
