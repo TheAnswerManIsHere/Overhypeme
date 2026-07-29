@@ -3,7 +3,8 @@
 > **Status:** plan under review. Not approved. Not started.
 >
 > Scope in one line: bring the [Overhype.me Manual](../manual/README.md) to full
-> first-version coverage — 8 chapters — write the 4 missing `docs/ai-context/`
+> first-version coverage — 12 chapters, 9 of them newly written — write the 5
+> missing `docs/ai-context/`
 > subsystem specs those chapters need to link into, and put `docs/manual/`
 > behind the existing docs-accuracy merge gate.
 
@@ -64,7 +65,11 @@ review and David reads them one at a time.
   hand-edited; the `admin-console.md` chapter links to it.
 - **The 3 written chapters** (`moderation.md`, `taxonomy-and-enrichment.md`,
   `background-work.md`) are not rewritten. They take **additive sections** and
-  **drift corrections** only.
+  **drift corrections** only — with **one deliberate exception**:
+  `background-work.md` takes a **de-duplication** edit, because it already forks
+  the async-lane truth (Codex round 1, F1). No fact is deleted by that edit —
+  facts that live *only* in the chapter today (e.g. the 2s/5s poll intervals)
+  are **relocated** into the spec first, then replaced by a link.
 - **No product behavior changes, and no product code changes.** The only
   non-markdown file this plan touches is `scripts/check-docs-accuracy.mjs`
   (one array literal).
@@ -77,10 +82,12 @@ review and David reads them one at a time.
 
 ## Settled Decisions
 
-1. **Coverage: 8 chapters** — the 4 planned, plus new chapters for
-   payments/membership, accounts & auth, public site + sharing, and the
-   meme/video studio. (David chose this over finishing only the 4 planned.)
-2. **Write the 4 missing specs** rather than letting new chapters carry deep
+1. **Coverage: 9 new chapters** — the 4 planned, plus payments/membership,
+   accounts & auth, public site + sharing, the meme/video studio (David chose
+   this over finishing only the 4 planned), **and community & engagement**
+   (ratings, comments, comment hearts, the activity feed — added in round 1;
+   see decision 9).
+2. **Write the 5 missing specs** rather than letting new chapters carry deep
    detail themselves. Rejected alternative: self-contained chapters — faster,
    but forks truth, which is the exact failure the two-layer design exists to
    prevent.
@@ -89,7 +96,7 @@ review and David reads them one at a time.
    alternative: trust the specs — much faster, but silently inherits drift, and
    documentation drift cannot be caught by product testing because docs have no
    runtime behavior.
-4. **One PR per chapter.** Rejected alternative: a single ~2,400-line prose PR —
+4. **One PR per chapter.** Rejected alternative: a single ~3,000-line prose PR —
    Codex reviews prose poorly at that size and David would read the whole manual
    in one sitting.
 5. **Areas smaller than a chapter become sections of a host chapter, not
@@ -108,6 +115,25 @@ review and David reads them one at a time.
    implementation, plan committed at `docs/plans/PLAN_<SLUG>.md`, stable
    forwardable URL, resolvable commit sha for the eventual
    *Approved-plan source* line.
+9. **Community & engagement is its own chapter, with its own spec** (round 1,
+   F3). Ratings, comments, comment hearts, and the activity feed are a core
+   free-tier interaction loop per `product-brief.md`, have their own routes,
+   pages, DB tables, and an admin moderation surface — and **no** existing
+   manual chapter so much as mentions comments (verified: `grep -il comment
+   docs/manual/` returns nothing). Chapter-sized, not section-sized, so by
+   decision 2 it gets a spec too — bringing the new-spec count to 5.
+10. **Operations & observability is an explicit non-goal, not an omission.**
+    `health.ts`, `routeStats.ts`, Sentry (`docs/SENTRY.md`), the Cloudflare
+    rate-limit and OG-cookie notes (`docs/cloudflare-rate-limits.md`,
+    `docs/cloudflare-gaesa-og-fix.md`), and `scripts/dev-supervisor.sh` are
+    operational tooling, not product narrative, and they already have homes.
+    The manual gets **no** ops chapter; the non-goal is stated with pointers so
+    the exclusion is a decision on the record. **This is the one place I chose
+    exclusion over coverage — David can overrule and it becomes a 10th
+    chapter.**
+11. **Close-out is its own final PR** (round 1, F6): retiring the roadmap's
+    backfill entry can only land after every chapter has, or the roadmap
+    reports the backfill complete while chapters are missing.
 
 ## Repo Context Inspected
 
@@ -168,20 +194,73 @@ stated per contested concept, with the losing side reduced to a link:
 
 | Concept | Canonical home (unchanged) | The new doc's role |
 | --- | --- | --- |
-| Auth trust boundaries, session posture, the `dev-admin-login` backdoor (C1), admin surface posture (C9) | `security-model.md` | New `accounts-and-auth.md` spec describes the **subsystem shape** (sign-up methods, email verification, password reset, profile, tier linkage) and **links** for posture. It must not restate C1/C9. |
+| Authentication & session mechanics, rate limits, reset-invalidation, password bounds, CSRF, `dev-admin-login` (C1), admin posture (C9) | `security-model.md` | New `accounts-and-auth.md` owns **user-facing account journeys only** — see the fact-level split below, which replaces the too-vague "posture vs. shape" wording (round 1, F2). |
 | Payment trust — how a membership grant is authorized (C6) | `security-model.md` | New `payments-and-membership.md` spec covers plan shapes, tier semantics, webhook/lifecycle flow, budget gates; **links** to C6 for trust. |
 | The Stripe audit trail (findings, their severities, remediation state) | `stripe-payments-audit-brief.md`, `stripe-payments-audit-findings.md` | Audit artifacts stay historical; the new spec is **current-state** truth and links them. It does not absorb or restate findings. |
 | Image render pipeline: Visual Concept, planner, compiler, render modes, frozen inputs | `visual-pipeline.md` | New `video-pipeline.md` covers the **video** stages only (identity stylization → i2v → caption burn-in) and links `visual-pipeline.md` for anything image-side. |
-| Async lanes, `async_jobs`, enqueue-is-not-completion | `architecture-map.md` + `background-work.md` chapter | New specs and chapters **link**; no lane table is duplicated. |
+| Async lanes, `async_jobs` fields/statuses, queue→lane assignments, concurrency bounds, retry/dedupe semantics | **`architecture-map.md` alone** (corrected in round 1, F1 — see below) | `background-work.md` keeps *why lanes exist and what each is for in product terms* and links for the enumerated mechanics. Other chapters link; nothing re-lists lanes. |
 | Two-altitude async status rule | `async-ui-status.md` | Linked from chapters that describe a status surface. |
 | Admin field-level truth | `ADMIN_FIELD_REFERENCE.md` (**generated**) | `admin-console.md` chapter links it; never restates or hand-edits it. |
 | Term definitions | `glossary.md` | Chapters use the terms and link; new terms coined during the pass get added there, not defined inline. |
 | Rationale / why a decision is settled | `decisions.md` | Chapters' "Why it works this way" sections **cite** entries; they don't re-argue them. |
 | Pricing numbers | **Stripe, at runtime** (`pricingPlans.ts` fetches live) | Docs describe plan *shapes* (monthly / annual / one-time lifetime) and state that prices are Stripe-owned. **No price numbers in any doc** — that would be a guaranteed-drift second source. (Resolved without asking David; the repo answers it.) |
 
-No new source of truth is created. Each of the 4 new specs opens with an
+No new source of truth is created. Each of the 5 new specs opens with an
 explicit "what lives here vs. what lives elsewhere" header so the boundary is
 enforced by the document itself, not just by this plan.
+
+### An existing fork this plan must fix, not preserve (round 1, F1)
+
+Codex was right and my original claim ("no lane table is duplicated") was false
+about the **present** state. Verified: `background-work.md:51-88` already
+restates the `async_jobs` field list, the `pending → processing → done | failed`
+statuses, all five lane names with their assignments, concurrency behavior, the
+`registerJobHandler(queue, handler, { lane })` registration line, and retry
+semantics — the same facts as `architecture-map.md:90-127`. Two homes, already.
+Worse, the two copies have **already diverged**: the per-lane poll intervals
+(2s / 5s) exist **only** in the chapter, not in the spec.
+
+So the plan now **de-forks** rather than preserving it, and the direction is
+migrate-then-reduce so nothing is lost:
+
+1. Relocate chapter-only facts (poll intervals, the never-auto-retried
+   `ai_meme_backfill` rationale) **into** `architecture-map.md`.
+2. Reduce the chapter's "The machinery" section to product-level narrative —
+   *why* independent lanes exist, what kind of work each is for, why one durable
+   table beats an in-memory queue — with a link for the enumerated mechanics.
+3. Verify the reduced chapter still reads as narrative, not as a stub.
+
+This lands as its own PR **before** any new chapter, so the no-two-homes
+Definition of Done is true when the rest of the pass is measured against it.
+
+### Fact-level auth ownership (round 1, F2)
+
+"Subsystem shape vs. posture" was too vague to implement — verified against
+`security-model.md:36-61`, which owns concrete *behavior*, not just posture
+(opaque `sid` + Bearer fallback, per-request `req.user` rebuild, C4 login/register
+rate limits, C8 reset-invalidates-every-session, C7 8-char minimum, CSRF
+double-submit + origin allowlist). Ownership is therefore assigned per fact:
+
+| Fact | Owner |
+| --- | --- |
+| Which sign-in methods exist and what a user does to use each | `accounts-and-auth.md` |
+| Account lifecycle states (registered → verified → member) and how a user moves between them | `accounts-and-auth.md` |
+| Email-verification and password-reset **journeys** (the steps, screens, and states a user sees) | `accounts-and-auth.md` |
+| Onboarding (captcha step, photo step) and profile/identity fields | `accounts-and-auth.md` |
+| How an account links to a membership tier (`unregistered \| registered \| legendary`) | `accounts-and-auth.md`, linking `payments-and-membership.md` for tier grants |
+| Session mechanics: opaque tokens, cookie/Bearer precedence, per-request identity rebuild | `security-model.md` |
+| Login/register rate limits (C4) and how they're scoped | `security-model.md` |
+| Password-reset **session invalidation** (C8) and password bounds (C7) | `security-model.md` |
+| CSRF, origin allowlist, `ORIGIN_EXEMPT_PATHS` | `security-model.md` |
+| `dev-admin-login` fail-closed guard (C1), admin surface posture (C9) | `security-model.md` |
+
+**The rule that makes this implementable:** where a journey has a security
+constraint, the accounts spec states the *step* and links the *constraint*.
+Worked example — password reset: `accounts-and-auth.md` says a user requests a
+reset, receives an emailed link, and sets a new password; it then links
+`security-model.md` for "every existing session is invalidated" and the 8-char
+minimum. Neither doc restates the other, and no auth fact has two maintenance
+homes.
 
 ## Proposed Design
 
@@ -200,26 +279,71 @@ enforced by the document itself, not just by this plan.
 | `background-work.md` | ✅ + one additive section | `architecture-map.md`, `async-ui-status.md` |
 | `accounts-and-auth.md` | new | **new spec** + `security-model.md` |
 | `payments-and-membership.md` | new | **new spec** + `security-model.md` C6 |
+| `community-and-engagement.md` | new (round 1, F3) | **new spec** |
 | `public-site-and-sharing.md` | new | **new spec** |
 | `meme-and-video-studio.md` | new | **new spec** (`video-pipeline.md`) + `visual-pipeline.md` |
 
-That is 11 rows / 8 new chapters — the 4 originally planned plus 4 new areas,
-with 3 existing chapters taking additive edits.
+That is **12 chapter files** when the pass completes: **9 newly written** (the 4
+originally planned + 4 new areas + community & engagement) and **3 existing**
+(one de-forked, two taking additive sections).
 
-**New specs (4):** `docs/ai-context/accounts-and-auth.md`,
-`payments-and-membership.md`, `public-site-and-sharing.md`,
-`video-pipeline.md`. Each is added to `AGENTS.md` routing in its own PR
-(documentation-workflow Step 2's "a brand-new context doc was created" row).
+**New specs (5):** `docs/ai-context/accounts-and-auth.md`,
+`payments-and-membership.md`, `community-and-engagement.md`,
+`public-site-and-sharing.md`, `video-pipeline.md`. Each is added to `AGENTS.md`
+routing in its own PR (documentation-workflow Step 2's "a brand-new context doc
+was created" row).
+
+#### Every route module and public page, assigned
+
+The original "coverage map" was area-level, which let a whole interaction loop
+fall through it — Codex enumerated all 31 route modules and found ratings,
+comments, comment hearts, and the activity feed assigned to nothing (F3;
+verified at `facts.ts` `POST /facts/:factId/rating`, `GET|POST
+/facts/:factId/comments`, `POST /comments/:id/heart`, and `reviews.ts` `GET
+/activity-feed` + `POST /activity-feed/mark-read`). The fix is to assign at
+**module** granularity so the coverage claim can be checked mechanically.
+
+| Route module | Home |
+| --- | --- |
+| `facts.ts` (submission, publish) | `content-lifecycle.md` |
+| `facts.ts` (rating, comments, comment hearts) | `community-and-engagement.md` |
+| `reviews.ts` (review gates) | `moderation.md` |
+| `reviews.ts` (`/activity-feed`, `/activity-feed/mark-read`) | `community-and-engagement.md` |
+| `import.ts` (API-key bulk fact import) | `content-lifecycle.md` (a second entrance) |
+| `ai.ts` (tokenize, suggest-hashtags, check-duplicate) | `content-lifecycle.md` + `personalization-and-grammar.md` |
+| `render.ts`, `adminImagePrompt.ts` | `visual-pipeline.md` |
+| `memes.ts`, `videos.ts`, `videoJobs.ts`, `pulidJobs.ts` | `meme-and-video-studio.md` |
+| `storage.ts` (upload URLs, public/private object serving) | **section in `meme-and-video-studio.md`** ("where media lives and how it's served"), linking `security-model.md` for object authorization |
+| `stripe.ts` | `payments-and-membership.md` |
+| `auth.ts`, `localAuth.ts`, `users.ts` | `accounts-and-auth.md` |
+| `hashtags.ts`, `og.ts`, `share.ts`, `shareCopy.ts`, `shareIntents.ts`, `heroExamples.ts` | `public-site-and-sharing.md` |
+| `affiliate.ts` | section in `public-site-and-sharing.md` (merch) |
+| `admin.ts`, `adminEngines.ts`, `adminReferenceResearch.ts`, `eval.ts` | `admin-console.md` |
+| `adminTaxonomyHealth.ts` | `taxonomy-and-enrichment.md` (+ admin surface in `admin-console.md`) |
+| `jobs.ts` | `background-work.md` |
+| `health.ts`, `routeStats.ts` | **none — explicit non-goal** (decision 10) |
+| `index.ts` | none — route mounting, not a surface |
+
+Public pages map the same way: `Home`/`Search`/`TopFacts`/`Hashtags`/`Profile`/
+`WearIt` → public-site; `FactDetail` (comments) / `ActivityFeed` → community;
+`Library` (its `liked`/`submitted`/`history` tabs → community, its
+`images`/`memes` tabs → studio); `SubmitFact` → content-lifecycle;
+`Login`/`ForgotPassword`/`ResetPassword`/`VerifyEmail`/`Onboard` → accounts;
+`Pricing` → payments; `MemePage`/`VideoPage` → studio (+ public-site for the
+share surface); admin pages → `admin-console.md` except the three that belong to
+their subsystem chapter (`moderation`, `taxonomy-health`, `videoStyles`).
 
 **Sub-chapter areas — named, so "full coverage" is checkable:**
 
 | Area | Home | Why there |
 | --- | --- | --- |
-| Merch / Zazzle affiliate (`WearIt.tsx`, `affiliate.ts`) | section in `public-site-and-sharing.md` | It is a public surface + an outbound share/monetization path, not a subsystem. |
-| Email queue mechanics | additive section in `background-work.md` | It is an `async_jobs` lane consumer; that chapter already owns lanes. |
+| Merch / Zazzle affiliate (`WearIt.tsx`, `affiliate.ts`) | section in `public-site-and-sharing.md` | A public surface + outbound monetization path, not a subsystem. |
+| Media storage & delivery (`storage.ts`, GCS, signed/public object paths) | section in `meme-and-video-studio.md` | Product-visible (memes load; private memes are access-controlled) but not chapter-sized; authorization stays in `security-model.md`. |
+| Email queue mechanics | additive section in `background-work.md` | An `async_jobs` lane consumer; that chapter owns lane narrative. |
 | Email Queue **admin surface** | section in `admin-console.md` | Surface vs. mechanics split, matching the two-layer pattern. |
 | Eval dashboard (`eval.ts`, `evalDashboard.tsx`) | section in `admin-console.md` | An admin surface. |
-| Legal/safety moderation (`quarantined_memes`, `ncmec_reports`, `lib/moderation/`) | additive section in `moderation.md` | `architecture-map.md` establishes there are **two separate** moderation systems; the moderation chapter currently documents only content-quality review, which is a real coverage hole. Sequenced with the studio PR because quarantine is a generated-meme path. |
+| Comment **moderation** admin surface (`admin/comments.tsx`) | section in `admin-console.md`, cross-linked from `community-and-engagement.md` | The engagement chapter owns what comments *are*; the admin chapter owns the surface that moderates them. |
+| Legal/safety moderation (`quarantined_memes`, `ncmec_reports`, `lib/moderation/`) | additive section in `moderation.md`, **in its own PR** | `architecture-map.md` establishes two separate moderation systems; the chapter documents only content-quality review today. Split out of the studio PR per F6 so a chapter repair doesn't share an unrelated PR's review boundary. |
 
 ### The verification method (the load-bearing part)
 
@@ -229,12 +353,34 @@ every chapter and spec:
 1. **Draft, then inventory.** After drafting, extract every factual claim
    (behavioral, structural, numeric) into a per-chapter checklist in the
    scratchpad. Prose is not reviewed for truth in place; a claim list is.
-2. **Ground each claim** against a primary source, in this precedence:
-   (a) the code — route handler, lib function, schema, CI script;
-   (b) a test that asserts the behavior; (c) the DB schema or a `CHECK`
-   constraint; (d) an existing `docs/ai-context/` doc **only where that doc
-   itself cites code**. A claim resting solely on another doc's prose is **not
-   grounded** — that is precisely the drift-inheritance David rejected.
+2. **Ground each claim against whatever actually enforces it — the grounding
+   source depends on the claim's type, not on a global precedence** (corrected
+   in round 1, F4; the original ordering let a test outrank a `CHECK`
+   constraint, and a route-level guard masquerade as a universal invariant):
+
+   | Claim type | What grounds it |
+   | --- | --- |
+   | "the system refuses X" / any **invariant** | The enforcement point that actually governs in production: the DB constraint if one exists, otherwise the guard in the executable path — **and** a check that no other writer bypasses it. |
+   | "behavior B happens when A" | The executable runtime path, end to end (route → lib → DB). |
+   | "the UI shows S in state T" | The component/state code for that surface. |
+   | A numeric or configured value | The constant/config source — or, for a vendor-owned value, the runtime fetch (never a copied number). |
+   | "why it works this way" (rationale) | The `decisions.md` entry that settles it. |
+
+   **Tests are corroboration, never the sole ground for a claim** — a test can
+   encode intended or mocked behavior. **Schemas ground only what they actually
+   enforce**: a nullable column does not prove a field is required. An existing
+   `docs/ai-context/` doc is never a ground on its own — that is exactly the
+   drift-inheritance David rejected.
+
+   Worked example, using a claim already live in `moderation.md` ("the database
+   itself refuses to store an active fact without one"): grounding it means
+   inspecting the constraint — `facts_active_requires_concept`, added VALID in
+   `lib/db/migrations/0092_fact_lifecycle_phase2_backfill_check.sql` — not a
+   test that happens to assert it. Worth recording *why* this example is in the
+   plan: my first search for that constraint produced a **false negative**, and
+   a less careful pass would have "found drift" in a chapter that is in fact
+   correct. Claim-specific grounding has to include "look again before
+   concluding the enforcement doesn't exist."
 3. **Three dispositions for an ungroundable claim:** drop it; keep it marked
    **Needs David confirmation** (per the README's style rule); or — if it is a
    *rationale* claim rather than a behavioral one — cite the `decisions.md`
@@ -255,6 +401,30 @@ every chapter and spec:
    Step 5). Instead each PR body carries a short **verification note**: what was
    grounded and against what, what is marked Needs David confirmation, and what
    drift was corrected. An obligation with no evidence trail decays.
+7. **When a real defect would make the chapter misleading — the disposition
+   ladder** (added in round 1, F5). Step 3's "drop the ungroundable claim" had a
+   hole: a chapter could omit a defect-affected behavior and still be counted
+   complete. It cannot. Exactly one of these applies, and which one is recorded
+   in the PR body:
+
+   1. **Document the real behavior as a known limitation** — the default. It
+      goes in the chapter's *Boundaries & known limitations* section, linking the
+      finding, and the code fix is filed as a report item for David. The chapter
+      counts as complete.
+   2. **Only if documenting it would disclose an exploitable specific** in this
+      public repo: the chapter ships without that claim **and its TOC row is
+      marked partial — pending fix**, with the gap taken to David privately. The
+      chapter does **not** count as complete.
+   3. **Never** silently drop the claim and count the chapter done.
+
+   The payments chapter is the concrete case, and it resolves to disposition 1:
+   `stripe-payments-audit-findings.md:82-129` documents that a transient webhook
+   failure can leave a customer **paid but never granted membership** (the
+   common checkout-redirect path self-recovers via
+   `POST /stripe/checkout/confirm`; a closed tab does not). A current-state
+   payments chapter cannot omit that. Disclosure is not a concern here because
+   that finding is **already committed publicly on `main`** — writing it as a
+   known limitation adds no new disclosure.
 
 ### The gate change
 
@@ -280,7 +450,7 @@ under.
 ## Admin/User UX Impact
 
 **None** — no UI, no copy, no async surface, no moderation implications. The
-"UX" affected is a reader's: David and future collaborators get 8 chapters
+"UX" affected is a reader's: David and future collaborators get 12 chapters
 instead of 3.
 
 Per `agent-working-rules.md`'s ship-the-UI-surface exception, this pass has no
@@ -325,33 +495,55 @@ verification:
 
 ## Implementation Steps
 
-Nine PRs. PR 0 is mechanical and unblocks the rest; every later PR is
-independent, so the pass can stop cleanly at any point.
+**13 PRs, and they are not all independent** — the original "every later PR is
+independent" claim was false (round 1, F6). The real graph:
+
+- **PR 0 blocks everything** (it establishes the TOC shape and the gate).
+- **PR 7 (payments) depends on PR 6 (accounts)** — tier semantics build on
+  account truth. My own plan said so while also claiming independence.
+- **PR 12 (close-out) depends on PRs 0–11**, because retiring the roadmap entry
+  announces the backfill is finished.
+- Everything else is genuinely parallel and may land in any order.
+
+<!-- -->
 
 - **PR 0 — Foundation (no prose claims).** Restructure `docs/manual/README.md`'s
-  TOC to the 11-row / 8-area map (new areas listed *not yet written*), fix its
-  stale "no substantive chapters exist yet" line, correct
+  TOC to the final 12-chapter map (unwritten ones listed *not yet written*), fix
+  its stale "no substantive chapters exist yet" line, correct
   `current-roadmap.md`'s deferred entry (background work is written; drop the
-  resolved **Needs David confirmation** on timing), and add `"docs/manual"` to
-  `LIBRARY_DIRS` with the negative test above.
-- **PR 1 — `content-lifecycle.md`.** Spec exists. First prose PR, so it
-  calibrates the verification method and the review rhythm on an area whose
-  spec is strong.
-- **PR 2 — `personalization-and-grammar.md`.** Spec exists.
-- **PR 3 — `visual-pipeline.md`** chapter. Spec exists (523 lines) — the chapter
+  resolved **Needs David confirmation** on timing — but **do not retire the
+  entry**, that is PR 12), and add `"docs/manual"` to `LIBRARY_DIRS` with the
+  negative test below.
+- **PR 1 — De-fork the async-lane truth.** Migrate chapter-only lane facts into
+  `architecture-map.md`, then reduce `background-work.md`'s machinery section to
+  narrative + link (see *Source-of-Truth Analysis*). Lands before any new
+  chapter so the no-two-homes bar is true when the rest is measured against it.
+- **PR 2 — `content-lifecycle.md`.** Spec exists. First new chapter, so it
+  calibrates the verification method and the review rhythm on strong-spec ground.
+- **PR 3 — `personalization-and-grammar.md`.** Spec exists.
+- **PR 4 — `visual-pipeline.md`** chapter. Spec exists (523 lines) — the chapter
   must resist restating it.
-- **PR 4 — `admin-console.md`** (+ eval-dashboard and Email-Queue-surface
-  sections). Links the generated field reference.
-- **PR 5 — `accounts-and-auth.md`**: new spec + chapter + `AGENTS.md` routing.
-- **PR 6 — `payments-and-membership.md`**: new spec + chapter + routing.
-  Sequenced after PR 5 because tier semantics build on account truth.
-- **PR 7 — `public-site-and-sharing.md`**: new spec + chapter (+ merch/affiliate
+- **PR 5 — `admin-console.md`** (+ eval-dashboard, Email-Queue-surface, and
+  comment-moderation-surface sections). Links the generated field reference.
+- **PR 6 — `accounts-and-auth.md`**: new spec + chapter + `AGENTS.md` routing.
+- **PR 7 — `payments-and-membership.md`**: new spec + chapter + routing.
+  **Depends on PR 6.** Carries the disposition-1 known limitation (method step 7).
+- **PR 8 — `community-and-engagement.md`**: new spec + chapter + routing.
+- **PR 9 — `public-site-and-sharing.md`**: new spec + chapter (+ merch/affiliate
   section) + routing.
-- **PR 8 — `meme-and-video-studio.md`**: new `video-pipeline.md` spec + chapter
-  + routing, plus the legal/safety-moderation section added to `moderation.md`.
-- **Close-out (folded into PR 8):** retire the roadmap's backfill deferred entry
-  and move it to recently-merged; append any deferred item this pass generated
-  to `docs/engineering/deferred-work.md`.
+- **PR 10 — `meme-and-video-studio.md`**: new `video-pipeline.md` spec + chapter
+  + routing, plus the media-storage-and-delivery section.
+- **PR 11 — `moderation.md` legal/safety section.** Its own PR, split out of the
+  studio PR so an existing-chapter repair doesn't share an unrelated PR's
+  review and failure boundary.
+- **PR 12 — Close-out.** Retire the roadmap's backfill entry and move it to
+  recently-merged; append anything deliberately deferred to
+  `docs/engineering/deferred-work.md`. **Only after PRs 0–11 have landed.**
+
+**Stopping early stays safe, with the distinction F6 exposed:** every PR leaves
+the **TOC** truthful (unwritten chapters read *not yet written*), and the
+**roadmap** keeps saying the backfill is in progress until PR 12 — so an
+abandoned pass never reports itself complete.
 
 Each PR: chapter (+ spec) + TOC row flipped to written + `AGENTS.md` routing if
 a spec was added, in one commit; `/simplify` is not applicable to prose, but the
@@ -364,7 +556,7 @@ consolidation instinct is — no revision-history narration inside chapters.
   code defects become report items, never drive-by fixes. If one chapter's drift
   is large enough to be its own workstream, I stop and bring it to David rather
   than absorbing it into a docs PR.
-- **Forking truth** — 4 new specs overlapping `security-model.md` and the Stripe
+- **Forking truth** — 5 new specs overlapping `security-model.md` and the Stripe
   audit docs. *Mitigation:* the ownership table above, plus a
   "what lives here vs. elsewhere" header in each new spec so the boundary is
   self-enforcing.
@@ -377,7 +569,7 @@ consolidation instinct is — no revision-history narration inside chapters.
 - **A price or model name gets written down and immediately drifts.**
   *Mitigation:* the no-numbers rule in *Source-of-Truth Analysis*; vendor-owned
   values are described by shape and attributed to their runtime source.
-- **Volume fatigue** (~2,400 lines of verified prose). *Mitigation:* per-PR
+- **Volume fatigue** (~3,000 lines of verified prose across 13 PRs). *Mitigation:* per-PR
   delivery with a truthful TOC after each, so stopping early leaves a coherent
   manual rather than a half-declared one.
 
@@ -389,8 +581,16 @@ consolidation instinct is — no revision-history narration inside chapters.
   `docs/engineering/deferred-work.md` instead of growing this pass.
 - No regeneration or hand-editing of `ADMIN_FIELD_REFERENCE.md`.
 - No wholesale rewrite of the 3 existing chapters.
-- No chapters for areas outside the 8 — the sub-chapter areas are placed in the
+- No chapters for areas outside the 12 — the sub-chapter areas are placed in the
   coverage map instead.
+- **No operations/observability chapter** (decision 10). `health.ts`,
+  `routeStats.ts`, Sentry, the Cloudflare rate-limit/OG-cookie notes, and
+  `scripts/dev-supervisor.sh` are operational tooling rather than product
+  narrative, and each already has a home (`docs/SENTRY.md`,
+  `docs/cloudflare-rate-limits.md`, `docs/cloudflare-gaesa-og-fix.md`,
+  `docs/ai-context/architecture-map.md`). Stated as a decision so the exclusion
+  is on the record rather than looking like something the coverage sweep missed
+  — and it is the one call in this plan I'd most expect David to overrule.
 - No product code changes; no TEST_RUN/UAT docs; no `docs/plans/` file reaching
   `main` unless David asks to keep this one.
 
@@ -407,10 +607,19 @@ subsystem narrative into it would blur what it is for.
 
 ## Definition of Done
 
-- [ ] 8 chapters exist in `docs/manual/`, each with real content across all five
-      template sections; the 3 pre-existing chapters carry their additive
-      sections.
-- [ ] 4 new specs exist in `docs/ai-context/` and are routed from `AGENTS.md`.
+- [ ] **12 chapter files** exist in `docs/manual/`: the **9 newly written**
+      (`content-lifecycle`, `visual-pipeline`, `personalization-and-grammar`,
+      `admin-console`, `accounts-and-auth`, `payments-and-membership`,
+      `community-and-engagement`, `public-site-and-sharing`,
+      `meme-and-video-studio`), each with real content across all five template
+      sections, **plus the 3 existing** carrying their specified edits
+      (`background-work` de-forked, `moderation` + `taxonomy-and-enrichment`
+      with their additive sections). Counted this way because "8 chapters exist"
+      could pass with 3 old + 5 new (round 1, F7).
+- [ ] **5 new specs** exist in `docs/ai-context/` and are routed from
+      `AGENTS.md`.
+- [ ] No chapter's TOC row is left marked *partial — pending fix* without David
+      having been told why (method step 7, disposition 2).
 - [ ] `docs/manual/README.md`'s TOC matches reality — every row's status is
       correct, no row claims a file that does not exist and none omits one.
 - [ ] `docs/manual/` is in `LIBRARY_DIRS`; `node scripts/check-docs-accuracy.mjs`
@@ -430,8 +639,22 @@ subsystem narrative into it would blur what it is for.
 ## Findings ledger
 
 Maintained by me across review rounds — each finding, its status, and the lens
-each round applied.
+each round applied. Codex's transport posts defect findings only, so Resolved
+vs. Superseded is my classification from my own fix history; silence on a named
+item means "not still open," not automatically "resolved."
 
-| # | Round | Finding | Lens | Status |
+**Round 1 — lens: coverage completeness + source-of-truth integrity.**
+7 findings (5×P1, 2×P2), all Required Revision, against commit `ab163d4`.
+Every one verified against the repo before acting; none rebutted.
+
+| # | Round | Finding | Severity | Status |
 | --- | --- | --- | --- | --- |
-| — | 1 | *(pending first Codex round)* | — | — |
+| F1 | 1 | Async lanes have two canonical homes already (`background-work.md:51-88` vs `architecture-map.md:90-127`); the plan claimed no duplication and would have preserved the fork | P1 | **Resolved** — spec owns lanes; added a migrate-then-reduce de-fork PR (PR 1); found the copies had *already* diverged on poll intervals |
+| F2 | 1 | "Posture vs. subsystem shape" too vague to implement; `security-model.md:36-61` owns concrete auth behavior | P1 | **Resolved** — replaced with a 10-row fact-level ownership table + the state-the-step/link-the-constraint rule |
+| F3 | 1 | Community engagement (ratings, comments, hearts, activity feed) assigned to no chapter or section | P1 | **Resolved** — new chapter + spec (decision 9); coverage map rebuilt at route-module granularity |
+| F4 | 1 | Global grounding precedence let a test outrank a `CHECK` constraint | P1 | **Resolved** — replaced with claim-type-specific grounding; tests demoted to corroboration |
+| F5 | 1 | No disposition for a defect that makes a chapter misleading; DoD could pass on a silently dropped claim | P1 | **Resolved** — added the 3-rung disposition ladder + DoD item; payments case resolves to rung 1 |
+| F6 | 1 | "Every later PR is independent" false (PR 7→6; close-out→all); moderation fix rode the studio PR | P2 | **Resolved** — explicit dependency graph, close-out split to PR 12, moderation split to PR 11 |
+| F7 | 1 | DoD said "8 chapters exist" but the target is 12 files — could pass with 3 old + 5 new | P2 | **Resolved** — DoD now enumerates all 12 by name |
+| S1 | 1 (self) | `health.ts` / `routeStats.ts` / Sentry / CF notes assigned nowhere — found by my own route sweep, not by Codex | — | **Resolved as explicit non-goal** (decision 10), flagged to David to overrule |
+| S2 | 1 (self) | `storage.ts` (media upload + public/private object serving) assigned nowhere | — | **Resolved** — named section in `meme-and-video-studio.md`, authz stays in `security-model.md` |
