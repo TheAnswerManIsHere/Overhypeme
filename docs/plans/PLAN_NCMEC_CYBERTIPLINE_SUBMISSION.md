@@ -1152,6 +1152,14 @@ did. The audit log is consequently the **only** control on this surface, which i
   is a point-in-time read, and the operation that follows makes external calls for up to
   the full sequence duration.
 
+  > **Rule, stated once and applying everywhere: any code path that makes an ISPWS call
+  > is a submission path.** The lease (§5.2.2), the captured environment, the
+  > `isSubmittable` check (§5.3), and the durable-intention-before-remote-call discipline
+  > attach to *that property* — not to which module initiated the call, and not to
+  > whether the target host is `exttest`. This is written as a rule because the defect it
+  > prevents was introduced by adding an endpoint that did not look like the worker, and
+  > the next such endpoint will not look like it either.
+
   - **It acquires and renews the §5.2.2 lease** on the same terms as the worker, and
     every post-call write is conditional on the token and non-final status. Without the
     lease, an operator running `send-to-test` while the production transition happens
