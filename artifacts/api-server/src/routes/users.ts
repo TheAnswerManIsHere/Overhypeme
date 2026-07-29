@@ -17,6 +17,7 @@ import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "..
 import { getConfigInt } from "../lib/adminConfig";
 import { verifyCaptcha } from "../lib/captcha";
 import { logger } from "../lib/logger";
+import { effectiveTierExpr } from "../lib/membershipState";
 
 const router: IRouter = Router();
 
@@ -95,7 +96,12 @@ router.get("/users/me", async (req: Request, res: Response) => {
       avatarStyle: usersTable.avatarStyle,
       avatarSource: usersTable.avatarSource,
       emailVerifiedAt: usersTable.emailVerifiedAt,
-      membershipTier: usersTable.membershipTier,
+      // The effective tier. GET /users/me re-selects the raw column separately
+      // from authMiddleware, so with the convergence sweep failing and a grace
+      // horizon passed, authorization demoted the user while this screen kept
+      // showing Legendary — the server reporting a tier it no longer honours,
+      // on the screen the user would check first.
+      membershipTier: effectiveTierExpr(),
       googleLinked: usersTable.googleLinked,
       appleLinked: usersTable.appleLinked,
       passwordHash: usersTable.passwordHash,

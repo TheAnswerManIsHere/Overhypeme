@@ -4,7 +4,7 @@ import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
@@ -54,6 +54,7 @@ import {
   loadMembershipConfig,
   validateMembershipConfigWrite,
 } from "../lib/membershipTiming";
+import { effectiveTierExpr } from "../lib/membershipState";
 import {
   FACT_ENRICHMENT_CONFIG_KEYS,
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
@@ -140,8 +141,20 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
     : undefined;
   const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : (activeFilter ?? searchFilter);
 
+  // The admin list renders `membershipTier`, so it reports the EFFECTIVE tier
+  // rather than the raw column: with the convergence sweep failing and a grace
+  // horizon passed, authorization has already demoted the user and this screen
+  // would otherwise still show Legendary. Both surfaces evaluate at one bound
+  // instant so the list cannot disagree with itself mid-page.
+  const asOf = new Date();
   const [users, [{ total }]] = await Promise.all([
-    db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
+    db
+      .select({ ...getTableColumns(usersTable), membershipTier: effectiveTierExpr(asOf) })
+      .from(usersTable)
+      .where(where)
+      .orderBy(desc(usersTable.createdAt))
+      .limit(limit)
+      .offset(offset),
     db.select({ total: count() }).from(usersTable).where(where),
   ]);
 
@@ -2572,16 +2585,18 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   try {
     // Active legendary subscribers = users with legendary tier and an active subscription
     // Registered members = users with registered tier (no payment)
-    const [legendaryRows, registeredRows] = await Promise.all([
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true))),
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "registered"), eq(usersTable.isActive, true))),
-    ]);
+    // ONE statement with conditional aggregation, not two in a Promise.all.
+    // `now()` is the TRANSACTION timestamp, so two implicit transactions get two
+    // different instants, and a user crossing their grace horizon between them
+    // is counted twice or not at all. Sharing the expression makes the counts
+    // agree on the RULE; only one statement makes them agree on the INSTANT.
+    const [tierCounts] = await db
+      .select({
+        legendary: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'legendary')::int`,
+        registered: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'registered')::int`,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.isActive, true));
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
     // values themselves — only whether each one is configured.
@@ -2607,8 +2622,8 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     ]);
 
     res.json({
-      activeSubscribers: legendaryRows[0]?.cnt ?? 0,
-      registeredMembers: registeredRows[0]?.cnt ?? 0,
+      activeSubscribers: tierCounts?.legendary ?? 0,
+      registeredMembers: tierCounts?.registered ?? 0,
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,

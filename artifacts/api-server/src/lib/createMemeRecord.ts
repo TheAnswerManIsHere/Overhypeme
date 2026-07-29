@@ -40,6 +40,7 @@ import { hasFeature } from "./tierFeatures";
 import { isAtLeastLegendary, deriveUserRole } from "./userRole";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { logger } from "./logger";
+import { effectiveTierExpr } from "./membershipState";
 
 type StoredImageSource = z.infer<typeof StoredImageSourceSchema>;
 
@@ -150,7 +151,10 @@ export async function createMemeRecord(
     const [u] = await db
       .select({
         id: usersTable.id,
-        membershipTier: usersTable.membershipTier,
+        // Effective tier: this reader makes AUTHORIZATION decisions (private
+        // visibility, the high rate limit, the PuLID gate) from its own select,
+        // so it bypasses the authMiddleware chokepoint entirely.
+        membershipTier: effectiveTierExpr(),
         isAdmin: usersTable.isAdmin,
         displayName: usersTable.displayName,
         pronouns: usersTable.pronouns,

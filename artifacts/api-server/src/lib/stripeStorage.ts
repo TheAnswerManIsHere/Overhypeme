@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { effectiveTierForRow, effectiveTierPredicate } from "./membershipState";
 
 // Membership history events that indicate the user lost Legendary access
 // involuntarily (refund or chargeback). These trigger an in-app notice so
@@ -56,8 +57,12 @@ export class StripeStorage {
     const rows = await db
       .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
+      // The EFFECTIVE tier: this is the mailing recipient list (factOfTheDay),
+      // so filtering on the raw column would keep EMAILING members whose grace
+      // horizon has passed. A row helper cannot serve this reader — it selects
+      // before any row exists to pass.
       .where(and(
-        eq(usersTable.membershipTier, "legendary"),
+        effectiveTierPredicate("legendary"),
         eq(usersTable.isActive, true)
       ));
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
@@ -66,7 +71,7 @@ export class StripeStorage {
 
   async getMembershipTierForUser(userId: string): Promise<"unregistered" | "registered" | "legendary"> {
     const user = await this.getUserById(userId);
-    return user?.membershipTier ?? "unregistered";
+    return user ? effectiveTierForRow(user) : "unregistered";
   }
 
   async getPaymentHistory(userId: string) {
@@ -96,7 +101,9 @@ export class StripeStorage {
    */
   async getAccessRevocationNotice(userId: string): Promise<{ kind: RevocationEvent; occurredAt: string } | null> {
     const user = await this.getUserById(userId);
-    if (!user || user.membershipTier !== "registered") return null;
+    // Effective tier: the notice is shown to a user who WAS downgraded, and a
+    // grace horizon passing is a downgrade the raw column has not caught up to.
+    if (!user || effectiveTierForRow(user) !== "registered") return null;
 
     const cutoff = new Date(Date.now() - REVOCATION_NOTICE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
