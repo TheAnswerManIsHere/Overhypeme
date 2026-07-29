@@ -231,19 +231,52 @@ source `active` and a subscription on its ordinary Stripe status, so
 would silently delete a live product behaviour, which is exactly the failure a
 derived model is supposed to make impossible.
 
-**Specification: a source-local `access_hold` state, distinct from provider
-lifecycle.** A dispute opening sets it; the source does not qualify while it is
-set. A dispute **won** clears it and the source qualifies again on its ordinary
-lifecycle. A dispute **lost** is terminal — `refunded` for a lifetime source,
-and the subscription's own resulting status for a subscription. The hold is
-per-source, so **the union still governs**: a user with an unrelated active
-entitlement keeps Legendary throughout, which is the behaviour today's
+**Specification: a durable, source-local access hold, keyed by dispute.**
+
+- **It is persisted**, not derived — `access_hold_reason` and `open_dispute_ids`
+  on the source row (see *Schema*). A hold that lived only in memory would not
+  survive a restart, and the first authoritative refresh would restore access to
+  someone actively charging back.
+- **It is keyed by dispute id, not a boolean.** A subscription can be disputed on
+  several invoice charges at once, and a boolean would let **winning one clear
+  the source while another is still open.** Opening adds the id; resolving
+  removes it; the source is held while the array is non-empty.
+- **The hold attaches to the *exact* source, which requires a mapping the code
+  does not have today.** `resolveUserForDispute` (`webhookHandlers.ts:407-460`)
+  resolves a **user** — its three lookups all terminate at a user id — which is
+  all tier-level revocation ever needed. A source-local hold needs the source:
+  - **lifetime** — `payment_intent` → the `stripe_lifetime_payment` source;
+  - **subscription** — charge → invoice → subscription → the
+    `stripe_subscription` source.
+  The mapping runs **before** any write, and the target source's **lease is
+  acquired** before the hold is applied, like every other source mutation.
+- **If the source cannot be resolved, nothing is held.** The event is reported
+  as unmapped for human review rather than guessed at — holding *every* source
+  for the user would revoke an unrelated entitlement, and holding none silently
+  would lose the dispute. This is the one case where the old tier-level
+  behaviour was accidentally "safer" only because it was indiscriminate.
+- **Loss is terminal, and the writer is named for both types.** Today's lost
+  handler only marks a **lifetime** entitlement `refunded`
+  (`webhookHandlers.ts:~580`) — there is no subscription-side terminal write at
+  all, so revision 22's "the subscription's own resulting status" described code
+  that does not exist. For a subscription source, a lost dispute **writes
+  `lifecycle_status = 'canceled'` on that source** and clears its dispute id;
+  the authoritative refresh path then reconciles it against Stripe like any
+  other status.
+
+The hold is per-source, so **the union still governs**: a user with an unrelated
+active entitlement keeps Legendary throughout, which is the behaviour today's
 tier-level revocation cannot express.
 
-**Acceptance:** open a dispute and assert the source stops qualifying and
-recomputation does not re-grant; win it and assert access returns; lose it and
-assert the terminal state; and run all three with a second, unrelated active
-entitlement present and assert the user stays Legendary throughout.
+**Acceptance:** open a dispute and assert the source stops qualifying, the hold
+**survives a restart and an authoritative refresh**, and recomputation does not
+re-grant; win it and assert access returns; lose it and assert the terminal
+state **for both source types**; **two overlapping disputes on one subscription,
+with win/loss arriving in both orders** — the source stays held until the last
+resolves; **a dispute on one of two qualifying Stripe sources** holds only that
+one; an unresolvable dispute holds nothing and is reported; and run the single
+-dispute cases with a second unrelated entitlement present, asserting the user
+stays Legendary throughout.
 
 Grace starts on first entry to `past_due` per delinquency episode; duplicate
 events do not extend it; recovery clears it. `paused` is the
@@ -613,6 +646,8 @@ intention.
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
+| `access_hold_reason` | nullable enum — currently only `dispute`. Null means no hold. Named rather than boolean so a future hold reason does not overload it |
+| `open_dispute_ids` | **text array, default empty** — the dispute ids currently holding this source. The hold is `array_length > 0`, not a flag; see *Disputes* |
 | `granted_by_admin_id`, `granted_by_admin_label`, `grant_reason` | W1b grant provenance, admin-grant only — see *actor durability* |
 | `revoked_by_admin_id`, `revoked_by_admin_label`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
