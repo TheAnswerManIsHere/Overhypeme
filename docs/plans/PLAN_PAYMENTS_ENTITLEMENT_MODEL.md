@@ -5,7 +5,7 @@
 > revert precondition and a contract gate so a schema change could survive
 > old and new instances overlapping during an autoscale rollout. David cut all
 > of it: **Overhype is pre-launch with no real accounts, so that machinery
-> protects nothing.** The migration runs in a maintenance window.
+> protects nothing.** The migration is a plain create-and-drop.
 >
 > Two of those mechanisms were also unbuildable — a PostgreSQL view cannot
 > serve the legacy `ON CONFLICT (col) DO UPDATE` (verified on 16.13), and no
@@ -17,7 +17,7 @@
 > boundary, reconciliation and its bounded-downgrade guard. Round 4 established
 > the line this revision applies — *shed historical-data protection, keep
 > permanent runtime controls* — and the kept/cut table under **The migration
-> runs in a maintenance window** states it explicitly so the cut is auditable
+> is a plain create-and-drop** states it explicitly so the cut is auditable
 > rather than assumed.
 >
 > The redaction was lifted at revision 4; D1/D2/D3 are described in full below.
@@ -284,11 +284,27 @@ The token is **ours, not Stripe's**:
   guard needs strict uniqueness as well as monotonicity, which only a sequence
   (or equivalent unique counter) gives. Acceptance includes simultaneous token
   allocation yielding distinct ordered values.
-- A path that retrieves from Stripe takes the token **at retrieval time**,
-  before the transaction, and carries it into the write. Two snapshots of the
-  same subscription are then ordered by when they were *observed*, which is the
-  ordering that actually matters — `Subscription.created` cannot provide this
-  and neither can `Event.created` for route-side writes.
+- A path that retrieves from Stripe takes the token **immediately before
+  issuing the retrieval**, and carries it into the write.
+
+  **The timing is the whole point, and an earlier revision had it backwards.**
+  "At retrieval time" was ambiguous and I meant it as *when the response
+  arrives*, which does not order anything: an older retrieval can stall on a
+  connection, complete after a newer one, take the larger token and overwrite
+  fresher state — resurrecting canceled access, the one direction that must
+  never happen.
+
+  Taking the token **before** the request inverts the failure: a larger token
+  now means the request was *issued* later, so the state it observed is at
+  least as new. The residual case is two requests issued in one order and
+  served in the other, where the later-issued request sees marginally older
+  state and wins. That drops a fresher snapshot rather than resurrecting a
+  dead one — **fail-safe rather than fail-open** — and reconciliation repairs
+  it on the next run.
+
+  Codex's alternative was to serialize retrieval per source. Rejected: that
+  holds a lock across network I/O, which invariant 1 above forbids for exactly
+  the reason it was added in round 2.
 - **Admin** writes (grant / revoke) take the token inside the lock: they
   originate locally and are authoritative when they execute.
 - **Stripe-mutating routes do not write provider state at all.** Cancel,
@@ -305,7 +321,8 @@ The token is **ours, not Stripe's**:
   `source_state_as_of` is rejected.
 
 **Acceptance:** two retrievals of one subscription applied in reverse order
-leave the newer state stored; **a delayed route response applied after a newer
+leave the newer state stored; **an older retrieval that completes after a
+newer one is rejected, not applied** (the stall interleaving above); **a delayed route response applied after a newer
 webhook does not resurrect stale state**; an older snapshot can never win.
 
 ### Schema
@@ -330,8 +347,8 @@ intention.
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
-| `granted_by_admin_id`, `grant_reason` | W1b grant provenance, admin-grant only |
-| `revoked_by_admin_id`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
+| `granted_by_admin_id`, `granted_by_admin_label`, `grant_reason` | W1b grant provenance, admin-grant only — see *actor durability* |
+| `revoked_by_admin_id`, `revoked_by_admin_label`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
 | `created_at`, `updated_at` | local row timestamps |
 
@@ -345,6 +362,27 @@ reach `revoked` with null provenance, which satisfies the letter of W1b's grant
 clause while defeating its revocation clause. **No column has a fail-open
 default** — qualification is always written explicitly.
 
+**Actor durability — a grantor can be purged too.** `granted_by_admin_id` and
+`revoked_by_admin_id` reference `users.id`, and the admin purge deletes users.
+Every available FK behaviour is wrong on its own: `CASCADE` would delete a
+*recipient's* entitlement because the granting admin left; `RESTRICT` would
+block admin account deletion outright; `SET NULL` would satisfy the FK and then
+violate W1b's own `CHECK`, which requires an actor.
+
+So provenance does not depend on the FK surviving. Each actor is recorded
+**twice**: the FK id, and a **`_label` text snapshot** (admin email or display
+name, captured at grant/revoke time and never updated). The id is
+`ON DELETE SET NULL`; the label is `NOT NULL` and immutable. The provenance
+`CHECK` requires **the label**, not the id — so purging a grantor nulls a
+convenience join and leaves the attribution intact, which is what W1b actually
+asks for. It also fixes a subtler problem the FK always had: an admin who is
+renamed changes the meaning of every historical grant attributed to them.
+
+**Acceptance:** purge an admin who granted and revoked another user's
+entitlement; the recipient's entitlement survives, its `lifecycle_status` is
+unchanged, the actor id is null, the label still names who did it, and the
+provenance `CHECK` still passes.
+
 **Because the membership tables hold no real data (David, 2026-07-28)**, no
 dual-write boundary, row-by-row mapping or resumable backfill is needed. Rows
 are rebuilt from authoritative Stripe state on first reconciliation.
@@ -354,7 +392,7 @@ a permanent runtime control, not migration scaffolding, and is specified under
 *Reconciliation*. An earlier revision listed it here among things the
 pre-launch scope made unnecessary — that was wrong, and round 4 caught it.
 
-#### The migration runs in a maintenance window (David, 2026-07-29)
+#### The migration is a plain create-and-drop (David, 2026-07-29)
 
 `.replit` sets `deploymentTarget = "autoscale"`, so old and new instances
 overlap during a rollout. Revisions 6–9 tried to make the schema change survive
@@ -377,31 +415,63 @@ nobody re-proposes them:
 
 **Specification — one deploy, one migration, no compatibility layer:**
 
-1. Put the site in maintenance.
-2. Run the migration: create `membership_entitlements`, drop `subscriptions`
-   and `lifetime_entitlements`. There is no data to preserve — the membership
+1. Deploy the new build. `runMigrations()` creates `membership_entitlements`
+   and drops `subscriptions` and `lifetime_entitlements` before the process
+   listens (`index.ts:270`). There is no data to preserve — the membership
    tables hold nothing real (David, 2026-07-28) — so this is a create-and-drop,
    not a backfill.
-3. Deploy the new code and take the site out of maintenance.
-4. Reconciliation rebuilds every Stripe-backed source from the provider on its
+2. Reconciliation rebuilds every Stripe-backed source from the provider on its
    first run.
 
-**Stripe loses nothing.** Any webhook delivered during the window is retried
-automatically for up to three days, and reconciliation would repair a missed
-one regardless — that is the same convergence guarantee the model relies on in
-normal operation, not a special case for the migration.
+**There is no maintenance gate, and none is being built.** Revision 10 opened
+this runbook with "put the site in maintenance", which was a step I wrote
+without checking whether the control exists. It does not: there is no
+maintenance flag, middleware or deploy-time gate anywhere in `.replit`,
+`artifacts/`, `lib/` or `scripts/` — the only `maintenance` matches in the repo
+are async-job housekeeping and test scripts. Building one would be new
+infrastructure whose entire job is to protect requests from users who do not
+exist, which is the thing this revision exists to stop doing.
 
-**Rollback is redeploy-the-previous-build.** The old code queries tables that no
-longer exist, so a revert also needs the schema restored — but with no real
-rows on either side of the boundary, "restore the schema" is running the prior
-migration, not recovering data. The elaborate revert precondition, the cutover
-marker and `entitlement_origin_at` existed **only** to decide whether a revert
-would strand real entitlements. Nothing can be stranded, so all three are gone.
+What actually happens during the rollout is therefore worth stating plainly
+rather than dressing up: **old instances that are still serving will error when
+they query the dropped tables, for as long as the rollout takes.** Pre-launch
+that costs nothing. Stripe retries any webhook delivered in that window for up
+to three days, and reconciliation would repair a permanently missed one anyway
+— the same convergence the model relies on in normal operation, not a special
+case for the migration.
 
-**Acceptance:** the migration runs clean on a copy of the live database; the
-app boots against the new schema; reconciliation populates entitlements from
-Stripe; a webhook delivered during the window is retried and applied
-afterwards.
+**The migration must be re-runnable, and mostly already is.** `migrate.ts`
+tracks applied migrations by SHA-256 of the file and treats DDL that fails
+because the object already exists (or is already gone) as pre-applied, skipping
+it via `SAVEPOINT` recovery — its `ALREADY_APPLIED` codes include `42P07`
+(duplicate table) and `42P01` (undefined table), which are exactly the two
+cases here. The migration still uses `CREATE TABLE IF NOT EXISTS` /
+`DROP TABLE IF EXISTS` rather than relying on that recovery path, because
+depending on error-code rescue for expected conditions is fragile.
+**Acceptance: run the migration twice against the same database and assert the
+second run is a clean no-op**, not merely that it does not throw.
+
+**Recovery is roll-forward-only. Redeploying the previous build does not
+work,** and revision 10 claimed it did. `migrate.ts` skips any journal entry
+whose hash is already recorded, so the old build's startup sees the original
+table-creation migration as applied and then queries relations that no longer
+exist — the site stays down. Restoring the old schema would require authoring a
+*new* migration (new hash, therefore applied) that recreates both tables.
+
+That script is deliberately **not** part of this plan. Writing and testing a
+restore path for tables that contain nothing is the same over-engineering the
+maintenance-window decision rejected; the honest statement is that this
+migration is one-way and the mitigation lives *before* it, not after:
+
+- The migration is exercised against a copy of the live database first.
+- The full test suite runs against the new schema before the deploy.
+- If the new build fails, the fix is forward — and pre-launch, a period of
+  downtime while that happens is an acceptable cost, not an incident.
+
+**Acceptance:** the migration runs clean on a copy of the live database and is
+a no-op on a second run; the app boots against the new schema; reconciliation
+populates entitlements from Stripe; a webhook delivered during the rollout is
+retried by Stripe and applied afterwards.
 
 ##### What deliberately survives the simplification
 
@@ -449,10 +519,15 @@ history never deleted. It also opens grace windows for delinquencies whose
 `invoice.payment_failed` never arrived — but it is **no longer the grace-expiry
 mechanism**, which now lives on the read path (see *Grace expiry*).
 
-**Source reconstruction and tier recomputation are separable phases**, not only
-during recovery. The reconciler exposes them as distinct steps so the recovery
-procedure above can run the first without the second; normal operation runs both
-in sequence.
+**The phase split is removed — it was recovery-only scaffolding that outlived
+its reason.** Revision 8 made source reconstruction and tier recomputation
+separate steps so the revert-recovery procedure could run the first without the
+second. That procedure is deleted, and leaving the split behind was actively
+harmful: it persisted provider state **before** the guard ran, so a broadly
+wrong snapshot corrupted the entitlement rows and the guard could only decline
+to compound it. Aborting after the damage is not a guard. Worse, a later
+per-user recomputation would then apply those downgrades one at a time, each
+individually under the threshold — the bound defeated by arriving in pieces.
 
 **Bounded downgrades — a permanent runtime guard, not migration scaffolding.**
 Revision 4 dropped this as superseded by the pre-launch scope. That was wrong:
@@ -461,10 +536,23 @@ reconciler runs forever. Once the database is populated, a bad classification, a
 account mismatch, or a broad provider-state error can revoke every member, and
 post-apply counts describe the damage rather than preventing it.
 
-**Specification:** a DB-configured threshold on downgrade / ambiguity / error
-counts, evaluated against the **pre-apply** change set, aborting **before any
-mutation** and leaving the run visibly failed. Acceptance: an over-threshold run
-changes no tiers and reports as failed.
+**Specification: stage everything, guard once, then commit.** A reconciliation
+run computes the **complete** change set — source rows *and* the resulting
+tier/horizon per user — **without mutating anything**. The threshold on
+downgrade / ambiguity / error counts is evaluated against that staged set. Only
+if it passes does the run commit, in one transaction; if it fails, nothing was
+ever written and the run reports as visibly failed.
+
+This makes "pre-apply" mean what it always claimed to mean. The earlier wording
+said the guard was evaluated pre-apply, which was true of the *tier* write and
+false of the *source* writes that preceded it — a distinction that reads as
+pedantic until it is the one that matters.
+
+**Acceptance:** an over-threshold run changes **no tiers and no source rows**,
+and reports as failed; a run whose provider snapshot is broadly wrong leaves the
+entitlement table byte-identical; a sequence of individually-small downgrades
+arising from one bad snapshot is caught as a single over-threshold change set
+rather than admitted piecemeal.
 
 ### Portal configuration (D3)
 
@@ -617,8 +705,9 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
   `membership_valid_until`.
 - **Migration** — the migration runs clean on a copy of the live database; the
   app boots against the new schema; reconciliation populates entitlements from
-  Stripe on first run; a webhook delivered during the maintenance window is
-  retried by Stripe and applied afterwards.
+  Stripe on first run; the migration is a clean no-op on a second run; a
+  webhook delivered during the rollout is retried by Stripe and applied
+  afterwards.
 - **Portal** — missing/invalid configuration fails closed; sessions always
   carry the explicit id.
 - **Gates** — `pnpm run check:codegen-drift`, migration-snapshot validator,
@@ -685,6 +774,12 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 55 | 9 | Purge policy wrongly called non-blocking | **Resolved** — settled by David: the purge is formally exempted, *Must not change* states the scoped invariant, and it is on the launch revisit list. |
 | 56 | 9 | Verification still demanded the removed contract gate | **Resolved** — acceptance criteria re-derived from the sections they belong to; orphaned items removed. |
 | 57 | — | **Scope decision (David, 2026-07-29): maintenance window.** | The zero-downtime overlap requirement is withdrawn. Findings 29–54 that existed only to serve it are superseded *by the requirement going away*, not by a better mechanism — recorded honestly so nobody rebuilds them believing they were solved. |
+| 58 | 10 | Sequence token taken *after* retrieval is not causal | **Resolved** — the token is taken **before** issuing the retrieval. A stalled older retrieval could otherwise take the larger token and resurrect canceled access; the new ordering fails safe (drops a fresher snapshot, repaired by reconciliation) instead of fail-open. |
+| 59 | 10 | Downgrade guard ran after sources were persisted | **Resolved** — the recovery-only phase split is removed; a run stages source *and* tier changes with no mutation, guards once, then commits. Also closes the piecemeal-downgrade path that evaded the bound. |
+| 60 | 10 | "Redeploy the previous build" is not an executable rollback | **Resolved** — verified in `migrate.ts`: applied hashes are skipped, so the old build never recreates the tables. Declared **roll-forward-only**, with the mitigation moved before the migration rather than after. |
+| 61 | 10 | Destructive migration not specified as idempotent | **Resolved** — guarded DDL plus a **second-run no-op** acceptance case. `migrate.ts` already rescues `42P07`/`42P01` via `SAVEPOINT`, but depending on error-code recovery for an expected condition is fragile. |
+| 62 | 10 | The maintenance gate does not exist | **Resolved by deletion** — confirmed no maintenance control exists anywhere in the repo. Rather than build one, the plan states plainly that old instances will error during the rollout and that this costs nothing pre-launch. I had written a runbook step for a control I never checked for. |
+| 63 | 10 | Actor FK breaks when a *grantor* is purged | **Resolved** — actor recorded twice: `_id` (`ON DELETE SET NULL`) and an immutable `_label` snapshot, with the provenance `CHECK` requiring the label. Every single-FK behaviour was wrong: cascade deletes a recipient's entitlement, restrict blocks admin deletion, set-null violates W1b. |
 
 | Round | Lens |
 |---|---|
@@ -697,4 +792,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 7 | The recovery procedures themselves: are the documented rollback and reconciliation paths actually executable, or do they assume state they cannot guarantee? — **they assumed. All three round-6 resolutions superseded; six findings, the highest of any round** |
 | 8 | The mechanisms round 7 introduced — triggers, markers, a read-path expiry check and a staged recovery — reviewed as new attack surface rather than as fixes — **all six round-7 resolutions superseded; 11 findings, the largest round. The bridge would have raised inside legacy transactions and the contract gate rested on two unsound conditions** |
 | 9 | Whether revision 9 actually *reduced* mechanism rather than moving it — **it had not: 8 findings, and the view-based contract proved unbuildable** |
-| 10 | The plan **after** the migration machinery was cut: does anything still standing depend on something now deleted, and is the kept/cut line drawn correctly — i.e. did the simplification take any permanent runtime control with it? |
+| 10 | The plan **after** the migration machinery was cut — **the cut held: nothing load-bearing went with it, and all 6 findings landed on the surviving core or the new runbook** |
+| 11 | The **surviving core** on its own terms, with the migration argument settled: derivation, trust boundary, concurrency, reconciliation and the admin model reviewed as a system that has to run correctly for years — not as the residue of a simplification |
