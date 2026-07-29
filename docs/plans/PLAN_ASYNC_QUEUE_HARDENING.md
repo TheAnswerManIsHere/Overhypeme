@@ -1307,15 +1307,17 @@ cannot leave that arithmetic untouched:
   from `10N` to `20N` with nothing checking what the database allows.
   `deferred-work.md` classifies this as an infra/cost decision precisely
   because no repository value establishes what is safe. Phase 1 therefore
-  **records the production Postgres connection limit and the autoscale
-  maximum-instance setting, then derives**
-  `per_instance_max = floor(db_budget / max_instances)`. There is **no floor at
-  today's value**: if the derivation lands under 10, then 10 was already
-  over-subscribed and preserving it preserves the over-subscription. If the
-  arithmetic does not close, the answer is a shared pooler or lower per-lane
-  concurrency, not a larger number. **Those two production numbers are the one
-  thing in this plan I cannot obtain from the repository; they gate Phase 1 and
-  are listed under *Questions for David*.**
+  **records the production connection budget and the autoscale maximum-instance
+  setting, then derives** `per_instance_max = floor(db_budget / max_instances)`.
+  There is **no floor at today's value**: if the derivation lands under 10, then
+  10 was already over-subscribed and preserving it preserves the
+  over-subscription. **The production numbers are now measured** — 450
+  `max_connections`, 7 superuser-reserved, 13 currently in use, direct
+  connection (no pooler) — so the budget is **398** and `max = 20` is safe for
+  any autoscale ceiling up to 19 instances. See *Questions for David* for the
+  arithmetic and the one value still outstanding. The gate is satisfied rather
+  than deferred, and the lower-concurrency fallback is not expected to
+  trigger.
 
 ## Data Model and Migration Impact
 
@@ -1755,9 +1757,13 @@ before the machine changes (settled decision 5).
 **Phase 1 — Instrument (no behavior change to the queue).**
 1. Migration 0094: `worker_lane_heartbeats`, keyed `(instance_id, lane)`, with
    `worker_protocol_version`.
-1a. **Record the production Postgres connection limit and the autoscale
-   max-instance setting** (the two numbers under *Questions for David*), then
-   derive the per-instance pool `max` from them. Do **not** hard-code a value.
+1a. **Write down the pool arithmetic and apply it.** The production numbers are
+   measured (450 / 7 / 13, direct connection — see *Questions for David*), giving
+   a budget of 398 and `max = 20`. Confirm the autoscale max-instance setting is
+   **below 20** before applying that value; at 20 or above, use
+   `floor(398 / max_instances)` instead. Record the arithmetic in
+   `deferred-work.md` and close that item — a value without its derivation
+   written down is what made this a finding in the first place.
 2. Stamp `last_scheduled_at` when the timer fires (including on the re-entrancy
    early-return); **publish `in_flight_count` as soon as the claim commits,
    before any handler is awaited**, decrement it as each job leaves the
@@ -2182,61 +2188,61 @@ this plan.
 
 ## Questions for David
 
-**Two production numbers I cannot obtain from the repository, and they gate
-Phase 1.** Phase 1 sets the connection-pool `max`, and because each autoscaled
-instance builds its own pool, the real ceiling is `max × N`. Hard-coding a value
-would be guessing with the database's connection budget:
+**The production numbers are in (David, 2026-07-29), and the gate closes with a
+wide margin.** Measured against the **Production Database**, on a **direct
+connection** — David confirmed the host contains no `-pooler`, so the
+per-instance arithmetic below applies as written rather than being multiplexed
+away:
 
-1. **The production Postgres `max_connections`** (or the Neon plan's connection
-   limit), and how much of it is already spoken for.
-2. **The autoscale maximum-instance setting** for the deployment.
+| Value | Production | Development |
+|---|---|---|
+| `max_connections` | **450** | 112 |
+| `superuser_reserved_connections` | **7** | 4 |
+| `count(*) FROM pg_stat_activity` (point sample) | **13** | 11 |
 
-With those, the budget equation is complete rather than gestural — an earlier
-draft said "how much of it is already spoken for" and "reserved headroom"
-without defining either, which left the implementer making the
-production-capacity call this section exists to take off their desk:
+**This changes the shape of the problem, and the plan says so rather than
+quietly keeping a gate it no longer needs.** Earlier rounds treated pool sizing
+as a hard Phase 1 blocker with a painful fallback (lowering lane concurrency),
+on the possibility that the database budget was tight. It is not: 450
+connections against a **live** application currently holding 13. The real defect
+was never the database's capacity — it was that `max` is **unset** in
+`lib/db/src/index.ts:45`, so each pool silently caps at pg's default of 10
+against a worst-case lane demand of exactly 10. Zero headroom *inside the pool*,
+enormous headroom outside it.
+
+So:
 
 ```
-db_budget        = max_connections
-                 - superuser_reserved_connections   (Postgres reserves these)
-                 - peak_non_worker_connections      (measured, see below)
-                 - 5                                (fixed reserve: migrations,
-                                                     psql/console, one admin
-                                                     request burst)
-per_instance_max = floor(db_budget / max_instances)
+db_budget        = 450 - 7 (superuser) - 5 (fixed reserve) - 40 (generous
+                   allowance for non-worker peak; observed total is 13)
+                 = 398
+per_instance_max = floor(398 / max_instances)
 ```
 
-`peak_non_worker_connections` is not a guess either: it is the **observed
-maximum** of `SELECT count(*) FROM pg_stat_activity` sampled over a normal day,
-which David captures alongside the other two numbers. The fixed reserve of 5 is
-deliberately small and deliberately constant — it covers the connections that
-appear *outside* the fleet's steady state, and inflating it would just eat
-worker capacity that the lanes provably need.
+| `max_instances` | derived ceiling | is `max = 20` safe? |
+|---|---|---|
+| 3 | 132 | yes (60 of 398) |
+| 5 | 79 | yes (100 of 398) |
+| 10 | 39 | yes (200 of 398) |
+| 20 | 19 | **no** — 400 exceeds 398 |
 
-**The fallback is chosen, not offered.** If the arithmetic does not close, the
-answer is **lowering per-lane concurrency bounds** until the fleet's worst case
-fits — not a shared pooler. A pooler is infrastructure work with its own
-failure modes (transaction-mode pooling breaks session state and prepared
-statements, both of which this codebase uses), it is outside this plan's scope,
-and it would land in the same phase as the queue's riskiest changes. Lowering
-concurrency is a config change with an obvious, monitorable cost: throughput.
-The pooler stays a future option, recorded in `deferred-work.md`, not a branch
-an implementer has to evaluate mid-build.
+**Phase 1 sets `max = 20`** — double the lanes' worst case, which is the point —
+**and the arithmetic closes for any autoscale ceiling up to 19 instances.** The
+one remaining production value is that ceiling, and it only matters if it is
+**≥ 20**, in which case the derived `floor(398 / N)` is used instead and the
+lanes are still comfortably served down to N = 39.
 
-**Why this blocks rather than defers.** Phase 1 **adds** steady-state database
-work (heartbeats, the dispatch runner, health queries) to a pool this plan
-describes as having *zero* spare capacity. Shipping that at an unchanged ceiling
-does not preserve the status quo — it consumes headroom that is already gone.
-Nor does flooring the derivation at today's effective 10 rescue it: if
-`floor(budget / max_instances) < 10`, then 10 was already over-subscribed and
-the floor merely preserves the over-subscription.
+**The gate is therefore satisfied, not deferred.** It stays a Phase 1 step —
+step 1a still records the numbers and writes down the arithmetic, because a
+value chosen without one is how this got flagged in the first place — but the
+"or lower per-lane concurrency" fallback is now **not expected to trigger** at
+any plausible autoscale setting, and I am not holding Phase 1 for a day of
+`pg_stat_activity` sampling that would move a 40-connection allowance against a
+398-connection budget. The 40 is deliberately ~3× the observed total so the
+conclusion survives a much busier day than the one measured.
 
-So Phase 1 does not ship until either (a) the two numbers are known and the
-arithmetic closes — **total configured connections plus reserved headroom for
-admin and reader traffic fit inside the production limit** — or (b) we adopt the
-documented alternative: a shared pooler, or lowering the per-lane concurrency
-bounds so the fleet's worst case fits. Acceptance is the arithmetic itself,
-written down, not a value chosen because it looked reasonable.
+*(Development is fine too: 112 − 4 = 108 against a single dev process, so the
+test suite and `pnpm dev` are unaffected by raising `max`.)*
 
 **Nothing else is outstanding.** The four product decisions were settled in the
 pre-plan conversation and are recorded under *Settled Decisions*. Two things I
