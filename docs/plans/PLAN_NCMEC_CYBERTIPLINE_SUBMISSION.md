@@ -49,16 +49,28 @@ defect regardless of what else the change achieves.
    clearinghouse are a serious defect, not a cosmetic one. See §5.2.1 and §5.2.2.
 8. **No reportable hit is ever silently unreported.** Every `ncmec_reports` row either
    reaches a final state — `submitted`, `filed_manually`, or `failed` **with a durable
-   notification** — or sits in the **one acknowledged waiting state**: `pending` because
-   submission is disabled, which is *itself* durably surfaced (§5.5). A row stuck outside
-   both, with nobody told, is the worst outcome this subsystem can produce: it looks
-   exactly like success from every surface. See §5.3.
+   notification** — or sits in an **acknowledged waiting state**, each of which is
+   enumerated here and each of which is *itself* durably surfaced with its own count on
+   `/admin/safety`:
 
-   The carve-out is stated because the earlier phrasing — "every row reaches a final
-   state" — was **contradicted by the design's own disabled path**, which deliberately
-   parks rows at `pending` indefinitely. An invariant a design knowingly violates is
-   worse than no invariant: it makes review look satisfied. The waiting state is
-   legitimate; being unsurfaced was not.
+   | Waiting state | Predicate | Waiting on | Surfaced |
+   |---|---|---|---|
+   | Submission disabled | `ncmec_submission_enabled = false` | The operator turning it on | §5.5 |
+   | Identity unresolved | `reporter_snapshot IS NULL AND user_id IS NOT NULL` | An operator dispositioning a legacy row | §5.7, §5.8 |
+   | Unaudited backlog | `created_at < cutoff AND backlog_audited_at IS NULL` | The pre-activation audit | §7 step 2, §5.8 |
+
+   A row stuck outside both lists, with nobody told, is the worst outcome this subsystem
+   can produce: it looks exactly like success from every surface. See §5.3.
+
+   **The enumeration is the invariant, not a footnote to it.** The earlier phrasing —
+   "every row reaches a final state" — was **contradicted by the design's own disabled
+   path**, which deliberately parks rows at `pending` indefinitely; the revision after
+   that named exactly *one* waiting state, and then two more were added in §5.3 without
+   coming back here. An invariant a design knowingly violates is worse than no invariant:
+   it makes review look satisfied. So the rule is that a waiting state is legitimate only
+   once it appears in this table with a surface — **adding a skip condition anywhere in
+   the design means adding a row here**, and a skip with no row is a defect by
+   construction rather than by argument.
 
 ## 3. What exists today
 
@@ -409,6 +421,33 @@ rollout hit. So the reconciler skips any row where
 `production` makes that predicate false and the row eligible again — which is the exact
 behavior §7 needs, and it falls out of the environment check rather than a second flag.
 
+**But that predicate alone is one pass too late, so the reconciler does not auto-enqueue
+in the test environment at all.** It suppresses re-submission only *after* a row has
+already been sent to `exttest` — and the very first pass after `ncmec_submission_enabled`
+flips on in `test` finds the entire legacy backlog as `pending` with no job, which is the
+*first* line of the table, not the third. Every one of those rows would be enqueued and
+sent before the guard ever applies. So the enqueue conditions are:
+
+> **Automatic enqueue requires `ncmec_ispws_environment = 'production'`.** In `test`, the
+> only thing that submits is the explicit per-row `send-to-test` action (§5.8).
+
+The `test_submitted_at` predicate stays, because it still covers a row test-submitted by
+hand and then left `pending` — but it is no longer load-bearing for the rollout.
+
+**Two further classes are ineligible for automatic enqueue**, both because submitting them
+would file something the system cannot stand behind:
+
+- **`reporter_snapshot IS NULL AND user_id IS NOT NULL`** — identity unresolvable (§5.7).
+  Surfaced under "identity unresolved"; an operator resolves it explicitly.
+- **`created_at < ncmec_backlog_audit_cutoff AND backlog_audited_at IS NULL`** —
+  unaudited backlog (§7 step 2). This is belt-and-braces with the activation refusal in
+  §5.8: the refusal stops the switch being thrown, and this stops a row slipping through
+  if the switch was already on when the cutoff was set.
+
+Neither is a silent skip. Both are counted on `/admin/safety`, and both are non-final
+rows that invariant 8 requires be visible — they are waiting on a *named human decision*,
+which is the same kind of acknowledged waiting state as `pending`-because-disabled.
+
 `pending` and `in_progress` are the only non-final states, and every one of them appears
 above — that exhaustiveness is what makes invariant 8 checkable rather than aspirational.
 There is deliberately **no `retracted` status** (§5.4): retraction is a step *inside* an
@@ -496,6 +535,9 @@ Additive on `ncmec_reports`:
 | `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
+| `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
+| `backlog_audited_at` | `timestamptz` | §7 — this row has been through the pre-activation backlog audit |
+| `backlog_audit_note` | `text` | §7 — what the operator decided and why, for the rows the audit dispositioned by hand |
 
 **And additive on `quarantined_memes`** — this table was missing from an earlier revision
 of this section entirely, so §5.7's provenance requirement had no schema behind it:
@@ -513,7 +555,17 @@ things that can disagree — the report would then depend on which one the mappi
 to read. It is computed where it is used (`content_origin === 'generated'`) and nowhere
 persisted.
 
-| `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable |
+**`reporter_snapshot` is a column, not a key inside `request_metadata`.** An earlier
+revision of this plan said both — this table listed a column while §5.7's prose said the
+snapshot lived inside `request_metadata` — leaving the implementation two places to write
+it and the report builder two places to read it. For a field that determines *who a federal
+report names*, two possible sources is the defect, independent of which one is better.
+
+The column wins for three reasons: `request_metadata` is an untyped grab-bag of request
+context (`ip`, `userAgent`, `route`, `requestId`) and identity is not request context; a
+column can carry its own CHECK/NOT-NULL-style expectations; and — decisively — the legacy
+policy below needs `reporter_snapshot IS NULL` to be a **queryable** predicate, which a
+nested JSON key makes awkward and easy to get subtly wrong. §5.7 is corrected to match.
 
 `report_id` (existing, `varchar(64)`) holds the ISPWS-assigned **production** report id.
 No new column needed — the existing one was declared for exactly this.
@@ -562,7 +614,8 @@ NCMEC_ISPWS_PASSWORD
 |---|---|---|
 | `ncmec_submission_enabled` | `false` | Master switch. False → the job no-ops and the row stays `pending`, exactly today's behavior. |
 | `ncmec_ispws_environment` | `test` | `test` → `exttest.cybertip.org`; `production` → `report.cybertip.org`. |
-| `ncmec_report_classifier_hits` | `false` | §5.5. |
+| `ncmec_report_classifier_hits` | `false` | §5.6 — hard-blocked until §8.2 is answered, not merely defaulted off. |
+| `ncmec_backlog_audit_cutoff` | unset | §7 step 2 — timestamp at which the pre-activation backlog audit was declared complete. Rows created after it need no audit. Unset means the audit has not been run, so the entire non-final backlog counts as unaudited. |
 
 **A hit quarantined while submission is disabled must still be durably visible.** The
 existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
@@ -580,6 +633,13 @@ Two changes make the waiting state honest:
 - **`/admin/safety` surfaces an explicit "awaiting activation" count** rather than letting
   those rows read as an ordinary backlog. A number an operator can see is what turns a
   parked row into a decision.
+
+The same treatment applies to the other two waiting states in invariant 8's table, so the
+page carries **three** distinct counts — awaiting activation, identity unresolved,
+unaudited backlog — never one undifferentiated "pending" number. Collapsing them would
+hide the only thing that distinguishes "waiting on a switch" from "waiting on a decision
+nobody knows they owe," and the unaudited count additionally gates production activation
+(§5.8), so it has to be computed rather than eyeballed regardless.
 
 Three deliberate safety properties:
 
@@ -665,10 +725,33 @@ gate that does not exist.
   The window is wide by construction, since rows sit `pending` for the entire time
   submission is disabled and across every retry.
 
-  So `request_metadata` carries a `reporterSnapshot` — email and display identity as of
-  quarantine — written in the same transaction as the row, and the XML is built from that.
-  `user_id` remains for linkage; it is not the source of reported identity. Anonymous
-  uploads omit the element rather than sending empty values.
+  So the row carries a dedicated **`reporter_snapshot` column** (§5.4) — email and display
+  identity as of quarantine — written in the same transaction as the row, and the XML is
+  built from that and nothing else. `user_id` remains for linkage; it is not the source of
+  reported identity. Anonymous uploads omit the element rather than sending empty values.
+
+  **Legacy rows cannot have a snapshot, and the migration must not pretend otherwise.**
+  Every `ncmec_reports` row that exists before `0094` was written by code that never
+  captured one, so `reporter_snapshot` is `NULL` on all of them — and §7 step 5 files that
+  backlog. A nullable column cannot reconstruct historical identity, and resolving it live
+  at submission is exactly what this section forbids, so the plan needs an explicit policy
+  rather than a default:
+
+  | Legacy row | Meaning | Policy |
+  |---|---|---|
+  | `reporter_snapshot IS NULL` **and** `user_id IS NULL` | Genuinely anonymous, or the account was deleted before the snapshot existed | Submits normally with `<personOrUserReported>` **omitted** — the same honest omission anonymous uploads already get |
+  | `reporter_snapshot IS NULL` **and** `user_id IS NOT NULL` | An uploader was identified at the incident, but who they *were then* is unrecoverable | **Ineligible for automatic submission.** The reconciler skips it and `/admin/safety` surfaces it under "identity unresolved" |
+
+  The second class is resolved by an operator decision, never by the worker: mark it
+  `filed_manually` if it was already reported by hand, or take an explicit
+  **"file without uploader identity"** action that stamps `backlog_audit_note` with the
+  reason and makes the row eligible. Both are recorded; neither is silent.
+
+  The reason not to simply resolve `user_id` live for these rows — the obvious shortcut —
+  is that it produces a filing that *looks* complete and states something the platform does
+  not know to be true. An omitted element is visibly incomplete and can be corrected; a
+  confidently wrong one names a person on a federal report on the strength of a row that
+  may have changed hands, changed email, or been reassigned since the incident.
 
   **The captured context is not currently stored on most paths, and the plan must add it
   rather than assume it.** Only the Arachnid branch of `userImageUpload.ts` passes
@@ -763,9 +846,46 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   recovery path: after a multi-day NCMEC outage the per-row button would mean enumerating
   and clicking through the entire backlog by hand, which is not a recovery mechanism —
   it is a way to miss reports.
+
+  **The filter is `retryable ∪ {-1}`, not the ISPWS retryable set alone.** §5.3 stamps
+  reconciled lost finalizations with `last_error_code = -1`, which is by construction not
+  an ISPWS code and therefore cannot appear in the retryable set — so a filter written as
+  "codes in the retryable set" excludes precisely the rows the reconciler repaired, and
+  the post-outage guarantee in §6 would be false for exactly the failure mode a long
+  outage produces most of. The filter therefore has an explicit **unknown/lost** bucket,
+  selectable alongside the retryable codes and selected by default in the incident view.
+
+  A `-1` row is *unknown*, not *known-terminal*: the original code was lost, so treating
+  it as non-retryable asserts something the system does not know. Retrying it is safe
+  because §5.2.1's retract-first makes a redundant attempt observable rather than
+  duplicative.
+
+  **Any admin retry — single or bulk — resets `attempt_count` to zero and starts a fresh
+  budget.** The §7 eight-attempt budget governs *automatic* retries, whose purpose is to
+  ride out a transient outage without human attention. An operator clicking retry is a new
+  human decision with new information (the outage is over, the credentials are fixed), and
+  carrying the exhausted budget forward would make the button do nothing on the rows that
+  most need it — the same class of defect as enqueuing a `failed` row that can never
+  acquire its lease.
+- `POST /admin/safety/reports/:id/send-to-test` — submits **one** selected row against
+  `exttest`, writing `test_submitted_at` / `test_report_id` and leaving the status
+  `pending` (§7). This exists because the reconciler does not auto-enqueue in the `test`
+  environment at all, so exercising the pipeline has to be an explicit, per-row act. It
+  refuses when `ncmec_ispws_environment` is `production` — the button's whole purpose is
+  that it cannot file for real.
+- `POST /admin/safety/reports/:id/audit` — records the pre-activation backlog disposition
+  (§7 step 2): stamps `backlog_audited_at` and `backlog_audit_note`. Its
+  **"file without uploader identity"** variant is the operator's explicit resolution for a
+  legacy row with `user_id IS NOT NULL` and no `reporter_snapshot` (§5.7): it records the
+  reason and makes the row eligible for submission with `<personOrUserReported>` omitted.
+  There is no path that fills that element from a live lookup.
 - `GET  /admin/safety/connectivity` — calls ISPWS `GET /status` and reports
   reachability and which environment is configured. This is the "is it actually
   working?" answer that no amount of row-reading gives.
+- `POST /admin/safety/config` — the two switches. **Enabling submission with
+  `ncmec_ispws_environment = 'production'` is refused while the unaudited-backlog count
+  (§7 step 2) is non-zero**, and the refusal names the count. The gate lives here, on the
+  write, rather than in the UI, so it holds however the config is changed.
 
 **Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
 report is correct at one failure and actively harmful at two hundred — the volume trains an
@@ -864,6 +984,34 @@ Outage behavior (§5.2, §5.8):
   when a submission fails terminally does **not** suppress the failure alert.
 - A lost finalization repaired by the reconciler records `last_error_code = -1` and says
   the original code was lost, rather than reporting a code it cannot know.
+- **A reconciled `-1` row is recovered by the same bulk incident action** as the ordinary
+  retryable failures around it — the test that would have caught the `-1`-outside-the-
+  filter gap — and its `attempt_count` is reset, so an admin retry after an exhausted
+  automatic budget actually runs.
+
+Deployment, transition, and rollback (§7):
+- **Migration-before-code**: applying `0094` while the *old* code serves leaves the old
+  path working unchanged — new columns nullable/defaulted, writes still `pending`.
+- **The widened CHECK is a precondition, not a side effect**: writing `filed_manually` or
+  `in_progress` against migration 0043's constraint fails, asserted directly so the
+  ordering dependency is proven rather than assumed.
+- `NCMEC_SUBMISSION_STATUSES` and the SQL CHECK agree — the lockstep test (§5.4).
+- **Rollback**: with the schema at `0094` and the code reverted to the stub, rows holding
+  `in_progress` / `filed_manually` are inert — nothing re-files, nothing errors.
+- **Test environment does not sweep the backlog**: with `ncmec_ispws_environment='test'`,
+  `ncmec_submission_enabled=true`, and a legacy backlog present, a full reconciler pass
+  enqueues **zero** jobs; only the explicit `send-to-test` action submits, and it submits
+  exactly the selected row. This is the acceptance check for §7 step 3.
+- **Failed production preflight files nothing**: running the transition sequence with a
+  connectivity check that fails leaves **zero** production submit jobs enqueued.
+- **Activation is gated on the audit**: enabling production submission with a non-zero
+  unaudited count is refused, and the refusal names the count; stamping the last row's
+  `backlog_audited_at` makes the same call succeed.
+- **Legacy identity policy**: a legacy row with `user_id` and no `reporter_snapshot` is
+  not auto-enqueued and appears under "identity unresolved"; one with neither submits with
+  `<personOrUserReported>` omitted; and **no code path resolves `user_id` to an identity at
+  submission time** — asserted on a spy over the user lookup, since that is the shortcut
+  the policy exists to forbid.
 
 Evidence handling:
 - **`getObjectEntityDownloadURL` is never called with a `restricted/` path** during
@@ -980,21 +1128,95 @@ this repo has hit twice (`known-failure-patterns.md`).
 
 ## 7. Rollout
 
-1. Merge with both switches off. Production behavior is byte-identical to today: rows
-   accumulate as `pending`, nothing is filed.
-2. **Audit the existing backlog before enabling anything.** Every pre-existing `pending`
-   row is either (a) already filed by hand — mark it `filed_manually` with its
-   CyberTipline report id, or (b) never filed — leave it `pending` to be submitted. This
-   step is a prerequisite, not a cleanup task: enabling submission with an unaudited
-   backlog is precisely how the reconciler would duplicate real reports.
-3. Set `ncmec_ispws_environment=test`, `ncmec_submission_enabled=true`. Exercise the
-   connectivity check, then let a quarantine hit flow end to end against
-   `exttest.cybertip.org`.
-4. Verify in the ledger: `test_report_id` assigned, `test_submitted_at` set — and the row
-   **still `pending`**, because a test submission is not a filing.
-5. Flip to `production` only after David has seen a complete test-environment submission
-   and NCMEC has confirmed receipt. The real backlog is filed on this transition.
+1. **Merge with both switches off, migration first.** Production behavior is
+   byte-identical to today: rows accumulate as `pending`, nothing is filed.
+
+   **Ordering is not left to chance: `0094` applies before the new code serves.**
+   `artifacts/api-server/src/index.ts` awaits `runMigrations()` (`:271`) before
+   `app.listen()` (`:292`), so a deploy of this branch necessarily migrates first — this
+   step records that dependency rather than assuming it, because §7's own later steps
+   write values the *old* schema rejects. Step 2's `filed_manually` and step 4's
+   `in_progress` both violate migration 0043's
+   `CHECK (submission_status IN ('pending','submitted','failed'))`, so an admin surface
+   reachable before the widened constraint exists would fail on its first write.
+
+   Migration-first is also safe in the other direction: every added column is nullable or
+   defaulted, and the old stub writes only `pending`, so old code running against the new
+   schema is correct — merely unaware of the new columns. **Verify before using the admin
+   surface:** the added columns exist, the widened CHECK accepts all five statuses, and
+   the three config keys read their documented defaults.
+2. **Audit the existing backlog before enabling anything — and prove it.** Every
+   pre-existing `pending` row is either (a) already filed by hand — mark it
+   `filed_manually` with its CyberTipline report id, or (b) never filed — disposition it
+   for submission. This is a prerequisite, not a cleanup task: enabling submission with an
+   unaudited backlog is precisely how the reconciler would duplicate real reports.
+
+   **"Leave it `pending`" was not a durable disposition, and that was the defect.** An
+   audited row that the operator decided *should* be filed looked byte-identical to a row
+   nobody had looked at yet: both `pending`, both with no marker. There was no query that
+   answered "is the audit finished," so the prerequisite could only be satisfied by
+   someone's memory — and overlooking a single hand-filed row means the reconciler
+   duplicates a real report to NCMEC.
+
+   So the disposition is persisted per row. Auditing stamps **`backlog_audited_at`** (and
+   `backlog_audit_note` where the operator's reasoning matters), whichever way the row is
+   dispositioned; `mark-manually-filed` stamps it implicitly. A durable cutoff config key
+   **`ncmec_backlog_audit_cutoff`** holds the timestamp at which the audit was declared
+   complete, so rows created afterwards — written by the new code, with snapshots — need
+   no audit and the audit scope cannot silently grow.
+
+   **The prerequisite is enforced, not remembered.** The unaudited count is
+
+   ```sql
+   SELECT count(*) FROM ncmec_reports
+    WHERE submission_status IN ('pending','in_progress')
+      AND created_at < $cutoff
+      AND backlog_audited_at IS NULL
+   ```
+
+   `/admin/safety` displays it, and **enabling production submission is refused while it
+   is non-zero**, with the count in the refusal message. A checklist step a deploy can
+   skip is not a safeguard; this is the same reasoning that made §5.6's classifier gate a
+   hard refusal rather than a default.
+3. **Set `ncmec_ispws_environment=test` and `ncmec_submission_enabled=true`.** Exercise
+   the connectivity check first.
+
+   **The test environment never sweeps the backlog.** Automatic enqueue by the reconciler
+   (§5.3) happens **only when `ncmec_ispws_environment = 'production'`**. In `test`, the
+   only thing that submits is an explicit per-row admin action, **"send to test
+   environment."** Without that rule, flipping the master switch on in `test` makes the
+   very first reconciler pass enqueue every legacy `pending` row with no job — the
+   `test_submitted_at` predicate suppresses only *subsequent* passes, which is one pass
+   too late, after each row has already been sent to `exttest`. The audited production
+   backlog stays ineligible until the production transition; step 4 submits the one hit
+   it intends to submit and nothing else.
+4. Let a single quarantine hit flow end to end against `exttest.cybertip.org` via that
+   action, and verify in the ledger: `test_report_id` assigned, `test_submitted_at` set —
+   and the row **still `pending`**, because a test submission is not a filing.
+5. **Flip to `production` in this order, not the reverse:** disable submission → set
+   `ncmec_ispws_environment=production` → run the connectivity check against the
+   production host and confirm it passes → **enable submission last**.
+
+   Changing the environment while the master switch is still on hands the real backlog to
+   the next reconciler pass — which can be seconds away (§5.3 runs every 5 minutes and at
+   boot) — *before* anyone has confirmed the production host and credentials work. The
+   first evidence that production credentials are wrong would then be a wave of `2000`/
+   `3000` failures across the entire backlog. A failed production preflight must leave
+   **zero** production submit jobs enqueued; §6 asserts exactly that.
+
+   Flip only after David has seen a complete test-environment submission and NCMEC has
+   confirmed receipt. The real backlog is filed on this transition.
 6. Classifier reporting stays off throughout. Separate decision, separate evidence.
+
+**Rollback.** If the code is rolled back after `0094` has applied, the schema stays ahead
+of the code — the safe direction. The old stub writes only `pending` and reads none of the
+new columns, so rows already carrying `in_progress` or `filed_manually` are simply inert to
+it: it neither reads their status nor acts on them, because the stub has no worker, no
+reconciler, and no retry path. Nothing re-files. The one real consequence is that
+`in_progress` rows stop advancing until the code returns, which the reconciler resolves on
+the next boot. **Do not roll the migration back** to re-file them: dropping the widened
+CHECK while rows hold the new values would fail, and dropping `report_id`-adjacent state is
+how a report already accepted by NCMEC becomes invisible and gets filed twice.
 
 **A test submission must never consume a real report's one filing.** An earlier revision
 of this rollout had the reconciler pick up the audited backlog while the environment was
