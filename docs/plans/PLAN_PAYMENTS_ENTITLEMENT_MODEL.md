@@ -238,9 +238,35 @@ make **authorization and spending** decisions, not display:
 | `createMemeRecord.ts:149-179` | private-visibility, high rate limit, PuLID gate |
 | `budgetGate.ts:77-98` | which monthly spend limit applies |
 
-**Specification:** one shared `getEffectiveMembership(userId \| userRow)` helper
-returns the tier *after* applying `membership_valid_until`, and **every**
-consumer goes through it — the two middlewares, both sites above, and any
+**A row helper is not enough — some readers filter in SQL.** I specified
+`getEffectiveMembership(userId | userRow)` and then found readers that cannot
+call it, because they select or count *before* any row exists to pass:
+
+| Set-based reader | What it does |
+|---|---|
+| `stripeStorage.ts:55-63` (`getActiveLegendarySubscribers`, used by `factOfTheDay.ts:73`) | `WHERE membership_tier = 'legendary'` — the mailing recipient list |
+| `admin.ts:2543-2556` | `count(*) WHERE membership_tier = 'legendary'` — the admin dashboard |
+
+Both would keep counting and **emailing** expired members. This is the third
+time in this review I have enumerated one shape of consumer and reasoned as
+though it were all of them.
+
+**Specification:** the effective tier is expressed **twice, from one
+definition** —
+
+- **`effectiveTierPredicate`** — a reusable SQL fragment
+  (`membership_tier = $1 AND (membership_valid_until IS NULL OR
+  membership_valid_until > now())`) that every set-based query composes into its
+  `WHERE`. Set readers use this; they do not filter on the raw column.
+- **`getEffectiveMembership(userId | userRow)`** — the row helper, for
+  request-path consumers.
+
+The predicate is the primitive and the helper is defined in terms of it, so
+they cannot drift. **Acceptance: a user whose grace has expired appears in
+neither the mailing list nor the admin count**, and the two agree with the row
+helper for the same user.
+
+Every consumer goes through one of the two — the two middlewares, both sites above, and any
 future reader. The raw column is never read for an authorization or spending
 decision. Implementation begins by enumerating every reader of
 `users.membership_tier` the way the mutation-site inventory was built (search
@@ -284,27 +310,49 @@ The token is **ours, not Stripe's**:
   guard needs strict uniqueness as well as monotonicity, which only a sequence
   (or equivalent unique counter) gives. Acceptance includes simultaneous token
   allocation yielding distinct ordered values.
-- A path that retrieves from Stripe takes the token **immediately before
-  issuing the retrieval**, and carries it into the write.
+- **Per-source serialization, because no token ordering works.** Revision 10
+  moved the token to *after* retrieval; revision 11 moved it to *before*.
+  **Both are wrong, and the second was wrong for a reason my own text
+  admitted.** Taking the token before issuance orders *requests*, not *state*:
+  request A takes token 1, stalls past a cancellation and returns `canceled`;
+  request B takes token 2, is served older `active` state, and wins on the
+  larger token. Access is resurrected. I wrote "a later-issued request may see
+  older state" and then called the scheme fail-safe in the next sentence.
 
-  **The timing is the whole point, and an earlier revision had it backwards.**
-  "At retrieval time" was ambiguous and I meant it as *when the response
-  arrives*, which does not order anything: an older retrieval can stall on a
-  connection, complete after a newer one, take the larger token and overwrite
-  fresher state — resurrecting canceled access, the one direction that must
-  never happen.
+  There is no token that fixes this, because the ordering we need is over
+  **provider state** and nothing available to us derives from it: the pinned
+  Stripe `Subscription` exposes no version or mutation timestamp, and any
+  locally-allocated number orders our own activity instead.
 
-  Taking the token **before** the request inverts the failure: a larger token
-  now means the request was *issued* later, so the state it observed is at
-  least as new. The residual case is two requests issued in one order and
-  served in the other, where the later-issued request sees marginally older
-  state and wins. That drops a fresher snapshot rather than resurrecting a
-  dead one — **fail-safe rather than fail-open** — and reconciliation repairs
-  it on the next run.
+  **Specification: one retrieval-and-apply in flight per source at a time.**
 
-  Codex's alternative was to serialize retrieval per source. Rejected: that
-  holds a lock across network I/O, which invariant 1 above forbids for exactly
-  the reason it was added in round 2.
+  - Before retrieving, a path acquires a **lease** on `(source_type,
+    provider_ref)` — a row in a lease table claimed in a short transaction that
+    **commits immediately**, or an equivalent advisory lock taken outside any
+    open transaction.
+  - The Stripe retrieval happens with **no transaction open** — invariant 1 is
+    unchanged, and this is the distinction that makes the lease admissible
+    where a `FOR UPDATE` row lock is not. A lease is a committed row; it pins
+    no connection and blocks no unrelated query.
+  - The short apply transaction then runs, and the lease is released.
+  - Leases carry an **expiry** so a crashed holder cannot wedge a source
+    forever, and a waiter that times out **abandons its write** rather than
+    proceeding unordered — reconciliation repairs it.
+
+  With one retrieval in flight per source, completion order *is* issuance
+  order *is* state order, and the guarantee finally holds rather than being
+  asserted.
+
+  `source_state_as_of` **stays**, now doing a narrower and honest job: it
+  rejects a write from a lease-holder that lost its lease to expiry and came
+  back late. It is a safety net against the lease's own failure mode, not the
+  ordering mechanism.
+
+  **Cost, stated plainly:** concurrent updates to the *same* subscription now
+  queue instead of racing. Different subscriptions are unaffected, and the
+  queue depth per source is bounded by how many events Stripe sends about one
+  object at once — small.
+
 - **Admin** writes (grant / revoke) take the token inside the lock: they
   originate locally and are authoritative when they execute.
 - **Stripe-mutating routes do not write provider state at all.** Cancel,
@@ -320,9 +368,11 @@ The token is **ours, not Stripe's**:
 - Inside the lock, a write whose token is not strictly newer than the stored
   `source_state_as_of` is rejected.
 
-**Acceptance:** two retrievals of one subscription applied in reverse order
-leave the newer state stored; **an older retrieval that completes after a
-newer one is rejected, not applied** (the stall interleaving above); **a delayed route response applied after a newer
+**Acceptance:** the exact interleaving that defeated both token schemes — a
+retrieval that stalls past a cancellation and returns `canceled`, racing a
+later-issued retrieval served older `active` state — leaves **`canceled`**
+stored; a lease expiring under a slow holder causes that holder's write to be
+rejected rather than applied late; **a delayed route response applied after a newer
 webhook does not resurrect stale state**; an older snapshot can never win.
 
 ### Schema
@@ -354,6 +404,18 @@ intention.
 
 Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
 null (preserving today's two unique constraints and keeping idempotency);
+**plus a partial unique index giving at most one *active* `admin_grant` per
+user** — `UNIQUE (user_id) WHERE source_type = 'admin_grant' AND
+lifecycle_status = 'active'`. The main constraint excludes admin grants
+entirely, because their `provider_ref` is null, so nothing stopped two
+concurrent submissions or a retry after an uncertain response from creating
+**two** active grants; a later revoke would mark one and leave the other
+qualifying, and the user stays Legendary after being revoked. Re-granting
+after a revoke is permitted — the partial index only constrains *active* rows —
+and grant/revoke run under the same per-user serialization as every other
+mutation, so the index is a backstop rather than the only defence.
+**Acceptance: concurrent grants, a duplicate retry, revoke, and grant-after
+-revoke.**
 `CHECK` that payment-backed rows have a `provider_ref` and admin grants have an
 actor and reason; plus a **status-conditional** `CHECK` requiring
 `revoked_by_admin_id`, `revoked_reason` **and** `revoked_at` on any admin grant
@@ -370,9 +432,30 @@ block admin account deletion outright; `SET NULL` would satisfy the FK and then
 violate W1b's own `CHECK`, which requires an actor.
 
 So provenance does not depend on the FK surviving. Each actor is recorded
-**twice**: the FK id, and a **`_label` text snapshot** (admin email or display
-name, captured at grant/revoke time and never updated). The id is
-`ON DELETE SET NULL`; the label is `NOT NULL` and immutable. The provenance
+**twice**: the FK id, and a **`_label` text snapshot**. The id is
+`ON DELETE SET NULL`; the label is `NOT NULL`.
+
+**The label is anonymized on hard delete — it is not immutable.** Revision 11
+said "captured at grant/revoke time and never updated", which put a purged
+admin's email in another user's row forever and **contradicts this repo's own
+retention policy**: `docs/data-lifecycle-retention-matrix.md` requires *full
+removal on hard-delete* for profile PII, and for payment records
+*"irreversible anonymization instead of deletion where financial audit
+integrity is required — preserve transaction integrity while removing direct
+identifiers."*
+
+That policy already answers the question, so it is applied rather than
+escalated: on hard delete the label is **overwritten with a stable
+non-identifying token** (`deleted-admin-<opaque>`, derived so that two grants
+by the same purged admin remain recognisably the same actor). Audit integrity
+survives — you can still tell one actor from another and see that a human did
+it — and the direct identifier is gone. That is exactly the trade the matrix
+describes.
+
+**David should know this changes what an audit trail shows** — a purged
+admin's grants read as an opaque actor rather than a name — but it follows
+existing policy, so it is not a new decision unless he wants the policy
+changed. The provenance
 `CHECK` requires **the label**, not the id — so purging a grantor nulls a
 convenience join and leaves the attribution intact, which is what W1b actually
 asks for. It also fixes a subtler problem the FK always had: an admin who is
@@ -494,10 +577,39 @@ Wrap the idempotency claim (`webhookHandlers.ts:1172`) and domain processing in
 one transaction (precedent: `admin.ts:~560`), so a handler throw rolls the claim
 back and Stripe's retry can succeed.
 
-Audit writes stay **outside** it so a `failed` record survives rollback, with
-the post-commit case specified too: a committed mutation whose `processed`
-audit insert fails leaves the trail showing only `received`. Recovery is a query
-for claims lacking a terminal audit row.
+**This collides with invariant 1 unless the handler is split, and today it
+does.** `processDomainSwitch` performs Stripe retrievals *inside* the region
+that would be wrapped — `stripe.subscriptions.retrieve` at
+`webhookHandlers.ts:653-656` and `stripe.paymentIntents.retrieve` at `:664` —
+and is invoked at `:1189`, with the helpers it calls writing through the global
+`db`. Implementing "wrap the claim and all domain processing" literally either
+holds a transaction across network I/O, which invariant 1 forbids, or leaves
+those writes outside the transaction that is supposed to protect them. Both
+sections have been in this plan for many rounds and were never read together.
+
+**Specification: prepare, then apply.**
+
+1. **Prepare — no transaction open.** Retrieve and verify all authoritative
+   provider state for the event (the W1a verifier's retrievals live here), and
+   acquire the per-source lease. Produce a plain description of the intended
+   writes.
+2. **Apply — one short transaction.** Claim idempotency **and** perform every
+   domain write inside it. No network call occurs in this phase.
+
+For that to be enforceable rather than aspirational, **every domain write takes
+a transaction executor as a parameter** instead of importing the global `db`.
+A handler that cannot reach `db` directly cannot accidentally write outside the
+claim's transaction — the same reason the trust boundary takes identifiers
+rather than objects.
+
+Audit writes stay **outside** the transaction so a `failed` record survives
+rollback, with the post-commit case specified too: a committed mutation whose
+`processed` audit insert fails leaves the trail showing only `received`.
+Recovery is a query for claims lacking a terminal audit row.
+
+**Acceptance:** inject a failure after a source write inside apply and prove
+**both** the mutation and the idempotency claim roll back, so Stripe's retry
+succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`.
 
 ### Reconciliation
 
@@ -542,6 +654,48 @@ tier/horizon per user — **without mutating anything**. The threshold on
 downgrade / ambiguity / error counts is evaluated against that staged set. Only
 if it passes does the run commit, in one transaction; if it fails, nothing was
 ever written and the run reports as visibly failed.
+
+**A staged tier is computed from a source set that may be obsolete by commit
+time.** A webhook can commit newer source state after staging and before the
+commit transaction takes the user lock. The version guard would reject the
+stale *source* write — but staging also produced a *tier*, and applying that
+tier next to the surviving newer source row is precisely the source/derived
+disagreement this plan exists to remove. **Specification: inside the commit
+transaction, under the user lock, any source whose version guard rejects marks
+that user's staged tier invalid; the user's tier is then re-derived from the
+locked persisted rows before writing, or the user is dropped from the run and
+picked up next time.** A rejected source write never silently leaves its
+staged tier behind. **Acceptance: a webhook committing mid-staging leaves the
+user's tier consistent with the newer source, not the staged one.**
+
+**Absence must be proven before it means deletion.** The reconciler infers a
+missing source from non-appearance in enumeration, and simultaneously tolerates
+pagination failures below the error threshold — so a single failed page makes
+its sources indistinguishable from deleted ones and stages them as removals.
+**Specification: completeness is tracked per collection.** A collection whose
+enumeration did not complete is **not proven**; every user with a source in it
+is **skipped** — existing rows preserved, no derivation — while users whose
+sources all come from completed collections proceed normally. Incompleteness is
+reported as its own category, never folded into `failed`. **Acceptance: fail a
+middle page and assert those users' entitlements and tiers are byte-identical
+afterwards, while independently-complete users still reconcile.**
+
+**One run at a time, across processes.** `deploymentTarget = "autoscale"`
+(`.replit:11`) means several instances boot and each invokes reconciliation
+(`index.ts:399`), and a scheduled tick can fire while an earlier run is still
+staging — producing duplicate Stripe enumeration and overlapping all-or-nothing
+commits. **Specification: a DB-backed single-flight lease with expiry**, so a
+second replica or an early tick observes the run in progress and returns
+without enumerating. Expiry means a crashed holder does not wedge reconciliation
+permanently.
+
+**What is deliberately *not* specified here:** resumable staging, per-item
+durable run status, and bounded/streaming staging for large accounts. Those are
+scale controls, and the account is pre-launch — the whole change set fits in
+memory comfortably today. The lease is cheap and prevents a real correctness
+problem now; the rest is deferred with this note so it is a recorded decision
+rather than an oversight. **Revisit when the account has enough subscriptions
+that one run's change set is no longer trivially small.**
 
 This makes "pre-apply" mean what it always claimed to mean. The earlier wording
 said the guard was evaluated pre-apply, which was true of the *tier* write and
@@ -628,6 +782,23 @@ step. Under a derived model it stops being possible to get wrong.
 - **`admin.ts:623-654`** — create-user stops accepting a tier. Creating a comped
   account **atomically writes an `admin_grant` entitlement** in the same
   transaction as the user, so the capability survives rather than being removed.
+
+  **This needs a replacement control, and revision 11 removed the only one.**
+  `membershipTier` is currently the sole field in the create-user request that
+  distinguishes a comped account (`users.tsx:363-381` sends it;
+  `admin.ts:623-654` reads it). Deleting the tier selector without adding
+  anything leaves nothing to select the atomic grant, and nowhere to collect
+  the reason W1b requires — so the "atomic comped creation" capability would
+  have been quietly lost, which is exactly what this bullet claims to prevent.
+
+  **Specification:** the add-user form gains an explicit **"Grant membership"**
+  checkbox plus a **reason** field, required when it is checked. The request
+  carries `grantMembership: boolean` and `grantReason: string` instead of
+  `membershipTier`. Unchecked creates an ordinary registered account and writes
+  no entitlement. **Acceptance: create with the box checked and assert one
+  active `admin_grant` with the reason and a derived Legendary tier; create
+  unchecked and assert no entitlement row; check the box with an empty reason
+  and assert the request is rejected.**
 - **`admin.ts:188`** (`resolveUserTierOnReinstatement`) — reinstatement
   recomputes instead of resolving a tier itself.
 - **`admin.ts:601`** (revoke-lifetime) — **marks the entitlement revoked rather
@@ -780,6 +951,15 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 61 | 10 | Destructive migration not specified as idempotent | **Resolved** — guarded DDL plus a **second-run no-op** acceptance case. `migrate.ts` already rescues `42P07`/`42P01` via `SAVEPOINT`, but depending on error-code recovery for an expected condition is fragile. |
 | 62 | 10 | The maintenance gate does not exist | **Resolved by deletion** — confirmed no maintenance control exists anywhere in the repo. Rather than build one, the plan states plainly that old instances will error during the rollout and that this costs nothing pre-launch. I had written a runbook step for a control I never checked for. |
 | 63 | 10 | Actor FK breaks when a *grantor* is purged | **Resolved** — actor recorded twice: `_id` (`ON DELETE SET NULL`) and an immutable `_label` snapshot, with the provenance `CHECK` requiring the label. Every single-FK behaviour was wrong: cascade deletes a recipient's entitlement, restrict blocks admin deletion, set-null violates W1b. |
+| 64 | 11 | Staged tier can be committed against a source set a webhook has superseded | **Resolved** — a version-guard rejection invalidates that user's staged tier; re-derive under the lock or drop the user from the run. A hole in round 10's own fix. |
+| 65 | 11 | Incomplete enumeration is indistinguishable from deletion | **Resolved** — completeness tracked per collection; users with a source in an unproven collection are skipped with rows preserved, reported as its own category rather than folded into `failed`. |
+| 66 | 11 | Token-before-issuance still is not causal | **Superseded by per-source leases** — Codex was right and my own text contradicted itself. **Two token schemes both failed**; ordering over *provider state* cannot be derived from any locally-allocated number, so retrieval-and-apply is serialized per source by a committed lease with expiry, holding no transaction across I/O. `source_state_as_of` demoted to a lease-expiry backstop. |
+| 67 | 11 | Webhook transaction would span Stripe I/O | **Resolved** — prepare/apply split; provider retrieval happens before the transaction opens, and every domain write takes a transaction executor so it cannot reach the global `db`. Two long-standing sections that contradicted each other and had never been read together. |
+| 68 | 11 | Reconciliation is not a cross-process singleton | **Resolved** — DB-backed single-flight lease with expiry. Resumable staging and per-item durable status **explicitly deferred** as scale controls, recorded rather than omitted. |
+| 69 | 11 | Two active admin grants possible; revoke marks only one | **Resolved** — partial unique index on one active `admin_grant` per user. The main constraint excluded them because `provider_ref` is null. |
+| 70 | 11 | `getEffectiveMembership` cannot serve set-based readers | **Resolved** — a reusable SQL `effectiveTierPredicate` is the primitive and the row helper is defined from it. The mailing list (`stripeStorage.ts:55-63`) and admin counts (`admin.ts:2543-2556`) filter in SQL and would have kept emailing expired members. Third instance of the same enumeration error. |
+| 71 | 11 | Immutable actor label conflicts with the retention matrix | **Resolved by existing policy** — `data-lifecycle-retention-matrix.md` already requires anonymization of direct identifiers in payment records, so the label is overwritten with a stable opaque token on hard delete rather than kept forever. Not escalated: the repo had already decided it. |
+| 72 | 11 | No create-time control for a comped account | **Resolved** — explicit "Grant membership" checkbox plus required reason replaces the removed tier selector; the atomic-create capability would otherwise have been silently lost. |
 
 | Round | Lens |
 |---|---|
@@ -793,4 +973,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 8 | The mechanisms round 7 introduced — triggers, markers, a read-path expiry check and a staged recovery — reviewed as new attack surface rather than as fixes — **all six round-7 resolutions superseded; 11 findings, the largest round. The bridge would have raised inside legacy transactions and the contract gate rested on two unsound conditions** |
 | 9 | Whether revision 9 actually *reduced* mechanism rather than moving it — **it had not: 8 findings, and the view-based contract proved unbuildable** |
 | 10 | The plan **after** the migration machinery was cut — **the cut held: nothing load-bearing went with it, and all 6 findings landed on the surviving core or the new runbook** |
-| 11 | The **surviving core** on its own terms, with the migration argument settled: derivation, trust boundary, concurrency, reconciliation and the admin model reviewed as a system that has to run correctly for years — not as the residue of a simplification |
+| 11 | The **surviving core** on its own terms — **9 findings, up from 6; two overturned round-10 fixes, and the ordering scheme failed for the second time** |
+| 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section |
