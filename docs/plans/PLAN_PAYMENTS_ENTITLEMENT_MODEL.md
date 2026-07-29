@@ -251,20 +251,57 @@ Both would keep counting and **emailing** expired members. This is the third
 time in this review I have enumerated one shape of consumer and reasoned as
 though it were all of them.
 
+**The primitive is an expression, not a predicate.** Revision 12 specified
+`effectiveTierPredicate` as `membership_tier = $1 AND (membership_valid_until
+IS NULL OR membership_valid_until > now())`, which is correct **only when
+`$1 = 'legendary'`**. Instantiate it with `'registered'` and a lapsed
+Legendary user matches nothing: the raw column still says `legendary`, so the
+first conjunct is false — and that user is then in *neither* count. The admin
+dashboard reads **both** tiers (`admin.ts:2547-2556`: one `count(*)` for
+`legendary`, one for `registered`), so revision 12 fixed the over-count and
+introduced an under-count in the row directly below it.
+
+The mistake was shape, not arithmetic: an *expiry filter* answers "is this user
+still X", while the readers ask "**what is this user's tier**". Only the second
+question has an answer for every user.
+
 **Specification:** the effective tier is expressed **twice, from one
 definition** —
 
-- **`effectiveTierPredicate`** — a reusable SQL fragment
-  (`membership_tier = $1 AND (membership_valid_until IS NULL OR
-  membership_valid_until > now())`) that every set-based query composes into its
-  `WHERE`. Set readers use this; they do not filter on the raw column.
-- **`getEffectiveMembership(userId | userRow)`** — the row helper, for
-  request-path consumers.
+- **`effectiveTierExpr`** — a reusable SQL expression evaluating to the
+  effective tier for any row:
 
-The predicate is the primitive and the helper is defined in terms of it, so
-they cannot drift. **Acceptance: a user whose grace has expired appears in
-neither the mailing list nor the admin count**, and the two agree with the row
-helper for the same user.
+  ```sql
+  CASE WHEN membership_tier = 'legendary'
+            AND membership_valid_until IS NOT NULL
+            AND membership_valid_until <= now()
+       THEN 'registered'
+       ELSE membership_tier
+  END
+  ```
+
+  The `membership_tier = 'legendary'` conjunct is not redundant: without it a
+  stale `membership_valid_until` on an `unregistered` row would silently
+  *promote* that row to `registered`. Expiry may only demote, and only from
+  the tier the horizon describes.
+
+  Set readers select, group or filter on **this**, never on the raw column —
+  `WHERE effectiveTierExpr = 'legendary'` for the mailing list, and the same
+  expression instantiated at `'registered'` for the second dashboard count. A
+  convenience `effectiveTierPredicate(tier)` may wrap it, but it is defined
+  *from* the expression rather than hand-written per tier.
+- **`getEffectiveMembership(userId | userRow)`** — the row helper, for
+  request-path consumers, **defined from the same expression**.
+
+The expression is the primitive and everything else is derived from it, so they
+cannot drift. It also matches what the model actually says: expiry is a
+*demotion to `registered`*, not a disappearance.
+
+**Acceptance:** at and after the horizon, a lapsed Legendary user appears in
+neither the mailing list nor the `legendary` count **and does appear in the
+`registered` count**, and all three agree with the row helper for that user;
+the two counts sum to the same total before and after the horizon lapses;
+`unregistered` rows are unaffected by expiry.
 
 Every consumer goes through one of the two — the two middlewares, both sites above, and any
 future reader. The raw column is never read for an authorization or spending
@@ -343,10 +380,40 @@ The token is **ours, not Stripe's**:
   order *is* state order, and the guarantee finally holds rather than being
   asserted.
 
-  `source_state_as_of` **stays**, now doing a narrower and honest job: it
-  rejects a write from a lease-holder that lost its lease to expiry and came
-  back late. It is a safety net against the lease's own failure mode, not the
-  ordering mechanism.
+  **An expiring lease must be fenced, and the version guard cannot do it.**
+  Revision 12 gave `source_state_as_of` the job of rejecting a holder that lost
+  its lease to expiry and came back late. That does not work, and the reasoning
+  was circular: holder A stalls past expiry, B acquires the lease and is still
+  retrieving, so B **has not written anything yet** — the stored token is still
+  the old one, and A's late write passes the guard unchanged. If B then crashes,
+  A's stale write is the permanent state; if B succeeds, there is still a window
+  in which canceled access is resurrected. The guard can only fence A against a
+  write that has already happened, which is exactly the case where fencing was
+  not needed.
+
+  **Specification: a fencing token, validated inside the apply transaction.**
+
+  - The lease row carries a **`fence`** value from a database sequence, taken
+    fresh on **every** acquisition (including one that steals an expired lease).
+    Acquisition returns the holder its fence.
+  - The apply transaction **begins** by taking the lease row with
+    `SELECT … FOR UPDATE` and requiring `holder = me`, `fence = my_fence` and
+    `expires_at > now()`. If any fails, the transaction **aborts** and the write
+    is abandoned.
+  - Release is compare-and-release — `WHERE scope = $1 AND fence = $2` — so a
+    late holder cannot release a lease that now belongs to its successor.
+
+  The row lock is what makes this airtight, and it is worth naming because a
+  time-based lease alone is not: once A holds the lease row's lock and has seen
+  it unexpired, B cannot acquire until A commits or rolls back, so A's write and
+  its ownership check are atomic. The lease TTL therefore does **not** have to
+  exceed the apply transaction's duration — a property a bare "check the clock,
+  then write" scheme cannot offer.
+
+  `source_state_as_of` **stays as defence in depth**, not as the fence: it
+  still rejects an out-of-order write arriving from any path that somehow
+  bypasses the lease. Revision 12's claim that it fences expired holders is
+  **withdrawn**.
 
   **Cost, stated plainly:** concurrent updates to the *same* subscription now
   queue instead of racing. Different subscriptions are unaffected, and the
@@ -371,11 +438,15 @@ The token is **ours, not Stripe's**:
 **Acceptance:** the exact interleaving that defeated both token schemes — a
 retrieval that stalls past a cancellation and returns `canceled`, racing a
 later-issued retrieval served older `active` state — leaves **`canceled`**
-stored; a lease expiring under a slow holder causes that holder's write to be
-rejected rather than applied late; **a delayed route response applied after a
-newer webhook does not resurrect stale state**. The claim is now *under the
-lease, an older snapshot cannot win* — earlier revisions asserted that
-unconditionally, which is what round 11 disproved.
+stored; **a holder whose lease expired while a successor is still retrieving
+(so no newer token has been stored) has its apply transaction aborted by the
+fence check, not admitted by the version guard**; the successor then crashing
+leaves the *pre-existing* state, never the expired holder's stale write; a late
+holder's release does not release its successor's lease; **a delayed route
+response applied after a newer webhook does not resurrect stale state**. The
+claim is now *under the lease and its fence, an older snapshot cannot win* —
+earlier revisions asserted that unconditionally, which is what rounds 11 and 12
+disproved in turn.
 
 ### Schema
 
@@ -604,6 +675,45 @@ A handler that cannot reach `db` directly cannot accidentally write outside the
 claim's transaction — the same reason the trust boundary takes identifiers
 rather than objects.
 
+**Signatures are not the boundary — the whole call graph is.** Changing the
+domain writers' parameters does not stop `processDomainSwitch` from reaching the
+global `db` *transitively*, and today it does, in two different ways:
+
+| Path | How it escapes |
+|---|---|
+| `sendEmail(...)` **awaited** at `webhookHandlers.ts:778`, `:841`, `:888` | `email.ts:19` imports the global `db`; the outbox insert commits **independently** of the claim's transaction. A rollback leaves a queued email for a grant that never happened, and Stripe's retry enqueues a second one. |
+| `void notifyUserAccessRevoked(...)` at `:378`, `:513`, `:598`; `void notifyAdminsOfDispute(...)` at `:487`, `:1014`, `:1039`; `void notifyAdminsOfFraudWarning(...)` at `:925` | Fire-and-forget. `userNotify.ts:14` imports the global `db`. These are not merely outside the transaction — they can **outlive** it, reading state that is rolled back moments later and notifying on it. |
+
+This also contradicts an invariant this plan has carried since round 2 —
+*"notification emitted only after a committed tier transition"* (Concurrency,
+invariant 5). Under the current call graph a notification can be emitted after a
+transition that never committed. Two sections, each read as correct on its own.
+
+**Specification: the apply phase performs no un-transacted side effect.** Every
+helper reachable from apply must be one of:
+
+1. **Transactional** — it takes the executor and is **awaited**, so its writes,
+   including outbox enqueues, commit or roll back with the claim. `sendEmail`
+   already accepts a `dbOverride` parameter (`email.ts:117-120`), so this is
+   passing an argument that exists, not new machinery: the enqueue becomes a
+   proper transactional outbox and delivery stays the async worker's job, which
+   by construction only ever sees committed rows. That satisfies invariant 5
+   **structurally** rather than by convention.
+2. **Deferred** — not called during apply at all, but returned as an explicit
+   post-commit action the caller runs after the transaction commits.
+
+**No fire-and-forget `void` call may appear inside apply.** Every one of the
+seven sites above is either awaited with the executor or moved to the
+post-commit list; "it's only a notification" is precisely the reasoning that
+put an un-rollback-able side effect inside a transaction that exists to be
+rollback-able.
+
+**Enforcement is a test, not a convention:** exercise the full apply call graph
+with an executor that fails any statement not on its transaction, and assert no
+nested helper performs a global write. The structural half — apply-phase helpers
+take an executor parameter with **no default** — makes the omission a type
+error rather than a runtime one.
+
 Audit writes stay **outside** the transaction so a `failed` record survives
 rollback, with the post-commit case specified too: a committed mutation whose
 `processed` audit insert fails leaves the trail showing only `received`.
@@ -611,7 +721,10 @@ Recovery is a query for claims lacking a terminal audit row.
 
 **Acceptance:** inject a failure after a source write inside apply and prove
 **both** the mutation and the idempotency claim roll back, so Stripe's retry
-succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`.
+succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`; **inject
+that same failure after a notification-producing write and assert no email is
+queued and no notification is sent** — then let the retry succeed and assert
+exactly one of each, not two.
 
 ### Reconciliation
 
@@ -690,6 +803,26 @@ commits. **Specification: a DB-backed single-flight lease with expiry**, so a
 second replica or an early tick observes the run in progress and returns
 without enumerating. Expiry means a crashed holder does not wedge reconciliation
 permanently.
+
+**The run lease carries the same fence as the per-source leases** (see
+*Concurrency*), and for the same reason: expiry alone lets a paused run A be
+superseded by run B and then **commit its whole staged change set anyway** while
+B is still staging. The per-source version guards cannot fence that — B has not
+committed newer tokens yet — so the single-flight and guard-once guarantees are
+both lost at once, and a stale full-account change set is the largest blast
+radius in this plan.
+
+**Specification:** the guard-once **commit transaction opens** by taking the run
+lease row `FOR UPDATE` and requiring the run's own fence, still held and
+unexpired. If it does not hold, the transaction aborts, **nothing is written**,
+and the run reports as superseded — a distinct outcome from `failed`, because
+nothing went wrong except elapsed time. Staging remains side-effect-free, so an
+abandoned run costs only the enumeration it already did.
+
+**Acceptance:** pause run A past its lease expiry, let run B acquire and stage,
+then resume A — A commits **nothing** and reports superseded; B's commit
+succeeds; the entitlement table matches B's change set exactly, with no
+interleaving of A's.
 
 **What is deliberately *not* specified here:** resumable staging, per-item
 durable run status, and bounded/streaming staging for large accounts. Those are
@@ -962,6 +1095,10 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 70 | 11 | `getEffectiveMembership` cannot serve set-based readers | **Resolved** — a reusable SQL `effectiveTierPredicate` is the primitive and the row helper is defined from it. The mailing list (`stripeStorage.ts:55-63`) and admin counts (`admin.ts:2543-2556`) filter in SQL and would have kept emailing expired members. Third instance of the same enumeration error. |
 | 71 | 11 | Immutable actor label conflicts with the retention matrix | **Resolved by existing policy** — `data-lifecycle-retention-matrix.md` already requires anonymization of direct identifiers in payment records, so the label is overwritten with a stable opaque token on hard delete rather than kept forever. Not escalated: the repo had already decided it. |
 | 72 | 11 | No create-time control for a comped account | **Resolved** — explicit "Grant membership" checkbox plus required reason replaces the removed tier selector; the atomic-create capability would otherwise have been silently lost. |
+| 73 | 12 | An expired per-source lease holder is not fenced | **Resolved** — a fence value from a sequence, validated inside the apply transaction under `SELECT … FOR UPDATE`, with compare-and-release. Revision 12 gave that job to `source_state_as_of`, which cannot do it: a successor still retrieving has stored no newer token, so the late write passes the guard. **Third failure of the ordering design**, and the first one whose fix does not depend on a number meaning something it does not. |
+| 74 | 12 | An expired reconciliation holder can still commit its staged run | **Resolved** — the same fence, taken by the guard-once commit transaction; a superseded run commits nothing and reports as its own outcome. Same defect as 73 in the second lease, which I built without carrying the mechanism across. |
+| 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Resolved** — the boundary is the whole call graph, not the signatures: `sendEmail` (awaited, global-`db` outbox insert) and seven `void` fire-and-forget notification calls all escape or outlive the transaction. Every apply-reachable helper is now transactional-and-awaited or an explicit post-commit action; `sendEmail` already accepts `dbOverride`, so this is an existing affordance. **Also resolves a contradiction with invariant 5** ("notification only after a committed transition"), which the call graph has violated all along. |
+| 76 | 12 | The tier predicate has no answer for `registered` (#70 Still Open) | **Resolved** — the primitive becomes an effective-tier `CASE` **expression**; predicates derive from it. Revision 12 fixed the dashboard's over-count and introduced an under-count in the adjacent query (`admin.ts:2555`), because an expiry *filter* answers "is this user still X" while the readers ask "what is this user's tier". |
 
 | Round | Lens |
 |---|---|
@@ -976,4 +1113,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 9 | Whether revision 9 actually *reduced* mechanism rather than moving it — **it had not: 8 findings, and the view-based contract proved unbuildable** |
 | 10 | The plan **after** the migration machinery was cut — **the cut held: nothing load-bearing went with it, and all 6 findings landed on the surviving core or the new runbook** |
 | 11 | The **surviving core** on its own terms — **9 findings, up from 6; two overturned round-10 fixes, and the ordering scheme failed for the second time** |
-| 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section |
+| 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section — **4 findings, and two of round 11's resolutions were graded Still Open rather than accepted. Both leases lacked a fence; the boundary was drawn at signatures instead of the call graph** |
+| 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not |
