@@ -1313,11 +1313,11 @@ cannot leave that arithmetic untouched:
   10 was already over-subscribed and preserving it preserves the
   over-subscription. **The production numbers are now measured** — 450
   `max_connections`, 7 superuser-reserved, 13 currently in use, direct
-  connection (no pooler) — so the budget is **398** and `max = 20` is safe for
-  any autoscale ceiling up to 19 instances. See *Questions for David* for the
-  arithmetic and the one value still outstanding. The gate is satisfied rather
-  than deferred, and the lower-concurrency fallback is not expected to
-  trigger.
+  connection (no pooler) — so the budget is **398** and the value is
+  **`min(20, floor(398 / max_instances))`**, a formula that is correct at every
+  autoscale ceiling and therefore needs nothing looked up in advance. See
+  *Questions for David* for the derivation. The gate is satisfied rather than
+  deferred, and the lower-concurrency fallback is not expected to trigger.
 
 ## Data Model and Migration Impact
 
@@ -1759,10 +1759,11 @@ before the machine changes (settled decision 5).
    `worker_protocol_version`.
 1a. **Write down the pool arithmetic and apply it.** The production numbers are
    measured (450 / 7 / 13, direct connection — see *Questions for David*), giving
-   a budget of 398 and `max = 20`. Confirm the autoscale max-instance setting is
-   **below 20** before applying that value; at 20 or above, use
-   `floor(398 / max_instances)` instead. Record the arithmetic in
-   `deferred-work.md` and close that item — a value without its derivation
+   a budget of **398**. Read the autoscale max-instance setting from the
+   deployment console and apply
+   **`max = min(20, floor(398 / max_instances))`** — correct at every ceiling, so
+   there is nothing to wait on. Record the arithmetic *and the ceiling you read*
+   in `deferred-work.md` and close that item: a value without its derivation
    written down is what made this a finding in the first place.
 2. Stamp `last_scheduled_at` when the timer fires (including on the re-entrancy
    early-return); **publish `in_flight_count` as soon as the claim commits,
@@ -2226,11 +2227,31 @@ per_instance_max = floor(398 / max_instances)
 | 10 | 39 | yes (200 of 398) |
 | 20 | 19 | **no** — 400 exceeds 398 |
 
-**Phase 1 sets `max = 20`** — double the lanes' worst case, which is the point —
-**and the arithmetic closes for any autoscale ceiling up to 19 instances.** The
-one remaining production value is that ceiling, and it only matters if it is
-**≥ 20**, in which case the derived `floor(398 / N)` is used instead and the
-lanes are still comfortably served down to N = 39.
+**Phase 1 sets `max = min(20, floor(398 / max_instances))`** — expressed as a
+formula rather than a number, so it is correct without anyone knowing
+`max_instances` in advance:
+
+- **20** is the target: double the lanes' worst case of 10, which is the whole
+  point of touching this at all.
+- **`floor(398 / max_instances)`** takes over if the ceiling is ≥ 20, where 20
+  per instance would exceed the budget. It still serves the lanes comfortably —
+  39 at N = 10, 19 at N = 20 — and it degrades smoothly rather than needing a
+  decision.
+
+I could not obtain the autoscale ceiling myself, and I checked rather than
+assumed: `.replit` carries only `deploymentTarget = "autoscale"` with no scaling
+keys (verified), and Replit's own documentation describes "Max machines" as *"the
+upper limit of servers Replit can add when your app is busy"* while publishing
+**no default and no range** — checked against both the Autoscale deployments and
+machine-configuration pages on 2026-07-29. It lives in the deployment UI and
+nowhere else.
+
+**That is now a non-issue rather than an open question.** The implementer reads
+the setting during step 1a — they are already in the deployment console for the
+3b protocol later — and the formula gives the right answer for whatever it says.
+Gating a phase on a number that only selects between two safe branches would be
+ceremony, and it is exactly the kind of "ask a human, then wait" step that made
+this section a finding in earlier rounds.
 
 **The gate is therefore satisfied, not deferred.** It stays a Phase 1 step —
 step 1a still records the numbers and writes down the arithmetic, because a
