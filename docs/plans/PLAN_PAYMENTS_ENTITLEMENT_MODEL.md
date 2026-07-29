@@ -188,17 +188,53 @@ a background job is healthy is not a guarantee.
 **Enforcement moves to the read path; the sweep becomes convergence.**
 
 - `users` gains **`membership_valid_until`** (nullable timestamptz), written by
-  the same single derivation that writes `membership_tier` — it is the
-  `graceExpiresAt` that `deriveEffectiveMembership` already returns, persisted
-  rather than discarded.
+  the same single derivation that writes `membership_tier`.
 - Authorization applies one comparison: if `membership_valid_until` is
   non-null and `now() >= membership_valid_until`, the request is served at the
   **non-qualifying** tier regardless of the stored `membership_tier`.
 - The sweep still runs **hourly** and still recomputes expired rows, but its
   job is now to make the stored tier *agree* with what authorization is already
   enforcing. If it dies, access is still revoked on the deadline; what degrades
-  is the accuracy of the stored value and anything reading it directly, which
-  the six-hour alert surfaces.
+  is the accuracy of the stored value, which the six-hour alert surfaces.
+
+**It is the union's horizon, not one source's deadline.** `graceExpiresAt` is
+singular and the model is a **set union**, so persisting "the" deadline is
+undefined the moment a user has two sources. A lifetime or admin entitlement
+alongside a past-due subscription is the concrete case: writing the
+subscription's deadline would revoke a user who holds a source that never
+expires.
+
+`membership_valid_until` is therefore defined over the **whole qualifying set**:
+
+| Qualifying sources | Value |
+|---|---|
+| Any that is indefinitely valid (`active`/`trialing` subscription, unrefunded lifetime, active admin grant) | **null** — no expiry |
+| Only grace-bound sources | **max** of their deadlines — the last moment any of them still qualifies |
+| None | null; the tier is already non-qualifying |
+
+`deriveEffectiveMembership` returns this horizon rather than a per-source
+deadline, so the same function answers both questions and they cannot disagree.
+Acceptance covers coexistence directly: lifetime + past-due subscription stays
+Legendary past the subscription deadline; two past-due subscriptions expire at
+the later of the two, not the earlier.
+
+**Every reader of the tier must apply it, not just the middleware.** I specified
+this against `authMiddleware.ts:98-134` and `tierMiddleware.ts:69-84` and
+reasoned as though those were the only readers. They are not, and the others
+make **authorization and spending** decisions, not display:
+
+| Site | Decision made from the stored tier |
+|---|---|
+| `createMemeRecord.ts:149-179` | private-visibility, high rate limit, PuLID gate |
+| `budgetGate.ts:77-98` | which monthly spend limit applies |
+
+**Specification:** one shared `getEffectiveMembership(userId \| userRow)` helper
+returns the tier *after* applying `membership_valid_until`, and **every**
+consumer goes through it — the two middlewares, both sites above, and any
+future reader. The raw column is never read for an authorization or spending
+decision. Implementation begins by enumerating every reader of
+`users.membership_tier` the way the mutation-site inventory was built (search
+the column, not the middleware), and the inventory goes in the PR body.
 
 This is **not** a second derivation, and that distinction is the whole reason
 it is acceptable. The derivation still computes both the tier and the instant
@@ -276,7 +312,7 @@ intention.
 | Column | Note |
 |---|---|
 | `id` | identity PK |
-| `user_id` | FK → `users.id`, indexed |
+| `user_id` | FK → `users.id` **`ON DELETE CASCADE`**, indexed — see the purge case under *Expand* |
 | `source_type` | `stripe_subscription` / `stripe_lifetime_payment` / `admin_grant` |
 | `provider_ref` | subscription id, payment-intent id, or null for admin grants |
 | `is_membership_product` | allowlist result, snapshotted at ingestion |
@@ -287,6 +323,7 @@ intention.
 | `granted_by_admin_id`, `grant_reason` | W1b grant provenance, admin-grant only |
 | `revoked_by_admin_id`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
+| `provenance_completeness` | `complete` / `legacy_bridged`; gates the provenance `CHECK`s — see *Expand* |
 | `entitlement_origin_at` | **when the entitlement itself came into existence**, not when this row was written — see below |
 | `created_at`, `updated_at` | local row timestamps |
 
@@ -323,8 +360,32 @@ lacks and the reason this column exists.
 
 **The boundary itself is durable, not inferred.** The expand migration writes a
 one-row `membership_model_cutover` marker (`cutover_at timestamptz`,
-`cutover_token bigint` from the ordering sequence). It is written once, in the
-same transaction that creates the table, and never updated.
+`cutover_token bigint` from the ordering sequence), in the same transaction that
+creates the table.
+
+**Singleton is enforced in DDL, not asserted in prose.** "One-row" as a comment
+is not a constraint, and both failure modes are live: with **no** row a scalar
+subquery yields NULL, every `entitlement_origin_at > NULL` is false, and the
+revert precondition **passes with post-cutover rows present** — it fails *open*,
+the worst direction. With **two** rows the scalar subquery raises. So the table
+carries `id integer primary key GENERATED ALWAYS AS IDENTITY CHECK (id = 1)`,
+and every consumer **aborts unless exactly one row exists**, checked *before*
+any entitlement is evaluated rather than as part of the same expression.
+
+**`entitlement_origin_at` is compared at whole-second granularity.** Stripe's
+`created` is a whole-second Unix timestamp; `cutover_at` from `now()` carries
+microseconds. An entitlement created 300ms *after* cutover, in the same second,
+records as the start of that second and compares as **earlier** — classifying a
+genuinely post-cutover entitlement as pre-cutover, so the revert strands it.
+The boundary is therefore stored truncated (`date_trunc('second', …)`) and the
+predicate is `entitlement_origin_at >= cutover_at_second`, so an ambiguous
+same-second entitlement is treated as **post**-cutover and aborts the revert.
+The bias is deliberate: a needless abort costs an operator a manual step, and
+the opposite error silently destroys a paid entitlement.
+
+**Acceptance:** a marker table with zero rows and with two rows each abort
+before any entitlement is read; an entitlement created in the same second as
+cutover aborts the revert.
 
 **Because the membership tables hold no real data (David, 2026-07-28)**, no
 dual-write boundary, row-by-row mapping or resumable backfill is needed. Rows
@@ -368,62 +429,122 @@ it, and the contract deploy would later delete the only row recording it.
 
 An application-level dual-write cannot fix this, because the writer whose
 behavior needs changing is *the binary being replaced*. The bridge has to live
-where every binary's writes pass through it:
+where every binary's writes pass through it — **a trigger on each old table**,
+installed by the expand migration, mirroring `INSERT`/`UPDATE`/`DELETE` into
+`membership_entitlements`.
 
-- **A trigger on each old table**, installed by the expand migration, mirrors
-  `INSERT` / `UPDATE` / `DELETE` into `membership_entitlements`. The revoke path
-  hard-`DELETE`s its row (`admin.ts:590-608`, verified), so the `DELETE` trigger
-  maps to `lifecycle_status = 'revoked'` on the new row — it does **not** delete
-  it, or the revocation provenance the target schema requires would be destroyed
-  by the very bridge meant to preserve it.
-- Mirrored rows take `source_state_as_of` from the ordering sequence at trigger
-  time and apply the same strictly-newer guard as every other write, so a
-  mirrored write can never clobber a newer new-path write outright.
-- The triggers are dropped by the contract migration, together with the tables.
+Three things about that bridge are not obvious, and each one was wrong in the
+first version.
 
-**One honest limitation, stated rather than papered over.** A trigger fires at
-*commit* time, while the ordering token is supposed to represent *observation*
-time. An old instance that retrieved stale Stripe state and committed late can
-therefore mirror a row with a token newer than its observation deserves. This
-window is exactly one rollout long, and the authoritative refresh converges it —
-which is why the contract gate below requires a clean reconciliation run *after*
-the last legacy write, rather than treating the bridge as exact.
+**1. A trigger that raises breaks the old instance's request.** The target
+`CHECK` constraints require `grant_reason` on an admin grant and full
+revocation provenance on a revoked one. The legacy rows do not carry either:
+the grant inserts an actor and no reason (`admin.ts:561-578`), and the revoke
+deletes the row before writing a history event that has neither reason nor
+entitlement identity (`admin.ts:599-607`). A trigger attempting a
+constraint-valid insert would therefore fail *inside* the old instance's
+transaction and turn legacy grant/revoke traffic into 500s — the compatibility
+mechanism becoming an outage.
 
-**Acceptance:** an old admin grant and an old Stripe webhook, both delivered
-after the new table is populated, appear in `membership_entitlements` with
-correct provenance and survive a subsequent derivation; an old revoke marks the
-row `revoked` rather than deleting it.
+Inventing a reason to satisfy the constraint is worse: it fabricates provenance,
+which is exactly what W1b exists to prevent. So the row records **the truth,
+which is that the provenance is unknown**:
 
-##### The contract deploy needs an executable gate
+- `membership_entitlements` gains **`provenance_completeness`**
+  (`complete` / `legacy_bridged`), not null, defaulting to `complete`.
+- The provenance `CHECK` constraints apply **only** to
+  `provenance_completeness = 'complete'` rows. A `legacy_bridged` row is
+  permitted to have null `grant_reason` / `revoked_reason`, because that is a
+  faithful record of what the old schema captured.
+- `legacy_bridged` rows are **reported** by reconciliation as a distinct
+  category, so they are visible and finite rather than silently second-class.
+  After the rollout completes there should be none, and any that remain are a
+  signal, not a resting state.
 
-"Once no instance references them" is a description of a desired state, not a
-check anything can run — and `runMigrations()` executes before the process
-listens (`index.ts:270`, verified), so the contract deploy drops the tables the
-moment it boots, whatever else is still serving. If the model deploy had been
-reverted in the meantime, the drop lands while **old** binaries are live and
-recreates the exact failure expand/contract exists to prevent.
+**2. A legacy `DELETE` is not always a revoke.** The admin user-purge
+(`admin.ts:305-325`, verified) deletes `subscriptions`, `lifetime_entitlements`
+**and `membership_history`**, then the user. A `DELETE`-to-`revoked` mapping
+would leave `membership_entitlements` rows pointing at a user about to be
+removed, and the purge's final `DELETE FROM users` would fail the foreign key.
 
-**Specification.** The contract migration aborts before any DDL unless all
-three hold:
+The bridge cannot distinguish the two intents from the `DELETE` alone, so it
+should not try. **`membership_entitlements.user_id` is
+`REFERENCES users(id) ON DELETE CASCADE`**: a revoke leaves the user in place
+and the row survives as `revoked`; a purge removes the user and the entitlement
+rows go with them, which is the correct outcome for a purge anyway. The trigger
+stays simple and the database resolves the ambiguity.
 
-1. The `membership_model_cutover` marker exists (proving the expand migration
-   ran and was not reverted away).
-2. **No legacy write for a configured quiet period.** The bridge triggers
-   maintain `last_legacy_write_at` on that marker row. A legacy write inside the
-   window is direct evidence that a pre-model binary is still serving, and is
-   the only signal available that does not depend on interrogating the
-   deployment platform.
-3. A reconciliation run has completed successfully *after* `last_legacy_write_at`
-   — closing the trigger-ordering window above.
+> **This also invalidates part of the rollback plan, and I would rather say so
+> here than let it be found again.** The purge deletes `membership_history`, so
+> the *"admin grants are recoverable from the append-only history trail"* claim
+> is false for any purged user — and the plan's own **Must not change: history
+> is append-only** invariant is **already violated by shipped code**. Bringing
+> the purge into line is now in scope: it must write a tombstone rather than
+> delete the trail, or the trail must be exempted from the purge. Which one is
+> a data-retention question, not an engineering one — flagged for David.
 
-**And the boundary is one-way, which must be written down where an operator
-will see it:** once the contract migration has run, reverting to *any*
-pre-model binary is unsafe, because the tables it queries no longer exist. The
-contract deploy is the point of no return, not the model deploy.
+**3. Mirroring the source is not enough; the derived fields must move too.**
+An old binary can recover a subscription, update the legacy row and set
+`membership_tier` back to Legendary — but it cannot clear
+`membership_valid_until`, a column its schema does not know about. Under the
+read-path enforcement above, a **paying** user would keep being denied until
+reconciliation ran. So the bridge does not merely copy a row: for every mirrored
+state transition it invokes the **same serialized derivation** the new path
+uses, updating `membership_tier` and `membership_valid_until` together, inside
+the old instance's transaction.
 
-**Acceptance:** simulate a legacy write inside the quiet period and prove the
-drop aborts with the tables intact; simulate a missing marker and prove the
-same; then prove the drop succeeds only with all three conditions met.
+**Acceptance:** an old admin grant, an old revoke, an old purge and an old
+Stripe webhook, each delivered after the new table is populated — the grant and
+webhook appear with `provenance_completeness` set honestly and survive the next
+derivation, the revoke marks the row `revoked` rather than deleting it, the
+purge succeeds and takes the entitlement rows with it, and a recovery mirrored
+from an old binary clears `membership_valid_until` so the user is served
+immediately rather than after the next sweep.
+
+##### The contract deploy stops being a drop
+
+Revision 8 gated a `DROP TABLE` on three conditions. Two of them do not hold:
+
+- **A quiet period cannot prove a binary is gone.** It proves no legacy *write*
+  happened, which an **idle** old instance satisfies trivially — it can pass all
+  three conditions and then serve its next request after the tables are gone.
+- **An ordinary row trigger fires during statement execution, not at commit.**
+  A long legacy transaction can stamp `last_legacy_write_at` early, let
+  reconciliation finish without ever seeing the uncommitted row, and commit
+  afterwards. Both conditions pass while nothing observed the committed write.
+
+I could patch each — a `DEFERRABLE INITIALLY DEFERRED` constraint trigger for
+the second — but the first has no fix available to me. I have no rollout or
+revision signal from the platform, and Codex is right that a timing heuristic is
+not evidence. So the answer is its other option: **stop needing the proof.**
+
+**Specification: contract replaces each legacy table with an updatable view over
+`membership_entitlements`,** rather than dropping it.
+
+- Each view (`subscriptions`, `lifetime_entitlements`) projects the columns the
+  old code expects, filtered to the matching `source_type`.
+- `INSTEAD OF` triggers route writes through the same derivation the bridge
+  triggers used, so an old binary's read *and* write both still work.
+- The swap is one transaction: drop the table, create the view, create its
+  triggers — atomic from any concurrent session's perspective.
+- A late request from a straggler old instance is then **correct, not fatal**,
+  which removes the entire "prove they are gone" obligation and the two
+  unsound conditions with it.
+
+The contract migration's only remaining precondition is that the cutover marker
+exists — a fact, not an inference.
+
+**The one-way boundary shrinks accordingly, and that is worth stating plainly**
+because it was the scariest line in revision 8: after contract, reverting to a
+pre-model binary is **degraded but functional** (it reads and writes through the
+views) rather than broken. The views themselves are removed later, once the
+deploy history makes an old binary impossible — an operational cleanup with no
+correctness weight.
+
+**Acceptance:** with the views in place, an old binary's `SELECT`, `INSERT`,
+`UPDATE` and `DELETE` against both legacy names all behave as before and land in
+`membership_entitlements`; the swap transaction is exercised under concurrent
+legacy traffic with no failed statements.
 
 #### Rollback is roll-forward-only, with an executable precondition
 
@@ -476,6 +597,40 @@ they must record.)
 granted→revoked→re-granted user, and assert every produced row satisfies all
 target `CHECK` constraints and the correct final `lifecycle_status`.
 
+**Adding the columns only makes *future* events replayable.** Existing history
+rows — and rows written by overlapping old binaries during the rollout — still
+carry the old event names, null reasons and no correlation, so "recovery
+reconstructs every admin grant" remains false for exactly the rows most likely
+to need it. The migration therefore includes a **deterministic translation
+pass** over existing history, with an explicit disposition for what it cannot
+translate:
+
+| Legacy row | Translation |
+|---|---|
+| `lifetime_purchase` with non-null `performed_by_admin_id` | admin grant; correlation id = its `stripe_payment_intent_id` (the synthesized `admin_grant_*` value, which *is* stable and present) |
+| `lifetime_purchase` with null `performed_by_admin_id` | a real purchase — not an admin grant, left alone |
+| `subscription_cancelled` with non-null `performed_by_admin_id` **and** `plan = 'lifetime'` | admin revoke; correlated to the most recent unrevoked admin grant for that user |
+| Anything else matching neither shape | **untranslatable** |
+
+Untranslatable rows are **not guessed**. They are written to a
+`membership_history_untranslated` report, and any admin-grant recovery that
+depends on one **fails closed** — it refuses to synthesise an entitlement and
+surfaces the row for a human decision. Translated rows are marked
+`provenance_completeness = 'legacy_bridged'` for the same reason bridged rows
+are: their reason genuinely was never recorded, and saying so is honest where
+inventing one is not.
+
+Note the revoke correlation is a **heuristic** — "most recent unrevoked grant
+for that user" — because the legacy revoke row records no key at all. It is
+correct for the single-grant case, which is every case in the current data, and
+it is *reported* rather than assumed for any user with more than one grant
+episode.
+
+**Acceptance:** translate a fixture containing each row shape plus a deliberate
+untranslatable one; assert the translatable rows produce constraint-valid
+entitlements, the real purchase is untouched, and the untranslatable row appears
+in the report and causes recovery to refuse rather than invent.
+
 ###### Recovery is staged so the downgrade guard cannot block it
 
 The bounded-downgrade guard aborts a reconciliation run whose pre-apply change
@@ -492,16 +647,40 @@ recomputation are separate phases**:
 1. **Reconstruct every source with no tier recomputation at all.** Replay
    `admin_grant` rows from the extended history trail, then enumerate Stripe for
    subscriptions and one-time payments. Nothing writes `users.membership_tier`
-   during this phase, so no intermediate state can reach a user.
+   during this phase.
 2. **One guarded recomputation over the complete source set.** The guard is
    fully armed and now evaluates the *true* final delta rather than an artifact
    of enumeration order. A genuine mass-downgrade still aborts; a recovery that
    restores everyone correctly shows near-zero downgrades and proceeds.
 
+**"No tier writes" is not the same as "no visible intermediate state."**
+Authorization now reads `membership_valid_until` as well, and that column is
+*not* cleared by a revert. So a user whose active subscription phase 1 has
+already rebuilt still carries an expired deadline from before the revert and
+stays demoted for the whole reconstruction — the read-path enforcement, working
+exactly as designed, denying a user whose source is provably valid.
+
+Recovery therefore needs an explicit **publication boundary**, not just an
+ordering:
+
+- **Phase 0** clears `membership_valid_until` for every user, in one statement.
+  Null means "no expiry", so nobody is denied on the strength of a deadline
+  belonging to a source set that no longer exists.
+- Phases 1 and 2 then run as above, and phase 2's guarded recomputation writes
+  the true horizon for everyone.
+
+This is deliberately **fail-open for the duration of one recovery run**, and it
+is the right direction here: the alternative denies paying users during an
+incident on the authority of stale data, and recovery is a bounded, operator-
+initiated, logged procedure — not an ambient condition. The window is recorded
+in the run report so the exposure is a stated number rather than a surprise.
+
 **Acceptance:** run recovery with more admin-only Legendary users than the
 configured threshold and assert it completes without aborting **and** without
-any user transiently losing access; then assert the guard still aborts a run
-where the provider genuinely reports mass cancellation.
+any user transiently losing access — including a user holding a pre-revert
+expired deadline whose subscription phase 1 rebuilds, who must be served
+throughout. Then assert the guard still aborts a run where the provider
+genuinely reports mass cancellation.
 
 ### Webhook transaction boundary
 
@@ -647,6 +826,16 @@ than unconditionally downgrading, so a user with another valid source keeps
 access; reconciliation never attempts to validate an admin grant against Stripe;
 and no admin surface can produce a tier that contradicts the entitlements.
 
+## Open product question (round 8)
+
+**The admin user-purge deletes `membership_history`** (`admin.ts:305-325`,
+verified), so the plan's *Must not change: history is append-only* invariant is
+**already false in shipped code**, and admin grants for a purged user are
+unrecoverable. Bringing it into line is engineering; *which* way is a
+data-retention decision for David: write a tombstone and keep the trail, or
+formally exempt the purge from the append-only rule because deletion is the
+point of a purge. Not blocking — the rest of the plan is unaffected either way.
+
 ## Open product questions
 
 None. The `past_due` window (14 days), the normalisation depth, and the admin
@@ -738,12 +927,23 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 29 | 6 | Schema compatibility during the deploy cutover | **Superseded by 32/33** — expand/contract was the right shape but only covered *reads*. Reopened in round 7 for writes and for the contract gate. |
 | 30 | 6 | Rollback strands post-cutover entitlements | **Superseded by 34/35/36** — roll-forward-only was right; the precondition had no way to identify a post-cutover row and the recovery it pointed at was not executable. |
 | 31 | 6 | Grace-expiry latency bound undefined | **Superseded by 37** — a cadence bounds the healthy case only. Reopened in round 7 and moved off the scheduler entirely. |
-| 32 | 7 | Old-instance writes lost during expansion | **Resolved** — database triggers bridge legacy writes into the new table; `DELETE` maps to `revoked` rather than deleting. An application dual-write cannot work when the writer being fixed is the binary being replaced. |
-| 33 | 7 | Contract migration not gated against reverted binaries | **Resolved** — three-part executable gate (marker present, legacy-write quiet period, clean reconciliation since); the one-way boundary is documented for operators. "Once no instance references them" was prose, not a check. |
-| 34 | 7 | Revert precondition has no durable cutover marker | **Resolved** — `membership_model_cutover` marker plus `entitlement_origin_at` taken from the originating event, stable across rebuilds. `created_at` would have aborted every revert forever. |
-| 35 | 7 | `membership_history` cannot replay valid admin grants | **Resolved** — history extended with correlation id, grant and revocation reasons, and distinct admin event values. My revision-7 claim was made without reading the schema; grant and revoke could not even be paired. |
-| 36 | 7 | Downgrade guard blocks the recovery it protects | **Resolved** — recovery stages source reconstruction before a single guarded recomputation, so the guard sees the true final delta and stays armed. |
-| 37 | 7 | Grace bound unenforced when sweeps fail | **Resolved** — `membership_valid_until` persisted and honoured at authorization; the sweep demoted to convergence. Enforcement no longer depends on a job's health. |
+| 32 | 7 | Old-instance writes lost during expansion | **Superseded by 38/39/40** — the trigger bridge was the right mechanism and wrong in three ways: it would have raised inside legacy transactions, mis-handled purge, and left the derived fields stale. |
+| 33 | 7 | Contract migration not gated against reverted binaries | **Superseded by 41/42** — two of the three gate conditions were unsound. The gate is replaced by removing the need for one. |
+| 34 | 7 | Revert precondition has no durable cutover marker | **Superseded by 43/44** — the marker was right; its cardinality was unenforced (failing *open*) and its comparison had a precision gap. |
+| 35 | 7 | `membership_history` cannot replay valid admin grants | **Superseded by 45** — extending the schema fixed future events only, which is not the population that needs recovering. |
+| 36 | 7 | Downgrade guard blocks the recovery it protects | **Superseded by 46** — staging fixed the guard's view and missed that authorization reads a *second* derived field the revert does not clear. |
+| 37 | 7 | Grace bound unenforced when sweeps fail | **Superseded by 47/48** — read-path enforcement was right; the value was undefined over a source *union*, and I secured only the middleware readers. |
+| 38 | 8 | Bridge trigger cannot write constraint-valid legacy admin rows | **Resolved** — `provenance_completeness` gates the provenance `CHECK`s, so a bridged row records "unknown" honestly instead of raising inside the old instance's transaction or inventing a reason. |
+| 39 | 8 | Legacy `DELETE` conflates revoke with user purge | **Resolved** — `user_id` FK becomes `ON DELETE CASCADE`; the database resolves the ambiguity the trigger cannot see. **Also surfaced that the purge deletes `membership_history`, so the append-only invariant is already false in shipped code** — now an open question for David. |
+| 40 | 8 | Mirrored writes leave `membership_valid_until` stale | **Resolved** — the bridge invokes the full serialized derivation, not a row copy; an old binary's recovery clears the deadline it cannot see. |
+| 41 | 8 | Row trigger is not a commit-time fence | **Superseded by 42** — real, and moot once the gate it supported is gone. |
+| 42 | 8 | A quiet period cannot prove old binaries are gone | **Resolved** — contract replaces the legacy tables with **updatable views** instead of dropping them. A straggler request becomes correct rather than fatal, which removes the obligation to prove absence at all. |
+| 43 | 8 | Marker cardinality unenforced — revert fails **open** | **Resolved** — singleton enforced in DDL; consumers abort unless exactly one row exists, checked before any entitlement is evaluated. |
+| 44 | 8 | Whole-second Stripe timestamps vs sub-second boundary | **Resolved** — boundary truncated to the second and the comparison biased so a same-second entitlement counts as post-cutover and aborts the revert. |
+| 45 | 8 | Legacy history rows remain unreplayable | **Resolved** — deterministic translation table plus a fail-closed disposition; untranslatable rows are reported and refuse recovery rather than being guessed. |
+| 46 | 8 | Stale expiry demotes users during reconstruction | **Resolved** — phase 0 clears `membership_valid_until` before reconstruction; the fail-open window is bounded, operator-initiated and reported. |
+| 47 | 8 | `membership_valid_until` undefined over a source union | **Resolved** — null when any indefinitely-valid source qualifies, otherwise the max of the grace-bound deadlines; coexistence tests added. |
+| 48 | 8 | Permission and spending readers bypass expiry | **Resolved** — one shared `getEffectiveMembership` helper; `createMemeRecord.ts:149-179` and `budgetGate.ts:77-98` confirmed as real authorization readers, and the full reader inventory is built by searching the column, not the middleware. |
 
 | Round | Lens |
 |---|---|
@@ -754,4 +954,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 5 | Phase-boundary safety as a state space — **found the boundary wrong for the third time; the split has been removed** |
 | 6 | The collapsed single-PR shape — **it did: deploy-time schema compatibility, which returns as expand/contract staging** |
 | 7 | The recovery procedures themselves: are the documented rollback and reconciliation paths actually executable, or do they assume state they cannot guarantee? — **they assumed. All three round-6 resolutions superseded; six findings, the highest of any round** |
-| 8 | The mechanisms round 7 introduced — triggers, markers, a read-path expiry check and a staged recovery — reviewed as new attack surface rather than as fixes |
+| 8 | The mechanisms round 7 introduced — triggers, markers, a read-path expiry check and a staged recovery — reviewed as new attack surface rather than as fixes — **all six round-7 resolutions superseded; 11 findings, the largest round. The bridge would have raised inside legacy transactions and the contract gate rested on two unsound conditions** |
+| 9 | Whether revision 9 actually *reduced* mechanism rather than moving it: the view-based contract, `provenance_completeness`, and the fail-open recovery window are each a weakening traded for a guarantee — are the trades sound, and does anything now depend on a weakened thing? |
