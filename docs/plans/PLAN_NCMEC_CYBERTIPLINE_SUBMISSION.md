@@ -462,43 +462,98 @@ Two layers instead:
   describes had **no mechanism at all** — it was a property asserted in one section and
   contradicted by the key format in another.
 
-  The mechanism:
+  **The mechanism — and it no longer keeps a counter.** An earlier revision maintained
+  `failure_count` and `dominant_code` on an incident row. Codex found two independent
+  defects in that — a first-write `dominant_code` later failures never correct, and no
+  per-code data to recompute it from — and both are the same mistake: **maintaining a
+  derived aggregate beside the source of truth.** The report rows already record every
+  failure, its code, and its time. So the incident table keeps only what cannot be derived
+  — *whether this window's alert has been sent* — and every number in the email is computed
+  from `ncmec_reports` at send time.
 
-  1. **A durable incident identity, derived not allocated.** A new table
-     `ncmec_alert_incidents` keyed by
-     `incident_key = '<environment>:' || to_char(date_trunc('hour', now()) + …)` — a
-     **15-minute window bucket** plus the submission environment. Deriving the key from the
-     clock means two hundred workers failing simultaneously compute the *same* key without
-     coordinating.
-  2. **A concurrency-safe upsert, in the same transaction as the status write.**
+  1. **A derived window identity.** `incident_key = '<environment>:<window start>'` on a
+     **one-hour tumbling bucket**. Derived from the clock, so N workers failing at once
+     compute the same key without coordinating.
+  2. **One email job per window**, enqueued in the failing worker's own transaction with
+     `dedupeKey = 'ncmec:notify:incident:' || $key` and **`nextAttemptAt` = window end plus
+     a 2-minute commit grace**. The partial unique index collapses concurrent enqueues to
+     one job. The grace exists because a transaction that *began* before the boundary can
+     *commit* after it; without it the handler reads before that commit lands and
+     undercounts. (`enqueueJob` accepts `nextAttemptAt` — `asyncJobs.ts:261` — and claiming
+     requires `next_attempt_at <= now`, `:548`.)
+  3. **The handler computes everything at send time**, from the rows themselves:
      ```sql
-     INSERT INTO ncmec_alert_incidents (incident_key, first_failure_at, last_failure_at,
-                                        failure_count, dominant_code)
-     VALUES ($key, now(), now(), 1, $code)
-     ON CONFLICT (incident_key) DO UPDATE
-       SET failure_count = ncmec_alert_incidents.failure_count + 1,
-           last_failure_at = now()
+     SELECT count(*), min(failed_at), max(failed_at),
+            mode() WITHIN GROUP (ORDER BY last_error_code)
+       FROM ncmec_reports
+      WHERE submission_status = 'failed'
+        AND submission_environment = $env
+        AND failed_at >= $window_start AND failed_at < $window_end
      ```
-     One row per incident, correct under any concurrency, no read-modify-write.
-  3. **One email job per incident**, enqueued in that same transaction with
-     `dedupeKey = 'ncmec:notify:incident:' || $key` and
-     **`nextAttemptAt` = the end of the window**. The partial unique index on non-terminal
-     `(queue, dedupe_key)` collapses every concurrent enqueue to a single job; the delay is
-     what lets failures accumulate before it sends. (`enqueueJob` already accepts
-     `nextAttemptAt` — `asyncJobs.ts:261` — and claiming requires `next_attempt_at <= now`,
-     `:548`. No queue change.)
-  4. **The payload is computed at send time, not at enqueue time** — the handler reads
-     `ncmec_alert_incidents` by key and renders the counts then. Embedding a count at
-     enqueue would freeze it at 1, which is the failure mode this whole mechanism exists to
-     avoid.
+     `mode()` is Postgres's own aggregate and gives the genuine dominant code across the
+     whole window rather than the first one seen. No counter to drift, no histogram to
+     maintain, no per-code column to get wrong.
+  4. **`ncmec_alert_incidents` therefore holds two meaningful columns** — `incident_key`
+     (primary key) and `notified_at`. It is a send-ledger, not an aggregate.
 
-  Per-row atomicity is preserved exactly as before: the status update, the incident upsert,
-  and the job insert are one transaction, so a row can never commit `failed` without its
-  alert being accounted for. What changed is that the *unit* of alerting is the incident
-  while the *unit of record* stays the row — which is what §5.8 always claimed.
+  **Windows are tumbling, and the plan now says so instead of claiming a rolling window.**
+  §5.8 previously described "a rolling window" and illustrated it with a single alert
+  spanning 03:12 to 09:48. A derived key cannot produce that: two failures either side of a
+  boundary fall in different windows and send two alerts. Rather than build the
+  close-and-quiet-period protocol a true rolling window needs, the guarantee is stated as
+  what it actually is — **at most one alert per environment per hour**. A six-hour outage
+  sends six emails rather than two hundred, which is the harm this exists to prevent, and
+  §5.8's example is corrected to match.
 
-  A window that has already sent still alerts for later failures, because the next failure
-  falls in a new bucket and produces a new key, a new incident row, and a new job.
+  **Delivery is at-least-once, deliberately.** `notified_at` cannot be committed atomically
+  with an HTTP send to Resend, so a crash between provider acceptance and the local commit
+  means the job retries and the alert arrives twice. Stamping `notified_at` *before* the
+  call turns the same crash into **permanent silence** — and this alert is invariant 8's
+  only delivery mechanism. So the plan stamps after, accepts the duplicate, and says so
+  rather than claiming exactly-once. A repeated alert is an annoyance; a missed one is a
+  reportable hit nobody hears about.
+
+  Per-row atomicity is unchanged: the status update and the enqueue are one transaction, so
+  a row cannot commit `failed` without its alert accounted for. The *unit of alerting* is
+  the window; the *unit of record* stays the row.
+  A window that has already sent still alerts for later failures: the next failure falls in
+  a new bucket, producing a new key and a new job.
+
+  **Every deduped enqueue inside a caller transaction must be wrapped in a SAVEPOINT.**
+  This is a plan-wide rule, not an aggregation detail, and it invalidates an assumption
+  running through §5.2.3, §5.2.4 and §5.3. `enqueueJob` implements dedupe by **catching a
+  `23505`** from the insert (`asyncJobs.ts:272-290`) — and in PostgreSQL a unique violation
+  **aborts the surrounding transaction**. When the caller passes `dbOverride`, the conflict
+  is raised inside *their* transaction, so every subsequent statement fails with "current
+  transaction is aborted" and the whole unit of work rolls back. `enqueueJob` then reads
+  the existing row through `defaultDb` and returns successfully, so the caller sees a
+  normal return value from a transaction that can no longer commit.
+
+  The consequence is precisely the aggregation case: the first worker creates the incident
+  job; the next hundred and ninety-nine hit the dedupe path, abort, and **lose their status
+  updates**. The design that was supposed to make two hundred failures produce one alert
+  would instead have committed one failed row and rolled back the rest.
+
+  So every enqueue that (a) passes a transaction handle and (b) carries a dedupe key is
+  wrapped in a savepoint, with the conflict caught at the savepoint boundary:
+
+  ```
+  SAVEPOINT enqueue_attempt;
+    -- insert; on 23505 →
+  ROLLBACK TO SAVEPOINT enqueue_attempt;   -- outer transaction survives
+  ```
+
+  That covers `ncmec:submit:<reportId>` (§5.2.4's insert-plus-enqueue and §5.3's reconciler
+  repairs), `ncmec:notify:awaiting:<reportId>` (§5.5), and this incident enqueue. Each of
+  those was specified as "share the caller's transaction" on the assumption that a dedupe
+  hit is a benign no-op — and on the *first* concurrent duplicate, none of them would have
+  committed.
+
+  Changing `enqueueJob` to `ON CONFLICT DO NOTHING` would be the cleaner fix and is the
+  right long-term shape, but it alters a shared API's return contract for every queue in
+  the system; the savepoint is caller-local and achieves the same result. §6 asserts the
+  real-concurrency case: two hundred concurrent terminal transactions all commit, exactly
+  one non-terminal incident job exists, and the alert reports two hundred.
 
   **Kind-scoping still applies.** `ncmec:notify:incident:<key>` and
   `ncmec:notify:awaiting:<reportId>` (§5.5) are deliberately distinct namespaces: the
@@ -623,7 +678,32 @@ and it is precisely the window the ordered transition creates.
 - **Retry** evaluates it before enqueuing and refuses with the reason, so the
   operator is told *why* rather than watching a job appear and silently do nothing.
 - **The worker re-evaluates it inside `run()`, in the same transaction as lease
-  acquisition**, and returns a terminal refusal if it no longer holds.
+  acquisition**, and refuses if it no longer holds — **but the *kind* of refusal depends on
+  why.**
+
+**`isSubmittable` returns a reason with a class: `reversible` or `terminal`.** Returning a
+flat terminal refusal was wrong, and wrong in the direction that destroys reports.
+
+- **Reversible** — the blocker is a config value an operator can change back:
+  submission disabled, environment not `production`. The handler returns **success** and
+  makes no ISPWS call, leaving the row **non-final** with no lasting mark. §5.3's matrix
+  already covers exactly this shape (`pending` row, `done` job → re-enqueue when eligible),
+  so the reconciler resumes it the moment the config allows.
+- **Terminal** — the blocker is a property of the row itself: `filed_manually`, unaudited
+  backlog, identity unresolved. These are resolved by an operator decision on that row, not
+  by a switch, and they already have their own waiting-state branches and counts.
+
+The race that forces the distinction is ordinary, not exotic: a job is enqueued while
+enabled, and the operator disables submission — or starts the §7 production transition,
+whose **first step is to disable** — before the worker claims it. Under a flat terminal
+refusal the worker fails the job, the reconciler observes a `failed` job against a non-final
+row (§5.3, line 2 of the matrix), and finalizes a **perfectly valid, still-reportable row as
+`failed`**. Running the documented rollout procedure would terminally fail every report
+enqueued in the preceding minutes, and §5.5's promise that disabled rows simply wait would
+be false exactly when the switch is used.
+
+§6 asserts the sequence: enqueue while enabled, disable before the job is claimed, confirm
+the row stays non-final and no alert fires, re-enable, and confirm the **same row** files.
 
 The **worker** check is the one that actually makes the rule true. The others are checks at
 enqueue time, and the gap between enqueue and execution is exactly where a cutoff gets
@@ -896,6 +976,16 @@ NCMEC_ISPWS_PASSWORD
 | `ncmec_report_classifier_hits` | `false` | §5.6 — hard-blocked until §8.2 is answered, not merely defaulted off. |
 | `ncmec_backlog_audit_cutoff` | unset | §7 step 2 — the audit **scope** boundary, captured **before** review begins. Rows created at or after it are new-code rows and need no audit. **Write-once**: once set it is never moved, or the scope of an in-progress audit would shift under the operator. |
 | `ncmec_backlog_audit_completed_at` | unset | §7 step 2 — the audit **completion** marker, set when the operator declares the audit finished. Separate from the cutoff on purpose (below). |
+| `async_job_ncmec_submit_max_attempts` | `8` | §5.2 — **seeded by `0094`**, not left to the queue default of 5 |
+| `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` (24 h) | §5.2 — **seeded by `0094`**, not left to the default of 8 h |
+
+**The two retry keys are seeded by the migration, and that is load-bearing rather than
+tidy.** An earlier revision computed the 72-hour horizon correctly and then never said
+where the values come from — so production would have kept the queue defaults (5 attempts,
+8-hour fourth delay) and exhausted at **≈10.5 hours**, while the plan claimed ≈98.6 and the
+bulk-retry deferral (§9) rested on that claim. Tests that inject the config would have
+passed against a production that never had it. §6 therefore asserts the schedule **from
+post-migration defaults, with no fixture injecting them.**
 
 **A hit quarantined while submission is disabled must still be durably visible.** The
 existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
@@ -916,8 +1006,10 @@ Two changes make the waiting state honest:
 
 The same treatment applies to **every** branch of invariant 8's classifier, not to this
 one alone: `/admin/safety` renders **one count per branch** of
-`classifyWaitingState` — currently seven, six awaiting someone plus *in flight* shown as
-active work — never one undifferentiated "pending" number. The count list is derived from
+`classifyWaitingState` — currently **eight**: six awaiting a person, *awaiting
+reconciliation*, and *in flight* shown as active work — never one undifferentiated
+"pending" number. The count is stated as a number here only to be checkable against the
+table; the list itself is derived from the classifier, so adding a branch adds a count. The count list is derived from
 the classifier rather than enumerated here, so adding a branch adds a count automatically;
 an earlier revision hardcoded "three" in this paragraph and was already stale by the time
 two more branches existed.
@@ -1333,6 +1425,21 @@ did. The audit log is consequently the **only** control on this surface, which i
   freezing the audit scope (§7 step 2). **Write-once**: a second call is refused, naming
   the existing value, because moving the cutoff mid-audit silently redefines what "done"
   means for rows already dispositioned against the old boundary.
+
+  **Write-once is enforced by one conditional write, not by check-then-set.** The cutoff
+  lives in an already-seeded `admin_config` row, so a read-then-update lets two concurrent
+  starts both observe it unset and both write — different timestamps, and whichever loses
+  still changed which rows require audit. The write is therefore a single conditional
+  update whose **affected-row count decides the outcome**:
+
+  ```sql
+  UPDATE admin_config SET value = $now
+   WHERE key = 'ncmec_backlog_audit_cutoff' AND (value IS NULL OR value = '')
+  ```
+
+  One row updated → this caller started the audit. Zero → someone else did; refuse and
+  name the existing value. §6 tests **concurrent** starts, not just sequential ones: exactly
+  one succeeds and the winning cutoff never moves.
 - `POST /admin/safety/backlog-audit/complete` — sets `ncmec_backlog_audit_completed_at`.
   Refused if the cutoff is unset, or while the unaudited count is non-zero.
 
@@ -1342,9 +1449,29 @@ did. The audit log is consequently the **only** control on this surface, which i
   ever set them**, while the generic config route (which might otherwise have served) is
   now required to refuse exactly these keys. The gate was unreachable rather than strict.
 
-- `POST /admin/safety/config` — the two switches. **Enabling submission with
-  `ncmec_ispws_environment = 'production'` is refused while the unaudited-backlog count
-  (§7 step 2) is non-zero**, and the refusal names the count.
+- `POST /admin/safety/config` — the two switches. **The gate is on the resulting state,
+  not on the field being written.**
+
+  Phrasing it as "enabling submission while the environment is production" leaves the
+  symmetric door open: from the permitted `enabled + test` state, changing **only the
+  environment** to `production` reaches exactly the same live-filing configuration without
+  ever evaluating the audit preconditions. The dangerous thing is the *tuple*, so the check
+  is on the tuple:
+
+  > Any write that would leave `environment = 'production' AND enabled = true` must satisfy
+  > all three preconditions — cutoff set, completion marker set, unaudited count zero —
+  > regardless of which field the request touches.
+
+  **And the write is serialized.** Two concurrent requests — one enabling submission, one
+  switching environment — can each validate against a safe *current* state and jointly
+  commit the unsafe tuple, since neither sees the other's pending change. The guarded
+  helper (below) therefore takes a lock covering the NCMEC config keys and re-reads both
+  values inside it, so the prospective combined state is evaluated against what will
+  actually be committed rather than against a snapshot taken before the other write.
+
+  §6 tests the environment-flip path and the two-request interleaving against each of the
+  three preconditions separately — the flip path being the one the old phrasing permitted
+  outright.
 
   **This gate is worthless unless the generic config route is closed, and it is not.**
   `router.patch("/admin/config/:key", requireAdmin, …)` (`admin.ts:2198`) accepts **any**
@@ -1564,7 +1691,20 @@ Admin surface as a privileged surface (§5.8):
 - **`mark-manually-filed`**: a malformed report id is rejected; a missing reason is
   rejected; correction preserves the original id in `before_state`; reopen returns the row
   to `pending` and the reconciler picks it up again.
-- **Waiting-state counts are exhaustive and disjoint** across all seven branches, asserted in
+- **Counts are computed set-based over the whole non-final population, never per page.**
+  `GET /admin/safety/reports` is paginated but the counts are global, so the job lookup is
+  **one join** over non-final rows against non-terminal `ncmec_submit` jobs — not a per-row
+  fetch (N+1), not a classification of the returned page (counts that change as you
+  paginate), and not the branch logic reimplemented in SQL (two implementations of the
+  classifier, which is what having one function was for). Terminal job history is collapsed
+  by the join's own predicate: only `pending`/`processing` jobs count as "a job exists," so
+  a row with three `done` jobs and no live one classifies as *awaiting reconciliation*,
+  correctly. §6 asserts counts across multiple pages with rows in every job state —
+  missing, pending, processing, done, failed.
+- **Waiting-state counts are exhaustive and disjoint** across all **eight** branches —
+  including *awaiting reconciliation* (an eligible row with **no** non-terminal job) as a
+  distinct asserted count, since that is the branch a matrix written from a stale "seven"
+  would silently omit while still looking exhaustive — asserted in
   four configurations: disabled+test, enabled+test before `send-to-test`, enabled+test
   after it, and production — **parameterised over the configurations rather than written
   out per scenario**. Every non-final row lands in exactly one branch, including the
