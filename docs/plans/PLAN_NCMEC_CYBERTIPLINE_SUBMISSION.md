@@ -327,7 +327,17 @@ any `ncmec_reports` row in a non-final state by comparing it against its job:
 |---|---|---|---|
 | `pending` / `in_progress` | **no job row** | Pre-migration legacy row; row created while submission was disabled; a crash window §5.2.4's transaction does not cover | Enqueue one — **only if `ncmec_submission_enabled`** |
 | `pending` / `in_progress` | `failed` | Terminal failure whose in-`run()` finalization was lost to a crash (§5.2.3) | Set row `failed`, record the code, enqueue an admin notification |
-| `pending` / `in_progress` | `done` | Handler returned success without finalizing | Re-enqueue if enabled; otherwise leave `pending` — not lost, the next pass finds it |
+| `pending` / `in_progress` | `done` | Handler returned success without finalizing | Re-enqueue if enabled — **unless already test-submitted in the current environment** (below) |
+
+**A completed test submission must not re-fire every five minutes.** §7 leaves a
+test-submitted row at `pending` so it stays eligible for a real filing — but a `pending`
+row with a `done` job is exactly what the third line above re-enqueues. Left alone, the
+reconciler would re-submit every pending report to `exttest` on a 5-minute loop, dragging
+the entire audited backlog through NCMEC's test environment repeatedly rather than the one
+rollout hit. So the reconciler skips any row where
+`ncmec_ispws_environment = 'test' AND test_submitted_at IS NOT NULL`. Flipping to
+`production` makes that predicate false and the row eligible again — which is the exact
+behavior §7 needs, and it falls out of the environment check rather than a second flag.
 
 `pending` and `in_progress` are the only non-final states, and every one of them appears
 above — that exhaustiveness is what makes invariant 8 checkable rather than aspirational.
@@ -355,9 +365,17 @@ live worker or an admin retry, must not double-enqueue or clobber. Every repair 
 - Uses the report-scoped dedupe key **`ncmec:submit:<reportId>`** on the enqueue, so two
   reconcilers observing "no job" produce one job, not two.
 - Re-reads the row `FOR UPDATE` and re-checks, inside the transaction: the status is still
-  non-final, there is **no unexpired lease** (`submission_lease_until < now()`), and there
-  is still no non-terminal job for that key. A stale `failed` observation must not mark a
-  row failed after an admin retry has already acquired its lease.
+  non-final, there is **no unexpired lease**, and there is still no non-terminal job for
+  that key. A stale `failed` observation must not mark a row failed after an admin retry
+  has already acquired its lease.
+
+**The lease predicate must be `submission_lease_until IS NULL OR submission_lease_until <
+now()`** — identical to acquisition (§5.2.2), never a bare `< now()`. In Postgres
+`NULL < now()` evaluates to *unknown*, not true, so a bare comparison silently excludes
+every never-leased row: new rows, rows created while submission was disabled, and
+pre-migration legacy rows. That is precisely the population the reconciler exists to
+repair, so the naive predicate would make it a no-op exactly where it matters while
+appearing to work everywhere else.
 
 Three properties make this the right shape:
 
@@ -497,6 +515,16 @@ at the call site where the legal obligation is unconditional.
 Default `false` preserves today's behavior exactly: Arachnid hash matches report,
 nothing else does. `fal_safety` remains non-reporting.
 
+**The flag is hard-blocked until §8.2 is answered, not merely defaulted off.** `<incidentType>`
+is mapped only for Arachnid classifications; where wholly AI-generated or classifier-flagged
+material belongs is an open question for NCMEC. If the switch were merely default-off, turning
+it on would leave the implementation with three bad options — guess an incident type, omit a
+possibly-required element, or send reports NCMEC rejects with `4100`. A default is a weak
+guard against a decision that has not been made. So the worker **refuses** classifier
+submissions with an explicit "incident-type mapping unresolved" error until the mapping is
+settled and encoded, regardless of the flag; the flag then becomes a live control rather than
+a trapdoor.
+
 This also makes the `moderation.ts:62` schema comment honest — it currently describes a
 gate that does not exist.
 
@@ -512,8 +540,18 @@ gate that does not exist.
   content appeared* is Overhype.me, while the *registered reporting entity* is
   Availeron. Both appear; they are different fields and conflating them would misfile.
 - `<personOrUserReported>` — uploader identity when known: `user_id` resolved to email,
-  plus the captured IP and headers already stored in `request_metadata`. Anonymous
-  uploads omit the element rather than sending empty values.
+  plus captured network context. Anonymous uploads omit the element rather than sending
+  empty values.
+
+  **The captured context is not currently stored on most paths, and the plan must add it
+  rather than assume it.** Only the Arachnid branch of `userImageUpload.ts` passes
+  `ncmecMetadata` today (`ip`, `userAgent`, `route`). The classifier branch of that same
+  request handler passes none, and neither `createMemeRecord` nor `aiMemePipeline` stores
+  request headers at all. So enabling classifier reporting would file reports missing
+  uploader network context that *was* available at the time. `request_metadata` gains an
+  explicit documented shape — `{ ip, userAgent, route, requestId }` — and every call site
+  with a live request captures it. Generation paths with no request omit those fields
+  honestly; the distinction is "genuinely unavailable" versus "available and dropped."
 
 `<fileDetails>` per uploaded file:
 
@@ -521,15 +559,29 @@ gate that does not exist.
 - `<industryClassification>` — from the Arachnid classification, mapped to `A1`/`A2`/
   `B1`/`B2`. **The exact mapping is an open question (§8.1)** — I will not guess a
   classification taxonomy on a federal report.
-- `<fileAnnotations>` — **`<generativeAi>` set when the evidence came from a
-  generation pipeline** (`createMemeRecord.ts` / `aiMemePipeline.ts` call sites) rather
-  than a user upload (`userImageUpload.ts`). This platform produces AI imagery; NCMEC
-  added the annotation precisely so that is distinguishable, and getting it right is
-  materially useful to the analysts who triage these. `<potentialMeme>` likewise
-  deserves consideration given what this product is.
+- `<fileAnnotations>` — `<generativeAi>` and `<potentialMeme>`, from **persisted
+  provenance**, never inferred from the calling function.
 
-The quarantine source is already recorded, so provenance is available without new
-plumbing.
+**Provenance must be recorded at quarantine time, not derived later.** An earlier revision
+proposed setting `<generativeAi>` when the quarantine came from `createMemeRecord.ts` or
+`aiMemePipeline.ts`. That is wrong twice over:
+
+- `createMemeRecord()` is **not** exclusively a generation path — its `ImageSourceSchema`
+  accepts template, stock, upload, and identity images. Treating every one of its
+  quarantines as generative would assert to a federal clearinghouse that ordinary
+  user-uploaded or stock content is AI-generated.
+- The inference is not even available to the worker: all three call sites persist
+  `source: "classifier"`, so the stored row carries **no** signal distinguishing them.
+  The mapping would have had to re-derive provenance from information that was never
+  written down.
+
+So `quarantined_memes` and `ncmec_reports` gain explicit provenance — `content_origin`
+(`generated` | `user_upload` | `stock` | `template` | `identity`) and a derived
+`is_generative` — written at quarantine time from the **actual image origin** the caller
+already knows. `<generativeAi>` is set from that column and nothing else; where origin is
+genuinely unknown the annotation is omitted rather than guessed. Callers pass it
+explicitly, which also means a new quarantine call site cannot silently inherit a wrong
+default.
 
 ### 5.8 Admin surface — `/admin/safety`
 
@@ -545,11 +597,22 @@ on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
   and environment.
 - `GET  /admin/safety/reports/:id` — detail: status, timestamps, attempts, last error
   and code, submission environment, uploaded file ids and MD5s, quarantine linkage.
-- `POST /admin/safety/reports/:id/retry` — re-enqueue any **non-final** row (`failed`,
-  `pending`, or a stale `in_progress`), not only `failed`. Restricting retry to `failed`
-  would leave the rows the reconciler cares about — `pending` with no job — unactionable
-  by hand. Guarded by §5.2.1's retract-first and §5.2.2's lease like any other attempt,
-  so a manual retry cannot duplicate or race the worker.
+- `POST /admin/safety/reports/:id/retry` — re-enqueue a `failed`, `pending`, or stale
+  `in_progress` row. Restricting retry to `failed` would leave the rows the reconciler
+  cares about — `pending` with no job — unactionable by hand.
+
+  **A `failed` row must be reset to `pending` before the job is enqueued**, in the same
+  transaction. `failed` is a *final* status (§5.4) and lease acquisition accepts only
+  `pending`/`in_progress` (§5.2.2) — so simply enqueuing a job for a `failed` row creates
+  a job that can never acquire its lease, silently no-ops forever, and makes retry useless
+  for the one state the button exists to repair. The transition is conditionally fenced
+  like every other state write: `UPDATE … SET submission_status='pending' WHERE id=$id AND
+  submission_status='failed' AND (submission_lease_until IS NULL OR submission_lease_until
+  < now())`, with the enqueue in the same transaction. Zero rows updated → the row moved
+  under us; report that rather than enqueuing.
+
+  Guarded by §5.2.1's retract-first and §5.2.2's lease like any other attempt, so a manual
+  retry cannot duplicate or race the worker.
 - `POST /admin/safety/reports/:id/mark-manually-filed` — records `manually_filed_at`
   and sets `filed_manually`, taking the row out of the reconciler's scope (§5.3).
   Requires the operator to enter the CyberTipline report id from the manual filing, so
@@ -576,6 +639,15 @@ Frontend: `artifacts/overhype-me/src/pages/admin/safety.tsx`, modeled on
 existing analogue). Async status follows `docs/ai-context/async-ui-status.md`, with
 Taxonomy Health as the reference for the two altitudes.
 
+**Both registries must be edited, or the surface does not exist.** Creating the page and
+the route module is not sufficient in this repo: the page needs a `lazy()` import and a
+`<Route path="/admin/safety">` in `artifacts/overhype-me/src/App.tsx` plus an
+`AdminLayout` navigation entry, and the API module needs registration in
+`artifacts/api-server/src/routes/index.ts`. Implementing only the two new files would
+leave `/admin/safety` resolving to Not Found and every endpoint unmounted — a failure that
+looks like "the feature is missing" rather than "a wiring step was skipped," so it is
+listed here as part of the change set rather than left to be discovered.
+
 **Hard invariant: the admin UI never renders the evidence image.** No thumbnail, no
 preview, no signed URL, no proxy route. Admins see metadata, hashes, classifications,
 and file ids. There is no operational need to look at the bytes — the classification
@@ -589,8 +661,16 @@ Following `docs/engineering/testing.md`. New: `moderation.ncmecClient.test.ts`,
 `moderation.ncmecWorker.test.ts`; extensions to `moderation.quarantine.test.ts`.
 
 Client (fake `fetch`, no network):
-- XML round-trips for `<report>` and `<fileDetails>`, including escaping of hostile
-  characters in filenames and metadata.
+- **Schema-validate generated `<report>` and `<fileDetails>` against a version-pinned copy
+  of NCMEC's XSD** (fetched once from `GET /xsd` and committed as a fixture). Round-tripping
+  through `fast-xml-parser` proves well-formedness and escaping only — wrong element
+  ordering, wrong nesting, an invalid enum, or a missing required element all round-trip
+  cleanly and then come back from NCMEC as `4100`. Since `4100` is classified terminal
+  (§5.1), a schema error would burn the report rather than retry it, which makes catching
+  it at build time rather than at filing time the difference between a caught bug and an
+  unfiled report.
+- XML escaping of hostile characters in filenames and metadata, asserted separately from
+  schema conformance.
 - Each response code maps to the right retryable/terminal classification.
 - Multipart shape of `/upload` matches the documented `id` + `file` fields.
 
@@ -631,7 +711,27 @@ Manual filing vs. active worker (§5.8) — both orderings:
 Environment separation (§7):
 - A row exercised end-to-end against `test` has `test_report_id` set and is **still
   `pending`**; `report_id` and `finished_at` remain null.
+- **That row is not re-submitted by subsequent reconciler passes** while the environment
+  stays `test` — asserted across several passes, since the naive reading of §5.3 would
+  re-file it every five minutes.
 - After flipping to `production`, that same row files **exactly once**.
+
+Reconciler predicates and retry:
+- **Never-leased rows** (`submission_lease_until IS NULL`) — new, disabled-period, and
+  legacy — are repaired. The regression test for the `NULL < now()` trap, which would
+  otherwise make the reconciler a silent no-op for exactly the rows it exists to serve.
+- **Retry on a `failed` row** transitions it to `pending` and the enqueued job **acquires
+  its lease and runs** — the assertion that would have failed against the previous design.
+
+Report content (§5.7):
+- `<generativeAi>` is set from persisted `content_origin`, **not** from the calling
+  module. A `createMemeRecord` quarantine of a *stock* or *uploaded* image is **not**
+  annotated as generative.
+- Origin unknown → annotation omitted, never guessed.
+- Classifier submission is **refused** while the §8.2 incident-type mapping is unresolved,
+  even with `ncmec_report_classifier_hits=true`.
+- Request-backed paths persist `{ ip, userAgent, route, requestId }`; generation paths
+  omit them.
 
 Reconciler (§5.3) — the "nothing is silently unreported" cases:
 - Terminal failure whose in-`run()` finalization was lost → reconciler sets `failed`
