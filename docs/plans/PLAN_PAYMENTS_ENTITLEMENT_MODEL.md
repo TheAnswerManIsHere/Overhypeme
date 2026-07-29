@@ -171,9 +171,11 @@ deriveEffectiveMembership(sources, now) -> {
 Pure, time-parameterised. **Set union, not priority** — Legendary if any valid
 source qualifies.
 
-Three separate concepts, not one flag: **`is_membership_product`** (allowlist
-result, snapshotted — see below), **provider lifecycle status**, and **grace
-validity**.
+Four separate concepts, not one flag: **`is_membership_product`** (allowlist
+result, snapshotted — see below), **access holds**, **terminal dispute loss**,
+and **provider lifecycle status** (of which grace validity is a sub-case).
+Rounds 20 and 22 each found a concept named here and then absent from the rule
+below, so the two lists are kept deliberately parallel.
 
 **"Snapshotted at ingestion" is ambiguous on refresh, and the two source types
 need opposite answers.** Leave a subscription's original value untouched and a
@@ -193,7 +195,7 @@ edit **retroactively revokes or grants** something already paid for.
 access drops on the next refresh; edit product metadata after a lifetime
 purchase and assert the entitlement is unaffected in **both** directions.
 
-**Qualification is a conjunction of all three concepts, and revision 21 only
+**Qualification is a conjunction of all four concepts, and revision 21 only
 encoded one of them.** The table below is the *lifecycle* term. It was written
 as though it were the whole rule, which made **every `active` subscription
 qualify — including one for a product outside the allowlist.** That is the
@@ -208,8 +210,13 @@ concept and then never using it in the rule is the whole defect.
 1. **Allowlist** — `is_membership_product = true`, required for **both** Stripe
    source types. `admin_grant` sources qualify independently of it: they are
    authorized by W1b, not by a product.
-2. **No access hold** — see *Disputes* below.
-3. **Lifecycle** — the table:
+2. **No access hold** — no non-terminal row in `entitlement_source_disputes`
+   for this source. See *Disputes* below.
+3. **No terminal dispute loss** — `dispute_loss_revoked_at IS NULL`. Separate
+   from the hold because it is permanent and, unlike the hold, must survive
+   every subsequent authoritative refresh. Folding it into the hold would have
+   let a won-then-lost sequence, or a refresh, clear a chargeback revocation.
+4. **Lifecycle** — the table:
 
 | Status | Qualifies |
 |---|---|
@@ -231,51 +238,138 @@ source `active` and a subscription on its ordinary Stripe status, so
 would silently delete a live product behaviour, which is exactly the failure a
 derived model is supposed to make impossible.
 
-**Specification: a durable, source-local access hold, keyed by dispute.**
+**Specification: a durable, source-local dispute record, plus a terminal
+revocation the provider cannot undo.** Revision 23 modelled this as two columns
+on the source row and Codex round 22 showed that shape cannot express three
+things it has to: every terminal outcome Stripe defines, a loss that survives an
+authoritative refresh, and a dispute that is *already terminal* when a delayed
+open event arrives. All three are fixed by making the dispute an object rather
+than an array element.
 
-- **It is persisted**, not derived — `access_hold_reason` and `open_dispute_ids`
-  on the source row (see *Schema*). A hold that lived only in memory would not
-  survive a restart, and the first authoritative refresh would restore access to
-  someone actively charging back.
-- **It is keyed by dispute id, not a boolean.** A subscription can be disputed on
-  several invoice charges at once, and a boolean would let **winning one clear
-  the source while another is still open.** Opening adds the id; resolving
-  removes it; the source is held while the array is non-empty.
-- **The hold attaches to the *exact* source, which requires a mapping the code
-  does not have today.** `resolveUserForDispute` (`webhookHandlers.ts:407-460`)
-  resolves a **user** — its three lookups all terminate at a user id — which is
-  all tier-level revocation ever needed. A source-local hold needs the source:
+**`entitlement_source_disputes`** — one row per (source, dispute):
+
+| Column | Note |
+|---|---|
+| `source_id` | FK to the entitlement source |
+| `stripe_dispute_id` | **Primary key.** One row per dispute, ever |
+| `status` | The Stripe dispute status, as re-fetched under the lease |
+| `is_terminal` | Derived from `status`; once true it never returns to false |
+| `first_seen_at`, `resolved_at` | Observability |
+
+**The hold is a query, not a flag:** a source is held while a row exists for it
+whose status is in the open set. `access_hold_reason` survives as the *reason*
+discriminator on the source row; `open_dispute_ids` is **deleted** — it was an
+array pretending to be a state machine.
+
+### Every terminal shape, enumerated from the pinned types
+
+Revision 23 said "resolving removes the id" and modelled exactly two outcomes.
+The pinned Stripe 20.0.0 `Dispute.Status` union (`Disputes.d.ts:508-516`) has
+**eight** values and **four** of them are terminal — and the existing handler
+already has a branch for the ones the plan omitted
+(`webhookHandlers.ts:601-609`, `warning_closed or other terminal
+non-won/non-lost statuses — record only`). So the plan was silent on a path the
+code takes today.
+
+| Status | Terminal | Holds access | On entry |
+|---|---|---|---|
+| `needs_response` | no | **yes** | Open the hold |
+| `under_review` | no | **yes** | Hold continues |
+| `warning_needs_response` | no | **yes** | Open the hold |
+| `warning_under_review` | no | **yes** | Hold continues |
+| `won` | **yes** | no | Clear — source qualifies on its ordinary lifecycle |
+| `warning_closed` | **yes** | no | Clear — the warning closed without becoming a chargeback |
+| `prevented` | **yes** | no | Clear — no chargeback occurred |
+| `lost` | **yes** | no | **Write the terminal revocation first**, then clear |
+
+Three of the four terminal shapes are access-*restoring* and one is
+access-*revoking*, which is why "resolving removes it" was unsafe in both
+directions at once: it would have restored access on `lost` and, for an
+implementer who read the hold as permanent, held forever on `warning_closed`.
+
+Whether an early-fraud warning (`warning_*`) should hold access at all is a
+product question, not a technical one. It is answered **yes** here to preserve
+today's behaviour — `charge.dispute.created` revokes immediately, deliberately —
+rather than silently loosening it inside an architecture change. Flagged for
+David as a deliberate carry-forward, not a decision this plan is making.
+
+### The loss must live where a provider refresh cannot reach it
+
+Revision 23 had a lost subscription dispute write `lifecycle_status =
+'canceled'` on the source. **That field is a mirror of the provider's
+subscription status**, and this plan's own snapshot rule (entry 119) says a
+subscription source is **re-evaluated on every authoritative refresh**. A
+chargeback does not cancel the Stripe subscription, so the very next webhook,
+route-triggered refresh or reconciliation pass restores `active` and re-qualifies
+the source. The fix for "no terminal writer exists" was a writer aimed at the one
+field guaranteed to be overwritten.
+
+**Specification:** a lost dispute sets **`dispute_loss_revoked_at`** on the
+source — source-local, set once, never cleared by any refresh — and the
+qualification conjunction gains it as a disqualifier. The source stops
+qualifying permanently regardless of what Stripe later reports about the
+subscription's lifecycle.
+
+**General invariant this generalises to, stated once so it binds every future
+field:** an authoritative refresh writes **only** provider-mirror fields
+(`lifecycle_status`, `is_membership_product`, the version/fence, amounts). It
+**never** writes or clears source-local state — `access_hold_reason`,
+`dispute_loss_revoked_at`, or anything added later. A field's category is
+recorded in the schema section, and a new field must declare one. This is the
+class the finding belongs to, not just the instance.
+
+### A terminal dispute absorbs a late open event
+
+`charge.dispute.closed` can be processed before a delayed
+`charge.dispute.created` for the **same** dispute. Under revision 23 the close
+removed the id and the create put it back — a permanent hold on a dispute that
+Stripe has already settled. The per-source lease and the version guard do not
+help: they serialize the two writes in arrival order, which is precisely the
+wrong order, and neither is a statement about the dispute's own state. Revision
+23's acceptance covered ordering between **two** disputes and never two events
+for **one**.
+
+**Specification, two mechanisms, both required:**
+
+1. **Re-fetch the dispute under the lease.** Every transition applies the
+   authoritative status retrieved inside the target source's lease, never the
+   status carried on the event. A late `created` therefore observes the dispute
+   as already `won`/`lost`/`warning_closed`/`prevented`.
+2. **Terminal is absorbing.** `is_terminal` never returns to false, and no
+   transition may move a row out of a terminal status. Mechanism 1 is the
+   common path; mechanism 2 is what holds when retrieval fails or the row is
+   reached by any path that did not re-fetch. Either alone leaves a gap.
+
+### The source mapping, unchanged from revision 23
+
+- **The hold attaches to the *exact* source.** `resolveUserForDispute`
+  (`webhookHandlers.ts:407-460`) resolves a **user** — its three lookups all
+  terminate at a user id — which is all tier-level revocation ever needed. A
+  source-local hold needs the source:
   - **lifetime** — `payment_intent` → the `stripe_lifetime_payment` source;
   - **subscription** — charge → invoice → subscription → the
     `stripe_subscription` source.
-  The mapping runs **before** any write, and the target source's **lease is
-  acquired** before the hold is applied, like every other source mutation.
-- **If the source cannot be resolved, nothing is held.** The event is reported
-  as unmapped for human review rather than guessed at — holding *every* source
-  for the user would revoke an unrelated entitlement, and holding none silently
-  would lose the dispute. This is the one case where the old tier-level
-  behaviour was accidentally "safer" only because it was indiscriminate.
-- **Loss is terminal, and the writer is named for both types.** Today's lost
-  handler only marks a **lifetime** entitlement `refunded`
-  (`webhookHandlers.ts:~580`) — there is no subscription-side terminal write at
-  all, so revision 22's "the subscription's own resulting status" described code
-  that does not exist. For a subscription source, a lost dispute **writes
-  `lifecycle_status = 'canceled'` on that source** and clears its dispute id;
-  the authoritative refresh path then reconciles it against Stripe like any
-  other status.
+  The mapping runs **before** any write, under the target source's lease.
+- **If the source cannot be resolved, nothing is held**, and the event is
+  reported as unmapped for human review. Holding every source for the user would
+  revoke an unrelated entitlement; holding none silently would lose the dispute.
 
 The hold is per-source, so **the union still governs**: a user with an unrelated
 active entitlement keeps Legendary throughout, which is the behaviour today's
 tier-level revocation cannot express.
 
-**Acceptance:** open a dispute and assert the source stops qualifying, the hold
-**survives a restart and an authoritative refresh**, and recomputation does not
-re-grant; win it and assert access returns; lose it and assert the terminal
-state **for both source types**; **two overlapping disputes on one subscription,
-with win/loss arriving in both orders** — the source stays held until the last
-resolves; **a dispute on one of two qualifying Stripe sources** holds only that
-one; an unresolvable dispute holds nothing and is reported; and run the single
--dispute cases with a second unrelated entitlement present, asserting the user
+**Acceptance.** Per-outcome: **each of the eight statuses** reaches persistence,
+and each of the four terminal ones produces the disposition in the table above —
+including `warning_closed` and `prevented` clearing the hold, and `lost` writing
+`dispute_loss_revoked_at` **before** clearing it. Ordering: **closed-before-created
+for one dispute** leaves the source unheld and terminal; **two overlapping disputes
+on one subscription with win/loss arriving in both orders** keep the source held
+until the last resolves. Durability: the hold **survives a restart and an
+authoritative refresh**; a lost subscription dispute **still disqualifies after a
+refresh that reports the subscription `active`** — the case revision 23 would have
+failed. Scope: a dispute on one of two qualifying Stripe sources holds only that
+one; an unresolvable dispute holds nothing and is reported; every single-dispute
+case runs again with a second unrelated entitlement present, asserting the user
 stays Legendary throughout.
 
 Grace starts on first entry to `past_due` per delinquency episode; duplicate
@@ -314,21 +408,25 @@ importantly — I had written a rule over a field that does not exist.
    top-level `charge` or `payment_intent`, so this is an explicit lookup rather
    than a field read — which is precisely why it must be specified rather than
    assumed.
-2. **Fallback: `status_transitions.finalized_at`**, used only when no attempt is
-   resolvable. Collection begins at or after finalization, so this can only be
-   **earlier** than the true first failure, and the resulting window is at most
-   the finalization→attempt lag short — on Stripe's own documented ≥1 hour
-   against a **14-day** window, under 0.3%. Stated and bounded rather than
-   hand-waved.
+2. **If no attempt is resolvable, no deadline is derived.** The source keeps
+   qualifying and the case is **reported**. Revisions up to 23 specified a
+   `status_transitions.finalized_at` fallback here, bounded as "under 0.3% of a
+   14-day window"; **both the bound and the fallback are withdrawn** (ledger
+   125). The pinned type's ≥1-hour note is a *lower* bound on
+   `created`→attempt and says nothing about `finalized_at`→attempt, so the
+   error was never bounded at all — and an unbounded-early start revokes a
+   paying customer. Ledger 129: the withdrawal reached the ledger and not this
+   paragraph, so the body still instructed an implementer to use it.
 3. **Never `invoice.created`.**
 
-A run that used the fallback **says so in its output**, so an approximate window
-is visible rather than indistinguishable from an exact one.
+A run that could not resolve an attempt **says so in its output**, so an
+unbounded episode is visible rather than silently treated as expired.
 
 **Acceptance:** a delayed first attempt — invoice finalized, first attempt an
 hour later, failure webhook never delivered — yields a deadline anchored to the
-**attempt**, not to invoice creation; and with the attempt unresolvable, the
-fallback is used and reported.
+**attempt**, not to invoice creation; and with the attempt unresolvable, **no
+deadline is derived, the source keeps qualifying, and the case is reported** —
+asserting specifically that no revocation occurs.
 
 **Acceptance:** a subscription whose `invoice.payment_failed` was never
 delivered still yields the original deadline, not a fresh window.
@@ -646,12 +744,35 @@ intention.
 | `current_period_end`, `cancel_at_period_end` | subscription-only, nullable |
 | `amount`, `currency` | payment-backed only, nullable |
 | `grace_started_at`, `grace_expires_at` | delinquency window, nullable |
-| `access_hold_reason` | nullable enum — currently only `dispute`. Null means no hold. Named rather than boolean so a future hold reason does not overload it |
-| `open_dispute_ids` | **text array, default empty** — the dispute ids currently holding this source. The hold is `array_length > 0`, not a flag; see *Disputes* |
+| `access_hold_reason` | **source-local.** Nullable enum — currently only `dispute`. Null means no hold. Named rather than boolean so a future hold reason does not overload it. The hold *itself* is a query over `entitlement_source_disputes`, not a column |
+| `dispute_loss_revoked_at` | **source-local.** Nullable timestamp, **set once, never cleared.** A lost dispute disqualifies the source permanently; it is not written into `lifecycle_status`, which a provider refresh would overwrite — see *Disputes* |
 | `granted_by_admin_id`, `granted_by_admin_label`, `grant_reason` | W1b grant provenance, admin-grant only — see *actor durability* |
 | `revoked_by_admin_id`, `revoked_by_admin_label`, `revoked_reason`, `revoked_at` | W1b **revocation** provenance |
 | `source_state_as_of` | the ordering token above |
 | `created_at`, `updated_at` | local row timestamps |
+
+**Every column above is either a provider mirror or source-local, and a new one
+must declare which.** An authoritative refresh writes provider mirrors only
+(`is_membership_product`, `lifecycle_status`, `current_period_end`,
+`cancel_at_period_end`, `amount`, `currency`, `source_state_as_of`) and never
+touches source-local state (`access_hold_reason`, `dispute_loss_revoked_at`,
+the grace window, the W1b provenance columns). Revision 23 lost a chargeback
+revocation by writing it into a mirror field; the categories exist so that is a
+schema error rather than a subtle one.
+
+**`entitlement_source_disputes`** — one row per dispute, per *Disputes*:
+
+| Column | Note |
+|---|---|
+| `source_id` | FK → the entitlement source, **`ON DELETE CASCADE`**, indexed |
+| `stripe_dispute_id` | **PK.** One row per dispute, ever — which is what makes a late `created` an upsert rather than a re-open |
+| `status` | the Stripe `Dispute.Status`, as re-fetched under the source's lease |
+| `is_terminal` | derived from `status`; **absorbing** — a CHECK forbids any transition out of a terminal status |
+| `first_seen_at`, `resolved_at` | observability |
+
+A source is held while a row exists for it with a non-terminal status. The
+partial index `(source_id) WHERE NOT is_terminal` makes that a cheap existence
+check on the qualification path.
 
 Constraints: `UNIQUE (source_type, provider_ref)` where `provider_ref` is not
 null (preserving today's two unique constraints and keeping idempotency);
@@ -1563,12 +1684,16 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 117 | 20 | The migration cannot boot — legacy seed DDL survives the drop | **Resolved** — `ensureSchema()` runs immediately after `runMigrations()` and **before the port binds** (`index.ts:271-274`), and `seed.ts:562-565` still runs `ALTER TABLE lifetime_entitlements …`. `IF NOT EXISTS` guards the **column, not the table**, so the drop makes it raise `42P01` outside the runner's `SAVEPOINT` recovery and **abort startup**. Retiring that seed entry is part of the migration; the boot acceptance now exercises the real `runMigrations() → ensureSchema()` sequence. **The plan's highest-risk change, dead on arrival, found in round 20.** |
 | 118 | 20 | W1a had no verifier for subscription sources | **Resolved** — the specified verifier requires a `mode = payment` Checkout Session and a PaymentIntent, so it cannot create or refresh a `stripe_subscription` source, which is how subscription webhooks, the routes and reconciliation all arrive. An identifier-only **subscription** verifier binds subscription↔customer↔user, allowlisted product with pagination, and lifecycle — one of the two paid source types had no trust boundary at all. |
 | 119 | 20 | "Snapshotted at ingestion" is ambiguous on refresh | **Resolved** — the two source types need opposite answers: a subscription's snapshot is **re-evaluated on every authoritative refresh** (or a portal switch to a non-membership price retains access forever), while a lifetime purchase's is **frozen at creation** (or later metadata edits retroactively revoke a completed purchase). |
-| 120 | 21 | `access_hold` existed only in prose | **Resolved** — no column, so a dispute would not survive a restart and the first authoritative refresh would restore access to someone actively charging back. Persisted as `access_hold_reason` plus `open_dispute_ids` on the source row. I specified a state that participates in **every** qualification decision and never added it to the schema section three hundred lines below. |
+| 120 | 21 | `access_hold` existed only in prose | **Resolved** — no column, so a dispute would not survive a restart and the first authoritative refresh would restore access to someone actively charging back. Persisted on the source row. (`open_dispute_ids` was **superseded at 126/128** by the `entitlement_source_disputes` table; `access_hold_reason` survives as the reason discriminator.) I specified a state that participates in **every** qualification decision and never added it to the schema section three hundred lines below. |
 | 121 | 21 | The hold cannot reach the right source | **Resolved** — `resolveUserForDispute` (`webhookHandlers.ts:407-460`) resolves a **user**; all three of its lookups terminate at a user id, which is all tier-level revocation ever needed. A source-local hold needs charge → invoice → subscription (or payment-intent → lifetime). Mapping runs before any write, under that source's lease; an unresolvable dispute **holds nothing and is reported**, because holding every source would revoke an unrelated entitlement. |
-| 122 | 21 | A boolean hold clears while another dispute is open | **Resolved** — keyed by dispute id (`open_dispute_ids`), held while non-empty. Also: **the subscription loss writer did not exist** — today's handler only marks a *lifetime* entitlement `refunded`, so revision 22's "the subscription's own resulting status" described code that is not there. Now named: a lost dispute writes `lifecycle_status = 'canceled'` on that source. |
+| 122 | 21 | A boolean hold clears while another dispute is open | **Resolved** — keyed by dispute id (`open_dispute_ids`), held while non-empty. Also: **the subscription loss writer did not exist** — today's handler only marks a *lifetime* entitlement `refunded`, so revision 22's "the subscription's own resulting status" described code that is not there. Named a writer — but aimed at the wrong field, **superseded at 127**: `lifecycle_status` is a provider mirror a refresh overwrites, so the loss now sets source-local `dispute_loss_revoked_at`. |
 | 123 | 21 | Identity-only re-retrieval does not reach charges and disputes | **Resolved** — refunds and disputes are states of objects **not present** on a re-retrieved `Subscription` or `PaymentIntent`, and finding 65's completeness rule could not map an *unseen* dispute to a source, since the missing page is what supplies the mapping. Auxiliary identities are re-fetched under the source's lease, and every relevant collection must be complete before a source is staged as unheld. |
 | 124 | 21 | The subscription verifier's ownership input was undefined | **Resolved** — its acceptance said "the **requested** user", but reconciliation has no requester, so the enumerator would have supplied the association it was iterating. Ownership is resolved through the unique local `users.stripe_customer_id` mapping; an expected user may be passed and mismatches rejected; **no path accepts a caller-asserted association**. The boundary is now identical on all three paths. |
 | 125 | 21 | My "under 0.3%" grace bound was unfounded | **Resolved by withdrawing it** — the pinned type's ≥1-hour note is a *lower* bound on `created`→attempt, **not an upper bound on `finalized_at`→attempt**, so it cannot bound the error at all. An unresolvable attempt now derives **no deadline**: the source keeps qualifying and the case is reported, because a guessed start can only be early and early means revoking a paying customer. **I quantified a reassurance I had not derived**, which is worse than leaving it unquantified. |
+| 126 | 22 | Only two of four terminal dispute shapes were modelled | **Resolved** — the pinned `Dispute.Status` union (`Disputes.d.ts:508-516`) has **eight** values, four terminal: `won`, `lost`, `warning_closed`, `prevented`. Revision 23's "resolving removes the id" covered two and was unsafe in **both** directions — restoring access on `lost`, holding forever on `warning_closed`. The existing handler already branches on this (`webhookHandlers.ts:601-609`), so the plan was silent on a path the code takes today. Full status/outcome table, with `warning_*` holding access as a deliberate carry-forward of current behaviour flagged for David. |
+| 127 | 22 | The dispute-loss writer aimed at a field refreshes overwrite | **Resolved** — 122 fixed "no terminal writer exists" by naming `lifecycle_status = 'canceled'`, which is a **provider mirror**, and this plan's own entry-119 rule re-evaluates subscription sources on **every authoritative refresh**. A chargeback does not cancel the Stripe subscription, so the next refresh restores `active` and re-qualifies. Loss is now source-local `dispute_loss_revoked_at`, set once, never cleared — plus a **general invariant**: refreshes write provider mirrors only, every column declares a category, and a new field must too. Two rounds to get one writer right, because I fixed the *absence* without checking the *destination*. |
+| 128 | 22 | A terminal dispute could be re-opened by a late event | **Resolved** — `closed` processed before a delayed `created` for the **same** dispute: the close removes the id, the late create adds it back, permanent hold on a settled dispute. The lease and version guard only serialize arrival order, which is exactly the wrong order, and neither says anything about the *dispute's* state. Revision 23's acceptance covered ordering between **two** disputes, never two events for **one**. Fixed with both mechanisms: authoritative status re-fetched under the lease, **and** `is_terminal` absorbing under a CHECK — either alone leaves a gap. |
+| 129 | 22 | The withdrawn `finalized_at` fallback still governed the body | **Resolved** — entry 125 withdrew it and I corrected only the **ledger row**, leaving the plan body still specifying the fallback *and* the disproven "under 0.3%" bound. An implementer reads the body. Removed from the body, its acceptance case inverted to assert **no revocation occurs**, and the ledger/body pair checked for agreement rather than assumed. **The correction was less complete than the record of it**, which is the failure mode a ledger is supposed to prevent. |
 
 | Round | Lens |
 |---|---|
@@ -1594,4 +1719,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 20 | **The narrowest lens yet, because the surface is now small.** Round 19 dropped to two findings — the first decline since round 13 — and both were dangling references from the cut rather than defects in the model. So: attack the **entitlement model itself**, which has had no finding against it since round 11 and has therefore been reviewed least recently. The derivation and its set-union semantics, W1a/W1b and the identifier-only verifier, the per-source leases and fences, read-path expiry and the effective-tier expression, the schema and its constraints, the migration, reconciliation's stage-guard-commit. **Nine rounds is long enough that "stable" may mean "unexamined"** |
 | 21 | **The core again, immediately — round 20 changed what this loop believes about itself.** Seven findings, four P1, on the part I had called stable since round 11, including an allowlist bypass and a migration that could not boot. The correct response to that is not to move on but to **stay on the core for a second pass**, now that revision 22 has added an `access_hold` state, a three-term qualification conjunction, a second verifier, per-source-type snapshot semantics, a re-retrieval rule in enumeration and a seed-DDL retirement. Every one of those is new and unreviewed, and this plan's most reliable pattern is that a round's fixes are the next round's defects |
 | 22 | **Disputes, third pass.** Rounds 20 and 21 both landed hardest on dispute handling — a state that did not exist, then a state that was not persisted, not keyed, and could not find its own source. Revision 23 adds `open_dispute_ids`, a charge→invoice→subscription mapping, a named subscription loss writer, auxiliary-collection re-fetch under lease, and locally-resolved ownership. **Every one of those is new.** Attack the dispute path end to end as a single story — open, concurrent, won, lost, unresolvable, arriving out of order, racing a cancellation — and check whether the mapping and the completeness rule can disagree about the same source |
+| 23 | **The dispute record as a state machine, and what round 22 moved.** Round 22 replaced two columns with a table, added an absorbing terminal state, a source-local permanent revocation, a fourth conjunction term and a provider-mirror/source-local field taxonomy. **All of it is new.** Two angles not yet applied: (a) treat `entitlement_source_disputes` as a state machine — which of the eight statuses can follow which, which transitions have no writer, what a re-fetch returning a *non-terminal* status after a terminal one must do, and whether the CHECK and the re-fetch can deadlock or disagree; (b) the field taxonomy is a **new global invariant** asserted over a schema written before it existed — check every column's declared category against every writer in the plan, not just the dispute ones. Round 20's lesson applies: the taxonomy looks obviously correct, which is the condition under which it has never been tested |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
