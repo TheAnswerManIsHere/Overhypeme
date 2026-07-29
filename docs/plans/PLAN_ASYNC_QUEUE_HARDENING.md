@@ -404,7 +404,7 @@ which must derive everything it shows from `async_jobs` and
 | Column | Purpose |
 |---|---|
 | `id` | pk |
-| `kind` | `job_abandoned`, `job_terminal_failed`, `job_poison_pill`, `queue_backlog`, `queue_deferred_stale`, `worker_lane_stalled`, `email_delivery_disabled` |
+| `kind` | one of the shared `ALERT_KINDS` registry below |
 | `dedupe_key` | grouping key, e.g. `job_abandoned:email:auth_error` |
 | `severity` | `warning` \| `critical` |
 | `queue` | nullable — set for job-scoped kinds |
@@ -438,6 +438,34 @@ for a channel is `alert.occurrence_count - dispatch.dispatched_count`.
 A partial unique index on `(dedupe_key)` where `state = 'active'` makes
 "record or coalesce" a single idempotent upsert.
 
+**One shared `ALERT_KINDS` registry** *(added, Codex round 3)*. My kind list and
+my producer list had drifted apart while I was editing them in separate rounds:
+`email_delivery_disabled` was declared with **no producer**, and
+`worker_lane_wedged` was produced by two sections while **absent from the
+declared list**. The promised "every declared kind has a producer" test would
+therefore have either failed on the first or silently skipped the second —
+a test that cannot pass is not coverage.
+
+So one exported registry is the single source, and the schema check, the
+lifecycle shape, the producer sweep, and the parameterized tests all derive
+from it rather than repeating it:
+
+| Kind | Shape | Producer | Severity |
+|---|---|---|---|
+| `job_abandoned` | event | A2 finalize | critical |
+| `job_terminal_failed` | event | A2 finalize | critical |
+| `job_poison_pill` | event | B4 reclaim | critical |
+| `queue_backlog` | condition | A2a sweep | warning |
+| `queue_deferred_stale` | condition | A2a sweep | warning |
+| `worker_lane_stalled` | condition | A2a sweep | critical |
+| `worker_lane_wedged` | condition | A2a sweep | critical |
+
+`email_delivery_disabled` is **removed**, not given a producer: it described the
+same situation `queue_deferred_stale` already covers (email configured away
+while rows pile up), and two kinds for one condition would have produced two
+alerts for one incident. Adding a kind to this table without a producer entry
+fails the build.
+
 **Incident lifecycle: acknowledgement must not re-arm a still-true condition**
 *(added, Codex round 2)*. The round-1 design keyed the partial index on
 `acknowledged_at IS NULL`, which is right for event-shaped alerts (a job
@@ -462,6 +490,17 @@ Two alert shapes, handled differently:
   condition clears and recurs, or the escalation boundary in A5 is crossed. The
   health page still shows it as an unresolved-but-acknowledged condition, so
   acknowledgement hides the alarm, never the fact.
+
+  **Escalation for a condition needs its own metric** *(corrected, Codex round
+  3)*. I wrote that an acknowledged condition re-fires when "the escalation
+  boundary in A5 is crossed" — but A5's boundary is an **occurrence-count**
+  multiplier, and an edge-triggered condition produces **no further
+  occurrences** after its initial false→true edge. That clause was unreachable,
+  which meant an acknowledged lane wedge could stay silent forever while
+  getting worse. Conditions therefore escalate on **duration**, not volume: an
+  acknowledged condition still true after `condition_escalation_hours`
+  (default 4) re-alerts once, and again on each subsequent multiple. Volume
+  escalation stays what it is — the right metric for event alerts.
 
 The distinction is a column on the alert kind, not a judgement call at each
 call site, so a future alert kind must declare which shape it is.
@@ -513,6 +552,19 @@ those kinds in the ledger and asserted in *Runtime Behavior* that "a lane's time
 stops → `worker_lane_stalled` is recorded," and **no implementation step
 produced them.** The runtime claim was unimplementable as written; the plan
 described an alarm with no sensor.
+
+**Thresholds are read once, uncached, inside the locked evaluation** *(added,
+Codex round 3)*. `adminConfig.ts` caches the whole table per process for 60s and
+`bustConfigCache()` clears only the serving process's copy (`adminConfig.ts:24-44`).
+On an autoscaled fleet that means alternating evaluators can hold **different
+threshold values** for up to a minute after a PATCH — one opens an incident
+under the new value, the next resolves it under the stale one, the next reopens
+it. Edge-triggered alerting turns that into a stream of false transitions and
+notifications, and the sweep lock does not help because both instances are
+individually "correct" against what they read. So the sweep reads one uncached
+snapshot of its threshold keys inside the locked transaction, making every
+evaluation of a given tick consistent by construction. Acceptance covers the
+two-instance stale/fresh case.
 
 So: `evaluateAlertConditions()`, running on the same independent runner as
 dispatch (A3), before it. Each tick it evaluates every condition against
@@ -572,17 +624,31 @@ that prevents a duplicate *state update*, after a duplicate *notification* has
 already reached David's phone. The lock has to be held **across** the send, not
 checked after it.
 
-`pg_try_advisory_xact_lock(hashtext('job_alert:' || dedupe_key || ':' || channel))`
-taken at the top of each per-(alert, channel) dispatch, inside the transaction
-that advances that channel's watermark:
+**The lock must be per *channel*, not per alert** *(corrected, Codex round 3)*.
+My round-2 lock was keyed `(dedupe_key, channel)` — but the dispatcher groups
+**multiple alerts into one digest per channel**, so the lock granularity did not
+match the delivery granularity. With pending alerts A and B, two instances could
+each take a different alert's lock, each skip the other's, and each send a
+*partial* digest: two notifications, neither complete. The round-2 acceptance
+criterion ("two dispatchers, one delivered digest") would have failed against
+the round-2 design.
+
+`pg_try_advisory_xact_lock(hashtext('alert_dispatch:' || channel))`, acquired
+**before selection** and held across the whole build-and-send for that channel:
 
 - `try_` rather than blocking: a second instance that cannot take the lock skips
   that alert this tick and moves on — the next tick retries, and dispatch has no
   latency requirement that would justify queueing behind a peer.
 - `_xact_` so the lock is released on commit **or** on crash, with no unlock
   path to forget. A process killed mid-dispatch cannot wedge the alert forever.
-- Keyed per `(dedupe_key, channel)`, not globally, so a slow webhook POST does
-  not block an unrelated alert's email.
+- Keyed per **channel**, so a slow webhook POST does not block the email
+  channel — while guaranteeing exactly one digest per channel per tick
+  fleet-wide, which is what the acceptance criterion actually asserts.
+- `hashtext()` collisions are bounded and safe here: two colliding channel keys
+  would make one instance *skip* a dispatch it would have retried on the next
+  tick — a delay, never a missed alert, since the watermark advances only on
+  actual delivery. With three channel values a collision is theoretical; the
+  property is stated because it must survive future channels being added.
 
 The residual window is honest and small: an instance that takes the lock, POSTs
 successfully, and dies before commit will re-send that digest on a later tick.
@@ -620,6 +686,25 @@ accepted trade-off narrow:
 - `dedupe_key` includes **queue + error class**, so a different queue or a
   different failure mode opens its own key and notifies immediately rather than
   folding into an unrelated digest;
+
+**The error class must be a bounded classifier, and was undefined** *(added,
+Codex round 3)*. The whole cooldown guarantee rests on `dedupe_key` carrying an
+"error class," and I never said what produces one. `HandlerResult.code` is
+**optional** on retryable failures, and handlers interpolate raw provider text
+(fal, OpenAI, Resend) into `error`. Using that string would give effectively
+unique keys per failure — **coalescing would never fire, so every failure would
+notify individually**, which is precisely the behavior David rejected — and it
+would persist request-specific, possibly sensitive provider text into an
+*indexed* column.
+
+`classifyFailure(row, outcome): AlertErrorClass` returns a value from a closed
+enum: `auth`, `rate_limit`, `timeout`, `network`, `provider_5xx`,
+`provider_4xx`, `validation`, `unknown`. Resolution order: the handler's typed
+`code` when present (already required on terminal failures), else a small set
+of matchers over the provider error, else `unknown`. **Nothing else ever reaches
+`dedupe_key`** — the raw message lives in `sample_payload`, which is redacted on
+schedule (A6). Tests exercise real handler failure shapes from the repo's
+existing fixtures, not two synthetic strings, and assert the enum is total.
 - an **escalation override** — if `occurrence_count` since the last digest
   exceeds `alert_escalation_multiplier` (default 10×), it dispatches at once
   regardless of cooldown, because an order-of-magnitude change is news.
@@ -791,6 +876,14 @@ and tick completion are different facts:
 - **`last_tick_completed_at`** — written when a tick finishes.
 - **`in_flight_count`** — how many jobs that instance's lane currently holds, so
   a long tick reads as *working* rather than being inferred from silence.
+  **Written when the claim commits, before any handler is awaited**, decremented
+  as each job leaves the in-flight set, and cleared on completion or shutdown.
+  *(Corrected, Codex round 3: my implementation step wrote it only at tick
+  completion — and a wedged tick never completes, so the durable row would keep
+  its previous value, normally zero. `worker_lane_wedged` requires
+  `in_flight_count > 0`, so **the wedge alert could never fire on a real wedge**
+  — the one case it exists for. Publishing the count before awaiting handlers is
+  what makes the predicate observable.)*
 
 **Keyed by instance, and evaluated with the right quantifier per condition:**
 
@@ -830,6 +923,19 @@ neither alert; a stopped scheduler raises `stalled`; a live scheduler with a
 wedged handler raises `wedged` and not `stalled` — plus a wedge on instance A
 while B is healthy and idle, and a scale-down that must not raise a false stall.
 
+**C2a. `GET /admin/queue-health/jobs`** — the **per-item** half, which the
+round-2 plan promised in the UI and never specified as an API *(added, Codex
+round 3)*. Without it the aggregate endpoint would have had to return every row
+to satisfy the two-altitude contract, which is unsafe at a 50,000-row backlog —
+and the aggregate is the endpoint the page polls continuously. It follows the
+existing `/admin/email-queue` shape (`admin.ts:2993`) rather than inventing a
+second convention: `?queue=&status=&page=&limit=` with `limit` capped at 100,
+a `total` count, and `validStatuses` echoed back. **All four statuses**, not
+just failures — the round-2 text said "the individual failing rows," which
+would have left `pending` and `processing` items with no per-item status at
+all, in direct violation of the contract it claimed to satisfy. Acceptance
+seeds a large backlog and asserts bounded response size and query time.
+
 **C2. `GET /admin/queue-health`** — per queue: pending / processing / failed /
 done-24h, oldest-pending age, abandoned-24h; per lane: last-tick age and
 configured interval; plus unacknowledged alerts. Read-only aggregation over
@@ -865,9 +971,20 @@ cannot leave that arithmetic untouched:
 - heartbeat renewal is **one statement per lane per interval**, deliberately
   batched, adding no per-job connection demand;
 - the dispatcher and purge share the existing maintenance runner's slot;
-- Phase 1 sets an explicit `max` (proposed: 20) on the pool. This is the
-  deferred item's own revisit trigger arriving — the plan touches the thing the
-  deferral was waiting on.
+- **Phase 1 sets an explicit `max` — but it cannot be hard-coded to 20**
+  *(corrected, Codex round 3)*. I reasoned about "the pool" as though there
+  were one. Each autoscaled instance constructs its **own** `pg.Pool`
+  (`lib/db/src/index.ts:45`), so the fleet ceiling is `max × N`, and my
+  proposal quietly doubled it from `10N` to `20N` without anyone checking what
+  the database allows. `deferred-work.md` classifies this as an infra/cost
+  decision precisely because no repository value establishes what is safe, and
+  nothing in the repo does. Phase 1 therefore **records the production
+  Postgres connection limit and the autoscale maximum-instance setting, then
+  derives** `per_instance_max = floor(db_budget / max_instances)` with a floor
+  of 10 (the current effective value, so the derivation can never make things
+  worse) — or adopts a shared pooler if the arithmetic does not close. **Those
+  two production numbers are the one thing in this plan I cannot obtain from
+  the repository; they are listed under *Questions for David*.**
 
 ## Data Model and Migration Impact
 
@@ -911,72 +1028,66 @@ migration reports affected counts per the repo's migration-observability rule.
 
 ### Mixed-version rollout protocol for 0096 (lease columns)
 
-*(Added, Codex round 1. My first draft asserted the legacy-NULL path "handled"
-this. It does not, and the objection is correct.)*
+*(Rewritten twice. Round 1 established that a per-row matrix cannot express a
+two-worker hazard. Round 2 replaced a row-snapshot gate with a version gate.
+**Round 3 found both remaining halves still unsafe**, and the honest conclusion
+is that the drain cannot be proven from inside the application.)*
 
-The problem is not the migration — it is **two workers running different code
-against the same table at the same time**. The `7cb197f` worker finalizes by id
-alone and its recovery ignores the lease columns entirely. So during any window
-where old and new processes coexist:
+**The hazard.** Any pre-lease (Phase-2-era) worker finalizes by id and cannot
+see the fence. If such a worker owns a row and anything else reclaims that row,
+the old worker's later finalize silently overwrites the new run — the exact
+clobber this whole design exists to prevent, caused by deploying the fix.
 
-- new code reclaims a NULL-lease row, assigns a token, and starts run B; the
-  **old** process's run A finishes and finalizes by id, overwriting B — the
-  exact clobber fencing exists to prevent, now caused by deploying the fix;
-- symmetrically on **rollback**: leased rows are in flight under new code when
-  an old worker resumes and finalizes them by id.
+**Two things I got wrong before, both worth stating so they are not retried:**
 
-Fencing is only sound when every writer honors it, and a fence one participant
-cannot see is not a fence. The protocol, therefore:
+1. **3a's retained legacy recovery is itself a clobber source.** I wrote that an
+   old worker coexisting with 3a is "harmless because nothing is reclaiming on a
+   short lease yet." That is false: 3a kept the **legacy `updatedAt` recovery**,
+   which after the 5-minute startup or 10-minute periodic cutoff requeues a slow
+   row owned by a Phase-2 worker, 3a claims it with a token, and the old worker
+   then finalizes by id over the new run. The reclaim did not need to be
+   *short*-lease to cause the damage; it only needed to happen.
+2. **TTL absence is not termination.** The version gate treated "no pre-lease
+   `worker_version` seen within the 15-minute TTL" as proof every old writer had
+   exited. But a wedged instance — event loop blocked, handler hung — stops
+   heartbeating while remaining perfectly capable of finalizing when it
+   recovers. **That is the precise failure class this plan exists to survive**,
+   so using its own symptom as the all-clear is circular. This is the third
+   variant of the same reasoning error (row-snapshot, then TTL-absence): I kept
+   looking for a signal that a silent process is gone, and there isn't one.
 
-1. **Phase 3 splits into 3a and 3b, deployed separately.**
-   - **3a — read/write the columns, honor the fence, but do not reclaim by
-     lease.** New code writes `lease_token` on claim, fences its own finalizes,
-     and renews heartbeats. Reclaim still uses the legacy `updatedAt` cutoff.
-     An old worker coexisting here is harmless: it ignores columns it does not
-     read, and it is not being raced for rows, because nothing is reclaiming on
-     a short lease yet.
-   - **3b — enable lease-driven reclaim**, deployed only once no `7cb197f`-era
-     process remains. At this point every writer fences.
-2. **Between 3a and 3b, prove the drain from worker versions — not from a row
-   snapshot** *(corrected, Codex round 2)*. My round-1 gate was "no
-   `status='processing'` row has a NULL `lease_token`." Codex is right that this
-   is not proof of anything: **the table can be empty at the instant of the
-   check while a pre-lease instance is still alive and merely idle**, free to
-   claim a pending row a second later, run it, and finalize it by id after 3b's
-   legacy fallback has reclaimed it — recreating precisely the clobber the
-   rollout exists to prevent. The predicate observes *rows*; the question is
-   about *processes*. Polling it more often does not convert it into evidence.
+**The protocol, accepting that limit rather than working around it:**
 
-   The per-instance heartbeat table (C1) already carries what is actually
-   needed. Every instance stamps its `worker_version` on every tick, so the
-   fleet's composition is durable, observable state rather than an inference:
+1. **3a disables reclaim entirely** — not legacy, not lease. It writes lease
+   tokens on claim, fences every finalize, and renews heartbeats, but **nothing
+   reclaims a row while unfenced workers may exist.** A genuinely stuck row
+   simply waits for the duration of the overlap, which is a bounded and visible
+   cost (the Phase 1 health surface shows it) and strictly better than a
+   silent double-execution.
+2. **Graceful shutdown ships in 3a**, so the overlap ends promptly under normal
+   deploys.
+3. **Enabling 3b is an explicit operator action, not an inference.** A deploy
+   flag or admin toggle, taken after confirming in the Replit deployment console
+   that the previous revision has **zero** running instances. The plan states
+   plainly that this is human-verified, because the application cannot prove it
+   and every automated proxy tried so far has been wrong in the same direction.
+4. **The version check survives as an interlock that can only *block*, never
+   *enable*.** If the operator enables 3b while a pre-lease `worker_version` is
+   still visible, the worker refuses and logs. It cannot say "safe"; it can say
+   "definitely not safe," and that asymmetry is the only sound use of it.
 
-   > 3b enables lease reclaim only when **no** `worker_lane_heartbeats` row with
-   > a pre-lease `worker_version` has been seen within the staleness window —
-   > i.e. every live instance is provably running 3a or later.
+**Cost, stated for David rather than buried:** this adds one manual step to one
+deploy. That is the price of not pretending a distributed drain is observable
+from inside the process that needs it.
 
-   This is a real barrier: an idle old instance still heartbeats, so it is still
-   counted. It also fails safe — an instance that stops heartbeating is treated
-   as present until its TTL expires, so the gate errs toward *not* enabling
-   reclaim. Findings 2.2 and 2.4 turn out to solve each other, which is why
-   `worker_version` is in the C1 schema.
+**Rollback:** 3b → 3a is safe (3a honors the fence and reclaims nothing).
+**Rolling back past 3a while leased rows are processing is the unsafe
+direction** — drain first.
 
-   **This makes C1 a prerequisite for 3b, not merely a nice-to-have in Phase 1** —
-   recorded here because it is the kind of cross-phase dependency that is
-   invisible until someone tries to ship 3b first.
-3. **Graceful shutdown (B3) ships in 3a, not 3b**, so the 3a→3b deploy itself
-   drains cleanly and the window is short by construction.
-4. **Legacy rows still get the `updatedAt` fallback** for one retention window
-   after 3b, for rows stranded before any of this — that part of the original
-   matrix survives.
-
-**Rollback:** all four migrations are additive, so schema rollback is dropping
-the new tables/columns. The *application* rollback that matters is 3b → 3a,
-which is safe in the same direction and for the same reason: 3a honors the fence
-without depending on short-lease reclaim. **Rolling back past 3a while leased
-rows are processing is the unsafe direction** and is called out here as a
-constraint on the deploy, not left to be discovered — drain first, exactly as in
-step 2.
+**Acceptance** now tests the version *interlock* (a pre-lease `worker_version`
+heartbeating with zero jobs in flight blocks enabling) and the 3a **no-reclaim**
+property (a row stuck during the overlap is not requeued by any path), replacing
+the superseded NULL-row predicate test.
 
 ## Runtime Behavior
 
@@ -1055,8 +1166,17 @@ linking to it.
   recipient shown as `t***@example.com` — with the full value visible only on
   the authenticated in-app page. `lib/redact` already exists in this workspace
   and should be checked for a suitable helper before writing a new one.
-- The dispatcher must bound webhook response handling (timeout, size cap) and
-  must not follow redirects to an arbitrary host.
+- **Webhook egress is specified concretely and tested, not asserted** *(Codex
+  round 3)*. Round 2 listed redirect refusal, timeouts, and size caps as
+  security requirements and then neither implemented nor tested them — and
+  **`fetch` follows redirects by default**, so a 3xx from the configured
+  endpoint would forward the digest to a host nobody configured. Concretely:
+  `redirect: "manual"` (a 3xx is a delivery *failure*, not a hop),
+  `AbortSignal.timeout(alert_webhook_timeout_ms)` (default 5s), a response-body
+  read capped at 8 KB and otherwise discarded, and no retry inside the tick —
+  the watermark not advancing *is* the retry. Tests use a redirecting server, a
+  stalled response, and an oversized response, and assert the credential-bearing
+  URL never appears in `job_alert_dispatches.last_error` or in any log line.
 - No change to authentication, authorization, membership grants, or object
   access. Nothing in this plan touches the payment trust boundary.
 
@@ -1194,10 +1314,14 @@ before the machine changes (settled decision 5).
 **Phase 1 — Instrument (no behavior change to the queue).**
 1. Migration 0094: `worker_lane_heartbeats`, keyed `(instance_id, lane)`, with
    `worker_version`.
+1a. **Record the production Postgres connection limit and the autoscale
+   max-instance setting** (the two numbers under *Questions for David*), then
+   derive the per-instance pool `max` from them. Do **not** hard-code a value.
 2. Stamp `last_scheduled_at` when the timer fires (including on the re-entrancy
    early-return), `last_tick_completed_at` + `in_flight_count` at completion;
    prune rows past the instance TTL.
-3. Set an explicit pool `max`; record the arithmetic in `deferred-work.md`.
+3. Apply the derived pool `max`; record the fleet arithmetic (`max × N`) in
+   `deferred-work.md` and close that item.
 4. `GET /admin/queue-health` (aggregating **across live instances**, with the
    ∀/∃ quantifiers per condition) + `GET /health/queues`.
 5. The Queue Health page + nav item, per the two-altitude contract.
@@ -1212,8 +1336,10 @@ before the machine changes (settled decision 5).
 8. `createAlertDispatchRunner()` — its **own** timer and re-entrancy guard, not
    the bulk maintenance block: grouping, cooldown, escalation, per-channel
    watermark advancement.
-8a. **`pg_try_advisory_xact_lock` per `(dedupe_key, channel)`, held across the
-   send**, plus one sweep-wide lock for the condition evaluator. This is what
+8a. **`pg_try_advisory_xact_lock` per *channel*, acquired before selection and
+   held across the whole build-and-send**, plus one sweep-wide lock for the
+   condition evaluator, which also reads its thresholds uncached inside that
+   lock. This is what
    makes 7a and 8 safe on an autoscaled fleet; a post-hoc conditional update is
    not a substitute.
 9. Webhook channel + format shaping + redaction.
@@ -1307,42 +1433,53 @@ already been looking at for the whole. That is the same error shape as the
 which is now twice in this plan, so the enumeration below is exhaustive and
 mechanically derived rather than sampled.
 
-**Layer 1 — direct `enqueueJob` callers: 16 sites across 12 files.**
+**Layer 1 — direct `enqueueJob` callers: 17 sites across 14 files.**
 
-| File | Sites | Domain write immediately before? |
+*The way I kept getting this count wrong is the useful part.* Round 1:
+enumerated only the two deferred-work helpers. Round 2: enumerated only
+`sendEmail` callers and labelled it complete. Round 3: Codex found
+`routes/memes.ts:1889`, which my `grep "enqueueJob("` could not see because that
+module imports it **aliased** — `import { enqueueJob as enqueueJob_v2 }`
+(`memes.ts:1672`) — so the call site reads `enqueueJob_v2({`. Three incomplete
+enumerations, three different causes: truncated output, wrong scope, aliased
+import. The list below is derived from **imports** rather than call-text, which
+is the only method an alias cannot defeat, and the same method now governs the
+parameterized tests.
+
+Every site is classified **now**, in the plan — "classify as you go" is how the
+sites nobody thought about stay unclassified:
+
+| File | Sites | Preceding domain write | Bucket |
+|---|---|---|---|
+| `lib/imagePromptAttempts.ts` | `:134` | inserts attempt row, `.returning()` | **atomic-required** |
+| `routes/memes.ts` | `:1889` | inserts `image_prompt_attempts_v2` row, `.returning()` | **atomic-required** |
+| `lib/imagePromptJobs.ts` | `:290` | updates the attempt row, then chains `image_generation` | **atomic-required** |
+| `routes/admin.ts` | `:1409` | sets `facts.enrichmentStatus = 'pending'` | **atomic-required** |
+| `lib/firstTimeStagingPrep.ts` | `:91` | sets `enrichmentStatus = 'pending'` | **atomic-required** — and its own comment describes hand-rolled compensation for exactly this ("surface `failed` … instead of a permanent fake-pending"), which the transaction lets us delete |
+| `lib/visualConceptJobs.ts` | `:92` | sets `visualConceptStatus = 'pending'` | **atomic-required** |
+| `lib/factPexelsJobs.ts` | `:110` | status marker | **atomic-required** (named in the deferred-work item) |
+| `lib/aiMemeBackfillJobs.ts` | `:98` | status marker | **atomic-required** (the other deferred-work item) |
+| `lib/sendBackToReview.ts` | `:183` | candidate-version write | **atomic-required** |
+| `lib/moderationStaging.ts` | `:359` | staging transition | **atomic-required** |
+| `lib/reviewRenderScenarios.ts` | `:647` | called from the enrichment transition | **atomic-required** |
+| `routes/adminTaxonomyHealth.ts` | `:404`, `:500`, `:566` | none — per-fact loop over `targets.toEnqueue`, each failure counted into `outcomes`/`failed` and reported per item | **best-effort by design** — already surfaces per-item enqueue failure to the admin, which is the two-altitude contract working; wrapping the loop in one transaction would make one bad fact roll back the whole bulk action |
+| `lib/reviewRenderScenarios.ts` | `:665` | the force path, deliberately keyless; guarded by an atomic compare-and-set at the call site | **best-effort by design** — the docstring's concurrency argument is the guard, and adding a transaction here would not improve it |
+| `lib/factSendBackJob.ts` | `:101` | inside a handler; chains the next queue | **already-terminal** — an enqueue failure returns `ok:false` and the outer job retries, which is the correct compensation and needs no transaction |
+| `lib/email.ts` | `:156` | the `sendEmail` funnel | see layer 2 |
+
+**Layer 2 — `sendEmail` callers: 16 sites across 9 files**, all funnelling
+through `email.ts:156`. Final buckets, not candidates:
+
+| Site | Bucket | Why |
 |---|---|---|
-| `lib/imagePromptAttempts.ts` | `:134` | **Yes** — inserts the attempt row with `.returning()`, then enqueues on its id |
-| `lib/sendBackToReview.ts` | `:183` | **Yes** |
-| `lib/moderationStaging.ts` | `:359` | **Yes** |
-| `routes/adminTaxonomyHealth.ts` | `:404`, `:500`, `:566` | **Yes** — bulk actions |
-| `routes/admin.ts` | `:1409` | to classify |
-| `lib/firstTimeStagingPrep.ts` | `:91` | to classify |
-| `lib/factPexelsJobs.ts` | `:110` | **Yes** — a deferred-work item names this one |
-| `lib/aiMemeBackfillJobs.ts` | `:98` | **Yes** — the other deferred-work item |
-| `lib/visualConceptJobs.ts` | `:92` | to classify |
-| `lib/imagePromptJobs.ts` | `:290` | to classify |
-| `lib/reviewRenderScenarios.ts` | `:647`, `:665` | to classify |
-| `lib/factSendBackJob.ts` | `:101` | to classify |
-| `lib/email.ts` | `:156` | the `sendEmail` funnel — layer 2 |
-
-`imagePromptAttempts.ts:134` is the clearest instance of the hazard and was
-verified at the line: an `image_prompt_attempts` row is inserted and its id
-returned, then a job is enqueued referencing that id. An enqueue failure there
-strands a persisted attempt row with no job that will ever process it — visible
-to an admin as work that never starts, with nothing to retry.
-
-**Layer 2 — `sendEmail` callers, which all funnel through `email.ts:156`: 16
-sites across 9 files.** `jobs/factOfTheDay.ts`, `lib/moderation/ncmec.ts`,
-`lib/adminNotify.ts`, `lib/userNotify.ts`, `lib/webhookHandlers.ts`,
-`routes/share.ts`, `routes/users.ts`, `routes/localAuth.ts`,
-`routes/reviews.ts`.
-
-The worked example Codex cites is real and I confirmed it: `routes/users.ts`
-inserts an `email_verification_tokens` row (`:342-347`), fire-and-forgets
-`sendEmail(...).catch(...)` (`:352-354`), and only *afterwards* writes
-`pendingEmail` in a separate statement (`:359-360`). Three writes, no
-transaction, in an order where a failure between any two leaves the user with a
-token and no mail, or mail and no pending state.
+| `routes/users.ts` (email-change verification) | **atomic-required** | token row + `pendingEmail` + mail are three writes with no transaction (`:342-360`); any gap leaves a token with no mail or a pending state with no token |
+| `routes/localAuth.ts` (signup verification, password reset) | **atomic-required** | the same shape — a reset token with no mail is an account the user cannot recover |
+| `lib/moderation/ncmec.ts` | **atomic-required** | a reporting obligation; a report recorded but not sent is the worst possible divergence on this path |
+| `lib/adminNotify.ts` (fact review, dispute, fraud warning, abandoned-email) | **best-effort by design** | each describes an event that already happened. A missed one is a nuisance, and wrapping it would put a mail enqueue inside a moderation or webhook transaction for no correctness gain. **Recorded explicitly so a later reader does not "fix" it.** |
+| `lib/webhookHandlers.ts` (membership/billing notifications) | **best-effort by design** | the grant is the contract; the email is a courtesy, and the Stripe handler transaction must not be lengthened by a mail enqueue |
+| `lib/userNotify.ts`, `routes/reviews.ts` (approve/reject) | **best-effort by design** | the moderation decision is authoritative and already durable; the notification follows it |
+| `routes/share.ts` | **best-effort by design** | user-initiated share invite; failure is visible to the sender in-request |
+| `jobs/factOfTheDay.ts` | **already-terminal** | the enqueue *is* the job's output |
 
 **The classification happens in the plan, before implementation — not during
 it.** Codex's round-2 point stands: deferring it to build time is what leaves
@@ -1423,7 +1560,21 @@ this plan.
 
 ## Questions for David
 
-None outstanding. The four product decisions were settled in the pre-plan
+**Two production numbers I cannot obtain from the repository** (Codex round 3).
+Phase 1 sets the connection-pool `max`, and because each autoscaled instance
+builds its own pool, the real ceiling is `max × N`. Hard-coding a value would be
+guessing with the database's connection budget:
+
+1. **The production Postgres `max_connections`** (or the Neon plan's connection
+   limit), and how much of it is already spoken for.
+2. **The autoscale maximum-instance setting** for the deployment.
+
+With those, `per_instance_max = floor(budget / max_instances)`, floored at the
+current effective 10 so the derivation can never make things worse. Until they
+arrive, Phase 1 ships everything else and leaves the pool at today's value —
+this does not block the phase.
+
+*(Everything else previously listed here is settled.)*  The four product decisions were settled in the pre-plan
 conversation and are recorded under *Settled Decisions*. Two things I decided
 from the repository rather than asking — the phase ordering and the pool `max`
 raise — are recorded there too, with their reasoning, so they can be overridden
