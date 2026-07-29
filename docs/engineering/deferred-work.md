@@ -288,6 +288,26 @@ re-gather it when the work is scheduled.
     touched for another reason, or this race is observed in production status
     data (not just theoretically), fold in transactional composition then.
 
+- **Async-jobs reclaim finalize has no fencing token (PR #283).**
+  - **What.** `processClaimedJob` finalizes a job by row id alone. Stuck-row
+    recovery (`RECOVER_STUCK_CUTOFF_MIN`) reclaims a row once it's been
+    `processing` past the cutoff, but nothing stops the *original* holder from
+    still being alive and finishing after the reclaim — both runs execute and
+    whichever finalizes last silently overwrites the other. PR #283 raised the
+    cutoff (10 → 30 min) as an interim mitigation that narrows the race window;
+    it does not close it.
+  - **Why deferred now.** The real fix — lease tokens stamped at claim time and
+    checked at finalize, so a stale run's finalize is a no-op instead of an
+    overwrite — is Phase 3a of the async-queue hardening plan (surfaced during
+    the review on PR #282) and is sequenced after the Phase 1 health-surface
+    work that makes this race observable in production.
+  - **Cost of waiting.** A genuinely concurrent reclaim (autoscale boot racing
+    a slow in-flight handler) still causes silent double-execution — a
+    duplicate send on the `email` queue, or a corrupted status marker on
+    `fact_ai_meme_backfill` — just less often now that the window is narrower.
+  - **Revisit trigger.** When Phase 3a (lease tokens + fenced finalize) lands,
+    this entry closes and `RECOVER_STUCK_CUTOFF_MIN` stops being load-bearing.
+
 - **`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.**
   - **What.** Rows are re-queued with `signature: null` because per-row
     processing signatures aren't stamped at send-back time; the comment defers

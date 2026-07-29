@@ -705,8 +705,9 @@ const RECOVER_INTERVAL_MS = 60_000;
  * The cost is deliberate and bounded: a genuinely crashed job now waits up to
  * 30 min for recovery instead of 10. That is the right trade against silent
  * double-execution, and it is an interim mitigation — the real fix is lease
- * tokens with fenced finalizes (see docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md,
- * Phase 3a), after which this cutoff stops being load-bearing.
+ * tokens with fenced finalizes (see the "Async-jobs reclaim finalize has no
+ * fencing token" entry in docs/engineering/deferred-work.md, Phase 3a),
+ * after which this cutoff stops being load-bearing.
  */
 export const RECOVER_STUCK_CUTOFF_MIN = 30;
 
