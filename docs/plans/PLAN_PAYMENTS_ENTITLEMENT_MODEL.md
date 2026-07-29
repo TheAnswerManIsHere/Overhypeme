@@ -908,6 +908,41 @@ not one this account has yet. Recorded here so the omission is a decision.
 is terminal `failed`, survives a retention purge, and raises the admin-surface
 indicator **with email delivery disabled entirely**.
 
+#### Scope boundary: the notification subsystem stops here (David, 2026-07-29)
+
+**Everything specified above stands. Nothing further about the async-job queue
+enters this plan.**
+
+The reason is a pattern rather than any one finding. Rounds 11–14 produced 22
+findings and **not one of them was against the entitlement model** — the
+derivation, the trust boundary and the schema have been stable since round 10.
+Every finding has been against machinery *attached* to the model, and each
+round moved one subsystem outward: per-source leases, then the transactional
+outbox, then the worker that drains the outbox. Round 14 was substantially
+about whether `async_jobs` is an adequate transport for dispute and fraud
+alerts. Those findings were real and are fixed above — but they are about the
+notification subsystem, not about membership being derived correctly, and the
+trajectory had no natural stopping point.
+
+**The line, stated precisely so it is testable rather than a mood:**
+
+| In scope — stays here | Out of scope — logged, not absorbed |
+|---|---|
+| Whether the entitlement model's own writes and side effects are correct and durable **at the boundary of the claim's transaction** — the outbox row written on that transaction, unconditionally, with failures propagating (80); `side_effect_key` correlation and two-direction recovery, because that is how we know an event was fully processed (81) | The queue's **capability**: retry policy, backoff tuning, concurrency, worker scheduling, delivery guarantees beyond what 84 already states |
+| Regressions this plan's own changes introduce in **non-payment** callers — moving the enqueue decision out of `sendEmail` touches every caller in the app, and that blast radius is mine to contain | Improvements to alert escalation, retention or operator surfacing **beyond** what 82 already specifies |
+| The specifications already written above (80–85), which are frozen as-is | Anything requiring a new dependency, a second delivery channel, or a new subsystem |
+
+A finding on the right-hand side is **not dismissed** — it is recorded as
+separate work with its evidence intact, so nothing found here is lost. It is
+simply not fixed inside this plan.
+
+This is the second time David has cut scope on this plan, and the two cuts
+have the same shape: the migration machinery (57) protected users who do not
+exist; this one bounds a subsystem the entitlement model merely *uses*. The
+distinction round 4 established still governs — **shed what is adjacent, keep
+what is load-bearing for correctness** — and the table above is where the line
+falls this time.
+
 ### Reconciliation
 
 **Reconciles sources, then recomputes** — recomputing from local rows can never
@@ -1361,6 +1396,7 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 83 | 14 | A *held* lease blocks; the per-source drop is unreachable (#77 Still Open) | **Resolved** — locks taken with `SKIP LOCKED`, so contention becomes the same outcome as a stale fence rather than a `lock_timeout` that aborts the run. My drop rule was correct about a *stale* lease and silent about a *held* one, which reinstated the exact livelock it was written to prevent. The webhook path deliberately still blocks: it is the only carrier of its event and cannot skip. |
 | 84 | 14 | "Exactly once" delivery was never true | **Resolved** — the worker claims `processing`, calls Resend, then marks `done` in a *separate* transaction, so a crash redelivers. At-least-once adopted explicitly, narrowed by Resend's `Idempotency-Key` (24 h window vs. a ~10.6 h maximum job lifetime — verified against current docs and `asyncJobs.ts:133`). I had read the enqueue side and claimed a property of the delivery side. |
 | 85 | 14 | Ledger entry 75 still offered the deleted post-commit option | **Resolved** — entry 75 rewritten. A resolution row is an implementation instruction, so a superseded one contradicts the section that superseded it. First finding in this review against the ledger itself rather than the plan body. |
+| 86 | — | **Scope decision (David, 2026-07-29): the notification subsystem stops at revision 15.** | Rounds 11–14 produced 22 findings and **none against the entitlement model** — each round moved one subsystem outward, ending in the async-job queue's adequacy as a payment-alert transport. Entries 80–85 are frozen as specified; further queue-capability findings are recorded as separate work rather than absorbed. See *Scope boundary* for the in/out table. Same shape as 57, and the same governing distinction from round 4: **shed what is adjacent, keep what is load-bearing for correctness.** |
 
 | Round | Lens |
 |---|---|
@@ -1378,4 +1414,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section — **4 findings, and two of round 11's resolutions were graded Still Open rather than accepted. Both leases lacked a fence; the boundary was drawn at signatures instead of the call graph** |
 | 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not — **3 findings, and it answered all three questions in the affirmative: a third unfenced lease, the post-commit list losing required work, and one expression evaluated at two instants** |
 | 14 | **Durability and recovery of the outbox now that everything is transactional.** Round 13 moved every required side effect into `async_jobs` rows written on the claim's transaction and deleted the only escape hatch, so the outbox is now load-bearing for refund, dispute and fraud alerts. Attack that: whether the async-job worker's retry/failure semantics match what a *payment* alert requires, whether a job enqueued on the claim transaction can be orphaned or duplicated, what happens when a job permanently fails, and whether the audit trail (still deliberately outside the transaction) can now disagree with the outbox about what happened. Also: the reconciliation commit now holds many lease locks plus many user locks in one transaction — press on its duration and on what a lock timeout mid-commit does — **6 findings, five of them P1: the largest round since 8. The outbox was adopted for its crash behaviour without anyone reading the worker that drains it, and the lock question was the right one — a *held* lease blocks rather than failing a fence, so the per-source drop was unreachable and the livelock came straight back** |
-| 15 | **Everything round 14 touched is specified against code I read for the first time this round** — the async-job worker, the email helpers' swallow behaviour, `SKIP LOCKED`. So: does each new specification actually match what that code does, or have I described a mechanism that does not behave as assumed, a second time? Specifically — moving the Resend-unconfigured early return out of `sendEmail` changes behaviour for **every other caller in the app**, not just the payment paths; `side_effect_key` uniqueness has to sit inside the existing `enqueueJob` shape and survive redelivery; `SKIP LOCKED` on a *user* row can skip for reasons other than lease contention; and the critical-alert admin indicator is a new read path over `async_jobs` nobody has checked against its indexes. **Blast radius outside the payment paths is the lens** |
+| 15 | **Everything round 14 touched is specified against code I read for the first time this round** — the async-job worker, the email helpers' swallow behaviour, `SKIP LOCKED`. So: does each new specification actually match what that code does, or have I described a mechanism that does not behave as assumed, a second time? Specifically — moving the Resend-unconfigured early return out of `sendEmail` changes behaviour for **every other caller in the app**, not just the payment paths; `side_effect_key` uniqueness has to sit inside the existing `enqueueJob` shape and survive redelivery; `SKIP LOCKED` on a *user* row can skip for reasons other than lease contention; and the critical-alert admin indicator is a new read path over `async_jobs` nobody has checked against its indexes. **Blast radius outside the payment paths is the lens** — this remains the right question under the scope boundary below, because containing the blast radius of *my own* changes is explicitly in scope even though deepening the queue is not |
+| — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
