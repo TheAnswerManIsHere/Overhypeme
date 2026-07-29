@@ -1086,9 +1086,32 @@ the lease was held. That restores the invariant the leases were built on —
 *retrieval and apply are serialized per source* — which enumeration had been
 quietly exempt from.
 
+**Auxiliary collections need the same rule, and the completeness rule needs
+extending.** Refunds and disputes are states of **charge** and **dispute**
+objects, which are not present on a re-retrieved `Subscription` or
+`PaymentIntent` — so identity-only re-retrieval of the *source* does not by
+itself yield current refund or dispute state. And finding 65's completeness rule
+does not reach them: after a dispute page fails, an unseen dispute **cannot yet
+be mapped** to a user "with a source in that collection", because the mapping
+from dispute to source is precisely what the missing page would have supplied.
+
+**Specification:**
+
+- Charge, refund and dispute **identities** come from enumeration; each is
+  **re-fetched and correlated to its source while that source's lease is held**,
+  the same discipline as the source itself.
+- **Every auxiliary collection relevant to a source must be complete before that
+  source is staged as unheld or unrefunded.** Absence of a dispute is evidence
+  only if the dispute collection was fully enumerated.
+- A failed middle dispute page therefore **preserves every potentially affected
+  source** — not merely those already known to have a dispute, which is exactly
+  the set the failed page would have expanded.
+
 **Acceptance:** interleave a webhook between the list-page retrieval and the
 per-source acquisition, and assert reconciliation commits the **webhook's**
-newer state, not the enumerated older one.
+newer state, not the enumerated older one; and **fail a middle dispute page and
+assert every potentially affected source is preserved rather than staged as
+unheld.**
 
 **Specification: stage everything, guard once, then commit.** A reconciliation
 run computes the **complete** change set — source rows *and* the resulting
@@ -1540,6 +1563,12 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 117 | 20 | The migration cannot boot — legacy seed DDL survives the drop | **Resolved** — `ensureSchema()` runs immediately after `runMigrations()` and **before the port binds** (`index.ts:271-274`), and `seed.ts:562-565` still runs `ALTER TABLE lifetime_entitlements …`. `IF NOT EXISTS` guards the **column, not the table**, so the drop makes it raise `42P01` outside the runner's `SAVEPOINT` recovery and **abort startup**. Retiring that seed entry is part of the migration; the boot acceptance now exercises the real `runMigrations() → ensureSchema()` sequence. **The plan's highest-risk change, dead on arrival, found in round 20.** |
 | 118 | 20 | W1a had no verifier for subscription sources | **Resolved** — the specified verifier requires a `mode = payment` Checkout Session and a PaymentIntent, so it cannot create or refresh a `stripe_subscription` source, which is how subscription webhooks, the routes and reconciliation all arrive. An identifier-only **subscription** verifier binds subscription↔customer↔user, allowlisted product with pagination, and lifecycle — one of the two paid source types had no trust boundary at all. |
 | 119 | 20 | "Snapshotted at ingestion" is ambiguous on refresh | **Resolved** — the two source types need opposite answers: a subscription's snapshot is **re-evaluated on every authoritative refresh** (or a portal switch to a non-membership price retains access forever), while a lifetime purchase's is **frozen at creation** (or later metadata edits retroactively revoke a completed purchase). |
+| 120 | 21 | `access_hold` existed only in prose | **Resolved** — no column, so a dispute would not survive a restart and the first authoritative refresh would restore access to someone actively charging back. Persisted as `access_hold_reason` plus `open_dispute_ids` on the source row. I specified a state that participates in **every** qualification decision and never added it to the schema section three hundred lines below. |
+| 121 | 21 | The hold cannot reach the right source | **Resolved** — `resolveUserForDispute` (`webhookHandlers.ts:407-460`) resolves a **user**; all three of its lookups terminate at a user id, which is all tier-level revocation ever needed. A source-local hold needs charge → invoice → subscription (or payment-intent → lifetime). Mapping runs before any write, under that source's lease; an unresolvable dispute **holds nothing and is reported**, because holding every source would revoke an unrelated entitlement. |
+| 122 | 21 | A boolean hold clears while another dispute is open | **Resolved** — keyed by dispute id (`open_dispute_ids`), held while non-empty. Also: **the subscription loss writer did not exist** — today's handler only marks a *lifetime* entitlement `refunded`, so revision 22's "the subscription's own resulting status" described code that is not there. Now named: a lost dispute writes `lifecycle_status = 'canceled'` on that source. |
+| 123 | 21 | Identity-only re-retrieval does not reach charges and disputes | **Resolved** — refunds and disputes are states of objects **not present** on a re-retrieved `Subscription` or `PaymentIntent`, and finding 65's completeness rule could not map an *unseen* dispute to a source, since the missing page is what supplies the mapping. Auxiliary identities are re-fetched under the source's lease, and every relevant collection must be complete before a source is staged as unheld. |
+| 124 | 21 | The subscription verifier's ownership input was undefined | **Resolved** — its acceptance said "the **requested** user", but reconciliation has no requester, so the enumerator would have supplied the association it was iterating. Ownership is resolved through the unique local `users.stripe_customer_id` mapping; an expected user may be passed and mismatches rejected; **no path accepts a caller-asserted association**. The boundary is now identical on all three paths. |
+| 125 | 21 | My "under 0.3%" grace bound was unfounded | **Resolved by withdrawing it** — the pinned type's ≥1-hour note is a *lower* bound on `created`→attempt, **not an upper bound on `finalized_at`→attempt**, so it cannot bound the error at all. An unresolvable attempt now derives **no deadline**: the source keeps qualifying and the case is reported, because a guessed start can only be early and early means revoking a paying customer. **I quantified a reassurance I had not derived**, which is worse than leaving it unquantified. |
 
 | Round | Lens |
 |---|---|
@@ -1564,4 +1593,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 19 | **The plan after the notification cut** — the same question round 10 asked after the migration machinery was deleted, and it found six defects then. Did anything load-bearing go with it? Specifically: does the transaction boundary still mean anything now that the only side effects inside it are domain writes; is the surviving audit-half recovery coherent on its own; and is there a section still written as though the manifest exists. Round 10's lesson was that a large cut leaves *dangling references*, not holes |
 | 20 | **The narrowest lens yet, because the surface is now small.** Round 19 dropped to two findings — the first decline since round 13 — and both were dangling references from the cut rather than defects in the model. So: attack the **entitlement model itself**, which has had no finding against it since round 11 and has therefore been reviewed least recently. The derivation and its set-union semantics, W1a/W1b and the identifier-only verifier, the per-source leases and fences, read-path expiry and the effective-tier expression, the schema and its constraints, the migration, reconciliation's stage-guard-commit. **Nine rounds is long enough that "stable" may mean "unexamined"** |
 | 21 | **The core again, immediately — round 20 changed what this loop believes about itself.** Seven findings, four P1, on the part I had called stable since round 11, including an allowlist bypass and a migration that could not boot. The correct response to that is not to move on but to **stay on the core for a second pass**, now that revision 22 has added an `access_hold` state, a three-term qualification conjunction, a second verifier, per-source-type snapshot semantics, a re-retrieval rule in enumeration and a seed-DDL retirement. Every one of those is new and unreviewed, and this plan's most reliable pattern is that a round's fixes are the next round's defects |
+| 22 | **Disputes, third pass.** Rounds 20 and 21 both landed hardest on dispute handling — a state that did not exist, then a state that was not persisted, not keyed, and could not find its own source. Revision 23 adds `open_dispute_ids`, a charge→invoice→subscription mapping, a named subscription loss writer, auxiliary-collection re-fetch under lease, and locally-resolved ownership. **Every one of those is new.** Attack the dispute path end to end as a single story — open, concurrent, won, lost, unresolvable, arriving out of order, racing a cancellation — and check whether the mapping and the completeness rule can disagree about the same source |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
