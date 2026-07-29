@@ -217,6 +217,49 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * `lockTimeoutMs` is set inside the transaction. It is safe to bound because the
  * transaction holds no network I/O by construction.
  */
+/**
+ * Re-check the fence inside a transaction the caller already opened.
+ *
+ * This is the whole of the fencing check, factored out because the webhook path
+ * must run it inside the SAME transaction that claims idempotency — it cannot
+ * open its own. Throws `LeaseFenceError`, which aborts that transaction and
+ * abandons the write.
+ */
+export async function assertFenceHeld(tx: Tx, handle: LeaseHandle): Promise<void> {
+  // Expiry is evaluated by the DATABASE, not by comparing a fetched timestamp
+  // against this process's clock — the leases are written with the database's
+  // now(), and app-vs-database skew would make the fence wrong in whichever
+  // direction the skew ran.
+  const held = await tx.execute<{ holder: string; fence: string; expired: boolean }>(sql`
+    SELECT holder, fence, (expires_at <= now()) AS expired
+    FROM membership_leases
+    WHERE scope = ${handle.scope}
+    FOR UPDATE
+  `);
+
+  const row = held.rows[0];
+  if (!row) throw new LeaseFenceError(handle.scope, "lease row is gone");
+  if (row.holder !== handle.holder) {
+    throw new LeaseFenceError(handle.scope, "held by another holder");
+  }
+  if (Number(row.fence) !== handle.fence) {
+    throw new LeaseFenceError(handle.scope, `fence ${handle.fence} superseded by ${row.fence}`);
+  }
+  // Checked inside the row lock, so this is not a check-then-write race: once we
+  // hold the lock and have seen it unexpired, no successor can acquire until
+  // this transaction ends. That is why the TTL does not have to exceed the apply
+  // transaction's duration.
+  if (row.expired) {
+    throw new LeaseFenceError(handle.scope, "lease expired before the apply");
+  }
+}
+
+/**
+ * Open the apply transaction and run the fence check first.
+ *
+ * `lockTimeoutMs` is set inside the transaction. It is safe to bound because the
+ * transaction holds no network I/O by construction.
+ */
 export async function withLeaseFence<T>(
   handle: LeaseHandle,
   lockTimeoutMs: number,
@@ -224,37 +267,7 @@ export async function withLeaseFence<T>(
 ): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL lock_timeout = ${sql.raw(String(Math.trunc(lockTimeoutMs)))}`);
-
-    // Expiry is evaluated by the DATABASE, not by comparing a fetched timestamp
-    // against this process's clock — the leases are written with the database's
-    // now() and app-vs-database skew would make the fence wrong in whichever
-    // direction the skew ran.
-    const held = await tx.execute<{ holder: string; fence: string; expired: boolean }>(sql`
-      SELECT holder, fence, (expires_at <= now()) AS expired
-      FROM membership_leases
-      WHERE scope = ${handle.scope}
-      FOR UPDATE
-    `);
-
-    const row = held.rows[0];
-    if (!row) throw new LeaseFenceError(handle.scope, "lease row is gone");
-    if (row.holder !== handle.holder) {
-      throw new LeaseFenceError(handle.scope, "held by another holder");
-    }
-    if (Number(row.fence) !== handle.fence) {
-      throw new LeaseFenceError(
-        handle.scope,
-        `fence ${handle.fence} superseded by ${row.fence}`,
-      );
-    }
-    // Checked inside the row lock, so this is not a check-then-write race: once
-    // we hold the lock and have seen it unexpired, no successor can acquire
-    // until this transaction ends. That is why the TTL does not have to exceed
-    // the apply transaction's duration.
-    if (row.expired) {
-      throw new LeaseFenceError(handle.scope, "lease expired before the apply");
-    }
-
+    await assertFenceHeld(tx, handle);
     return fn(tx);
   });
 }
