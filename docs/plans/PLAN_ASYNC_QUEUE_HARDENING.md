@@ -414,7 +414,7 @@ competing authority this section forbids.
 | `dedupe_key` | grouping key, e.g. `job_abandoned:email:auth` |
 | `severity` | `warning` \| `critical` |
 | `queue` | nullable — set for job-scoped kinds |
-| `sample_payload` | jsonb: representative job id, last error, recipient etc. |
+| `sample_payload` | jsonb, **typed per kind** — see below; bounded, redacted on schedule |
 | `first_seen_at` / `last_seen_at` | window bounds |
 | `occurrence_count` | total occurrences, incremented on repeat |
 | `state` | `active` \| `resolved` — see the incident lifecycle below |
@@ -454,6 +454,31 @@ on **every** dispatcher tick forever — a row the dispatcher can never satisfy.
 The enum is the two push channels; in-app needs no entry because the ledger row
 *is* the record.
 
+**`sample_payload` is typed per kind, bounded, and its API projection is
+stated** — "a representative JSON object … etc." left the implementer deciding
+which PII and raw provider text gets persisted into a table with a 90-day
+retention:
+
+| Kind | Payload |
+|---|---|
+| `job_abandoned` / `job_terminal_failed` | `{ jobId, queue, attempts, errorClass, lastError, recipient? }` — `lastError` truncated to 500 chars; `recipient` only for `queue = 'email'` |
+| `job_poison_pill` | `{ jobId, queue, attempts, lastError }` |
+| `queue_backlog` | `{ queue, oldestPendingAgeMinutes, pendingCount }` |
+| `queue_deferred_stale` | `{ queue, oldestDeferredAgeHours, deferredCount }` |
+| `worker_lane_stalled` / `worker_lane_wedged` | `{ lane, instanceIds[], lastScheduledAt, inFlightCount }` |
+
+No other keys are written, so the redaction transformation has a closed set to
+operate on: at `job_alert_sample_redact_days` (7) the sweep **nulls
+`lastError` and `recipient`** and leaves the structural fields, which are the
+ones that stay useful for a 90-day trend and carry no personal data.
+
+**And C2's `activeAlerts` must project it**, or the security section's own
+promise — the full recipient and error visible on the *authenticated* page,
+never in the webhook digest — is unfulfillable: an earlier draft made that
+promise while the only endpoint that could keep it omitted the field entirely.
+`activeAlerts` includes `sample_payload` as stored (already redacted or not,
+per age), behind `requireAdmin` like every other field on that route.
+
 A partial unique index on `(dedupe_key)` where `state = 'active'` makes
 "record or coalesce" a single idempotent upsert.
 
@@ -478,6 +503,38 @@ from it rather than repeating it:
 | `queue_deferred_stale` | condition | A2a sweep | warning |
 | `worker_lane_stalled` | condition | A2a sweep | critical |
 | `worker_lane_wedged` | condition | A2a sweep | critical |
+
+**Each kind declares its exact `dedupe_key` builder**, because the partial
+unique index makes the key the definition of "the same incident" — and for the
+condition kinds the grouping choice changes both the alert count and what
+happens when one instance recovers:
+
+| Kind | `dedupe_key` |
+|---|---|
+| `job_abandoned` | `job_abandoned:{queue}:{errorClass}` |
+| `job_terminal_failed` | `job_terminal_failed:{queue}:{errorClass}` |
+| `job_poison_pill` | `job_poison_pill:{queue}` |
+| `queue_backlog` | `queue_backlog:{queue}` |
+| `queue_deferred_stale` | `queue_deferred_stale:{queue}` |
+| `worker_lane_stalled` | `worker_lane_stalled:{lane}` |
+| `worker_lane_wedged` | `worker_lane_wedged:{lane}` |
+
+**The lane-keyed pair is the one worth arguing.** Both are evaluated
+fleet-wide — `stalled` is ∀ live instances, `wedged` is ∃ a live instance — so
+both are keyed by **lane only, never by instance**. Keying `wedged` by instance
+would look more precise and be wrong: on an autoscaled fleet a wedge that
+migrates from instance A to instance B on a scale event would open a *second*
+incident while the first can never resolve (A is gone, so its condition is
+neither true nor observable), leaving a permanently unresolvable alert row and
+a banner nobody can clear. Lane-keyed, the incident is "this lane is wedged
+somewhere," which resolves cleanly the moment no live instance satisfies the
+predicate. The affected instance ids go in `sample_payload`, where they are
+diagnostic rather than identity.
+
+`errorClass` is always the closed-enum value from `classifyFailure` (A5) — no
+raw provider text ever reaches this indexed column. Producer tests are derived
+from these exact builders rather than from hand-written literals, so a key that
+drifts fails the suite.
 
 `email_delivery_disabled` is **removed**, not given a producer: it described the
 same situation `queue_deferred_stale` already covers (email configured away
@@ -766,6 +823,16 @@ delivered digest.
   is then structurally impossible rather than guarded by a payload `kind`,
   because alert delivery no longer produces queue rows at all.
 
+  **One send per channel, not one per admin.** The recipient query can return
+  several admins, and the existing notifier issues **one provider request per
+  recipient** — so a single `(alert_id, 'email')` watermark cannot represent
+  "delivered to A, failed for B": advancing it drops B, not advancing it
+  re-mails A on the next tick. Rather than add per-recipient dispatch rows for
+  a channel that is off by default, the digest goes out as **one Resend request
+  with all admin addresses in `to`**, which makes the outcome genuinely
+  all-or-nothing and keeps the single watermark honest. Acceptance asserts one
+  provider call regardless of admin count, and that a failure advances nothing.
+
   The dev fallback is unchanged: with no Resend key, this path delivers nothing
   and throws nothing, and the alert remains visible in-app.
 
@@ -778,9 +845,22 @@ accepted trade-off narrow:
 - `dedupe_key` includes **queue + error class**, so a different queue or a
   different failure mode opens its own key and notifies immediately rather than
   folding into an unrelated digest;
-- an **escalation override** — if `occurrence_count` since the last digest
-  exceeds `alert_escalation_multiplier` (default 10×), it dispatches at once
-  regardless of cooldown, because an order-of-magnitude change is news.
+- an **escalation override** with an exact predicate, because "multiplier"
+  alone admits at least three readings that produce very different alert
+  volumes. The trigger is:
+
+  ```
+  (occurrence_count - dispatched_count) >= alert_escalation_multiplier
+  ```
+
+  i.e. **pending occurrences for that channel reach 10** (default), dispatching
+  at once regardless of cooldown. Not "ten times the previous digest size" and
+  not "total count grew tenfold": both scale with history, so a long-running
+  incident would need ever-larger bursts to re-alert — the opposite of what an
+  escalation is for. A flat pending threshold means the *rate* of new failures
+  is what breaks the cooldown, which is the property David asked for when he
+  accepted digesting. Acceptance covers the boundary exactly: 9 pending stays
+  silent inside the cooldown, 10 dispatches immediately.
 
 **The error class is a bounded classifier, and specifying it is load-bearing.**
 The whole cooldown guarantee rests on `dedupe_key` carrying an "error class."
@@ -979,7 +1059,37 @@ deferred beyond `email_defer_alert_hours` (default 6).
 
 **C1. `worker_lane_heartbeats`** — one row per **`(instance_id, lane)`**, with
 `worker_protocol_version`, `last_scheduled_at`, `last_tick_completed_at`,
-`in_flight_count`, `last_claim_count`.
+`in_flight_count`.
+
+**`instance_id` is a process-start UUID**, and getting this wrong would undo
+the table's entire purpose. It is `randomUUID()` evaluated **once at module
+load** in `asyncJobs.ts` and held for the life of the process — not
+`REPLIT_DEPLOYMENT_ID`, not the git SHA, not the hostname, none of which
+distinguish two instances of the *same* deployment. Using any of those would
+collapse the fleet back onto one row per lane, which is exactly the defect
+`(instance_id, lane)` exists to fix, and would let a wedged worker hide behind
+a healthy peer's writes — including from the 3b interlock, which would then
+refuse or admit on whichever instance wrote last.
+
+Its semantics, stated because each has a consequence:
+
+- **Restart mints a new id.** The old rows stop advancing and are pruned by the
+  TTL sweep, which is correct: a restarted process genuinely is a different
+  worker, and its predecessor's in-flight claims are exactly what recovery
+  needs to see as abandoned.
+- **No persistence across restarts**, deliberately — persisting it would let a
+  crashed process's identity be reused by its replacement and mask the gap.
+- **Under the test runner**, each process gets its own id from the same code
+  path, so a two-runner test in one process shares an id unless the test
+  overrides it. Tests that need two *instances* pass an explicit id; this is
+  called out because the config-cache criterion (A2a) already ran into the
+  limits of same-process isolation, and the same trap applies here.
+
+*(`last_claim_count` was listed here in earlier drafts and is **removed**. It
+had no defined write moment, no aggregation rule, no consumer and no
+acceptance criterion — a persisted metric whose meaning the implementer would
+have had to invent, and which reads as fleet-wide when it would be per
+instance. `in_flight_count` already answers the question it was reaching for.)*
 
 **Three stamps, written at three different moments**, because scheduler liveness
 and tick completion are different facts:
@@ -1225,14 +1335,39 @@ empty migration file is created for it. Next free index is **0094**.
   unique index on `(dedupe_key) WHERE state = 'active'`, plus the
   `job_alert_dispatches` child table keyed `(alert_id, channel)` — carrying
   `dispatched_count`, `dispatched_tier`, `last_dispatched_at` — and an index on
-  `(state, resolved_at)` for the retention purge. Seed the `admin_config` rows:
-  `email_admin_abandoned_alerts_enabled` (value `false`, finally present so the
-  UI can toggle it), `alert_cooldown_minutes` (30),
-  `alert_escalation_multiplier` (10), `alert_webhook_format` (`raw`),
-  `email_defer_alert_hours` (6), `queue_backlog_alert_minutes` (30),
-  `condition_escalation_hours` (4), `alert_webhook_timeout_ms` (5000),
-  `wedged_lane_alert_minutes` (30), `job_alert_retention_days` (90),
-  `job_alert_sample_redact_days` (7).
+  `(state, resolved_at)` for the retention purge, plus the seeded
+  `admin_config` rows — **each with its `data_type`, `min_value` and
+  `max_value`, not just a default.** `PATCH /admin/config/:key` enforces
+  numeric bounds **only when the row supplies them** and otherwise accepts
+  arbitrary text (`admin.ts:2198`), so a seed without bounds is a runtime
+  hazard, not a cosmetic omission: a negative timeout, a zero escalation
+  interval (division by zero in the tier computation), or a retention shorter
+  than its redaction window would all be accepted:
+
+  | Key | Type | Default | Min | Max |
+  |---|---|---|---|---|
+  | `email_admin_abandoned_alerts_enabled` | boolean | `false` | — | — |
+  | `alert_cooldown_minutes` | integer | 30 | 1 | 1440 |
+  | `alert_escalation_multiplier` | integer | 10 | 2 | 1000 |
+  | `condition_escalation_hours` | integer | 4 | 1 | 168 |
+  | `alert_webhook_timeout_ms` | integer | 5000 | 500 | 30000 |
+  | `email_defer_alert_hours` | integer | 6 | 1 | 168 |
+  | `queue_backlog_alert_minutes` | integer | 30 | 1 | 1440 |
+  | `wedged_lane_alert_minutes` | integer | 30 | 1 | 1440 |
+  | `job_alert_retention_days` | integer | 90 | 7 | 3650 |
+  | `job_alert_sample_redact_days` | integer | 7 | 1 | 3650 |
+  | `alert_webhook_format` | string | `raw` | — | — |
+
+  Two constraints bounds alone cannot express, both enforced at read time
+  alongside the existing lease/renewal ratio clamp:
+
+  - **`job_alert_sample_redact_days <= job_alert_retention_days`.** Inverted,
+    rows would be purged before their payloads were ever redacted, so the
+    redaction guarantee would silently never run.
+  - **`alert_webhook_format` is whitelisted to `slack | discord | raw`.** It is
+    a string key, so the config route accepts *any* text; an unrecognised value
+    would otherwise reach the dispatcher and either throw on every tick or
+    silently POST an unshaped body.
 - **0096** (Phase 3) — `async_jobs.delivery_generation` (int, not null,
   default 0 — the value that lets an admin retry mint a *different* provider
   idempotency key on the same row; see B5), plus
@@ -1657,6 +1792,12 @@ before the machine changes (settled decision 5).
    exists.** David picks the destination (a Slack or Discord incoming webhook,
    matching `alert_webhook_format`) and sets the secret on the Replit
    deployment; it is never an `admin_config` row, since it is a credential.
+   **And in the same step, set `alert_webhook_format` to match the destination
+   chosen** — migration 0095 seeds it to `raw`, so a Slack or Discord webhook
+   provisioned without that PATCH receives a raw digest object instead of
+   `{text}` / `{content}` and the first real UAT fails on a correctly-built
+   system. The secret and the format are one decision; provisioning them
+   separately is what makes the mismatch possible.
    Until it is set, the dispatcher logs the unconfigured channel once per tick
    at warn level and delivers **in-app only** — degraded and visible, never
    crashing and never silently pretending success — so the rest of Phase 2 can
@@ -1714,8 +1855,31 @@ before the machine changes (settled decision 5).
     count.
 14. Per-lane batched heartbeat renewal, fenced on `(id, token)` pairs; a
     zero-row renewal drops the job from the lane's in-flight set and logs.
-15. Graceful shutdown (moved earlier from the first draft, so the 3a→3b deploy
-    drains cleanly).
+15. **Graceful shutdown — and it must change `shutdown.ts`, not just add a
+    signal listener.** The existing path (`shutdown.ts:48-66`) calls
+    `server.close(cb)` and **exits from that callback**, which fires as soon as
+    HTTP connections drain — often immediately, since a deploy usually has no
+    in-flight requests — with a `gracePeriodMs` force-exit as the only other
+    bound. An asynchronous lease release registered on SIGTERM would simply not
+    finish before `exit(0)`, so every ordinary deploy would still look like a
+    crash and burn an attempt on each in-flight job: the failure this step
+    exists to prevent, undetected because the step *looks* done.
+
+    So the drain is a **participant in the existing exit path**, not a listener
+    beside it. `server.close`'s callback awaits a `drainAsyncJobsWorker()`
+    promise before `safeExit(0)`; the worker (a) stops claiming immediately,
+    (b) awaits in-flight handlers up to `async_job_drain_seconds` (default 20,
+    inside the 10s→30s force-exit budget which this step raises to 30s to
+    accommodate it), then (c) **fence-releases** whatever is still running back
+    to `pending` with `attempts` unchanged, using the same `(id, token,
+    status)` predicate as every other transition. Anything past the deadline is
+    left to reclaim — bounded, and strictly better than exiting mid-flight
+    with no release at all.
+
+    Acceptance drives a real SIGTERM against a runner with a slow handler and
+    asserts the row returns to `pending` with `attempts` **unchanged** before
+    the process exits — a test that fails against a listener-only
+    implementation, which is the point.
 16. Move `recoverStuckProcessing` off the bulk maintenance block onto the
     independent runner **and disable it for the duration of 3a** — no legacy
     `updatedAt` reclaim, no lease reclaim, on either the startup or the periodic
@@ -1766,9 +1930,29 @@ before the machine changes (settled decision 5).
     than fork. Closing it completely would need provider idempotency neither
     fal nor the planner offers.
 
+    **The object is not the only write, and the others do not converge on their
+    own.** After the upload, `mirrorToLegacyStorage` unconditionally **appends**
+    `storedPath` to `facts.aiMemeImages[gender]` (`imagePromptJobs.ts:672-679`)
+    and inserts an **unconstrained** `user_ai_images` row (`:681-688`). With a
+    deterministic path, two live runs write one blob — and still expose the
+    same image **twice** in the fact's gallery and count it **twice against the
+    user's paid storage limit**. The one-object assertion would pass while the
+    user-visible defect shipped. So the mirror writes are made idempotent in
+    the same step:
+
+    - the `facts.aiMemeImages[gender]` append becomes **append-if-absent**,
+      inside the `FOR UPDATE` transaction that already guards the row — the
+      lock is there, the check simply was not;
+    - `user_ai_images` gets a **unique index on `(userId, factId, gender,
+      storagePath)`** with the insert moving to `onConflictDoNothing` on it, so
+      a replay cannot double-charge storage no matter how the runs interleave.
+      This is a migration change and rides 0096.
+
     Both are recorded in the per-queue replay table so no later reader re-opens
-    the question, and acceptance drives each handler twice against one attempt,
-    asserting exactly one paid call and one stored object.
+    the question. Acceptance drives each handler **twice concurrently** against
+    one attempt and asserts exactly one paid call, one stored object, **one
+    gallery entry, and one `user_ai_images` row** — the last two being the
+    assertions that fail against a deterministic path alone.
 
 *(The deferred-email age alarm (B6) is **not** here — it is one of Phase 2's
 four condition producers, step 7a.)*
@@ -1791,8 +1975,21 @@ remains).**
     dependency, stated so 3b cannot ship without it.
 19. Lease-expiry reclaim as a **fenced atomic transition** (`SKIP LOCKED` +
     conditional update on the observed `(status, lease_token, lease_expires_at)`),
-    with attempt increment, token rotation, and poison-pill termination; legacy
-    `updatedAt` fallback retained for one retention window.
+    with attempt increment, token rotation, and poison-pill termination.
+
+    The legacy `updatedAt` fallback is retained **only for NULL-token
+    `processing` rows that predate 0096**, and "one retention window" was not a
+    derivable duration — `processing` rows are not covered by the terminal-row
+    retention described elsewhere, so nothing would ever have removed it. The
+    cutoff is now explicit: **the fallback is deleted in step 19a, at least 7
+    days after the 3b deploy**, gated on a query showing zero NULL-token
+    `processing` rows remain. Seven days is chosen against the retry ladder —
+    it spans ~10.6h, so a week is well past the point where any pre-0096 row
+    could still be legitimately in flight rather than genuinely stranded.
+19a. **Delete the legacy `updatedAt` reclaim path** and its tests, per the
+    cutoff above. Without a step, the temporary unfenced compatibility path
+    outlives the thing it was compatible with — permanently, since nothing else
+    would ever prompt a look.
 
 **Phase 4 — Transactional enqueue.**
 20. Rewrite `enqueueJob`'s dedupe onto
@@ -1994,7 +2191,37 @@ would be guessing with the database's connection budget:
    limit), and how much of it is already spoken for.
 2. **The autoscale maximum-instance setting** for the deployment.
 
-With those, `per_instance_max = floor(budget / max_instances)`.
+With those, the budget equation is complete rather than gestural — an earlier
+draft said "how much of it is already spoken for" and "reserved headroom"
+without defining either, which left the implementer making the
+production-capacity call this section exists to take off their desk:
+
+```
+db_budget        = max_connections
+                 - superuser_reserved_connections   (Postgres reserves these)
+                 - peak_non_worker_connections      (measured, see below)
+                 - 5                                (fixed reserve: migrations,
+                                                     psql/console, one admin
+                                                     request burst)
+per_instance_max = floor(db_budget / max_instances)
+```
+
+`peak_non_worker_connections` is not a guess either: it is the **observed
+maximum** of `SELECT count(*) FROM pg_stat_activity` sampled over a normal day,
+which David captures alongside the other two numbers. The fixed reserve of 5 is
+deliberately small and deliberately constant — it covers the connections that
+appear *outside* the fleet's steady state, and inflating it would just eat
+worker capacity that the lanes provably need.
+
+**The fallback is chosen, not offered.** If the arithmetic does not close, the
+answer is **lowering per-lane concurrency bounds** until the fleet's worst case
+fits — not a shared pooler. A pooler is infrastructure work with its own
+failure modes (transaction-mode pooling breaks session state and prepared
+statements, both of which this codebase uses), it is outside this plan's scope,
+and it would land in the same phase as the queue's riskiest changes. Lowering
+concurrency is a config change with an obvious, monitorable cost: throughput.
+The pooler stays a future option, recorded in `deferred-work.md`, not a branch
+an implementer has to evaluate mid-build.
 
 **Why this blocks rather than defers.** Phase 1 **adds** steady-state database
 work (heartbeats, the dispatch runner, health queries) to a pool this plan
