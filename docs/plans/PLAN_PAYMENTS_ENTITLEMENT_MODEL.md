@@ -360,6 +360,8 @@ row **exists**, with no status filter —
 | `routes/stripe.ts:448` | blocks **reactivate** |
 | `routes/stripe.ts:504` | blocks **switch-preview** |
 | `routes/stripe.ts:604` | blocks **switch-plan** |
+| `admin.ts:454` | `isLifetime` on `GET /admin/users/:id/membership`, which `users.tsx:1146-1187` renders as **"Legendary for Life"** with a **revoke control** |
+| `admin.ts:76` | `if (lifetimeRows.length > 0) return "legendary"` — a tier **decision**, not a display |
 
 plus `SubscriptionPanel.tsx`, which treats `isLifetime` as an **independent
 Legendary fallback** — a second grant path in the UI, parallel to the tier.
@@ -377,7 +379,7 @@ exactly what breaks these readers.
 
 | Question | Sites | Ported to |
 |---|---|---|
-| *Does this user currently hold a qualifying lifetime source?* | all five `routes/stripe.ts` sites | the **qualification** predicate — allowlist ∧ no hold ∧ no terminal loss ∧ lifecycle — not row existence |
+| *Does this user currently hold a qualifying lifetime source?* | all five `routes/stripe.ts` sites, **plus `admin.ts:454` and `admin.ts:76`** | the **qualification** predicate — allowlist ∧ no hold ∧ no terminal loss ∧ lifecycle — not row existence |
 | *Did this user ever have one?* | none currently | historical existence, if a future reader needs it |
 
 And the **UI grant is removed**: `SubscriptionPanel.tsx` stops deriving
@@ -389,6 +391,28 @@ called out here rather than arriving as a surprise.
 subscription is not shown as lifetime, is not shown Legendary by the panel's own
 logic, and **can** cancel, reactivate, preview and switch; a user with a valid
 lifetime source keeps all of today's behaviour.
+
+**Two more of the same, found after the first fix — the count went 5 → 7.**
+`GET /admin/users/:id/membership` (`admin.ts:393-463`) computes `isLifetime` the
+same way, and `users.tsx:1146-1187` renders it as **"Legendary for Life"** and
+offers a **revoke control**. An admin looking at a refunded user would see a
+current lifetime grant and a button to revoke something already revoked — the
+screen an operator opens *specifically to check membership state*, showing the
+wrong one.
+
+Verifying that finding surfaced a seventh the reviewer had not named:
+`admin.ts:76`, `if (lifetimeRows.length > 0) return "legendary"`. That one is
+**not a display** — it returns a tier, so under retention it hands Legendary back
+on the strength of a refunded row. It is the most consequential of the seven and
+it was found only because the sixth forced me to re-read the file rather than
+re-read my own inventory.
+
+**What generalises from 5 → 7:** my first enumeration searched
+`routes/stripe.ts` because that is where the finding pointed, and I reported it
+complete. The reader class is defined by *the question asked*, not by the file it
+lives in, so the search must be over the **table** — every reference to
+`lifetimeEntitlementsTable` anywhere — then filtered by question. Both misses
+were in `admin.ts`, one file away from where I looked.
 
 **The general lesson, since it cost three rounds of the wrong lens:** a sweep
 over *writers* cannot find a *reader* that asks the wrong question. Retaining
@@ -2093,6 +2117,28 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
   afterwards.
 - **Portal** — missing/invalid configuration fails closed; sessions always
   carry the explicit id.
+- **E2E fixtures encode the old source-of-truth boundary and must be migrated.**
+  `memeUploadFlow.spec.ts:124-139` and `identityMemeFlow.spec.ts:178-181,385`
+  both unlock the Legendary flow with a direct
+  `UPDATE users SET membership_tier='legendary'`. The target schema **still
+  stores that projection**, so these tests keep passing unchanged — while
+  bypassing entitlement creation, the trust boundary and the single derivation
+  writer entirely. They would go green against a completely broken grant path,
+  which is worse than no coverage: they would be *cited* as evidence it works.
+
+  **Specification:** membership-focused E2E setups create a **qualifying
+  entitlement through the supported grant boundary** and assert **both** the
+  source row and the effective tier. Unit tests unrelated to membership may
+  still seed the projection directly — the rule is scoped to tests where
+  membership behaviour is what's under test, not a precondition of something
+  else.
+
+  Same shape as D1's own origin (`checkoutConfirm.test.ts:626` proving a guard
+  worked while its caller violated it) and as `dataLifecycle.test.ts`, which
+  asserted a string helper was deterministic while the function using it threw
+  on every call. **A test that sets up state by bypassing the mechanism under
+  test cannot fail when that mechanism breaks.**
+
 - **Gates** — `pnpm run check:codegen-drift`, migration-snapshot validator,
   `node scripts/check-docs-accuracy.mjs` run bare.
 
@@ -2252,6 +2298,8 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 150 | 27 | Two presentation surfaces return the raw tier | **Resolved** — `GET /admin/users` (rendered by `users.tsx`) and `GET /users/me` both re-select `users.membership_tier` directly. With the horizon passed and the convergence sweep failing, authorization demotes the user while **both screens keep showing Legendary** — the exact scenario read-path enforcement exists for, misreported by the two surfaces anyone would check. Both route through the effective-tier expression at a bound `asOf`. Revision 28's "displayed state everywhere" claim was a **fourth** false coverage assertion. |
 | 151 | 27 | **145 Still Open** — an acceptance still required hard deletion | **Resolved** — 145 moved account deletion out of scope and said no acceptance depends on the retained context; an acceptance three sections later still required hard deletion, `membership_history` anonymisation and grantor-label anonymisation to pass. Rescoped to what this plan's own code owns: cascade removes entitlement rows, nothing writes an orphan `user_id`, and a *grantor's* removal preserves the recipient's entitlement. |
 | 152 | 27 | **My "hard delete has never worked" claim was false** | **Resolved by retraction** — I ran `DELETE FROM users` as raw SQL, which bypasses both deletion routes, and generalised the FK error into a claim about the application. `DELETE /admin/users/:id` **works**: `admin.ts:304-325` deletes six child tables and nullifies seven columns — including `facts.submitted_by_id`, the exact constraint my probe hit — before deleting the user. Only `POST /admin/users/:id/data-delete` `phase: "hard"` is broken. **Thirteen was a fact about the schema and I stated it as a fact about the code**, then reported it to David as the basis for a scope decision. The decision survives on the correct reason; the claim is retracted. |
+| 153 | 28 | **146 Still Open** — two more existence readers, both in `admin.ts` | **Resolved** — `admin.ts:454` feeds `users.tsx:1146-1187`'s **"Legendary for Life"** badge and **revoke control**, so an admin checking a refunded user sees a current grant and a button to revoke what is already revoked. Verifying it surfaced a **seventh** the reviewer did not name: `admin.ts:76`, `if (lifetimeRows.length > 0) return "legendary"` — **not a display but a tier decision**, which under retention hands Legendary back from a refunded row. Count went 5 → 7. **My first enumeration searched the file the finding pointed at and I reported it complete; the class is defined by the question asked, not the file, so the search must be over the table.** |
+| 154 | 28 | E2E fixtures set the derived tier directly | **Resolved** — `memeUploadFlow.spec.ts:124-139` and `identityMemeFlow.spec.ts:178-181,385` unlock Legendary with `UPDATE users SET membership_tier='legendary'`. The target schema still stores that projection, so they pass unchanged **while bypassing entitlement creation, the trust boundary and the derivation writer** — green against a completely broken grant path, and then cited as evidence it works. Membership-focused E2E setups now grant through the supported boundary and assert source **and** effective tier. Same shape as D1's origin and the deleted `dataLifecycle.test.ts`: **a test that sets up state by bypassing the mechanism under test cannot fail when it breaks.** |
 
 | Round | Lens |
 |---|---|
@@ -2283,4 +2331,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 26 | **Cross-artifact agreement, mechanically.** Round 25's three findings share one shape that is *not* writer enumeration: **two artifacts within this document disagree** — the matrix said `plan` exists and the DDL did not; the matrix said `untouched` and the reconciliation section required a write; the fix text said "retain history anonymisation" and the schema forbade it. Three instances in one round, and 138/136 were both marked Resolved by me while still open. So: **check the plan against itself**, pairwise and exhaustively — every column in the DDL against every cell in the matrix (both directions, so a column in one and not the other is caught); every *category* against every writer the plan requires elsewhere, especially in the reconciliation and repair paths; every acceptance criterion against the specification it claims to test. I am no longer a reliable checker of whether my own fix landed everywhere it had to, which is the actual finding of this round |
 | 27 | **The claims I make about my own verification.** Entry 142 is the round's real finding and it is not about disputes: I *told* you every `untouched` cell had been re-read against the repair paths, and named `dispute_loss_revoked_at` as having survived that check. It had not been checked. That is a different failure from the ones 120–141 catalogue — not a control I forgot to wire up, but a **verification I reported performing and did not perform**. Three of the last four rounds have now overturned something I marked Resolved. So: treat every claim in this document of the form *"I checked X"*, *"every Y was re-read"*, *"this was verified against Z"* as **unverified**, find them all, and test each against the artifact it claims to have checked. Start with the sweeps I reported completing in rounds 24–26. If the reported check cannot be reconstructed from what the document actually says, it did not happen |
 | 28 | **Readers, and only readers.** Entry 146 is the round's structural finding: three consecutive rounds swept *writers* and could not have found a *reader* asking a question the model invalidated. Retention changes what row-existence means, and this plan retains refunded, revoked and terminal rows everywhere. So: enumerate **every read** of `subscriptions`, `lifetime_entitlements`, `membership_history` and `users.membership_tier` — routes, middleware, admin endpoints, scheduled jobs, and **the frontend**, which entry 146 and 150 both reached into and no earlier round did — and for each, decide whether it wants *current qualification*, *historical existence*, or *the raw stored value*, and whether retention breaks its current answer. Entry 150 found two presentation surfaces; entry 146 found a UI component granting access in parallel. Both were outside every previous lens, and I have no reason to think the frontend has been examined at all |
+| 29 | **The existing test suite as a source of false confidence.** Round 28 dropped to two findings, both P2, **no P1 for the first time** — the loop's first convergence signal that is not simply my own assertion. But entry 154 opened a surface no round has swept: **the tests that already exist**. Three instances are now on record of a green test sitting beside a broken thing it names — `checkoutConfirm.test.ts:626` (D1's origin), the deleted `dataLifecycle.test.ts`, and these E2E fixtures. So: sweep the **existing** tests rather than the acceptance criteria. Which would still pass if this plan's model were implemented wrongly? Specifically — tests seeding `users.membership_tier` or a source row directly instead of granting; tests asserting a helper in isolation while its only caller violates its contract; fixtures that must change under the new schema but whose assertions would not catch it if they didn't. **A test that cannot fail is a liability the acceptance criteria cannot fix, because the acceptance criteria are new and these are already green** |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
