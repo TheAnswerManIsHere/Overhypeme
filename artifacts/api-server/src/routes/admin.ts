@@ -50,6 +50,11 @@ import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
+  isMembershipConfigKey,
+  loadMembershipConfig,
+  validateMembershipConfigWrite,
+} from "../lib/membershipTiming";
+import {
   FACT_ENRICHMENT_CONFIG_KEYS,
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
   resolveFactEnrichmentSystemPrompt,
@@ -2262,6 +2267,29 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
+    // Some settings are only coherent against each other: the entitlement
+    // lease must outlive the bounded Stripe retrieval plus the apply, the
+    // reconciliation run lease must outlive three heartbeats, and the downgrade
+    // allowance must not exceed the absolute cap. Every individual range can
+    // pass while the SET is broken, and a relational invariant enforced on one
+    // side only is not enforced — so this runs on a write to ANY component.
+    if (isMembershipConfigKey(key)) {
+      const parsed = Number(rawValue);
+      if (Number.isNaN(parsed)) {
+        res.status(400).json({ error: "Value must be a number" });
+        return;
+      }
+      const relationalError = validateMembershipConfigWrite(
+        key,
+        parsed,
+        await loadMembershipConfig(),
+      );
+      if (relationalError) {
+        res.status(400).json({ error: relationalError });
+        return;
+      }
+    }
+
     newValue = rawValue;
     newValueLabel = body.valueLabel !== undefined && body.valueLabel !== null
       ? String(body.valueLabel).trim() || null
