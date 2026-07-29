@@ -282,10 +282,38 @@ require per-row manual retry — while emitting one alert each. A day-long outag
 produce a terminal backlog that never resumes on its own plus an alert storm that trains
 an operator to ignore the alert that matters.
 
-So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** (adding 24 h and 48 h
-tail delays), which outlasts any plausible outage; and §5.8 adds **incident-level alert
-aggregation** so the case where it does not is one alert rather than hundreds. (Bulk retry
-was specified alongside it and is deferred — §5.8.)
+So `ncmec_submit` sets **8 attempts with a horizon past 72 hours** — but **not** by the
+mechanism an earlier revision claimed. That revision said the schedule "adds 24 h and 48 h
+tail delays," which this queue **cannot express**: `getRetryConfig` reads exactly four
+delay keys (`async_job_<queue>_retry_delay_1..4_ms`) and returns a five-element array
+(`asyncJobs.ts:138-147`); there is no fifth or sixth slot to put a tail delay in. Raising
+`maxAttempts` past 5 does not fail — `finalizeJob` falls back to
+`retryDelays[retryDelays.length - 1]` for any attempt beyond the array
+(`asyncJobs.ts:452-453`) — it simply **repeats the last delay**. So the plan was
+describing a curve the shared infrastructure has no way to produce, and adding slots would
+mean changing that shared contract for one consumer, which §5.2.2 explicitly refuses to do.
+
+The horizon is reached with the four slots that exist, by widening the last one:
+
+| Key | Value |
+|---|---|
+| `async_job_ncmec_submit_max_attempts` | `8` |
+| `async_job_ncmec_submit_retry_delay_4_ms` | `24 h` (default is 8 h) |
+
+Delays 1–3 keep their defaults (5 min / 30 min / 2 h), and attempts 5 through 8 each wait
+the repeated 24 h. Cumulative elapsed time before the 8th and final attempt:
+
+> 5 min + 30 min + 2 h + 24 h + 24 h + 24 h + 24 h ≈ **98.6 hours**
+
+Comfortably past 72, with the first four attempts still front-loaded inside the first
+three hours so a brief blip resolves quickly. **This arithmetic matters more than it did
+before:** with bulk retry deferred (§5.8), the automatic budget is the *only* thing
+standing between a multi-day outage and per-row manual recovery, so a horizon asserted
+rather than computed would have been a deferral resting on a number nobody checked.
+
+§5.8 adds **incident-level alert aggregation** so the case where even this is exceeded is
+one alert rather than hundreds. (Bulk retry was specified alongside it and is deferred —
+§5.8.)
 
 **What the queue does *not* provide, and this plan must therefore supply itself.**
 Three of its properties are load-bearing here and none of them work the way a naive
@@ -1374,6 +1402,10 @@ Client (fake `fetch`, no network):
   - XML nested beyond **50** levels is refused.
 
 Outage behavior (§5.2, §5.8):
+- **The retry schedule is asserted, not assumed** (§5.2): with `max_attempts = 8` and
+  `retry_delay_4_ms = 24 h`, the 8th attempt occurs more than 72 hours after the first
+  failure, and attempts 5–8 each use the repeated final delay rather than a configured
+  tail. This is the test that keeps the bulk-retry deferral honest.
 - A simulated outage **shorter than the 72-hour horizon** leaves every affected report
   automatically resumed, with no operator action at all. One **longer** than it leaves
   every affected row `failed` with a durable notification and visible in the ledger —
