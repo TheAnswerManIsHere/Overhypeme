@@ -734,6 +734,57 @@ const RECOVER_INTERVAL_MS = 60_000;
  */
 export const RECOVER_STUCK_CUTOFF_MIN = 30;
 
+/**
+ * The **configured** poll interval for each lane, resolved from the same env
+ * vars `runAsyncJobsWorker` uses.
+ *
+ * Exported so the health surface reports what the worker is actually doing
+ * rather than a second hardcoded copy of these numbers. A stalled-lane
+ * threshold derived from a stale duplicate would be wrong in exactly the
+ * deployments that tuned an interval — i.e. the ones most likely to be
+ * investigating queue health in the first place.
+ */
+export function laneIntervalsMs(): Record<JobLane, number> {
+  return {
+    fast: intervalEnv("ASYNC_JOBS_FAST_INTERVAL_MS", DEFAULT_FAST_INTERVAL_MS),
+    render: intervalEnv("ASYNC_JOBS_RENDER_INTERVAL_MS", DEFAULT_RENDER_INTERVAL_MS),
+    bulk: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
+    pexels: intervalEnv("ASYNC_JOBS_PEXELS_INTERVAL_MS", DEFAULT_PEXELS_INTERVAL_MS),
+    ai_meme_backfill: intervalEnv(
+      "ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS",
+      DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS,
+    ),
+  };
+}
+
+/** All five lanes, in the order the health surface presents them. */
+export const ALL_LANES: readonly JobLane[] = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"];
+
+/** The lane a registered queue belongs to, or undefined if it is not registered. */
+export function laneOfQueue(queue: string): JobLane | undefined {
+  return LANE_OF_QUEUE.get(queue);
+}
+
+/** Every registered queue name. */
+export function registeredQueues(): string[] {
+  return [...HANDLERS.keys()];
+}
+
+/**
+ * The effective retry ceiling for a queue: the row's own override when set,
+ * otherwise `async_job_<queue>_max_attempts`.
+ *
+ * Exported because the health surface needs it to tell "failed after exhausting
+ * five attempts" from "failed on its first and only attempt" — two states
+ * `async_jobs.status` collapses into one `failed`, and the second is the one
+ * `fact_ai_meme_backfill` produces by design.
+ */
+export async function effectiveMaxAttempts(queue: string, rowMaxAttempts: number): Promise<number> {
+  if (rowMaxAttempts > 0) return rowMaxAttempts;
+  const { maxAttempts } = await getRetryConfig(queue);
+  return Math.max(1, maxAttempts);
+}
+
 /** Static scheduling config for one lane's runner. Queues are resolved per-tick. */
 export interface LaneConfig {
   lane: JobLane;
@@ -749,6 +800,19 @@ export interface LaneRunnerDeps {
   runTick?: (config: LaneConfig) => Promise<void>;
   /** Override the scheduler (tests pass a no-op so only the returned `tick` runs). */
   schedule?: (fn: () => void, intervalMs: number) => NodeJS.Timeout;
+  /**
+   * Override the heartbeat writes.
+   *
+   * Exists for the same reason `schedule` does: these are database round-trips
+   * on the tick path, and a test asserting *scheduling* behavior should not have
+   * its timing decided by how fast the test database happens to be. Tests that
+   * care about lane independence inject no-ops; the heartbeat writes themselves
+   * are covered directly in `workerHeartbeats.test.ts`.
+   */
+  heartbeats?: {
+    scheduled: (lane: JobLane) => Promise<void>;
+    completed: (lane: JobLane) => Promise<void>;
+  };
 }
 
 const realSchedule = (fn: () => void, intervalMs: number): NodeJS.Timeout => {
@@ -772,6 +836,10 @@ export function createLaneRunner(
   deps: LaneRunnerDeps = {},
 ): { tick: () => Promise<void>; handle: NodeJS.Timeout } {
   const schedule = deps.schedule ?? realSchedule;
+  const heartbeats = deps.heartbeats ?? {
+    scheduled: stampLaneScheduled,
+    completed: stampTickCompleted,
+  };
   let ticking = false;
   let lastPurgeAt = 0;
   let lastRecoverAt = Date.now();
@@ -840,7 +908,7 @@ export function createLaneRunner(
     // which is precisely the regression that rule exists to catch. The promise
     // is awaited before `tick()` resolves instead, so the write is
     // deterministic for tests without ever sitting in front of real work.
-    const scheduled = stampLaneScheduled(config.lane);
+    const scheduled = heartbeats.scheduled(config.lane);
     if (ticking) {
       // A skipped tick does no work, so there is nothing left to delay.
       await scheduled;
@@ -852,7 +920,7 @@ export function createLaneRunner(
       // Reached only when the tick finished. A wedged tick never gets here,
       // which is what makes the gap between this and `last_scheduled_at`
       // meaningful.
-      await stampTickCompleted(config.lane);
+      await heartbeats.completed(config.lane);
     } finally {
       ticking = false;
       await scheduled;

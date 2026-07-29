@@ -207,11 +207,16 @@ describe("workerHeartbeats — write moments (the part that makes the signals re
       maxConcurrency: 1,
       lane: lane as never,
     });
-    // Let the claim transaction commit and the publish land, while the handler
-    // is still blocked inside mapWithConcurrency.
-    await new Promise((r) => setTimeout(r, 150));
-
-    const midFlight = await readRow(lane);
+    // Wait for the claim transaction to commit and the publish to land, while
+    // the handler is still blocked inside mapWithConcurrency. Polled rather than
+    // slept: a fixed delay makes this assertion depend on test-database speed,
+    // and a flaky liveness test is worse than none.
+    const deadline = Date.now() + 5_000;
+    let midFlight = await readRow(lane);
+    while ((midFlight?.inFlightCount ?? 0) === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+      midFlight = await readRow(lane);
+    }
     assert.equal(midFlight?.inFlightCount, 1, "the count must be visible WHILE the handler is still running");
     assert.equal(midFlight?.lastTickCompletedAt, null, "the tick has not completed yet");
 

@@ -24,6 +24,7 @@ import {
   type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob } from "../lib/asyncJobs";
+import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import {
   validateEnrichment,
   computeBaselineChangedPaths,
@@ -2990,6 +2991,84 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
 // filtered to queue = "email". The status vocabulary is the generic one
 // (pending / processing / done / failed) — the legacy email-only values
 // (sending / delivered / abandoned) were normalized in migration 0063.
+// ─── Queue health (Phase 1 of the async-queue hardening plan) ───────────────
+//
+// Read-only. Derives everything by query from async_jobs + worker_lane_heartbeats
+// and stores nothing, so async_jobs stays the single source of truth for job
+// state. /admin/email-queue below is left exactly as it is — it remains the
+// email-specific working view.
+
+/**
+ * GET /admin/queue-health — the AGGREGATE altitude.
+ *
+ * Per queue: the four raw tallies plus the two derived ones (`skipped`,
+ * `abandonedNoRetry`) that `status` alone cannot express, oldest-pending age,
+ * and 24h throughput. Per lane: live instance count, last-scheduled and
+ * last-completed ages, in-flight count, and whether it is stalled fleet-wide.
+ *
+ * **Phase 1 carries no alert fields at all** — not even an empty array.
+ * `job_alerts` does not exist until Phase 2's migration, so including the field
+ * here would be either unbuildable or a lie: an empty `activeAlerts: []` reads
+ * as "no alerts" on the very page whose job is to reveal problems, when the
+ * truth is "alerting does not exist yet". Phase 2 adds it alongside the table.
+ */
+router.get("/admin/queue-health", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const [queues, lanes] = await Promise.all([queueHealth(db), laneHealth(db)]);
+    const now = Date.now();
+    res.json({
+      ts: new Date(now).toISOString(),
+      queues,
+      lanes: lanes.map((l) => ({
+        ...l,
+        lastScheduledAt: l.lastScheduledAt?.toISOString() ?? null,
+        lastTickCompletedAt: l.lastTickCompletedAt?.toISOString() ?? null,
+        lastScheduledAgeSeconds: l.lastScheduledAt
+          ? Math.max(0, Math.round((now - l.lastScheduledAt.getTime()) / 1000))
+          : null,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] queue-health error");
+    const msg = err instanceof Error ? err.message : "Failed to load queue health";
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * GET /admin/queue-health/jobs — the PER-ITEM altitude.
+ *
+ * Bounded and paginated on purpose: the aggregate endpoint above is polled
+ * continuously and must never be able to carry a 50,000-row backlog, so per-item
+ * detail lives behind its own `limit` (capped at 100).
+ *
+ * Returns **all four** raw statuses, never just failures — a per-item view
+ * limited to failures would leave `pending` and `processing` items with no
+ * per-item state at all, which is the two-altitude contract violation this
+ * endpoint exists to prevent. Each row also carries the derived `displayStatus`
+ * and a **sanitized** `skipReason` from a closed set, so "skipped" and
+ * "never retried" are reachable by the page rather than being collapsed into a
+ * generic success and a generic failure.
+ */
+router.get("/admin/queue-health/jobs", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const page = await queueHealthJobs(
+      {
+        queue: String(req.query["queue"] ?? "").trim() || undefined,
+        status: String(req.query["status"] ?? "").trim() || undefined,
+        page: parseInt(String(req.query["page"] ?? "1"), 10),
+        limit: parseInt(String(req.query["limit"] ?? "50"), 10),
+      },
+      db,
+    );
+    res.json(page);
+  } catch (err) {
+    logger.error({ err }, "[admin] queue-health/jobs error");
+    const msg = err instanceof Error ? err.message : "Failed to load queue jobs";
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
   const VALID_STATUSES = ["pending", "processing", "done", "failed"] as const;
   type JobStatus = typeof VALID_STATUSES[number];

@@ -361,11 +361,21 @@ describe("asyncJobs worker", () => {
 
     const bulkRunner = createLaneRunner(
       { lane: "bulk", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
-      { schedule: noopSchedule, runTick: async () => { bulkStarts++; await bulkGate.promise; } },
+      {
+        schedule: noopSchedule,
+        runTick: async () => { bulkStarts++; await bulkGate.promise; },
+        // No-op heartbeats: this test is about lane scheduling, and a database
+        // round-trip on the tick path would make its timing depend on DB load.
+        heartbeats: { scheduled: async () => {}, completed: async () => {} },
+      },
     );
     const fastRunner = createLaneRunner(
       { lane: "fast", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
-      { schedule: noopSchedule, runTick: async () => { fastRuns++; } },
+      {
+        schedule: noopSchedule,
+        runTick: async () => { fastRuns++; },
+        heartbeats: { scheduled: async () => {}, completed: async () => {} },
+      },
     );
 
     // Let both immediate ticks settle: bulk parks on its gate, fast completes.
