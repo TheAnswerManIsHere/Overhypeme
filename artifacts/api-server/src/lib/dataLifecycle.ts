@@ -1,44 +1,6 @@
 import { db, usersTable, sessionsTable, emailVerificationTokensTable, passwordResetTokensTable } from "@workspace/db";
-import { searchHistoryTable, subscriptionsTable, membershipHistoryTable, lifetimeEntitlementsTable } from "@workspace/db/schema";
-import { and, eq, lt, or, sql } from "drizzle-orm";
-
-export function anonymizedUserRef(userId: string): string {
-  return `anon_${Buffer.from(userId).toString("base64url").slice(0, 16)}`;
-}
-
-export async function softDeleteUserLifecycle(userId: string) {
-  const revoked = await db.delete(sessionsTable).where(eq(sessionsTable.userId, userId)).returning({ sid: sessionsTable.sid });
-  const [user] = await db.update(usersTable)
-    .set({ isActive: false, email: null, pendingEmail: null, firstName: null, lastName: null, displayName: `Deleted User`, profileImageUrl: null, stripeCustomerId: null })
-    .where(eq(usersTable.id, userId))
-    .returning();
-  return { user, sessionsRevoked: revoked.length };
-}
-
-export async function anonymizePaymentHistoryForUser(userId: string) {
-  const ref = anonymizedUserRef(userId);
-  await db.update(membershipHistoryTable)
-    .set({ userId: ref, stripePaymentIntentId: sql`COALESCE(${membershipHistoryTable.stripePaymentIntentId}, '') || ${'_' + ref}` as unknown as string })
-    .where(eq(membershipHistoryTable.userId, userId));
-
-  await db.update(lifetimeEntitlementsTable)
-    .set({ userId: ref, stripeCustomerId: `deleted_${ref}` })
-    .where(eq(lifetimeEntitlementsTable.userId, userId));
-
-  await db.update(subscriptionsTable)
-    .set({ userId: ref, stripeCustomerId: `deleted_${ref}` })
-    .where(eq(subscriptionsTable.userId, userId));
-
-  return { anonymizedRef: ref };
-}
-
-export async function hardDeleteUserLifecycle(userId: string) {
-  await db.delete(searchHistoryTable).where(eq(searchHistoryTable.userId, userId));
-  await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, userId));
-  await db.delete(passwordResetTokensTable).where(eq(passwordResetTokensTable.userId, userId));
-  const deleted = await db.delete(usersTable).where(eq(usersTable.id, userId)).returning({ id: usersTable.id });
-  return { deleted: deleted.length > 0 };
-}
+import { searchHistoryTable, membershipHistoryTable } from "@workspace/db/schema";
+import { eq, lt, sql } from "drizzle-orm";
 
 export async function exportUserData(userId: string) {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
