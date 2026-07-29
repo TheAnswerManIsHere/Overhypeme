@@ -133,8 +133,28 @@ arguments agree with each other.
 > actor, reason, timestamp and revocation semantics, and must never masquerade
 > as a payment.
 
-The verifier takes a Checkout Session id, retrieves session and PaymentIntent
-itself, and binds: session↔user/customer; mode is `payment`;
+**W1a needs two verifiers, and revision 21 specified one.** The verifier below
+requires a Checkout Session with `mode = payment` and a PaymentIntent — so it
+cannot create or refresh a **`stripe_subscription`** source at all, and those
+arrive through subscription webhooks, the Stripe-mutating routes, and
+reconciliation. W1a says *every* paid entitlement; one of the two paid source
+types had no verifier.
+
+**Specification: an identifier-only subscription verifier**, same shape and same
+boundary. It takes a **subscription id**, retrieves the subscription itself, and
+binds: subscription↔customer↔user; the subscription's current product is
+**allowlisted** (full pagination); lifecycle status; and the values written to
+the source row come from the retrieved object rather than any caller-supplied
+one. The existing confirm flow already binds session owner and customer *before*
+validating the subscription, so this preserves an ordering the code has today
+rather than inventing one.
+
+**Acceptance:** a valid subscription belonging to **another customer** cannot be
+applied to the requested user; a subscription for a non-allowlisted product
+creates no qualifying source.
+
+**The one-time-payment verifier** takes a Checkout Session id, retrieves session
+and PaymentIntent itself, and binds: session↔user/customer; mode is `payment`;
 session↔PaymentIntent identity; `payment_status === "paid"` **and**
 `pi.status === "succeeded"`; line items contain an allowlisted membership
 product **with full pagination**; amount and currency from the authoritative
@@ -152,14 +172,78 @@ Pure, time-parameterised. **Set union, not priority** — Legendary if any valid
 source qualifies.
 
 Three separate concepts, not one flag: **`is_membership_product`** (allowlist
-result, snapshotted at ingestion), **provider lifecycle status**, and **grace
+result, snapshotted — see below), **provider lifecycle status**, and **grace
 validity**.
+
+**"Snapshotted at ingestion" is ambiguous on refresh, and the two source types
+need opposite answers.** Leave a subscription's original value untouched and a
+portal plan-switch to a non-membership price **retains access forever**; re-read
+mutable product metadata for a completed lifetime purchase and a later metadata
+edit **retroactively revokes or grants** something already paid for.
+
+**Specification, per source type:**
+
+| Source | Snapshot moment |
+|---|---|
+| `stripe_subscription` | **Re-evaluated on every authoritative refresh**, against the subscription's *current* product. It describes what the user is subscribed to *now*, and that changes. |
+| `stripe_lifetime_payment` | **Frozen at creation**, from the verified checkout classification. It describes what was bought, which is a completed fact that later metadata edits cannot alter. |
+| `admin_grant` | Not applicable — qualification comes from W1b authorization. |
+
+**Acceptance:** switch a subscription to a non-membership price and assert
+access drops on the next refresh; edit product metadata after a lifetime
+purchase and assert the entitlement is unaffected in **both** directions.
+
+**Qualification is a conjunction of all three concepts, and revision 21 only
+encoded one of them.** The table below is the *lifecycle* term. It was written
+as though it were the whole rule, which made **every `active` subscription
+qualify — including one for a product outside the allowlist.** That is the
+positive-allowlist boundary this plan calls a *Must not change*
+(`membershipPricing.ts`, `security-model.md`), defeated by the model meant to
+protect it, and it becomes live the moment reconciliation persists an active
+non-membership subscription. Naming `is_membership_product` as a separate
+concept and then never using it in the rule is the whole defect.
+
+**A source qualifies only if all of these hold:**
+
+1. **Allowlist** — `is_membership_product = true`, required for **both** Stripe
+   source types. `admin_grant` sources qualify independently of it: they are
+   authorized by W1b, not by a product.
+2. **No access hold** — see *Disputes* below.
+3. **Lifecycle** — the table:
 
 | Status | Qualifies |
 |---|---|
 | `active`, `trialing` | yes |
 | `past_due` | only while `now < grace_expires_at` |
 | `unpaid`, `canceled`, `incomplete`, `incomplete_expired`, `paused` | no |
+
+**Acceptance:** an active non-membership subscription qualifies **alone**
+(user is not Legendary) and **alongside** a valid membership source (the valid
+one alone carries the tier, and removing it drops the user).
+
+**Disputes need a state the provider lifecycle cannot express.** Today
+`charge.dispute.created` **immediately revokes** access
+(`webhookHandlers.ts:462-515`), deliberately — its own comment says *"Disputes
+can take weeks to resolve; we don't give paid features to users actively
+chargebacking us."* Under revision 21's schema an open dispute leaves a lifetime
+source `active` and a subscription on its ordinary Stripe status, so
+**recomputation would re-qualify the source and hand access back** — the model
+would silently delete a live product behaviour, which is exactly the failure a
+derived model is supposed to make impossible.
+
+**Specification: a source-local `access_hold` state, distinct from provider
+lifecycle.** A dispute opening sets it; the source does not qualify while it is
+set. A dispute **won** clears it and the source qualifies again on its ordinary
+lifecycle. A dispute **lost** is terminal — `refunded` for a lifetime source,
+and the subscription's own resulting status for a subscription. The hold is
+per-source, so **the union still governs**: a user with an unrelated active
+entitlement keeps Legendary throughout, which is the behaviour today's
+tier-level revocation cannot express.
+
+**Acceptance:** open a dispute and assert the source stops qualifying and
+recomputation does not re-grant; win it and assert access returns; lose it and
+assert the terminal state; and run all three with a second, unrelated active
+entitlement present and assert the user stays Legendary throughout.
 
 Grace starts on first entry to `past_due` per delinquency episode; duplicate
 events do not extend it; recovery clears it. `paused` is the
@@ -173,10 +257,45 @@ immediately (null deadline) or start a *fresh* 14 days, both wrong.
 
 The authoritative source is the **invoice**, not the subscription: the episode
 began with the earliest still-unpaid invoice for that subscription in the
-current delinquency. Reconciliation and any grace initialisation resolve
-`grace_started_at` from that invoice's timestamp, and match episodes by
-"contiguous run of unpaid invoices ending at the present" so a *previous,
-resolved* delinquency does not backdate a new one.
+current delinquency, matched by "contiguous run of unpaid invoices ending at the
+present" so a *previous, resolved* delinquency does not backdate a new one.
+
+**But "that invoice's timestamp" is not a field, and the obvious candidates are
+wrong.** Verified against the pinned Stripe 20.0.0 types rather than the docs:
+
+- `Invoice.created` is **object creation**, and the type's own comment warns
+  *"An invoice is not attempted until 1 hour after the `invoice.created`
+  webhook"* — so it is explicitly not the attempt time.
+- `Invoice.attempted` is a **boolean**, carrying no timestamp at all.
+- `Invoice.status_transitions` has `finalized_at`, `paid_at`, `voided_at`,
+  `marked_uncollectible_at` — and **no failed-attempt time**.
+- `next_payment_attempt` is the *next* attempt, not the first failure.
+
+Anchoring to `created` would start the window up to an hour early, and — more
+importantly — I had written a rule over a field that does not exist.
+
+**Specification, in priority order:**
+
+1. **The failed payment attempt's own timestamp**, resolved from the invoice's
+   associated PaymentIntent/charge. The pinned `Invoice` type exposes no
+   top-level `charge` or `payment_intent`, so this is an explicit lookup rather
+   than a field read — which is precisely why it must be specified rather than
+   assumed.
+2. **Fallback: `status_transitions.finalized_at`**, used only when no attempt is
+   resolvable. Collection begins at or after finalization, so this can only be
+   **earlier** than the true first failure, and the resulting window is at most
+   the finalization→attempt lag short — on Stripe's own documented ≥1 hour
+   against a **14-day** window, under 0.3%. Stated and bounded rather than
+   hand-waved.
+3. **Never `invoice.created`.**
+
+A run that used the fallback **says so in its output**, so an approximate window
+is visible rather than indistinguishable from an exact one.
+
+**Acceptance:** a delayed first attempt — invoice finalized, first attempt an
+hour later, failure webhook never delivered — yields a deadline anchored to the
+**attempt**, not to invoice creation; and with the attempt unresolvable, the
+fallback is used and reported.
 
 **Acceptance:** a subscription whose `invoice.payment_failed` was never
 delivered still yields the original deadline, not a fresh window.
@@ -597,9 +716,21 @@ nobody re-proposes them:
 
 1. Deploy the new build. `runMigrations()` creates `membership_entitlements`
    and drops `subscriptions` and `lifetime_entitlements` before the process
-   listens (`index.ts:270`). There is no data to preserve — the membership
+   listens (`index.ts:271`). There is no data to preserve — the membership
    tables hold nothing real (David, 2026-07-28) — so this is a create-and-drop,
    not a backfill.
+   **The same change must retire the legacy seed DDL, or the app cannot boot.**
+   `ensureSchema()` runs immediately after `runMigrations()` (`index.ts:274`),
+   **before the port binds**, and `seed.ts:562-565` still executes
+   `ALTER TABLE lifetime_entitlements ADD COLUMN IF NOT EXISTS status …`. The
+   `IF NOT EXISTS` guards the **column, not the table**, so once the table is
+   dropped that statement raises `42P01` outside the migration runner's
+   `SAVEPOINT` recovery and **aborts startup**. Removing that seed entry (and
+   any sibling referencing a dropped table) is part of this migration, not
+   follow-up work.
+   This is the plan's single highest-risk change and the defect would have
+   stopped the deploy dead — found in **round 20**, by finally pointing a review
+   at the core instead of at the machinery around it.
 2. Reconciliation rebuilds every Stripe-backed source from the provider on its
    first run.
 
@@ -649,9 +780,11 @@ migration is one-way and the mitigation lives *before* it, not after:
   downtime while that happens is an acceptable cost, not an incident.
 
 **Acceptance:** the migration runs clean on a copy of the live database and is
-a no-op on a second run; the app boots against the new schema; reconciliation
-populates entitlements from Stripe; a webhook delivered during the rollout is
-retried by Stripe and applied afterwards.
+a no-op on a second run; **the boot test exercises the real
+`runMigrations()` → `ensureSchema()` sequence** rather than the migration alone,
+and the process reaches the point of binding its port; reconciliation populates
+entitlements from Stripe; a webhook delivered during the rollout is retried by
+Stripe and applied afterwards.
 
 ##### What deliberately survives the simplification
 
@@ -898,6 +1031,29 @@ the no-live-members premise covers the *initial cutover only*, while this
 reconciler runs forever. Once the database is populated, a bad classification, an
 account mismatch, or a broad provider-state error can revoke every member, and
 post-apply counts describe the damage rather than preventing it.
+
+**Enumeration returns provider state before any lease is held, and staging it
+defeats every fence.** Account-wide enumeration necessarily hands back objects
+before reconciliation knows which per-source lease to take. If it stages what
+the list returned: a webhook acquires that source's lease, stores a newer
+cancellation, and releases; reconciliation then acquires the lease with a
+**valid, newer fence** and overwrites the row with the older enumerated `active`
+snapshot. **Every commit-time fence and version check passes**, because the
+fence proves who holds the lease *now* and says nothing about when the data was
+read. Access is resurrected — the exact outcome three rounds of ordering work
+exist to prevent, reached by the one path that never acquires a lease before
+reading.
+
+**Specification: enumeration yields identities only.** List pages are used for
+*which sources exist*, never for their state. Each source is **re-retrieved
+after acquiring its lease**, so the snapshot applied is always one taken while
+the lease was held. That restores the invariant the leases were built on —
+*retrieval and apply are serialized per source* — which enumeration had been
+quietly exempt from.
+
+**Acceptance:** interleave a webhook between the list-page retrieval and the
+per-source acquisition, and assert reconciliation commits the **webhook's**
+newer state, not the enumerated older one.
 
 **Specification: stage everything, guard once, then commit.** A reconciliation
 run computes the **complete** change set — source rows *and* the resulting
@@ -1342,6 +1498,13 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 110 | 18 | Ledger entry 97 still gated recovery on `delivered_at` alone | **Superseded by scope decision 104** — correct, and in machinery that no longer exists. Fourth consecutive round with a stale ledger row, and a fourth class: noun right, position right, **condition** out of date. Rule strengthened to its final form — *when a finding changes a mechanism's shape, position **or condition**, every row mentioning that mechanism is in scope for revision.* |
 | 111 | 19 | "Move the calls after the commit" was not yet a mechanism | **Resolved** — eligibility is decided from **pre-mutation** state (`wasLegendary`, `webhookHandlers.ts:370-378`), so lifting the calls out without carrying that decision would recompute it post-mutation and **stop sending the refund email entirely**. Apply now returns a transient notification-action list decided from the locked pre-state, executed after commit by **both** callers — `processDomainSwitch` has a second one in `processEventDirectly` that a returned value would silently bypass. Entry 78 superseded: the post-commit list is reinstated because the requirement weakened, not because the mechanism improved. |
 | 112 | 19 | An audit-write failure masquerades as a domain failure | **Resolved** — the domain call and the `processed` insert share one `try` whose catch writes `failed` (`:1188-1195`), so a post-commit audit failure produces a **terminal** row and recovery never reports a committed mutation whose outcome went unrecorded. Excluding `ignored_duplicate` was insufficient because the row genuinely says `failed`. The audit insert gets its own error handling; `failed` now means the domain work failed and nothing else. **The surviving half of the recovery check was incoherent on its own** — exactly what the round's lens asked. |
+| 113 | 20 | Disputes have no representation in source qualification | **Resolved** — `charge.dispute.created` revokes access **today**, deliberately (`webhookHandlers.ts:462-515`), but an open dispute leaves a lifetime source `active` and a subscription on its ordinary status, so recomputation would have **handed access back**. The model would have silently deleted a live product behaviour. A source-local `access_hold`, distinct from provider lifecycle: set on open, cleared on a win, terminal on a loss — and per-source, so an unrelated entitlement still carries the union. |
+| 114 | 20 | `is_membership_product` never gated qualification | **Resolved** — the qualification rule is a **conjunction**: allowlist, no access hold, then lifecycle. I named the allowlist as one of three separate concepts and then wrote a rule using only one of them, so **every `active` subscription qualified, including a non-membership one** — the positive-allowlist boundary this plan lists under *Must not change*, defeated by the model built to protect it. Live the moment reconciliation persists an active non-membership subscription. |
+| 115 | 20 | Grace was anchored to a field that does not exist | **Resolved** — verified against the pinned Stripe 20.0.0 types: `Invoice.created` is object creation (*"not attempted until 1 hour after"*, per the type's own comment), `attempted` is a boolean, and `status_transitions` carries no failed-attempt time. Anchor is the **failed attempt's own timestamp** via explicit PaymentIntent/charge lookup, falling back to `finalized_at` with the error bounded (<0.3% of 14 days) and **reported**; never `invoice.created`. |
+| 116 | 20 | Enumeration stages provider state read before any lease | **Resolved** — a webhook can store a newer cancellation between the list page and the per-source acquisition; reconciliation then commits the older enumerated snapshot with a **valid newer fence**, and every check passes. **The fence proves who holds the lease now and says nothing about when the data was read.** Enumeration yields identities only; each source is re-retrieved after acquiring its lease. Fourth ordering defect, and the one path that never took a lease before reading. |
+| 117 | 20 | The migration cannot boot — legacy seed DDL survives the drop | **Resolved** — `ensureSchema()` runs immediately after `runMigrations()` and **before the port binds** (`index.ts:271-274`), and `seed.ts:562-565` still runs `ALTER TABLE lifetime_entitlements …`. `IF NOT EXISTS` guards the **column, not the table**, so the drop makes it raise `42P01` outside the runner's `SAVEPOINT` recovery and **abort startup**. Retiring that seed entry is part of the migration; the boot acceptance now exercises the real `runMigrations() → ensureSchema()` sequence. **The plan's highest-risk change, dead on arrival, found in round 20.** |
+| 118 | 20 | W1a had no verifier for subscription sources | **Resolved** — the specified verifier requires a `mode = payment` Checkout Session and a PaymentIntent, so it cannot create or refresh a `stripe_subscription` source, which is how subscription webhooks, the routes and reconciliation all arrive. An identifier-only **subscription** verifier binds subscription↔customer↔user, allowlisted product with pagination, and lifecycle — one of the two paid source types had no trust boundary at all. |
+| 119 | 20 | "Snapshotted at ingestion" is ambiguous on refresh | **Resolved** — the two source types need opposite answers: a subscription's snapshot is **re-evaluated on every authoritative refresh** (or a portal switch to a non-membership price retains access forever), while a lifetime purchase's is **frozen at creation** (or later metadata edits retroactively revoke a completed purchase). |
 
 | Round | Lens |
 |---|---|
@@ -1365,4 +1528,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 18 | **The obligation state machine.** Rounds 16 and 17 have grown the manifest to five state markers — `job_id`, `delivered_at`, `abandoned_at`, `acknowledged_at`, plus `obligations_derived_at` on the claim — and three writers: apply, the worker's finalizer, and recovery. Treat it as a state machine and look for the transition nobody owns: which marker combinations are reachable, which writer sets each, what happens when two fire concurrently, and whether `stranded` (99) is a sixth state or a view over `pending`. **The manifest was one column wide two rounds ago; it is now the most stateful object in the plan** |
 | 19 | **The plan after the notification cut** — the same question round 10 asked after the migration machinery was deleted, and it found six defects then. Did anything load-bearing go with it? Specifically: does the transaction boundary still mean anything now that the only side effects inside it are domain writes; is the surviving audit-half recovery coherent on its own; and is there a section still written as though the manifest exists. Round 10's lesson was that a large cut leaves *dangling references*, not holes |
 | 20 | **The narrowest lens yet, because the surface is now small.** Round 19 dropped to two findings — the first decline since round 13 — and both were dangling references from the cut rather than defects in the model. So: attack the **entitlement model itself**, which has had no finding against it since round 11 and has therefore been reviewed least recently. The derivation and its set-union semantics, W1a/W1b and the identifier-only verifier, the per-source leases and fences, read-path expiry and the effective-tier expression, the schema and its constraints, the migration, reconciliation's stage-guard-commit. **Nine rounds is long enough that "stable" may mean "unexamined"** |
+| 21 | **The core again, immediately — round 20 changed what this loop believes about itself.** Seven findings, four P1, on the part I had called stable since round 11, including an allowlist bypass and a migration that could not boot. The correct response to that is not to move on but to **stay on the core for a second pass**, now that revision 22 has added an `access_hold` state, a three-term qualification conjunction, a second verifier, per-source-type snapshot semantics, a re-retrieval rule in enumeration and a seed-DDL retirement. Every one of those is new and unreviewed, and this plan's most reliable pattern is that a round's fixes are the next round's defects |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
