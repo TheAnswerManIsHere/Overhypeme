@@ -496,6 +496,39 @@ Two layers instead:
   4. **`ncmec_alert_incidents` therefore holds two meaningful columns** — `incident_key`
      (primary key) and `notified_at`. It is a send-ledger, not an aggregate.
 
+  **The handler is a new queue, not the existing `email` one.** `email`'s handler takes a
+  pre-rendered `{to, subject, text, html}` payload and calls `deliverFromOutbox` straight
+  away (`email.ts:98-115, 227-236`) — it cannot run a query at send time and cannot stamp a
+  ledger. Calling this "an `email` job" left an implementer to either freeze the first
+  failure's numbers into the payload (the exact defect the rewrite removed) or invent a
+  worker. So it is named:
+
+  | | |
+  |---|---|
+  | Queue | **`ncmec_incident_alert`**, registered beside `ncmec_submit` and `ncmec_reconcile`; lane `bulk` |
+  | Payload | `{ incidentKey, environment, windowStart, windowEnd }` — identifiers only, **never rendered content** |
+  | On run | `SELECT … FROM ncmec_alert_incidents WHERE incident_key = $key` → if `notified_at IS NOT NULL`, this is a supplementary alert (below); run the §5.2.3 aggregate query over `ncmec_reports`; render; send; **then** stamp `notified_at = now()` |
+  | Delivery | Reuses the same provider path as `email`; only the *rendering* differs |
+
+  **A failure that commits after the grace still alerts — as a supplementary email.** The
+  2-minute grace covers transactions that begin before the boundary and commit shortly
+  after, but nothing bounds commit latency, so a transaction can stamp a pre-boundary
+  `failed_at` and commit *after* the window's alert has sent. That row must not be silent:
+  invariant 8 requires every terminal failure to be notified, and "it is in the ledger" is
+  not a notification.
+
+  It is covered without new machinery, because the queue's dedupe index covers **only
+  non-terminal** jobs. Once the window's alert job completes, a later enqueue with the same
+  `incident_key` no longer collides — it creates a **second** job, which sends a
+  supplementary alert for that window. The late row is reported.
+
+  The cost is stated rather than hidden: the supplementary email re-reports rows the first
+  one already covered, because the handler always aggregates the whole window. So the
+  §5.8 guarantee is **"at most one alert per environment per hour in the normal case, plus
+  a supplementary alert if a failure commits after that window was notified."** Weakening
+  the alert-count guarantee is the right trade against dropping a notification — the same
+  asymmetry as at-least-once delivery, for the same reason.
+
   **Windows are tumbling, and the plan now says so instead of claiming a rolling window.**
   §5.8 previously described "a rolling window" and illustrated it with a single alert
   spanning 03:12 to 09:48. A derived key cannot produce that: two failures either side of a
@@ -543,8 +576,14 @@ Two layers instead:
   ROLLBACK TO SAVEPOINT enqueue_attempt;   -- outer transaction survives
   ```
 
-  That covers `ncmec:submit:<reportId>` (§5.2.4's insert-plus-enqueue and §5.3's reconciler
-  repairs), `ncmec:notify:awaiting:<reportId>` (§5.5), and this incident enqueue. Each of
+  That covers **every** deduped enqueue in this plan, and the list is exhaustive by
+  intent: `ncmec:submit:<reportId>` from §5.2.4's insert-plus-enqueue, from §5.3's
+  reconciler repairs, **and from §5.8's admin retry** — which shares its mutation/audit
+  transaction and can hit the same conflict whenever the operator retries a `pending` or
+  stale `in_progress` row that still has a live job. An earlier revision of this list
+  omitted retry, which is the one of the three an operator triggers by hand and therefore
+  the one whose transaction rollback would be noticed as "the button did nothing."
+  Also `ncmec:notify:awaiting:<reportId>` (§5.5) and this incident enqueue. Each of
   those was specified as "share the caller's transaction" on the assumption that a dedupe
   hit is a benign no-op — and on the *first* concurrent duplicate, none of them would have
   committed.
@@ -582,8 +621,33 @@ wrong: `enqueueJob(options, dbOverride)` already takes one (`asyncJobs.ts:247`).
   terminal without finalizing are all states no transaction can prevent, and they need
   a mechanism that derives desired state from actual state.
 
-The governing principle stands either way: **the `ncmec_reports` row is the source of
-truth and the job is derived from it**, never the reverse.
+**One window sits *upstream* of that transaction, and it was uncovered.** `quarantine.ts`
+commits the `quarantined_memes` row **first**, then calls `submitNcmecReport()` — whose
+errors are deliberately caught so the user-facing rejection still happens (invariant 3).
+So a failure in the report insert leaves a committed quarantine row for a reportable
+Arachnid hit with **no `ncmec_reports` row at all**. The reconciler cannot repair it: the
+reconciler's whole design reads *from* `ncmec_reports`, and there is nothing to read.
+Every mechanism in this plan operates downstream of a row that was never created.
+
+Two changes, and the second is the durable one:
+
+- **`ncmec_reports.quarantine_id`** — a real FK to `quarantined_memes`, so the link is a
+  column rather than an inference from timestamps. Without it there is no query that can
+  find the orphan.
+- **The reconciler gains a second sweep**, over `quarantined_memes` rather than
+  `ncmec_reports`: a **reportable** quarantine row (per §5.6's source rules) with no
+  `ncmec_reports` row and no soft-delete tombstone gets one created, using the same
+  `isSubmittable`-gated enqueue as everything else. It is idempotent because the FK makes
+  "already has a report" a lookup.
+
+Invariant 3 is preserved exactly: the report insert stays inside the caught block, so its
+failure still cannot block the rejection. What changes is that the failure is no longer
+**silent** — the quarantine ledger becomes the outer source of truth, and the report row is
+derived from it the same way the job is derived from the report row. The recursion
+terminates at the row whose write is already fail-closed (invariant 2).
+
+The governing principle stands either way, now at both levels: **the upstream row is the
+source of truth and the downstream one is derived from it**, never the reverse.
 
 `submitNcmecReport()` keeps its signature and its "never throw into the caller"
 contract. The existing admin email stays — useful independently of automation.
@@ -814,6 +878,7 @@ Additive on `ncmec_reports`:
 | `manually_filed_at` | `timestamptz` | §5.3 — filed by a human through the manual form |
 | `test_submitted_at` | `timestamptz` | §7 — a test-environment submission, which is **not** a filing |
 | `test_submission_started_at` | `timestamptz` | §5.8 — a `send-to-test` attempt is open. Set with `NULL` `test_report_id` means `exttest` may hold a submission whose id was lost |
+| `quarantine_id` | `bigint` | FK to `quarantined_memes` — §5.2.4's upstream linkage, so an orphaned quarantine row is findable by query rather than by inference |
 | `failed_at` | `timestamptz` | **When this row entered `failed`.** The bucketing timestamp §5.2.3's incident query reads — stamped in the same transaction as the status write, by **every** path that finalizes a row `failed`: in-`run()` terminal finalization (§5.2.3), retry exhaustion, and the reconciler's lost-finalization repair (§5.3, alongside `last_error_code = -1`). Uses the database clock (`now()`), never application time, so buckets cannot skew across hosts |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
@@ -1885,6 +1950,43 @@ Config drift: if any new `lib/api-zod/src/` export is added for the admin types,
 line goes into `patch-generated.mjs`'s `apiZodIndexLines` and
 `pnpm run check:codegen-drift` runs **before** any consumer is written — the failure
 this repo has hit twice (`known-failure-patterns.md`).
+
+## 6b. Implementation order
+
+**This ships incrementally, and every phase leaves the tree green.** §7 is *deployment and
+activation* order — what an operator does after the code exists. It says nothing about what
+to build first, and an earlier revision of this plan had no build order at all, which left
+a cold implementer unable to tell whether this is one large landing or a sequence.
+
+It is a sequence. Each phase below is independently typecheck- and test-clean, and each
+verifies with the repository's own commands before the next begins. Nothing files a report
+until phase 6, and nothing files a *production* report until §7.
+
+| # | Phase | Depends on | Verify with |
+|---|---|---|---|
+| 1 | Migration `0094` + schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`), no consumers | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts`; `pnpm run check:codegen-drift` |
+| 2 | ISPWS client `ncmecClient.ts` — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts`, incl. XSD + parser hardening |
+| 3 | `isSubmittable` + `classifyWaitingState`, as pure functions with no callers | 1 | unit tests in `moderation.ncmecWorker.test.ts` |
+| 4 | Provenance + snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
+| 5 | Worker + reconciler + alert handler, registered but **gated off** by `ncmec_submission_enabled = false` | 2, 3, 4 | `moderation.ncmecWorker.test.ts` full suite |
+| 6 | Admin API + audit log + both config routes' reserved-key policy | 1, 3, 5 | `adminSafetyReports.test.ts`; both-routes activation gate |
+| 7 | `/admin/safety` page + both route registries | 6 | `safety.test.tsx`; page resolves, endpoints mounted |
+| 8 | Classifier caller changes (§5.6), flag still off and worker still hard-refusing | 4 | per-flow tests, all four call sites |
+
+**Why this order and not another.** Phases 1–4 are additive: they add columns and functions
+nothing calls yet, so each can land alone. Phase 5 is the first phase that *could* file
+something, which is why the master switch must already exist (phase 1) and default false —
+merging phase 5 with the switch absent would violate invariant 6 for the duration of a
+deploy. Phase 8 is last because it is the only phase that changes existing call sites'
+behavior, and §5.6's hard refusal means it is inert until §8.2 is answered regardless.
+
+**The one ordering that is not negotiable** is phase 1 before anything that writes a new
+status value — migration 0043's CHECK constraint rejects `in_progress` and
+`filed_manually`, so phases 5 and 6 fail on their first write without it. §7 step 1 records
+the same dependency at deploy time.
+
+If any phase cannot be made green on its own during implementation, that is a finding about
+this plan and should come back rather than be worked around by landing two phases together.
 
 ## 7. Rollout
 
