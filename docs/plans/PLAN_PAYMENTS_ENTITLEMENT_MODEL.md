@@ -744,6 +744,41 @@ it.
 Anything that genuinely cannot be an outbox row must be named explicitly, with
 its loss-on-crash stated. Nothing in the current call graph qualifies.
 
+#### The outbox row must actually be written — three conditions today prevent it
+
+"Pass the transaction executor" was necessary and **not sufficient**. Passing
+it changes *which connection* inserts the row; it does not make the insert
+happen, and three existing behaviours skip or swallow it:
+
+| Behaviour | Effect |
+|---|---|
+| `sendEmail` returns before enqueuing when Resend is unconfigured (`email.ts:121-135`) or when the key is a test key (`:136-147`) | No outbox row at all — the enqueue is at `:155-158`, after both returns |
+| `notifyUserAccessRevoked` wraps its whole body in `try/catch` and logs (`userNotify.ts:36-55`) | An enqueue failure is swallowed; apply proceeds and commits |
+| `notifyAdminsOfDispute` / `notifyAdminsOfFraudWarning` do the same (`adminNotify.ts:174-197` and the fraud-warning helper) | Same — documented as "safe to call without await — errors are swallowed and logged" |
+
+In every case the claim and the mutation commit, the audit can say `processed`,
+and Stripe's retry is discarded — with no job to deliver. Exactly the loss the
+transactional outbox was adopted to prevent, reached by a different route.
+
+**Specification:**
+
+1. **Enqueue is unconditional and independent of delivery configuration.** The
+   outbox row records *that a notification is owed*; whether Resend is
+   configured is a **delivery-time** question and belongs in the worker, which
+   already handles it (`email.ts:233-236` returns `ok` when Resend is not
+   configured). The two early returns move out of `sendEmail` and into the
+   handler. The test-key suppression stays but becomes a *delivery* suppression
+   rather than an *enqueue* suppression.
+2. **Inside apply, enqueue failures propagate.** The notification helpers gain
+   an apply-path form that does not catch — a failed enqueue must roll the
+   claim back so Stripe's retry can redo the whole unit. Swallowing is
+   acceptable only outside a transaction, where there is nothing to roll back.
+
+**Acceptance:** with Resend unconfigured, a refund still writes its outbox row
+and the worker records a no-op delivery; force the outbox insert to fail inside
+apply and assert the mutation **and** the claim roll back and Stripe's retry
+succeeds.
+
 **No fire-and-forget `void` call may appear inside apply.** Every one of the
 seven sites above is awaited with the executor; "it's only a notification" is
 precisely the reasoning that put an un-rollback-able side effect inside a
@@ -755,19 +790,123 @@ nested helper performs a global write. The structural half — apply-phase helpe
 take an executor parameter with **no default** — makes the omission a type
 error rather than a runtime one.
 
+#### Delivery is at-least-once, not exactly-once
+
+Revision 14's acceptance said "delivered, exactly once". **That is not what the
+worker provides, and the plan should not claim it.** `asyncJobs.ts` claims a job
+by committing `processing` (`:567-571`), runs the handler — which calls Resend —
+and marks `done` in a **separate** transaction (`:411-420`). A crash in between
+leaves the row `processing`; `recoverStuckProcessing` resets it to `pending`
+after five minutes (`:589-597`) and it is delivered again. That is a correct
+queue design; it is simply **at-least-once**, and my claim came from reading the
+enqueue side only.
+
+**Specification: at-least-once is adopted explicitly, and narrowed with a
+provider idempotency key.** Resend accepts an `Idempotency-Key` header on
+`POST /emails`, up to 256 characters, with a **24-hour** window
+([Resend docs](https://resend.com/docs/dashboard/emails/idempotency-keys),
+checked 2026-07-29). Each email job carries a stable key derived from its
+side-effect identity (below), so a redelivery inside the window is deduplicated
+by the provider rather than by us.
+
+The window is comfortably wider than the job's lifetime: default retry delays
+are 0 / 5 min / 30 min / 2 h / 8 h over five attempts (`asyncJobs.ts:133`,
+`:140`) — about **10.6 hours** — and the crash-recovery cutoff is five minutes.
+So the key covers every retry a job can make. Beyond 24 hours delivery is
+plainly at-least-once, and a duplicate "your access was revoked" email is a
+nuisance rather than a correctness failure. **We do not build our own
+deduplication for that residue.**
+
+**Acceptance:** kill the worker *after* Resend accepts the send but *before* the
+`done` update, and assert the job is redelivered and the provider deduplicates
+it — the window revision 14's acceptance never exercised.
+
+#### The audit trail and the outbox must be correlatable
+
 Audit writes stay **outside** the transaction so a `failed` record survives
-rollback, with the post-commit case specified too: a committed mutation whose
-`processed` audit insert fails leaves the trail showing only `received`.
-Recovery is a query for claims lacking a terminal audit row.
+rollback. But revision 14 then claimed recovery was "a query for claims lacking
+a terminal audit row", and that query cannot check the invariant this section
+now depends on:
+
+- **Email jobs carry no event identity.** `EmailJobPayload` is
+  `{ to, subject, text, html, kind }` (`email.ts:149-155`) — nothing joins a job
+  to the Stripe event that owed it, so "claim committed, job missing" is
+  undetectable.
+- **It only looks in one direction.** A `processed` event with no job is
+  invisible to it.
+- **A retry can forge terminality.** After a committed mutation whose
+  `processed` insert failed, Stripe's retry hits the duplicate branch and
+  appends `ignored_duplicate` (`webhookHandlers.ts:1176-1179`) — the claim now
+  *has* a terminal audit row while the original outcome was never recorded.
+
+**Specification:**
+
+- Every side effect enqueued during apply carries a **`side_effect_key`**:
+  `<stripe_event_id>/<notification-kind>/<recipient-id>`. It is written on the
+  claim's transaction, is **unique** (so a redelivered job cannot double-enqueue),
+  and doubles as the Resend `Idempotency-Key` above — one identity, both jobs.
+- **The set of side effects an event owes is derived, not remembered:** the same
+  prepare step that describes the intended writes describes the intended
+  notifications, so recovery can recompute what *should* exist for an event and
+  compare.
+- **Recovery checks both directions**: a claim with no terminal audit row; a
+  `processed` event whose owed side-effect keys have no jobs; and a job whose
+  event has no committed mutation. `ignored_duplicate` is **not** treated as
+  terminal for the original processing outcome — only `processed` or `failed`
+  is.
+
+**Acceptance:** commit a mutation, fail its `processed` audit insert, let
+Stripe's retry append `ignored_duplicate`, and assert recovery still reports the
+event as lacking a recorded outcome; separately, delete an owed job and assert
+recovery detects the `processed`-without-job direction.
 
 **Acceptance:** inject a failure after a source write inside apply and prove
 **both** the mutation and the idempotency claim roll back, so Stripe's retry
 succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`; **inject
 that same failure after a notification-producing write and assert no email is
 queued and no notification is sent** — then let the retry succeed and assert
-exactly one of each, not two; and **kill the process immediately after the
-commit and assert the notification is still eventually delivered, exactly
-once** — the crash window that killed the post-commit list.
+exactly one job, not two; and **kill the process immediately after the commit
+and assert the notification is still eventually delivered** — the crash window
+that killed the post-commit list.
+
+#### A permanently failed payment alert must surface without the email path
+
+The outbox is now the only delivery path for refund, dispute and fraud alerts,
+and its terminal behaviour was never examined. It is:
+
+- five attempts, then a terminal `failed` row (`asyncJobs.ts:448-503`);
+- `onAbandon` alerts admins only if `email_admin_abandoned_alerts_enabled` is
+  `"true"`, and it **defaults to `"false"`** (`email.ts:243-245`);
+- and when enabled it sends that alert **through the same email queue**
+  (`:247-254`), so a Resend outage loses the dispute alert and the alert about
+  losing it together;
+- `retainDuringPurge` keeps only `admin_abandoned_email_alert` rows
+  (`:257-260`), so the failed dispute-alert row itself is purged at the default
+  30 days (`asyncJobs.ts:617`).
+
+**Specification, kept to mechanisms this repo already has:**
+
+1. **Classify critical payment alerts** by `kind` — refund, dispute opened,
+   dispute lost, fraud warning, access revoked.
+2. **They are retained, not purged.** `retainDuringPurge` returns true for a
+   critical kind in terminal `failed`, so the evidence outlives 30 days.
+3. **The abandonment alert is not config-gated for critical kinds** — the
+   default-false switch stays for ordinary mail.
+4. **The operator signal does not depend on email.** The admin surface shows a
+   persistent indicator whenever any critical alert job is terminally `failed`,
+   read straight from `async_jobs`. This is the repo's own
+   [async-status principle](../ai-context/async-ui-status.md) applied to a queue
+   that already has an admin Email Queue page — a query against an existing
+   table rendered in an existing surface, not new infrastructure.
+
+**Deliberately not built:** external paging, a third-party alerting dependency,
+or a second delivery channel. Those are real infrastructure, and the failure
+they cover — an admin not looking at the admin app while Resend is down — is
+not one this account has yet. Recorded here so the omission is a decision.
+
+**Acceptance:** force a critical alert to exhaust its attempts; assert the row
+is terminal `failed`, survives a retention purge, and raises the admin-surface
+indicator **with email delivery disabled entirely**.
 
 ### Reconciliation
 
@@ -884,11 +1023,45 @@ whole run instead would be worse than heavy-handed: under steady webhook
 traffic a single stolen source lease would fail every run, and reconciliation
 would **livelock**, never committing anything.
 
-**Lock ordering is fixed to prevent deadlock**, because two scopes now take
-locks in one transaction: **all lease rows first, ordered by scope key; then
-user rows, ordered by user id.** The webhook apply path takes its single source
-lease then its single user row, which is the same relative order, so no cycle
-exists between the two paths.
+**Locks are taken with `SKIP LOCKED`, because blocking re-creates the livelock
+this design exists to avoid.** Revision 14 said a failed source fence drops that
+source and its dependent users — but a fence can only be *inspected* if the row
+can be *locked*, and a plain `FOR UPDATE` against a row a webhook holds
+**blocks**. It then hits `lock_timeout`, which aborts the statement and the
+transaction. So in the contended case the per-source drop is unreachable: the
+whole run rolls back, and with many lease and user locks that repeats under
+steady traffic — precisely the livelock the drop rule was introduced to prevent.
+The rule was correct about a *stale* lease and silent about a *held* one.
+
+**Specification: contention is the same outcome as a stale fence, not an
+error.**
+
+- Staged lease rows are taken with `SELECT … FOR UPDATE SKIP LOCKED`. A lease
+  held by another transaction is simply **absent from the result**, and absence
+  is read as "someone else owns this source" — that source and its dependent
+  users are dropped from the run, exactly as a failed fence check drops them.
+  No waiting, no timeout, no aborted transaction.
+- User rows are taken the same way; a user whose row is held by a webhook's
+  apply transaction is dropped from the run and picked up next time.
+- **Contention is reported as its own outcome category**, alongside
+  incompleteness, so a run that skipped many users is visibly partial rather
+  than quietly so.
+
+`SKIP LOCKED` is not a novelty here — the job queue already claims work with
+`FOR UPDATE SKIP LOCKED` (`asyncJobs.ts:14`, `:531-573`), so this is the
+repo's existing idiom for "take what is free, leave what is busy."
+
+Because nothing waits, **deadlock is impossible**, and the ordering rule below
+becomes belt-and-braces rather than load-bearing. It stays anyway, since it
+costs nothing and keeps the intent legible: **all lease rows first, ordered by
+scope key; then user rows, ordered by user id.** The webhook apply path takes
+its single source lease then its single user row — the same relative order.
+
+The webhook path deliberately does **not** use `SKIP LOCKED`: it has exactly one
+source and one user, nothing to skip to, and abandoning its write on contention
+would drop a real event. It blocks with a lock timeout and lets Stripe retry.
+Reconciliation can skip because it re-runs over everything; a webhook cannot,
+because it is the only carrier of its event.
 
 **Acceptance:** pause run A past its **run** lease expiry, let run B acquire and
 stage, then resume A — A commits **nothing** and reports superseded; B's commit
@@ -897,8 +1070,12 @@ interleaving of A's. Separately, expire one **source** lease under a staged run
 while a webhook holds the successor fence and is still retrieving — that
 source and its dependent users commit nothing, the rest of the run commits
 normally, and the webhook then crashing leaves the pre-existing state rather
-than reconciliation's stale snapshot. Run reconciliation and a webhook
-concurrently against overlapping sources and assert no deadlock.
+than reconciliation's stale snapshot. **Hold a lease in the *middle* of a
+staged run from another transaction and assert the run commits everything else,
+drops only that source and its dependent users, reports the contention, and
+neither blocks nor rolls back** — then assert the next run picks up what was
+skipped, so progress is defined rather than merely non-fatal. Run reconciliation
+and a webhook concurrently against overlapping sources and assert no deadlock.
 
 **What is deliberately *not* specified here:** resumable staging, per-item
 durable run status, and bounded/streaming staging for large accounts. Those are
@@ -1173,11 +1350,17 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 72 | 11 | No create-time control for a comped account | **Resolved** — explicit "Grant membership" checkbox plus required reason replaces the removed tier selector; the atomic-create capability would otherwise have been silently lost. |
 | 73 | 12 | An expired per-source lease holder is not fenced | **Resolved** — a fence value from a sequence, validated inside the apply transaction under `SELECT … FOR UPDATE`, with compare-and-release. Revision 12 gave that job to `source_state_as_of`, which cannot do it: a successor still retrieving has stored no newer token, so the late write passes the guard. **Third failure of the ordering design**, and the first one whose fix does not depend on a number meaning something it does not. |
 | 74 | 12 | An expired reconciliation holder can still commit its staged run | **Resolved** — the same fence, taken by the guard-once commit transaction; a superseded run commits nothing and reports as its own outcome. Same defect as 73 in the second lease, which I built without carrying the mechanism across. |
-| 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Resolved** — the boundary is the whole call graph, not the signatures: `sendEmail` (awaited, global-`db` outbox insert) and seven `void` fire-and-forget notification calls all escape or outlive the transaction. Every apply-reachable helper is now transactional-and-awaited or an explicit post-commit action; `sendEmail` already accepts `dbOverride`, so this is an existing affordance. **Also resolves a contradiction with invariant 5** ("notification only after a committed transition"), which the call graph has violated all along. |
+| 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Resolved** — the boundary is the whole call graph, not the signatures: `sendEmail` (awaited, global-`db` outbox insert) and seven `void` fire-and-forget notification calls all escape or outlive the transaction. Every apply-reachable helper is now **transactional-and-awaited, full stop** — the post-commit-action alternative this entry originally offered was deleted in revision 14 (see 78) and must not be read as still available; `sendEmail` already accepts `dbOverride`, so this is an existing affordance. **Also resolves a contradiction with invariant 5** ("notification only after a committed transition"), which the call graph has violated all along. |
 | 76 | 12 | The tier predicate has no answer for `registered` (#70 Still Open) | **Resolved** — the primitive becomes an effective-tier `CASE` **expression**; predicates derive from it. Revision 12 fixed the dashboard's over-count and introduced an under-count in the adjacent query (`admin.ts:2555`), because an expiry *filter* answers "is this user still X" while the readers ask "what is this user's tier". |
 | 77 | 13 | Reconciliation's commit fences the run but not each staged **source** | **Resolved** — the commit validates every staged source's lease before touching any user row; a failed fence drops that source and its dependent users rather than aborting the run (a whole-run abort would **livelock** under steady webhook traffic). Lock ordering fixed: leases by scope key, then users by id — the same relative order the webhook path uses. **Third instance of "a lease without a fence", and the second time I fixed one lease and left another.** |
 | 78 | 13 | The post-commit action list loses required notifications on crash | **Resolved by deleting the option** — the claim commits, the process dies, and Stripe's retry is discarded as a duplicate at `webhookHandlers.ts:1170-1179`, so the refund/dispute/fraud alert is lost permanently. Every required side effect is now a durable `async_jobs` row enqueued through the transaction executor. Not new machinery: `sendEmail` already writes `async_jobs` and already takes `dbOverride`. **The idempotency claim that makes retries safe is what makes a post-commit list unsafe** — the two mechanisms had never been considered together. |
 | 79 | 13 | One shared expression is not one shared instant | **Resolved** — `now()` is the *transaction* timestamp, and the dashboard runs its two counts as two statements in a `Promise.all`, so a user crossing the horizon between them is counted twice or not at all. One conditional-aggregation statement, or a bound `asOf` passed to every surface. The acceptance criterion I wrote (the counts sum to the same total) would have failed against the very query it was written for. |
+| 80 | 14 | The outbox row is not actually guaranteed | **Resolved** — enqueue made unconditional and independent of delivery configuration (`sendEmail` returns before enqueuing when Resend is unconfigured), and apply-path notification helpers stop swallowing enqueue failures. "Pass the executor" changed *which connection* inserts the row and never made the insert happen. |
+| 81 | 14 | Audit and outbox cannot be correlated | **Resolved** — a unique `side_effect_key` (`event/kind/recipient`) written on the claim's transaction and reused as the provider idempotency key; owed side effects derived by the prepare step; recovery checks both directions and stops treating `ignored_duplicate` as a terminal outcome. |
+| 82 | 14 | A permanently failed payment alert is invisible | **Resolved within existing mechanisms** — critical kinds classified, retained past the 30-day purge, exempt from the default-false abandonment-alert gate, and surfaced by an admin indicator read from `async_jobs` that does not depend on email. External paging explicitly **not** built, and recorded as a decision. |
+| 83 | 14 | A *held* lease blocks; the per-source drop is unreachable (#77 Still Open) | **Resolved** — locks taken with `SKIP LOCKED`, so contention becomes the same outcome as a stale fence rather than a `lock_timeout` that aborts the run. My drop rule was correct about a *stale* lease and silent about a *held* one, which reinstated the exact livelock it was written to prevent. The webhook path deliberately still blocks: it is the only carrier of its event and cannot skip. |
+| 84 | 14 | "Exactly once" delivery was never true | **Resolved** — the worker claims `processing`, calls Resend, then marks `done` in a *separate* transaction, so a crash redelivers. At-least-once adopted explicitly, narrowed by Resend's `Idempotency-Key` (24 h window vs. a ~10.6 h maximum job lifetime — verified against current docs and `asyncJobs.ts:133`). I had read the enqueue side and claimed a property of the delivery side. |
+| 85 | 14 | Ledger entry 75 still offered the deleted post-commit option | **Resolved** — entry 75 rewritten. A resolution row is an implementation instruction, so a superseded one contradicts the section that superseded it. First finding in this review against the ledger itself rather than the plan body. |
 
 | Round | Lens |
 |---|---|
@@ -1194,4 +1377,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 11 | The **surviving core** on its own terms — **9 findings, up from 6; two overturned round-10 fixes, and the ordering scheme failed for the second time** |
 | 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section — **4 findings, and two of round 11's resolutions were graded Still Open rather than accepted. Both leases lacked a fence; the boundary was drawn at signatures instead of the call graph** |
 | 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not — **3 findings, and it answered all three questions in the affirmative: a third unfenced lease, the post-commit list losing required work, and one expression evaluated at two instants** |
-| 14 | **Durability and recovery of the outbox now that everything is transactional.** Round 13 moved every required side effect into `async_jobs` rows written on the claim's transaction and deleted the only escape hatch, so the outbox is now load-bearing for refund, dispute and fraud alerts. Attack that: whether the async-job worker's retry/failure semantics match what a *payment* alert requires, whether a job enqueued on the claim transaction can be orphaned or duplicated, what happens when a job permanently fails, and whether the audit trail (still deliberately outside the transaction) can now disagree with the outbox about what happened. Also: the reconciliation commit now holds many lease locks plus many user locks in one transaction — press on its duration and on what a lock timeout mid-commit does |
+| 14 | **Durability and recovery of the outbox now that everything is transactional.** Round 13 moved every required side effect into `async_jobs` rows written on the claim's transaction and deleted the only escape hatch, so the outbox is now load-bearing for refund, dispute and fraud alerts. Attack that: whether the async-job worker's retry/failure semantics match what a *payment* alert requires, whether a job enqueued on the claim transaction can be orphaned or duplicated, what happens when a job permanently fails, and whether the audit trail (still deliberately outside the transaction) can now disagree with the outbox about what happened. Also: the reconciliation commit now holds many lease locks plus many user locks in one transaction — press on its duration and on what a lock timeout mid-commit does — **6 findings, five of them P1: the largest round since 8. The outbox was adopted for its crash behaviour without anyone reading the worker that drains it, and the lock question was the right one — a *held* lease blocks rather than failing a fence, so the per-source drop was unreachable and the livelock came straight back** |
+| 15 | **Everything round 14 touched is specified against code I read for the first time this round** — the async-job worker, the email helpers' swallow behaviour, `SKIP LOCKED`. So: does each new specification actually match what that code does, or have I described a mechanism that does not behave as assumed, a second time? Specifically — moving the Resend-unconfigured early return out of `sendEmail` changes behaviour for **every other caller in the app**, not just the payment paths; `side_effect_key` uniqueness has to sit inside the existing `enqueueJob` shape and survive redelivery; `SKIP LOCKED` on a *user* row can skip for reasons other than lease contention; and the critical-alert admin indicator is a new read path over `async_jobs` nobody has checked against its indexes. **Blast radius outside the payment paths is the lens** |
