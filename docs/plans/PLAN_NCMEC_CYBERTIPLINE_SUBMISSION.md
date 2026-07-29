@@ -876,15 +876,20 @@ would be wrong on both structure and access-pattern grounds.
 Route module: `artifacts/api-server/src/routes/adminSafetyReports.ts`, `requireAdmin`
 on every endpoint, following `adminTaxonomyHealth.ts`'s structure.
 
-**The authorization boundary is an open product question (§8.4), not settled here.**
+**The authorization boundary is `requireAdmin` and nothing more — settled by David
+(§8.4), not by omission.**
 `requireAdmin` resolves to a single boolean — `users.is_admin` (`schema/auth.ts:22`,
 `admin.ts:97`) — and `PATCH /admin/users/:id` lets any admin set `isAdmin` on any account
 (`admin.ts:152`). So as designed, every administrator holds full authority over federal
 reporting state, and that authority is self-propagating. Whether this surface warrants a
-second, separately-granted capability is a scope decision that belongs to David; §8.4
-states the question. Everything below is written to hold under **either** answer — the
-audit log, the confirmations, and the server-side constraints are not substitutes for an
-authorization boundary and do not assume one.
+second, separately-granted capability was put to David and **declined** (§8.4): no
+capability system ships with this plan.
+
+So everything below is a guard *within* one admin role. The audit log, the confirmations,
+and the server-side constraints make destructive actions attributable and detectable —
+they do not make them unavailable, and the plan does not describe them as though they
+did. The audit log is consequently the **only** control on this surface, which is why
+§5.4 states its requirements as non-negotiable rather than as good practice.
 
 - `GET  /admin/safety/reports` — paginated ledger, filterable by status, match source,
   and environment.
@@ -1484,11 +1489,29 @@ The trade-off, stated plainly because it is the reason this is David's and not m
   admin access is granted to anyone whose judgment David would not stake a federal
   reporting obligation on.
 
-My recommendation is to **decline for now and revisit when a second admin exists**,
-because the audit log delivers most of the protection at none of the lockout risk — but I
-am flagging it rather than deciding it, since the cost of being wrong here is borne
-legally rather than technically. Whatever David decides, this plan does not ship the
-capability system without an explicit yes.
+My recommendation was to **decline for now and revisit when a second admin exists**,
+because the audit log delivers most of the protection at none of the lockout risk.
+
+**Answered — David chose to keep ordinary `requireAdmin` (2026-07-29).** No capability
+system ships with this plan. Three consequences the implementation must carry, so the
+decision is a recorded position rather than an omission:
+
+1. **The audit log (§5.4) becomes the sole control on this surface, which raises its
+   status from "good practice" to load-bearing.** Every requirement attached to it —
+   append-only, written in the mutating transaction, actor snapshotted against account
+   deletion — is now the only thing standing between a destructive action and an
+   unexplainable ledger. None of them is negotiable during implementation on grounds of
+   scope.
+2. **The decision is scoped to a single-admin platform, and that is its expiry
+   condition.** It was made on the stated basis that the admin set is one person. Granting
+   `is_admin` to a second account hands that person full authority over federal-reporting
+   state on day one — including suppressing a report and stripping identity from one.
+   **That grant is the trigger to revisit §8.4**, not a later calendar date, and this
+   paragraph exists so the reason survives the context that produced it.
+3. **Nothing in the design may quietly assume a boundary that does not exist.** §5.8's
+   server-side constraints, mandatory reasons, and confirmations are what they are —
+   guards *within* one role. They are not an authorization model and the plan does not
+   describe them as one.
 
 ## 9. Out of scope
 
