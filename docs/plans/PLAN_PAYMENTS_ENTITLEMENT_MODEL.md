@@ -297,11 +297,35 @@ The expression is the primitive and everything else is derived from it, so they
 cannot drift. It also matches what the model actually says: expiry is a
 *demotion to `registered`*, not a disappearance.
 
+**One expression is not one instant.** Sharing the expression makes the two
+dashboard counts *agree on the rule* and not on *when*: `admin.ts:2547-2556`
+runs them as two statements in a `Promise.all`, and `now()` in PostgreSQL is
+the **transaction** timestamp, so two implicit transactions get two different
+timestamps. A user crossing the horizon between them is counted **twice or not
+at all** — which is exactly the sum-preservation property the acceptance below
+claims, so the claim would have failed against the very query it was written
+for.
+
+**Specification:** comparisons that must agree evaluate at **one instant**.
+
+- The dashboard becomes **one statement** with conditional aggregation —
+  `count(*) FILTER (WHERE effectiveTierExpr = 'legendary')` and the same for
+  `'registered'` — so both buckets see a single transaction timestamp.
+- Where one statement is not possible, the caller **binds a shared `asOf`**
+  and passes it to every surface, rather than each surface calling `now()`.
+  `effectiveTierExpr` and `getEffectiveMembership` therefore both take an
+  optional evaluation instant, defaulting to `now()` / the request clock.
+
+This is a general rule for the read path, not a dashboard fix: any claim that
+two effective-tier surfaces agree is meaningless unless they are evaluated at
+the same instant.
+
 **Acceptance:** at and after the horizon, a lapsed Legendary user appears in
 neither the mailing list nor the `legendary` count **and does appear in the
-`registered` count**, and all three agree with the row helper for that user;
-the two counts sum to the same total before and after the horizon lapses;
-`unregistered` rows are unaffected by expiry.
+`registered` count**, and all three agree with the row helper for that user
+**at a bound `asOf`**; the two counts sum to the same total before and after
+the horizon lapses, **including when the horizon is crossed between what used
+to be the two separate queries**; `unregistered` rows are unaffected by expiry.
 
 Every consumer goes through one of the two — the two middlewares, both sites above, and any
 future reader. The raw column is never read for an authorization or spending
@@ -699,14 +723,31 @@ helper reachable from apply must be one of:
    proper transactional outbox and delivery stays the async worker's job, which
    by construction only ever sees committed rows. That satisfies invariant 5
    **structurally** rather than by convention.
-2. **Deferred** — not called during apply at all, but returned as an explicit
-   post-commit action the caller runs after the transaction commits.
+2. ~~**Deferred** — returned as an explicit post-commit action the caller runs
+   after the transaction commits.~~ **Withdrawn — an in-memory post-commit
+   list silently drops required work.** The claim and the mutation commit; the
+   process dies before the list runs; Stripe retries; and the retry is
+   **discarded as a duplicate** at `webhookHandlers.ts:1170-1179`, which
+   returns without reprocessing. The notification is then lost *permanently* —
+   and the notifications in question are the refund, dispute and fraud alerts,
+   the highest-value messages this system sends. The idempotency claim that
+   makes retries safe is exactly what makes a post-commit list unsafe.
+
+**So there is only option 1.** Every required side effect is a **durable
+`async_jobs` row enqueued through the transaction executor**, committing with
+the claim. This is not extra machinery: `sendEmail` already writes to
+`async_jobs` and already takes `dbOverride`, and every notification helper
+(`userNotify.ts`, `adminNotify.ts`) routes through it — so the outbox row is
+what these paths produce anyway. The change is only *which connection* inserts
+it.
+
+Anything that genuinely cannot be an outbox row must be named explicitly, with
+its loss-on-crash stated. Nothing in the current call graph qualifies.
 
 **No fire-and-forget `void` call may appear inside apply.** Every one of the
-seven sites above is either awaited with the executor or moved to the
-post-commit list; "it's only a notification" is precisely the reasoning that
-put an un-rollback-able side effect inside a transaction that exists to be
-rollback-able.
+seven sites above is awaited with the executor; "it's only a notification" is
+precisely the reasoning that put an un-rollback-able side effect inside a
+transaction that exists to be rollback-able.
 
 **Enforcement is a test, not a convention:** exercise the full apply call graph
 with an executor that fails any statement not on its transaction, and assert no
@@ -724,7 +765,9 @@ Recovery is a query for claims lacking a terminal audit row.
 succeeds; assert no Stripe call occurs between `BEGIN` and `COMMIT`; **inject
 that same failure after a notification-producing write and assert no email is
 queued and no notification is sent** — then let the retry succeed and assert
-exactly one of each, not two.
+exactly one of each, not two; and **kill the process immediately after the
+commit and assert the notification is still eventually delivered, exactly
+once** — the crash window that killed the post-commit list.
 
 ### Reconciliation
 
@@ -819,10 +862,43 @@ and the run reports as superseded — a distinct outcome from `failed`, because
 nothing went wrong except elapsed time. Staging remains side-effect-free, so an
 abandoned run costs only the enumeration it already did.
 
-**Acceptance:** pause run A past its lease expiry, let run B acquire and stage,
-then resume A — A commits **nothing** and reports superseded; B's commit
+**The run fence is not enough — every staged *source* must be fenced too.**
+Reconciliation also holds **per-source** leases while it prepares, and revision
+13 validated only the run lease at commit. The hole is the same shape as the
+two it just closed: reconciliation stages source S under source-fence 1; that
+source lease expires; a webhook acquires fence 2 and is **still retrieving**,
+so no newer `source_state_as_of` exists; reconciliation's commit passes the run
+fence and the version guard, and writes its stale snapshot of S. If the webhook
+then crashes, the stale state is permanent. Third instance of "a lease without
+a fence", and the second time I have fixed one lease and left another.
+
+**Specification:** the commit transaction validates **every staged source's
+lease** — holder, fence and unexpired — the same check the webhook apply path
+performs, before it touches any user row.
+
+A source that fails its fence check does **not** abort the run. It is dropped,
+and so is every user whose staged tier depended on it — the same disposition
+the version-guard rejection already gets, since a staged tier computed from
+superseded source state is invalid for exactly the same reason. Aborting the
+whole run instead would be worse than heavy-handed: under steady webhook
+traffic a single stolen source lease would fail every run, and reconciliation
+would **livelock**, never committing anything.
+
+**Lock ordering is fixed to prevent deadlock**, because two scopes now take
+locks in one transaction: **all lease rows first, ordered by scope key; then
+user rows, ordered by user id.** The webhook apply path takes its single source
+lease then its single user row, which is the same relative order, so no cycle
+exists between the two paths.
+
+**Acceptance:** pause run A past its **run** lease expiry, let run B acquire and
+stage, then resume A — A commits **nothing** and reports superseded; B's commit
 succeeds; the entitlement table matches B's change set exactly, with no
-interleaving of A's.
+interleaving of A's. Separately, expire one **source** lease under a staged run
+while a webhook holds the successor fence and is still retrieving — that
+source and its dependent users commit nothing, the rest of the run commits
+normally, and the webhook then crashing leaves the pre-existing state rather
+than reconciliation's stale snapshot. Run reconciliation and a webhook
+concurrently against overlapping sources and assert no deadlock.
 
 **What is deliberately *not* specified here:** resumable staging, per-item
 durable run status, and bounded/streaming staging for large accounts. Those are
@@ -1099,6 +1175,9 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 74 | 12 | An expired reconciliation holder can still commit its staged run | **Resolved** — the same fence, taken by the guard-once commit transaction; a superseded run commits nothing and reports as its own outcome. Same defect as 73 in the second lease, which I built without carrying the mechanism across. |
 | 75 | 12 | Apply reaches the global `db` transitively (#67 Still Open) | **Resolved** — the boundary is the whole call graph, not the signatures: `sendEmail` (awaited, global-`db` outbox insert) and seven `void` fire-and-forget notification calls all escape or outlive the transaction. Every apply-reachable helper is now transactional-and-awaited or an explicit post-commit action; `sendEmail` already accepts `dbOverride`, so this is an existing affordance. **Also resolves a contradiction with invariant 5** ("notification only after a committed transition"), which the call graph has violated all along. |
 | 76 | 12 | The tier predicate has no answer for `registered` (#70 Still Open) | **Resolved** — the primitive becomes an effective-tier `CASE` **expression**; predicates derive from it. Revision 12 fixed the dashboard's over-count and introduced an under-count in the adjacent query (`admin.ts:2555`), because an expiry *filter* answers "is this user still X" while the readers ask "what is this user's tier". |
+| 77 | 13 | Reconciliation's commit fences the run but not each staged **source** | **Resolved** — the commit validates every staged source's lease before touching any user row; a failed fence drops that source and its dependent users rather than aborting the run (a whole-run abort would **livelock** under steady webhook traffic). Lock ordering fixed: leases by scope key, then users by id — the same relative order the webhook path uses. **Third instance of "a lease without a fence", and the second time I fixed one lease and left another.** |
+| 78 | 13 | The post-commit action list loses required notifications on crash | **Resolved by deleting the option** — the claim commits, the process dies, and Stripe's retry is discarded as a duplicate at `webhookHandlers.ts:1170-1179`, so the refund/dispute/fraud alert is lost permanently. Every required side effect is now a durable `async_jobs` row enqueued through the transaction executor. Not new machinery: `sendEmail` already writes `async_jobs` and already takes `dbOverride`. **The idempotency claim that makes retries safe is what makes a post-commit list unsafe** — the two mechanisms had never been considered together. |
+| 79 | 13 | One shared expression is not one shared instant | **Resolved** — `now()` is the *transaction* timestamp, and the dashboard runs its two counts as two statements in a `Promise.all`, so a user crossing the horizon between them is counted twice or not at all. One conditional-aggregation statement, or a bound `asOf` passed to every surface. The acceptance criterion I wrote (the counts sum to the same total) would have failed against the very query it was written for. |
 
 | Round | Lens |
 |---|---|
@@ -1114,4 +1193,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 10 | The plan **after** the migration machinery was cut — **the cut held: nothing load-bearing went with it, and all 6 findings landed on the surviving core or the new runbook** |
 | 11 | The **surviving core** on its own terms — **9 findings, up from 6; two overturned round-10 fixes, and the ordering scheme failed for the second time** |
 | 12 | The mechanisms round 11 introduced — per-source leases, the prepare/apply split, the reconciliation lease and the SQL tier predicate — plus the interactions *between* them: leases and transactions, staging and webhooks, predicate and helper. Round 11 found two long-standing sections that contradicted each other; look for more of those rather than for defects inside any one section — **4 findings, and two of round 11's resolutions were graded Still Open rather than accepted. Both leases lacked a fence; the boundary was drawn at signatures instead of the call graph** |
-| 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not |
+| 13 | The **fences themselves**, and the boundary they are supposed to make airtight: the per-source fence, the reconciliation fence, the "no un-transacted side effect in apply" rule and the effective-tier expression. Each was written this round in response to a defect in its own predecessor, so the question is whether the *replacement* holds — lock ordering and deadlock between the two lease scopes and the user row; whether the post-commit action list can lose an action a crash should not lose; whether the `CASE` expression and the row helper can still disagree at the horizon instant; and whether anything now depends on a lease TTL it should not — **3 findings, and it answered all three questions in the affirmative: a third unfenced lease, the post-commit list losing required work, and one expression evaluated at two instants** |
+| 14 | **Durability and recovery of the outbox now that everything is transactional.** Round 13 moved every required side effect into `async_jobs` rows written on the claim's transaction and deleted the only escape hatch, so the outbox is now load-bearing for refund, dispute and fraud alerts. Attack that: whether the async-job worker's retry/failure semantics match what a *payment* alert requires, whether a job enqueued on the claim transaction can be orphaned or duplicated, what happens when a job permanently fails, and whether the audit trail (still deliberately outside the transaction) can now disagree with the outbox about what happened. Also: the reconciliation commit now holds many lease locks plus many user locks in one transaction — press on its duration and on what a lock timeout mid-commit does |
