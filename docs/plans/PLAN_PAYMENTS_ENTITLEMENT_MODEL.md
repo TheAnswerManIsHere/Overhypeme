@@ -347,6 +347,66 @@ for **one**.
    common path; mechanism 2 is what holds when retrieval fails or the row is
    reached by any path that did not re-fetch. Either alone leaves a gap.
 
+### Two more writers the sweep found, both in `admin.ts`
+
+Round 24's lens was *the writers, not the state*, and it produced two paths this
+plan had inventoried and then never assigned a replacement to.
+
+**The admin soft-delete cancels at Stripe and writes nothing locally.**
+`DELETE /admin/users/:id`'s soft branch (`admin.ts:333-367`) selects the user's
+`active`/`trialing` subscriptions, calls `subscriptions.update(…,
+{cancel_at_period_end: false})` then `subscriptions.cancel(…)` on each — and
+performs **no local write and no refresh**. The local rows stay `active`,
+waiting for the cancellation webhook.
+
+That is survivable today because the tier is assigned per-event. It stops being
+survivable under this plan: `resolveUserTierOnReinstatement` (`admin.ts:188`)
+becomes a **recomputation**, and recomputation over a stale `active` source
+restores Legendary to a user whose subscription Stripe has already cancelled.
+The webhook usually closes the gap — but "usually" is exactly what this plan's
+product intent refuses ("regardless of whether the event arrives at all"), and
+reinstatement is a manual action that can easily precede a reconciliation pass.
+
+**Specification:** the admin soft-delete's Stripe mutation routes through the
+**same leased authoritative-refresh path** the `routes/stripe.ts` mutations use
+(entry from the concurrency section: mutate at Stripe, then retrieve and apply
+under the lease and fence). And, belt and braces, **reinstatement refreshes
+every Stripe source for that user before recomputing** rather than trusting
+local state — it is a rare, manual, high-consequence operation, so the extra
+retrieval is free.
+
+**Acceptance:** soft-delete a user with an active subscription, **drop the
+cancellation webhook entirely**, reinstate, and assert the user is **not**
+Legendary.
+
+**The data-lifecycle path rewrites entitlement rows into a foreign key that
+cannot exist.** `anonymizePaymentHistoryForUser` (`dataLifecycle.ts:18-33`,
+called from `POST /admin/users/:id/data-delete` at `admin.ts:3149`) sets
+`userId` to an `anon_*` reference on `membership_history`,
+`lifetime_entitlements` **and** `subscriptions`, then the hard delete removes
+the user.
+
+Both of its entitlement writes break under the target schema, in opposite ways:
+porting them to `membership_entitlements` **violates the `user_id` FK** — no
+such user row exists, which is the whole point of the anonymised reference —
+while leaving them unported references two tables this migration drops. The
+plan's mutation inventory listed `dataLifecycle.ts:24,28` from the first
+revision and never said what happens to them.
+
+**Specification:** this path **stops rewriting entitlement rows.** The
+`ON DELETE CASCADE` on `user_id` removes them when the user is deleted, which is
+the same end state the anonymisation was reaching for by a route the FK forbids.
+What it keeps doing is the work CASCADE does not cover: **`membership_history`
+anonymisation** (a separate table, deliberately outside the entitlement model —
+and see *Must not change* on history) and **grantor-label anonymisation** on the
+W1b provenance columns, which reference *admin* identities rather than the
+deleted user and therefore survive the cascade.
+
+**Acceptance:** a hard delete removes the user's entitlement rows via cascade
+with no FK violation; `membership_history` anonymisation still runs; a
+`admin_grant` row granted **by** the deleted admin to **another** user keeps its
+entitlement and gets its grantor label anonymised.
+
 ### One transition writer, and all three dispute events route through it
 
 Revision 24 said "every transition re-fetches and persists authoritative status"
@@ -816,11 +876,35 @@ Two axes, because one was not enough:
 | `is_membership_product` | provider-derived, **re-evaluated** | provider-derived, **frozen** | n/a — W1b authorizes |
 | `lifecycle_status` | provider-derived, re-evaluated | locally-authored (`active`/`refunded`), untouched | locally-authored (`active`/`revoked`), untouched |
 | `current_period_end`, `cancel_at_period_end` | provider-derived, re-evaluated | n/a | n/a |
-| `amount`, `currency` | provider-derived, re-evaluated | provider-derived, frozen | n/a |
+| `amount`, `currency` | **n/a** — see below | provider-derived, frozen | n/a |
+| `plan` | provider-derived, **re-evaluated** | n/a | n/a |
 | `grace_started_at`, `grace_expires_at` | **locally-derived policy, maintained** | n/a | n/a |
 | `dispute_loss_revoked_at` | locally-authored, **untouched, set-once** | same | n/a |
 | W1b provenance columns | n/a | n/a | locally-authored, untouched |
 | `source_state_as_of` | **operational** | operational | operational |
+
+**Why subscription `amount` is inapplicable, not zero-writer.** Revision 25's
+matrix said every subscription refresh re-evaluates `amount`. Checking the
+existing table rather than assuming: `subscriptions`
+(`lib/db/src/schema/memberships.ts:5-16`) has **no `amount` or `currency`
+column at all** — those live only on `lifetime_entitlements`. So no subscription
+writer persists an amount today, and I had specified a refresh obligation for a
+value that has never existed.
+
+Filling the cell would be worse than leaving it. A Stripe `Subscription` carries
+`items[]` with per-item price and quantity, not one self-evident scalar, so any
+implementer would have to **invent** an aggregation — and two writers inventing
+it independently (the webhook path and reconciliation) can disagree, producing a
+payment-audit value that drifts. The cell is therefore **n/a**, stated
+explicitly so it reads as a decision rather than an omission.
+
+**`plan` was dropped by accident and is restored.** The same check surfaced a
+column the target schema simply lost: `subscriptions.plan` (the price/product
+identifier). `is_membership_product` replaced its *qualification* role, and I
+then dropped the column without noting that it also carries identification.
+It is provider-derived and re-evaluated, like the rest of the subscription
+mirror. Found by running this round's own lens on my own matrix rather than by
+review, which is the point of the sweep.
 
 **Why grace is its own category, and why revision 24 broke it.** Classifying the
 window as source-local-and-never-touched contradicts two writers this plan
@@ -883,6 +967,28 @@ terminal status" was not implementable as written.
 3. **The `CHECK` stays for what it can actually do** — `is_terminal` agreeing
    with `status` on the proposed row. It is a consistency constraint, not a
    transition constraint, and the plan no longer claims otherwise.
+4. **`status` is constrained to the enumerated eight**, by enum or CHECK. The
+   consistency constraint alone does not do this: an unrecognised status
+   classifies as non-terminal (it is not in the terminal set), agrees with
+   `is_terminal = false`, passes, and then **holds the source indefinitely**,
+   because no transition in the plan knows how to resolve it. The pinned
+   TypeScript union does not prevent it — the handlers cast event status from
+   runtime data (`event.data.object as unknown as { status: string }`), so a
+   status Stripe adds after this SDK version flows straight through.
+
+**The boundary disposition for an unrecognised status, since the constraint is
+the backstop and not the handler.** The transition writer classifies **before**
+writing: a status outside the eight produces **no state change** and is
+**reported**, and the transaction commits. An existing row keeps its last known
+status; a *first* observation with an unrecognised status creates **no row**, so
+nothing is held.
+
+Holding nothing is the same disposition an unresolvable dispute mapping already
+takes (entry 121), and for the same reason: the uncertainty is about *what this
+is*, not about whether the customer is entitled, and an indefinite hold nobody
+can clear is a worse failure than a reported gap. It is also the lesson of entry
+130 — the disposition must not be an error, or the claim transaction rolls back
+and Stripe retries the same unrecognised status forever.
 
 **Resolving the instruction revision 24 left contradictory.** It said both
 "apply the retrieved status" and "never leave terminal", with no disposition
@@ -1822,6 +1928,10 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 132 | 23 | "Source-local, never touched" forbids the grace writers the plan requires | **Resolved** — reconciliation must **open** a window on discovering a missed `invoice.payment_failed`, and a refresh to recovered `active` must **clear** it; revision 24's boundary forbade both, so a missed failure would never get its 14-day deadline and stale timestamps would survive recovery. Grace is **locally-derived policy, maintained** — the subscription refresh owns it in the same fenced apply while preserving every field it does not own. The missing category, not a missing exception. |
 | 133 | 23 | `charge.dispute.updated` was never assigned to the transition writer | **Resolved** — it does only deadline-alert work (`webhookHandlers.ts:991-1023`) while its own comment says Stripe sends it for "evidence updates, **status transitions**, etc." So the event most likely to carry a non-terminal change had no writer, and `needs_response → under_review` would sit stale until a reconciliation sweep. All three dispute events now route through one transition function; the `.updated` alert is preserved alongside, not replaced. |
 | 134 | 23 | `access_hold_reason` was a second, unsynchronized answer to "is this held" | **Resolved by deletion** — the hold is the existence query; the column was kept "as the reason discriminator" with **no writer specified to synchronize it**, permitting an open dispute with a null reason and an all-terminal source still reading `dispute`. The reason is derived from `entitlement_source_disputes` when displayed. **Recurring pattern, fourth instance: a control named in one place and wired up in none** — and this time I introduced it in the very revision that fixed the previous instance. |
+| 135 | 24 | The admin soft-delete cancels at Stripe and never refreshes locally | **Resolved** — `admin.ts:333-367` calls `subscriptions.cancel` on every active/trialing subscription and performs **no local write**, leaving the rows `active` until the webhook lands. Harmless under per-event assignment; **not** harmless once `resolveUserTierOnReinstatement` becomes a *recomputation*, which would then read the stale `active` source and restore Legendary to a user Stripe has already cancelled. Routed through the same leased authoritative refresh as the `routes/stripe.ts` mutations, and reinstatement refreshes before recomputing. Acceptance drops the webhook entirely. |
+| 136 | 24 | `anonymizePaymentHistoryForUser` writes a `user_id` the FK forbids | **Resolved** — `dataLifecycle.ts:18-33` rewrites `userId` to an `anon_*` reference on both entitlement tables before the hard delete. Ported to `membership_entitlements` that **violates the `user_id` FK** (no such user, by design); left unported it references dropped tables. The mutation inventory listed these two lines from revision 1 and never assigned them a disposition. The path now stops rewriting entitlement rows — `ON DELETE CASCADE` reaches the same end state — while keeping `membership_history` and grantor-label anonymisation, which the cascade does not cover. |
+| 137 | 24 | An unrecognised dispute status holds a source indefinitely | **Resolved** — the consistency `CHECK` from 130 passes an unknown status happily: it is not in the terminal set, so it classifies non-terminal, agrees with `is_terminal = false`, and holds access with **no transition able to resolve it**. Reachable despite the pinned union because the handlers cast status from runtime data. `status` is now domain-constrained to the eight values, and the writer classifies **before** writing: an unrecognised status produces no state change, creates no row on first observation, is reported, and **does not fail the transaction** (entry 130's lesson). Holding nothing matches entry 121's precedent — the uncertainty is about *what this is*, not about entitlement. |
+| 138 | 24 | Subscription `amount` was a required cell with no writer and no column | **Resolved by marking it n/a** — `subscriptions` (`memberships.ts:5-16`) has **no `amount` or `currency` column**; those exist only on `lifetime_entitlements`. I specified a refresh obligation for a value that has never existed, and filling it would be worse than leaving it: a Stripe `Subscription` has `items[]` with per-item price and quantity, so an implementer would invent an aggregation the webhook path and reconciliation could invent differently. **Running this round's own lens on my own matrix then found a second defect Codex did not raise: `subscriptions.plan` was dropped from the target schema entirely** — restored as provider-derived, re-evaluated. |
 
 | Round | Lens |
 |---|---|
@@ -1849,4 +1959,5 @@ unpaid `checkout.session.completed`. Capture the event sequence in sandbox
 | 22 | **Disputes, third pass.** Rounds 20 and 21 both landed hardest on dispute handling — a state that did not exist, then a state that was not persisted, not keyed, and could not find its own source. Revision 23 adds `open_dispute_ids`, a charge→invoice→subscription mapping, a named subscription loss writer, auxiliary-collection re-fetch under lease, and locally-resolved ownership. **Every one of those is new.** Attack the dispute path end to end as a single story — open, concurrent, won, lost, unresolvable, arriving out of order, racing a cancellation — and check whether the mapping and the completeness rule can disagree about the same source |
 | 23 | **The dispute record as a state machine, and what round 22 moved.** Round 22 replaced two columns with a table, added an absorbing terminal state, a source-local permanent revocation, a fourth conjunction term and a provider-mirror/source-local field taxonomy. **All of it is new.** Two angles not yet applied: (a) treat `entitlement_source_disputes` as a state machine — which of the eight statuses can follow which, which transitions have no writer, what a re-fetch returning a *non-terminal* status after a terminal one must do, and whether the CHECK and the re-fetch can deadlock or disagree; (b) the field taxonomy is a **new global invariant** asserted over a schema written before it existed — check every column's declared category against every writer in the plan, not just the dispute ones. Round 20's lesson applies: the taxonomy looks obviously correct, which is the condition under which it has never been tested |
 | 24 | **The writers, not the state.** Rounds 20–23 kept finding that a state existed but nothing wrote it, or the wrong thing wrote it — 120 (no column), 122 (no writer), 127 (wrong destination), 133 (unassigned handler), 134 (no synchronizer). That is one failure repeating in five costumes, and it is a **writer-enumeration** failure, not a modelling one. So: take the revision-25 schema and, for **every column × source type cell** in the new matrix, name every code path in this plan and in the existing codebase that writes it, and identify the cells with **zero** writers or **more than one**. Then the reverse sweep: take every handler in `processDomainSwitch` and every route in `routes/stripe.ts` and `admin.ts` and check each writes only cells its category owns. The matrix (131) and the transition writer (133) are both brand-new and both assert completeness over a codebase neither has been checked against exhaustively |
+| 25 | **Severity dropped this round for the first time in five — three P2s where rounds 20–23 ran three-to-five P1s each — and the findings moved from *the model is wrong* to *this cell has no writer*. Two readings fit: the plan is converging, or the writer sweep found the easy half and the hard half is the paths neither of us has enumerated.** So: the sweep again, but **starting from the codebase rather than from the plan**. Enumerate every file that writes `subscriptions`, `lifetime_entitlements`, `membership_history` or `users.membership_tier` — including ones this plan has never mentioned in 24 rounds (`dataLifecycle.ts` was inventoried in revision 1 and still had no disposition until round 24; there may be others with neither) — and for each, state what it becomes. A path the plan has never named cannot have been checked against the matrix. Also: the two things I flagged low confidence in and round 24 did not reach — whether a **source-local** write advances `source_state_as_of`, and whether `is_terminal` being both derived and constrained can diverge |
 | — | **Scope boundary applied (David, 2026-07-29).** From round 15 on, findings about the async-job queue's *capability* — retry policy, escalation, retention, delivery guarantees beyond entry 84 — are **recorded as separate work rather than fixed here**. Findings about the entitlement model, about the claim-transaction boundary, and about regressions this plan's changes introduce in non-payment callers remain fully in scope. See *Scope boundary: the notification subsystem stops here* |
