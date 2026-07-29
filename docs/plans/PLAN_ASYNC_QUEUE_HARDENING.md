@@ -732,11 +732,42 @@ delivered digest.
   banner in `AdminLayout` while any `critical` alert is **attention-worthy** —
   `acknowledged_at IS NULL OR escalation_tier > acknowledged_tier` — so an
   acknowledged condition that crosses a boundary brings the banner back.
-- **Email (retained, now honest).** The existing abandoned-email alert moves
-  behind the same dispatcher, and the config gate is *seeded* by migration so it
-  is finally togglable in the admin UI. It stays off by default — the webhook
-  supersedes it — but it stops being a feature that lies about being
-  configurable.
+- **Email (retained, now honest — and it must NOT go through the queue).** The
+  config gate is *seeded* by migration so it is finally togglable in the admin
+  UI. It stays off by default — the webhook supersedes it — but it stops being a
+  feature that lies about being configurable.
+
+  **"Move the existing notifier behind the dispatcher" is not sufficient, and
+  an earlier draft said exactly that.** `notifyAdminsOfAbandonedEmail`
+  (`adminNotify.ts:355-378`) calls `sendEmail`, which **enqueues an
+  `async_jobs` row** rather than delivering. Routing the dispatcher through it
+  breaks two things at once:
+
+  1. **The watermark would advance on *enqueue*, not delivery** — the exact
+     "enqueue is not completion" error this plan exists to eliminate, committed
+     by the alerting system itself. A queued-then-abandoned alert email would
+     be recorded as successfully dispatched.
+  2. **It reintroduces the recursion the queue-agnostic design removed the guard
+     for.** Today the only protection is
+     `if (ep.kind === "admin_abandoned_email_alert") return;` inside
+     `emailJobHandler.onAbandon` (`email.ts:241`). But A2 records alerts in the
+     **finalize transaction for every queue and every row**, independent of
+     `onAbandon` — so that guard no longer covers the path. During a Resend
+     outage each failed alert email would produce its own `job_abandoned` alert,
+     which would produce another alert email, indefinitely.
+
+  So the email channel **delivers directly through the provider**, calling the
+  same low-level Resend send that `deliverFromOutbox` uses — never `sendEmail`,
+  never an `async_jobs` row. It observes the provider outcome, advances
+  `dispatched_count` / `dispatched_tier` **only on a successful send**, and
+  records a failure in `last_error` / `failure_count` for retry on the next
+  tick. And, exactly as with the webhook: **a failure of the email channel is
+  logged and surfaced in-app only — it never creates an alert.** The recursion
+  is then structurally impossible rather than guarded by a payload `kind`,
+  because alert delivery no longer produces queue rows at all.
+
+  The dev fallback is unchanged: with no Resend key, this path delivers nothing
+  and throws nothing, and the alert remains visible in-app.
 
 **A5. Digest + cooldown.** `alert_cooldown_minutes` (default 30) per
 `dedupe_key`. The digest reads *"12 email jobs abandoned in the last 31 minutes
@@ -947,7 +978,7 @@ deferred beyond `email_defer_alert_hours` (default 6).
 ### Part C — The health surface
 
 **C1. `worker_lane_heartbeats`** — one row per **`(instance_id, lane)`**, with
-`worker_version`, `last_scheduled_at`, `last_tick_completed_at`,
+`worker_protocol_version`, `last_scheduled_at`, `last_tick_completed_at`,
 `in_flight_count`, `last_claim_count`.
 
 **Three stamps, written at three different moments**, because scheduler liveness
@@ -977,10 +1008,36 @@ and tick completion are different facts:
   `in_flight_count > 0` beyond `wedged_lane_alert_minutes` (default 30). A
   genuinely hung handler, needing different remediation than a dead timer.
 
-**`worker_version`** is stamped on every tick. It powers the 3b **block-only
-interlock** — an operator enabling reclaim while a pre-lease version is visible
-is refused — and nothing more. Its *absence* enables nothing, because a silent
-process is indistinguishable from a departed one; see the rollout protocol.
+**`worker_protocol_version`** is stamped on every tick — and what it contains
+is safety-critical, so the plan names it rather than leaving "a version" to the
+implementer.
+
+It is a **capability marker, not a release identifier**: an exported integer
+constant `WORKER_PROTOCOL_VERSION` in `asyncJobs.ts`, bumped by hand only when
+the worker's *queue protocol* changes. **Phase 1 introduces it at `1`. Phase 3a
+bumps it to `2`, meaning "this worker honors the lease fence on every
+finalize."** The interlock's predicate is then exact:
+
+```
+refuse to enable reclaim if EXISTS (
+  SELECT 1 FROM worker_lane_heartbeats
+  WHERE last_scheduled_at > now() - instance_heartbeat_ttl
+    AND worker_protocol_version < 2
+)
+```
+
+**Deriving it from a release identifier would be wrong**, and it is the obvious
+thing to reach for: the only such value in the repo is
+`REPLIT_DEPLOYMENT_ID ?? REPLIT_GIT_COMMIT_SHA` (`instrument.ts:28-31`). Every
+deploy changes it, including the 3a→3b deploy, so a release-equality check would
+classify the **fence-capable 3a instances as "not current"** and refuse
+forever; a release-inequality check would admit an unfenced pre-3a worker as
+readily as a 3a one. Neither expresses the only question that matters — *does
+this worker honor the fence?* — which is a property of the code, not of when it
+shipped. Two different releases of 3a are equally safe and must compare equal.
+
+Its *absence* still enables nothing, because a silent process is
+indistinguishable from a departed one; see the rollout protocol.
 
 **Departed instances are pruned:** a row whose `last_scheduled_at` is older than
 `instance_heartbeat_ttl_minutes` (default 15) is excluded from evaluation and
@@ -1161,7 +1218,7 @@ that "no schema change" is a stated conclusion rather than an omission — no
 empty migration file is created for it. Next free index is **0094**.
 
 - **0094** (Phase 1) — `worker_lane_heartbeats`, primary key
-  `(instance_id, lane)`, with `worker_version`; index on `last_scheduled_at` for
+  `(instance_id, lane)`, with `worker_protocol_version` (see C1 — a capability integer, `1` in Phase 1); index on `last_scheduled_at` for
   the prune sweep. Seed `instance_heartbeat_ttl_minutes` (15).
 - **0095** (Phase 2) — `job_alerts` (with `state` / `resolved_at` /
   `escalation_tier` / `acknowledged_tier`) + its partial
@@ -1237,7 +1294,7 @@ wrong:**
    after its cutoff, 3a claims it with a token, and the old worker then
    finalizes by id over the new run. The reclaim did not need to be
    *short*-lease to cause the damage; it only needed to happen.
-2. **TTL absence is not termination.** "No pre-lease `worker_version` seen
+2. **TTL absence is not termination.** "No pre-lease `worker_protocol_version` seen
    within the 15-minute TTL" is not proof every old writer has exited: a wedged
    instance — event loop blocked, handler hung — stops heartbeating while
    remaining perfectly capable of finalizing when it recovers. **That is the
@@ -1256,13 +1313,25 @@ wrong:**
    silent double-execution.
 2. **Graceful shutdown ships in 3a**, so the overlap ends promptly under normal
    deploys.
-3. **Enabling 3b is an explicit operator action, not an inference.** A deploy
-   flag or admin toggle, taken after confirming in the Replit deployment console
-   that the previous revision has **zero** running instances. The plan states
-   plainly that this is human-verified, because the application cannot prove it
-   and every automated proxy tried so far has been wrong in the same direction.
+3. **Enabling 3b is an explicit operator action, and the action is the 3b
+   deploy itself — there is no flag.** An earlier draft said "a deploy flag or
+   admin toggle," which contradicts this plan's own *Must Not Change* rule
+   against rollout-flag gating, and which nothing in the plan actually builds:
+   no migration seeds a control key, no step adds a route, a permission or an
+   audit trail for it. The flag-free protocol instead:
+
+   1. The operator confirms in the Replit deployment console that the previous
+      revision has **zero** running instances.
+   2. They deploy the **3b build, which has reclaim on by default.** Choosing to
+      deploy it *is* the explicit human action — already deliberate, already
+      audited by the deployment record, and requiring no new surface.
+   3. The interlock (4) runs at startup and **refuses** if it is wrong.
+
+   The confirmation stays human-verified because the application cannot prove a
+   drain and every automated proxy tried so far has been wrong in the same
+   direction.
 4. **The version check survives as an interlock that can only *block*, never
-   *enable*.** If the operator enables 3b while a pre-lease `worker_version` is
+   *enable*.** If the operator enables 3b while a pre-lease `worker_protocol_version` is
    still visible, the worker refuses and logs. It cannot say "safe"; it can say
    "definitely not safe," and that asymmetry is the only sound use of it.
 
@@ -1274,7 +1343,7 @@ from inside the process that needs it.
 **Rolling back past 3a while leased rows are processing is the unsafe
 direction** — drain first.
 
-**Acceptance** now tests the version *interlock* (a pre-lease `worker_version`
+**Acceptance** now tests the version *interlock* (a pre-lease `worker_protocol_version`
 heartbeating with zero jobs in flight blocks enabling) and the 3a **no-reclaim**
 property (a row stuck during the overlap is not requeued by any path), replacing
 the superseded NULL-row predicate test.
@@ -1415,7 +1484,7 @@ the example):
   disabled**) and a 3b-era worker (lease reclaim) against the same table produce
   no double-finalize.
 - **Enablement is operator-driven and the interlock only blocks:** reclaim stays
-  off with no operator action even when *no* pre-lease `worker_version` is
+  off with no operator action even when *no* pre-lease `worker_protocol_version` is
   visible (absence is not an enable signal), and an operator enable **is
   refused** while a pre-lease version is visible. Both directions, because a
   test of the refusal alone would still pass against the superseded design that
@@ -1441,7 +1510,7 @@ matters:
   heartbeating, its row is pruned at TTL, the lane stays healthy because a live
   instance still schedules it.
 - **The 3b interlock refuses against an idle old instance** — a pre-lease
-  `worker_version` heartbeating with zero jobs still blocks enabling reclaim,
+  `worker_protocol_version` heartbeating with zero jobs still blocks enabling reclaim,
   which is the case the round-1 row-predicate gate passed by mistake.
 
 **Alert lifecycle:**
@@ -1550,7 +1619,7 @@ before the machine changes (settled decision 5).
 
 **Phase 1 — Instrument (no behavior change to the queue).**
 1. Migration 0094: `worker_lane_heartbeats`, keyed `(instance_id, lane)`, with
-   `worker_version`.
+   `worker_protocol_version`.
 1a. **Record the production Postgres connection limit and the autoscale
    max-instance setting** (the two numbers under *Questions for David*), then
    derive the per-instance pool `max` from them. Do **not** hard-code a value.
@@ -1580,6 +1649,19 @@ before the machine changes (settled decision 5).
 5. The Queue Health page + nav item, per the two-altitude contract.
 
 **Phase 2 — Alerts (closes the headline finding).**
+5a. **Operational prerequisite — provision `ALERT_WEBHOOK_URL` (David).** A
+   repo-wide search finds this key nowhere outside this plan: no secret
+   declaration, no deployment note, no chosen destination. It is not code, so no
+   code step can produce it, and **Phase 2's headline acceptance criterion — a
+   revoked Resend key produces a *delivered* webhook — cannot pass until it
+   exists.** David picks the destination (a Slack or Discord incoming webhook,
+   matching `alert_webhook_format`) and sets the secret on the Replit
+   deployment; it is never an `admin_config` row, since it is a credential.
+   Until it is set, the dispatcher logs the unconfigured channel once per tick
+   at warn level and delivers **in-app only** — degraded and visible, never
+   crashing and never silently pretending success — so the rest of Phase 2 can
+   be built and reviewed while the secret is pending. The phase is not *done*
+   until the criterion passes against a real destination.
 6. Migration 0095: `job_alerts` + `job_alert_dispatches` + seeded config rows.
 7. Record alerts inside the finalize transaction, for all queues and both
    terminal paths.
@@ -1647,24 +1729,61 @@ before the machine changes (settled decision 5).
     increments `delivery_generation` in its existing atomic conditional update.
     Without that half the key never changes and an admin retry is a no-op
     inside Resend's 24-hour window.
-17a. **Audit the remaining handlers for replayed external side effects** and
-    record the result in the plan's per-queue table — `image_generation` and
-    `image_prompt_generation` first, since `email` and `fact_ai_meme_backfill`
-    are already characterised. Any handler found to replay a paid or
-    user-visible call gets provider-level or domain-level idempotency in this
-    step, not later.
+17a. **Domain-level replay guards for the two render handlers.** The audit this
+    step used to *assign* is done — leaving it open was unresolved design
+    handed to the implementer, on the one phase that deliberately permits
+    duplicate execution. Both handlers replay paid external calls today, both
+    verified:
+
+    - **`image_prompt_generation`** calls the paid planner
+      (`imagePromptJobs.ts:168`, `generateImagePromptPlan`) with no replay
+      guard.
+    - **`image_generation`** calls `fal.subscribe` (`:365`) with no replay
+      guard, then stores the result at
+      `ai-bg-v2/${factId}/${attemptId}-${Date.now()}.png` (`:385`).
+
+    Both key everything on `attemptId`, a stable domain identity, so the fix is
+    domain-level and needs no provider feature — the same shape as
+    `aiMemeBackfillJobs.ts:157-180`'s existing guard, which is this repo's own
+    precedent:
+
+    1. **Re-read the attempt row immediately before the paid call.** If
+       `image_prompt_generation` finds a completed plan for that attempt, or
+       `image_generation` finds `generatedImageObjectPath` already set, it
+       **skips the call and finalizes from the stored row.**
+    2. **Make the object path deterministic** — `ai-bg-v2/${factId}/${attemptId}.png`,
+       dropping `Date.now()`. This is the half that matters under genuine
+       concurrency: with a timestamp, two live runs write **two** objects and
+       the attempt row ends up pointing at one while the other is orphaned in
+       storage forever. With a deterministic key they converge on one object,
+       and whichever finalize wins the fence points at it.
+
+    **What this does and does not close, honestly.** (1) is a check-then-act, so
+    two runs can both pass it before either writes — it collapses the common
+    crash-recovery replay, not a true concurrent one. That residual is settled
+    decision 3's accepted cost (fail open toward re-execution), the fence still
+    admits only one finalize, and (2) makes the *storage* side converge rather
+    than fork. Closing it completely would need provider idempotency neither
+    fal nor the planner offers.
+
+    Both are recorded in the per-queue replay table so no later reader re-opens
+    the question, and acceptance drives each handler twice against one attempt,
+    asserting exactly one paid call and one stored object.
 
 *(The deferred-email age alarm (B6) is **not** here — it is one of Phase 2's
 four condition producers, step 7a.)*
 
 **Phase 3b — Enable lease-driven reclaim (only once no pre-lease worker
 remains).**
-18. **Operator-enabled reclaim, with a block-only interlock.** Lease reclaim is
-    switched on by an **explicit operator action** — a deploy flag or admin
-    toggle — taken after confirming in the Replit deployment console that the
-    previous revision has zero running instances. The `worker_version` check
-    runs at enable time and can only **refuse**: if a pre-lease version is still
-    visible the worker declines and logs. It never enables anything on its own.
+18. **Reclaim ships on-by-default in the 3b build, with a block-only startup
+    interlock — no flag, no toggle, no config key.** The operator's explicit
+    action is deploying 3b, taken after confirming in the Replit deployment
+    console that the previous revision has zero running instances; the
+    deployment record is the audit trail. At startup the worker evaluates
+    `EXISTS (live heartbeat WITH worker_protocol_version < 2)` and, if true,
+    **refuses to enable reclaim and logs loudly** — it runs as a 3a worker
+    instead of failing to boot, so a premature deploy degrades rather than takes
+    the site down. It never enables anything on its own.
     Absence of a recent pre-lease heartbeat is **not** the enable condition —
     that is the TTL inference the rollout protocol proves unsafe, since a wedged
     instance stops heartbeating while remaining able to finalize. Depends on
@@ -1767,7 +1886,7 @@ through `email.ts:156`. Final buckets, not candidates:
 |---|---|---|
 | `routes/users.ts` (email-change verification) | **atomic-required** | token row + `pendingEmail` + mail are three writes with no transaction (`:342-360`); any gap leaves a token with no mail or a pending state with no token |
 | `routes/localAuth.ts` (signup verification, password reset) | **atomic-required** | the same shape — a reset token with no mail is an account the user cannot recover |
-| `lib/moderation/ncmec.ts` | **atomic-required** | a reporting obligation; a report recorded but not sent is the worst possible divergence on this path |
+| `lib/moderation/ncmec.ts` | **best-effort by design — and atomicity here would be actively harmful** | The `ncmec_reports` row **is** the durable reporting obligation; the email is an admin heads-up *about* it. `submitNcmecReport` (`:33-66`) inserts the row first, then sends inside a swallowing `try/catch` whose comment says so outright — *"Never fail the surrounding pipeline if the email fails — the DB row is the source of truth"* — and `quarantine.ts:100-124` wraps the whole call in a second swallowing catch. Composing the enqueue into the report insert would let a mail failure **roll back the report row**, which `quarantine.ts` then swallows: evidence quarantined, **no report queued**, nothing raised. That is the exact inversion of the property, on a child-safety path. Left as-is, deliberately. |
 | `lib/adminNotify.ts` (fact review, dispute, fraud warning, abandoned-email) | **best-effort by design** | each describes an event that already happened. A missed one is a nuisance, and wrapping it would put a mail enqueue inside a moderation or webhook transaction for no correctness gain. **Recorded explicitly so a later reader does not "fix" it.** |
 | `lib/webhookHandlers.ts` (membership/billing notifications) | **best-effort by design** | the grant is the contract; the email is a courtesy, and the Stripe handler transaction must not be lengthened by a mail enqueue |
 | `lib/userNotify.ts`, `routes/reviews.ts` (approve/reject) | **best-effort by design** | the moderation decision is authoritative and already durable; the notification follows it |
@@ -1780,11 +1899,22 @@ finding 1.6 open, because "classify as you go" is how the two sites nobody
 thought about stay unclassified. **Both layers** get classified into one of three
 buckets:
 
-- **Atomic-required** — the notification is part of the domain change's
-  contract and a divergence is user-visible or legally material. Email
-  verification, password reset, and `ncmec.ts`'s reporting path are the
-  candidates; each gets its domain write and its enqueue composed in one
-  transaction.
+- **Atomic-required** — the notification **is** the durable record of the
+  obligation, so losing it loses the obligation itself. Email verification and
+  password reset qualify: a token row with no mail is an account the user cannot
+  recover, and nothing else in the system remembers that a mail was owed. Each
+  gets its domain write and its enqueue composed in one transaction.
+
+  **The test is "is the email the record?", not "does this matter?"** — a
+  distinction an earlier draft got wrong in the most consequential possible
+  place. It classified `ncmec.ts` as atomic-required on the reasoning that a
+  reporting obligation is legally material. It is; but the obligation is carried
+  by the **`ncmec_reports` row**, not by the email, and making the row's
+  survival conditional on a mail enqueue would destroy the record in order to
+  protect the notification about it. Where a durable row already holds the
+  obligation, atomicity with a notification makes the record *less* safe, never
+  more. Verified against `ncmec.ts:33-66` and `quarantine.ts:100-124`, both of
+  which swallow mail failures on purpose.
 - **Best-effort by design** — an admin notification about an event that already
   happened (`adminNotify`'s fact-review alert). A missed one is a nuisance, not
   a correctness failure, and wrapping it would put a mail enqueue inside a
@@ -1811,7 +1941,7 @@ mutation rollback leaves no job row.
 | **Pool exhaustion from the new steady-state queries.** | Heartbeat renewal is one batched statement per lane per interval. Dispatch, condition evaluation, and the alert-ledger purge all run on the **independent alert runner** (A3) — *not* the bulk maintenance slot, which sits behind an awaited lane tick and would reintroduce the headline failure — so the pool arithmetic counts that runner's own concurrent demand. Phase 1 sets `max` to the derived fleet-safe value. |
 | **Four phases is a long runway before the headline finding closes.** | Phase 2 closes it, and Phase 1 is deliberately small. If David wants alerts sooner, Phases 1 and 2 can merge into one PR — the ordering rationale is about Phase 3, not about splitting 1 from 2. |
 | ~~**`onConflictDoNothing` against a partial unique index may not be expressible in drizzle 0.45.2.**~~ | **Resolved, Codex round 1** — the API is `onConflictDoNothing({ target, where })` and it emits the predicate in the index-predicate position. Verified in the installed source. No `SAVEPOINT` fallback needed; re-confirm against 0.45.2 during the build, since the reading was taken from the sandbox's 0.45.1. |
-| **Mixed-version deploys defeat fencing** — an old worker finalizes by id and cannot see the fence. | Phase 3 splits into 3a (fence-honoring, **all reclaim disabled** — safe alongside old workers because nothing requeues their rows) and 3b (lease reclaim, enabled by an explicit operator action after confirming zero old instances, with the `worker_version` check as a block-never-enable interlock). Graceful shutdown ships in 3a so the window is short. Rolling back past 3a with leased rows in flight is the unsafe direction. |
+| **Mixed-version deploys defeat fencing** — an old worker finalizes by id and cannot see the fence. | Phase 3 splits into 3a (fence-honoring, **all reclaim disabled** — safe alongside old workers because nothing requeues their rows) and 3b (lease reclaim, enabled by an explicit operator action after confirming zero old instances, with the `worker_protocol_version` check as a block-never-enable interlock). Graceful shutdown ships in 3a so the window is short. Rolling back past 3a with leased rows in flight is the unsafe direction. |
 | **A stale owner's heartbeat could extend the new owner's lease**, postponing recovery indefinitely. | Renewal is fenced on `(id, token, status)` pairs exactly like finalize; a zero-row renewal is the signal to drop the job from the lane's in-flight set. Tested directly. |
 | **The alert dispatcher could be starved by a hung handler.** | It runs on an independent timer with its own re-entrancy guard, never behind an awaited `asyncJobsTick`. `recoverStuckProcessing` moves off the same blocked position in 3a. Regression-tested by blocking a bulk handler and asserting dispatch still fires. |
 | **Alerting continues after the first digest but is never re-dispatched.** | Per-channel `job_alert_dispatches` rows make pending-ness a quantity rather than a boolean; the dispatcher selects on `occurrence_count > dispatched_count`, independently per channel. |
