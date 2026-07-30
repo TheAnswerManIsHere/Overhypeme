@@ -37,8 +37,11 @@ live behavior instead of a plausible-looking green check.
 
 Before trusting a new CI guard's first green run as proof it verified
 anything, ask whether its "nothing to check" path and its "checked and
-passed" path produce the same visible outcome (same exit code, same log
-shape). If they do, that ambiguity is a defect in the guard itself, not
+passed" path produce **the same exit code** — that's the only thing CI's
+pass/fail status actually surfaces to a reader glancing at the check list;
+their stdout can differ (this guard's two paths print visibly different
+lines) and still be equally invisible to anyone who doesn't open the job log.
+If the exit codes match, that ambiguity is a defect in the guard itself, not
 something to resolve by reading job logs after the fact — make the guard
 throw when it's in an environment where its required inputs should always be
 present. This applies to any guard added to `.github/workflows/build.yml`
