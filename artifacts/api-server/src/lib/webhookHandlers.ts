@@ -130,11 +130,30 @@ async function findUserById(userId: string) {
  * Noop reasons that describe OUR failure to observe an object right now, not a
  * settled fact about the object — a retry might succeed where this attempt
  * didn't. Every other noop reason (`not_membership_product`, `wrong_mode`,
- * `user_mismatch`, `no_customer`, `source_unknown`, `payment_not_complete`, …)
- * is permanent: retrying the SAME event will reach the SAME conclusion, so
- * claiming those is correct.
+ * `user_mismatch`, `no_customer`, `payment_not_complete`, …) is permanent:
+ * retrying the SAME event will reach the SAME conclusion, so claiming those is
+ * correct.
+ *
+ * `source_unknown` is in this set, and only the DISPUTE prepare can produce it.
+ * It reads like a settled fact and is not: Stripe does not order deliveries, so
+ * a `charge.dispute.created` can arrive before the `checkout.session.completed`
+ * that creates the entitlement it attaches to. Claiming it would leave the
+ * source with no dispute row, no access hold and no permanent loss revocation,
+ * and nothing reconstructs that later — reconciliation walks subscription
+ * sources, not disputes.
+ *
+ * The cost is that a dispute which never maps to one of our sources at all — a
+ * merch charge, say — is retried until Stripe stops (a few days) and audited as
+ * failed each time. That is the right side to err on: noisy logs for a
+ * non-membership dispute, against silently keeping paid access for a customer
+ * who charged back.
  */
-const RETRYABLE_NOOP_REASONS = new Set(["source_busy", "retrieval_failed", "incomplete_enumeration"]);
+const RETRYABLE_NOOP_REASONS = new Set([
+  "source_busy",
+  "retrieval_failed",
+  "incomplete_enumeration",
+  "source_unknown",
+]);
 
 export interface PreparedDomainEvent {
   entitlement: Prepared;

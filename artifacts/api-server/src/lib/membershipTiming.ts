@@ -35,6 +35,26 @@ export const STRIPE_MAX_NETWORK_RETRIES = 1;
 /** Allowance for the SDK's sleep BETWEEN attempts, which the request timeout does not cover. */
 export const STRIPE_RETRY_SLEEP_BUDGET_MS = 2_000;
 
+/**
+ * The wall-clock budget for a prepare phase's WHOLE retrieval sequence, not one
+ * request.
+ *
+ * Bounding a single request was necessary and not sufficient. A subscription
+ * refresh holds its source lease across `retrieveSubscription`, then
+ * `listSubscriptionItems` (up to `MAX_PAGES` pages), then a product lookup per
+ * item — and a `past_due` refresh adds `invoices.list`, `invoicePayments.list`
+ * and `charges.list` (paginated again) for the grace anchor. Every one of those
+ * bounds is a *correctness* bound (see "negative conclusions need complete
+ * collections"), deliberately generous; multiplied out they are nowhere near a
+ * lease TTL. So the per-request budget was being compared against a phase that
+ * could legitimately issue forty of them.
+ *
+ * A phase-wide deadline is the fix that keeps the module's original stance —
+ * bound the work, do not lengthen the lease to cover unbounded work — while
+ * making the inequality hold over what the phase ACTUALLY does.
+ */
+export const RETRIEVAL_PHASE_BUDGET_MS = 45_000;
+
 /** PostgreSQL `lock_timeout` for the apply transaction. Boundable because it holds no network I/O. */
 export const APPLY_LOCK_TIMEOUT_MS = 3_000;
 export const APPLY_RETRY_ATTEMPTS = 3;
@@ -61,11 +81,69 @@ export function backoffSumMs(baseMs: number, attempts: number): number {
   return total;
 }
 
-/** Worst-case wall time of one bounded Stripe retrieval, including retry sleeps. */
-export function retrievalBudgetMs(): number {
+/** Worst-case wall time of ONE bounded Stripe request, including its retry sleep. */
+export function singleRequestBudgetMs(): number {
   return (
     STRIPE_REQUEST_TIMEOUT_MS * (1 + STRIPE_MAX_NETWORK_RETRIES) + STRIPE_RETRY_SLEEP_BUDGET_MS
   );
+}
+
+/**
+ * Worst-case wall time of a whole prepare-phase retrieval, which is what the
+ * lease must actually outlive.
+ *
+ * Equal to the phase budget exactly, with no overrun term, and that is a
+ * property of how the deadline is enforced rather than an assumption: a request
+ * is issued only while a FULL single-request budget remains (see
+ * `RetrievalDeadline.assertCanIssue`). The last `singleRequestBudgetMs()` of the
+ * window is therefore deliberately unusable — it is the room the final in-flight
+ * request needs to finish inside the budget. Checking merely "is there time
+ * left" instead would let a request start with a millisecond to spare and run a
+ * further 22s, putting the phase back outside the number the lease is derived
+ * from.
+ */
+export function retrievalBudgetMs(): number {
+  return RETRIEVAL_PHASE_BUDGET_MS;
+}
+
+/** Raised when a prepare phase's retrieval budget is spent. Always retryable. */
+export class RetrievalBudgetExceededError extends Error {
+  constructor(label: string, elapsedMs: number) {
+    super(
+      `retrieval budget of ${RETRIEVAL_PHASE_BUDGET_MS}ms exhausted after ${elapsedMs}ms ` +
+        `before "${label}" — abandoning so the lease cannot be outlived`,
+    );
+    this.name = "RetrievalBudgetExceededError";
+  }
+}
+
+/**
+ * The phase deadline, started when the lease is taken and consulted before every
+ * Stripe request the phase makes.
+ *
+ * Deliberately a wall clock rather than a request counter: what the lease has to
+ * outlive is elapsed time, and a count cannot bound that when any individual
+ * request may legitimately take twenty seconds.
+ */
+export interface RetrievalDeadline {
+  /**
+   * Throws unless a full single-request budget remains. `label` names the call
+   * about to be issued, so an exhausted phase says which step it died on.
+   */
+  assertCanIssue(label: string): void;
+  remainingMs(): number;
+}
+
+export function startRetrievalDeadline(startedAtMs: number = Date.now()): RetrievalDeadline {
+  const elapsed = () => Date.now() - startedAtMs;
+  return {
+    assertCanIssue(label) {
+      if (RETRIEVAL_PHASE_BUDGET_MS - elapsed() < singleRequestBudgetMs()) {
+        throw new RetrievalBudgetExceededError(label, elapsed());
+      }
+    },
+    remainingMs: () => Math.max(0, RETRIEVAL_PHASE_BUDGET_MS - elapsed()),
+  };
 }
 
 /** Worst-case wall time of the apply, including every lock-timeout retry and its backoff. */
@@ -79,10 +157,15 @@ export function applyBudgetMs(): number {
 /**
  * The floor `lease_ttl_seconds` may not go below.
  *
- * At the constants above: retrieval 10,000 x 2 + 2,000 = 22s; apply 3,000 x 3 +
- * 300 = 9.3s; total 31.3s; x 1.5 -> 48s. The 60s default clears it, but only
- * just — which is the finding, since an earlier revision called 60s
- * "comfortable" against a budget nobody had added up.
+ * At the constants above: the retrieval PHASE is capped at 45s (enforced, not
+ * assumed — see `retrievalBudgetMs`); apply 3,000 x 3 + 300 = 9.3s; total
+ * 54.3s, rounded up to 55; x 1.5 -> 83s.
+ *
+ * An earlier revision computed this from a SINGLE request's 22s and arrived at
+ * 48s. That number was never wrong about one request — it was answering the
+ * wrong question, because the phase the lease has to outlive issues many. The
+ * floor rose with the honest budget, and the default rose with it; the margin
+ * over the floor is unchanged.
  *
  * `admin_config.min_value` for `lease_ttl_seconds` is seeded to this number.
  * A test asserts the two agree, so changing a constant here without re-seeding
@@ -106,7 +189,7 @@ export const MEMBERSHIP_CONFIG_DEFAULTS = {
   grace_sweep_interval_seconds: 3600,
   grace_sweep_alert_after_seconds: 21600,
   reconcile_interval_seconds: 21600,
-  lease_ttl_seconds: 60,
+  lease_ttl_seconds: 90,
   lease_waiter_timeout_seconds: 5,
   reconcile_run_lease_ttl_seconds: 120,
   reconcile_heartbeat_interval_seconds: 30,
@@ -175,13 +258,14 @@ export function validateMembershipConfigWrite(
     );
   }
 
-  // The lease has to cover the WHOLE operation — the bounded retrieval including
-  // its retry sleep, plus every apply attempt and its backoff — with margin.
+  // The lease has to cover the WHOLE operation — the bounded retrieval PHASE
+  // (every Stripe request the prepare makes, not one of them), plus every apply
+  // attempt and its backoff — with margin.
   const leaseFloor = minimumLeaseTtlSeconds();
   if (next.lease_ttl_seconds < leaseFloor) {
     return (
       `lease_ttl_seconds must be at least ${leaseFloor}s to cover the bounded Stripe ` +
-      `retrieval (${retrievalBudgetMs()}ms) plus the apply (${applyBudgetMs()}ms) with a ` +
+      `retrieval phase (${retrievalBudgetMs()}ms) plus the apply (${applyBudgetMs()}ms) with a ` +
       `${LEASE_BUDGET_MARGIN}x margin`
     );
   }

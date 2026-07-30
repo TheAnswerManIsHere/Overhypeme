@@ -673,6 +673,13 @@
       "when": 1782800000000,
       "tag": "0095_drop_legacy_membership_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1782900000000,
+      "tag": "0096_reconciliation_runs",
+      "breakpoints": true
     }
   ]
 }

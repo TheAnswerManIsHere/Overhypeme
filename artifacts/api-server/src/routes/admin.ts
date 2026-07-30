@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, membershipReconciliationRunsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -55,6 +55,7 @@ import {
   validateMembershipConfigWrite,
 } from "../lib/membershipTiming";
 import { effectiveTierExpr } from "../lib/membershipState";
+import { graceSweepStaleSeconds } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
   hasQualifyingLifetimeSource,
@@ -82,6 +83,20 @@ import { logger } from "../lib/logger";
 const _styleStorage = new ObjectStorageService();
 
 /**
+ * The human-readable label an admin action is attributed by.
+ *
+ * First NON-BLANK candidate, not first non-null: the admin edit route accepts a
+ * whitespace-only display name, and `??` would pick that over a perfectly good
+ * email — which `authorizeAdminGrant` then trims to empty and rejects, turning
+ * grant, revoke and Legendary user-creation into 500s. Returns "" when nothing
+ * readable exists, which those constructors reject deliberately; the raw id is
+ * never a fallback, since no internal id may reach an admin-visible surface.
+ */
+function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
+  return [actor.displayName, actor.email].find((v) => (v ?? "").trim() !== "")?.trim() ?? "";
+}
+
+/**
  * Reinstatement recomputes from AUTHORITATIVE state, not from local rows.
  *
  * The old version asked "does a lifetime row exist" and "is there a subscription
@@ -92,20 +107,35 @@ const _styleStorage = new ObjectStorageService();
  *
  * So it refreshes every Stripe-backed source first. This is a rare,
  * high-consequence operation, so the extra retrieval is free.
+ *
+ * And an INCOMPLETE refresh may not return `legendary`. An earlier revision
+ * recomputed from local state whenever the refresh failed and called that
+ * "failing closed" — it is the opposite. The precise case reinstatement exists
+ * to catch is a source whose cancellation webhook was dropped: locally it still
+ * says `active`, and recomputing from that restores paid access on exactly the
+ * evidence we could not confirm. Failing closed means declining to assert
+ * Legendary without an authoritative read, which is what this does; the admin
+ * can reinstate again once Stripe is reachable, and the scheduled reconciliation
+ * repairs the source regardless.
  */
 async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
+  let refreshComplete = false;
   try {
     const { getUncachableStripeClient } = await import("../lib/stripeClient");
     const stripe = await getUncachableStripeClient();
-    await refreshAllSourcesForUser(stripe, userId);
+    // `failed` counts per-source failures the helper swallowed internally, so
+    // the absence of a throw is NOT evidence that every source was refreshed.
+    const { failed } = await refreshAllSourcesForUser(stripe, userId);
+    refreshComplete = failed === 0;
+    if (!refreshComplete) {
+      logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
+    }
   } catch (err) {
-    // Stripe unreachable. Recompute from what we have rather than block the
-    // reinstatement — the result fails CLOSED, since a source we could not
-    // refresh keeps whatever status it last had.
-    logger.warn({ err, userId }, "reinstatement could not refresh Stripe sources — recomputing from local state");
+    logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
   }
 
   const result = await db.transaction((tx) => recomputeMembership(tx, userId));
+  if (!refreshComplete) return "registered";
   return result?.tier === "legendary" ? "legendary" : "registered";
 }
 
@@ -548,6 +578,13 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
     res.json({
       // Qualification, not existence: a refunded purchase keeps its row.
       isLifetime: await hasQualifyingLifetimeSource(id),
+      // Separate from `isLifetime` on purpose. Revoking only ever acts on an
+      // active admin grant, so the client needs to know about THAT source
+      // specifically — a paid lifetime purchase also makes `isLifetime` true and
+      // has nothing for revoke to act on.
+      hasActiveAdminGrant: lifetimeRows.some(
+        (row) => row.sourceType === "admin_grant" && row.status === "active",
+      ),
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
@@ -634,6 +671,40 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
   }
 });
 
+// GET /admin/membership/reconciliation-runs — the unattended repair job's record.
+//
+// Reconciliation mutates entitlements with no human in the loop, so it owes an
+// operator both altitudes: the aggregate outcome of each run, and the per-source
+// change set behind it. The second is what makes an aborted downgrade guard
+// actionable — "47 users would have lost access" is not a thing you can decide
+// about without seeing which 47.
+router.get("/admin/membership/reconciliation-runs", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(String(req.query["limit"] ?? "20"), 10) || 20, 1), 100);
+
+    const runs = await db
+      .select()
+      .from(membershipReconciliationRunsTable)
+      .orderBy(desc(membershipReconciliationRunsTable.startedAt), desc(membershipReconciliationRunsTable.id))
+      .limit(limit);
+
+    // The schedule, so "the last run was 9 hours ago" is answerable here rather
+    // than by knowing the configured cadence by heart.
+    const config = await loadMembershipConfig();
+
+    res.json({
+      runs,
+      limit,
+      reconcileIntervalSeconds: config.reconcile_interval_seconds,
+      graceSweepStaleSeconds: graceSweepStaleSeconds(),
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] reconciliation-runs error");
+    const msg = err instanceof Error ? err.message : "Failed to load reconciliation runs";
+    res.status(500).json({ error: msg });
+  }
+});
+
 // POST /admin/users/:id/grant-lifetime — comp a membership
 //
 // W1b: an admin comp is an ENTITLEMENT with an actor, a label and a reason —
@@ -663,7 +734,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
       // Never the raw admin id: a raw internal id may not reach any
       // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
       // rather than let the write proceed with nothing human-readable to show.
-      grantedByAdminLabel: actor.displayName ?? actor.email ?? "",
+      grantedByAdminLabel: adminLabel(actor),
       grantReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
         "Comped by an administrator",
     });
@@ -711,7 +782,7 @@ router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Reques
     const revocation = authorizeAdminRevocation({
       revokedByAdminId: actor.id,
       // Never the raw admin id — same reasoning as the grant path above.
-      revokedByAdminLabel: actor.displayName ?? actor.email ?? "",
+      revokedByAdminLabel: adminLabel(actor),
       revokedReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
         "Revoked by an administrator",
     });
@@ -805,7 +876,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
             // Never the raw admin id: a raw internal id may not reach any
       // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
       // rather than let the write proceed with nothing human-readable to show.
-      grantedByAdminLabel: actor.displayName ?? actor.email ?? "",
+      grantedByAdminLabel: adminLabel(actor),
             grantReason: "Created as a Legendary member by an administrator",
           }),
         );

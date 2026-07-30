@@ -14,6 +14,8 @@ import assert from "node:assert/strict";
 
 import {
   MEMBERSHIP_CONFIG_DEFAULTS,
+  RETRIEVAL_PHASE_BUDGET_MS,
+  RetrievalBudgetExceededError,
   allowedDowngrades,
   applyBudgetMs,
   backoffSumMs,
@@ -22,6 +24,8 @@ import {
   minimumLeaseTtlSeconds,
   minimumRunLeaseTtlSeconds,
   retrievalBudgetMs,
+  singleRequestBudgetMs,
+  startRetrievalDeadline,
   validateMembershipConfigWrite,
   type MembershipConfigKey,
 } from "../lib/membershipTiming.js";
@@ -49,22 +53,68 @@ describe("budget arithmetic", () => {
     assert.equal(backoffSumMs(100, 0), 0);
   });
 
-  it("bounds the retrieval at the request timeout times attempts, plus retry sleep", () => {
-    assert.equal(retrievalBudgetMs(), 10_000 * 2 + 2_000);
+  it("bounds ONE request at the request timeout times attempts, plus retry sleep", () => {
+    assert.equal(singleRequestBudgetMs(), 10_000 * 2 + 2_000);
+  });
+
+  it("budgets the retrieval PHASE, not one request — the lease outlives the phase", () => {
+    // The distinction that matters: a prepare issues many requests under one
+    // lease (subscription + paginated items + a product per item, and for
+    // past_due three more lists), so a per-request number was never the thing
+    // the lease had to clear.
+    assert.equal(retrievalBudgetMs(), RETRIEVAL_PHASE_BUDGET_MS);
+    assert.ok(
+      retrievalBudgetMs() > singleRequestBudgetMs(),
+      "a phase budget that could not fit even two requests would be the same bug again",
+    );
   });
 
   it("bounds the apply at the lock timeout times attempts, plus backoff", () => {
     assert.equal(applyBudgetMs(), 3_000 * 3 + 300);
   });
 
-  it("derives a lease floor the 60s default clears — but only just", () => {
+  it("derives a lease floor the default clears — but only just", () => {
     const floor = minimumLeaseTtlSeconds();
-    assert.equal(floor, 48);
+    // (45s phase + 9.3s apply) -> 55s rounded up, x1.5 margin.
+    assert.equal(floor, 83);
     assert.ok(
       DEFAULTS.lease_ttl_seconds >= floor,
       "the default lease must satisfy its own derived floor",
     );
     assert.ok(DEFAULTS.lease_ttl_seconds - floor < 20, "and it is not comfortable");
+  });
+});
+
+describe("the retrieval deadline — what makes the phase budget true rather than claimed", () => {
+  it("permits requests while a FULL single-request budget remains", () => {
+    const deadline = startRetrievalDeadline(Date.now());
+    assert.doesNotThrow(() => deadline.assertCanIssue("first"));
+  });
+
+  it("refuses once too little remains for one request to finish inside the budget", () => {
+    // The load-bearing case. At this instant there is still time on the clock —
+    // a naive "is any time left" check would wave the request through, and that
+    // request could then run a further 22s and put the phase outside the number
+    // the lease TTL was derived from.
+    const remaining = singleRequestBudgetMs() - 1;
+    const startedAt = Date.now() - (RETRIEVAL_PHASE_BUDGET_MS - remaining);
+    const deadline = startRetrievalDeadline(startedAt);
+
+    assert.ok(deadline.remainingMs() > 0, "time is left on the clock");
+    assert.throws(() => deadline.assertCanIssue("charges.list"), RetrievalBudgetExceededError);
+  });
+
+  it("names the step it died on, so an exhausted phase is diagnosable", () => {
+    const deadline = startRetrievalDeadline(Date.now() - RETRIEVAL_PHASE_BUDGET_MS);
+    assert.throws(
+      () => deadline.assertCanIssue("subscriptionItems.list"),
+      /subscriptionItems\.list/,
+    );
+  });
+
+  it("cannot report negative remaining time once spent", () => {
+    const deadline = startRetrievalDeadline(Date.now() - RETRIEVAL_PHASE_BUDGET_MS * 3);
+    assert.equal(deadline.remainingMs(), 0);
   });
 
   it("derives a run-lease floor of three heartbeat intervals", () => {
@@ -84,7 +134,7 @@ describe("validateMembershipConfigWrite — the lease must outlive the request",
     // The concrete regression: an operator setting 5s through the supported UI
     // and reintroducing an apply that is always fenced off.
     const error = rejects("lease_ttl_seconds", 5);
-    assert.match(error, /lease_ttl_seconds must be at least 48s/);
+    assert.match(error, /lease_ttl_seconds must be at least 83s/);
     accepts("lease_ttl_seconds", minimumLeaseTtlSeconds());
     rejects("lease_ttl_seconds", minimumLeaseTtlSeconds() - 1);
   });

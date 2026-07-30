@@ -38,7 +38,11 @@ import {
   sourceLeaseScope,
   type LeaseHandle,
 } from "./membershipLease.js";
-import { loadMembershipConfig } from "./membershipTiming.js";
+import {
+  loadMembershipConfig,
+  startRetrievalDeadline,
+  type RetrievalDeadline,
+} from "./membershipTiming.js";
 import { notifyUserAccessRevoked } from "./userNotify.js";
 import type { VerifiedLifetimePurchase, VerifiedSubscription } from "./entitlementVerification.js";
 import type { EntitlementSourceType } from "@workspace/db/schema";
@@ -60,23 +64,49 @@ const PAGE_SIZE = 100;
 // Deps.
 // ---------------------------------------------------------------------------
 
-export function makeVerificationDeps(stripe: Stripe): VerificationDeps {
+/**
+ * @param deadline When the caller holds a lease across this retrieval, the phase
+ * budget that lease was sized against. Every method below consults it before
+ * issuing, which is what makes the bound complete rather than best-effort: the
+ * retriever is the verifier's ONLY route to Stripe (that is the whole point of
+ * W1a taking identifiers), so a check here cannot be bypassed by a call site
+ * that forgot one. Omitted by callers that take their lease AFTER retrieving —
+ * `prepareOneTimeCheckout` and `prepareDisputeEvent` both have to learn the
+ * provider ref before they can name the lease scope, so nothing is being held
+ * while they read.
+ */
+export function makeVerificationDeps(
+  stripe: Stripe,
+  deadline?: RetrievalDeadline,
+): VerificationDeps {
+  const gated = <T>(label: string, call: () => Promise<T>): Promise<T> => {
+    deadline?.assertCanIssue(label);
+    return call();
+  };
+
   const retriever: EntitlementRetriever = {
-    retrieveProduct: (id) => stripe.products.retrieve(id),
-    retrieveCheckoutSession: (id) => stripe.checkout.sessions.retrieve(id),
+    retrieveProduct: (id) => gated("products.retrieve", () => stripe.products.retrieve(id)),
+    retrieveCheckoutSession: (id) =>
+      gated("checkout.sessions.retrieve", () => stripe.checkout.sessions.retrieve(id)),
     listCheckoutLineItems: (sessionId, params) =>
-      stripe.checkout.sessions.listLineItems(sessionId, {
-        ...params,
-        expand: ["data.price.product"],
-      }),
-    retrievePaymentIntent: (id) => stripe.paymentIntents.retrieve(id),
-    retrieveSubscription: (id) => stripe.subscriptions.retrieve(id),
+      gated("checkout.sessions.listLineItems", () =>
+        stripe.checkout.sessions.listLineItems(sessionId, {
+          ...params,
+          expand: ["data.price.product"],
+        }),
+      ),
+    retrievePaymentIntent: (id) =>
+      gated("paymentIntents.retrieve", () => stripe.paymentIntents.retrieve(id)),
+    retrieveSubscription: (id) =>
+      gated("subscriptions.retrieve", () => stripe.subscriptions.retrieve(id)),
     listSubscriptionItems: (subscriptionId, params) =>
-      stripe.subscriptionItems.list({
-        subscription: subscriptionId,
-        ...params,
-        expand: ["data.price.product"],
-      }),
+      gated("subscriptionItems.list", () =>
+        stripe.subscriptionItems.list({
+          subscription: subscriptionId,
+          ...params,
+          expand: ["data.price.product"],
+        }),
+      ),
   };
 
   const binding: UserBinding = {
@@ -134,9 +164,17 @@ export function makeVerificationDeps(stripe: Stripe): VerificationDeps {
 export async function resolveGraceEpisodeStart(
   stripe: Stripe,
   subscriptionId: string,
+  deadline?: RetrievalDeadline,
 ): Promise<{ startedAt: Date } | { startedAt: null; reason: string }> {
   let invoices: Stripe.Invoice[];
   try {
+    // These three lists are the reason a per-REQUEST budget could not bound the
+    // phase: they run after the verifier has already spent an unknown share of
+    // it, and the charge list paginates. An exhausted budget surfaces here as
+    // "no resolvable start", which is the already-correct safe direction — no
+    // deadline is derived, the source keeps qualifying, and the case is
+    // reported rather than a start being guessed.
+    deadline?.assertCanIssue("invoices.list");
     const page = await stripe.invoices.list({
       subscription: subscriptionId,
       limit: PAGE_SIZE,
@@ -162,12 +200,12 @@ export async function resolveGraceEpisodeStart(
 
   const episodeInvoice = unpaidRun[unpaidRun.length - 1];
 
-  const paymentIntentId = await firstPaymentIntentForInvoice(stripe, episodeInvoice.id!);
+  const paymentIntentId = await firstPaymentIntentForInvoice(stripe, episodeInvoice.id!, deadline);
   if (!paymentIntentId) {
     return { startedAt: null, reason: `no payment intent for invoice ${episodeInvoice.id}` };
   }
 
-  const charges = await listAllCharges(stripe, paymentIntentId);
+  const charges = await listAllCharges(stripe, paymentIntentId, deadline);
   if (!charges.complete) {
     // An incomplete list cannot support "this is the earliest".
     return { startedAt: null, reason: `charge list incomplete: ${charges.reason}` };
@@ -187,10 +225,12 @@ export async function resolveGraceEpisodeStart(
 async function firstPaymentIntentForInvoice(
   stripe: Stripe,
   invoiceId: string,
+  deadline?: RetrievalDeadline,
 ): Promise<string | null> {
   try {
     // In this API version an invoice's PaymentIntent is reached through
     // `invoice_payments`, not a top-level `payment_intent` field.
+    deadline?.assertCanIssue("invoicePayments.list");
     const payments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: PAGE_SIZE });
     for (const payment of payments.data) {
       const intent = payment.payment?.payment_intent;
@@ -207,10 +247,15 @@ async function firstPaymentIntentForInvoice(
 async function listAllCharges(
   stripe: Stripe,
   paymentIntentId: string,
+  deadline?: RetrievalDeadline,
 ): Promise<PagedResult<Stripe.Charge>> {
-  return listAllPages<Stripe.Charge>((params) =>
-    stripe.charges.list({ payment_intent: paymentIntentId, ...params }),
-  );
+  return listAllPages<Stripe.Charge>((params) => {
+    // Per PAGE, not per call: MAX_PAGES is a correctness bound (a truncated list
+    // cannot support "this is the earliest failure"), not a timing one, so
+    // nothing else stops twenty pages from outliving the lease.
+    deadline?.assertCanIssue("charges.list");
+    return stripe.charges.list({ payment_intent: paymentIntentId, ...params });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +363,17 @@ export async function releasePrepared(prepared: Prepared): Promise<void> {
  * `invoice.payment_failed`, after every Stripe-mutating route, by the admin
  * soft-delete and reinstatement, and by reconciliation. One path, so the local
  * row cannot diverge by which event happened to arrive, or in what order.
+ *
+ * This is the ONE prepare that takes its lease BEFORE retrieving, and that is
+ * deliberate: the subscription id is known up front, so exactly one
+ * retrieval-and-apply can be in flight per source. Retrieving first and taking
+ * the lease after would let two concurrent deliveries both read, then apply in
+ * lock-acquisition order — and since the version token is minted inside the
+ * apply transaction, the LATER applier always wins the version guard even
+ * holding the OLDER read. That is precisely the stale-overwrite this module's
+ * header says re-retrieving exists to remove. The cost of holding the lease
+ * across the read is that the read must be bounded, which is what the deadline
+ * below does.
  */
 export async function prepareSubscriptionRefresh(
   stripe: Stripe,
@@ -332,11 +388,19 @@ export async function prepareSubscriptionRefresh(
     return { kind: "noop", reason: "source_busy" };
   }
 
+  // Started at the lease, not at the first request: what the lease has to
+  // outlive is everything after it was taken.
+  const deadline = startRetrievalDeadline();
+
   try {
-    const verified = await verifyMembershipSubscription(subscriptionId, makeVerificationDeps(stripe), {
-      ...(opts.expectedUserId ? { expectedUserId: opts.expectedUserId } : {}),
-      ...(opts.linkHintUserId ? { linkHintUserId: opts.linkHintUserId } : {}),
-    });
+    const verified = await verifyMembershipSubscription(
+      subscriptionId,
+      makeVerificationDeps(stripe, deadline),
+      {
+        ...(opts.expectedUserId ? { expectedUserId: opts.expectedUserId } : {}),
+        ...(opts.linkHintUserId ? { linkHintUserId: opts.linkHintUserId } : {}),
+      },
+    );
 
     if (!verified.ok) {
       await releaseLease(lease);
@@ -352,7 +416,7 @@ export async function prepareSubscriptionRefresh(
     let graceStartedAt: Date | null = null;
     let graceUnresolvedReason: string | undefined;
     if (verified.lifecycleStatus === "past_due") {
-      const grace = await resolveGraceEpisodeStart(stripe, subscriptionId);
+      const grace = await resolveGraceEpisodeStart(stripe, subscriptionId, deadline);
       if (grace.startedAt) {
         graceStartedAt = grace.startedAt;
       } else {
@@ -387,6 +451,12 @@ export async function prepareSubscriptionRefresh(
  * event fields and handed it to a helper whose whole contract was "this is proof
  * of payment". A structurally-valid lie, accepted because the signature allowed
  * one.
+ *
+ * No retrieval deadline here, and that is not an oversight: the lease is taken
+ * AFTER verification, because the PaymentIntent id that names its scope is one
+ * of the things verification discovers. Nothing is held while this reads, so
+ * there is no lease for a slow read to outlive. Anyone reordering this to take
+ * the lease first owes it a deadline, as `prepareSubscriptionRefresh` has.
  */
 export async function prepareOneTimeCheckout(
   stripe: Stripe,
@@ -474,14 +544,18 @@ export async function prepareDisputeEvent(
  * that case: a successor still retrieving has stored no newer token to compare
  * against.
  */
-export async function applyPrepared(tx: Tx, prepared: Prepared): Promise<ApplyResult> {
+export async function applyPrepared(
+  tx: Tx,
+  prepared: Prepared,
+  opts: ApplyOptions = {},
+): Promise<ApplyResult> {
   if (prepared.kind === "noop") return { ...NOTHING, reason: prepared.reason };
 
   await assertFenceHeld(tx, prepared.lease);
 
   switch (prepared.kind) {
     case "subscription":
-      return applySubscription(tx, prepared);
+      return applySubscription(tx, prepared, opts);
     case "lifetime_purchase":
       return applyLifetimePurchase(tx, prepared);
     case "lifetime_refund":
@@ -491,11 +565,54 @@ export async function applyPrepared(tx: Tx, prepared: Prepared): Promise<ApplyRe
   }
 }
 
+export interface ApplyOptions {
+  /**
+   * A last check run INSIDE the apply transaction, while this user's row lock is
+   * already held and before anything is mutated. Returning a reason aborts the
+   * apply; returning null proceeds.
+   *
+   * The lock is what makes this different from checking before the transaction.
+   * Every writer that can change this user's effective tier must take the same
+   * row lock to recompute, so a decision made while holding it cannot be
+   * invalidated by a concurrent writer before the write lands — whereas a check
+   * performed outside is a check-then-write race by construction, no matter how
+   * fresh the state it read was.
+   */
+  guard?: (tx: Tx, userId: string) => Promise<string | null>;
+}
+
+/**
+ * Take this user's row lock — the same one `recomputeMembership` takes.
+ *
+ * Called BEFORE the source write rather than relying on the recompute's own
+ * lock, because a guard has to see state that cannot move under it, and the
+ * recompute runs after the write it is meant to gate.
+ */
+async function lockUser(tx: Tx, userId: string): Promise<void> {
+  await tx
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .for("update")
+    .limit(1);
+}
+
 async function applySubscription(
   tx: Tx,
   prepared: Extract<Prepared, { kind: "subscription" }>,
+  opts: ApplyOptions = {},
 ): Promise<ApplyResult> {
   const { verified } = prepared;
+
+  if (opts.guard) {
+    await lockUser(tx, verified.userId);
+    const veto = await opts.guard(tx, verified.userId);
+    if (veto) {
+      // Nothing written. The caller decides what a veto means for its own
+      // accounting; here it is simply an apply that did not happen.
+      return { applied: false, userId: verified.userId, reason: veto, notifications: [] };
+    }
+  }
 
   const { applied, created, previousLifecycleStatus } = await applySubscriptionSource(
     tx,
@@ -675,9 +792,23 @@ async function applyDispute(
           ? "dispute_closed"
           : "dispute_opened";
 
-  const result = await recomputeMembership(tx, source.userId, {
-    transitionEvent: { event: transitionEvent, stripeDisputeId: prepared.dispute.id },
+  // The dispute's outcome is a fact about the SOURCE, recorded whether or not
+  // the user's aggregate tier moves — the same independence `lifetime_purchase`
+  // and `subscription_activated` already have.
+  //
+  // Routing it through `recomputeMembership`'s tier-gated transition event lost
+  // it in the ordinary sequence: `dispute_opened` has already demoted the user,
+  // so the later `lost` changes no tier and wrote no row, leaving the payment
+  // history and the admin dispute surface showing an open dispute Stripe had
+  // already resolved. A user with a second qualifying source lost every dispute
+  // outcome for the same reason.
+  await tx.insert(membershipHistoryTable).values({
+    userId: source.userId,
+    event: transitionEvent,
+    stripeDisputeId: prepared.dispute.id,
   });
+
+  const result = await recomputeMembership(tx, source.userId);
 
   // Only when access was actually lost HERE. In the common path `created`
   // already held the source, so a later `lost` sends nothing; the fallback path

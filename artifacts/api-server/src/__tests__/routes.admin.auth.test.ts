@@ -51,6 +51,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "delete", path: "/admin/users/:id" },
   { method: "get",    path: "/admin/users/:id/membership" },
   { method: "get",    path: "/admin/refunds-disputes" },
+  { method: "get",    path: "/admin/membership/reconciliation-runs" },
   { method: "post",   path: "/admin/users/:id/grant-lifetime" },
   { method: "post",   path: "/admin/users/:id/revoke-lifetime" },
   { method: "post",   path: "/admin/users" },

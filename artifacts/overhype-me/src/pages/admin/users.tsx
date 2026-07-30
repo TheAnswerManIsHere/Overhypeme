@@ -69,10 +69,18 @@ interface MembershipData {
     createdAt: string;
     grantedByAdminId: string | null;
     grantedByAdminLabel: string | null;
+    grantReason: string | null;
     revokedByAdminLabel: string | null;
     revokedReason: string | null;
     revokedAt: string | null;
   } | null;
+  /**
+   * Whether an admin grant is currently active — which is NOT the same question
+   * as `isLifetime`. A paid lifetime purchase also qualifies, but the revoke
+   * endpoint only ever touches an active `admin_grant`, so gating the action on
+   * aggregate qualification offered a button that could only 400.
+   */
+  hasActiveAdminGrant: boolean;
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
   history: HistoryRecord[];
@@ -1145,6 +1153,14 @@ export default function AdminUsers() {
                               </span>
                             ) : ""}
                           </p>
+                          {/* The reason is collected at grant time and is durable —
+                              showing only who granted it loses half the record. */}
+                          {membershipData.lifetimeEntitlement.sourceType === "admin_grant" &&
+                            membershipData.lifetimeEntitlement.grantReason && (
+                            <p className="text-xs text-muted-foreground italic">
+                              “{membershipData.lifetimeEntitlement.grantReason}”
+                            </p>
+                          )}
                           {membershipData.lifetimeEntitlement.status === "revoked" && (
                             <p className="text-xs text-destructive">
                               Revoked
@@ -1177,8 +1193,15 @@ export default function AdminUsers() {
                       )}
                     </div>
                   </div>
+                  {/* Revoke acts ONLY on an active admin grant, so it is offered
+                      only when there is one. Gating on `isLifetime` also offered
+                      it for a paid lifetime purchase, where the endpoint can only
+                      answer "no active admin grant" — an action the panel
+                      presented as valid and the server always refused. A paid
+                      purchaser gets neither button: comping them is meaningless,
+                      and un-selling them is a refund, not a revoke. */}
                   {!membershipLoading && (
-                    membershipData?.isLifetime ? (
+                    membershipData?.hasActiveAdminGrant ? (
                       <button
                         onClick={revokeLifetime}
                         disabled={lifetimeActionLoading}
@@ -1186,7 +1209,7 @@ export default function AdminUsers() {
                       >
                         {lifetimeActionLoading ? "…" : "Revoke"}
                       </button>
-                    ) : (
+                    ) : membershipData?.isLifetime ? null : (
                       <button
                         onClick={grantLifetime}
                         disabled={lifetimeActionLoading}

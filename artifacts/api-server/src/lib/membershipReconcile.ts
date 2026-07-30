@@ -23,7 +23,11 @@
 
 import type Stripe from "stripe";
 import { db } from "@workspace/db";
-import { membershipEntitlementsTable, usersTable } from "@workspace/db/schema";
+import {
+  membershipEntitlementsTable,
+  membershipReconciliationRunsTable,
+  usersTable,
+} from "@workspace/db/schema";
 import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
 
 import {
@@ -134,6 +138,14 @@ export async function qualifyingPopulation(asOf?: Date): Promise<number> {
   return row?.cohort ?? 0;
 }
 
+/**
+ * The apply-time guard's veto reason. Distinct from a Stripe-side no-op so the
+ * report can count it as deferred work rather than a failure.
+ */
+const UNGUARDED_DOWNGRADE = "unguarded_downgrade";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /** Replace one source in a snapshot set, for "what would this user's tier become". */
 function withReplacement(
   sources: readonly EntitlementSourceSnapshot[],
@@ -165,12 +177,17 @@ export async function reconcileMemberships(
   const config = await loadMembershipConfig();
   const report = emptyReport(opts.apply ? "apply" : "dry-run");
 
+  const startedAt = opts.asOf ?? new Date();
+
   const lease = await acquireLease(
     RECONCILE_RUN_LEASE_SCOPE,
     config.reconcile_run_lease_ttl_seconds,
     currentHolderId(),
   );
   if (!lease) {
+    // Deliberately NOT recorded. Losing the lease race is a no-op, not a run —
+    // and on a short reconcile interval across several instances these would be
+    // the majority of rows, burying the ones that describe real work.
     report.aborted = true;
     report.abortReason = "another reconciliation run holds the lease";
     return report;
@@ -183,6 +200,81 @@ export async function reconcileMemberships(
   } finally {
     heartbeat.stop();
     await releaseLease(lease);
+    // In `finally`, so a run that ABORTED or THREW is recorded too — those are
+    // the runs an operator most needs to read afterwards. `report` is mutated
+    // in place throughout, so it carries the final state either way. Recording
+    // lives here rather than in the caller because a caller can forget, and the
+    // durable record is the whole point.
+    await recordReconciliationRun(startedAt, report);
+  }
+}
+
+/**
+ * How many staged changes one run may persist.
+ *
+ * A bound is necessary — a run staging every source would otherwise write an
+ * unbounded JSONB blob — but a bound that hid itself would report a prefix as
+ * though it were the whole change set. `stagedTotal` and `stagedTruncated`
+ * carry what was dropped, so the cap is legible in the row it applies to.
+ */
+const MAX_PERSISTED_STAGED = 500;
+
+/** How many runs to retain. Older rows are pruned as new ones land. */
+const RETAINED_RUNS = 100;
+
+/**
+ * Persist one run at both altitudes.
+ *
+ * Never throws: this is observability, and failing a reconciliation that
+ * actually did its work because we could not write its record would trade a
+ * real repair for a log line.
+ */
+async function recordReconciliationRun(
+  startedAt: Date,
+  report: ReconcileReport,
+): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(membershipReconciliationRunsTable)
+        .values({
+          startedAt,
+          mode: report.mode,
+          examined: report.examined,
+          unchanged: report.unchanged,
+          upgraded: report.upgraded,
+          downgraded: report.downgraded,
+          ambiguous: report.ambiguous,
+          failed: report.failed,
+          skipped: report.skipped,
+          cohort: report.cohort,
+          allowedDowngrades: report.allowedDowngrades,
+          aborted: report.aborted,
+          abortReason: report.abortReason ?? null,
+          staged: report.staged.slice(0, MAX_PERSISTED_STAGED),
+          stagedTotal: report.staged.length,
+          stagedTruncated: report.staged.length > MAX_PERSISTED_STAGED,
+        })
+        .returning({ id: membershipReconciliationRunsTable.id });
+
+      // Retention, in the same transaction as the insert so the table cannot
+      // grow without bound if pruning is skipped on a later failure path.
+      await tx.execute(sql`
+        DELETE FROM membership_reconciliation_runs
+        WHERE id IN (
+          SELECT id FROM membership_reconciliation_runs
+          ORDER BY started_at DESC, id DESC
+          OFFSET ${RETAINED_RUNS}
+        )
+      `);
+
+      return row;
+    });
+  } catch (error) {
+    logger.error(
+      { err: error, mode: report.mode, aborted: report.aborted },
+      "could not record the reconciliation run — the run itself is unaffected",
+    );
   }
 }
 
@@ -440,46 +532,59 @@ async function runStagedReconciliation(
     // change during a long-running pass — and this fresh prepare reflects THAT,
     // not what was guarded. Applying it unconditionally would let a downgrade the
     // guard never evaluated slip through under cover of a report that shows zero
-    // (or an already-bounded number of) downgrades. So: re-derive this user's
-    // fresh before/after against a fresh snapshot, and if it's a downgrade for a
-    // user the guard never counted, defer it — the next run re-stages and
-    // re-guards it properly, which is strictly safer than writing it now.
-    if (prepared.kind === "subscription" && !distinctDowngradedUserIds.has(item.userId)) {
-      const freshExisting = await loadSourceSnapshots(db, item.userId);
-      const freshCurrent = deriveEffectiveMembership(freshExisting, asOf);
+    // (or an already-bounded number of) downgrades.
+    //
+    // So the classification is redone here — and, critically, INSIDE the apply
+    // transaction with this user's row lock already held. Doing it just before
+    // the transaction (as a previous revision did) reads state that is fresh and
+    // still races: for a user holding subscriptions A and B, the check can see B
+    // active and admit A's cancellation while a concurrent writer cancels B, each
+    // side observing the other as active, and the resulting recompute downgrades
+    // a user Phase 3 never counted. Under the lock that interleaving cannot
+    // happen, because every writer able to move this user's tier must take the
+    // same lock to recompute.
+    const guard = async (tx: Tx, userId: string): Promise<string | null> => {
+      // Already counted by Phase 3 — this downgrade IS guarded.
+      if (distinctDowngradedUserIds.has(userId)) return null;
+      if (prepared.kind !== "subscription") return null;
+
+      const freshExisting = await loadSourceSnapshots(tx, userId);
       const freshReplacement = freshExisting.find(
         (source) =>
           source.sourceType === "stripe_subscription" && source.providerRef === item.providerRef,
       );
-      if (freshReplacement) {
-        const freshIntended = deriveEffectiveMembership(
-          withReplacement(freshExisting, {
-            ...freshReplacement,
-            isMembershipProduct: prepared.verified.isMembershipProduct,
-            lifecycleStatus: prepared.verified.lifecycleStatus,
-            graceExpiresAt:
-              prepared.verified.lifecycleStatus === "past_due"
-                ? (prepared.graceStartedAt
-                    ? new Date(prepared.graceStartedAt.getTime() + GRACE_WINDOW_MS)
-                    : (freshReplacement.graceExpiresAt ?? null))
-                : null,
-          }),
-          asOf,
-        );
-        if (freshCurrent.tier === "legendary" && freshIntended.tier !== "legendary") {
-          report.skipped += 1;
-          await releasePrepared(prepared);
-          logger.warn(
-            { providerRef: item.providerRef, userId: item.userId },
-            "reconcile: apply-time state shows a downgrade the guard never evaluated — deferred to the next run",
-          );
-          continue;
-        }
-      }
-    }
+      if (!freshReplacement) return null;
+
+      const freshCurrent = deriveEffectiveMembership(freshExisting, asOf);
+      const freshIntended = deriveEffectiveMembership(
+        withReplacement(freshExisting, {
+          ...freshReplacement,
+          isMembershipProduct: prepared.verified.isMembershipProduct,
+          lifecycleStatus: prepared.verified.lifecycleStatus,
+          graceExpiresAt:
+            prepared.verified.lifecycleStatus === "past_due"
+              ? (prepared.graceStartedAt
+                  ? new Date(prepared.graceStartedAt.getTime() + GRACE_WINDOW_MS)
+                  : (freshReplacement.graceExpiresAt ?? null))
+              : null,
+        }),
+        asOf,
+      );
+
+      return freshCurrent.tier === "legendary" && freshIntended.tier !== "legendary"
+        ? UNGUARDED_DOWNGRADE
+        : null;
+    };
 
     try {
-      const result = await runBoundedApply((tx) => applyPrepared(tx, prepared));
+      const result = await runBoundedApply((tx) => applyPrepared(tx, prepared, { guard }));
+      if (result.reason === UNGUARDED_DOWNGRADE) {
+        report.skipped += 1;
+        logger.warn(
+          { providerRef: item.providerRef, userId: item.userId },
+          "reconcile: apply-time state shows a downgrade the guard never evaluated — deferred to the next run",
+        );
+      }
       await runNotifications(result.notifications);
     } catch (error) {
       report.failed += 1;
