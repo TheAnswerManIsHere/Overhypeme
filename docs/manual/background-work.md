@@ -192,3 +192,5 @@ elsewhere.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).
+
+*Verified against `887c404` (2026-07-30) · claim inventory in PR #291.*
