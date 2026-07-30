@@ -26,8 +26,9 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
-  PR #282). Read-only instrumentation only — no claim/retry/dedupe/lane
-  semantics changed. Each lane's worker now publishes a heartbeat
+  PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
+  this phase adds observability, not new queue behavior, though it does
+  write new state (see below). Each lane's worker now publishes a heartbeat
   (`worker_lane_heartbeats`), and three new endpoints comprise the surface:
   an admin aggregate view and an unauthenticated `/api/health/queues`
   liveness probe both read the heartbeat (the probe returns a meaningful 503

@@ -505,8 +505,8 @@ source for that input. **Overhype:**
   a queue's retry ceiling from **current** `admin_config` at read time for
   any row still carrying the `0` sentinel (the common case — no per-row
   override). A row that legitimately exhausted retries under an old, lower
-  ceiling would silently flip to "terminal, never really retried" the moment
-  an admin later raised that queue's limit — degrading *after* the fact,
+  ceiling would silently flip to `abandoned_no_retry` the moment an admin
+  later raised that queue's limit — degrading *after* the fact,
   with no code change to explain it. Fixed by persisting the resolved
   ceiling onto the row at the one moment it's finalized to `failed` (PR
   #288); a pre-fix legacy row (still carrying the sentinel, since the
