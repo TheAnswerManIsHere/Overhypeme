@@ -179,15 +179,41 @@ export async function ncmecAuditBoundaryStatus(): Promise<
            -- pg_has_role raises on a role that does not exist, so the EXISTS
            -- guard is required, not defensive noise. A superuser is an implicit
            -- member of every role, which is why this reads TRUE for one.
+           --
+           -- 'usage', not 'member': on PostgreSQL 16, CREATE ROLE auto-grants the
+           -- new role to its creator with admin option but WITHOUT inherit or set,
+           -- so 'member' is true for a path the session cannot actually exercise.
+           -- The migration revokes that grant, and this asks the question that
+           -- matters either way — does this session hold the role's privileges now.
            (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-            AND pg_has_role(current_user, 'overhype_audit_maintenance', 'member'))
+            AND pg_has_role(current_user, 'overhype_audit_maintenance', 'usage'))
              AS application_can_bypass_trigger,
-           pg_has_role(current_user, c.relowner, 'member') AS application_owns_table,
-           (SELECT count(*) FILTER (WHERE t.tgenabled <> 'D') = 2
+           -- Ownership is what ALTER TABLE ... DISABLE TRIGGER needs, and 'usage'
+           -- is again the honest test: an inheritable path to the owner is a path
+           -- to disabling the guard.
+           pg_has_role(current_user, c.relowner, 'usage') AS application_owns_table,
+           -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only.
+           -- A replica-only trigger does not fire for ordinary application
+           -- statements, so counting it as enabled would report an enforced
+           -- boundary over a ledger anyone with UPDATE could still rewrite.
+           -- The function and event bits are checked too, so a same-named trigger
+           -- wired to something else cannot stand in for the real one.
+           (SELECT count(*) = 2
               FROM pg_trigger t
              WHERE t.tgrelid = c.oid
                AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
-                                'ncmec_safety_audit_log_no_truncate'))
+                                'ncmec_safety_audit_log_no_truncate')
+               AND t.tgenabled IN ('O', 'A')
+               AND t.tgfoid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure
+               -- tgtype bits: 1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE,
+               -- 16 = UPDATE, 32 = TRUNCATE. Together the pair must cover UPDATE,
+               -- DELETE and TRUNCATE, all BEFORE.
+               AND (t.tgtype & 2) = 2
+               AND CASE t.tgname
+                     WHEN 'ncmec_safety_audit_log_no_mutate'
+                       THEN (t.tgtype & 1) = 1 AND (t.tgtype & 8) = 8 AND (t.tgtype & 16) = 16
+                     ELSE (t.tgtype & 32) = 32
+                   END)
              AS triggers_enabled
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace

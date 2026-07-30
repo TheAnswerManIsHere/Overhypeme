@@ -2,12 +2,14 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   index,
   jsonb,
   numeric,
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
   integer,
@@ -64,6 +66,12 @@ export const quarantinedMemesTable = pgTable("quarantined_memes", {
   index("IDX_quarantined_user_created").on(t.userId, t.createdAt.desc()),
   index("IDX_quarantined_source_created").on(t.source, t.createdAt.desc()),
   index("IDX_quarantined_live").on(t.id).where(isNull(t.deletedAt)),
+  // Mirrors 0095's raw CHECK — see the note on `ncmecReportsTable`'s indexes for
+  // why an object that exists only in a numbered migration is not safe here.
+  check(
+    "quarantined_memes_content_origin_check",
+    sql`${t.contentOrigin} IS NULL OR ${t.contentOrigin} IN ('generated','user_upload','stock','template','identity')`,
+  ),
 ]);
 
 export type QuarantinedMeme = typeof quarantinedMemesTable.$inferSelect;
@@ -181,6 +189,30 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("IDX_ncmec_status_created").on(t.submissionStatus, t.createdAt),
+  // The three below are declared here as well as in 0095's raw SQL, deliberately.
+  // `drizzle-kit push --force` reconciles the database to THIS snapshot and
+  // auto-approves data-loss statements, so an object that exists only in a
+  // numbered migration can be dropped by a push — and the hash-based migrator
+  // will not recreate it, because 0095 is already recorded as applied. For an
+  // index that is a correctness constraint rather than a performance one, that
+  // is the difference between one report per hit and two.
+  index("IDX_ncmec_nonfinal")
+    .on(t.submissionStatus, t.id)
+    .where(sql`${t.submissionStatus} IN ('pending','in_progress')`),
+  index("IDX_ncmec_failed_unalerted")
+    .on(t.id)
+    .where(sql`${t.submissionStatus} = 'failed' AND ${t.alertNotifiedAt} IS NULL`),
+  uniqueIndex("UQ_ncmec_reports_quarantine")
+    .on(t.quarantineId)
+    .where(sql`${t.quarantineId} IS NOT NULL`),
+  check(
+    "ncmec_reports_submission_status_check",
+    sql`${t.submissionStatus} IN ('pending','in_progress','submitted','filed_manually','failed','not_reportable')`,
+  ),
+  check(
+    "ncmec_reports_content_origin_check",
+    sql`${t.contentOrigin} IS NULL OR ${t.contentOrigin} IN ('generated','user_upload','stock','template','identity')`,
+  ),
 ]);
 
 export type NcmecReport = typeof ncmecReportsTable.$inferSelect;

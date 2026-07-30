@@ -184,8 +184,15 @@ BEGIN
   typed AS MATERIALIZED (
     SELECT report_id,
            raw_qid,
+           -- Bounded to 18 digits, NOT just `^[0-9]+$`. A digit-only value can still
+           -- overflow: `'999999999999999999999999'::bigint` raises
+           -- numeric_value_out_of_range, which aborts the whole migration — the exact
+           -- failure this classification exists to prevent, surviving in the subclass a
+           -- shape-only regex lets through. Any 18-digit value is below bigint's
+           -- 9223372036854775807 ceiling, and quarantine ids are a bigserial starting at 1,
+           -- so this is enormous headroom rather than a real bound.
            CASE WHEN raw_qid IS NULL THEN 'missing'
-                WHEN raw_qid !~ '^[0-9]+$' THEN 'malformed'
+                WHEN raw_qid !~ '^[0-9]{1,18}$' THEN 'malformed'
                 ELSE 'numeric' END AS shape
       FROM raw
   )
@@ -250,6 +257,52 @@ BEGIN
   DROP TABLE _ncmec_0095_candidates;
 END $$;
 -- <<< ncmec-0095 backfill block (end)
+--> statement-breakpoint
+
+-- ─── 4b. The backfill is one-shot; the deploy window is not ─────────────────
+--
+-- 0095 commits before the new code is serving everywhere. During a rolling deploy an OLD
+-- instance keeps running the existing `quarantine.ts`, which writes the linkage only into
+-- `request_metadata` and knows nothing about `quarantine_id`. Those reports land AFTER the
+-- one-shot backfill has already selected its rows, and the partial unique index happily
+-- permits their NULL `quarantine_id` — so they would be invisible to the orphan sweep,
+-- which would then create a second report for the same hit. Invariant 7 broken by the
+-- deploy itself rather than by the back catalogue.
+--
+-- A repeated reconciliation pass would also close this, but it would leave a window whose
+-- width is however long the sweep's cadence is, and it would put the guarantee in
+-- application code that only the NEW version runs. A row trigger closes it in the database,
+-- for every writer, at insert time — including a writer running code from before this
+-- migration existed.
+--
+-- It is deliberately narrow: it only ever fills a NULL, only from a value that is already
+-- range-safe, and only when the referenced quarantine row exists. Everything else is left
+-- exactly as the caller wrote it.
+CREATE OR REPLACE FUNCTION ncmec_reports_link_quarantine() RETURNS trigger AS $$
+DECLARE
+  raw text;
+BEGIN
+  -- An explicit value always wins: the reconciler sets this column directly, and the
+  -- trigger must never second-guess a caller that knows the linkage.
+  IF NEW.quarantine_id IS NOT NULL THEN RETURN NEW; END IF;
+
+  raw := NEW.request_metadata->>'quarantineId';
+  -- Same bounded pattern as the backfill, for the same reason: a digit-only value can
+  -- overflow bigint, and an exception here would abort the caller's quarantine transaction.
+  IF raw IS NULL OR raw !~ '^[0-9]{1,18}$' THEN RETURN NEW; END IF;
+
+  IF EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = raw::bigint) THEN
+    NEW.quarantine_id := raw::bigint;
+  END IF;
+  RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+--> statement-breakpoint
+
+DROP TRIGGER IF EXISTS ncmec_reports_link_quarantine_trg ON "ncmec_reports";
+--> statement-breakpoint
+CREATE TRIGGER ncmec_reports_link_quarantine_trg
+  BEFORE INSERT ON "ncmec_reports"
+  FOR EACH ROW EXECUTE FUNCTION ncmec_reports_link_quarantine();
 --> statement-breakpoint
 
 -- ─── 5. Indexes ─────────────────────────────────────────────────────────────
@@ -354,6 +407,27 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_audit_created"
 -- fail its deploy here. The trigger function fails CLOSED when the role is
 -- absent (see below), so a skipped creation makes the ledger stricter, never
 -- looser.
+-- **Creating the role also grants it to the creator, and that had to be undone.**
+-- On PostgreSQL 16 a role with CREATEROLE that runs `CREATE ROLE x` is automatically
+-- granted membership of `x` WITH ADMIN OPTION (`inherit_option = f`, `set_option = f`).
+-- Verified directly against this repository's PostgreSQL 16 target:
+-- `pg_has_role(creator, x, 'member')` comes back TRUE. So "granted to nobody" would have
+-- been false the instant this block succeeded, the trigger would have waved the application
+-- role straight through, and no DBA hardening step would have fixed it — the printed
+-- instructions transfer ownership, they do not revoke a membership nobody knew existed.
+--
+-- Two changes close it, and both are needed:
+--   1. The automatic grant is revoked here, immediately, using the ADMIN OPTION the
+--      creation itself conferred.
+--   2. The trigger checks `USAGE`, not `MEMBER`. `MEMBER` is true for any path to the role
+--      including one that cannot be exercised; `USAGE` is true only when the session
+--      actually holds the role's privileges right now, which is the property the gate is
+--      about. A maintenance session reaches it by `SET ROLE`, under which `current_user`
+--      *is* the maintenance role and `USAGE` is trivially true.
+--
+-- Best-effort creation: a deployment whose application role lacks CREATEROLE must not fail
+-- its deploy here. The trigger fails CLOSED when the role is absent, so a skipped creation
+-- makes the ledger stricter, never looser.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance') THEN
@@ -364,48 +438,105 @@ BEGIN
         RAISE WARNING '0095: could not create role overhype_audit_maintenance (insufficient privilege). The append-only trigger fails closed without it: no session can UPDATE, DELETE or TRUNCATE ncmec_safety_audit_log until a DBA creates the role. Create it with: CREATE ROLE overhype_audit_maintenance NOLOGIN;';
     END;
   END IF;
+
+  -- Unconditional, not only on the branch that created it: a previous run of this
+  -- migration may have created the role and left the automatic grant behind.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+     AND EXISTS (
+       SELECT 1 FROM pg_auth_members m
+        WHERE pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'
+          AND pg_get_userbyid(m.member) = current_user
+     ) THEN
+    BEGIN
+      EXECUTE format('REVOKE overhype_audit_maintenance FROM %I', current_user);
+      RAISE NOTICE '0095: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE WARNING '0095: could NOT revoke overhype_audit_maintenance from % (%). The application role can bypass the append-only trigger until a DBA runs: REVOKE overhype_audit_maintenance FROM that role.', current_user, SQLERRM;
+    END;
+  END IF;
 END $$;
 --> statement-breakpoint
 
-CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$
+-- The audit-log guard objects are created only when the current role is able to. After the
+-- DBA hardening step below, `ncmec_safety_audit_log` and this function belong to
+-- `overhype_audit_owner`, and an unguarded `CREATE OR REPLACE FUNCTION` would fail with
+-- "must be owner of function" on any replay — which is exactly the recovery case where the
+-- schema survived but migration tracking did not. When the objects are already in place and
+-- this role may not touch them, the migration verifies them and moves on; when they are
+-- MISSING and it cannot create them, it fails loudly rather than leaving the ledger
+-- unguarded.
+-- >>> ncmec-0095 audit guard block (start)
+DO $outer$
+DECLARE
+  fn_owner   oid;
+  tbl_owner  oid;
+  can_fn     boolean;
+  can_tbl    boolean;
+  trg_count  int;
 BEGIN
-  -- The EXISTS guard is not defensive noise: pg_has_role RAISES on a role that
-  -- does not exist, so without it a deployment that could not create the role
-  -- would block every operation with a confusing "role does not exist" error
-  -- instead of this one. Fails closed either way; this fails closed legibly.
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-     OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'member') THEN
-    RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
-      USING HINT = 'Membership of overhype_audit_maintenance is required to modify this ledger.';
+  SELECT p.proowner INTO fn_owner
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE p.proname = 'ncmec_safety_audit_log_append_only' AND n.nspname = 'public';
+  SELECT c.relowner INTO tbl_owner
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public';
+
+  can_fn  := fn_owner IS NULL OR pg_has_role(current_user, fn_owner, 'usage');
+  can_tbl := tbl_owner IS NOT NULL AND pg_has_role(current_user, tbl_owner, 'usage');
+
+  IF can_fn THEN
+    EXECUTE $fn$
+      CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $body$
+      BEGIN
+        -- The EXISTS guard is not defensive noise: pg_has_role RAISES on a role that does
+        -- not exist, so without it a deployment that could not create the role would block
+        -- every operation with a confusing "role does not exist" error instead of this one.
+        -- Fails closed either way; this fails closed legibly.
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+           OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
+          RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
+            USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
+        END IF;
+        -- Maintenance is permitted: let the operation through. RETURN NULL here would
+        -- silently CANCEL it — in a BEFORE row trigger a NULL return cancels the operation
+        -- — which is the exact opposite of what the escape hatch is for: failing closed
+        -- while appearing to succeed.
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+      END; $body$ LANGUAGE plpgsql;
+    $fn$;
   END IF;
-  -- Maintenance is permitted: let the operation through. RETURN NULL here would
-  -- silently CANCEL it — in a BEFORE row trigger a NULL return cancels the
-  -- operation — which is the exact opposite of what the escape hatch is for:
-  -- failing closed while appearing to succeed.
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
---> statement-breakpoint
 
--- DROP IF EXISTS before each CREATE, because this migration is required to be
--- rerunnable and an unguarded CREATE TRIGGER fails on the second pass — which
--- is exactly what a partially-recovered deployment does.
-DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON "ncmec_safety_audit_log";
---> statement-breakpoint
-CREATE TRIGGER ncmec_safety_audit_log_no_mutate
-  BEFORE UPDATE OR DELETE ON "ncmec_safety_audit_log"
-  FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only();
---> statement-breakpoint
-
--- TRUNCATE is covered too, by a STATEMENT-level trigger sharing the same gate.
--- A row trigger does not fire on TRUNCATE, so leaving it out would let the
--- application role erase the entire ledger with one statement — on the table
--- that is the sole control over destructive admin actions.
-DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_truncate ON "ncmec_safety_audit_log";
---> statement-breakpoint
-CREATE TRIGGER ncmec_safety_audit_log_no_truncate
-  BEFORE TRUNCATE ON "ncmec_safety_audit_log"
-  FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only();
+  IF can_tbl THEN
+    -- DROP IF EXISTS before each CREATE, because this migration is required to be
+    -- rerunnable and an unguarded CREATE TRIGGER fails on the second pass.
+    EXECUTE 'DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON "ncmec_safety_audit_log"';
+    EXECUTE 'CREATE TRIGGER ncmec_safety_audit_log_no_mutate
+               BEFORE UPDATE OR DELETE ON "ncmec_safety_audit_log"
+               FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
+    -- TRUNCATE is covered too, by a STATEMENT-level trigger sharing the same gate. A row
+    -- trigger does not fire on TRUNCATE, so leaving it out would let the application role
+    -- erase the entire ledger with one statement — on the table that is the sole control
+    -- over destructive admin actions.
+    EXECUTE 'DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_truncate ON "ncmec_safety_audit_log"';
+    EXECUTE 'CREATE TRIGGER ncmec_safety_audit_log_no_truncate
+               BEFORE TRUNCATE ON "ncmec_safety_audit_log"
+               FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
+  ELSE
+    SELECT count(*) INTO trg_count
+      FROM pg_trigger t
+     WHERE t.tgrelid = '"ncmec_safety_audit_log"'::regclass
+       AND t.tgname IN ('ncmec_safety_audit_log_no_mutate', 'ncmec_safety_audit_log_no_truncate')
+       AND t.tgenabled IN ('O', 'A');
+    IF trg_count = 2 THEN
+      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role and both append-only triggers are already present and enabled — leaving them alone.';
+    ELSE
+      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session is not a member of, and only % of the 2 append-only triggers are present and origin-enabled. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.', trg_count;
+    END IF;
+  END IF;
+END $outer$;
+-- <<< ncmec-0095 audit guard block (end)
 --> statement-breakpoint
 
 -- Ownership hardening, when a DBA has pre-provisioned the owner role.
@@ -425,19 +556,31 @@ CREATE TRIGGER ncmec_safety_audit_log_no_truncate
 -- boundary is unenforced, which blocks the dangerous STATE rather than one
 -- path into it.
 DO $$
+DECLARE
+  app_role text := current_user;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner')
-     AND pg_has_role(current_user, 'overhype_audit_owner', 'member') THEN
+     AND pg_has_role(current_user, 'overhype_audit_owner', 'usage')
+     AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
+                    AND pg_get_userbyid(c.relowner) <> 'overhype_audit_owner') THEN
     EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" OWNER TO overhype_audit_owner';
     EXECUTE 'ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner';
     -- The application role keeps exactly what it needs to append and read.
-    EXECUTE format(
-      'GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', current_user);
-    EXECUTE format(
-      'GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', current_user);
+    EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
     RAISE NOTICE '0095: ncmec_safety_audit_log ownership transferred to overhype_audit_owner.';
+  ELSIF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
+                   AND pg_get_userbyid(c.relowner) = 'overhype_audit_owner') THEN
+    RAISE NOTICE '0095: ncmec_safety_audit_log is already owned by overhype_audit_owner.';
   ELSE
-    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary, a DBA must run: CREATE ROLE overhype_audit_owner NOLOGIN; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO <app_role>; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO <app_role>; -- and must NOT grant the app role membership of overhype_audit_owner.';
+    -- The last clause of the instruction is the one that actually matters, and it is why
+    -- the transfer cannot be completed from inside this migration: transferring ownership
+    -- needs membership of the target role, and that membership is precisely what would let
+    -- the application role SET ROLE back and disable the trigger. Someone with higher
+    -- privilege has to do it and then step away.
+    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', app_role, app_role, app_role, app_role;
   END IF;
 END $$;
 --> statement-breakpoint

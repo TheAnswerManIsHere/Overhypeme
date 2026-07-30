@@ -56,17 +56,44 @@ const MIGRATION_SQL = fs.readFileSync(MIGRATION_PATH, "utf-8");
 const BACKFILL_START = "-- >>> ncmec-0095 backfill block (start)";
 const BACKFILL_END = "-- <<< ncmec-0095 backfill block (end)";
 
+/** Every column 0095 adds. Also the teardown list for the 0094-state fixture. */
+const NCMEC_REPORT_COLUMNS_0095 = [
+  "finished_at", "finish_started_at", "attempt_count", "last_error", "last_error_code",
+  "submission_environment", "uploaded_files", "retracted_at", "submission_lease_owner",
+  "submission_lease_until", "manually_filed_at", "test_submitted_at",
+  "test_submission_started_at", "test_report_id", "quarantine_id", "failed_at",
+  "last_attempt_failed_at", "alert_notified_at", "content_origin", "reporter_snapshot",
+  "backlog_audited_at", "backlog_audit_note", "identity_omission_approved_at",
+  "manual_report_id",
+];
+
+const QUARANTINE_COLUMNS_0095 = [
+  "content_origin", "report_intent", "reporter_snapshot", "request_metadata",
+];
+
 /** The migration text with drizzle's statement separators removed, ready to execute. */
 function executableMigration(): string {
   return MIGRATION_SQL.split("--> statement-breakpoint").join("\n");
 }
 
+const GUARD_START = "-- >>> ncmec-0095 audit guard block (start)";
+const GUARD_END = "-- <<< ncmec-0095 audit guard block (end)";
+
+function sliceBetween(startMarker: string, endMarker: string): string {
+  const start = MIGRATION_SQL.indexOf(startMarker);
+  const end = MIGRATION_SQL.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start, `sentinels ${startMarker} / ${endMarker} missing from 0095`);
+  return MIGRATION_SQL.slice(start + startMarker.length, end);
+}
+
 /** Just the classify-then-link DO block, for replaying against fixtures. */
 function backfillBlock(): string {
-  const start = MIGRATION_SQL.indexOf(BACKFILL_START);
-  const end = MIGRATION_SQL.indexOf(BACKFILL_END);
-  assert.ok(start >= 0 && end > start, "backfill sentinels missing from 0095");
-  return MIGRATION_SQL.slice(start + BACKFILL_START.length, end);
+  return sliceBetween(BACKFILL_START, BACKFILL_END);
+}
+
+/** Just the ownership-aware audit-guard DO block. */
+function auditGuardBlock(): string {
+  return sliceBetween(GUARD_START, GUARD_END);
 }
 
 describe("migration 0095 — static contract", () => {
@@ -174,15 +201,45 @@ describe("migration 0095 — static contract", () => {
     );
   });
 
-  it("the append-only triggers gate on role membership, never on a settable GUC", () => {
-    assert.match(MIGRATION_SQL, /pg_has_role\(current_user, 'overhype_audit_maintenance', 'member'\)/);
+  it("every index and CHECK 0095 creates is also declared in the Drizzle schema", () => {
+    // `drizzle-kit push --force` reconciles the database to the Drizzle snapshot and
+    // auto-approves data-loss statements, so an object that lives only in a numbered
+    // migration can be dropped by a push — and the hash-based migrator will not recreate it,
+    // because 0095 is already recorded as applied. For UQ_ncmec_reports_quarantine, which is
+    // a correctness constraint rather than a performance one, that silently becomes two
+    // reports per hit.
+    const schema = fs.readFileSync(path.join(REPO_DB, "src/schema/moderation.ts"), "utf-8");
+    const declared = [
+      "IDX_ncmec_nonfinal",
+      "IDX_ncmec_failed_unalerted",
+      "UQ_ncmec_reports_quarantine",
+      "ncmec_reports_submission_status_check",
+      "ncmec_reports_content_origin_check",
+      "quarantined_memes_content_origin_check",
+    ];
+    for (const name of declared) {
+      assert.match(MIGRATION_SQL, new RegExp(`"${name}"`), `${name} is not created by 0095`);
+      assert.match(schema, new RegExp(`"${name}"`), `${name} exists only in raw SQL — a push would drop it`);
+    }
+  });
+
+  it("the append-only triggers gate on an EFFECTIVE grant, never on a settable GUC", () => {
+    // 'usage', not 'member'. On PostgreSQL 16 `CREATE ROLE` auto-grants the new
+    // role to a CREATEROLE creator, so 'member' would be true for the very
+    // application role the gate exists to stop — verified directly against this
+    // repository's PostgreSQL 16 target.
+    assert.match(MIGRATION_SQL, /pg_has_role\(current_user, 'overhype_audit_maintenance', 'usage'\)/);
+    assert.doesNotMatch(MIGRATION_SQL, /pg_has_role\(current_user, 'overhype_audit_maintenance', 'member'\)/);
+    // And the automatic grant is revoked rather than merely documented.
+    assert.match(MIGRATION_SQL, /REVOKE overhype_audit_maintenance FROM %I/);
     // A session variable is not a privilege boundary: SET LOCAL is available to
     // the very role whose raw writes the trigger exists to block.
     assert.doesNotMatch(MIGRATION_SQL, /current_setting\s*\(/i);
     // BEFORE row triggers cancel the operation on a NULL return, so the
     // maintenance path must return OLD/NEW or the escape hatch silently
     // swallows the correction it exists to permit.
-    assert.match(MIGRATION_SQL, /IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;\s*\n\s*RETURN NEW;/);
+    assert.match(MIGRATION_SQL, /IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;/);
+    assert.doesNotMatch(MIGRATION_SQL, /THEN RETURN NULL/);
     // A row trigger does not fire on TRUNCATE.
     assert.match(MIGRATION_SQL, /BEFORE TRUNCATE ON "ncmec_safety_audit_log"\s*\n\s*FOR EACH STATEMENT/);
   });
@@ -211,15 +268,15 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     | null = null;
 
   before(async () => {
+    // Only an ABSENT database is a reason to skip. Swallowing an import failure here would
+    // turn a broken workspace artifact into `pool = null`, after which every assertion below
+    // reports the misleading skip reason "DATABASE_URL not set" — and the whole migration
+    // and privilege-boundary suite goes green without executing a single statement.
     if (!process.env.DATABASE_URL) return;
-    try {
-      const mod = await import("@workspace/db");
-      // `pg`'s Pool carries callback overloads the structural type above deliberately omits.
-      pool = mod.pool as unknown as Pool;
-      ncmecAuditBoundaryStatus = mod.ncmecAuditBoundaryStatus;
-    } catch {
-      pool = null;
-    }
+    const mod = await import("@workspace/db");
+    // `pg`'s Pool carries callback overloads the structural type above deliberately omits.
+    pool = mod.pool as unknown as Pool;
+    ncmecAuditBoundaryStatus = mod.ncmecAuditBoundaryStatus;
   });
 
   after(async () => {
@@ -256,15 +313,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   it("adds every ncmec_reports column the later phases write", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const expected = [
-      "finished_at", "finish_started_at", "attempt_count", "last_error", "last_error_code",
-      "submission_environment", "uploaded_files", "retracted_at", "submission_lease_owner",
-      "submission_lease_until", "manually_filed_at", "test_submitted_at",
-      "test_submission_started_at", "test_report_id", "quarantine_id", "failed_at",
-      "last_attempt_failed_at", "alert_notified_at", "content_origin", "reporter_snapshot",
-      "backlog_audited_at", "backlog_audit_note", "identity_omission_approved_at",
-      "manual_report_id",
-    ];
+    const expected = NCMEC_REPORT_COLUMNS_0095;
     const { rows } = await pool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'ncmec_reports' AND column_name = ANY($1)`,
@@ -275,7 +324,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   it("adds the four quarantined_memes provenance columns", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const expected = ["content_origin", "report_intent", "reporter_snapshot", "request_metadata"];
+    const expected = QUARANTINE_COLUMNS_0095;
     const { rows } = await pool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'quarantined_memes' AND column_name = ANY($1)`,
@@ -428,6 +477,92 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       });
     });
 
+    it("leaves no automatic creator membership of the maintenance role behind", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // On PostgreSQL 16, `CREATE ROLE x` run by a CREATEROLE role auto-grants x to the
+      // creator WITH ADMIN OPTION. Without the migration's explicit revoke, the application
+      // role would be a member of the very role the append-only gate checks — "granted to
+      // nobody" false from the instant the migration succeeded, and no DBA ownership step
+      // would have fixed it, because that step transfers ownership rather than revoking a
+      // membership nobody knew existed.
+      const { rows } = await pool.query<{ member: string }>(
+        `SELECT pg_get_userbyid(m.member) AS member
+           FROM pg_auth_members m
+          WHERE pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'`,
+      );
+      assert.deepEqual(rows.map((r) => r.member), [], "overhype_audit_maintenance must be granted to nobody");
+    });
+
+    it("re-runs cleanly when the ledger is owned by a role this session cannot touch", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The recovery case: schema survived, migration tracking did not. After the DBA
+      // hardening step an unguarded `CREATE OR REPLACE FUNCTION` fails with "must be owner
+      // of function", so the guard must verify-and-continue instead.
+      await inRolledBackTx(async (client) => {
+        const owner = `ncmec_own_${randomUUID().slice(0, 8)}`;
+        const app = `ncmec_app_${randomUUID().slice(0, 8)}`;
+        await client.query(`CREATE ROLE ${owner} NOLOGIN`);
+        await client.query(`CREATE ROLE ${app} NOLOGIN`);
+        await client.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+        await client.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
+        await client.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
+
+        // As a role that is a member of neither the owner nor the maintenance role — which
+        // is the whole point, since a superuser is an implicit member of both and would make
+        // this assertion vacuous.
+        await client.query(`SET ROLE ${app}`);
+        await client.query(auditGuardBlock());
+        await client.query("RESET ROLE");
+      });
+    });
+
+    it("refuses to continue when the ledger is unreachable AND its guards are missing", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // Verify-and-continue is only correct while the guards are actually there. With them
+      // gone and no way to recreate them, finishing quietly would leave the ledger
+      // unguarded — which is worse than a failed migration.
+      await inRolledBackTx(async (client) => {
+        const owner = `ncmec_own_${randomUUID().slice(0, 8)}`;
+        const app = `ncmec_app_${randomUUID().slice(0, 8)}`;
+        await client.query(`CREATE ROLE ${owner} NOLOGIN`);
+        await client.query(`CREATE ROLE ${app} NOLOGIN`);
+        await client.query(`DROP TRIGGER ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
+        await client.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+        await client.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
+        await client.query(`GRANT SELECT ON ncmec_safety_audit_log TO ${app}`);
+
+        await client.query(`SET ROLE ${app}`);
+        await expectRaises(client, auditGuardBlock(), /refusing to leave the ledger unguarded/);
+        await client.query("RESET ROLE");
+      });
+    });
+
+    it("does not count a replica-only trigger as an enforced boundary", async (t) => {
+      if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
+      // tgenabled 'R' means the trigger fires only under logical replication, so ordinary
+      // application statements skip it entirely. Counting it as enabled would report an
+      // enforced boundary over a ledger anyone holding UPDATE could still rewrite.
+      await inRolledBackTx(async (client) => {
+        await client.query(`ALTER TABLE ncmec_safety_audit_log ENABLE REPLICA TRIGGER ncmec_safety_audit_log_no_mutate`);
+        const { rows } = await client.query<{ enforced: boolean }>(
+          `SELECT (SELECT count(*) = 2
+                     FROM pg_trigger t
+                    WHERE t.tgrelid = 'ncmec_safety_audit_log'::regclass
+                      AND t.tgname IN ('ncmec_safety_audit_log_no_mutate','ncmec_safety_audit_log_no_truncate')
+                      AND t.tgenabled IN ('O','A')) AS enforced`,
+        );
+        assert.equal(rows[0]!.enforced, false, "a replica-only trigger must not read as enabled");
+
+        // And it really is bypassed: the same UPDATE that raises with the trigger in origin
+        // mode now goes through.
+        await client.query(
+          `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','config_write')`,
+        );
+        const upd = await client.query(`UPDATE ncmec_safety_audit_log SET reason = 'silently rewritten'`);
+        assert.ok(upd.rowCount && upd.rowCount > 0, "expected the replica-only trigger to be skipped");
+      });
+    });
+
     it("reports whether the privilege boundary is actually enforced", async (t) => {
       if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
       const status = await ncmecAuditBoundaryStatus();
@@ -447,6 +582,25 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
   });
 
   describe("quarantine_id backfill", () => {
+    /**
+     * Produce rows the way pre-0095 code did: metadata-only, no `quarantine_id`.
+     *
+     * The linking trigger 0095 installs would otherwise fill the column at insert time, so
+     * a fixture built with it enabled is a POST-migration row wearing legacy clothes — and
+     * the backfill, whose whole job is the rows that already existed, would never see a
+     * candidate. Disabling the trigger for the insert is the only way to construct the
+     * state the backfill actually runs against. DDL is transactional, so this reverts with
+     * the rest of the test.
+     */
+    async function asPreMigrationWriter<T>(client: PoolClient, fn: () => Promise<T>): Promise<T> {
+      await client.query(`ALTER TABLE ncmec_reports DISABLE TRIGGER ncmec_reports_link_quarantine_trg`);
+      try {
+        return await fn();
+      } finally {
+        await client.query(`ALTER TABLE ncmec_reports ENABLE TRIGGER ncmec_reports_link_quarantine_trg`);
+      }
+    }
+
     it("links from server-written metadata and classifies everything else", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       await inRolledBackTx(async (client) => {
@@ -458,19 +612,26 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
         // Four legacy shapes, exactly as they occur in the existing table.
         const ids: Record<string, number> = {};
-        for (const [label, metadata] of [
-          ["linked", JSON.stringify({ quarantineId: qid })],
-          ["missing", JSON.stringify({ source: "arachnid" })],
-          ["malformed", JSON.stringify({ quarantineId: "not-a-number" })],
-          ["dangling", JSON.stringify({ quarantineId: 2147483000 })],
-        ] as const) {
-          const { rows: [r] } = await client.query<{ id: string }>(
-            `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
-             VALUES ('arachnid', 'restricted/quarantine/x.jpg', $1::jsonb) RETURNING id`,
-            [metadata],
-          );
-          ids[label] = Number(r!.id);
-        }
+        await asPreMigrationWriter(client, async () => {
+          for (const [label, metadata] of [
+            ["linked", JSON.stringify({ quarantineId: qid })],
+            ["missing", JSON.stringify({ source: "arachnid" })],
+            ["malformed", JSON.stringify({ quarantineId: "not-a-number" })],
+            ["dangling", JSON.stringify({ quarantineId: 2147483000 })],
+            // Digit-only but past bigint. A shape-only `^[0-9]+$` regex lets this through
+            // and `::bigint` then raises numeric_value_out_of_range, aborting all of 0095 —
+            // the exact failure the classification exists to prevent, surviving in a
+            // subclass.
+            ["oversized", JSON.stringify({ quarantineId: "999999999999999999999999" })],
+          ] as const) {
+            const { rows: [r] } = await client.query<{ id: string }>(
+              `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
+               VALUES ('arachnid', 'restricted/quarantine/x.jpg', $1::jsonb) RETURNING id`,
+              [metadata],
+            );
+            ids[label] = Number(r!.id);
+          }
+        });
 
         // Replaying the block is safe: it only ever touches rows whose
         // quarantine_id is still NULL.
@@ -491,6 +652,8 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         assert.equal(byId.get(ids["malformed"]!), null);
         // Numeric but pointing at no quarantine row: classified, not linked.
         assert.equal(byId.get(ids["dangling"]!), null);
+        // And the one that would have aborted the entire migration on a cast.
+        assert.equal(byId.get(ids["oversized"]!), null);
       });
     });
 
@@ -502,13 +665,19 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
            VALUES ('restricted/quarantine/b.jpg','arachnid') RETURNING id`,
         );
         const metadata = JSON.stringify({ quarantineId: Number(q!.id) });
-        for (let i = 0; i < 2; i++) {
-          await client.query(
-            `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
-             VALUES ('arachnid', 'restricted/quarantine/b.jpg', $1::jsonb)`,
-            [metadata],
-          );
-        }
+        // Only constructible as a PRE-migration pair: with the linking trigger enabled the
+        // second insert is refused by UQ_ncmec_reports_quarantine, which is the trigger
+        // doing its job. The conflict this branch handles is therefore strictly a legacy
+        // one — two rows that already claimed the same quarantine before 0095 existed.
+        await asPreMigrationWriter(client, async () => {
+          for (let i = 0; i < 2; i++) {
+            await client.query(
+              `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
+               VALUES ('arachnid', 'restricted/quarantine/b.jpg', $1::jsonb)`,
+              [metadata],
+            );
+          }
+        });
         // Choosing one would silently discard a real report's linkage, and the
         // choice is exactly the judgement a human has to make.
         await expectRaises(client, backfillBlock(), /claim a quarantine row another report already claims/);
@@ -516,11 +685,142 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     });
   });
 
-  it("is re-runnable — a partially-recovered deployment applies it twice", async (t) => {
+  /**
+   * Undo everything 0095 creates, so the next statement runs against an 0094-shaped
+   * database.
+   *
+   * Without this the "re-runnable" test proves nothing about the transition that actually
+   * matters: the suite's lifecycle runs `push-force` then `migrate`, so the database is
+   * already at 0095 before the first line of any test — every application is a no-op over
+   * objects that were there when it started. A missing `ADD COLUMN`, or an ordering failure
+   * masked by an object Drizzle's push created, would sail past both the column assertions
+   * and a two-run rerun check.
+   */
+  async function rewindTo0094(client: PoolClient): Promise<void> {
+    await client.query(`DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
+    await client.query(`DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_truncate ON ncmec_safety_audit_log`);
+    await client.query(`DROP TRIGGER IF EXISTS ncmec_reports_link_quarantine_trg ON ncmec_reports`);
+    await client.query(`DROP FUNCTION IF EXISTS ncmec_safety_audit_log_append_only()`);
+    await client.query(`DROP FUNCTION IF EXISTS ncmec_reports_link_quarantine()`);
+    await client.query(`DROP TABLE IF EXISTS ncmec_safety_audit_log`);
+    await client.query(`DROP INDEX IF EXISTS "UQ_ncmec_reports_quarantine"`);
+    await client.query(`DROP INDEX IF EXISTS "IDX_ncmec_failed_unalerted"`);
+    await client.query(`DROP INDEX IF EXISTS "IDX_ncmec_nonfinal"`);
+    await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_quarantine_id_fk`);
+    await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_content_origin_check`);
+    await client.query(`ALTER TABLE quarantined_memes DROP CONSTRAINT IF EXISTS quarantined_memes_content_origin_check`);
+    for (const column of NCMEC_REPORT_COLUMNS_0095) {
+      await client.query(`ALTER TABLE ncmec_reports DROP COLUMN IF EXISTS "${column}"`);
+    }
+    for (const column of QUARANTINE_COLUMNS_0095) {
+      await client.query(`ALTER TABLE quarantined_memes DROP COLUMN IF EXISTS "${column}"`);
+    }
+    // Back to 0043's narrower vocabulary, which is what 0095 has to widen.
+    await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_submission_status_check`);
+    await client.query(
+      `ALTER TABLE ncmec_reports ADD CONSTRAINT ncmec_reports_submission_status_check
+         CHECK (submission_status IN ('pending','submitted','failed'))`,
+    );
+    await client.query(`DELETE FROM admin_config WHERE key = ANY($1)`, [[...NCMEC_SEEDED_CONFIG_KEYS]]);
+  }
+
+  it("applies cleanly to an 0094-shaped database, and again on top of itself", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
     await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+
+      // The transition that ships. Everything before this line is teardown.
       await client.query(executableMigration());
+
+      const { rows: cols } = await client.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'ncmec_reports' AND column_name = ANY($1)`,
+        [NCMEC_REPORT_COLUMNS_0095],
+      );
+      assert.equal(cols.length, NCMEC_REPORT_COLUMNS_0095.length, "a column was not added from the 0094 state");
+
+      const { rows: idx } = await client.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes WHERE tablename = 'ncmec_reports'
+          AND indexname IN ('IDX_ncmec_nonfinal','IDX_ncmec_failed_unalerted','UQ_ncmec_reports_quarantine')`,
+      );
+      assert.equal(idx.length, 3);
+
+      const { rows: seeds } = await client.query<{ key: string }>(
+        `SELECT key FROM admin_config WHERE key = ANY($1)`,
+        [[...NCMEC_SEEDED_CONFIG_KEYS]],
+      );
+      assert.equal(seeds.length, NCMEC_SEEDED_CONFIG_KEYS.length);
+
+      // And a second application on top, which is what a partially-recovered deployment does.
       await client.query(executableMigration());
+    });
+  });
+
+  it("links a report written by pre-0095 code during the rolling-deploy window", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // 0095 commits before the new code is serving everywhere, so an OLD instance keeps
+    // writing the linkage into request_metadata only — after the one-shot backfill has
+    // already selected its rows. Those reports would be invisible to the orphan sweep, which
+    // would then create a second report for the same hit.
+    await inRolledBackTx(async (client) => {
+      const { rows: [q] } = await client.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source)
+         VALUES ('restricted/quarantine/rolling.jpg','arachnid') RETURNING id`,
+      );
+      const qid = Number(q!.id);
+
+      // Exactly what the pre-0095 code writes: no quarantine_id column in the INSERT.
+      const { rows: [r] } = await client.query<{ quarantine_id: string | null }>(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
+         VALUES ('arachnid', 'restricted/quarantine/rolling.jpg', $1::jsonb)
+         RETURNING quarantine_id`,
+        [JSON.stringify({ quarantineId: qid, source: "arachnid" })],
+      );
+      assert.equal(Number(r!.quarantine_id), qid, "the trigger must link a legacy-shaped insert");
+    });
+  });
+
+  it("leaves an unusable quarantineId alone rather than failing the caller's transaction", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    await inRolledBackTx(async (client) => {
+      for (const metadata of [
+        { quarantineId: "not-a-number" },
+        // Digit-only but past bigint. An unguarded cast here would raise
+        // numeric_value_out_of_range and abort the quarantine transaction — which fails
+        // closed on the user-facing upload, so a link that cannot be made must be silent.
+        { quarantineId: "999999999999999999999999" },
+        { quarantineId: 2147483000 },
+        { source: "arachnid" },
+      ]) {
+        const { rows: [row] } = await client.query<{ quarantine_id: string | null }>(
+          `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
+           VALUES ('arachnid', 'restricted/quarantine/x.jpg', $1::jsonb) RETURNING quarantine_id`,
+          [JSON.stringify(metadata)],
+        );
+        assert.equal(row!.quarantine_id, null, `${JSON.stringify(metadata)} must not link`);
+      }
+    });
+  });
+
+  it("never overwrites a quarantine_id the caller supplied", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // The reconciler sets this column directly; the trigger must not second-guess a caller
+    // that knows the linkage.
+    await inRolledBackTx(async (client) => {
+      const { rows: [a] } = await client.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source)
+         VALUES ('restricted/quarantine/a.jpg','arachnid') RETURNING id`,
+      );
+      const { rows: [b] } = await client.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source)
+         VALUES ('restricted/quarantine/b.jpg','arachnid') RETURNING id`,
+      );
+      const { rows: [row] } = await client.query<{ quarantine_id: string }>(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, quarantine_id, request_metadata)
+         VALUES ('arachnid', 'restricted/quarantine/a.jpg', $1, $2::jsonb) RETURNING quarantine_id`,
+        [Number(a!.id), JSON.stringify({ quarantineId: Number(b!.id) })],
+      );
+      assert.equal(Number(row!.quarantine_id), Number(a!.id));
     });
   });
 });
