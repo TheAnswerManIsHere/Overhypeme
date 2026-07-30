@@ -173,3 +173,7 @@ concept text didn't change.
   status rule the queue follows).
 - Rationale: the moderation entries in
   [`decisions.md`](../ai-context/decisions.md).
+
+**Next:** chapter 4 — [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md),
+what happens to an approved fact's classification and how a refresh keeps it
+current.

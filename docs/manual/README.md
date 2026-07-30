@@ -105,13 +105,13 @@ In reading order. A chapter file appears only once it holds real content, so
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
 | 1 | `personalization-and-grammar.md` | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | not yet written |
-| 2 | `content-lifecycle.md` | **Submit** — a fact's journey from its two entrances through enrichment to publication | not yet written |
+| 2 | `content-lifecycle.md` | **Submit** — a fact's journey from its three entrances (user submission, admin/API-key bulk import, variant creation) through enrichment to publication | not yet written |
 | 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
 | 5 | `visual-pipeline.md` | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | not yet written |
 | 6 | `meme-and-video-studio.md` | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | not yet written |
 | 7 | `public-site-and-sharing.md` | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | not yet written |
-| 8 | `community-and-engagement.md` | Ratings, comments, comment hearts, and the activity feed | not yet written |
+| 8 | `community-and-engagement.md` | Ratings, comments, comment hearts, meme hearts, and the activity feed | not yet written |
 | 9 | `accounts-and-auth.md` | Sign-in methods, the account lifecycle, verification and password journeys | not yet written |
 | 10 | `payments-and-membership.md` | Free vs. Legendary, plan shapes, and what a membership unlocks | not yet written |
 | 11 | `admin-console.md` | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | not yet written |
@@ -127,7 +127,7 @@ named here so their absence reads as a decision rather than a gap:
 
 - **Operations and diagnostics** — error reporting in [`SENTRY.md`](../SENTRY.md);
   the health and route-stats endpoints in
-  [`architecture-map.md`](../ai-context/architecture-map.md).
+  [`architecture-map.md`](../ai-context/architecture-map.md#health-and-route-stats-endpoints).
 - **Edge and CDN behavior** — [`cloudflare-rate-limits.md`](../cloudflare-rate-limits.md)
   and [`cloudflare-gaesa-og-fix.md`](../cloudflare-gaesa-og-fix.md).
 - **Local dev tooling** — `scripts/dev-supervisor.sh` and the
