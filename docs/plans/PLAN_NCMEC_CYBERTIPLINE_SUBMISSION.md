@@ -574,6 +574,16 @@ Two layers instead:
   8's only guarantee against zero delivery. Not a hypothetical set: every admin can turn
   `admin_notifications` off, and a fresh deployment can have no active admin at all.
 
+  **The set of transitions that clear it is enumerated, and `mark-manually-filed` is in it.**
+  That endpoint now accepts a `failed` row (§5.8.1), so `failed → filed_manually` is a real
+  transition out of `failed` — and a later `reopen` returns the row to `pending` carrying a
+  stamp from a failure two states ago. The next failure then looks covered to pass 3 and is
+  skipped. So the complete set is: §5.8's **admin retry**, §5.8's **`mark-manually-filed`**,
+  §5.8's **`reopen`**, the orphan-disposition path where it applies, and any reconciler repair
+  that re-enqueues a previously-failed row. Each clears `alert_notified_at` in the same
+  transaction as the status write, and each endpoint's audit `before → after` names the field.
+  §6 asserts the **manual-file → reopen → fail again** sequence specifically.
+
   - **Recipients resolve first, before any send or stamp.** Primary is the notifying-admin
     query; if empty, the handler falls back to **`ncmec_safety_alert_email`** (§5.5).
   - **An empty resolved set is a retryable failure** — the job stays queued, nothing is
@@ -711,11 +721,30 @@ telling it what to write or stopping it writing twice.
   | Report field | Copied from | Why it cannot be defaulted |
   |---|---|---|
   | `created_at` | `quarantined_memes.created_at` | §5.7 derives `<incidentDateTime>` from the report row's `created_at`. A report recovered days later would otherwise state the **recovery** time as the incident time — a false statement of fact in a federal filing |
-  | `match_source` | `source` | Which check produced the hit |
+  | `match_source` | **normalized** from `source` — see below | Which check produced the hit |
   | `classification` → report metadata | `classification` | §5.7 derives `<industryClassification>` from the Arachnid classification; it is available at quarantine time and unrecoverable later |
   | `evidence_uri` | `evidence_object_path` | |
   | `user_id`, `reporter_snapshot`, `request_metadata`, `content_origin` | same-named columns | §5.7's frozen identity and provenance |
   | `quarantine_id` | `id` | The link, and the uniqueness key below |
+
+  **`match_source` is normalized, not copied, and copying it verbatim would make the insert
+  fail.** `QUARANTINE_SOURCES` is `arachnid | fal_safety | classifier | manual`;
+  `NCMEC_MATCH_SOURCES` — and `0043`'s `ncmec_reports_match_source_check` — permit only
+  `arachnid | classifier`. So a `fal_safety` or `manual` orphan would violate the CHECK
+  constraint, and pass 2 (or an operator choosing *report* on such an orphan) would raise
+  instead of creating the report it promised. The existing stub already resolves this and the
+  plan adopts its rule verbatim rather than inventing a second one:
+
+  ```ts
+  // quarantine.ts:104 — unchanged, now also the sweep's rule
+  const matchSource = source === "arachnid" ? "arachnid" : "classifier";
+  ```
+
+  The report vocabulary is deliberately **not** widened. `match_source` answers *which
+  detector class produced this*, which is what §5.6's mapping and §5.7's report content
+  consume; `quarantined_memes.source` keeps the finer distinction for the admin surface. Two
+  vocabularies with an explicit normalization between them is the existing design, and this
+  plan should not silently change a column NCMEC filings read.
 
   **The sweep is a pure function of the quarantine row** — it reads no config and resolves
   no user. §6 covers a **delayed** orphan specifically, asserting the incident time is the
@@ -874,6 +903,19 @@ lives in `bulk` and each execution may run to its **3-minute** deadline (§5.2.2
 claimed submissions alone occupy the lane for roughly **twelve minutes**, before counting
 unrelated backfills sharing it. The safety backstop would be starved by precisely the
 workload whose failures it exists to catch.
+
+**The notification send carries a bounded timeout, or moving it to `bulk` just relocates the
+starvation.** `deliverFromOutbox` and the Resend client both `await fetch` with no abort
+signal, and a `bulk` tick runs only three jobs concurrently while awaiting the whole batch —
+so three stalled `ncmec_notify_failed` jobs occupy every slot indefinitely and stop
+**`ncmec_submit`** entirely: no retries, no new filings, during exactly the provider incident
+that produced the notifications. That is a worse outcome than the `fast`-lane starvation the
+move avoided, because it blocks the federal obligation rather than the backstop.
+
+So `ncmec_notify_failed` passes an **`AbortSignal.timeout(30_000)`** to its provider call and
+returns retryable on abort — the same discipline §5.2.2 already applies to every ISPWS call,
+and the reason its 3-minute deadline is expressible at all. A bounded call cannot hold a lane.
+§6 asserts a stalled provider does not prevent an `ncmec_submit` job from running.
 
 **`ncmec_reconcile` alone registers in `fast`** (2 s tick, concurrency 2), whose stated
 purpose is short DB-oriented work with no model or image wait — which is exactly what it is:
@@ -1091,10 +1133,31 @@ The reason it is safe to relax the fence here, and nowhere else: these three col
 **observational, not authoritative**. They record *what an attempt saw*, not *what state the
 row is in*. Nothing branches on them — `isSubmittable`, the reconciler matrix, and every
 status transition read `submission_status`, the lease, and the job, never `last_error_code`.
-Two workers racing can only overwrite one true observation with another true observation,
-whereas a lease-free *state* write could resurrect a row an operator had finalized. Every
-state transition keeps the full lease fence (§5.2.2 rule 6); only this triple is exempt, and
-§6 asserts a lease lost between the response and the persistence still records the code.
+A lease-free *state* write could resurrect a row an operator had finalized; an observational
+one cannot. Every state transition therefore keeps the full lease fence (§5.2.2 rule 6) and
+only this triple is exempt.
+
+**But "two true observations" is not the same as "either order is fine," so the exemption
+carries a monotonic guard.** A stale worker A — which saw an error, lost its lease, and was
+overtaken by worker B completing a later attempt — could otherwise write *after* B and replace
+B's newer observation with its own older one. These fields have consumers:
+`GET /reports?lastErrorCode=` builds the outage cohort from them, and the lost-finalization
+repair preserves a stored code instead of writing `-1`, so a stale overwrite propagates into a
+terminal row and misreports the outage. The write is ordered by its own predicate:
+
+```sql
+… WHERE id = $id
+    AND submission_status IN ('pending','in_progress')
+    AND (last_attempt_failed_at IS NULL OR last_attempt_failed_at < $observed_at)
+```
+
+`$observed_at` is the database clock reading taken when that attempt's response arrived, so a
+late-arriving older observation affects zero rows and is discarded rather than winning by
+virtue of being slow.
+
+§6 asserts both: a lease lost between the response and the persistence still records the code,
+and the A-loses-lease / B-completes / A-persists-late interleaving leaves **B's** code on the
+row.
 
 **`-1` is then reserved for what it actually means: no typed result was ever recorded.**
 It stays the repair value when in-`run()` finalization is lost *and* no attempt had persisted
@@ -1226,7 +1289,7 @@ So the guarantee is a trigger, created by `0094`:
 ```sql
 CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$
 BEGIN
-  IF current_setting('app.audit_maintenance', true) IS DISTINCT FROM 'on' THEN
+  IF NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'member') THEN
     RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP;
   END IF;
   -- Maintenance is enabled: allow the operation through. Returning NULL here would
@@ -1246,7 +1309,18 @@ CREATE TRIGGER ncmec_safety_audit_log_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only();
 ```
 
-Three details, each of which is wrong in the obvious version:
+**The bypass is role membership, not a settable GUC** — a session variable is not a
+privilege boundary. `SET LOCAL app.audit_maintenance = 'on'` is available to the *same*
+application role whose raw `UPDATE`, `DELETE` and `TRUNCATE` this trigger exists to block, so
+gating on it would leave an application convention wearing a database guarantee's clothes —
+the exact criticism that produced this trigger in the first place. `0094` therefore creates a
+`overhype_audit_maintenance` role, grants it to nobody by default, and the trigger checks
+membership. The application role cannot grant itself membership; a deliberate correction
+means a DBA granting it, which is auditable outside this database. §6 asserts that the
+**ordinary application role cannot bypass the trigger by any means available to it**, which
+is the assertion the GUC version could never have passed.
+
+Three further details, each of which is wrong in the obvious version:
 
 - **`RETURN NEW` / `RETURN OLD`, never `RETURN NULL`.** In a PostgreSQL `BEFORE` row trigger
   a NULL return **cancels the operation**. The obvious `RETURN NULL` would therefore make
@@ -1395,18 +1469,53 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_nonfinal"
   WHERE "submission_status" IN ('pending','in_progress');
 
 -- reconciler pass 3: terminal failures nobody has been told about
-CREATE INDEX IF NOT EXISTS "IDX_ncmec_failed_alerting"
-  ON "ncmec_reports" ("submission_environment", "failed_at")
-  WHERE "submission_status" = 'failed';
+CREATE INDEX IF NOT EXISTS "IDX_ncmec_failed_unalerted"
+  ON "ncmec_reports" ("id")
+  WHERE "submission_status" = 'failed' AND "alert_notified_at" IS NULL;
 
 -- reconciler pass 2's idempotency, and the §5.2.4 orphan guard
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"
   ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
 ```
 
-The second is scoped to `submission_status = 'failed'` deliberately: pass 3 sweeps only
-terminal rows, so a broader index would carry the whole retrying population for a query that
-never reads it.
+**`0094` must backfill `quarantine_id` before that index and §5.2.4's sweep go live, or the
+sweep duplicates the entire back catalogue.** Every pre-existing `ncmec_reports` row has a
+NULL `quarantine_id` — the column is new — so pass 2, which selects quarantine rows *no
+report references*, would classify **every legacy Arachnid quarantine as unreported** and
+insert a second report for it. Two report rows for one hit, each independently auditable and
+filable: invariant 7 broken for all historical data, by the mechanism added to protect it.
+
+The link is recoverable, because the current stub already persists it. `quarantine.ts:112`
+writes `quarantineId: row?.id` into the report's `request_metadata`, server-side, on every
+report it creates. So the migration backfills from that:
+
+```sql
+UPDATE ncmec_reports r
+   SET quarantine_id = (r.request_metadata->>'quarantineId')::bigint
+ WHERE r.quarantine_id IS NULL
+   AND r.request_metadata->>'quarantineId' IS NOT NULL
+   AND EXISTS (SELECT 1 FROM quarantined_memes q
+                WHERE q.id = (r.request_metadata->>'quarantineId')::bigint);
+```
+
+It runs **before** the unique index is created, so a pre-existing duplicate surfaces as a
+migration failure rather than as silent data loss. `0094` reports three counts, per
+[`overhype-migration-review`](../engineering/)'s observability rule: **linked**, **missing**
+(no `quarantineId` in metadata — pre-stub rows, which stay NULL and are the backlog audit's
+population), and **conflicting** (two reports claiming one quarantine row, which must be
+resolved by hand before activation, never auto-picked).
+
+§6 asserts a legacy report with server-written metadata is linked, that pass 2 then creates
+**no** second row for it, and that a metadata-less legacy report is left NULL rather than
+guessed at.
+
+**The second index carries `alert_notified_at IS NULL` in its predicate, which is the whole
+point of it.** Pass 3's query is `submission_status = 'failed' AND alert_notified_at IS NULL`,
+and that second term is what makes the result set *small* — in steady state it is empty,
+because nearly every failure has been notified. An index partial on `failed` alone would grow
+with the entire failure history and force the five-minute sweep to scan and heap-filter all of
+it to find nothing, which is the opposite of what a timer-query index is for. Keying on `id`
+suffices: the set is tiny by construction, so there is nothing to range-scan.
 
 The third is a **correctness** constraint, not a performance one: it is what makes two
 concurrent orphan sweeps produce one report row instead of two independently-filable ones
@@ -1457,8 +1566,21 @@ valid). That is strictly stronger than reserving the key, because it blocks the 
 *state* rather than one write path into it — and it keeps every "all five NCMEC keys" claim
 in §6b and §5.8 true as written.
 
-**The two retry keys are seeded by the migration, and that is load-bearing rather than
-tidy.** Computing the 72-hour horizon is not enough — without a seed, production keeps the
+**The two retry keys are bounded, not merely seeded — a typo in either silently destroys the
+horizon everything else rests on.** They are ordinary editable integer config, and the >72 h
+budget is what §9's bulk-retry deferral and §5.8's alert-volume reasoning both assume:
+lowering `max_attempts` to 3, or `retry_delay_4_ms` to seconds, cuts the horizon to minutes
+while every surface still reports success. Nothing would look wrong until an outage produced a
+terminal backlog hours after it began.
+
+So the guarded write path (§5.8) validates the **resulting schedule**, not each key in
+isolation: it recomputes the cumulative time to the final attempt from the resulting tuple and
+refuses any write leaving it **under 72 hours**, naming the computed horizon in the refusal.
+Per-key minimums alone cannot express this — the horizon is a product of both keys and the
+three defaulted delays. §6 asserts the production defaults clear 72 h with no fixture
+injecting them, and that an unsafe edit to *either* key is refused.
+
+**The seeds themselves remain load-bearing rather than tidy.** Computing the 72-hour horizon is not enough — without a seed, production keeps the
 queue defaults (5 attempts, 8-hour fourth delay) and exhausts at **≈10.5 hours** while the
 plan claims ≈98.6, and the bulk-retry deferral (§9) rests on that claim. A test that
 injects the config would pass against a production that never had it. §6 therefore asserts
@@ -1506,7 +1628,13 @@ neither alone is honest:
 
 - **Narrow the window mechanically.** The worker performs a second authoritative, uncached
   recheck **immediately before `/finish`** — the last moment a filing can still be stopped.
-  If submission has been disabled meanwhile, it calls `/retract` instead, leaves the row
+  It re-evaluates the **whole authoritative eligibility tuple**, not just the master switch:
+  `ncmec_submission_enabled` **and** `ncmec_ispws_environment`, against the environment this
+  report was opened in. Checking only `enabled` leaves a live and legal tuple —
+  `enabled = true, environment = test` — under which a worker that opened a **production**
+  report observes the operator's switch to test, passes the gate, and files for real *after*
+  `/admin/safety` says the deployment is in test mode. If either half no longer holds, it
+  calls `/retract` instead, leaves the row
   **non-final** (a *reversible* refusal in §5.3's classification, so the reconciler resumes
   it when the operator re-enables), and records the reason. The exposure drops from the
   whole 3-minute sequence to the duration of the `/finish` call itself, which is the
@@ -1522,12 +1650,35 @@ neither alone is honest:
   irreducible interval this field exists to disclose, reported as zero. So the worker stamps
   **`finish_started_at`** immediately before the call and clears it once the outcome is
   known, and `inFlight` counts rows with an unexpired lease **or** a non-NULL
-  `finish_started_at`. An operator hitting the emergency switch during an incident
+  `finish_started_at`.
+
+  **Every path that resolves the filing clears the marker, including the ones that run long
+  after the crash that set it.** A process dying between the stamp and `/finish` returning
+  leaves it set with no in-process cleanup ever running — and because the marker has no
+  expiry, it would inflate `inFlight` permanently, telling every future operator that a filing
+  might still complete when none can. So clearing is specified per resolution rather than left
+  to the happy path:
+
+  | Resolution | `finish_started_at` |
+  |---|---|
+  | `/finish` returns (either outcome) | cleared with the outcome write |
+  | §5.2.1 retract-first on a later attempt returns `5102` — it **did** file | cleared as the row goes `submitted` |
+  | Retract succeeds or returns `5001` — nothing is filed under that id | cleared; the sequence restarts |
+  | §5.3 pass 1's lost-finalization repair | cleared with the repair, whatever status it writes |
+  | `mark-manually-filed` / `resolve-automated-id` (§5.8) | cleared with the operator's resolution |
+
+  The rule underneath: **the marker means *a `/finish` is outstanding and unresolved*, so
+  whatever resolves it clears it** — and pass 1 is the backstop that guarantees something
+  eventually does, since a crashed row is exactly what pass 1 repairs. §6 asserts an actual
+  **process crash** mid-`/finish`, not only a lease expiry during a live call: the crash is
+  the case with no in-process cleanup at all. An operator hitting the emergency switch during an incident
   needs to know whether anything can still go out; a bare "off" that is briefly untrue is
   exactly the reassurance that makes a bad situation worse.
 
-§6 asserts the disable-during-sequence case: a worker that has passed lease acquisition but
-not `/finish` must **retract rather than finish**, and the row must be left non-final.
+§6 asserts **both** interleavings against a worker past lease acquisition but not `/finish`:
+submission **disabled** mid-sequence, and the environment **flipped to `test`** mid-sequence.
+Each must retract rather than finish and leave the row non-final. The environment case is the
+one a disable-only test passes while the defect remains.
 
 **A hit quarantined while submission is disabled must still be durably visible.** The
 existing admin email in `ncmec.ts:45-65` is inline and best-effort — wrapped in a `catch`
@@ -1589,8 +1740,23 @@ written as `input.reportToNcmec ?? (…config…)` would be dead code: the flag 
 turned on and **no classifier report would ever be produced**, with nothing failing
 loudly to say so.
 
-The fix is at the callers, not the gate. `reportToNcmec` is redefined as a **narrow
-override for `manual` quarantines only**, and the four classifier call sites stop
+**This read is authoritative and uncached — it is a fourth member of §5.5's list.** The
+obvious `getConfigString` goes through `adminConfig.ts`'s 60-second process-local cache, and
+`bustConfigCache()` clears only the writing instance. That matters more here than anywhere
+else in the plan: `report_intent` is written **once, permanently, at quarantine time** and is
+never re-derived (§5.2.4). A stale instance therefore does not serve one minute of slightly
+wrong data — it **freezes one minute of wrong reportability decisions into the ledger
+forever**, in either direction: still recording `true` for a minute after classifier
+reporting is disabled, or omitting rows for a minute after it is enabled. Every other cached
+read in this design is recoverable on the next pass; this one is not.
+
+So the capture reads the key directly from the database, inside the quarantine transaction,
+and §6 asserts the multi-instance case: disable classifier reporting and bust the cache on
+one instance, quarantine through the **other**, and the row must record `report_intent =
+false`.
+
+The fix for the *gate* is at the callers, not in the config. `reportToNcmec` is redefined as
+a **narrow override for `manual` quarantines only**, and the four classifier call sites stop
 passing it:
 
 ```ts
@@ -1599,7 +1765,7 @@ const shouldReport =
   input.reportToNcmec ??
   (input.source === "arachnid" ||
    (input.source === "classifier" &&
-    (await getConfigString("ncmec_report_classifier_hits", "false")).toLowerCase() === "true"));
+    (await getNcmecClassifierReportingAuthoritative(tx)).valueOf()));   // uncached — see below
 ```
 
 The Arachnid site's explicit `true` is left in place — harmless, and it documents intent
@@ -1949,6 +2115,21 @@ did. The audit log is consequently the **only** control on this surface, which i
   on `/admin/safety` rather than retried blindly: the operator can see that `exttest` may
   hold a submission whose id was lost. It resolves by inspection in NCMEC's test portal,
   and re-running `send-to-test` is an explicit decision rather than an automatic one.
+
+  **The inspection needs somewhere to land, or the row never leaves branch 3.** Naming the
+  human task without giving it an endpoint means the operator can complete the task and the
+  state persists anyway — a waiting state nothing can clear, which is what invariant 8's
+  enumeration exists to prevent. So `POST /reports/:id/resolve-test-attempt` takes
+  `{ outcome: "found" | "not_found", testReportId?: string, reason: string }`:
+
+  - **`found`** — the operator read the id from the portal: it is written to
+    `test_report_id`, `test_submitted_at` is stamped, and the row moves to branch 6.
+  - **`not_found`** — no such submission exists: `test_submission_started_at` is cleared, the
+    row returns to branch 5, and `send-to-test` becomes available again.
+
+  Both write one audit row carrying the outcome and reason, because this is a human
+  determination standing in for a machine one. `409` unless the row is actually in branch 3,
+  so it cannot be used to overwrite a completed attempt.
   Consequences in the test environment are low — which is the argument for *not* building
   the full production guard here, and not an argument for leaving the state undefined.
 - `POST /admin/safety/reports/:id/audit` — records the pre-activation backlog disposition
@@ -1972,13 +2153,29 @@ did. The audit log is consequently the **only** control on this surface, which i
   update whose **affected-row count decides the outcome**:
 
   ```sql
-  UPDATE admin_config SET value = $now
+  UPDATE admin_config SET value = now()::text
    WHERE key = 'ncmec_backlog_audit_cutoff' AND (value IS NULL OR value = '')
+  RETURNING value
   ```
 
-  One row updated → this caller started the audit. Zero → someone else did; refuse and
-  name the existing value. §6 tests **concurrent** starts, not just sequential ones: exactly
-  one succeeds and the winning cutoff never moves.
+  One row updated → this caller started the audit; the endpoint returns **the value the
+  database wrote**, never the one it intended to write. Zero → someone else did; refuse and
+  name the existing value.
+
+  **The timestamp comes from `now()`, not from an application `$now`, and the difference is
+  not cosmetic.** Every `created_at` this cutoff partitions is stamped by PostgreSQL. If the
+  API host's clock runs behind the database's, an application-supplied cutoff lands *earlier*
+  than rows that already existed when the audit began — those rows then satisfy
+  `created_at >= cutoff`, are classified as new-code rows needing no audit, and **bypass the
+  manual duplicate-filing review entirely**. That review exists because the stub may already
+  have filed some of them by hand; skipping it risks exactly the duplicate federal filing
+  invariant 7 forbids. Two clocks partitioning one column is the defect; using one clock is
+  the fix.
+
+  §6 tests **concurrent** starts (exactly one succeeds, the winning cutoff never moves) **and
+  host-clock skew** — an API clock deliberately behind the database's must not let a
+  pre-existing row escape the audit. Injecting identical clocks into both would pass while
+  proving nothing.
 - `POST /admin/safety/backlog-audit/complete` — sets `ncmec_backlog_audit_completed_at`.
   Refused if the cutoff is unset, or while the unaudited count is non-zero.
 
@@ -1999,8 +2196,26 @@ did. The audit log is consequently the **only** control on this surface, which i
 
   > Any write that would leave `environment = 'production' AND enabled = true` must satisfy
   > all five preconditions — cutoff set, completion marker set, unaudited report count zero,
-  > **undispositioned in-scope orphan count zero** (§5.2.4), and **an alert recipient
-  > resolvable** (§5.2.3) — regardless of which field the request touches.
+  > **undispositioned in-scope orphan count zero** (§5.2.4), and **`ncmec_safety_alert_email`
+  > set to a valid address** (§5.2.3) — regardless of which field the request touches.
+
+  **The recipient precondition is the config key, deliberately not "a recipient resolves."**
+  Accepting a notifying admin as satisfaction makes the gate a snapshot of a mutable roster:
+  production activates while one admin has notifications on, that admin turns them off the
+  next day, and the next failure retries forever with no inbox — the gate having passed
+  truthfully at the only moment it looked. The key is deployment state rather than a personal
+  preference, so requiring *it* is the only version of this check that still holds tomorrow.
+
+  **And the key must stay valid, which the generic route can otherwise undo.** It is not in
+  the reserved set — it cannot cause a filing, and reserving it would make routine edits need
+  a bespoke endpoint — so `PATCH /admin/config/:key` can write it. That route therefore gains
+  one narrow rule: **while `ncmec_submission_enabled = true` and `ncmec_ispws_environment =
+  'production'`, a write that would leave `ncmec_safety_alert_email` empty or invalid is
+  refused**, naming the reason. That is a validation on one key, not the reserved-key policy,
+  so §6b's "refuses all five NCMEC keys" claim is unaffected.
+
+  §6 asserts both halves: production cannot be activated with the key empty, and the key
+  cannot be emptied or invalidated through either route while production is live.
 
   The last two were added because each closed a path to production with a hole in it. The
   orphan count is a *different population* from the unaudited count — those rows have no
@@ -2089,7 +2304,10 @@ not an audit trail.
 | `GET /orphans` | query: `page`, `pageSize` | `{ rows: OrphanQuarantineRow[]; total: number }` — quarantine rows with no report and unknowable intent (§5.2.4). **`OrphanQuarantineRow` is an explicit allowlist DTO — see below** | 400 | — (read) |
 | `POST /orphans/:id/disposition` | `{ disposition: "report" \| "not_reportable", reason: string }` | **`{ created: NcmecReportDetail }`** — *both* dispositions create a report row (below) | 404; **409** if a report already exists for this quarantine row when the `FOR UPDATE` lock is acquired (below), naming the disposition that won | `{ reportId: null }` → `{ reportId, disposition, resultingStatus, backlogAuditedAt }` — **`reportIntent` is never written** |
 | `POST /reports/:id/retry` | `{ reason?: string }` | **`{ enqueued: boolean; jobId: number; jobStatus: 'pending' \| 'processing' }`** — `enqueued: false` means a live job already existed, this click started nothing, and **the budget was not reset** (below) | 404; **422** with `{ refusal: { class, reason } }` when `isSubmittable` refuses; **409** only for `submitted`, `filed_manually`, `not_reportable`, or a lost conditional update — **never for `failed`** (see below) | `{ submissionStatus, attemptCount, alertNotifiedAt }` → `{ submissionStatus: 'pending', attemptCount: 0, alertNotifiedAt: null }` — **only when `enqueued: true`** (below) |
-| `POST /reports/:id/mark-manually-filed` | `{ manualReportId: string (regex-validated), reason: string, confirm: "FILE MANUALLY" }` | `{ report: NcmecReportDetail }` | 400 on a bad `confirm` literal; **409 only for `submitted`, `filed_manually`, `not_reportable`, or a held lease — `failed` is accepted** (below) | `{ submissionStatus, manualReportId, manuallyFiledAt }` → same |
+| `POST /reports/:id/mark-manually-filed` | `{ manualReportId: string (regex-validated), reason: string, confirm: "FILE MANUALLY" }` | `{ report: NcmecReportDetail }` | 400 on a bad `confirm` literal; **409** for `submitted`, `filed_manually`, `not_reportable`, a held lease, **or a non-NULL `report_id` that has not been resolved** (below) — `failed` with a NULL `report_id` is accepted | `{ submissionStatus, manualReportId, manuallyFiledAt, alertNotifiedAt }` → same, `alertNotifiedAt` **cleared** |
+| `POST /reports/:id/resolve-automated-id` | `{ reason: string }` | `{ report: NcmecReportDetail; outcome: "already_filed" \| "cleared" }` | 409 unless `report_id` is non-NULL and the row is non-`submitted`; 502 if ISPWS is unreachable (use the portal form below) | `{ reportId, submissionStatus }` → `{ reportId, submissionStatus, finishStartedAt: null }` |
+| `POST /reports/:id/resolve-automated-id/portal` | `{ outcome: "already_filed" \| "not_filed", reason: string, confirm: "PORTAL RESOLUTION" }` | `{ report: NcmecReportDetail }` | 409 unless `report_id` is non-NULL | same as above, plus the human determination in the audit row |
+| `POST /reports/:id/resolve-test-attempt` | `{ outcome: "found" \| "not_found", testReportId?: string, reason: string }` | `{ report: NcmecReportDetail }` | 409 unless the row is in invariant 8's **branch 3** (`test_submission_started_at IS NOT NULL AND test_report_id IS NULL`); 400 if `found` without `testReportId` | `{ testSubmissionStartedAt, testReportId }` → `{ testReportId, testSubmittedAt }` on `found`; `{ testSubmissionStartedAt: null }` on `not_found` |
 | `POST /reports/:id/correct-manual-filing` | `{ manualReportId: string, reason: string }` | `{ report: NcmecReportDetail }` | 409 unless the row is `filed_manually` | `{ manualReportId }` → `{ manualReportId }` |
 | `POST /reports/:id/reopen` | `{ reason: string, confirm: "REOPEN" }` | `{ report: NcmecReportDetail }` | 409 unless `filed_manually` **or `not_reportable`** (below) | `{ submissionStatus, reportId, finishedAt, submittedAt }` → same, all three cleared (`manualReportId` **retained**) |
 | `POST /reports/:id/send-to-test` | `{ reason: string }` | `{ testReportId: string \| null }` — `null` means the attempt opened and its id was lost, leaving branch 3 of invariant 8 | 409 if `ncmec_ispws_environment ≠ 'test'`, if the row is final, or if the lease is held | Two rows sharing `attempt_id`: `send_to_test_started` `{}` → `{ testSubmissionStartedAt }`; `send_to_test_completed` `{ testSubmissionStartedAt }` → `{ testReportId, testSubmittedAt }` |
@@ -2215,8 +2433,34 @@ time**, the single defect invariant 7 exists to prevent. So `mark-manually-filed
 **lease is held** (nothing should hold one on a final row; asserting it costs nothing and
 closes the in-flight case). The operator's id goes to `manual_report_id` per settled
 decision 8; any ISPWS `report_id` left over from a partial attempt is **retained as
-history** and is inert, because §5.2.1's retract-first only ever runs against a non-final
-row.
+history** and is inert **only once the duplicate question has been answered** — and on a
+`failed` row it has not been.
+
+**A retained `report_id` may represent a filing that actually completed.** §5.2.1's whole
+premise is that a lost `/finish` response is indistinguishable from a failed one until
+`/retract` answers it; a row reaches terminal `failed` precisely when those retract attempts
+also exhausted. So the operator filing by hand could be creating NCMEC's **second** copy of a
+report that already landed. §5.7's rule (manual filing rejects a non-null `report_id`) and the
+endpoint's acceptance of `failed` were in direct conflict, and the permissive one was the
+dangerous one.
+
+So `mark-manually-filed` on a row with a non-null `report_id` requires the id to be
+**resolved first**, and the contract states it rather than leaving "inert" to carry the
+weight:
+
+- **`POST /reports/:id/resolve-automated-id`** — re-runs `/retract` against the persisted id.
+  `5102` → the report **did** file: the row becomes `submitted`, and manual filing is refused
+  as a duplicate. Retract succeeds or `5001` → nothing is filed under that id: it is cleared
+  and manual filing proceeds.
+- If ISPWS is unreachable, the operator can record a **portal resolution** — the same
+  found/not-found disposition, with a mandatory reason, audited as a human determination
+  rather than a machine one.
+- Only then does `mark-manually-filed` accept the row. A `failed` row with a **NULL**
+  `report_id` — the common case, where `/submit` itself never succeeded — needs none of this
+  and is accepted directly.
+
+§5.7, §5.8 and §5.8.1 now state that one rule identically, since the conflict between them
+was the finding.
 
 **`reopen` accepts `not_reportable`, not just `filed_manually`.** §5.7 states that
 disposition is reversible "on the same grounds as a mistaken manual filing" — and the
@@ -2620,8 +2864,8 @@ Deployment, transition, and rollback (§7):
   orphan count separately from the unaudited-report count.
 - **The audit log rejects mutation at the database.** A direct `UPDATE` and a direct
   `DELETE` against `ncmec_safety_audit_log` **and a `TRUNCATE`** must all raise; each must
-  succeed only after the maintenance bypass is validly activated, which is what test teardown
-  does explicitly. An unguarded `TRUNCATE` must **not** be permitted — that exemption was the
+  succeed only for a session holding `overhype_audit_maintenance`, which is what test teardown
+  grants explicitly. An unguarded `TRUNCATE` must **not** be permitted — that exemption was the
   audit-erasure hole the trigger exists to close.
 - **Retry tells the operator what it did.** On a row with a live job, `POST /retry` must
   return `enqueued: false` with that job's id and status rather than `{ enqueued: true }`.
@@ -2797,7 +3041,7 @@ verifies with the repository's own commands before the next begins.
 
 | # | Phase | Depends on | Verify with |
 |---|---|---|---|
-| 1 | Migration `0094` — columns, the three `ncmec_reports` indexes, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`, `DELETE` **and `TRUNCATE`** on the audit log all raise, and each succeeds only under the maintenance bypass); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
+| 1 | Migration `0094` — columns, the three `ncmec_reports` indexes, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`, `DELETE` **and `TRUNCATE`** on the audit log all raise, and each succeeds only for a session holding `overhype_audit_maintenance`); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
 | 2 | ISPWS client `ncmecClient.ts` + the two XML builders — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts` against the committed fixtures (§5.1); no network |
 | 3 | `isSubmittable` + `classifyWaitingState`, as pure functions with no callers | 1 | unit tests in `moderation.ncmecWorker.test.ts` |
 | 4 | Provenance, `report_intent`, and snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
