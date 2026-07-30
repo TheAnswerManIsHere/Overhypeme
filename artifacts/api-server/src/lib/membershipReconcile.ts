@@ -543,6 +543,14 @@ async function runStagedReconciliation(
     // a user Phase 3 never counted. Under the lock that interleaving cannot
     // happen, because every writer able to move this user's tier must take the
     // same lock to recompute.
+    // ONE instant for the guard and the recompute it authorizes, taken now
+    // rather than at the run's start. Judging against the run-start `asOf`
+    // while the recompute ran at `now()` reintroduced the same class of gap by
+    // the back door: a grace deadline expiring between staging and here would
+    // look qualifying to the guard and expired to the recompute, producing an
+    // uncounted downgrade out of a check that had just approved.
+    const applyAsOf = new Date();
+
     const guard = async (tx: Tx, userId: string): Promise<string | null> => {
       // Already counted by Phase 3 — this downgrade IS guarded.
       if (distinctDowngradedUserIds.has(userId)) return null;
@@ -555,7 +563,7 @@ async function runStagedReconciliation(
       );
       if (!freshReplacement) return null;
 
-      const freshCurrent = deriveEffectiveMembership(freshExisting, asOf);
+      const freshCurrent = deriveEffectiveMembership(freshExisting, applyAsOf);
       const freshIntended = deriveEffectiveMembership(
         withReplacement(freshExisting, {
           ...freshReplacement,
@@ -568,7 +576,7 @@ async function runStagedReconciliation(
                   : (freshReplacement.graceExpiresAt ?? null))
               : null,
         }),
-        asOf,
+        applyAsOf,
       );
 
       return freshCurrent.tier === "legendary" && freshIntended.tier !== "legendary"
@@ -577,7 +585,9 @@ async function runStagedReconciliation(
     };
 
     try {
-      const result = await runBoundedApply((tx) => applyPrepared(tx, prepared, { guard }));
+      const result = await runBoundedApply((tx) =>
+        applyPrepared(tx, prepared, { guard, asOf: applyAsOf }),
+      );
       if (result.reason === UNGUARDED_DOWNGRADE) {
         report.skipped += 1;
         logger.warn(

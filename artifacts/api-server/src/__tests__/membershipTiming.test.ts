@@ -53,8 +53,11 @@ describe("budget arithmetic", () => {
     assert.equal(backoffSumMs(100, 0), 0);
   });
 
-  it("bounds ONE request at the request timeout times attempts, plus retry sleep", () => {
-    assert.equal(singleRequestBudgetMs(), 10_000 * 2 + 2_000);
+  it("bounds ONE request at the request timeout, with no retry to make it unprovable", () => {
+    // Retries are off precisely so this number is derivable: with them on, the
+    // SDK honours a server `Retry-After` of up to 60s that no local constant
+    // bounds, so a "22s" request could really run ~80s.
+    assert.equal(singleRequestBudgetMs(), 10_000);
   });
 
   it("budgets the retrieval PHASE, not one request — the lease outlives the phase", () => {

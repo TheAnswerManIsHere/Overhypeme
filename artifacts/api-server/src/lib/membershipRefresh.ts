@@ -570,23 +570,35 @@ export interface ApplyOptions {
    * A last check run INSIDE the apply transaction, while this user's row lock is
    * already held and before anything is mutated. Returning a reason aborts the
    * apply; returning null proceeds.
-   *
-   * The lock is what makes this different from checking before the transaction.
-   * Every writer that can change this user's effective tier must take the same
-   * row lock to recompute, so a decision made while holding it cannot be
-   * invalidated by a concurrent writer before the write lands — whereas a check
-   * performed outside is a check-then-write race by construction, no matter how
-   * fresh the state it read was.
    */
   guard?: (tx: Tx, userId: string) => Promise<string | null>;
+  /**
+   * The instant BOTH the guard and the recompute it authorizes evaluate at.
+   *
+   * One timestamp, or they can disagree: a guard deriving at the run's start
+   * can judge a grace-bound source still qualifying while the recompute moments
+   * later — at `now()` — sees the same deadline expired, producing exactly the
+   * downgrade the guard declined to admit.
+   */
+  asOf?: Date;
 }
 
 /**
  * Take this user's row lock — the same one `recomputeMembership` takes.
  *
- * Called BEFORE the source write rather than relying on the recompute's own
- * lock, because a guard has to see state that cannot move under it, and the
- * recompute runs after the write it is meant to gate.
+ * Taken UNCONDITIONALLY by every apply that can move this user's effective
+ * tier, and BEFORE the source write, not only when a guard is supplied. An
+ * earlier revision locked only on the guarded path and claimed that made the
+ * guard atomic; it did not. Every writer does take this lock eventually — but
+ * inside `recomputeMembership`, i.e. AFTER mutating its own source. So an
+ * unguarded writer B could write source B, then block on the lock, while
+ * guarded reconciliation A held it, read B's still-uncommitted old state,
+ * admitted A's cancellation and committed. B would then recompute both
+ * cancellations into precisely the downgrade the guard was there to count.
+ *
+ * "Every writer takes the lock" was true and not sufficient. The property the
+ * guard needs is that every writer takes it *before mutating*, which is only
+ * true if this call is unconditional.
  */
 async function lockUser(tx: Tx, userId: string): Promise<void> {
   await tx
@@ -604,8 +616,9 @@ async function applySubscription(
 ): Promise<ApplyResult> {
   const { verified } = prepared;
 
+  await lockUser(tx, verified.userId);
+
   if (opts.guard) {
-    await lockUser(tx, verified.userId);
     const veto = await opts.guard(tx, verified.userId);
     if (veto) {
       // Nothing written. The caller decides what a veto means for its own
@@ -666,6 +679,8 @@ async function applySubscription(
   }
 
   const result = await recomputeMembership(tx, verified.userId, {
+    // The SAME instant the guard judged at — see ApplyOptions.asOf.
+    ...(opts.asOf ? { asOf: opts.asOf } : {}),
     ...(prepared.transitionEvent
       ? {
           transitionEvent: {
@@ -684,6 +699,8 @@ async function applyLifetimePurchase(
   prepared: Extract<Prepared, { kind: "lifetime_purchase" }>,
 ): Promise<ApplyResult> {
   const { verified } = prepared;
+
+  await lockUser(tx, verified.userId);
 
   const { created } = await createLifetimeSource(tx, {
     sourceType: "stripe_lifetime_payment",
@@ -718,6 +735,8 @@ async function applyRefund(
 ): Promise<ApplyResult> {
   const source = await findSourceByProviderRef(tx, "stripe_lifetime_payment", prepared.paymentIntentId);
   if (!source) return { ...NOTHING, reason: "source_unknown" };
+
+  await lockUser(tx, source.userId);
 
   // Settled decision 6: a partial refund does not revoke a full entitlement. A
   // customer refunded part of a purchase has not stopped being entitled to it.
@@ -757,6 +776,8 @@ async function applyDispute(
 ): Promise<ApplyResult> {
   const source = await findSourceByProviderRef(tx, prepared.sourceType, prepared.providerRef);
   if (!source) return { ...NOTHING, reason: "source_unknown" };
+
+  await lockUser(tx, source.userId);
 
   const outcome = await applyDisputeTransition(tx, {
     stripeDisputeId: prepared.dispute.id,

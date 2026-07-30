@@ -31,9 +31,28 @@ import { getConfigFloat, getConfigInt } from "./adminConfig.js";
  * two numbers hold by construction rather than by luck.
  */
 export const STRIPE_REQUEST_TIMEOUT_MS = 10_000;
-export const STRIPE_MAX_NETWORK_RETRIES = 1;
-/** Allowance for the SDK's sleep BETWEEN attempts, which the request timeout does not cover. */
-export const STRIPE_RETRY_SLEEP_BUDGET_MS = 2_000;
+
+/**
+ * Zero, and that is the only value that makes a request's wall time provable.
+ *
+ * `timeout` bounds each ATTEMPT, not the call. With any retries enabled,
+ * pinned stripe@20's `RequestSender` honours a server-sent integer
+ * `Retry-After` of up to **60 seconds** before retrying, so one call could run
+ * 10s + 60s + 10s ≈ 80s while an earlier revision here budgeted 22s for it. The
+ * sleep is server-directed, so no local constant can bound it — and since the
+ * deadline below cannot abort a request already in flight, an unprovable
+ * per-request bound makes the phase bound, and the lease floor derived from it,
+ * unprovable too.
+ *
+ * Dropping SDK-level retries costs little that is not already covered a level
+ * up: a failed prepare is retried by Stripe's own webhook redelivery, by the
+ * caller, or by reconciliation — all of which re-verify from scratch rather
+ * than resuming a half-finished phase. Trading a silent in-request retry for a
+ * bound we can actually derive from is the right way round.
+ */
+export const STRIPE_MAX_NETWORK_RETRIES = 0;
+/** No retries, so no inter-attempt sleep to allow for. */
+export const STRIPE_RETRY_SLEEP_BUDGET_MS = 0;
 
 /**
  * The wall-clock budget for a prepare phase's WHOLE retrieval sequence, not one
@@ -160,6 +179,11 @@ export function applyBudgetMs(): number {
  * At the constants above: the retrieval PHASE is capped at 45s (enforced, not
  * assumed — see `retrievalBudgetMs`); apply 3,000 x 3 + 300 = 9.3s; total
  * 54.3s, rounded up to 55; x 1.5 -> 83s.
+ *
+ * Unchanged by retiring SDK retries: that shrank a single REQUEST's bound from
+ * a nominal 22s (in truth unbounded, via `Retry-After`) to a provable 10s, which
+ * widens the window in which the phase may still issue but leaves the phase
+ * budget — and therefore this floor — exactly where it was.
  *
  * An earlier revision computed this from a SINGLE request's 22s and arrived at
  * 48s. That number was never wrong about one request — it was answering the
