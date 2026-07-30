@@ -104,15 +104,20 @@ queue's items:
   attempts and its retry ceiling: `skipped` (a handler decided mid-run its
   work no longer applied) and `abandoned_no_retry` (the worker deliberately
   won't retry this one, a different story from "retried five times and gave
-  up"). Per lane: how many instances are actively scheduling it right now,
-  and whether the whole fleet has gone quiet on it.
+  up"). Per lane: how many instances have a heartbeat row recent enough to
+  still count as live (not necessarily still actively ticking this exact
+  second — a heartbeat can be silent past its own stale threshold but still
+  inside the wider retention window), and whether the whole fleet has gone
+  quiet on it.
 - **Per-item altitude** (`GET /admin/queue-health/jobs`) — the same drill-down
   every queue gets, not just email.
 - **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
-  the one signal that survives the API process itself dying, since nothing
-  running *inside* that process can report its own absence. It only turns
-  unhealthy when a lane has gone quiet **fleet-wide**; a single instance
-  scaling down is normal, not an incident.
+  on total API-process death it's unreachable exactly like every other
+  endpoint, so that's not what makes it useful. What's unique is a
+  meaningful unhealthy response *while the process is still up*: it turns
+  unhealthy only when a lane has gone quiet **fleet-wide**, a failure mode
+  nothing running *inside* the process can otherwise report about itself. A
+  single instance scaling down is normal, not an incident.
 
 ## Why it works this way
 

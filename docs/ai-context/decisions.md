@@ -39,9 +39,14 @@
   an already-computed, already-terminal fact durable instead of
   re-derivable-and-therefore-re-answerable-differently-later — the same
   general lesson as [freezing enqueue-time inputs](./known-failure-patterns.md#un-frozen-input-re-resolved-live-between-enqueue-and-async-execution),
-  applied one pipeline stage later. A `failed` row is never re-claimed or
-  re-processed, so persisting one more field on it cannot affect any future
-  retry decision. Migration 0094 does not backfill existing rows, so
+  applied one pipeline stage later. The automatic worker never re-claims or
+  re-processes a `failed` row, so persisting one more field on it cannot
+  affect any future *automatic* retry decision — the one exception is the
+  admin's manual `/admin/email-queue/:id/retry` route, which deliberately
+  resets a row back to `pending` **and** resets `maxAttempts` to the sentinel
+  (round 5 of PR #288's review), restoring live-config semantics for a job an
+  admin is knowingly reopening; see the manual-retry test coverage in
+  `asyncJobs.test.ts`. Migration 0094 does not backfill existing rows, so
   pre-deploy `failed` rows keep the `0` sentinel forever; the classification
   logic treats a `0`-sentinel row conservatively (plain `failed`, never the
   derived `abandoned_no_retry` state) rather than risking the same

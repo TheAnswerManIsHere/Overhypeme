@@ -420,20 +420,26 @@ be trusted.
    row 6 note). A loop's size has no reason to resemble the last one measured;
    check before scoping, not after building the snapshot.
 
-   **A clean re-review has no review object to count, and this has now
-   recurred twice independently.** A round that finds nothing new doesn't
-   reliably produce a formal `pull_request_review` the GitHub API exposes to
-   `get_reviews` — on PR #286 it posted as a plain issue comment ("Codex
-   Review: Didn't find any major issues. Delightful!"), and on PR #288 the
-   final clean round most likely posted only as a 👍 reaction on the trigger
-   comment (per the connector's own boilerplate: "If Codex has suggestions,
-   it will comment; otherwise it will react with 👍"). Neither shape is a
-   `pull_request_review`, so `rounds` (and any PR-body narration that counts
-   a final "clean" round by hand) can legitimately undercount a loop's true
-   number of re-review passes by exactly its trailing clean ones — expected
-   under `REVIEWER_LOGINS`'s definition of a round, not a pagination bug to
-   chase. Two independent instances is enough to stop treating this as a
-   one-off: see
+   **A clean re-review can (but does not always) skip producing a review
+   object to count — this is a confirmed, recurring failure mode, not a
+   universal rule.** A completed review with zero findings sometimes DOES
+   post as a normal `pull_request_review` (row 3, #270's `rounds` is 16 not
+   15 specifically because one clean review event *was* captured that way —
+   read that row's own note before assuming the opposite). But it has now
+   also been observed **not** doing so, twice independently: on PR #286 a
+   clean re-review posted as a plain issue comment instead ("Codex Review:
+   Didn't find any major issues. Delightful!"), and on PR #288 a clean final
+   round most likely posted only as a 👍 reaction on the trigger comment (per
+   the connector's own boilerplate: "If Codex has suggestions, it will
+   comment; otherwise it will react with 👍") — neither shape is a
+   `pull_request_review`, so `get_reviews` won't see it. **The actionable
+   consequence is narrower than "clean rounds never count":** when a PR
+   body's own round-by-round narration cites more re-review passes than
+   `get_reviews` returns, don't assume a pagination bug by default — check
+   whether the missing round(s) were clean, since that specific gap is now
+   confirmed to recur on this connector. It is not, however, license to wave
+   away every rounds/findings mismatch as "probably a clean reaction" without
+   checking. See
    [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
    *Rounds undercounted when a re-review is clean* note (row 11, #286) for
    the first sighting and its own concrete `rounds`/`review hrs` impact.

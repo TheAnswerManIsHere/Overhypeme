@@ -170,39 +170,52 @@ deliberately excludes them and points here instead.
   instance gets its own row per lane instead of the fleet collapsing onto one
   row (which would let a wedged worker hide behind a healthy peer).
   `worker_protocol_version` is a capability marker (`1` today) for a future
-  Phase 3 lease-fence check, not a release identifier. Four write moments,
+  Phase 3 lease-fence check, not a release identifier. The write moments are
   each load-bearing:
   - `last_scheduled_at` stamps on **every** timer fire, including the
     re-entrancy early-return, so a lane whose timer fires while its previous
-    tick is still running reads as healthy-but-slow, not dead.
+    tick is still running reads as healthy-but-slow, not dead. The write is
+    `GREATEST(stored, incoming)`, not an unconditional overwrite — two racing
+    ticks under pool contention can commit out of order, and an unconditional
+    write would let the *older* one's timestamp land last and move the
+    column backward past the stale threshold.
   - `in_flight_count` publishes as soon as the claim transaction commits,
     **before** any handler is awaited — a completion-only write would leave a
     wedged tick's count at zero and the (Phase 2) wedged-lane condition could
-    never fire in the one case it exists for.
+    never fire in the one case it exists for. It then **decrements per-job**,
+    right after each claimed job settles (not only once at the end of the
+    whole batch) — so during a tick where jobs finish at different times, the
+    count reflects the remaining long tail rather than the original claimed
+    batch size.
   - `last_tick_completed_at` stamps only on completion, clearing the count
     there so a lost decrement self-corrects on the next tick instead of
     leaving a healthy lane looking permanently wedged.
   - Departed instances (an autoscale scale-down) are pruned on a purge
-    cadence — without it a lane would read as permanently stalled within
-    hours of any scale-down.
-  - Writes use `GREATEST(stored, incoming)` on `last_scheduled_at`, not an
-    unconditional overwrite — two racing ticks under pool contention can
-    commit out of order, and an unconditional write would let the *older*
-    one's timestamp land last and move the column backward past the stale
-    threshold.
+    cadence — this bounds the table's growth as instances churn; it does
+    **not** gate liveness correctness, since `laneHealth`'s own live-cutoff
+    predicate (below) already excludes a departed instance's row before
+    aggregation regardless of whether the row has physically been deleted
+    yet.
 - **Per-lane "stalled" is `max(3× the lane's poll interval, 60s)`** of no
-  `last_scheduled_at` movement — one missed tick is noise; three is a fleet-
-  wide signal. **Two independently-configurable knobs feed the same
-  liveness check and must stay coupled at every consumer, not just the
-  primary read path**: the heartbeat TTL (`admin_config`) and each lane's own
-  stale threshold. A TTL shorter than a lane's threshold would prune the row
-  before the threshold check ever ran; the live-instance query cutoff is
-  `max(configured TTL, the widest stale threshold across all lanes)` — and
-  the periodic `pruneDepartedInstances()` delete sweep (which runs on its own
-  schedule, independent of any query) needed the identical widened cutoff, or
-  it could delete a row the widened query was specifically trying to still
-  see. Missing that second consumer was a real gap caught by review, not a
-  hypothetical.
+  `last_scheduled_at` movement — for every current lane (2s or 5s intervals),
+  the 60s floor is what actually governs, so a stall means roughly 12–30
+  missed ticks, not three; the "three missed intervals" framing only holds
+  once a lane's interval is at least ~20s. **Two independently-configurable
+  knobs feed the same liveness check and must stay coupled at every
+  consumer, not just the primary read path**: the heartbeat TTL
+  (`admin_config`) and each lane's own stale threshold. A TTL shorter than a
+  lane's threshold would prune the row before the threshold check ever ran;
+  the live-instance query cutoff is `max(configured TTL, the widest stale
+  threshold across all lanes)` — and the periodic `pruneDepartedInstances()`
+  delete sweep (which runs on its own schedule, independent of any query)
+  needed the identical widened cutoff, since a narrower prune cutoff could
+  physically delete a row before the widened query's own predicate would
+  have excluded it. Missing that second consumer was a real gap caught by
+  review — it's a retention/data-completeness fix (a stale-but-not-yet-
+  departed instance's row and diagnostics stay available for longer), not a
+  fix to the `stalled` verdict itself, which the query's live-cutoff
+  predicate already computes correctly on its own regardless of when
+  physical deletion happens.
 - **Three read surfaces**, all derived by query — nothing new is written by
   a reader:
   - `GET /admin/queue-health` — aggregate altitude. Per queue: the four raw
@@ -216,11 +229,17 @@ deliberately excludes them and points here instead.
     100.
   - `GET /api/health/queues` — **unauthenticated** liveness probe (mounted
     under `/api`, not bare `/health/queues` — the app mounts routes there via
-    `app.use("/api", router)` in `app.ts`). The only signal that survives
-    total process death, since an in-process watchdog can't detect its own
-    absence. Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue
-    names, payloads, or error text, on both the healthy and evaluation-failed
-    paths — and is unhealthy only when a lane is stalled **fleet-wide**
+    `app.use("/api", router)` in `app.ts`). On total API-process death this
+    route is as unreachable as any other (`/api/health`, `/healthz`) — an
+    external monitor just sees the same connection failure either way, so
+    that isn't what's distinctive about it. What it uniquely adds is a
+    meaningful non-200 while the **process itself is alive**: it returns 503
+    when every worker has stopped scheduling a lane fleet-wide, a failure
+    mode no other endpoint reports (an in-process watchdog can't detect its
+    own worker's death any more reliably than the worker itself can).
+    Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue names,
+    payloads, or error text, on both the healthy and evaluation-failed paths
+    — and is unhealthy only when a lane is stalled **fleet-wide**
     (any-stale-heartbeat would page on every routine autoscale scale-down).
 - **Two derived display states**, because raw `async_jobs.status` collapses
   distinctions the async-UI contract ([`async-ui-status.md`](./async-ui-status.md))
@@ -229,10 +248,13 @@ deliberately excludes them and points here instead.
     `result.skipped`; the reason is sanitized against the existing
     `TAXONOMY_HEALTH_SKIP_REASON_VALUES` enum rather than echoing arbitrary
     handler text to an admin surface.
-  - `abandoned_no_retry` — a row is `failed` with `attempts < effectiveMax`,
-    which is only reachable via `terminalFailure()` (the exhaustion path can
-    only mark a row `failed` once `attempts >= effectiveMax`) — i.e. "the
-    worker deliberately won't retry this," a different operator story from
+  - `abandoned_no_retry` — a row is `failed` with **either** `attempts <
+    effectiveMax` (only reachable via `terminalFailure()`, since the
+    exhaustion path can only mark a row `failed` once `attempts >=
+    effectiveMax`) **or** `effectiveMax <= 1` (a single-attempt queue's only
+    failure transition is deterministic, whether via `terminalFailure()` or
+    the exhaustion path landing on attempt 1) — i.e. "the worker
+    deliberately won't retry this," a different operator story from
     "retries exhausted." See
     [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
     for why this reads the row's own **persisted** `maxAttempts`, not a live
@@ -245,10 +267,19 @@ deliberately excludes them and points here instead.
   (direct connection, not pooled) →
   `budget = 450 − 7 − 5 (migration/console/admin burst) − 40 (headroom) = 398`,
   `max = min(20, floor(398 / max_instances))`. 20 doubles the five lanes'
-  worst-case simultaneous demand (10) and holds for any autoscale ceiling up
-  to 19 instances; `DB_POOL_MAX` overrides it for a larger ceiling. This
-  closes the "no default spare connection" gap the lane split (PR #256) had
-  left as follow-up work.
+  **default** worst-case simultaneous demand (fast 2 + render 3 + bulk 3 +
+  pexels 1 + ai_meme_backfill 1 = 10) and holds for any autoscale ceiling up
+  to 19 instances at those defaults; `DB_POOL_MAX` overrides it for a larger
+  autoscale ceiling. Each lane's concurrency is independently
+  environment-configurable (`ASYNC_JOBS_FAST_MAX_CONCURRENCY`,
+  `_RENDER_`, `_PEXELS_`, `_AI_MEME_BACKFILL_MAX_CONCURRENCY`, and the
+  `bulk`-lane/legacy fallback `ASYNC_JOBS_MAX_CONCURRENCY`) with **no
+  aggregate cap** tying them together — raising any of these past its
+  default moves the real worst-case demand above 10, so `DB_POOL_MAX` needs
+  reconsidering whenever lane concurrency changes, not only when the
+  autoscale ceiling does. This closes the "no default spare connection" gap
+  the lane split (PR #256) had left as follow-up work, at default
+  concurrency settings.
 
 ## Storage / CDN
 
