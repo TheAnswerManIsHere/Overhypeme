@@ -47,8 +47,10 @@ checked in recently. Seeing that number change is normal and healthy.
 ### 2. Queues — one row each, expandable
 
 - ✅ A **Queues** section listing every registered queue, one row per queue,
-  with a summary: *"N queued · N working · N failed"*, plus *skipped* and
-  *never retried* counts and an *oldest* age when those apply.
+  with a summary: *"N queued · N working · N done · N failed"*, plus *skipped*
+  and *never retried* counts, an *oldest* age when those apply, and a trailing
+  *"24h: N done / N failed"* — the recent-throughput figures the approved plan
+  requires alongside the four raw tallies.
 - ✅ Queues that have **never run** still appear, with zeros. This is deliberate:
   a queue missing from the page would read as "fine" when the truth might be that
   it has never executed once.

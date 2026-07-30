@@ -34,6 +34,28 @@ function makeDeferred(): { promise: Promise<void>; resolve: () => void } {
 const tickFlush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 const QUEUE_PREFIX = "test_hb_";
 
+/**
+ * Poll until `check` is satisfied or the deadline passes, returning the last
+ * observed value either way.
+ *
+ * A single `tickFlush()` only yields one macrotask — enough to let the
+ * fire-and-forget heartbeat write's promise start, but not enough to
+ * guarantee its DB round-trip has actually landed once the test DB is under
+ * concurrent load from sibling test files. Same rationale as the polling
+ * loop in "publishes in_flight_count…" below: a fixed delay makes the
+ * assertion depend on test-database speed, and a flaky liveness test is
+ * worse than none.
+ */
+async function pollUntil<T>(read: () => Promise<T>, check: (v: T) => boolean, timeoutMs = 5_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let value = await read();
+  while (!check(value) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+    value = await read();
+  }
+  return value;
+}
+
 /** Lanes are namespaced per test so parallel files cannot collide on a row. */
 function testLane(): string {
   return `test_lane_${randomUUID().slice(0, 8)}`;
@@ -169,7 +191,7 @@ describe("workerHeartbeats — write moments (the part that makes the signals re
 
     const first = runner.tick();          // enters the body and blocks
     await tickFlush();
-    const stampedAfterFirst = await readRow(lane);
+    const stampedAfterFirst = await pollUntil(() => readRow(lane), (row) => Boolean(row?.lastScheduledAt));
     assert.ok(stampedAfterFirst?.lastScheduledAt, "first fire stamps the scheduler");
 
     const before = stampedAfterFirst!.lastScheduledAt!.getTime();
@@ -177,7 +199,10 @@ describe("workerHeartbeats — write moments (the part that makes the signals re
     await runner.tick();                  // hits `if (ticking) return`
     await tickFlush();
 
-    const afterSkip = await readRow(lane);
+    const afterSkip = await pollUntil(
+      () => readRow(lane),
+      (row) => Boolean(row?.lastScheduledAt && row.lastScheduledAt.getTime() > before),
+    );
     assert.ok(
       afterSkip!.lastScheduledAt!.getTime() > before,
       "a skipped tick must STILL advance last_scheduled_at — the timer fired",

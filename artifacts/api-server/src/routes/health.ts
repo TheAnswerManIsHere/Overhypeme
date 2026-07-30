@@ -79,8 +79,11 @@ router.get("/health/queues", async (_req, res) => {
   } catch (err) {
     // A failure to *evaluate* health is itself unhealthy — reporting 200 here
     // would be the looks-fine-while-broken shape this endpoint exists to catch.
+    // The response still carries NO error text — that stays server-side in the
+    // log line above — so the failure shape never exceeds the same minimal
+    // field set as the healthy one.
     logger.error({ err }, "[health] queue liveness evaluation failed");
-    res.status(503).json({ ok: false, ts: new Date().toISOString(), error: "evaluation_failed" });
+    res.status(503).json({ ok: false, ts: new Date().toISOString(), laneCount: 0, stalledLaneCount: 0 });
   }
 });
 

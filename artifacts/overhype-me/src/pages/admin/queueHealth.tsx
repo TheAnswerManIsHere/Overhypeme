@@ -108,19 +108,36 @@ export default function AdminQueueHealth() {
   const [staleSince, setStaleSince] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Record<string, JobRow[]>>({});
-  const [jobsError, setJobsError] = useState<string | null>(null);
+  /** Per-queue, not a single shared flag — a slow response from a queue the
+   * admin has since collapsed must not land as an error under whatever queue
+   * happens to be open when it arrives. */
+  const [jobsLoading, setJobsLoading] = useState<Record<string, boolean>>({});
+  const [jobsErrors, setJobsErrors] = useState<Record<string, string | null>>({});
   const hasData = useRef(false);
+  const expandedRef = useRef<string | null>(null);
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+
+  // Monotonic sequence numbers so a slow response can never overwrite a
+  // faster, more recent one — the interval fires unconditionally every 5s
+  // regardless of whether the previous request has resolved yet.
+  const loadSeq = useRef(0);
+  const jobsSeq = useRef<Record<string, number>>({});
 
   const load = useCallback(async (): Promise<void> => {
+    const seq = ++loadSeq.current;
     try {
       const res = await fetch("/api/admin/queue-health", { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = (await res.json()) as HealthPayload;
+      if (seq !== loadSeq.current) return; // superseded by a newer poll
       setData(payload);
       hasData.current = true;
       setInitialError(null);
       setStaleSince(null);
     } catch (err) {
+      if (seq !== loadSeq.current) return; // superseded by a newer poll
       const msg = err instanceof Error ? err.message : String(err);
       // The distinction that matters. On a FIRST-load failure we must never fall
       // through to the empty/healthy view — "all queues healthy" and "we could
@@ -136,28 +153,41 @@ export default function AdminQueueHealth() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-    // Polling never stops on failure — it keeps retrying, because the backend's
-    // retry/maxAttempts is what fails a job, not the UI giving up.
-    const handle = setInterval(() => void load(), POLL_INTERVAL_MS);
-    return () => clearInterval(handle);
-  }, [load]);
-
   const loadJobs = useCallback(async (queue: string): Promise<void> => {
+    const seq = (jobsSeq.current[queue] ?? 0) + 1;
+    jobsSeq.current[queue] = seq;
+    setJobsLoading((prev) => ({ ...prev, [queue]: true }));
     try {
-      setJobsError(null);
       const res = await fetch(
         `/api/admin/queue-health/jobs?queue=${encodeURIComponent(queue)}&limit=25`,
         { credentials: "include" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = (await res.json()) as { rows: JobRow[] };
+      if (seq !== jobsSeq.current[queue]) return; // superseded by a newer request for this queue
       setJobs((prev) => ({ ...prev, [queue]: payload.rows }));
+      setJobsErrors((prev) => ({ ...prev, [queue]: null }));
+      setJobsLoading((prev) => ({ ...prev, [queue]: false }));
     } catch (err) {
-      setJobsError(err instanceof Error ? err.message : String(err));
+      if (seq !== jobsSeq.current[queue]) return;
+      setJobsErrors((prev) => ({ ...prev, [queue]: err instanceof Error ? err.message : String(err) }));
+      setJobsLoading((prev) => ({ ...prev, [queue]: false }));
     }
   }, []);
+
+  useEffect(() => {
+    void load();
+    // Polling never stops on failure — it keeps retrying, because the backend's
+    // retry/maxAttempts is what fails a job, not the UI giving up. It also
+    // refreshes whichever queue is currently expanded, via a ref rather than an
+    // effect dependency — restarting the 5s timer every time the admin
+    // expands/collapses a row would desync the two altitudes' cadences.
+    const handle = setInterval(() => {
+      void load();
+      if (expandedRef.current) void loadJobs(expandedRef.current);
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(handle);
+  }, [load, loadJobs]);
 
   const toggle = useCallback((queue: string): void => {
     setExpanded((prev) => {
@@ -285,20 +315,29 @@ export default function AdminQueueHealth() {
                     )}
                     <span className="font-mono text-xs shrink-0">{q.queue}</span>
                     <span className="text-xs text-muted-foreground truncate">
-                      {q.pending} queued · {q.processing} working · {q.failed} failed
+                      {q.pending} queued · {q.processing} working · {q.done} done · {q.failed} failed
                       {q.skipped > 0 ? ` · ${q.skipped} skipped` : ""}
                       {q.abandonedNoRetry > 0 ? ` · ${q.abandonedNoRetry} never retried` : ""}
                       {q.oldestPendingAgeSeconds != null
                         ? ` · oldest ${formatAge(q.oldestPendingAgeSeconds)}`
                         : ""}
+                      {" · 24h: "}
+                      {q.done24h} done / {q.failed24h} failed
                     </span>
                   </button>
                   {isOpen && (
                     <div className="px-3 pb-3 border-t pt-2 flex flex-col gap-1">
-                      {jobsError !== null && (
-                        <p className="text-xs text-destructive">Could not load items: {jobsError}</p>
+                      {jobsLoading[q.queue] && !(q.queue in jobs) && (
+                        <p className="text-xs text-muted-foreground">Loading…</p>
                       )}
-                      {(jobs[q.queue] ?? []).length === 0 && jobsError === null && (
+                      {jobsErrors[q.queue] != null && (
+                        <p className="text-xs text-destructive">Could not load items: {jobsErrors[q.queue]}</p>
+                      )}
+                      {/* Empty only once THIS queue has actually completed a load — `q.queue in
+                          jobs` is the "loaded at least once" signal, distinct from an in-flight
+                          request that hasn't resolved yet. */}
+                      {q.queue in jobs && !jobsLoading[q.queue] && jobsErrors[q.queue] == null
+                        && (jobs[q.queue] ?? []).length === 0 && (
                         <p className="text-xs text-muted-foreground">No items in this queue.</p>
                       )}
                       {(jobs[q.queue] ?? []).map((j) => (
