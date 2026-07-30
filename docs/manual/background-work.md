@@ -99,7 +99,7 @@ worker is about to claim it or every worker crashed an hour ago. Admin →
 time at the level of "is the whole background-work system alive," not one
 queue's items:
 
-- **Aggregate altitude** (`GET /admin/queue-health`) — every queue's raw
+- **Aggregate altitude** (`GET /api/admin/queue-health`) — every queue's raw
   status tallies plus two derived states, each from a different signal:
   `skipped` (a successful `done` row whose handler result says mid-run its
   work no longer applied — nothing to do with attempts or the ceiling) and
@@ -111,7 +111,7 @@ queue's items:
   second — a heartbeat can be silent past its own stale threshold but still
   inside the wider retention window), and whether the whole fleet has gone
   quiet on it.
-- **Per-item altitude** (`GET /admin/queue-health/jobs`) — the same drill-down
+- **Per-item altitude** (`GET /api/admin/queue-health/jobs`) — the same drill-down
   every queue gets, not just email.
 - **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
   on total API-process death it's unreachable exactly like every other
@@ -203,8 +203,8 @@ elsewhere.
   the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
   (the Queue Health page).
 - [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
-  why the no-retry-budget-remaining classification persists at finalize
-  instead of re-deriving live.
+  why the `abandoned_no_retry` classification persists at finalize instead
+  of re-deriving live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).

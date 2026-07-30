@@ -222,15 +222,15 @@ deliberately excludes them and points here instead.
   physical deletion happens.
 - **Three read surfaces**, all derived by query — nothing new is written by
   a reader:
-  - `GET /admin/queue-health` — aggregate altitude. Per queue: the four raw
+  - `GET /api/admin/queue-health` — aggregate altitude. Per queue: the four raw
     status tallies, two derived states (below), oldest-pending age, 24h
     throughput. Per lane: live instance count, heartbeat ages, in-flight
     count, fleet-wide stalled verdict. The two related queries run inside one
     `repeatable read` transaction so a job finalizing mid-read can't produce
     an internally impossible snapshot (e.g. `failed: 0` alongside
     `abandonedNoRetry: 1`).
-  - `GET /admin/queue-health/jobs` — per-item altitude, paginated, capped at
-    100.
+  - `GET /api/admin/queue-health/jobs` — per-item altitude, paginated, capped
+    at 100.
   - `GET /api/health/queues` — **unauthenticated** liveness probe (mounted
     under `/api`, not bare `/health/queues` — the app mounts routes there via
     `app.use("/api", router)` in `app.ts`). On total API-process death this

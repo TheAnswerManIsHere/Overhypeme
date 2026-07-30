@@ -174,7 +174,7 @@
 - **Sentinel (`max_attempts`)** — the value `0` on an `async_jobs` row,
   meaning "resolve the retry ceiling from the queue's live `admin_config`
   setting" rather than a fixed per-row override. Replaced with the resolved
-  number once a row finalizes to `failed`, so its no-retry-budget-remaining
+  number once a row finalizes to `failed`, so its `abandoned_no_retry`
   classification stays pinned to the ceiling that actually applied, not
   whatever the config says today.
   → [decisions.md](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)

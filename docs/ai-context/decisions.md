@@ -38,8 +38,9 @@
   resolved value at the one moment it's actually known (finalization) makes
   an already-computed, already-terminal fact durable instead of
   re-derivable-and-therefore-re-answerable-differently-later — the same
-  general lesson as [freezing enqueue-time inputs](./known-failure-patterns.md#un-frozen-input-re-resolved-live-between-enqueue-and-async-execution),
-  applied one pipeline stage later. The automatic worker never re-claims or
+  general lesson as [freezing a value at the point it's fixed instead of
+  re-resolving it live later](./known-failure-patterns.md#un-frozen-input-re-resolved-live-after-its-freeze-point),
+  applied at a later pipeline stage (finalization, not enqueue). The automatic worker never re-claims or
   re-processes a `failed` row, so persisting one more field on it cannot
   affect any future *automatic* retry decision — the one exception is the
   admin's manual `/admin/email-queue/:id/retry` route, which deliberately
@@ -58,7 +59,7 @@
   the surface this feeds.
 - **Revisit if:** a future phase adds a backfill for legacy `0`-sentinel
   rows (making the conservative `failed`-only treatment for them
-  unnecessary), or the no-retry-budget-remaining distinction needs to move
+  unnecessary), or the `abandoned_no_retry` distinction needs to move
   earlier in the pipeline (e.g. onto the job payload at enqueue time)
   instead of living on the finalize write.
 

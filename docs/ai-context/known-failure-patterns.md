@@ -474,7 +474,7 @@ lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
 
-## Un-frozen input re-resolved live between enqueue and async execution
+## Un-frozen input re-resolved live after its freeze point
 
 **Looks like:** a value (identity, config, a selected option) is fixed at one
 point in a pipeline — enqueue time, or a job's finalization — but a later
@@ -501,13 +501,13 @@ source for that input. **Overhype:**
   `PromptIdentitySnapshot` + `ResolvedRenderStyleSnapshot` once and rendering
   the fact text from that same identity (PR #223). See
   [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
-- The Queue Health surface's no-retry-budget-remaining classification
-  re-resolved a queue's retry ceiling from **current** `admin_config` at read
-  time for any row still carrying the `0` sentinel (the common case — no
-  per-row override). A row that legitimately exhausted retries under an old,
-  lower ceiling would silently flip to "terminal, never really retried" the
-  moment an admin later raised that queue's limit — degrading *after* the
-  fact, with no code change to explain it. Fixed by persisting the resolved
+- The Queue Health surface's `abandoned_no_retry` classification re-resolved
+  a queue's retry ceiling from **current** `admin_config` at read time for
+  any row still carrying the `0` sentinel (the common case — no per-row
+  override). A row that legitimately exhausted retries under an old, lower
+  ceiling would silently flip to "terminal, never really retried" the moment
+  an admin later raised that queue's limit — degrading *after* the fact,
+  with no code change to explain it. Fixed by persisting the resolved
   ceiling onto the row at the one moment it's finalized to `failed` (PR
   #288); a pre-fix legacy row (still carrying the sentinel, since the
   migration doesn't backfill) is classified conservatively rather than risk
