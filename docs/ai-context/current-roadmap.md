@@ -233,13 +233,15 @@ priorities (moderation speed, render/enrichment quality, video). See
 - New content formats beyond "facts."
 - A multi-role admin permission model.
 - Version rollback (archive rows exist; `TODO(version-rollback)` not wired).
-- **Overhype.me Manual — one-time chapter backfill.** The manual scaffold
-  (`docs/manual/README.md`) and the `/document` ceremony that grows it
-  incrementally are in place; writing the initial set of chapters for the
-  remaining already-built areas (content lifecycle, visual pipeline,
-  personalization/grammar, admin console, background work — moderation and
-  taxonomy/enrichment are now written) is a separate deferred pass. **Needs
-  David confirmation** on timing (he plans to kick it off when usage resets).
+- **Overhype.me Manual — one-time chapter backfill (IN PROGRESS).** David
+  approved the plan on 2026-07-30 and the pass has started. Target: **12
+  chapters in reading order** (9 newly written) plus 6 new `docs/ai-context/`
+  subsystem specs for the areas that had none to link into. Three chapters are
+  already written — moderation, taxonomy/enrichment, and **background work**
+  (the previous wording listed background work as outstanding; it is not).
+  `docs/manual/README.md`'s table is the live status. This entry is retired by
+  the pass's final close-out PR, not before — so the roadmap never claims the
+  backfill is finished while chapters are missing.
 
 ## Open product questions
 
