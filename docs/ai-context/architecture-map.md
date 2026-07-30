@@ -81,20 +81,27 @@ deliberately excludes them and points here instead.
   liveness check returning `{ status: "ok" }`, validated against the
   `HealthCheckResponse` schema.
 - **`GET /api/health`** — the richer endpoint intended for external uptime
-  monitors. One indexed read of the newest `stripe_processed_events` row, so
-  the uptime check doubles as a **webhook-staleness signal** (`lastStripeEvent`
-  carries the event id, processed timestamp, and its age in minutes). It
-  **never fails on the optional metadata**: a DB error is reported in-band as
-  `lastStripeEventError` and the response is still a 200, because the question
-  the monitor is asking is whether the API server is up.
+  monitors. One read of the newest `stripe_processed_events` row, ordered by
+  `processed_at` (**no index on that column** — a plain `event_id` primary key
+  is the table's only index today, so this is a scan/sort that gets more
+  expensive as webhook history grows), so the uptime check doubles as a
+  **webhook-staleness signal** (`lastStripeEvent` carries the event id,
+  processed timestamp, and its age in minutes). It **never fails on the
+  optional metadata**: a DB error is reported in-band as `lastStripeEventError`
+  and the response is still a 200, because the question the monitor is asking
+  is whether the API server is up.
 - **`GET /api/route-stats`** (`artifacts/api-server/src/routes/routeStats.ts`)
   — the top `n` visited route keys (`n` defaults to 3, capped at 10) from
   `route_stats`. On a query failure it logs and returns an empty list rather
   than erroring.
-- **`POST /api/route-stats`** — accepts either `{ route }` (a single visit,
-  answered **204**) or `{ counts }` (a session flush, answered with how many
-  keys were accepted). Route keys are validated against a fixed allowlist and
-  unknown keys are dropped; per-key deltas must be positive and ≤ 100,000.
+- **`POST /api/route-stats`** — accepts either `{ route }` (a single visit) or
+  `{ counts }` (a session flush of accumulated counts). Both are validated
+  against a fixed allowlist of route keys, but the two shapes fail
+  differently: an unknown key in `{ route }` is **rejected** with `400
+  { error: "Unknown route key" }`, while an unknown key in `{ counts }` is
+  **silently dropped** from that batch (per-key deltas must also be positive
+  and ≤ 100,000, or that key is dropped too). A valid `{ route }` is answered
+  **204**; a `{ counts }` post is answered with how many keys were accepted.
   Counters are upserted into `route_stats` and each accepted delta is also
   appended to `route_stat_events`. Persistence is **best-effort** — a write
   failure is swallowed so counting can never surface as a user-visible error.

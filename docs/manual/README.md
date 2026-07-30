@@ -58,9 +58,9 @@ Written incrementally by the **`/document` ceremony**
 at the end of a feature build, the chapter for the touched area is created or
 updated as part of locking in that feature's learnings. There is no separate
 big-bang writing project — though a one-time **backfill of chapters for the
-areas below** is tracked as deferred work in
-[`current-roadmap.md`](../ai-context/current-roadmap.md) to bring the manual to
-full first-version coverage.
+areas below** is currently in progress, tracked in the
+[in-progress slices of `current-roadmap.md`](../ai-context/current-roadmap.md#in-progress-slices),
+to bring the manual to full first-version coverage.
 
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
