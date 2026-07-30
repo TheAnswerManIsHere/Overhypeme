@@ -26,9 +26,10 @@
   (touch finalize minimally / accept the classification gap / silently drop
   the distinction for sentinel rows) rather than decided unilaterally.
 - **Why:** The Queue Health surface (below) classifies a `failed` row as
-  `abandoned_no_retry` — distinct from plain `failed` (retries genuinely
-  exhausted) — via either of two branches: `effectiveMax <= 1` (no retry
-  budget at all, regardless of *why* the one attempt failed) or
+  `abandoned_no_retry` — distinct from plain `failed` (either retries
+  genuinely exhausted, or a legacy `0`-sentinel row too old to classify
+  safely; see below) — via either of two branches: `effectiveMax <= 1` (no
+  retry budget at all, regardless of *why* the one attempt failed) or
   `attempts < effectiveMax` (the row failed before its ceiling was reached,
   only reachable via a deterministic `terminalFailure()`). Both branches
   compare against the row's effective retry ceiling. For the common case —
