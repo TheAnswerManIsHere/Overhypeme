@@ -42,8 +42,36 @@ export function detectNodeTestRunner(
 
 const isNodeTestRunner = detectNodeTestRunner(process.env, process.execArgv);
 
+/**
+ * Per-instance connection ceiling.
+ *
+ * This was **unset** until the async-queue hardening work, which meant pg's
+ * default of 10 — against a worst-case concurrent handler demand of exactly 10
+ * across the five worker lanes. Zero spare connections under full load, and
+ * nothing in the code said so.
+ *
+ * 20 is derived, not picked. Measured against production on 2026-07-29:
+ * `max_connections` 450, `superuser_reserved_connections` 7, 13 backends in use
+ * on a live app, and a **direct** connection (no `-pooler` in the host, so this
+ * ceiling is the real one rather than being multiplexed away). That gives
+ *
+ *   budget = 450 − 7 (superuser) − 5 (migrations/console/admin burst)
+ *                − 40 (generous allowance for non-worker peak; observed 13)
+ *          = 398
+ *   max    = min(20, floor(398 / max_instances))
+ *
+ * 20 doubles the lanes' worst case and is safe for any autoscale ceiling up to
+ * 19 instances. `DB_POOL_MAX` exists for the one case that changes the answer —
+ * an autoscale maximum of 20 or more — where the derived `floor(398 / N)` should
+ * be set explicitly instead. It is an env var rather than `admin_config` because
+ * the pool is constructed before any query can run.
+ */
+const POOL_MAX_DEFAULT = 20;
+const poolMax = Number.parseInt(process.env.DB_POOL_MAX ?? "", 10);
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: Number.isFinite(poolMax) && poolMax > 0 ? poolMax : POOL_MAX_DEFAULT,
   // Proactively recycle idle connections before Neon auto-suspend (~5 min) resets them.
   idleTimeoutMillis: 60_000,
   // Hard limit on connection lifetime to avoid stale TLS sessions.

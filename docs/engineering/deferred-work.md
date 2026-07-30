@@ -259,17 +259,18 @@ re-gather it when the work is scheduled.
     a short finalize transaction. Pool occupancy is therefore bursty at
     claim/finalize boundaries, not pinned at the handler count. See
     [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
-  - **Why deferred now.** Raising it is an infra/cost decision, not a code
-    change to make proactively — no evidence yet that the current `max` is
-    actually a bottleneck.
-  - **Cost of waiting.** **Unmeasured, and deliberately not estimated.** The
-    plausible symptom is still pool-acquisition wait time or provider
-    rate-limit errors under load, and adding two lanes without adding pool
-    capacity can only have increased claim/finalize contention — but by how
-    much is unknown, and the previous "zero headroom" framing asserted a
-    severity nobody had measured.
-  - **Revisit trigger.** Pool-acquisition wait time or provider rate-limit
-    errors actually show up under load. See
+  - **RESOLVED 2026-07-30 by PR #288** (async-queue hardening Phase 1).
+    `lib/db/src/index.ts` now sets `max` explicitly — `POOL_MAX_DEFAULT = 20`,
+    overridable by `DB_POOL_MAX` — derived from measured production capacity
+    (`max_connections` 450 less superuser, migration and non-worker
+    allowances) rather than picked, and deliberately double the lanes'
+    worst-case 10. Kept here rather than deleted because the Correction above
+    is the record of a claim two documents asserted for weeks.
+  - **What is still open**, and is not this item: the residual contention
+    question. Worker-handler count was never a proxy for connection count, so
+    neither the old ceiling's severity nor the new one's headroom has been
+    *measured* under load. The revisit trigger is unchanged — pool-acquisition
+    wait time or provider rate-limit errors actually showing up. See
     [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 
 ## Code-level tech debt

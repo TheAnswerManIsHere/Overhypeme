@@ -57,9 +57,10 @@ Everything rides **one real database table**, not an in-memory queue or a
 separate pub/sub system. That single choice buys the property this whole
 chapter rests on: a crash or a redeploy never loses queued work, and at any
 moment an ordinary SQL query shows the queue's recorded state — what is
-waiting, what has been claimed, what failed. (Recorded, not live: there is no
-lease or heartbeat, so a row a crashed worker left behind still reads as
-claimed until a recovery sweep picks it up. See the known limitation below.)
+waiting, what has been claimed, what failed. (Recorded, not live: an
+individual job carries no lease, so a job a crashed worker left behind still
+reads as claimed until a recovery sweep picks it up. Whether the *workers*
+themselves are alive is tracked separately — see the known limitation below.)
 The table's shape and the exact status flow are in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
@@ -152,15 +153,14 @@ elsewhere.
   (oldest due first); the lane split only isolates *between* lanes, not within
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
-- **The lanes and ordinary site traffic share one database connection pool,
-  and how much room that leaves has never been measured.** The lanes' maximum
-  combined worker count happens to equal the pool's default size, which looks
-  alarming — but a worker holds a connection only briefly at the start and end
-  of a job, not while it waits on an outside service, so the two numbers are
-  not comparable and the real contention is unknown. It is on the list to
-  look at rather than to assume
-  ([`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning)),
-  and the reasoning is in
+- **The lanes and ordinary site traffic share one database connection pool.**
+  For a while the pool was small enough that a fully busy queue could in
+  principle crowd out ordinary page requests; it has since been given
+  deliberate headroom, sized against what the database actually allows. Two
+  things are still worth knowing: a worker holds a connection only briefly at
+  the start and end of a job — not while it waits on an outside service — so
+  worker count and connection use are not the same measure, and nobody has
+  measured the real contention under load. The sizing and the reasoning are in
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but not quickly.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
@@ -208,4 +208,6 @@ elsewhere.
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).
 
-*Verified against `887c404` (2026-07-30) · claim inventory in PR #291.*
+*Verified against `809079f` (2026-07-30) · claim inventory in PR #291.
+Re-grounded after PR #288 (async-queue hardening Phase 1) landed mid-review
+and falsified three claims here.*

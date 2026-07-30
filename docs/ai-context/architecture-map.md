@@ -177,23 +177,24 @@ deliberately excludes them and points here instead.
 - **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
   `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
   `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1 — worst
-  case **10** concurrent handlers — and `lib/db/src/index.ts` constructs its
-  `Pool` **without a `max`**, so the ceiling is node-postgres's own default,
-  also **10**. That numeric coincidence is real (nobody picked either number
-  to match the other) but it does **not** mean a saturated worker leaves zero
-  connections for HTTP traffic. `maxConcurrency` bounds concurrent *handler
-  promises*, not checked-out clients: `asyncJobsTick` **commits and releases
-  the claim transaction before** `mapWithConcurrency` invokes any handler, a
-  handler awaiting an external provider holds no connection at all, and each
-  outcome opens only a short finalize transaction. Pool occupancy is
-  therefore bursty at claim/finalize boundaries rather than pinned at the
-  handler count. Every bound is env-overridable
-  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so raising one still raises
-  claim/finalize contention against an unchanged pool — the reason raising
-  the pool limit is tracked as follow-up work
-  ([`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning))
-  — but the headroom cost has **not** been measured, and this doc does not
-  assert one.
+  case **10** concurrent handlers. `lib/db/src/index.ts` now sets the pool
+  `max` explicitly to **20** (`POOL_MAX_DEFAULT`, overridable by
+  `DB_POOL_MAX`), derived from measured production capacity rather than
+  picked — deliberately double the lanes' worst case. **It was unset until
+  the async-queue hardening work (PR #288)**, which meant pg's default of 10
+  against a worst-case demand of exactly 10.
+  Even so, do not read handler count as connection count in either
+  direction: `maxConcurrency` bounds concurrent *handler promises*, not
+  checked-out clients. `asyncJobsTick` **commits and releases the claim
+  transaction before** `mapWithConcurrency` invokes any handler, a handler
+  awaiting an external provider holds no connection at all, and each outcome
+  opens only a short finalize transaction. Pool occupancy is bursty at
+  claim/finalize boundaries rather than pinned at the handler count — which
+  is why the old 10-vs-10 framing overstated the problem even before the
+  ceiling was raised. Every lane bound is env-overridable
+  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so a raised lane still adds
+  claim/finalize contention; the headroom cost of that has never been
+  measured and this doc does not assert one.
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed
