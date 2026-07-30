@@ -93,14 +93,14 @@ prose/table split is the defect class that reopened findings in rounds 12, 14, 1
 
 ## 4. Then, in order
 
-1. Fix the sixteen. Several interact — 478/1517 both concern markers left set on exit;
-   1852/2084 both concern `mark-manually-filed`'s new acceptance of `failed`.
-2. Post all **twenty** round-17 replies, one per thread, never resolving threads.
-3. Update the ledger in the PR body with round 17.
-4. Request round 18 with a fresh lens and the full reconciliation list.
-5. On convergence: close PR #280 **unmerged**, unsubscribe, ask David for approval linking
+1. **Add the round-17 ledger entry** to the PR body — 20 findings (12 P1 + 8 P2), commits
+   `7ed2475` + `7102b63`, lens *"the subtraction."* Running total becomes **158**. This is
+   the one outstanding obligation.
+2. **Round 18 is already requested** (trigger comment `5131894942`, head `7102b63`, lens
+   *"the fixes themselves, and the migration"*). Handle its findings when they land.
+3. On convergence: close PR #280 **unmerged**, unsubscribe, ask David for approval linking
    the final plan file. **Codex convergence is not approval.**
-6. Then build on `claude/ncmec-reporting-integration-8mwpho`.
+4. Then build on `claude/ncmec-reporting-integration-8mwpho`.
 
 ---
 
