@@ -1,7 +1,8 @@
 # Handoff — NCMEC CyberTipline plan review (PR #280)
 
-**Rewritten 2026-07-30 after round 16.** The loop is **paused awaiting David's decision** —
-see §2. Do not resume it without his answer.
+**Rewritten 2026-07-30 after round 17.** The session that ran rounds 14–17 exhausted its
+context here. Round 17's four Still Open reconciliations are fixed and pushed; **sixteen
+findings remain open, and none of round 17's twenty replies have been posted.**
 
 ---
 
@@ -9,113 +10,105 @@ see §2. Do not resume it without his answer.
 
 | | |
 |---|---|
-| Plan file | `docs/plans/PLAN_NCMEC_CYBERTIPLINE_SUBMISSION.md` (~2,800 lines) |
-| Branch | `plan-review/ncmec-cybertipline-submission` — **never merged, never reused for implementation** |
+| Plan file | `docs/plans/PLAN_NCMEC_CYBERTIPLINE_SUBMISSION.md` (~3,100 lines) |
+| Branch | `plan-review/ncmec-cybertipline-submission` — never merged, never reused for implementation |
 | PR | **#280**, draft, `[PLAN REVIEW] … — DO NOT MERGE` |
-| Head | `f4aad02` — round 15's fixes, pushed and reviewed |
-| Rounds completed | **16.** 138 findings raised, 116 addressed, **22 open (round 16)** |
-| Owed | All 22 round-16 replies, the round-16 ledger entry, and the fixes themselves |
+| Head | `7ed2475` |
+| Rounds | **17.** 158 findings raised; 142 addressed; **16 open** |
+| Owed | All **20** round-17 thread replies, the round-17 ledger entry, the 16 fixes |
 | Implementation branch (not started) | `claude/ncmec-reporting-integration-8mwpho` |
 
----
-
-## 2. Why the loop is paused
-
-CLAUDE.md's plan-review rule 9 says to stop and bring David the state "sooner [than ~20
-rounds] if the SAME category of finding keeps resurfacing without narrowing." That
-condition is now met, on three independent measures:
-
-- **Findings per round are increasing, not narrowing:** round 14 → 12, round 15 → 18,
-  round 16 → 22.
-- **Reconciliations came back Still Open in all three of the last rounds.** 15.7 came back
-  Still Open **twice** — I fixed two copies of the null-intent rule and missed a third in
-  the schema contract, plus an entire retained block (§5.2.3's clock-bucket protocol) that
-  my own sweep did not catch. I had explicitly told Codex to treat that sweep as unverified;
-  it was right to.
-- **My round-15 rewrite generated the majority of round 16.** Replacing the clock-keyed
-  alert window with an open-interval incident model fixed the four-days-of-silence defect
-  and introduced roughly six new P1s in its place (opener/closer races, `opened_at` lower
-  bound vs. transaction-scoped `now()`, recovery-notice dedupe collision, unbounded
-  aggregate on a resolved incident, no incident for a typeless crash).
-
-**Half of round 16 — 11 of 22 findings — is in the incident-alert subsystem**, which has
-now produced defects in rounds 11, 14, 15 and 16. Every rewrite of it trades one set of
-race conditions for another, because it is a distributed-coordination problem being solved
-in prose with no ability to run it.
-
-The rest of the plan is not behaving this way. The submission worker, the duplicate-filing
-guard, the lease, the reconciler's repair matrix, provenance, and the admin surface have
-all been stable for several rounds.
+**David's standing decision (2026-07-30):** option 3 — ship reporting + the admin surface
+with **per-report alerting**; incident aggregation is deferred to its own plan (§9). That is
+done and is not up for revisiting.
 
 ---
 
-## 3. Round 16's 22 findings
+## 2. Trajectory — read this before deciding to continue
 
-Comment IDs are not recorded here — re-fetch them with `pull_request_read` /
-`get_review_comments`, `perPage: 30`, using the `after` cursor from page 1 (the result
-overflows to a file; parse it there rather than pulling it into context).
+Findings per round: **12 → 18 → 22 → 20.** The aggregation cut removed eleven of round 16's
+twenty-two, and round 17 still returned twenty. The loop is finding real defects at a
+roughly constant rate rather than converging.
 
-### Incident-alert subsystem — moot if David cuts it (11)
+Two things a fresh session should weigh honestly:
+
+- **Round 17 found a defect that sixteen prior rounds missed** (finding 771): the existing
+  stub already writes `request_metadata.quarantineId`, but `0094` leaves every legacy
+  report's new `quarantine_id` NULL — so pass 2 sees every legacy Arachnid quarantine as
+  unreferenced and creates a **second** report row for the same hit, both independently
+  filable. That is invariant 7 (exactly one report per hit) broken for the entire back
+  catalogue. It is not a regression from a recent rewrite; it was always there. That
+  suggests unreviewed surface remains, not that the end is near.
+- **Four consecutive rounds had Still Open reconciliations caused by my incomplete sweeps.**
+  Root cause is now identified and is mechanical, not judgemental: **I grepped for prose
+  that markdown emphasis had split.** `**four** passes` does not match a search for
+  `four passes`. Fixed by stripping `*`, `` ` `` and `_` before matching — see the verify
+  step in `7ed2475`. **Use that method; do not hand-roll a grep list again.**
+
+If a fresh session reaches ~round 20 without the count dropping, that is the moment to take
+the trajectory back to David rather than continue silently.
+
+---
+
+## 3. Round 17's twenty findings
+
+Comment IDs: re-fetch via `pull_request_read` / `get_review_comments`, `perPage: 30`, using
+the `after` cursor from page 1. Results overflow to a file on disk — **parse the file, never
+pull it into context.** Filter to threads whose only comment is by
+`chatgpt-codex-connector`; those are the unanswered ones.
+
+### Closed in `7ed2475` — all four were Still Open reconciliations, all my own sweep misses
+
+| Line | Finding |
+|---|---|
+| 825 | §5.3 still said the reconciler makes **four** passes while its table said three |
+| 1044 | The retained Scheduling section still put the 5-minute cadence timer in the **bulk** runner |
+| 2091 | `POST /config`'s wire contract still defined `inFlight` as leases only |
+| 2615 + 2790 | Two tests still required unguarded `TRUNCATE` to succeed, contradicting the new trigger |
+| 2542 | An incident-era "unalerted" test still described a handler-wide aggregate query |
+
+### Still open — sixteen
 
 | Line | Sev | Finding |
 |---|---|---|
-| 548 | P1 | `now()` is transaction-scoped: an older failure can commit after the winning opener, so `opened_at` excludes it and pass 3 cannot recover it while retrying |
-| 562 | P1 | Closure is not serialized against a failure committing after pass 4's check — that failure attaches to no open incident |
-| 568 | P1 | A recovery notice reuses `incidentId:N` and dedupes into a still-pending reminder, but `resolved_at` commits anyway — recovery lost |
-| 580 | P1 | A delayed recovery handler's aggregate has no upper bound, so it reports the *next* incident's rows |
-| 751 | P1 | An entire retained block still specifies the superseded clock-bucket protocol |
-| 1009 | P1 | A handler crashing before any typed result opens no incident, so pass 3 has none to enqueue — permanently unnotified |
-| 1031 | P2 | `deliverFromOutbox` / Resend 6.9.4 await `fetch` with no timeout; two stalled alert jobs occupy both `fast` slots and starve the reconciler |
-| 1184 | P1 | **15.11 Still Open** — the 5-min cadence timer still lives in the bulk runner, so job *creation* is behind the batch even though execution is fast |
-| 1567 | P2 | `ncmec_alert_reminder_interval_ms` has no positive lower bound; zero makes the predicate true every pass |
-| 1578 | P1 | An activation-time recipient check does not hold over time — the last notifying admin can opt out afterwards |
-| 2345 | P2 | **15.17 Still Open** — the link resolves on `failed_at` while the aggregate counts `last_attempt_failed_at`; during the retryable phase the link shows none of the counted rows |
-
-### Independent of that decision (11)
-
-| Line | Sev | Finding |
-|---|---|---|
-| 472 | P2 | Nothing releases the lease on a completed exit, so a terminal row stays "leased" until timeout — blocking `mark-manually-filed` and inflating `inFlight` |
-| 1213 | P2 | A typed error observed after lease loss cannot be persisted, so exhaustion still repairs to `-1` |
-| 1372 | P2 | `CREATE FUNCTION` / `CREATE TRIGGER` are unguarded; `0094` is required to be rerunnable |
-| 1377 | P2 | A `BEFORE` row trigger returning NULL **cancels** the operation — the maintenance escape hatch silently blocks the very correction it exists to permit |
-| 1389 | P2 | `TRUNCATE` is unprotected, so the app role can erase the whole audit ledger in one statement |
-| 1409 | P1 | **15.7 Still Open** — the schema contract still states the pre-split null-intent rule |
-| 1490 | P2 | `attempt_count` increments at lease acquisition, which precedes retract-first — a `5102` recovery inflates it without ever calling `/submit` |
-| 1641 | P2 | `inFlight` reports 0 while an already-issued `/finish` can still land — it is a lower bound, not a guarantee |
-| 2231 | P2 | Retry resets `attempt_count` even when `enqueued: false`, so the operator sees a fresh budget on a job whose real budget is unchanged |
-| 2265 | P1 | An orphan dispositioned `report` keeps its pre-cutoff `created_at` and is never stamped `backlog_audited_at`, so `isSubmittable` immediately refuses it as unaudited |
-| 2282 | P2 | The compare-and-set overwrites `report_intent`, which §5.2.4 defines as immutable — and leaves `false` behind after a `reopen` |
+| 771 | P1 | **`0094` must backfill `quarantine_id` from the stub's existing `request_metadata.quarantineId`** before the unique index and pass 2 go live, with counts for missing/conflicting/linked — otherwise every legacy Arachnid quarantine gets a second report row |
+| 715 | P1 | The copy contract sets `match_source = source`, but `quarantined_memes.source` permits `fal_safety`/`manual` while `NCMEC_MATCH_SOURCES` permits only `arachnid`/`classifier` — pass 2 and the orphan `report` action fail their insert |
+| 592 | P1 | **Still Open.** §5.8's tuple gate still accepts a notifying admin *instead of* the fallback key, and §5.5 leaves that key on the generic route — production can activate with no fallback, then lose its last admin |
+| 884 | P1 | Moving the notifier to `bulk` starves the *submitter*: three stalled untimed provider calls occupy all three bulk slots and stop every `ncmec_submit` retry. Needs a bounded timeout or a third lane |
+| 1223 | P1 | `app.audit_maintenance` is settable by the ordinary application role, so the role the trigger blocks can `SET LOCAL` and bypass it. Needs a privileged role or a permissioned function |
+| 1503 | P1 | The pre-`/finish` recheck tests only `enabled`; the tuple `enabled = true, environment = test` passes it, so a worker can `/finish` a **production** report after the operator switched to test |
+| 1594 | P1 | `report_intent` is captured with `getConfigString`, which is process-cached for 60 s — a stale instance keeps freezing `true` for a minute after classifier reporting is disabled |
+| 1852 | P1 | §5.7 says manual filing rejects a non-null `report_id`; §5.8.1 accepts a `failed` row and calls the retained id "inert". If `/finish` succeeded but its response was lost, manual filing then duplicates a real filing |
+| 1969 | P1 | The backlog cutoff writes an **application** `$now` against `created_at` values from the database clock; host skew lets pre-existing rows land after the cutoff and skip the audit entirely |
+| 2084 | P1 | "Every transition out of `failed`" omits `mark-manually-filed`, which now accepts `failed` — so `failed → filed_manually → reopen → pending` keeps a stale `alert_notified_at` |
+| 478 | P2 | Rule 7's "completed exit" list omits the ordinary retryable return and a caught handler exception, so those still leave the lease held for up to 3 minutes |
+| 1080 | P2 | The non-final-only fence lets a **stale** worker's older observation overwrite a newer one's `last_error_code` / `last_attempt_failed_at`. Needs a monotonic generation fence |
+| 1392 | P2 | `IDX_ncmec_failed_alerting` keys on `(submission_environment, failed_at)` and covers all failed rows, but pass 3 filters `alert_notified_at IS NULL` — put that in the partial predicate |
+| 1437 | P2 | The two retry keys are editable with no minimums; lowering either silently destroys the >72 h horizon the §9 deferral rests on |
+| 1517 | P2 | Nothing clears `finish_started_at` after a crash mid-`/finish`, so `inFlight` can be inflated forever. Define clearing for each retract-first outcome and the pass-1 repair |
+| 1943 | P2 | Branch 3 (test attempt uncertain) has no endpoint to record the portal-inspection result, so the row cannot leave that state |
 
 ---
 
-## 4. The decision David was given
+## 4. Then, in order
 
-Three options, with my recommendation being 3 or 1:
-
-1. **Simplify alerting to per-report.** One email per terminal failure; an outage sends
-   many. Removes the incident table, the intervals, the sequences, and every coordination
-   race — all 11 findings above evaporate.
-2. **Keep it and keep going.** Fix round 16, request round 17, accept that this subsystem
-   may need several more rounds.
-3. **Split it out.** Ship reporting + the admin surface with per-report alerting; make
-   incident aggregation its own plan with its own review loop.
-
-The case for cutting: David's stated intent was *"see reporting working, see what failed,
-and retry it"* — that is the **admin surface**, which is healthy. Email aggregation is a
-nice-to-have that is consuming the majority of review effort and producing the majority of
-defects. **He has kept incident aggregation twice before** (rounds 9 and 12), so this is
-not a re-litigation of settled ground — it is new evidence about a subsystem that has since
-failed four more rounds.
+1. Fix the sixteen. Several interact — 478/1517 both concern markers left set on exit;
+   1852/2084 both concern `mark-manually-filed`'s new acceptance of `failed`.
+2. Post all **twenty** round-17 replies, one per thread, never resolving threads.
+3. Update the ledger in the PR body with round 17.
+4. Request round 18 with a fresh lens and the full reconciliation list.
+5. On convergence: close PR #280 **unmerged**, unsubscribe, ask David for approval linking
+   the final plan file. **Codex convergence is not approval.**
+6. Then build on `claude/ncmec-reporting-integration-8mwpho`.
 
 ---
 
 ## 5. Standing constraints — these do not lapse
 
-- **The repo is public.** The disclosure check passed before this PR opened; its
-  attestation in the PR body is deliberately contentless.
-- **NCMEC credentials are never committed** and appear nowhere in the plan. They are
-  consumed only as `NCMEC_ISPWS_USERNAME` / `NCMEC_ISPWS_PASSWORD`.
+- **The repo is public.** The disclosure check passed before this PR opened; its attestation
+  in the PR body is deliberately contentless.
+- **NCMEC credentials are never committed** and appear nowhere in the plan; they are consumed
+  only as `NCMEC_ISPWS_USERNAME` / `NCMEC_ISPWS_PASSWORD`.
 - **Evidence bytes stay unreadable over HTTP** — no route, no signed URL, no proxy.
   `getObjectEntityDownloadURL` (`objectStorage.ts:245-251`) signs any private subpath with
   **no `restricted/` guard** and must never be called on evidence.
@@ -124,15 +117,10 @@ failed four more rounds.
 
 ## 6. Open, and owed by David — not blockers
 
-Three questions need NCMEC's answer, from the walkthrough call with Maya Mizuki. None
-blocks approval; the classifier path is hard-refused until #2 is answered.
-
-1. `<industryClassification>` mapping — `A1` / `A2` / `B1` / `B2`.
-2. `<incidentType>` for wholly AI-generated material.
+1. `<industryClassification>` mapping — `A1` / `A2` / `B1` / `B2` (needs NCMEC).
+2. `<incidentType>` for wholly AI-generated material (needs NCMEC). The classifier path is
+   hard-refused until this is answered.
 3. Notice before an evidence purge (belongs to the retention plan, #281).
-
-Plus the **reminder-interval** question from round 15 (seeded at 6 h), which becomes moot
-under options 1 and 3.
 
 ## 7. Environment notes that cost time to learn
 
@@ -141,7 +129,9 @@ under options 1 and 3.
   sanctioned reset primitive.
 - This container's `GITHUB_TOKEN` is proxy-scoped and **403s** against `api.github.com`.
   GitHub access is via the MCP tools only.
-- `pull_request_read` results and every `add_reply_to_pull_request_comment` result echo the
-  full diff hunk — for a 2,800-line new file that is 50–170 KB per call. They overflow to a
-  file on disk; **parse the file, never pull it into context.** That overflow is also the
-  cheap way to harvest comment IDs in bulk.
+- `pull_request_read` and every `add_reply_to_pull_request_comment` result echo the full diff
+  hunk — for a 3,100-line new file that is 50–170 KB **per call**. They overflow to a file on
+  disk; parse the file. That overflow is also the cheap way to harvest comment IDs in bulk.
+  Budget for this: twenty replies is most of a context window on its own.
+- **Verify sweeps with markdown stripped.** `re.sub(r'[*\`_]','',text)` before matching.
+  Four rounds of Still Open findings came from skipping this.
