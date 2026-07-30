@@ -49,14 +49,28 @@ priorities (moderation speed, render/enrichment quality, video). See
   line in the ledger — pre/post rows aren't measuring the same reviewer. See
   [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger).
-  **Across the three adjudicated loops the self-inflicted share is 64.7% →
-  68.4% → 72.1% — not falling** (n=3, all pre-boundary); see the ledger for
-  the two structural findings underneath that number. Two things surfaced but
+  **Six rows now carry a real adjudicated self-inflicted-share percentage:**
+  #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #286 0% (#284 is
+  adjudicated but has none to report — its one finding is `invalid`, zero
+  denominator). The three 0% rows are not a clean-workflow signal — they are
+  single-round loops, and a single round's findings are new ground by
+  construction (propagation/wrong-fix require an earlier in-loop fix, which a
+  round-1 loop doesn't have), so 0% is a structural floor, not a measurement.
+  **The trend is only meaningful across the three multi-round loops** — #270
+  (16 rounds), #274 (4 rounds), #282 (9 rounds) — where it runs 64.7% →
+  68.4% → 72.1%, not falling (n=3, all pre-boundary); see the ledger for the
+  full reasoning and the two structural findings underneath that number. Two
+  things surfaced but
   deliberately left unfixed, for David to decide: the ledger's own
-  `classifyCohort` drains bugfix loops into `prose/contract` whenever the PR
-  carries a doc — which is exactly why `feature/code` above is still
-  empty — and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
-  to trigger a check-in, with no record of whether one happened.
+  `classifyCohort` routes **any** PR carrying a non-ledger markdown file to
+  `prose/contract` — bugfix loops with a UAT doc land there (the concrete
+  case the cohort-leakage note documents), but so would a `feature/code`
+  loop that ships with its normal doc updates, which this repo's own
+  practice makes routine. That is the more general reason `feature/code`
+  above is still empty: no loop has closed in the enforced window whose
+  diff was purely code with zero markdown — not something specific to
+  bugfix loops. #279 ran 32 rounds, about 12 past the ~20-round soft cap
+  meant to trigger a check-in, with no record of whether one happened.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). Both Claude Code and Codex now append a row — mechanical
   columns machine-derived, judgment columns hand-entered and marked as such —

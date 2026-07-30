@@ -83,7 +83,7 @@ and a round target would score both backwards.
 
 **`rounds` and `review hrs` are understated for row 11 (#286), and the mechanism is now understood well enough to name.** After the round-1 fix (`6b04de2`), an explicit `@codex review` trigger drew a genuine second review from Codex against the fix commit — confirmed by its own "Reviewed commit: `6b04de28e6`" line — that found nothing further. That clean result posted as a **plain issue comment** ("Codex Review: Didn't find any major issues. Delightful!"), not as a formal `pull_request_review` submission. `countRounds` and `reviewInterval` only scan the `reviews` collection, so this real reviewer engagement is invisible to both: `rounds` reports 1 where the true reviewer-engagement count is 2, and `review hrs` reports 0.1 (PR-open → the round-1 review) where the true interval runs to the round-2 comment, roughly 2.8 hours.
 
-This is a **different** bias than the one `countRounds`'s own docstring already documents (the connector auto-reviewing on open with no trigger comment, undercounting a later *fix* round by one system-wide). This is new: a re-review that finds **zero** new findings appears to route through the plain-comment reply path rather than the formal review-submission path on this repo's Codex transport — at least in this one observed instance. Not yet promoted to a documented, repo-wide bias in `loop-metrics.mjs`'s own comments (one observation is a data point, not a confirmed pattern) — flagged here so the next clean-re-review loop is checked for the same gap rather than trusted at face value, and promoted properly once it recurs.
+This is a **different** gap than the trigger-counting pitfall `countRounds`'s own docstring already documents and rejects (counting `@codex review` comments instead of formal reviews would miss the automatic on-open review — which is exactly why `countRounds` counts formal review records instead, not a live bias in the approach it actually takes). This is new, and lives in the approach `countRounds` *does* take: a re-review that finds **zero** new findings appears to route through the plain-comment reply path rather than the formal review-submission path on this repo's Codex transport — at least in this one observed instance. Not yet promoted to a documented, repo-wide bias in `loop-metrics.mjs`'s own comments (one observation is a data point, not a confirmed pattern, and no prior row is known to be short a round from it) — flagged here so the next clean-re-review loop is checked for the same gap rather than trusted at face value, and promoted properly once it recurs.
 
 `findings` and the causal classification are unaffected: `countFindings` reads root comments directly and a review with zero findings contributes zero root comments either way.
 
@@ -112,11 +112,29 @@ which is the opposite of nothing to measure. Row 6 is excluded from the
 self-inflicted-share trend and must not be read as either a pass or a
 failure. Its **mechanical** columns are fully derived and sound on their own.
 
-### What the classified plan-review rows now show
+### What the ledger's adjudicated rows now show
 
-Three plan-review loops are classified (#269 retrospective, #274, #282) and
-two of those are adjudicated. The self-inflicted share across the adjudicated
-population — #270 64.7%, #274 68.4%, #282 72.1% — is **not falling, and is the
+**Six rows carry a real adjudicated self-inflicted-share percentage** — every
+adjudicated row except #284, which is adjudicated but has none to report (its
+one finding is `invalid`, so the denominator is zero; see its own row note).
+Naming all six, not a subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282
+72.1%, #283 0%, #286 0%.
+
+**The three 0% rows are not evidence the workflow is clean — they are a
+structural floor, not a measurement.** #276, #283, and #286 each ran exactly
+one round. By the rubric's own precedence rules, propagation / wrong fix /
+re-raised all require an **earlier fix within the same loop** — a single-round
+loop has no earlier round, so none of those three categories can apply
+regardless of how the loop actually went. A one-round loop's findings are
+new ground by construction, every time, which makes its self-inflicted share
+0% independent of the loop's real quality. Mixing these into a trend with
+multi-round loops would understate the real number, exactly the failure mode
+this backfill exists to prevent in the other direction.
+
+**The self-inflicted-share trend is only informative for loops that ran more
+than one round** — where propagation and wrong-fix are structurally possible
+— which is #270 (16 rounds), #274 (4 rounds), and #282 (9 rounds). Across
+those three the share is **64.7% → 68.4% → 72.1%, not falling, and is the
 metric this file exists to track.** Two structural observations, both from
 counted data rather than impression:
 
