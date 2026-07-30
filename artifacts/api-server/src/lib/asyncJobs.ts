@@ -30,6 +30,7 @@ import {
   publishInFlight,
   decrementInFlight,
   pruneDepartedInstances,
+  heartbeatTtlMinutes,
 } from "./workerHeartbeats";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
@@ -777,6 +778,38 @@ export function laneIntervalsMs(): Record<JobLane, number> {
 /** All five lanes, in the order the health surface presents them. */
 export const ALL_LANES: readonly JobLane[] = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"];
 
+/**
+ * `max(3 × interval, 60s)`.
+ *
+ * Three intervals rather than one so a single skipped or slow tick is not an
+ * outage, and a 60s floor because the `fast` lane's 2s interval would otherwise
+ * give a 6s threshold — tight enough that ordinary scheduler jitter or a brief
+ * event-loop pause would raise a false stall on the noisiest lane.
+ *
+ * Lives here (not in `queueHealth.ts`, which consumes it) because
+ * `pruneDepartedInstances`'s cutoff below needs it too, and `workerHeartbeats.ts`
+ * is deliberately kept free of any dependency on lane-scheduling concerns —
+ * this file already owns `ALL_LANES`/`laneIntervalsMs`, so it's the one place
+ * both callers can reach without a cross-file import cycle.
+ */
+export function staleThresholdMs(intervalMs: number): number {
+  return Math.max(3 * intervalMs, 60_000);
+}
+
+/**
+ * The loosest stall window across all five lanes, in milliseconds.
+ *
+ * Anything that decides whether a heartbeat row is still worth keeping —
+ * `laneHealth`'s live-instance query, `pruneDepartedInstances`'s delete cutoff —
+ * must never use a window TIGHTER than this, or it can discard a row before
+ * the per-lane stalled check (which uses each lane's OWN, possibly smaller,
+ * threshold) ever gets a chance to evaluate it.
+ */
+export function widestStaleThresholdMs(): number {
+  const intervals = laneIntervalsMs();
+  return Math.max(...ALL_LANES.map((lane) => staleThresholdMs(intervals[lane])));
+}
+
 /** The lane a registered queue belongs to, or undefined if it is not registered. */
 export function laneOfQueue(queue: string): JobLane | undefined {
   return LANE_OF_QUEUE.get(queue);
@@ -895,7 +928,14 @@ export function createLaneRunner(
       // Same cadence as the purge: drop heartbeat rows for instances that have
       // stopped writing. Without this, every autoscale scale-down leaves a row
       // that never advances again and the lane reads as permanently stalled.
-      const pruned = await pruneDepartedInstances();
+      //
+      // The cutoff is widened the same way laneHealth's own query is — never
+      // tighter than the loosest lane's stall window — or this delete would
+      // erase a heartbeat before laneHealth's widened query ever got a chance
+      // to still see it, defeating that widening entirely.
+      const configuredTtlMinutes = await heartbeatTtlMinutes();
+      const widenedTtlMinutes = Math.max(configuredTtlMinutes, widestStaleThresholdMs() / 60_000);
+      const pruned = await pruneDepartedInstances(defaultDb, widenedTtlMinutes);
       if (pruned > 0) {
         logger.info({ lane: config.lane, pruned }, `[asyncJobs:${config.lane}] pruned departed worker heartbeats`);
       }

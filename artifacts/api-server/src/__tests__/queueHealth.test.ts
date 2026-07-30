@@ -9,13 +9,18 @@ import { inArray, like } from "drizzle-orm";
 import {
   deriveDisplayStatus,
   sanitizeSkipReason,
-  staleThresholdMs,
   laneHealth,
   queueHealth,
   queueHealthJobs,
 } from "../lib/queueHealth.js";
 import { WORKER_PROTOCOL_VERSION } from "../lib/workerHeartbeats.js";
-import { __resetHandlersForTest, registerJobHandler, type JobHandler } from "../lib/asyncJobs.js";
+import {
+  __resetHandlersForTest,
+  registerJobHandler,
+  staleThresholdMs,
+  widestStaleThresholdMs,
+  type JobHandler,
+} from "../lib/asyncJobs.js";
 
 const QUEUE_PREFIX = "test_qh_";
 const okHandler: JobHandler = { async run() { return { ok: true }; } };
@@ -72,9 +77,12 @@ describe("queueHealth — derived statuses", () => {
     // fact_ai_meme_backfill is configured never to retry, so its failures are
     // `failed` after a single attempt — a different operator story from
     // "exhausted five attempts", and indistinguishable without this.
-    // effectiveMax<=1 is always safe regardless of row.maxAttempts (0 here on
-    // purpose — even a legacy sentinel row is trustworthy in THIS branch).
-    const neverRetried = deriveDisplayStatus({ status: "failed", result: null, attempts: 1, maxAttempts: 0 }, 1);
+    // maxAttempts: 1 here is the persisted (non-zero) ceiling PR288's finalize
+    // fix writes for a never-retry queue — required even for the single-
+    // attempt case, since a LIVE ceiling of 1 does not by itself prove this
+    // row only ever had 1 attempt available (see the sentinel-guard test
+    // below for the legacy row this would otherwise misclassify).
+    const neverRetried = deriveDisplayStatus({ status: "failed", result: null, attempts: 1, maxAttempts: 1 }, 1);
     assert.equal(neverRetried.displayStatus, "abandoned_no_retry");
 
     const exhausted = deriveDisplayStatus({ status: "failed", result: null, attempts: 5, maxAttempts: 5 }, 5);
@@ -118,6 +126,23 @@ describe("queueHealth — derived statuses", () => {
       5, // resolved from CURRENT config, not necessarily what applied at finalization
     );
     assert.equal(legacyRow.displayStatus, "failed", "a 0-sentinel row must not be derived as terminal");
+
+    // The single-attempt-ceiling case specifically: a legacy row that
+    // genuinely exhausted 5 attempts under an OLD higher ceiling, viewed
+    // after an admin has since LOWERED the queue's live ceiling to 1. Without
+    // the maxAttempts>0 guard on effectiveMax<=1 too, this would relabel a
+    // real 5-attempt exhaustion as "terminal, gave up early" — the live
+    // ceiling of 1 says nothing about how many attempts this row actually had
+    // available when it failed.
+    const legacyMultiAttemptExhaustion = deriveDisplayStatus(
+      { status: "failed", result: null, attempts: 5, maxAttempts: 0 },
+      1, // the CURRENT, since-lowered ceiling — not what applied historically
+    );
+    assert.equal(
+      legacyMultiAttemptExhaustion.displayStatus,
+      "failed",
+      "a 0-sentinel row must not be derived as terminal even when the live ceiling is 1",
+    );
   });
 
   it("sanitizes skip reasons against the closed set", () => {
@@ -141,6 +166,14 @@ describe("queueHealth — lane liveness", () => {
     // brief event-loop pause would breach on a perfectly healthy lane.
     assert.equal(staleThresholdMs(2_000), 60_000);
     assert.equal(staleThresholdMs(60_000), 180_000);
+  });
+
+  it("computes the widest per-lane stale threshold, for the TTL/prune-cutoff widening", () => {
+    // Every real lane's default interval is 2-5s, so every lane floors at the
+    // same 60s threshold under default config — this just proves the
+    // aggregation itself (max over ALL_LANES) rather than any one lane's math,
+    // which staleThresholdMs's own test above already covers.
+    assert.equal(widestStaleThresholdMs(), 60_000);
   });
 
   it("reports a lane healthy when ONE instance is stale but another is scheduling it", async () => {
