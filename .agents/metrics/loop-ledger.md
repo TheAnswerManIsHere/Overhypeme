@@ -323,7 +323,10 @@ correctly rejected that: this table is for a genuine decision not to measure
 a loop, and a session hitting a tool-output limit mid-attempt is a punt, not
 a decision. #280 has a real row instead (row 14 above), mechanical-only,
 causal classification deferred the same way row 6 defers #279's — earned by
-scale (180 findings, the largest on record) rather than borrowed without it.
+scale (180 raw review threads, the largest thread count this ledger has
+pulled for any PR) rather than borrowed without it. Not "180 findings" —
+row 14's `findings` is unmeasured, and this note doesn't get to smuggle back
+in as fact what that row explicitly withdrew.
 
 **Dependabot PRs are excluded by policy, not by entry** — they carry no plan,
 fix tier, or review loop, and requiring a hand-written exemption for each
