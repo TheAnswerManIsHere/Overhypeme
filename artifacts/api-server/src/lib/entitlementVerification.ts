@@ -381,11 +381,17 @@ export async function verifyMembershipSubscription(
   // is — a second copy of the allowlist rule is a second thing that can drift
   // from the one the checkout path enforces.
   let isMembershipProduct = false;
+  // The item that actually grants membership, not just the first line item —
+  // a subscription can carry a non-membership add-on ahead of (or instead of)
+  // the membership item, and the billing-cycle label has to describe THAT
+  // item's price, not whichever happened to be listed first.
+  let membershipItem: Stripe.SubscriptionItem | undefined;
   for (const item of items.items) {
     if (!item.price) continue;
     try {
       if (await priceGrantsMembership(item.price, deps.retriever)) {
         isMembershipProduct = true;
+        membershipItem = item;
         break;
       }
     } catch (error) {
@@ -398,7 +404,6 @@ export async function verifyMembershipSubscription(
     }
   }
 
-  const firstItem = items.items[0];
   const periodEnd = (subscription as Stripe.Subscription & { current_period_end?: number })
     .current_period_end;
 
@@ -409,7 +414,7 @@ export async function verifyMembershipSubscription(
     providerRef: subscription.id,
     isMembershipProduct,
     lifecycleStatus: subscription.status,
-    plan: planLabelFromInterval(firstItem?.price?.recurring?.interval),
+    plan: planLabelFromInterval(membershipItem?.price?.recurring?.interval),
     currentPeriodEnd: typeof periodEnd === "number" ? new Date(periodEnd * 1000) : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
   };

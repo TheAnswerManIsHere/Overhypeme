@@ -34,7 +34,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "nsfwModeEnabled" | "membershipTier" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
+type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "nsfwModeEnabled" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
 
 interface AppSubscription {
   id: number;
@@ -63,11 +63,15 @@ interface MembershipData {
   lifetimeEntitlement: {
     id: number;
     sourceType: "stripe_lifetime_payment" | "admin_grant";
+    status: string;
     stripePaymentIntentId: string | null;
     amount: number | null;
     createdAt: string;
     grantedByAdminId: string | null;
     grantedByAdminLabel: string | null;
+    revokedByAdminLabel: string | null;
+    revokedReason: string | null;
+    revokedAt: string | null;
   } | null;
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
@@ -246,7 +250,6 @@ export default function AdminUsers() {
       isAdmin: user.isAdmin,
       captchaVerified: user.captchaVerified,
       nsfwModeEnabled: user.nsfwModeEnabled,
-      membershipTier: user.membershipTier,
       pronouns: user.pronouns ?? "he/him",
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
@@ -275,7 +278,6 @@ export default function AdminUsers() {
       if (data.user) {
         setUsers((prev) => prev.map((u) => (u.id === data.user!.id ? data.user! : u)));
         setSelectedUser(data.user!);
-        setDraft((d) => d ? { ...d, membershipTier: data.user!.membershipTier } : d);
       }
       setLifetimeActionResult({ type: "success", message: "Legendary for Life granted." });
       fetchMembership(selectedUser.id);
@@ -296,7 +298,7 @@ export default function AdminUsers() {
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Revoke failed");
-      setLifetimeActionResult({ type: "success", message: "Legendary for Life revoked. Tier not changed — use the tier selector above if needed." });
+      setLifetimeActionResult({ type: "success", message: "Legendary for Life revoked." });
       fetchMembership(selectedUser.id);
     } catch (err) {
       setLifetimeActionResult({ type: "error", message: err instanceof Error ? err.message : "Revoke failed" });
@@ -340,7 +342,6 @@ export default function AdminUsers() {
           isAdmin: draft.isAdmin,
           captchaVerified: draft.captchaVerified,
           nsfwModeEnabled: draft.nsfwModeEnabled,
-          membershipTier: draft.membershipTier,
           pronouns: draft.pronouns,
           monthlyGenerationLimitOverrideUsd: draft.monthlyGenerationLimitOverrideUsd
             ? parseFloat(draft.monthlyGenerationLimitOverrideUsd)
@@ -1103,34 +1104,6 @@ export default function AdminUsers() {
               </p>
             </div>
 
-            {/* Membership tier */}
-            <div>
-              <FieldLabel>Membership Tier</FieldLabel>
-              <div className="flex gap-2">
-                {(["unregistered", "registered", "legendary"] as const).map((tier) => {
-                  const isActive = draft.membershipTier === tier;
-                  const activeClass =
-                    tier === "legendary"
-                      ? "border-amber-500 bg-amber-500/10 text-amber-400"
-                      : tier === "registered"
-                      ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
-                      : "border-primary bg-primary/10 text-primary";
-                  return (
-                    <button
-                      key={tier}
-                      onClick={() => setDraft((d) => d ? { ...d, membershipTier: tier } : d)}
-                      className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
-                        isActive ? activeClass : "border-border text-muted-foreground hover:border-primary/40"
-                      }`}
-                    >
-                      {tier === "legendary" ? <Gem className="w-3.5 h-3.5" /> : tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                      {tier === "legendary" ? "Legendary" : tier === "registered" ? "Registered" : "Unregistered"}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Membership Status */}
             <div className="border border-border rounded-sm overflow-hidden">
               <div className="px-3 py-2 bg-muted/40 border-b border-border flex items-center gap-2">
@@ -1146,10 +1119,19 @@ export default function AdminUsers() {
                     <Infinity className={`w-4 h-4 ${membershipData?.isLifetime ? "text-amber-400" : "text-muted-foreground"}`} />
                     <div>
                       <p className="text-xs font-semibold text-foreground">Legendary for Life</p>
-                      {membershipData?.isLifetime && membershipData.lifetimeEntitlement ? (
+                      {/* Rendered whenever a row exists, independent of current
+                          qualification — history is append-only, and a revoked
+                          grant or a refunded purchase must stay visible and
+                          marked as such, not disappear behind "Not granted". */}
+                      {membershipData?.lifetimeEntitlement ? (
                         <div>
                           <p className="text-xs text-muted-foreground">
-                            Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
+                            {membershipData.lifetimeEntitlement.status === "revoked"
+                              ? "Revoked grant"
+                              : membershipData.lifetimeEntitlement.status === "refunded"
+                                ? "Refunded"
+                                : "Granted"}{" "}
+                            {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
                             {membershipData.lifetimeEntitlement.sourceType === "admin_grant" ? (
                               <span>
                                 {" (admin"}
@@ -1163,6 +1145,20 @@ export default function AdminUsers() {
                               </span>
                             ) : ""}
                           </p>
+                          {membershipData.lifetimeEntitlement.status === "revoked" && (
+                            <p className="text-xs text-destructive">
+                              Revoked
+                              {membershipData.lifetimeEntitlement.revokedAt
+                                ? ` ${new Date(membershipData.lifetimeEntitlement.revokedAt).toLocaleDateString()}`
+                                : ""}
+                              {membershipData.lifetimeEntitlement.revokedByAdminLabel
+                                ? ` by ${membershipData.lifetimeEntitlement.revokedByAdminLabel}`
+                                : ""}
+                              {membershipData.lifetimeEntitlement.revokedReason
+                                ? ` — ${membershipData.lifetimeEntitlement.revokedReason}`
+                                : ""}
+                            </p>
+                          )}
                           {membershipData.lifetimeEntitlement.sourceType !== "admin_grant" &&
                             membershipData.lifetimeEntitlement.stripePaymentIntentId && (
                             <div className="mt-0.5">

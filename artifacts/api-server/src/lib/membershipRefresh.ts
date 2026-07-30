@@ -497,7 +497,7 @@ async function applySubscription(
 ): Promise<ApplyResult> {
   const { verified } = prepared;
 
-  const { created } = await applySubscriptionSource(
+  const { applied, created, previousLifecycleStatus } = await applySubscriptionSource(
     tx,
     {
       sourceType: "stripe_subscription",
@@ -524,6 +524,25 @@ async function applySubscription(
     await tx.insert(membershipHistoryTable).values({
       userId: verified.userId,
       event: "subscription_activated",
+      plan: verified.plan ?? undefined,
+      stripeSubscriptionId: verified.providerRef,
+    });
+  } else if (
+    applied &&
+    previousLifecycleStatus !== null &&
+    previousLifecycleStatus !== "canceled" &&
+    verified.lifecycleStatus === "canceled"
+  ) {
+    // The same independence as `subscription_activated`, for the opposite
+    // transition: a user holding a second qualifying source (another
+    // subscription, a lifetime purchase, an admin grant) never loses the
+    // aggregate tier when THIS subscription cancels, so gating the fact on
+    // `recomputeMembership`'s tier-changed check would silently drop it for
+    // exactly those users — even though the old handler always recorded a
+    // subscription's own cancellation as a fact about that source.
+    await tx.insert(membershipHistoryTable).values({
+      userId: verified.userId,
+      event: "subscription_cancelled",
       plan: verified.plan ?? undefined,
       stripeSubscriptionId: verified.providerRef,
     });
@@ -600,9 +619,11 @@ async function applyRefund(
   }
 
   await markLifetimeRefunded(tx, prepared.paymentIntentId);
-  const result = await recomputeMembership(tx, source.userId, {
-    transitionEvent: { event: "refund", stripePaymentIntentId: prepared.paymentIntentId },
-  });
+  // The `refund` fact is already recorded unconditionally above — passing a
+  // transitionEvent here too would insert it a second time whenever the
+  // refund also changes the user's aggregate tier. recomputeMembership's
+  // result is used only to decide the notification below.
+  const result = await recomputeMembership(tx, source.userId);
 
   // Decided here, from the locked pre-state, and executed after the commit.
   const notifications: NotificationAction[] =
@@ -626,7 +647,17 @@ async function applyDispute(
     sourceId: source.id,
   });
 
-  if (outcome.outcome !== "applied") {
+  // A no-op dispute-ROW upsert (already terminal, e.g. re-observed after a
+  // prior `won`) is independent of the source's permanent loss-revocation
+  // write, which is gated only on `disputeLossRevokedAt IS NULL` — so it can
+  // still have just been written even though the dispute row itself no-opped.
+  // Skipping recompute here would leave a permanently disqualified source
+  // never demoting the stored tier.
+  const lostRevocationWritten =
+    (outcome.outcome === "applied" || outcome.outcome === "no_op_terminal") &&
+    outcome.lostRevocationWritten;
+
+  if (outcome.outcome !== "applied" && !lostRevocationWritten) {
     // Deliberately not an error: raising one would roll back the claim and
     // Stripe would retry the same anomaly indefinitely, turning an observation
     // into a stuck event.
@@ -640,7 +671,7 @@ async function applyDispute(
       ? "dispute_lost"
       : status === "won"
         ? "dispute_won"
-        : outcome.isTerminal
+        : outcome.outcome === "applied" && outcome.isTerminal
           ? "dispute_closed"
           : "dispute_opened";
 

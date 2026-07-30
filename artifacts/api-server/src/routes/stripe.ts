@@ -346,7 +346,13 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
         return;
       }
       const applied = await refreshSubscriptionSource(stripe, subscriptionId, {
-        linkHintUserId: req.user.id,
+        // The hint must come from the SESSION's own metadata (set by our backend
+        // at checkout creation — see POST /stripe/checkout), never from the
+        // caller's identity. Hinting with req.user.id would let bindUser link an
+        // unbound customer to whichever authenticated caller happens to submit
+        // this session id, and then trivially pass expectedUserId because it had
+        // just linked the customer to that same id moments before.
+        ...(session.metadata?.userId ? { linkHintUserId: session.metadata.userId } : {}),
         expectedUserId: req.user.id,
         // subscription_activated is now recorded unconditionally by applySubscription
         // itself when the source is newly created — passing it here too would

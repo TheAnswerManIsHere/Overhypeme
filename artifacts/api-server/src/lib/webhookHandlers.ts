@@ -126,6 +126,16 @@ async function findUserById(userId: string) {
  * on state that rolled back moments later. They keep exactly today's semantics —
  * best-effort, unguaranteed, lost on a crash.
  */
+/**
+ * Noop reasons that describe OUR failure to observe an object right now, not a
+ * settled fact about the object — a retry might succeed where this attempt
+ * didn't. Every other noop reason (`not_membership_product`, `wrong_mode`,
+ * `user_mismatch`, `no_customer`, `source_unknown`, `payment_not_complete`, …)
+ * is permanent: retrying the SAME event will reach the SAME conclusion, so
+ * claiming those is correct.
+ */
+const RETRYABLE_NOOP_REASONS = new Set(["source_busy", "retrieval_failed", "incomplete_enumeration"]);
+
 export interface PreparedDomainEvent {
   entitlement: Prepared;
   historyWrites: Array<{
@@ -316,11 +326,11 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
       // event's status — it retrieves the subscription's CURRENT state, which is
       // also what makes an out-of-order delivery harmless.
       const sub = event.data.object as Stripe.Subscription;
-      entitlement = await prepareSubscriptionRefresh(stripe, sub.id, {
-        ...(event.type === "customer.subscription.deleted"
-          ? { transitionEvent: "subscription_cancelled" }
-          : {}),
-      });
+      // subscription_cancelled is now recorded unconditionally by applySubscription
+      // itself when this source's own status transitions to canceled — passing it
+      // here too would double-write the history fact whenever the transition also
+      // happens to change the user's aggregate tier.
+      entitlement = await prepareSubscriptionRefresh(stripe, sub.id);
       break;
     }
     case "invoice.paid": {
@@ -626,12 +636,16 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         id: string;
         customer: string | { id: string } | null;
         payment_intent: string | { id: string } | null;
+        invoice: string | { id: string } | null;
         // `amount` is what makes partial distinguishable from full. Its absence
         // from the old destructured parameter is why the handler could not tell.
         amount: number;
         amount_refunded: number;
         currency: string;
       };
+      const refundInvoiceId = charge.invoice
+        ? (typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id)
+        : undefined;
       const refundPaymentIntentId = charge.payment_intent
         ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
         : null;
@@ -674,6 +688,7 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
             amount: charge.amount_refunded,
             currency: charge.currency,
             stripePaymentIntentId: refundPaymentIntentId,
+            stripeInvoiceId: refundInvoiceId,
           });
         } else {
           logger.warn(
@@ -966,6 +981,19 @@ export class WebhookHandlers {
       // with no transaction open. At this point stripe is guaranteed non-null:
       // either we acquired it in phase 1, or we returned early above.
       prepared = await prepareDomainEvent(stripe!, event);
+
+      // A noop is not automatically a settled fact. `source_busy` (lease
+      // contention), `retrieval_failed` and `incomplete_enumeration` (a Stripe
+      // call or pagination pass that didn't complete) describe OUR inability to
+      // observe the object right now, not something about the object itself —
+      // unlike e.g. `not_membership_product`, which will never become true on a
+      // retry. Committing the idempotency claim on a retryable noop would
+      // permanently ack a transient failure: Stripe would never redeliver it, and
+      // nothing else reconstructs a one-time grant or dispute transition from
+      // scratch. So this throws BEFORE the claim, same as any other failure.
+      if (prepared.entitlement.kind === "noop" && RETRYABLE_NOOP_REASONS.has(prepared.entitlement.reason)) {
+        throw new Error(`retryable prepare failure: ${prepared.entitlement.reason}`);
+      }
 
       // Phase B — apply. The claim and every domain write, one transaction, no
       // network. A throw rolls the claim back so Stripe's retry can succeed.

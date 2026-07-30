@@ -387,9 +387,10 @@ async function runStagedReconciliation(
   report.cohort = await qualifyingPopulation(asOf);
   report.allowedDowngrades = allowedDowngrades(report.cohort, config);
 
-  const distinctDowngradedUsers = new Set(
+  const distinctDowngradedUserIds = new Set(
     report.staged.filter((change) => change.direction === "downgrade").map((c) => c.userId),
-  ).size;
+  );
+  const distinctDowngradedUsers = distinctDowngradedUserIds.size;
 
   const guardTrips = distinctDowngradedUsers > report.allowedDowngrades;
   const ambiguityTrips = report.ambiguous > config.reconcile_max_ambiguous_per_run;
@@ -432,6 +433,49 @@ async function runStagedReconciliation(
       if (prepared.reason === "source_busy") report.skipped += 1;
       else if (prepared.reason !== "incomplete_enumeration") report.failed += 1;
       continue;
+    }
+
+    // The guard in Phase 3 only ever saw the Phase 1/2 staged snapshot. Between
+    // then and now, Stripe state can have moved again — a bulk provider-side
+    // change during a long-running pass — and this fresh prepare reflects THAT,
+    // not what was guarded. Applying it unconditionally would let a downgrade the
+    // guard never evaluated slip through under cover of a report that shows zero
+    // (or an already-bounded number of) downgrades. So: re-derive this user's
+    // fresh before/after against a fresh snapshot, and if it's a downgrade for a
+    // user the guard never counted, defer it — the next run re-stages and
+    // re-guards it properly, which is strictly safer than writing it now.
+    if (prepared.kind === "subscription" && !distinctDowngradedUserIds.has(item.userId)) {
+      const freshExisting = await loadSourceSnapshots(db, item.userId);
+      const freshCurrent = deriveEffectiveMembership(freshExisting, asOf);
+      const freshReplacement = freshExisting.find(
+        (source) =>
+          source.sourceType === "stripe_subscription" && source.providerRef === item.providerRef,
+      );
+      if (freshReplacement) {
+        const freshIntended = deriveEffectiveMembership(
+          withReplacement(freshExisting, {
+            ...freshReplacement,
+            isMembershipProduct: prepared.verified.isMembershipProduct,
+            lifecycleStatus: prepared.verified.lifecycleStatus,
+            graceExpiresAt:
+              prepared.verified.lifecycleStatus === "past_due"
+                ? (prepared.graceStartedAt
+                    ? new Date(prepared.graceStartedAt.getTime() + GRACE_WINDOW_MS)
+                    : (freshReplacement.graceExpiresAt ?? null))
+                : null,
+          }),
+          asOf,
+        );
+        if (freshCurrent.tier === "legendary" && freshIntended.tier !== "legendary") {
+          report.skipped += 1;
+          await releasePrepared(prepared);
+          logger.warn(
+            { providerRef: item.providerRef, userId: item.userId },
+            "reconcile: apply-time state shows a downgrade the guard never evaluated — deferred to the next run",
+          );
+          continue;
+        }
+      }
     }
 
     try {

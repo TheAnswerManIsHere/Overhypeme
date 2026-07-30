@@ -290,6 +290,24 @@ describe("verifyMembershipSubscription", () => {
     assert.deepEqual(result.currentPeriodEnd, new Date(1_800_000_000 * 1000));
   });
 
+  it("derives plan from the item that actually grants membership, not items[0]", async () => {
+    const world = membershipWorld();
+    world.subscriptionItems.sub_ok = [
+      // A non-membership add-on listed FIRST, on a monthly price with no
+      // recognized product tag.
+      { id: "si_addon", price: price("price_addon", "prod_merch", "month") } as unknown as Stripe.SubscriptionItem,
+      // The actual membership item, billed annually, listed second.
+      { id: "si_member", price: price("price_sub", "prod_member", "year") } as unknown as Stripe.SubscriptionItem,
+    ];
+    const result = await verifyMembershipSubscription("sub_ok", makeDeps(world));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.isMembershipProduct, true);
+    // Must reflect the MEMBERSHIP item's interval (annual), not the add-on's
+    // (monthly) just because it was listed first.
+    assert.equal(result.plan, "annual");
+  });
+
   it("refuses a subscription belonging to another customer than the requested user", async () => {
     const result = await verifyMembershipSubscription("sub_ok", makeDeps(membershipWorld()), {
       expectedUserId: "user-2",

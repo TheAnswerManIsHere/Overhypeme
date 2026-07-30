@@ -411,9 +411,11 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
               // later reinstatement recomputes Legendary for a user whose
               // subscription Stripe has already cancelled — and "the webhook
               // usually closes the gap" is exactly what this model refuses.
-              await refreshSubscriptionSource(stripe, subscriptionId, {
-                transitionEvent: "subscription_cancelled",
-              });
+              // subscription_cancelled is recorded unconditionally by
+              // applySubscription itself on the status transition — passing it
+              // as a transitionEvent too would double-write it whenever this
+              // cancellation also happens to change the user's aggregate tier.
+              await refreshSubscriptionSource(stripe, subscriptionId);
               canceledCount++;
             } catch (e) {
               logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
@@ -468,6 +470,9 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
         grantedByAdminId: membershipEntitlementsTable.grantedByAdminId,
         grantedByAdminLabel: membershipEntitlementsTable.grantedByAdminLabel,
         grantReason: membershipEntitlementsTable.grantReason,
+        revokedByAdminLabel: membershipEntitlementsTable.revokedByAdminLabel,
+        revokedReason: membershipEntitlementsTable.revokedReason,
+        revokedAt: membershipEntitlementsTable.revokedAt,
         createdAt: membershipEntitlementsTable.createdAt,
       })
         .from(membershipEntitlementsTable)
@@ -655,7 +660,10 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
     const grant = authorizeAdminGrant({
       userId: id,
       grantedByAdminId: actor.id,
-      grantedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+      // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: actor.displayName ?? actor.email ?? "",
       grantReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
         "Comped by an administrator",
     });
@@ -702,7 +710,8 @@ router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Reques
     const actor = req.user!;
     const revocation = authorizeAdminRevocation({
       revokedByAdminId: actor.id,
-      revokedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+      // Never the raw admin id — same reasoning as the grant path above.
+      revokedByAdminLabel: actor.displayName ?? actor.email ?? "",
       revokedReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
         "Revoked by an administrator",
     });
@@ -793,7 +802,10 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
           authorizeAdminGrant({
             userId: row.id,
             grantedByAdminId: actor.id,
-            grantedByAdminLabel: actor.email ?? actor.displayName ?? actor.id,
+            // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: actor.displayName ?? actor.email ?? "",
             grantReason: "Created as a Legendary member by an administrator",
           }),
         );
@@ -2448,10 +2460,15 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       : undefined;
   }
 
-  if (hasDebugValue) {
-    const rawDebug = body.debugValue === null || String(body.debugValue).trim() === ""
-      ? null
-      : String(body.debugValue).trim();
+  if (hasDebugValue || clearDebug) {
+    // `clearDebugValue: true` sent alone (no `debugValue` key at all) is a
+    // second way to clear the override, and it must land on the exact same
+    // validation path as `debugValue: null` — a separate `else if (clearDebug)`
+    // branch after this block used to skip every check below, including the
+    // relational one, for this specific mechanism.
+    const rawDebug = hasDebugValue
+      ? (body.debugValue === null || String(body.debugValue).trim() === "" ? null : String(body.debugValue).trim())
+      : null;
     if (rawDebug !== null && existing.dataType === "integer") {
       const parsed = parseInt(rawDebug, 10);
       if (isNaN(parsed)) {
@@ -2485,9 +2502,14 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
     // of breaking the lease/heartbeat/downgrade-allowance relationships as a
     // write to value, and skipping the check here left debug mode a backdoor
-    // around it.
-    if (rawDebug !== null && isMembershipConfigKey(key)) {
-      const parsed = Number(rawDebug);
+    // around it. CLEARING an override is not exempt either: clearing this
+    // key's debug value does not make it inert, it reverts the EFFECTIVE value
+    // to the base `value` column — which can violate a relational invariant
+    // against another key's still-active debug override exactly as easily as
+    // setting a bad debug value can. So the check always runs, using whichever
+    // value this key's write actually makes effective.
+    if (isMembershipConfigKey(key)) {
+      const parsed = rawDebug !== null ? Number(rawDebug) : Number(existing.value);
       if (Number.isNaN(parsed)) {
         res.status(400).json({ error: "Debug value must be a number" });
         return;
@@ -2503,12 +2525,13 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
     }
     newDebugValue = rawDebug;
-    newDebugValueLabel = body.debugValueLabel !== undefined && body.debugValueLabel !== null
-      ? String(body.debugValueLabel).trim() || null
-      : undefined;
-  } else if (clearDebug) {
-    newDebugValue = null;
-    newDebugValueLabel = null;
+    // Clearing (either mechanism) always clears the label too — a null debug
+    // value never keeps a stale debug label attached to it.
+    newDebugValueLabel = rawDebug === null
+      ? null
+      : (body.debugValueLabel !== undefined && body.debugValueLabel !== null
+          ? String(body.debugValueLabel).trim() || null
+          : undefined);
   }
 
   const [updated] = await db

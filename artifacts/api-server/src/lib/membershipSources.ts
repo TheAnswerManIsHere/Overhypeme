@@ -217,7 +217,13 @@ export async function applySubscriptionSource(
   tx: Tx,
   state: SubscriptionSourceState,
   opts: { graceStartedAt?: Date | null } = {},
-): Promise<{ applied: boolean; created: boolean; sourceId: number | null }> {
+): Promise<{
+  applied: boolean;
+  created: boolean;
+  sourceId: number | null;
+  /** The status this row carried BEFORE this write, or null when there was no prior row. */
+  previousLifecycleStatus: string | null;
+}> {
   const token = await nextSourceStateToken(tx);
 
   // Grace is an EPISODE: it starts on first entry to past_due and duplicate
@@ -278,7 +284,12 @@ export async function applySubscriptionSource(
       )
       .returning({ id: membershipEntitlementsTable.id });
 
-    return { applied: result.length > 0, created: false, sourceId: existing.id };
+    return {
+      applied: result.length > 0,
+      created: false,
+      sourceId: existing.id,
+      previousLifecycleStatus: existing.lifecycleStatus,
+    };
   }
 
   const inserted = await tx
@@ -299,7 +310,12 @@ export async function applySubscriptionSource(
     .onConflictDoNothing()
     .returning({ id: membershipEntitlementsTable.id });
 
-  return { applied: inserted.length > 0, created: inserted.length > 0, sourceId: inserted[0]?.id ?? null };
+  return {
+    applied: inserted.length > 0,
+    created: inserted.length > 0,
+    sourceId: inserted[0]?.id ?? null,
+    previousLifecycleStatus: null,
+  };
 }
 
 /**
@@ -372,7 +388,7 @@ export async function markLifetimeRefunded(
 
 export type DisputeTransitionOutcome =
   | { outcome: "applied"; isTerminal: boolean; lostRevocationWritten: boolean }
-  | { outcome: "no_op_terminal" }
+  | { outcome: "no_op_terminal"; lostRevocationWritten: boolean }
   | { outcome: "unrecognised_status"; status: string }
   | { outcome: "source_unknown" };
 
@@ -444,7 +460,12 @@ export async function applyDisputeTransition(
   `);
 
   if (applied.rows.length === 0) {
-    return { outcome: "no_op_terminal" };
+    // The dispute row itself was a no-op (already terminal), but the source's
+    // permanent `disputeLossRevokedAt` write above is unconditional on THIS
+    // row's terminal state — it can still have just been written. The caller
+    // must recompute on that, not skip recompute because the dispute-row upsert
+    // happened to no-op.
+    return { outcome: "no_op_terminal", lostRevocationWritten };
   }
 
   return { outcome: "applied", isTerminal, lostRevocationWritten };
