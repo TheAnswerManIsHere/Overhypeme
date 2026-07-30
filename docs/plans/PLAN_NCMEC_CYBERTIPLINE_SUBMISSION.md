@@ -23,6 +23,26 @@ knowledge of apparent CSAM to report it, and to preserve the report and its supp
 bytes. This plan delivers the *reporting* half. Preservation and expiry are the
 companion plan.
 
+## 1b. Normative rules — stated once, referenced everywhere
+
+**Every rule below is stated here and nowhere else.** Seventeen review rounds established
+that this document's dominant defect class is not wrong design — it is a rule restated in
+prose, a contract table, a schema note, a test list and a phase table, then corrected in one
+of them. Six of round 18's sixteen findings were exactly that. Where any later section needs
+one of these rules it **references the number**; if a later section states a rule in full,
+that is a defect regardless of whether it happens to be correct.
+
+| # | Rule |
+|---|---|
+| **N1** | The lease is released on **every** exit where the worker still holds it — success, terminal failure, reversible refusal, pre-`/finish` abort, **retryable ISPWS error, caught handler exception**. Only a genuinely lost lease and process death expire. |
+| **N2** | Terminal finalization enqueues **`ncmec_notify_failed`** with `{ reportId, failedAt }`, never a raw `email` job — the handler resolves recipients, sends with a bounded timeout, and stamps `alert_notified_at` generation-bound. |
+| **N3** | `alert_notified_at` is cleared by **every** transition out of `failed`: admin retry, `mark-manually-filed`, `reopen`, orphan disposition, and any reconciler repair that re-enqueues. |
+| **N4** | Production submission may be enabled **only** while `ncmec_safety_alert_email` is set and valid. A notifying admin is never a substitute. Every activation contract, endpoint refusal and test states this and no weaker form. |
+| **N5** | Production activation requires **five** preconditions: cutoff set, completion marker set, zero unaudited reports, **zero undispositioned in-scope orphans**, valid alert email. §7's rollout enumerates all five. |
+| **N6** | `ncmec_notify_failed` passes `AbortSignal.timeout(30_000)` and returns retryable on abort. It runs in `bulk` **because** it performs external I/O, and the timeout is what makes that safe. |
+| **N7** | The audit log's maintenance bypass is membership of `overhype_audit_maintenance`. No session-settable GUC anywhere — including in test guidance. |
+| **N8** | `ncmec_reconcile` runs in `fast`, **and its 5-minute cadence timer is attached to the `fast` runner**. Both halves, always. |
+
 ## 2. Must not change
 
 These are invariants a correct implementation preserves. Breaking any of them is a
@@ -3369,3 +3389,48 @@ decision is a recorded position rather than an omission:
   and needs no integration.
 - **The ESP Dashboard** (`esp.ncmec.org`). Separate credentials, separate product,
   read-only company/contact management. No API surface to integrate.
+
+---
+
+## 10. Known gaps at freeze — carried into implementation deliberately
+
+**David's decision, 2026-07-30: this plan ships with the gaps below rather than continuing
+the review loop.** Eighteen rounds produced 174 findings. The rate did not decline —
+12 → 18 → 22 → 20 → 16 — and round 18's split showed why: roughly a third were my own
+incomplete propagation (now attacked structurally by §1b), and the rest were genuine new
+defects in a 3,100-line specification that review has not reached the bottom of.
+
+The judgement is that a real database and a real test suite will surface this remaining
+class faster and more reliably than further rounds of prose review. Every defect that would
+be **irreversible or externally visible** — duplicate federal filings, evidence leakage,
+silently unreported hits — has been found and fixed, several twice. What remains is edge
+semantics and operator ergonomics, where the cost of discovery at implementation time is a
+failing test rather than a bad filing.
+
+**These are requirements, not suggestions. Each must be resolved during implementation and
+is a review checkpoint on the implementation PR.**
+
+### Must be resolved before the phase that introduces them
+
+| # | Gap | Phase |
+|---|---|---|
+| **G1** | **The application role owns `ncmec_safety_audit_log` and can therefore `ALTER TABLE … DISABLE TRIGGER` or drop the trigger function.** `runMigrations()` and the runtime pool share `DATABASE_URL`, so §5.4's trigger is not yet the privilege boundary it claims. Needs a separate migration/owner role with runtime DDL revoked. | 1 |
+| **G2** | **`0094`'s backfill casts `request_metadata->>'quarantineId'` without validating it.** A non-numeric value raises and aborts the migration; a numeric-but-dangling id fits none of the linked/missing/conflicting counts. Classify malformed and dangling before mutating, and report them. | 1 |
+| **G3** | **The `missing` population can still produce the duplicate the backfill prevents.** A metadata-less legacy report and its quarantine row stay unlinked, so pass 2 creates a second report. Treat unresolved legacy links as activation-blocking, or establish the link before pass 2 is enabled. | 1, 5 |
+| **G4** | **`getRetryConfig` falls back to the queue defaults (5 attempts, 8 h) whenever a config read fails**, bypassing §5.5's 72-hour guard at runtime. Needs queue-specific code fallbacks of 8 / 24 h, or the effective policy persisted with the job. | 5 |
+| **G5** | **Unaudited-backlog and unresolved-identity refusals are classed `terminal`**, which conflicts with invariant 8 keeping those rows non-final for a human. A row enqueued before the cutoff moved would be finalized `failed` instead of parked. Reclassify as non-final domain refusals. | 3, 5 |
+| **G6** | **`resolve-automated-id` and `resolve-test-attempt` are not fenced against the operation they resolve** — the first accepts a leased row, the second can run while `send-to-test`'s first call is live. Both need the unleased precondition and a compare-and-set on the observed id/attempt. | 6 |
+| **G7** | **The audit action vocabulary has no values for the three resolution endpoints**, so implementing them requires inventing labels for legally consequential determinations. Add explicit actions. | 6 |
+| **G8** | **`send-to-test` writes two audit rows** (`started` / `completed`, sharing `attempt_id`) and §5.8.1's common rule says exactly one per mutation. State it as the deliberate exception and make the test require both. | 6 |
+| **G9** | **`inFlight` counts test leases as possible federal filings.** `send-to-test` takes the same lease, so disabling during a test attempt warns about a filing that cannot occur. Count only production-capable leases and `/finish` markers. | 6 |
+| **G10** | **The observational-write guard orders by a database timestamp taken *after* the response arrives**, so a suspended worker can still overwrite a newer observation. Allocate a monotonic attempt generation **before** the remote call and compare that. | 5 |
+
+### How these are discharged
+
+- Each is named in the implementation PR body and closed by a **test**, not by prose.
+- G1–G3 gate phase 1: the migration must not run in production until they are resolved,
+  because all three concern historical data or the privilege boundary protecting it.
+- Anything a gap turns out to have understated is treated as a fresh bug on the
+  implementation PR, not as a reopened plan review.
+
+**This section is the record that these were known, weighed, and accepted — not missed.**
