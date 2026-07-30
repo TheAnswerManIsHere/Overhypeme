@@ -932,6 +932,14 @@
   default `max` of 10, but raising that `max` was explicitly left out of scope
   and may become necessary. Also revisit if a future queue needs its own
   distinct lane rather than defaulting into `bulk`.
+  **Premise qualified 2026-07-30 (PR #291):** the handler-concurrency-vs-pool-`max`
+  comparison this bullet rests on is not apples-to-apples — a handler holds a
+  connection only for the claim and finalize transactions, not while awaiting a
+  provider — so the headroom implied here overstates the real contention, which
+  has never been measured. The reasoning above is left as the record of what was
+  decided at the time; see
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) and
+  [`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning).
 
 ---
 
