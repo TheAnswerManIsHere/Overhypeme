@@ -644,11 +644,11 @@ export function fromMcp(snapshot) {
 /**
  * Paginated GitHub GET.
  *
- * Pagination is not incidental here: a loop with 18 review rounds — our worst
- * case to date, and the one the ledger most needs to characterise — exceeds a
- * default page. A wrapper that silently returns page one would undercount
- * rounds precisely on the large loops, which is the failure this whole file
- * exists to prevent.
+ * Pagination is not incidental here: PR #279's loop ran 32 review rounds —
+ * our worst case to date, and the one the ledger most needs to characterise —
+ * which exceeds a default page. A wrapper that silently returns page one
+ * would undercount rounds precisely on the large loops, which is the failure
+ * this whole file exists to prevent.
  *
  * `fetchImpl` is injectable so the pagination and error behaviour can be
  * tested without network access.

@@ -121,22 +121,31 @@ Naming all six, not a subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282
 72.1%, #283 0%, #286 0%.
 
 **The three 0% rows are not evidence the workflow is clean — they are a
-structural floor, not a measurement.** #276, #283, and #286 each ran exactly
-one round. By the rubric's own precedence rules, propagation / wrong fix /
-re-raised all require an **earlier fix within the same loop** — a single-round
-loop has no earlier round, so none of those three categories can apply
-regardless of how the loop actually went. A one-round loop's findings are
-new ground by construction, every time, which makes its self-inflicted share
-0% independent of the loop's real quality. Mixing these into a trend with
-multi-round loops would understate the real number, exactly the failure mode
-this backfill exists to prevent in the other direction.
+structural floor, not a measurement.** The precise criterion is **rounds that
+surfaced findings**, not raw round count — that distinction matters
+specifically for #286, whose true engagement was two rounds (see *Rounds
+undercounted when a re-review is clean* above) but whose second round found
+**nothing**. #276 and #283 each had exactly one round, full stop. All three
+had exactly one round that raised any finding at all, and by the rubric's own
+precedence rules propagation / wrong fix / re-raised all require an **earlier
+fix within the same loop that a later round's finding responds to** — a loop
+with only one finding-bearing round has no later round for any finding to
+respond to, so none of those three categories can apply to it, regardless of
+how the loop actually went. A one-finding-round loop's findings are new
+ground by construction, every time, which makes its self-inflicted share 0%
+independent of the loop's real quality. Mixing these into a trend with
+multi-finding-round loops would understate the real number, exactly the
+failure mode this backfill exists to prevent in the other direction.
 
-**The self-inflicted-share trend is only informative for loops that ran more
-than one round** — where propagation and wrong-fix are structurally possible
-— which is #270 (16 rounds), #274 (4 rounds), and #282 (9 rounds). Across
-those three the share is **64.7% → 68.4% → 72.1%, not falling, and is the
-metric this file exists to track.** Two structural observations, both from
-counted data rather than impression:
+**The self-inflicted-share trend is only informative for loops with more
+than one finding-bearing round** — where propagation and wrong-fix are
+structurally possible — which is #270 (16 rounds, findings in every one),
+#274 (4 rounds, findings in every one), and #282 (9 rounds, findings in every
+one). #286 does not qualify despite its true two-round engagement, because
+only round 1 produced findings. Across the three qualifying loops the share
+is **64.7% → 68.4% → 72.1%, not falling, and is the metric this file exists
+to track.** Two structural observations, both from counted data rather than
+impression:
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
   ground; from round 2 onward, new ground was a minority in every round. The

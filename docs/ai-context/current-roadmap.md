@@ -53,12 +53,16 @@ priorities (moderation speed, render/enrichment quality, video). See
   #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #286 0% (#284 is
   adjudicated but has none to report — its one finding is `invalid`, zero
   denominator). The three 0% rows are not a clean-workflow signal — they are
-  single-round loops, and a single round's findings are new ground by
-  construction (propagation/wrong-fix require an earlier in-loop fix, which a
-  round-1 loop doesn't have), so 0% is a structural floor, not a measurement.
-  **The trend is only meaningful across the three multi-round loops** — #270
-  (16 rounds), #274 (4 rounds), #282 (9 rounds) — where it runs 64.7% →
-  68.4% → 72.1%, not falling (n=3, all pre-boundary); see the ledger for the
+  loops with only one **finding-bearing** round (not just one round: #286
+  genuinely had a second review round, but it found nothing), and a
+  finding-bearing round with no prior finding-bearing round in the same loop
+  can only produce new ground by the rubric's own construction
+  (propagation/wrong-fix require an earlier in-loop fix a later finding
+  responds to), so 0% is a structural floor, not a measurement. **The trend
+  is only meaningful across the three loops with more than one
+  finding-bearing round** — #270 (16 rounds), #274 (4 rounds), #282
+  (9 rounds) — where it runs 64.7% → 68.4% → 72.1%, not falling (n=3, all
+  pre-boundary); see the ledger for the
   full reasoning and the two structural findings underneath that number. Two
   things surfaced but
   deliberately left unfixed, for David to decide: the ledger's own
