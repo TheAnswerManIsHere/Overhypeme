@@ -155,11 +155,14 @@ deliberately excludes them and points here instead.
   *scheduling* only; nothing about retries, dedupe, or claim ordering follows
   from it. Retry budget is an **enqueue-time** option on the queue, which is
   why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
-  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**:
-  `generateAiMemeBackgrounds` persists images incrementally, so a partial
-  failure part-way through a fact's image set would re-pay the paid
-  OpenAI/fal.ai calls for the slots that already succeeded. Note `maxAttempts:
-  1` also means `onAbandon` fires on the very first failure.
+  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
+  The reason is the *shape* of the partial failure, not merely its cost:
+  `generateAiMemeBackgrounds` uploads each slot's image as it goes but writes
+  `facts.aiMemeImages` **once, after the whole slot loop** (`aiMemePipeline.ts`),
+  so a failure on a late slot leaves the fact with **no record** of the earlier
+  successful slots even though their paid OpenAI/fal.ai calls and uploads
+  already happened. An automatic retry would regenerate and re-pay for them.
+  Note `maxAttempts: 1` also means `onAbandon` fires on the very first failure.
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed
@@ -167,8 +170,12 @@ deliberately excludes them and points here instead.
   but **only** those whose `updatedAt` (stamped at claim) is older than
   `RECOVER_STUCK_CUTOFF_MIN = 30` minutes, swept every `RECOVER_INTERVAL_MS`
   (60s) by the **`bulk` runner only** (table-wide, so one owner is correct)
-  plus one sweep at boot. A genuinely crashed job therefore waits up to ~30
-  minutes, and that cost is deliberate: this deployment is
+  plus one sweep at boot. 30 minutes is a **floor, not a bound**: the age
+  comparison is strict, the sweep runs at most once a minute, and maintenance
+  happens only *after* the `bulk` lane's own tick finishes (overlapping timer
+  callbacks return early on the re-entrancy guard), so a long-running bulk
+  handler pushes recovery further out. That cost is deliberate: this
+  deployment is
   `deploymentTarget = "autoscale"` with the worker started in **every**
   instance, so too aggressive a cutoff reclaims a *different live instance's*
   in-flight row and both runs execute — for `email`, a duplicate send to a

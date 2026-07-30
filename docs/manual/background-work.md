@@ -75,10 +75,8 @@ each job costs**:
   fact (root or variant). Both are deliberately serialized to one job at a
   time, because both spend money or rate-limit budget at an external provider.
 
-Choosing a lane is a one-line decision when a queue is registered, and what it
-buys is isolation — nothing else about how a job behaves. The poll intervals,
-concurrency bounds, queue assignments, retry semantics, and the one queue that
-deliberately opts out of automatic retries all live in
+The mechanics behind all of this — poll intervals, concurrency bounds, which
+queue runs in which lane, and retry semantics — live in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues);
 this chapter doesn't restate them.
 
@@ -159,11 +157,13 @@ elsewhere.
 - **A crashed job is recovered, but not quickly.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
   stranded forever. But recovery is deliberately unhurried: the sweep only
-  reclaims a job that has looked stuck for **about half an hour**. That delay
-  is the safe choice, not an oversight. The app runs as several instances at
-  once, and a faster sweep would sometimes grab a job another instance is
-  still legitimately working on — running it twice. For an email, that means a
-  real person gets the message twice. Slow recovery of a rare crash is the
+  reclaims a job that has looked stuck for **at least half an hour**, and that
+  is a floor rather than a promise — if the queue is busy, it can be longer.
+  The delay is the safe choice, not an oversight. The app **can** run as
+  several instances at once, and a faster sweep would sometimes grab a job
+  another instance is still legitimately working on — running it twice. For an
+  email, that means a real person gets the message twice. Slow recovery of a
+  rare crash is the
   better trade, and the mechanism that would let it be both fast and safe is
   tracked as follow-up work in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
