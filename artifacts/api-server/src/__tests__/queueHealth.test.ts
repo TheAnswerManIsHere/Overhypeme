@@ -68,7 +68,7 @@ describe("queueHealth — derived statuses", () => {
     assert.equal(displayStatus, "done");
   });
 
-  it("derives `abandoned_no_retry` only when the effective ceiling is one attempt", () => {
+  it("derives `abandoned_no_retry` when the ceiling is one attempt, OR retries were never exhausted", () => {
     // fact_ai_meme_backfill is configured never to retry, so its failures are
     // `failed` after a single attempt — a different operator story from
     // "exhausted five attempts", and indistinguishable without this.
@@ -77,6 +77,21 @@ describe("queueHealth — derived statuses", () => {
 
     const exhausted = deriveDisplayStatus({ status: "failed", result: null, attempts: 5 }, 5);
     assert.equal(exhausted.displayStatus, "failed");
+
+    // A `terminalFailure()` on a queue whose normal ceiling is 5: the handler
+    // gave up deterministically on attempt 1, well short of exhausting its
+    // budget. `processClaimedJob`'s exhaustion path can ONLY mark a row
+    // `failed` once `attempts >= effectiveMax`, so `attempts < effectiveMax`
+    // here proves this row didn't get here via exhaustion — it must be a
+    // terminal failure, and the health surface must say so rather than
+    // rendering it as an indistinguishable generic "Failed".
+    const terminalBeforeCeiling = deriveDisplayStatus({ status: "failed", result: null, attempts: 1 }, 5);
+    assert.equal(terminalBeforeCeiling.displayStatus, "abandoned_no_retry");
+
+    // Same shape, but on a LATER attempt — some retries did happen before the
+    // handler gave up. Still not exhaustion (2 < 5), so still derived.
+    const terminalAfterSomeRetries = deriveDisplayStatus({ status: "failed", result: null, attempts: 2 }, 5);
+    assert.equal(terminalAfterSomeRetries.displayStatus, "abandoned_no_retry");
   });
 
   it("sanitizes skip reasons against the closed set", () => {
@@ -205,6 +220,66 @@ describe("queueHealth — aggregate and per-item altitudes agree", () => {
     const page = await queueHealthJobs({ queue }, db);
     assert.equal(page.rows[0]?.displayStatus, "abandoned_no_retry");
     assert.equal(page.rows[0]?.effectiveMaxAttempts, 1);
+  });
+
+  it("counts a terminal failure short of its retry ceiling at BOTH altitudes", async () => {
+    // Distinct from the never-retried case above: this queue's ceiling is 5,
+    // and the row failed on attempt 1 — a terminalFailure() giving up
+    // deterministically, not exhaustion (which requires attempts >= 5). The
+    // aggregate's `abandonedNoRetry` grouping and the per-item derivation must
+    // agree, same failure mode as the skip/never-retried tests above: right at
+    // one altitude and silently wrong at the other.
+    const queue = testQueue();
+    registerJobHandler(queue, okHandler, { lane: "bulk" });
+    await db.insert(asyncJobsTable).values({
+      queue,
+      payload: {},
+      status: "failed",
+      attempts: 1,
+      maxAttempts: 5,
+      lastError: "deterministic, will not help to retry",
+    });
+
+    const agg = (await queueHealth(db)).find((q) => q.queue === queue);
+    assert.equal(agg?.abandonedNoRetry, 1, "a failure short of its ceiling cannot be exhaustion — must be terminal");
+    assert.equal(agg?.failed, 1);
+
+    const page = await queueHealthJobs({ queue }, db);
+    assert.equal(page.rows[0]?.displayStatus, "abandoned_no_retry");
+    assert.equal(page.rows[0]?.effectiveMaxAttempts, 5);
+  });
+
+  it("keeps active rows reachable within the page limit even when terminal rows are more recent", async () => {
+    // Ordering purely by recency would let a burst of terminal (done/failed)
+    // activity crowd every pending/processing row out of a bounded page — the
+    // aggregate would report queued work while the drill-down shows none of
+    // it, even though it's the exact same work at a different altitude. This
+    // asserts the fix: active statuses sort ahead of terminal ones regardless
+    // of updatedAt.
+    const queue = testQueue();
+    registerJobHandler(queue, okHandler, { lane: "bulk" });
+
+    // One pending row, deliberately the OLDEST by updatedAt.
+    const now = Date.now();
+    await db.insert(asyncJobsTable).values({
+      queue,
+      payload: {},
+      status: "pending",
+      updatedAt: new Date(now - 10_000),
+    });
+    // Three newer terminal rows that would otherwise fill the whole page.
+    await db.insert(asyncJobsTable).values(
+      [0, 1, 2].map((i) => ({
+        queue,
+        payload: {},
+        status: "done" as const,
+        updatedAt: new Date(now - i * 1_000),
+      })),
+    );
+
+    const page = await queueHealthJobs({ queue, limit: 2 }, db);
+    assert.equal(page.rows.length, 2);
+    assert.equal(page.rows[0]?.status, "pending", "the active row must be first regardless of recency");
   });
 
   it("returns all four raw statuses per-item, not only failures", async () => {

@@ -127,12 +127,16 @@ mitigation.
    **no** queue names, payloads, error text or instance ids — it is
    unauthenticated by design, so that absence is a requirement, not an omission.
 
-6. **`GET /health/queues` returns 503 when a lane genuinely stalls.** The
-   cheapest way to observe this: stop the API server workflow, wait past the
-   stale threshold (60s — `max(3 × interval, 60s)`, and every lane's interval is
-   ≤ 5s so all five floor at 60s), then request the endpoint from another
-   process. Expected 503 with `stalledLaneCount: 5`. Restarting the server
-   should return it to 200 within a tick.
+6. **`GET /health/queues` returns 503 when a lane genuinely stalls — covered by
+   an automated test, not a manual step.** Stopping the API server workflow to
+   observe this doesn't work: that also stops the HTTP server that owns this
+   route, so the request fails to connect rather than returning the documented
+   503, and in the autoscaled topology hitting another live instance doesn't
+   help either — that instance is scheduling all five lanes too. The 200/503
+   wiring (and the minimal `{ok, ts, laneCount, stalledLaneCount}` field set on
+   *both* paths) is exercised directly against real DB state in
+   `routes.health.test.ts`'s `GET /health/queues` suite, already covered by the
+   targeted test run above. Nothing to do here manually.
 
 7. **`GET /admin/queue-health` against real data** (authenticated as admin).
    Expect every registered queue to appear **even with zero rows** — a queue

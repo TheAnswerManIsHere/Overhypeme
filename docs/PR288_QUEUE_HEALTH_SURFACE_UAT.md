@@ -69,11 +69,11 @@ Look at the expanded rows. Each job's state is a **labelled** badge:
 | **Done** | finished successfully |
 | **Failed** | ran out of retries |
 | **Skipped** *(reason)* | the handler deliberately did nothing |
-| **Failed — never retried** | failed on its first and only attempt |
+| **Failed — no more retries** | either the queue never retries by design, or the handler gave up before its own retry ceiling — either way, nothing further will happen on its own |
 
 Those last two are the ones I want you to notice, because they were previously
-**invisible**. The database stores a skip as "done" and a never-retried failure
-as plain "failed" — so a skipped job looked like a success, and an
+**invisible**. The database stores a skip as "done" and a not-retried-further
+failure as plain "failed" — so a skipped job looked like a success, and an
 `ai_meme_backfill` job that failed once looked identical to one that had tried
 five times and given up. They are very different operator stories, and now they
 read differently.

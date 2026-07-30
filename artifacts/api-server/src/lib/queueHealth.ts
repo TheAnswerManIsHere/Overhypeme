@@ -92,7 +92,15 @@ export function deriveDisplayStatus(
     const reason = sanitizeSkipReason((row.result as { reason?: unknown }).reason);
     return { displayStatus: "skipped", skipReason: reason };
   }
-  if (row.status === "failed" && effectiveMax <= 1) {
+  // A `failed` row reaches that status two ways: genuine retry exhaustion,
+  // which always requires `attempts >= effectiveMax` (processClaimedJob's
+  // `abandoned = newAttempts >= effectiveMax`), or a deterministic
+  // `terminalFailure()` that gives up immediately regardless of remaining
+  // budget. Any failed row with `attempts < effectiveMax` therefore CANNOT
+  // have arrived via exhaustion — it must be the terminal case.
+  // `effectiveMax <= 1` is the special case where both paths converge on
+  // attempts === effectiveMax === 1 and are equally "no retry" to an operator.
+  if (row.status === "failed" && (effectiveMax <= 1 || row.attempts < effectiveMax)) {
     return { displayStatus: "abandoned_no_retry", skipReason: null };
   }
   return { displayStatus: row.status as DisplayStatus, skipReason: null };
@@ -206,32 +214,47 @@ export interface QueueHealth {
  * resolved per queue here.
  */
 export async function queueHealth(
-  dbInstance: Pick<typeof defaultDb, "select"> = defaultDb,
+  dbInstance: Pick<typeof defaultDb, "select" | "transaction"> = defaultDb,
 ): Promise<QueueHealth[]> {
   const since24h = new Date(Date.now() - 24 * 3_600_000);
 
-  const [tallies, failedByMax] = await Promise.all([
-    dbInstance
-      .select({
-        queue: asyncJobsTable.queue,
-        status: asyncJobsTable.status,
-        total: sql<number>`count(*)::int`,
-        skipped: sql<number>`count(*) filter (where ${asyncJobsTable.result}->>'skipped' = 'true')::int`,
-        last24h: sql<number>`count(*) filter (where ${asyncJobsTable.updatedAt} >= ${since24h})::int`,
-        oldestCreatedAt: sql<Date | null>`min(${asyncJobsTable.createdAt})`,
-      })
-      .from(asyncJobsTable)
-      .groupBy(asyncJobsTable.queue, asyncJobsTable.status),
-    dbInstance
-      .select({
-        queue: asyncJobsTable.queue,
-        maxAttempts: asyncJobsTable.maxAttempts,
-        total: sql<number>`count(*)::int`,
-      })
-      .from(asyncJobsTable)
-      .where(eq(asyncJobsTable.status, "failed"))
-      .groupBy(asyncJobsTable.queue, asyncJobsTable.maxAttempts),
-  ]);
+  // Both queries below must read the SAME instant. Read committed (Postgres's
+  // default) takes a fresh snapshot per statement, and two statements issued
+  // via Promise.all against a plain (non-transactional) db object can land on
+  // separate pool connections regardless — so a job finalizing between them
+  // could otherwise produce an internally impossible response, e.g.
+  // `failed: 0` alongside `abandonedNoRetry: 1`. `repeatable read` pins both
+  // statements in this transaction to one snapshot.
+  const [tallies, failedByMax] = await dbInstance.transaction(
+    async (tx) => {
+      const talliesQuery = await tx
+        .select({
+          queue: asyncJobsTable.queue,
+          status: asyncJobsTable.status,
+          total: sql<number>`count(*)::int`,
+          skipped: sql<number>`count(*) filter (where ${asyncJobsTable.result}->>'skipped' = 'true')::int`,
+          last24h: sql<number>`count(*) filter (where ${asyncJobsTable.updatedAt} >= ${since24h})::int`,
+          oldestCreatedAt: sql<Date | null>`min(${asyncJobsTable.createdAt})`,
+        })
+        .from(asyncJobsTable)
+        .groupBy(asyncJobsTable.queue, asyncJobsTable.status);
+      const failedByMaxQuery = await tx
+        .select({
+          queue: asyncJobsTable.queue,
+          maxAttempts: asyncJobsTable.maxAttempts,
+          // Grouped alongside maxAttempts so the terminal-vs-exhausted split
+          // below (mirroring deriveDisplayStatus) can tell them apart without
+          // a second query.
+          attempts: asyncJobsTable.attempts,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(asyncJobsTable)
+        .where(eq(asyncJobsTable.status, "failed"))
+        .groupBy(asyncJobsTable.queue, asyncJobsTable.maxAttempts, asyncJobsTable.attempts);
+      return [talliesQuery, failedByMaxQuery] as const;
+    },
+    { isolationLevel: "repeatable read" },
+  );
 
   // Every registered queue appears even with zero rows — a queue absent from the
   // page reads as "fine" when it may simply never have run.
@@ -245,7 +268,10 @@ export async function queueHealth(
     let abandonedNoRetry = 0;
     for (const group of failedByMax.filter((f) => f.queue === queue)) {
       const max = await effectiveMaxAttempts(queue, group.maxAttempts);
-      if (max <= 1) abandonedNoRetry += group.total;
+      // Same condition as deriveDisplayStatus: a failed row that hasn't
+      // reached its own effective ceiling cannot have gotten there via
+      // exhaustion — it's a terminal failure.
+      if (max <= 1 || group.attempts < max) abandonedNoRetry += group.total;
     }
 
     const pendingRow = of("pending");
@@ -336,7 +362,16 @@ export async function queueHealthJobs(
       })
       .from(asyncJobsTable)
       .where(where)
-      .orderBy(sql`${asyncJobsTable.updatedAt} desc, ${asyncJobsTable.id} desc`)
+      // Active work (pending/processing) sorts ahead of terminal rows, THEN by
+      // recency within each group. Without this, a queue with heavy terminal
+      // volume can crowd every pending/processing row out of a bounded page —
+      // the aggregate would report queued work while the drill-down shows
+      // none of it, since both are the exact same work at different altitudes.
+      .orderBy(sql`
+        case when ${asyncJobsTable.status} in ('pending', 'processing') then 0 else 1 end,
+        ${asyncJobsTable.updatedAt} desc,
+        ${asyncJobsTable.id} desc
+      `)
       .limit(limit)
       .offset(offset),
     dbInstance.select({ total: sql<number>`count(*)::int` }).from(asyncJobsTable).where(where),

@@ -88,7 +88,11 @@ function DisplayStatusBadge({ status, skipReason }: { status: DisplayStatus; ski
     done: { icon: CheckCircle2, label: "Done", className: "text-green-600" },
     failed: { icon: XCircle, label: "Failed", className: "text-destructive" },
     skipped: { icon: SkipForward, label: "Skipped", className: "text-amber-600" },
-    abandoned_no_retry: { icon: MinusCircle, label: "Failed — never retried", className: "text-destructive" },
+    // Covers two operator stories: a queue that never retries at all, and a
+    // handler that gave up deterministically before reaching its own retry
+    // ceiling — "never" would misdescribe the second, since some attempts did
+    // happen.
+    abandoned_no_retry: { icon: MinusCircle, label: "Failed — no more retries", className: "text-destructive" },
   };
   const { icon: Icon, label, className } = map[status];
   return (
@@ -119,11 +123,19 @@ export default function AdminQueueHealth() {
     expandedRef.current = expanded;
   }, [expanded]);
 
-  // Monotonic sequence numbers so a slow response can never overwrite a
-  // faster, more recent one — the interval fires unconditionally every 5s
-  // regardless of whether the previous request has resolved yet.
+  // Sequence numbers track which request STARTED most recently; the applied*
+  // refs track which response has actually been shown. A response is
+  // discarded only if a MORE RECENT response has already been applied — never
+  // merely because a newer request has since started but not yet resolved.
+  // Comparing against "started" instead would starve every response once
+  // requests routinely run longer than the 5s poll interval: the next tick's
+  // request increments the counter before even a successful slow response
+  // arrives, so every response — including the only one available — reads as
+  // "superseded" and gets discarded forever.
   const loadSeq = useRef(0);
+  const loadAppliedSeq = useRef(0);
   const jobsSeq = useRef<Record<string, number>>({});
+  const jobsAppliedSeq = useRef<Record<string, number>>({});
 
   const load = useCallback(async (): Promise<void> => {
     const seq = ++loadSeq.current;
@@ -131,13 +143,15 @@ export default function AdminQueueHealth() {
       const res = await fetch("/api/admin/queue-health", { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = (await res.json()) as HealthPayload;
-      if (seq !== loadSeq.current) return; // superseded by a newer poll
+      if (seq < loadAppliedSeq.current) return; // a newer response already applied
+      loadAppliedSeq.current = seq;
       setData(payload);
       hasData.current = true;
       setInitialError(null);
       setStaleSince(null);
     } catch (err) {
-      if (seq !== loadSeq.current) return; // superseded by a newer poll
+      if (seq < loadAppliedSeq.current) return; // a newer response already applied
+      loadAppliedSeq.current = seq;
       const msg = err instanceof Error ? err.message : String(err);
       // The distinction that matters. On a FIRST-load failure we must never fall
       // through to the empty/healthy view — "all queues healthy" and "we could
@@ -164,12 +178,14 @@ export default function AdminQueueHealth() {
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = (await res.json()) as { rows: JobRow[] };
-      if (seq !== jobsSeq.current[queue]) return; // superseded by a newer request for this queue
+      if (seq < (jobsAppliedSeq.current[queue] ?? 0)) return; // a newer response already applied
+      jobsAppliedSeq.current[queue] = seq;
       setJobs((prev) => ({ ...prev, [queue]: payload.rows }));
       setJobsErrors((prev) => ({ ...prev, [queue]: null }));
       setJobsLoading((prev) => ({ ...prev, [queue]: false }));
     } catch (err) {
-      if (seq !== jobsSeq.current[queue]) return;
+      if (seq < (jobsAppliedSeq.current[queue] ?? 0)) return;
+      jobsAppliedSeq.current[queue] = seq;
       setJobsErrors((prev) => ({ ...prev, [queue]: err instanceof Error ? err.message : String(err) }));
       setJobsLoading((prev) => ({ ...prev, [queue]: false }));
     }
