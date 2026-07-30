@@ -23,6 +23,7 @@ export * from "./falPricing";
 export * from "./routeStats";
 export * from "./routeStatEvents";
 export * from "./asyncJobs";
+export * from "./workerLaneHeartbeats";
 export * from "./rateLimit";
 export * from "./moderation";
 export * from "./transientRenders";
