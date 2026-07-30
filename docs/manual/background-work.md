@@ -117,9 +117,11 @@ queue's items:
   on total API-process death it's unreachable exactly like every other
   endpoint, so that's not what makes it useful. What's unique is a
   meaningful unhealthy response *while the process is still up*: it turns
-  unhealthy only when a lane has gone quiet **fleet-wide**, a failure mode
-  nothing running *inside* the process can otherwise report about itself. A
-  single instance scaling down is normal, not an incident.
+  unhealthy when a lane has gone quiet **fleet-wide**, a failure mode
+  nothing running *inside* the process can otherwise report about itself —
+  and it also fails closed (same unhealthy response) if checking lane health
+  itself errors out, rather than risking a false "all clear." A single
+  instance scaling down is normal, not an incident.
 
 ## Why it works this way
 

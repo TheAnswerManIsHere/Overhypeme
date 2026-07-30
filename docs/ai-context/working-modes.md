@@ -404,7 +404,8 @@ be trusted.
    must set `complete: {reviews: true, files: true, reviewThreads: true}` only
    once every page is concatenated in. The script refuses an unmarked or
    partial snapshot rather than deriving a plausible-looking undercount, which
-   a large loop (32 rounds, 166 findings — PR #279's, our worst case so far)
+   a large loop — PR #279's 32 rounds (our worst case by round count) or
+   PR #280's 180 findings (our worst case by finding count, on 18 rounds) —
    would otherwise produce silently.
 
    **Before committing to backfill or blind-adjudicate a historical loop,

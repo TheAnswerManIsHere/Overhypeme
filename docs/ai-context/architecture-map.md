@@ -197,10 +197,14 @@ deliberately excludes them and points here instead.
     aggregation regardless of whether the row has physically been deleted
     yet.
 - **Per-lane "stalled" is `max(3× the lane's poll interval, 60s)`** of no
-  `last_scheduled_at` movement — for every current lane (2s or 5s intervals),
-  the 60s floor is what actually governs, so a stall means roughly 12–30
-  missed ticks, not three; the "three missed intervals" framing only holds
-  once a lane's interval is at least ~20s. **Two independently-configurable
+  `last_scheduled_at` movement — at every current lane's **default** interval
+  (2s or 5s), the 60s floor is what actually governs, so a stall means
+  roughly 12–30 missed ticks, not three; the "three missed intervals" framing
+  only holds once a lane's interval is at least ~20s. Every lane's interval
+  is independently environment-configurable (`ASYNC_JOBS_*_INTERVAL_MS`),
+  with no aggregate constraint tying it to the 60s floor, so an operator
+  raising an interval past ~20s genuinely shifts which term governs — this
+  isn't just a default-vs-hypothetical distinction. **Two independently-configurable
   knobs feed the same liveness check and must stay coupled at every
   consumer, not just the primary read path**: the heartbeat TTL
   (`admin_config`) and each lane's own stale threshold. A TTL shorter than a
@@ -230,17 +234,20 @@ deliberately excludes them and points here instead.
   - `GET /api/health/queues` — **unauthenticated** liveness probe (mounted
     under `/api`, not bare `/health/queues` — the app mounts routes there via
     `app.use("/api", router)` in `app.ts`). On total API-process death this
-    route is as unreachable as any other (`/api/health`, `/healthz`) — an
+    route is as unreachable as any other (`/api/health`, `/api/healthz`) — an
     external monitor just sees the same connection failure either way, so
     that isn't what's distinctive about it. What it uniquely adds is a
     meaningful non-200 while the **process itself is alive**: it returns 503
-    when every worker has stopped scheduling a lane fleet-wide, a failure
-    mode no other endpoint reports (an in-process watchdog can't detect its
-    own worker's death any more reliably than the worker itself can).
-    Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue names,
-    payloads, or error text, on both the healthy and evaluation-failed paths
-    — and is unhealthy only when a lane is stalled **fleet-wide**
-    (any-stale-heartbeat would page on every routine autoscale scale-down).
+    when every worker has stopped scheduling a lane fleet-wide (a failure
+    mode no other endpoint reports — an in-process watchdog can't detect its
+    own worker's death any more reliably than the worker itself can), **and**
+    fails closed with the same 503 shape if evaluating lane health itself
+    throws (e.g. the DB query fails) — a genuinely unhealthy-looking response
+    rather than the looks-fine-while-broken shape this endpoint exists to
+    prevent. Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue
+    names, payloads, or error text, on either path — and a routine
+    autoscale scale-down (one instance quietly going away) never trips it,
+    since only a fleet-wide stall or an evaluation failure does.
 - **Two derived display states**, because raw `async_jobs.status` collapses
   distinctions the async-UI contract ([`async-ui-status.md`](./async-ui-status.md))
   requires as first-class:
@@ -251,11 +258,14 @@ deliberately excludes them and points here instead.
   - `abandoned_no_retry` — a row is `failed` with **either** `attempts <
     effectiveMax` (only reachable via `terminalFailure()`, since the
     exhaustion path can only mark a row `failed` once `attempts >=
-    effectiveMax`) **or** `effectiveMax <= 1` (a single-attempt queue's only
-    failure transition is deterministic, whether via `terminalFailure()` or
-    the exhaustion path landing on attempt 1) — i.e. "the worker
-    deliberately won't retry this," a different operator story from
-    "retries exhausted." See
+    effectiveMax`) **or** `effectiveMax <= 1` (a single-attempt queue has no
+    retry budget regardless of *why* the one attempt failed — via
+    `terminalFailure()`, or via the ordinary exhaustion path on attempt 1,
+    which is not necessarily deterministic: `fact_ai_meme_backfill` enqueues
+    at `maxAttempts: 1` but its handler returns the ordinary retryable
+    `{ ok: false, error }` shape on a transient paid-API failure, not
+    `terminalFailure()`) — i.e. "the worker won't retry this," a different
+    operator story from "retries exhausted." See
     [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
     for why this reads the row's own **persisted** `maxAttempts`, not a live
     re-resolve of `admin_config`, and why a legacy `0`-sentinel row is
