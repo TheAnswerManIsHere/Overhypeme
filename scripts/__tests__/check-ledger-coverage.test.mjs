@@ -115,6 +115,31 @@ test("Dependabot PRs are excluded, and the exclusion is counted rather than sile
   assert.equal(skippedNonLoop, 1);
 });
 
+test("in CI on a pull_request, missing inputs fail loudly instead of skipping", async () => {
+  // A coverage guard that quietly no-ops produces a green check that verified
+  // nothing — indistinguishable from one that verified everything, which is
+  // the exact failure class this script exists to close. Locally, skipping is
+  // correct; in CI it means broken wiring and must be red.
+  const { execFileSync } = await import("node:child_process");
+  const script = new URL("../check-ledger-coverage.mjs", import.meta.url).pathname;
+
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [script], {
+        env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_TOKEN: "", GH_TOKEN: "", PR_NUMBER: "" },
+        stdio: "pipe",
+      }),
+    /Coverage check cannot run/,
+  );
+
+  // Same missing inputs, but not in CI: skipping is the correct behavior.
+  const out = execFileSync(process.execPath, [script], {
+    env: { ...process.env, GITHUB_ACTIONS: "", GITHUB_EVENT_NAME: "", GITHUB_TOKEN: "", GH_TOKEN: "", PR_NUMBER: "" },
+    stdio: "pipe",
+  }).toString();
+  assert.match(out, /Coverage check skipped/);
+});
+
 test("the exemption table is parsed with its reason text", () => {
   const doc = ledgerDoc(
     [row(283, { findings: 1, causes: [1, 0, 0, 0, 0] })],

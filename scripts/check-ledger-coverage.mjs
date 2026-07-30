@@ -249,7 +249,25 @@ async function main() {
 
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   const prNumber = Number(process.env.PR_NUMBER ?? "");
-  if (!token || !Number.isFinite(prNumber) || prNumber <= 0) {
+  const haveInputs = Boolean(token) && Number.isFinite(prNumber) && prNumber > 0;
+
+  // A guard that can silently no-op is the failure this whole PR exists to
+  // close: a green check that verified nothing looks exactly like a green
+  // check that verified everything. Locally, skipping is correct — there is no
+  // credential. In CI on a pull_request event the inputs are always available,
+  // so their absence means the workflow wiring is broken, and that must be
+  // loud. Without this, mis-wiring `PR_NUMBER` would disable coverage
+  // enforcement permanently and no one would ever see it.
+  if (!haveInputs && process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_NAME === "pull_request") {
+    throw new Error(
+      "Coverage check cannot run: GITHUB_TOKEN and/or PR_NUMBER are missing on a pull_request run.\n" +
+        `  GITHUB_TOKEN present: ${Boolean(token)}; PR_NUMBER: ${JSON.stringify(process.env.PR_NUMBER ?? null)}\n` +
+        "  Both are set by the 'Check loop-ledger coverage' step in .github/workflows/build.yml.\n" +
+        "  Failing loudly rather than skipping — a coverage guard that quietly does nothing is worse than none.",
+    );
+  }
+
+  if (!haveInputs) {
     console.log(
       "• Coverage check skipped: needs GITHUB_TOKEN and PR_NUMBER (set in CI on pull_request events).\n" +
         "  Arithmetic check above still ran.",
