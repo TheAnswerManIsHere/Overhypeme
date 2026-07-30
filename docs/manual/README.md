@@ -59,21 +59,34 @@ pipeline, enrichment. For those, a pure link leaves a chapter that reads
 quality bar. So chapters may cross the line in exactly one direction
 (David, 2026-07-30):
 
-- **Allowed — what exists and what it is for.** A chapter may name a
-  component and say who it serves: *"a lane for quick admin actions someone
-  is watching, another for batches nobody is watching."* This is the part a
-  reader needs to follow the story, and it changes only when the product
-  changes.
-- **Not allowed — any value.** Counts, intervals, concurrency bounds,
-  timeouts, thresholds, retry budgets, defaults, or which specific component
-  a queue is assigned to. Those live **only** in `docs/ai-context/`. They are
-  what actually drifts, they change without the product changing, and a
-  reader who needs them is already better served by the spec.
+- **Allowed — what a component is, who it serves, and what is at stake.**
+  *"A lane for admin actions where someone clicked a button and is waiting to
+  see it take effect; another for batches nobody is watching."* Audience and
+  consequence are what a reader needs to follow the story, and they change
+  only when the **product** changes.
+- **Not allowed — how it is configured.** Not a number, and **not a
+  qualitative stand-in for one**: *fast*, *frequently*, *serialized*, *a few
+  at a time*, *capped*, *about half an hour* are all values wearing prose.
+  Counts, intervals, concurrency bounds, timeouts, thresholds, retry budgets,
+  defaults, and queue-to-component assignments live **only** in
+  `docs/ai-context/`.
 
-The test: **if maintaining the sentence would require editing this file when
-a constant changes, the sentence is over the line.** "Five lanes" is over it;
-"independent lanes" is not. "Polls every 2 seconds" is over it; "polls
-frequently because someone is waiting" is not.
+The test: **could someone change a constant — by any amount, including an
+order of magnitude — without making this sentence wrong?** If not, it is over
+the line. Naming the audience and the stake survives any constant change;
+describing the tuning does not, even in words.
+
+| Over the line | Fine |
+| --- | --- |
+| "five lanes" | "independent lanes" |
+| "polls every 2 seconds" / "polls frequently" | "for work someone is waiting on" |
+| "serialized to one job at a time" | "for work that spends money at an external provider" |
+| "recovered after about half an hour" | "recovered, but not promptly" |
+
+The rightmost column stays true whether the interval is two seconds or two
+hours — which is the whole point. If a change to a constant would genuinely
+falsify the right-hand phrasing, the *product* has changed, and the chapter
+should be rewritten anyway.
 
 This is an exception, not a general licence — it applies to the narrative
 sections of a chapter whose subject is machinery, and it never extends to

@@ -15,8 +15,12 @@ do inline while someone's request is waiting: classifying a fact's joke
 mechanism with an LLM, generating an AI image, sending a transactional email,
 finding a stock photo, re-running enrichment on hundreds of facts at once,
 repairing derived data. All of that runs as **background work** — durably
-queued, retried automatically if it fails transiently, and never lost to a
-server restart mid-run.
+queued, and never lost to a server restart mid-run. **Most** of it is also
+retried automatically when it fails transiently. Not all: where a retry
+couldn't actually finish the job — because a half-completed run can't be
+resumed — the queue deliberately opts out rather than spending attempts on
+something that cannot succeed. Which work that applies to, and why, is in
+[`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
 Background work is invisible in the sense that a reader never sees a queue —
 but every **admin** surface that triggers it (Taxonomy Health, moderation
@@ -65,16 +69,13 @@ them is **who is waiting, and how much each job costs to run**:
 
 - **`fast`** — pure-database admin actions with no AI or image call in the
   path, like sending a fact back to review. Someone clicked a button and is
-  waiting to see it take effect, so this lane is tuned to feel immediate.
+  waiting to see it take effect.
 - **`render`** — single-item renders a moderator is watching a spinner for.
-  Tuned so that firing off several test renders doesn't queue them behind one
-  another.
 - **`bulk`** — batches nobody is watching in real time: re-enrichment, large
   backfills, visual-concept drafting, transactional email.
 - **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
-  fact. Both are deliberately serialized, because both spend money or
-  rate-limit budget at an external provider, and pacing them protects the
-  bill rather than the throughput.
+  fact. Both spend money or rate-limit budget at an external provider, so what
+  matters here is protecting the bill, not finishing quickly.
 
 That is what each lane is *for*. Everything quantitative about them — how many
 there are, how often each polls, how much runs at once, which queue is
@@ -160,9 +161,9 @@ elsewhere.
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but not quickly.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
-  stranded forever. But recovery is deliberately unhurried: the sweep only
-  reclaims a job that has looked stuck for **at least half an hour**, and that
-  is a floor rather than a promise — if the queue is busy, it can be longer.
+  stranded forever. But recovery is **not prompt**, and how long it takes is
+  not something to plan around: a job must look stuck for a good while before
+  the sweep will touch it, and if the queue is busy it waits longer still.
   The delay is the safe choice, not an oversight. The app **can** run as
   several instances at once, and a faster sweep would sometimes grab a job
   another instance is still legitimately working on — running it twice. For an

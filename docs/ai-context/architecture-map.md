@@ -151,9 +151,15 @@ deliberately excludes them and points here instead.
   `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` / `_PEXELS_` /
   `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
   them — the old `intervalMs` argument is gone.
-- **Lane is orthogonal to retry/dedupe/claim semantics.** `{ lane }` selects
-  *scheduling* only; nothing about retries, dedupe, or claim ordering follows
-  from it. Retry budget is an **enqueue-time** option on the queue, which is
+- **Lane is orthogonal to retry and dedupe; ordering is per-lane, not
+  global.** `{ lane }` selects *scheduling* only — retries and dedupe behave
+  identically in every lane. **Claim ordering is the exception to state
+  carefully:** the claim query's `ORDER BY nextAttemptAt, id` is unchanged by
+  lane, but it runs *inside a queue-filtered query* driven by that lane's own
+  runner and timer, so it orders rows **within** a lane only. There is no
+  global FIFO across lanes — a newer `fast` row is routinely claimed ahead of
+  an older `bulk` one, which is the entire point of the split. Retry budget is
+  an **enqueue-time** option on the queue, which is
   why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
   (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
   The reason is that a retry could not help, not that it would cost twice:
@@ -168,20 +174,25 @@ deliberately excludes them and points here instead.
   the fact with no record of the earlier successes even though their paid
   OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
   means `onAbandon` fires on the very first failure.
-- **The lanes' combined concurrency exactly consumes the default DB pool.**
-  Per-lane `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3
-  (both from `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1
-  — worst case **10** concurrent handlers. `lib/db/src/index.ts` constructs
-  its `Pool` **without a `max`**, so the ceiling is node-postgres's own
-  default, also **10**: nobody picked that number to match, and the match is
-  therefore coincidental rather than designed. With every lane saturated
-  there is **no** spare connection for admin or reader traffic — not thin
-  headroom, none. The `pexels`/`ai_meme_backfill` lanes (PR #256) consumed
-  what margin used to exist. Every one of these bounds is env-overridable
-  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so raising a lane's concurrency
-  without raising the pool's `max` makes this actively negative. Raising the
-  pool limit is deliberate follow-up work, not yet done — see
-  [`current-roadmap.md`](./current-roadmap.md).
+- **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
+  `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
+  `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1 — worst
+  case **10** concurrent handlers — and `lib/db/src/index.ts` constructs its
+  `Pool` **without a `max`**, so the ceiling is node-postgres's own default,
+  also **10**. That numeric coincidence is real (nobody picked either number
+  to match the other) but it does **not** mean a saturated worker leaves zero
+  connections for HTTP traffic. `maxConcurrency` bounds concurrent *handler
+  promises*, not checked-out clients: `asyncJobsTick` **commits and releases
+  the claim transaction before** `mapWithConcurrency` invokes any handler, a
+  handler awaiting an external provider holds no connection at all, and each
+  outcome opens only a short finalize transaction. Pool occupancy is
+  therefore bursty at claim/finalize boundaries rather than pinned at the
+  handler count. Every bound is env-overridable
+  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so raising one still raises
+  claim/finalize contention against an unchanged pool — the reason raising
+  the pool limit is tracked as follow-up work
+  ([`current-roadmap.md`](./current-roadmap.md)) — but the headroom cost has
+  not been measured, and this doc does not assert one.
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed
