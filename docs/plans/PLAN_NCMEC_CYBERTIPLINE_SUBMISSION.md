@@ -369,9 +369,9 @@ before:** with bulk retry deferred (§5.8), the automatic budget is the *only* t
 standing between a multi-day outage and per-row manual recovery, so a horizon asserted
 rather than computed would have been a deferral resting on a number nobody checked.
 
-§5.8 adds **incident-level alert aggregation** so the case where even this is exceeded is
-one alert rather than hundreds. (Bulk retry was specified alongside it and is deferred —
-§5.8.)
+Alerting on exhaustion is **per report** (§5.2.3). Batching many failures into one
+incident email was specified, reviewed four times, and is now deferred to its own plan
+(§9, David 2026-07-30) — as is bulk retry (§5.8).
 
 **What the queue does *not* provide, and this plan must therefore supply itself.**
 Three of its properties are load-bearing here and none of them work the way a naive
@@ -471,6 +471,18 @@ this plan must not change the shared queue's contract for one consumer:
    its lease, or whose row was marked `filed_manually` by an operator meanwhile (§5.8),
    cannot overwrite that decision.
 
+7. **Every completed exit releases the lease**, in the same token-conditional update that
+   writes its outcome: success, terminal failure, a reversible refusal, and the pre-`/finish`
+   abort all set `submission_lease_owner` and `submission_lease_until` back to NULL. Only a
+   **genuinely lost** lease is left to expire, because that is the one case where the worker
+   cannot safely write anything.
+
+   Leaving a finished row leased for the remainder of its three minutes is not harmless
+   bookkeeping. `mark-manually-filed` refuses a leased row (§5.8.1), so an operator recovering
+   an exhausted report would be blocked for minutes with no explanation; and `POST /config`
+   counts unexpired leases as `inFlight` (§5.5), so a disable would report filings that can
+   still complete when in fact none can.
+
 The lease is what makes "only one report can finish" true. `5102` is what makes
 "and we can tell afterwards" true. Both are needed; neither alone suffices.
 
@@ -498,258 +510,96 @@ Two layers instead:
   required alert is lost permanently. A durable notification that can be orphaned is not
   durable.
 
-  **The notification is incident-scoped, not report-scoped.** §5.8 requires that two
-  hundred failures produce one alert, and the dedupe key is what delivers that. A
-  per-report key — `ncmec:notify:failed:<reportId>` — is the obvious choice and the wrong
-  one: it produces two hundred distinct keys and therefore two hundred emails. Nothing in
-  `enqueueJob` updates an existing job's payload or maintains a running count, so a
-  per-report key leaves the aggregation with no mechanism behind it at all.
+  **One notification per terminal failure — incident aggregation is deferred to its own
+  plan (David, 2026-07-30).** An earlier design batched failures into incident-scoped
+  alerts so two hundred failures produced one email. It was rewritten twice and reviewed
+  four times, and each version traded one set of coordination races for another: which
+  failures belong to which incident, whether that incident had already sent, whether a
+  close raced an open, whether a recovery notice collided with a pending reminder. Those
+  are distributed-coordination problems, and this plan could not settle them on paper —
+  rounds 11, 14, 15 and 16 each found defects in it, and round 16 found eleven, while the
+  rest of the design had been stable for rounds.
 
-  **The mechanism keeps no counter.** The natural design — `failure_count` and
-  `dominant_code` maintained on an incident row — fails two ways: a `dominant_code` written
-  on first insert is never corrected by later failures, and there is no per-code data to
-  recompute it from. Both are the same mistake, **maintaining a derived aggregate beside
-  the source of truth**, and the report rows already record every failure, its code, and
-  its time. So the incident table keeps only what cannot be derived — *when this incident
-  was last notified* — and every number in the email is computed from `ncmec_reports` at
-  send time. The timestamps below are send-ledger state of the same kind as
-  `alert_notified_at`, not aggregates: nothing else in the system records when an operator
-  was last told.
+  So this plan alerts **per report**, and §9 records aggregation as deferred work with its
+  own plan and its own review loop. The cost is stated rather than hidden: a two-hundred-
+  report outage sends two hundred emails. That is genuinely unpleasant, and it is bounded —
+  a report only alerts once it has exhausted ≈98.6 h of retries (§5.2), so a brief blip
+  sends nothing at all, and only a multi-day NCMEC outage produces the flood. A noisy inbox
+  during a rare outage is a smaller harm than a mechanism that has produced a defect in
+  every round it has been reviewed in.
 
-  **An incident is an open interval per environment, not an hourly bucket.** An earlier
-  revision keyed the ledger to a one-hour tumbling window *and* created it only alongside a
-  **terminal** `failed` transition. Walking a real outage shows those two choices failing in
-  opposite directions:
+  The result is the simplest thing that satisfies invariant 8:
 
-  - **Four days of silence first.** A reachable-but-broken ISPWS returning `1000` is
-    *retryable*, so rows retry for the full ≈98.6 h budget (§5.2) before any of them goes
-    terminal. Under the old design nobody was told anything until the first exhaustion — an
-    outage of the one federal obligation this subsystem exists to discharge, invisible for
-    four days.
-  - **Then a storm.** Those rows then exhaust spread across as many hourly buckets as they
-    were created in, so a four-day outage *ends* in up to **~96 emails** — the alert storm
-    the aggregation was introduced to prevent, arriving after the silence.
+  1. **The terminal write and the notification are one transaction.** The
+     `submission_status = 'failed'` update, the error fields, `failed_at`, and an `email`
+     job enqueued with `dedupeKey = 'ncmec:notify:failed:' || $reportId` all commit
+     together. `enqueueJob(options, dbOverride)` accepts the caller's transaction handle
+     (`asyncJobs.ts:247`), under the SAVEPOINT rule below.
 
-  So an incident is opened by the **first failed attempt, retryable or terminal**, and stays
-  open until the condition clears:
+     Atomicity is load-bearing, not decorative: if the status commits and the process dies
+     before the job is inserted, the row is **final** — so the reconciler, which only
+     repairs non-final rows, never looks at it again, and the required alert is lost
+     permanently. A durable notification that can be orphaned is not durable.
+  2. **A per-report dedupe key is now exactly the right key.** It was the wrong one for
+     aggregation — two hundred keys, two hundred emails, which is what made a per-report
+     key unusable there. Here that property is the point: it makes the enqueue idempotent
+     against a reclaimed execution finalizing the same row twice.
+  3. **`alert_notified_at` records coverage per row** (§5.4), stamped by the handler on the
+     one row it notified, **bound to the failure generation it covers**:
 
-  1. **One open incident per environment**, enforced by a partial unique index rather than a
-     clock-derived key — the same shape as §5.2.4's, with the predicate in the conflict
-     target for the reason established there:
      ```sql
-     CREATE UNIQUE INDEX ncmec_alert_incidents_open_uniq
-       ON ncmec_alert_incidents (submission_environment) WHERE resolved_at IS NULL;
+     UPDATE ncmec_reports SET alert_notified_at = now()
+      WHERE id = $id AND submission_status = 'failed' AND failed_at = $failed_at_observed
      ```
-  2. **The failing worker opens it — nothing else does** — in the same transaction as the
-     status write, on *any* submission failure:
-     ```sql
-     INSERT INTO ncmec_alert_incidents (submission_environment, opened_at)
-     VALUES ($env, now())
-     ON CONFLICT ("submission_environment") WHERE "resolved_at" IS NULL DO NOTHING
-     ```
-     The index is what makes N concurrent failures produce one incident; `DO NOTHING` is
-     what makes the 199 losers commit rather than abort (a bare `23505` aborts the caller's
-     transaction — round 11). **Zero affected rows means an incident was already open, and
-     is success, not an error.**
-  3. **The reconciler owns the cadence — the alert job never re-arms itself.** §5.3 already
-     sweeps this exact data every ~5 minutes, so the cadence is a fourth pass with a durable
-     predicate rather than a self-rescheduling job that a crash could silently end:
 
-     | Condition | Action |
-     |---|---|
-     | Open incident, `last_notified_at IS NULL`, `opened_at` ≥ 2 min ago | Enqueue the **first** alert of the outage |
-     | Open incident, `now() - last_notified_at >= ncmec_alert_reminder_interval_ms` | Enqueue a **reminder** |
-     | Open incident, no `failed` and no still-retrying row left in that environment | Set `resolved_at`, enqueue a **recovery** notice |
-     | Any `failed` row with `alert_notified_at IS NULL` | Enqueue a supplementary alert (pass 3, unchanged) |
-
-     `dedupeKey = 'ncmec:notify:incident:' || $incidentId || ':' || $sequence`, where
-     `sequence` is `notification_count` on the incident row — so a reminder is a distinct job
-     from the alert before it, while two concurrent reconciler executions still collapse to
-     one. The 2-minute grace survives as the **minimum age before the first alert** rather
-     than as an offset from a window boundary: a transaction that began before the failure
-     was observed can commit shortly after, and alerting before it lands undercounts.
-  4. **The handler computes everything at send time**, from the rows themselves, bounded by
-     the incident rather than by a clock window — and it reports **both** populations,
-     because "40 rows are retrying" and "40 rows have given up" call for different actions:
-     ```sql
-     SELECT submission_status,
-            count(*), min(last_attempt_failed_at), max(last_attempt_failed_at),
-            mode() WITHIN GROUP (ORDER BY last_error_code)
-       FROM ncmec_reports
-      WHERE submission_environment = $env
-        AND last_attempt_failed_at >= $incident_opened_at
-      GROUP BY submission_status
-     ```
-     `mode()` is Postgres's own aggregate and gives the genuine dominant code across the
-     incident rather than the first one seen. No counter to drift, no histogram to maintain,
-     no per-code column to get wrong. It bounds on **`last_attempt_failed_at`**, not
-     `failed_at`, and that is load-bearing: `failed_at` is only set on *terminal* rows, so
-     bounding on it would exclude every row that is still retrying — which for the first
-     ≈98.6 h of an outage is **all of them**, leaving the alert to report an incident of zero
-     reports. The same reason §5.3 requires each attempt to persist its ISPWS code under the
-     lease: without that, the retrying half of this query has no code to take a `mode()` of.
-  5. **`ncmec_alert_incidents` therefore holds `id`, `submission_environment`, `opened_at`,
-     `last_notified_at`, `notification_count`, and `resolved_at`.** It is a send-ledger, not
-     an aggregate — every one of those answers *when did we tell someone*, which is not
-     derivable from the report rows.
-
-  **The reminder interval is one config key, `ncmec_alert_reminder_interval_ms`, seeded by
-  `0094` at 6 hours.** The tradeoff is the whole design in one number: over a four-day
-  outage, hourly gives ~96 emails, six-hourly gives ~16, daily gives 4 — against how long a
-  *newly worsening* incident can go unremarked after the first alert. Six hours keeps the
-  first alert within ~7 minutes of the first failed attempt (the reconciler interval plus
-  the commit grace), which is the number that actually matters, while making the steady-state
-  volume of a long outage something a person will still read.
-
-  **The handler is a new queue, not the existing `email` one.** `email`'s handler takes a
-  pre-rendered `{to, subject, text, html}` payload and calls `deliverFromOutbox` straight
-  away (`email.ts:98-115, 227-236`) — it cannot run a query at send time and cannot stamp a
-  ledger. Calling this "an `email` job" left an implementer to either freeze the first
-  failure's numbers into the payload (the exact defect the rewrite removed) or invent a
-  worker. So it is named:
-
-  | | |
-  |---|---|
-  | Queue | **`ncmec_incident_alert`**, registered beside `ncmec_submit` and `ncmec_reconcile`; lane **`fast`** (§5.3 — it must not queue behind three-minute submissions) |
-  | Payload | `{ incidentId, environment, kind: 'alert' \| 'reminder' \| 'recovery' \| 'supplementary', sequence }` — identifiers only, **never rendered content** |
-  | On run | Load the incident row; **resolve recipients (below) and abort retryably if the set is empty**; run the §5.2.3 aggregate over `ncmec_reports`, retaining `(id, failed_at)` for the rows it matched; render; send; **then**, in one transaction, bump `last_notified_at` / `notification_count` on the incident and stamp `alert_notified_at` on exactly those rows, generation-bound (above) |
-  | Delivery | Reuses the same provider path as `email`; only the *rendering* and the recipient rule differ |
+     A row retried between enqueue and send is `pending` and fails the status test; one
+     retried and failed again carries a new `failed_at` and fails the generation test.
+     Either way it is left unstamped and §5.3's pass 3 re-enqueues — which is correct, not
+     merely safe, because the email that just went out describes the *previous* failure.
+  4. **`alert_notified_at` is cleared by every transition out of `failed`**, in the same
+     transaction as the write that moves the row — §5.8's admin retry, and any reconciler
+     repair that re-enqueues a previously-failed row. The marker describes *that failure*,
+     not the row. Without the clear, a second failure on a previously-alerted row is
+     invisible to the sweep that exists to catch exactly that.
+  5. **`submission_status = 'failed' AND alert_notified_at IS NULL` is the durable "nobody
+     has been told" predicate**, swept by §5.3's pass 3. It does not depend on knowing *why*
+     a row went unalerted, so a failure mode neither of us has thought of is still caught —
+     including a crash that never persisted a typed result, which pass 1 finalizes and pass
+     3 then alerts on the same terms as any other terminal failure.
 
   **A send to nobody must never count as a notification.** `ncmec.ts:45-65` resolves admins
   as `is_admin AND admin_notifications AND is_active` and fans out one `sendEmail({ to })`
-  per address — and `Promise.all([])` over an **empty** set resolves successfully. Reusing
-  that shape here would let the handler complete, stamp `last_notified_at`, and stamp
-  `alert_notified_at` on every row in the incident, while **no inbox received anything** —
-  permanently discharging invariant 8's only notification guarantee against zero delivery.
-  It is not a hypothetical set: every admin can turn `admin_notifications` off, and a fresh
-  deployment can have no active admin at all. So:
+  per address — and `Promise.all([])` over an **empty** set resolves successfully. Copy that
+  shape here and the handler completes, stamps `alert_notified_at`, and discharges invariant
+  8's only guarantee against zero delivery. Not a hypothetical set: every admin can turn
+  `admin_notifications` off, and a fresh deployment can have no active admin at all.
 
-  - **The recipient set is resolved first, before any send or stamp.** Primary source is the
-    notifying-admin query above; if it is empty, the handler falls back to
-    **`ncmec_safety_alert_email`**, a config key seeded by `0094` and validated as an address
-    (§7's production checklist requires it non-empty before activation).
-  - **An empty resolved set is a retryable failure.** The job stays queued, nothing is
+  - **Recipients resolve first, before any send or stamp.** Primary is the notifying-admin
+    query; if empty, the handler falls back to **`ncmec_safety_alert_email`** (§5.5).
+  - **An empty resolved set is a retryable failure** — the job stays queued, nothing is
     stamped, and the queue's own failure path surfaces it. Silence about a *federal* failure
-    is the one outcome worth failing loudly for.
-  - **Partial delivery does not stamp either.** Coverage is stamped only if every required
-    send succeeded; any provider failure returns retryable with no stamp. Re-sending to
-    recipients who already received it is acceptable — alerts are explicitly at-least-once
-    (settled decision 18), and a duplicate alert beats a silent one.
+    is worth failing loudly for.
+  - **Partial delivery stamps nothing.** Coverage is stamped only if every required send
+    succeeded; re-sending to recipients who already received it is acceptable, since
+    delivery is explicitly at-least-once.
 
-  §6 asserts the zero-recipient case specifically: no rows may carry `alert_notified_at`
-  after it, and the incident's `last_notified_at` must still be NULL.
+  **The recipient must stay resolvable, not merely be resolvable at activation.** A
+  one-time check at §7's gate does not hold over time: production can be enabled while a
+  notifying admin exists, and that admin can switch notifications off the next day — leaving
+  the next failure retrying forever with no inbox and no signal. So
+  **`ncmec_safety_alert_email` is required and validated whenever production submission is
+  enabled**, as the deployment's standing guarantee that a recipient exists independent of
+  any individual's preferences, and §7's gate checks *that key* rather than the admin
+  roster. §6 asserts that turning off the last notifying admin while production is live
+  still leaves a resolvable recipient.
 
-  **Coverage is tracked per row, not inferred from the window.** Invariant 8 requires
-  every terminal failure to be notified, and "it is in the ledger" is not a notification —
-  so the plan needs a durable answer to *has this specific row been in a sent alert?*
-  rather than an argument that it probably was.
-
-  The reason it cannot be an argument: **a row can commit inside the handler's own
-  execution and be lost.** The 2-minute grace covers transactions that begin before the
-  boundary and commit shortly after, but nothing bounds commit latency. Consider a failure
-  transaction that commits *after* the handler has run its aggregate query but *while that
-  job is still `processing`. The email has already been rendered without the row. The
-  row's own enqueue then **dedupes against the still-live job** — the index covers every
-  non-terminal job, and `processing` is non-terminal — so no second job is created, and
-  none is created later either, because the handler completes normally and nothing
-  re-examines the window. The row is silent forever. Relying on "the job has gone terminal,
-  so a later enqueue creates a supplementary job" only covers failures that land *outside*
-  that interval; it is a window-level argument, and the query-to-completion interval is a
-  hole in it.
-
-  So `ncmec_reports` carries **`alert_notified_at`** (§5.4), stamped **only on rows the
-  handler actually included in a sent email** — in the same transaction that stamps the
-  ledger's `last_notified_at`, using the exact row set the aggregate query returned, never a
-  re-run of the predicate.
-
-  **The stamp is bound to the failure generation it covers, not just to the row id.** An
-  unconditional `WHERE id = ANY($ids)` reintroduces the hole from the other side: if an
-  admin retries an alerted row *after* the handler's query but *before* its stamp, the
-  handler writes the old failure's coverage onto a row that is now `pending` — and the
-  retry's own clear (above) is undone by a job that started before it. The next failure on
-  that row is then skipped by pass 3, silent again. So the handler carries `(id, failed_at)`
-  pairs out of its query and stamps only rows still in that generation:
-
-  ```sql
-  UPDATE ncmec_reports AS r SET alert_notified_at = now()
-    FROM (VALUES ($id1, $failed_at1), …) AS q(id, failed_at)
-   WHERE r.id = q.id
-     AND r.submission_status = 'failed'
-     AND r.failed_at = q.failed_at
-  ```
-
-  A row that was retried and is now `pending` fails the status test; a row that was retried
-  and **failed again** carries a new `failed_at` and fails the generation test. Either way it
-  is left unstamped, so pass 3 picks it up — which is exactly right, because the email that
-  is about to be sent describes the *previous* failure, not the current one. §6 asserts a
-  retry landing **between the handler's query and its stamp**.
-
-  That turns coverage into a queryable fact. **`submission_status = 'failed' AND
-  alert_notified_at IS NULL`** is now a durable, precise description of "a failure nobody
-  has been told about," and §5.3's reconciler — which already sweeps every five minutes —
-  enqueues a supplementary alert for any window containing such a row. A row that commits
-  mid-handler is picked up on the next pass; so is one that commits after the job goes
-  terminal; so is one missed by any failure mode neither of us has thought of, because the
-  predicate does not depend on knowing *why* it was missed.
-
-  **`alert_notified_at` is cleared by every transition out of `failed`, and forgetting that
-  reopens the hole one failure later.** The marker describes *this* failure, not the row —
-  so once a row leaves `failed`, a stale timestamp is a claim about an event that is no
-  longer the row's current state. Concretely: an admin retries an already-alerted row, it
-  fails again, and that second failure commits inside another handler's execution. The
-  enqueue dedupes against the live job (the same interval as before), and pass 3 now skips
-  the row too, because `alert_notified_at` is non-NULL from the *first* failure. The second
-  failure is silent, and the mechanism that exists to catch exactly that is the thing
-  suppressing it.
-
-  So **`alert_notified_at` is set to NULL in the same transaction as any write that moves a
-  row out of `failed`** — §5.8's admin retry (which also resets `attempt_count`), and any
-  reconciler repair that re-enqueues a previously-failed row. §6 asserts the repeated-
-  failure interleaving specifically: alert, retry, fail again mid-handler, and the second
-  failure must still produce a supplementary alert.
-
-  This subsumes the earlier supplementary-alert rule rather than sitting beside it: the
-  supplementary alert still exists and still re-reports the whole window, but what
-  *triggers* it is now per-row state instead of a race with the dedupe index.
-
-  **This is not the derived state David's decision removed.** That decision was about not
-  maintaining a *counter and a dominant code* alongside rows that already carry the same
-  information — an aggregate that can drift from its source. `alert_notified_at` is
-  primary state about one row, of the same kind as `failed_at`, and it is not derivable
-  from anything else: nothing else in the system records which rows a given email
-  contained. It makes the design less inferential, not more.
-
-  The cost is stated rather than hidden: a supplementary email re-reports rows the first
-  one already covered, because the handler always aggregates the whole incident. So the
-  §5.8 guarantee is **"one alert when an incident opens, at most one further notification
-  per `ncmec_alert_reminder_interval_ms` while it stays open, one recovery notice when it
-  closes, plus a supplementary alert whenever a terminal failure is left uncovered."**
-  Weakening the alert-count guarantee is the right trade against dropping a notification —
-  the same asymmetry as at-least-once delivery, for the same reason.
-
-  **An open interval is what a rolling window could not be.** The superseded clock-keyed
-  design could not span a boundary — two failures either side of one fell in different
-  buckets and sent two alerts — so it could never produce a single alert covering a whole
-  multi-hour outage, and its cost grew linearly with outage length. Anchoring the interval
-  to `opened_at` and closing it on recovery gives exactly that spanning behaviour **without**
-  reintroducing coordination state: the partial unique index is the only arbiter, and the
-  reconciler's predicate is durable across crashes. A six-hour outage now sends one alert
-  and one reminder, not six emails and not two hundred.
-
-  **Delivery is at-least-once, deliberately.** `last_notified_at` cannot be committed atomically
-  with an HTTP send to Resend, so a crash between provider acceptance and the local commit
-  means the job retries and the alert arrives twice. Stamping `last_notified_at` *before* the
-  call turns the same crash into **permanent silence** — and this alert is invariant 8's
-  only delivery mechanism. So the plan stamps after, accepts the duplicate, and says so
-  rather than claiming exactly-once. A repeated alert is an annoyance; a missed one is a
-  reportable hit nobody hears about.
-
-  Per-row atomicity is unchanged: the status update and the enqueue are one transaction, so
-  a row cannot commit `failed` without its alert accounted for. The *unit of alerting* is
-  the window; the *unit of record* stays the row.
-  A window that has already sent still alerts for later failures: the next failure falls in
-  a new bucket, producing a new key and a new job.
-
+  **Delivery is at-least-once, deliberately.** `alert_notified_at` cannot be committed
+  atomically with an HTTP send to Resend, so a crash between provider acceptance and the
+  local commit means the job retries and the alert arrives twice. Stamping *before* the call
+  turns the same crash into **permanent silence** — and this alert is invariant 8's only
+  delivery mechanism. So the plan stamps after, accepts the duplicate, and says so rather
+  than claiming exactly-once. A repeated alert is an annoyance; a missed one is a reportable
+  hit nobody hears about.
   **Every deduped enqueue inside a caller transaction must be wrapped in a SAVEPOINT.**
   This is a plan-wide rule, not an aggregation detail, and it invalidates an assumption
   running through §5.2.3, §5.2.4 and §5.3. `enqueueJob` implements dedupe by **catching a
@@ -760,10 +610,11 @@ Two layers instead:
   the existing row through `defaultDb` and returns successfully, so the caller sees a
   normal return value from a transaction that can no longer commit.
 
-  The consequence is precisely the aggregation case: the first worker creates the incident
-  job; the next hundred and ninety-nine hit the dedupe path, abort, and **lose their status
-  updates**. The design that was supposed to make two hundred failures produce one alert
-  would instead have committed one failed row and rolled back the rest.
+  The consequence is not hypothetical: `ncmec:submit:<reportId>` is enqueued from inside
+  §5.2.4's insert transaction and from §5.3's repairs, and §5.8's admin retry shares its
+  mutation/audit transaction. Any of those hitting a live job would abort the caller and
+  **lose the write it was paired with** — a report inserted with no job, or a retry that
+  silently did nothing.
 
   So every enqueue that (a) passes a transaction handle and (b) carries a dedupe key is
   wrapped in a savepoint, with the conflict caught at the savepoint boundary:
@@ -781,18 +632,19 @@ Two layers instead:
   stale `in_progress` row that still has a live job. Retry is the easiest of the three to
   overlook and the worst to get wrong: it is the one an operator triggers by hand, so its
   rolled-back transaction surfaces as "the button did nothing" with no way to distinguish
-  *already queued* from *broken*. Also `ncmec:notify:awaiting:<reportId>` (§5.5) and this
-  incident enqueue. Every one of these shares a caller transaction, so every one of them
+  *already queued* from *broken*. Also `ncmec:notify:awaiting:<reportId>` (§5.5) and
+  `ncmec:notify:failed:<reportId>` (§5.2.3). Every one of these shares a caller transaction, so every one of them
   needs the savepoint — a dedupe hit is **not** a benign no-op.
 
   Changing `enqueueJob` to `ON CONFLICT DO NOTHING` would be the cleaner fix and is the
   right long-term shape, but it alters a shared API's return contract for every queue in
   the system; the savepoint is caller-local and achieves the same result. §6 asserts the
-  real-concurrency case: two hundred concurrent terminal transactions all commit, exactly
-  one non-terminal incident job exists, and the alert reports two hundred.
+  real-concurrency case: two hundred concurrent terminal transactions **all commit**, each
+  with its own notification job — the failure being tested is the rollback, not the count.
 
-  **Kind-scoping still applies.** `ncmec:notify:incident:<key>` and
-  `ncmec:notify:awaiting:<reportId>` (§5.5) are deliberately distinct namespaces: the
+  **Kind-scoping still applies.** `ncmec:notify:failed:<reportId>` and
+  `ncmec:notify:awaiting:<reportId>` (§5.5) are deliberately distinct namespaces — the same
+  report id appears in both: the
   dedupe index covers any non-terminal job for a `(queue, dedupe_key)` pair, so a shared
   key would let a still-pending awaiting-activation email swallow a terminal-failure alert
   and commit the row as final `failed` with nobody told. One collided string would silently
@@ -1000,14 +852,13 @@ So pass 1 resolves job state in two explicit steps, in this order:
 §6 asserts a **mixed terminal history**: a `failed` job followed by a newer `done` job must
 park the row for re-enqueue, never finalize it as `failed`.
 
-The other three passes exist because the first can only repair rows that are **in
-`ncmec_reports` and non-final** — and three real failure modes sit outside that set:
+The other two passes exist because the first can only repair rows that are **in
+`ncmec_reports` and non-final** — and two real failure modes sit outside that set:
 
 | Pass | Scope | Cause it repairs | Repair |
 |---|---|---|---|
 | **2. Orphaned quarantine** | `quarantined_memes` where `deleted_at IS NULL`, no report references the row, and **`report_intent IS TRUE` OR (`report_intent IS NULL AND source = 'arachnid'`)** — the recovery rule of §5.2.4, stated identically here | The report insert failed inside `quarantine.ts`'s caught block, so there is no `ncmec_reports` row to compare against anything (§5.2.4) | Insert the report from the row's persisted inputs with **`ON CONFLICT ("quarantine_id") WHERE "quarantine_id" IS NOT NULL DO NOTHING`** (the predicate is mandatory — a bare target raises against a partial index), then enqueue if `isSubmittable` |
-| **3. Unalerted failures** | `ncmec_reports` where `submission_status = 'failed' AND alert_notified_at IS NULL` | A failure that committed after its incident's alert had already rendered — including inside the handler's own execution, where the enqueue dedupes against the still-`processing` job (§5.2.3) | Enqueue a supplementary `ncmec_incident_alert` for that row's open incident |
-| **4. Incident cadence** | `ncmec_alert_incidents` where `resolved_at IS NULL` | An open incident that has never been notified, is due a reminder, or has recovered — none of which any single failing worker can observe, because each sees only its own transaction (§5.2.3) | Enqueue the first alert / a reminder / a recovery notice, per §5.2.3's cadence table; close the incident when no failed and no retrying row remains |
+| **3. Unalerted failures** | `ncmec_reports` where `submission_status = 'failed' AND alert_notified_at IS NULL` | A failure whose notification was never sent or never stamped: a crash between the terminal commit and the send, a retry that cleared coverage and failed again, or a handler that refused because no recipient resolved (§5.2.3) | Re-enqueue `ncmec:notify:failed:<reportId>` for that row |
 
 Pass 3 is the reason invariant 8 holds without an argument about timing. It does not need
 to know *why* a row went unalerted — the predicate is a fact, so any future mechanism that
@@ -1015,8 +866,7 @@ manages to skip a row is caught by the same sweep.
 
 **The reconciler runs in the `fast` lane, and the `≤5 min` bound was false while it did
 not.** Every promise this design makes about a row not sitting silently — the ≤5-minute
-repair, branch 7 of invariant 8 draining within a reconciler interval, and now pass 4's
-"first alert within ~7 minutes" — rests on this job running on schedule. In the `bulk` lane
+repair, and branch 7 of invariant 8 draining within a reconciler interval — rests on this job running on schedule. In the `bulk` lane
 it could not: verified in `asyncJobs.ts`, a lane's tick claims **10 rows**, runs them
 `ASYNC_JOBS_MAX_CONCURRENCY = 3` at a time, and **awaits the whole batch**, while the lane's
 closure-local `ticking` guard drops every timer tick that arrives meanwhile. `ncmec_submit`
@@ -1025,14 +875,26 @@ claimed submissions alone occupy the lane for roughly **twelve minutes**, before
 unrelated backfills sharing it. The safety backstop would be starved by precisely the
 workload whose failures it exists to catch.
 
-`ncmec_reconcile` and `ncmec_incident_alert` therefore register in **`fast`** (2 s tick,
-concurrency 2), whose stated purpose is short DB-oriented work with no model or image wait —
-which is exactly what both are: the reconciler is pure SQL, and the alert is a query plus one
-provider call. `ncmec_submit` stays in `bulk`, where a 3-minute external sequence belongs.
-This is a lane annotation on registration, **not** a change to the shared queue's contract —
-the same restraint §5.2.2 applies when it refuses to add retry slots for one consumer. §6
-asserts the lane assignments directly, because "it is in the fast lane" is the kind of fact
-that silently regresses when a queue is later re-registered.
+**`ncmec_reconcile` alone registers in `fast`** (2 s tick, concurrency 2), whose stated
+purpose is short DB-oriented work with no model or image wait — which is exactly what it is:
+pure SQL, no external call. **`ncmec_notify_failed` stays in `bulk`** precisely because it
+makes a provider call: `deliverFromOutbox` and the Resend client both `await fetch` with **no
+timeout or abort signal**, so two stalled sends would occupy both `fast` slots and starve the
+safety backstop — the same starvation this move exists to prevent, arriving from inside the
+lane instead of outside it. `ncmec_submit` stays in `bulk` too, where a 3-minute external
+sequence belongs.
+
+**The cadence timer moves with it, and that is the half that was actually broken.** Putting
+the *job* in `fast` while leaving the five-minute timer that *creates* it inside the bulk
+runner fixes nothing: creation still waits behind the same multi-minute batch, and only
+execution is fast once the row finally exists. So the periodic `ncmec_reconcile` enqueue is
+attached to the **`fast` runner's own timer**, not the bulk maintenance pass. Both halves —
+creation and execution — must sit outside `bulk` for the ≤5-minute bound to mean anything.
+
+This is a lane annotation on registration plus a timer attachment, **not** a change to the
+shared queue's contract — the same restraint §5.2.2 applies when it refuses to add retry
+slots for one consumer. §6 asserts the lane assignments *and* which runner owns the cadence,
+because both are the kind of fact that silently regresses when a queue is re-registered.
 
 **A completed test submission must not re-fire every five minutes.** §7 leaves a
 test-submitted row at `pending` so it stays eligible for a real filing — but a `pending`
@@ -1203,14 +1065,28 @@ terminal finalization, which produced a specific and badly misleading outcome un
 exact scenario this design is built for: during a `1000` outage every attempt is *retryable*,
 so nothing touched `ncmec_reports`; the row exhausted; pass 1 then repaired it with
 `last_error_code = -1`. The result is that a four-day ISPWS server outage would be recorded,
-on every affected row and in the incident's dominant code, as **"reconciled — original code
-lost"** — erasing the one fact that distinguishes *NCMEC is down* from *our worker is
-broken*, which is the first question an operator asks.
+on every affected row, as **"reconciled — original code lost"** — erasing the one fact that
+distinguishes *NCMEC is down* from *our worker is broken*, which is the first question an
+operator asks, and the one thing `GET /reports?lastErrorCode=1000` exists to answer.
 
 So the worker writes `last_error_code`, `last_error`, and **`last_attempt_failed_at`** to
-the report row **under its lease, in the same conditional update, before returning a
-retryable failure** — not only on the terminal path. The write is cheap, already fenced, and
-makes each attempt's outcome durable independent of whether the queue keeps it.
+the report row before returning a retryable failure — not only on the terminal path.
+
+**That write is fenced on the row being non-final, and deliberately *not* on lease
+ownership.** The distinction matters because the lease can be lost between the ISPWS
+response and the persistence: a worker that observed a real `1000` would then be unable to
+record it, the row would exhaust, and pass 1 would repair it to `-1` — reintroducing the
+exact erasure this rule exists to prevent, in the case where the system is *already*
+struggling and most likely to lose a lease.
+
+The reason it is safe to relax the fence here, and nowhere else: these three columns are
+**observational, not authoritative**. They record *what an attempt saw*, not *what state the
+row is in*. Nothing branches on them — `isSubmittable`, the reconciler matrix, and every
+status transition read `submission_status`, the lease, and the job, never `last_error_code`.
+Two workers racing can only overwrite one true observation with another true observation,
+whereas a lease-free *state* write could resurrect a row an operator had finalized. Every
+state transition keeps the full lease fence (§5.2.2 rule 6); only this triple is exempt, and
+§6 asserts a lease lost between the response and the persistence still records the code.
 
 **`-1` is then reserved for what it actually means: no typed result was ever recorded.**
 It stays the repair value when in-`run()` finalization is lost *and* no attempt had persisted
@@ -1255,6 +1131,7 @@ Additive on `ncmec_reports`:
 | Column | Type | Purpose |
 |---|---|---|
 | `finished_at` | `timestamptz` | When `/finish` returned `0` |
+| `finish_started_at` | `timestamptz` | Stamped immediately **before** the `/finish` call and cleared once its outcome is known. A `/finish` can outlive the lease that authorized it, so this is what makes §5.5's `inFlight` count an issued filing rather than only an unexpired lease |
 | `attempt_count` | `integer not null default 0` | **Operator observability, with a defined increment point** (below) — an unspecified counter can permanently read zero while every state transition passes its tests |
 | `last_error` | `text` | Human-readable last failure |
 | `last_error_code` | `integer` | ISPWS response code — classify by code, never by parsing the string |
@@ -1268,8 +1145,8 @@ Additive on `ncmec_reports`:
 | `test_submission_started_at` | `timestamptz` | §5.8 — a `send-to-test` attempt is open. Set with `NULL` `test_report_id` means `exttest` may hold a submission whose id was lost |
 | `quarantine_id` | `bigint` | FK to `quarantined_memes` — §5.2.4's upstream linkage, so an orphaned quarantine row is findable by query rather than by inference |
 | `failed_at` | `timestamptz` | **When this row entered terminal `failed`.** Stamped in the same transaction as the status write, by **every** path that finalizes a row `failed`: in-`run()` terminal finalization (§5.2.3), retry exhaustion, and the reconciler's lost-finalization repair (§5.3). Uses the database clock (`now()`), never application time, so timestamps cannot skew across hosts. Also the generation marker §5.2.3's coverage stamp is bound to |
-| `last_attempt_failed_at` | `timestamptz` | **When an attempt last failed, terminal or not.** Written under the lease by every failing attempt (§5.3), so a row that is still retrying carries its own most recent failure time. This is the timestamp §5.2.3's incident aggregate bounds on — `failed_at` would exclude the entire retrying population, which is most of an outage |
-| `alert_notified_at` | `timestamptz` | **When this row was included in a sent incident alert.** Stamped by the `ncmec_incident_alert` handler on exactly the rows its aggregate query returned **and only where `(id, failed_at)` still matches** (§5.2.3) — never by re-running the predicate, and never onto a row whose failure generation has changed underneath the send. Cleared by every transition out of `failed`. `submission_status = 'failed' AND alert_notified_at IS NULL` is §5.2.3's durable "nobody has been told" predicate, which §5.3 sweeps |
+| `last_attempt_failed_at` | `timestamptz` | **When an attempt last failed, terminal or not.** Written under the lease by every failing attempt (§5.3), so a row still retrying carries its own most recent failure time. `failed_at` covers only terminal rows, so without this column the admin surface cannot answer *"is this row failing right now?"* for the entire retrying population — which during an outage is most of the table, and for ≈98.6 h is all of it |
+| `alert_notified_at` | `timestamptz` | **When this row's failure notification actually sent.** Stamped by the `ncmec_notify_failed` handler **only where `(id, failed_at)` still matches** (§5.2.3) — never onto a row whose failure generation changed underneath the send. Cleared by every transition out of `failed`. `submission_status = 'failed' AND alert_notified_at IS NULL` is the durable "nobody has been told" predicate, which §5.3's pass 3 sweeps |
 | `test_report_id` | `varchar(64)` | §7 — the id `exttest` assigned, kept for debugging |
 | `content_origin` | `varchar(16)` | §5.7 provenance, copied from the quarantine row |
 | `reporter_snapshot` | `jsonb` | §5.7 — uploader identity as of quarantine, immutable. **The single authoritative representation** |
@@ -1291,36 +1168,6 @@ typo.
 The two columns therefore carry different provenance and are never conflated:
 `report_id` is written only by `/submit`'s response; `manual_report_id` is written only by
 `mark-manually-filed`; and §5.2.1 reads only `report_id`.
-
-**New table `ncmec_alert_incidents` — a send-ledger, not an aggregate.** One **open** row
-per environment, closed when the condition clears (§5.2.3):
-
-| Column | Type | Purpose |
-|---|---|---|
-| `id` | `bigserial primary key` | Surrogate — an incident is an interval, not a clock bucket, so it has no natural key |
-| `submission_environment` | `varchar(16) not null` | `test` or `production` |
-| `opened_at` | `timestamptz not null` | The first failed attempt of this incident. The aggregate's lower bound |
-| `last_notified_at` | `timestamptz` | When a notification for this incident last actually sent. NULL = not yet |
-| `notification_count` | `integer not null default 0` | Notifications sent so far; also the `sequence` in the alert job's dedupe key |
-| `resolved_at` | `timestamptz` | When the reconciler observed no failed and no retrying row left. NULL = **open** |
-
-```sql
-CREATE UNIQUE INDEX ncmec_alert_incidents_open_uniq
-  ON ncmec_alert_incidents (submission_environment) WHERE resolved_at IS NULL;
-```
-
-This is a send-ledger, not an aggregate: no `failure_count`, no `dominant_code`, no stored
-first/last *failure* timestamps. Every count, span and dominant code is computed from
-`ncmec_reports` at send time (§5.2.3), which is the whole point of the design — see that
-section for why a stored counter cannot be kept correct here. The four timestamps above all
-answer *when did we tell someone*, which nothing else records. Per-row alert coverage lives
-on `ncmec_reports.alert_notified_at`, not here, because it is a fact about a row rather than
-about an incident.
-
-The **partial unique index is the concurrency control**: N simultaneous failures produce one
-open incident, with no lock taken and no coordination between workers. Its conflict target
-must carry the predicate (`ON CONFLICT ("submission_environment") WHERE "resolved_at" IS
-NULL`) — a bare target cannot infer a partial index and raises, exactly as §5.2.4's does.
 
 **New table `ncmec_safety_audit_log` — append-only, one row per mutation.** Every action
 on `/admin/safety` alters state with legal consequence, and until this round the design
@@ -1369,26 +1216,50 @@ the **sole** control on this surface, that gap is not acceptable.
 So the guarantee is a trigger, created by `0094`:
 
 ```sql
-CREATE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$
 BEGIN
   IF current_setting('app.audit_maintenance', true) IS DISTINCT FROM 'on' THEN
-    RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)' , TG_OP;
+    RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP;
   END IF;
-  RETURN NULL;
+  -- Maintenance is enabled: allow the operation through. Returning NULL here would
+  -- silently CANCEL it, which is the opposite of what the escape hatch is for.
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
 END; $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log;
 CREATE TRIGGER ncmec_safety_audit_log_no_mutate
   BEFORE UPDATE OR DELETE ON ncmec_safety_audit_log
   FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only();
+
+DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_truncate ON ncmec_safety_audit_log;
+CREATE TRIGGER ncmec_safety_audit_log_no_truncate
+  BEFORE TRUNCATE ON ncmec_safety_audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only();
 ```
 
-Two properties make this workable rather than merely strict. A `BEFORE UPDATE OR DELETE`
-row trigger **does not fire on `TRUNCATE`**, so ordinary test teardown keeps working
-unchanged; and the `app.audit_maintenance` session setting is an explicit, greppable escape
-hatch for a deliberate correction, which is very different from an unguarded `DELETE` that
-nobody notices. §6 asserts that a direct `UPDATE` and a direct `DELETE` both raise, which is
-an assertion about the **database** — the previous one, that a module exports no helper,
-could pass while the property was false.
+Three details, each of which is wrong in the obvious version:
+
+- **`RETURN NEW` / `RETURN OLD`, never `RETURN NULL`.** In a PostgreSQL `BEFORE` row trigger
+  a NULL return **cancels the operation**. The obvious `RETURN NULL` would therefore make
+  `app.audit_maintenance = 'on'` silently swallow the very correction the escape hatch
+  exists to permit — failing closed while appearing to succeed, which is worse than failing
+  loudly.
+- **`TRUNCATE` is covered too**, by a statement-level trigger sharing the same gate. A row
+  trigger does not fire on `TRUNCATE`, so leaving it out would let the application role erase
+  the entire ledger with one statement — on the table §8.4 makes the sole control over
+  destructive admin actions. Test teardown enables the maintenance GUC explicitly rather
+  than enjoying an exemption; an exemption for the *most* destructive operation is not a
+  convenience, it is the hole.
+- **The DDL is idempotent** — `CREATE OR REPLACE FUNCTION` plus `DROP TRIGGER IF EXISTS`
+  before each `CREATE TRIGGER` — because `0094` is required to be rerunnable and an
+  unguarded `CREATE` fails on the second pass, which is exactly what a partially-recovered
+  deployment does.
+
+§6 asserts that a direct `UPDATE`, a direct `DELETE`, **and** a `TRUNCATE` all raise, that
+the GUC permits each of them, and that re-running `0094` succeeds. Those are assertions about
+the **database** — the previous one, that a module exports no helper, could pass while the
+property it claimed was false.
 
 Every entry is written
 **in the same transaction as the mutation it records**, so an action that commits without
@@ -1406,7 +1277,7 @@ alone without consulting live config or a live user record.
 | Column | Type | Purpose |
 |---|---|---|
 | `content_origin` | `varchar(16)` | `generated` \| `user_upload` \| `stock` \| `template` \| `identity`, **nullable** — null means genuinely unknown, and §5.7 omits the annotation rather than guessing |
-| `report_intent` | `boolean` | **The reportability decision as of quarantine time**, frozen. Written by `quarantine.ts` from the same expression that decides whether to call `submitNcmecReport()` (§5.6), in the same transaction as the row. **Nullable, and null ≠ false** — it means *pre-migration, intent unknowable*, which is the backlog audit's population (§7 step 2), so §5.2.4's sweep skips those rows rather than absolving them |
+| `report_intent` | `boolean` | **The reportability decision as of quarantine time**, frozen. Written by `quarantine.ts` from the same expression that decides whether to call `submitNcmecReport()` (§5.6), in the same transaction as the row. **Nullable, and null ≠ false** — it means *pre-migration, intent unknowable*. Null intent then **splits by `source`**, exactly as §5.2.4 states it: `source = 'arachnid'` is recovered by the sweep (that rule never depended on config), and every other source is skipped by the sweep and surfaced by `GET /admin/safety/orphans`. Neither appears in the report-side backlog audit, which queries `ncmec_reports` and cannot see a row that has no report |
 | `reporter_snapshot` | `jsonb` | §5.7's frozen uploader identity, captured **here first** and copied to `ncmec_reports`. The quarantine row is the earlier write, so this is where the freeze actually happens |
 | `request_metadata` | `jsonb` | The request context the report carries, captured at the same moment for the same reason |
 
@@ -1487,20 +1358,27 @@ it worse than absent.
 
 | Event | Effect |
 |---|---|
-| The worker **acquires the lease and is about to call `/submit`** | `+1`, in the lease-acquisition transaction |
+| The worker is **about to call `/submit`**, after any retract-first resolution | `+1`, in a fenced update immediately before the call |
 | A lease acquisition that returns zero rows (another worker holds it, or the row is final) | **no change** — no ISPWS call was made |
+| A **lease acquired** but `/submit` never reached — §5.2.1's retract-first returns `5102` (already filed) or the retract keeps failing | **no change** — no new submission was attempted |
 | A **reclaim** that goes on to acquire the lease and call `/submit` | `+1`, by the rule above — it is a real attempt against NCMEC |
 | §5.2.1's **retract-first** restart within one execution | **no change** — one execution is one attempt, regardless of how many calls it makes |
 | Retry exhaustion | no change (the final attempt already counted) |
 | §5.8's **admin retry** | **reset to 0**, in the same transaction as the status reset and the `alert_notified_at` clear — the operator is starting a fresh budget, and §6 requires the row to get a full 8 attempts again |
 | `send-to-test` | **no change** — it is not a filing, and mixing test attempts into this counter would misreport how hard we have tried to file for real |
 
-The increment is at lease acquisition rather than at call completion so that a crash
-mid-sequence still records the attempt: an attempt that vanishes because it failed badly is
-exactly the one an operator needs to see. §6 asserts the counter across a retryable failure,
-a reclaim, exhaustion, and an admin retry.
+The increment sits **immediately before `/submit`** rather than at call completion, so a
+crash mid-sequence still records the attempt — an attempt that vanishes because it failed
+badly is exactly the one an operator needs to see. But it must not sit at *lease
+acquisition*, which is earlier than it looks: acquisition happens before §5.2.1's
+retract-first, so a recovery that acquires the lease, gets `5102`, and correctly marks the
+row `submitted` **without submitting anything** would still have counted an attempt, and
+repeated retract failures would inflate the counter while `/submit` is never reached. The
+column means *submission attempts against NCMEC*; the fenced point immediately before the
+call is the only place that is true. §6 asserts the counter across a retryable failure, a
+reclaim, a `5102` recovery, exhaustion, and an admin retry.
 
-**Indexes.** Four, each backing a query this design runs on a timer:
+**Indexes.** Three, each backing a query this design runs on a timer:
 
 ```sql
 -- reconciler pass 1: non-final rows
@@ -1513,21 +1391,14 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_failed_alerting"
   ON "ncmec_reports" ("submission_environment", "failed_at")
   WHERE "submission_status" = 'failed';
 
--- the incident aggregate (§5.2.3), which spans BOTH retrying and terminal rows
-CREATE INDEX IF NOT EXISTS "IDX_ncmec_attempt_failed"
-  ON "ncmec_reports" ("submission_environment", "last_attempt_failed_at")
-  WHERE "last_attempt_failed_at" IS NOT NULL;
-
 -- reconciler pass 2's idempotency, and the §5.2.4 orphan guard
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"
   ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
 ```
 
-The third and second are **not** redundant, which is easy to assume: pass 3 reads only
-terminal rows and bounds on `failed_at`, while the incident aggregate reads every row that
-has failed an attempt — most of which are still retrying and have a NULL `failed_at`. A
-single index on `failed_at` would leave the aggregate seq-scanning `ncmec_reports` on every
-notification, and that is the query that runs during an outage.
+The second is scoped to `submission_status = 'failed'` deliberately: pass 3 sweeps only
+terminal rows, so a broader index would carry the whole retrying population for a query that
+never reads it.
 
 The third is a **correctness** constraint, not a performance one: it is what makes two
 concurrent orphan sweeps produce one report row instead of two independently-filable ones
@@ -1564,7 +1435,6 @@ NCMEC_ISPWS_PASSWORD
 | `ncmec_backlog_audit_completed_at` | unset | §7 step 2 — the audit **completion** marker, set when the operator declares the audit finished. Separate from the cutoff on purpose (below). |
 | `async_job_ncmec_submit_max_attempts` | `8` | §5.2 — **seeded by `0094`**, not left to the queue default of 5 |
 | `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` (24 h) | §5.2 — **seeded by `0094`**, not left to the default of 8 h |
-| `ncmec_alert_reminder_interval_ms` | `21600000` (6 h) | §5.2.3 — how often an **open** incident re-notifies. The volume knob for a long outage |
 | `ncmec_safety_alert_email` | unset | §5.2.3 — fallback recipient when no admin has `admin_notifications` on. **Not reserved** (below), but §7 refuses activation unless a recipient resolves |
 
 **The two new keys are deliberately *not* in the reserved set, and the alert recipient is
@@ -1634,9 +1504,17 @@ neither alone is honest:
   whole 3-minute sequence to the duration of the `/finish` call itself, which is the
   irreducible part: no local check can stop a request already in flight to NCMEC.
 - **Surface the residual rather than hiding it.** `POST /config` returning
-  `submissionEnabled: false` also returns **`inFlight`** — the count of rows currently
-  holding an unexpired lease — and `/admin/safety` renders it as *"submission disabled; N
-  filings may still complete."* An operator hitting the emergency switch during an incident
+  `submissionEnabled: false` also returns **`inFlight`**, and `/admin/safety` renders it as
+  *"submission disabled; N filings may still complete."*
+
+  **`inFlight` counts an issued `/finish` too, not just an unexpired lease.** Counting
+  leases alone would report `0` in precisely the worst case: a `/finish` request can outlive
+  the lease that was valid when it began, so a config write arriving after that expiry but
+  before NCMEC answers would say *no filings can complete* while one demonstrably can — the
+  irreducible interval this field exists to disclose, reported as zero. So the worker stamps
+  **`finish_started_at`** immediately before the call and clears it once the outcome is
+  known, and `inFlight` counts rows with an unexpired lease **or** a non-NULL
+  `finish_started_at`. An operator hitting the emergency switch during an incident
   needs to know whether anything can still go out; a bare "off" that is briefly untrue is
   exactly the reassurance that makes a bad situation worse.
 
@@ -1993,11 +1871,12 @@ did. The audit log is consequently the **only** control on this surface, which i
   retry — which is genuinely worse, and is the accepted cost. An outage longer than 72
   hours is a conversation with NCMEC, not a button.
 
-  **Incident alert aggregation is NOT deferred** — see below. It arrived with bulk retry
-  in the same round-5 finding, but it is a few lines in the notification path rather than
-  an endpoint, and deferring it would make the remaining design worse rather than smaller.
+  **Incident alert aggregation is deferred too** (David, 2026-07-30) — see below and §9.
+  It arrived with bulk retry in the same round-5 finding, and after four review rounds of
+  defects it goes the same way, for the same reason: it is recovery/ergonomics work, not
+  the reporting obligation.
 
-  Deferred with it: the `bulk_retry` audit action and the `batch_id` grouping column,
+  Deferred with bulk retry: the `bulk_retry` audit action and the `batch_id` grouping column,
   which have no other consumer. `attempt_id` (§5.8's `send-to-test` events) is a separate
   column and stays.
 - `POST /admin/safety/reports/:id/send-to-test` — submits **one** selected row against
@@ -2196,12 +2075,12 @@ not an audit trail.
 
 | Endpoint | Request | Success (200) | Errors | Audit `before_state` → `after_state` |
 |---|---|---|---|---|
-| `GET /reports` | query: `status?`, `matchSource?`, `environment?`, `waitingState?`, **`incidentId?`**, **`failedFrom?` / `failedTo?`** (ISO), **`lastErrorCode?`**, `page` (default 1), `pageSize` (default 50, max 200) | `{ rows: NcmecReportRow[]; total: number; counts: WaitingStateCounts }` — `counts` is **global, not page-scoped**, keyed by `classifyWaitingState` branch | 400 | — (read) |
+| `GET /reports` | query: `status?`, `matchSource?`, `environment?`, `waitingState?`, **`failedFrom?` / `failedTo?`** (ISO), **`lastErrorCode?`**, `page` (default 1), `pageSize` (default 50, max 200) | `{ rows: NcmecReportRow[]; total: number; counts: WaitingStateCounts }` — `counts` is **global, not page-scoped**, keyed by `classifyWaitingState` branch | 400 | — (read) |
 | `GET /reports/:id` | — | `{ report: NcmecReportDetail; audit: AuditEntry[] }` — no `evidenceUri`, no storage path (§5.7) | 404 | — (read) |
 | `GET /audit` | query: `action?`, `page`, `pageSize` | `{ rows: AuditEntry[]; total: number }` — **the global feed**, including entries whose `report_id` is NULL | 400 | — (read) |
 | `GET /orphans` | query: `page`, `pageSize` | `{ rows: OrphanQuarantineRow[]; total: number }` — quarantine rows with no report and unknowable intent (§5.2.4). **`OrphanQuarantineRow` is an explicit allowlist DTO — see below** | 400 | — (read) |
-| `POST /orphans/:id/disposition` | `{ disposition: "report" \| "not_reportable", reason: string }` | **`{ created: NcmecReportDetail }`** — *both* dispositions create a report row (below) | 404; **409** if a report now exists **or if the compare-and-set over `report_intent IS NULL` affects zero rows** (below) | `{ reportIntent: null, disposition: null }` → `{ reportIntent, disposition, resultingStatus }` |
-| `POST /reports/:id/retry` | `{ reason?: string }` | **`{ enqueued: boolean; jobId: number; jobStatus: 'pending' \| 'processing' }`** — `enqueued: false` means a live job already existed and this click started nothing (below) | 404; **422** with `{ refusal: { class, reason } }` when `isSubmittable` refuses; **409** only for `submitted`, `filed_manually`, `not_reportable`, or a lost conditional update — **never for `failed`** (see below) | `{ submissionStatus, attemptCount, alertNotifiedAt }` → `{ submissionStatus: 'pending', attemptCount: 0, alertNotifiedAt: null }` |
+| `POST /orphans/:id/disposition` | `{ disposition: "report" \| "not_reportable", reason: string }` | **`{ created: NcmecReportDetail }`** — *both* dispositions create a report row (below) | 404; **409** if a report already exists for this quarantine row when the `FOR UPDATE` lock is acquired (below), naming the disposition that won | `{ reportId: null }` → `{ reportId, disposition, resultingStatus, backlogAuditedAt }` — **`reportIntent` is never written** |
+| `POST /reports/:id/retry` | `{ reason?: string }` | **`{ enqueued: boolean; jobId: number; jobStatus: 'pending' \| 'processing' }`** — `enqueued: false` means a live job already existed, this click started nothing, and **the budget was not reset** (below) | 404; **422** with `{ refusal: { class, reason } }` when `isSubmittable` refuses; **409** only for `submitted`, `filed_manually`, `not_reportable`, or a lost conditional update — **never for `failed`** (see below) | `{ submissionStatus, attemptCount, alertNotifiedAt }` → `{ submissionStatus: 'pending', attemptCount: 0, alertNotifiedAt: null }` — **only when `enqueued: true`** (below) |
 | `POST /reports/:id/mark-manually-filed` | `{ manualReportId: string (regex-validated), reason: string, confirm: "FILE MANUALLY" }` | `{ report: NcmecReportDetail }` | 400 on a bad `confirm` literal; **409 only for `submitted`, `filed_manually`, `not_reportable`, or a held lease — `failed` is accepted** (below) | `{ submissionStatus, manualReportId, manuallyFiledAt }` → same |
 | `POST /reports/:id/correct-manual-filing` | `{ manualReportId: string, reason: string }` | `{ report: NcmecReportDetail }` | 409 unless the row is `filed_manually` | `{ manualReportId }` → `{ manualReportId }` |
 | `POST /reports/:id/reopen` | `{ reason: string, confirm: "REOPEN" }` | `{ report: NcmecReportDetail }` | 409 unless `filed_manually` **or `not_reportable`** (below) | `{ submissionStatus, reportId, finishedAt, submittedAt }` → same, all three cleared (`manualReportId` **retained**) |
@@ -2226,12 +2105,20 @@ that affects zero rows because the row changed underneath the request.
 runs under §5.2.3's SAVEPOINT rule, and the dedupe index covers every non-terminal job — so
 for a `pending` or stale `in_progress` row, the enqueue can hit the conflict and return the
 *already-live* job without inserting anything. The endpoint would still answer
-`{ enqueued: true }`, and the operator clicking it during an incident could not tell
+`{ enqueued: true }`, and the operator clicking it during an outage could not tell
 *"I started a fresh attempt"* from *"there was already a job here, possibly a stuck one."*
 Those call for opposite next actions. So the contract returns what actually happened —
 `enqueued`, plus the `jobId` and `jobStatus` of the job that now owns the row — and
 `/admin/safety` renders `enqueued: false` as *"a job was already running (id N)"* rather
 than as success.
+
+**And when nothing was enqueued, nothing is reset.** The budget reset exists to give a
+*new* job a full eight attempts; applying it to a **pre-existing** live job would show the
+operator `attemptCount: 0` on a job whose queue-level `attempts` are untouched and which may
+exhaust on its very next run — a counter that says "fresh start" over a budget that is nearly
+spent. So `attempt_count`, `alert_notified_at` and the status reset are all conditional on
+the enqueue having actually inserted, in the same transaction, and the `enqueued: false`
+response leaves the row exactly as it found it.
 
 **`OrphanQuarantineRow` is an explicit allowlist, and it is the only DTO in this plan built
 from `quarantined_memes`.** That table's natural row carries `evidence_object_path` and the
@@ -2263,25 +2150,51 @@ status — which is the defect class round 12 spent a whole round removing. So:
 
 - `disposition: "report"` → report row inserted from the frozen inputs (§5.4's copy table),
   `isSubmittable` evaluated, enqueued under the SAVEPOINT rule.
+
+  **The disposition *is* the backlog-audit decision for that row, and must stamp
+  `backlog_audited_at` in the same transaction.** The copied report keeps the quarantine
+  row's `created_at` (§5.4's table — it must, or the filing would misstate the incident
+  time), so for any historical orphan that timestamp is **before the audit cutoff**. Without
+  the stamp, `isSubmittable` immediately refuses the row it just created as *unaudited
+  backlog*, nothing is enqueued, and the operator who explicitly chose "report this" would
+  have to find the same material a second time in a different list to make the same decision
+  again. The operator has reviewed the material and decided; recording that as an audit is
+  what the action means.
 - `disposition: "not_reportable"` → report row inserted with `submission_status =
-  'not_reportable'` and the operator's reason, **never enqueued**.
+  'not_reportable'` and the operator's reason, `backlog_audited_at` stamped on the same
+  terms, **never enqueued**.
 
 Either way the orphan leaves the list because it now has a report row, appears in the
 report ledger with a visible status, and is reversible by the same `reopen` every other
 final row uses.
 
-**Two operators dispositioning the same orphan must not both win.** The unique index on
-`quarantine_id` stops a duplicate *report row*; it does nothing about ordering, so a
-suppression could land after a report creation, or a report action could silently reverse a
-suppression. The whole disposition is therefore one transaction whose first statement is a
-compare-and-set:
+**Two operators dispositioning the same orphan must not both win — and the serialization
+must not be a write to `report_intent`.** The unique index on `quarantine_id` stops a
+duplicate *report row*; it does nothing about ordering, so a suppression could land after a
+report creation, or a report action could silently reverse a suppression.
+
+The obvious fix — a compare-and-set on `report_intent IS NULL` — is wrong for this design,
+and instructively so. `report_intent` is defined in §5.4 and §5.2.4 as **the reportability
+decision frozen at quarantine time**, and the whole orphan mechanism exists because that
+value is *unknowable* for these rows. Writing an operator's later judgement into it would
+overwrite a frozen historical fact with a present-day one — the exact class of mistake §5.7
+avoids when it refuses to re-resolve a reporter's identity at submission time. It also
+strands state: a `reopen` reversing a `not_reportable` disposition would leave
+`report_intent = false` behind, permanently disagreeing with the now-fileable report.
+
+So the transaction serializes on the **row**, not the column:
 
 ```sql
-UPDATE quarantined_memes SET report_intent = $intent
- WHERE id = $id AND report_intent IS NULL
+SELECT id FROM quarantined_memes WHERE id = $id FOR UPDATE;   -- second caller blocks here
+-- then: does an ncmec_reports row reference it?  If yes → 409, naming the winner.
 ```
 
-**Zero rows → `409`**, and the loser is told which disposition won. The report insert, the
+The loser blocks until the winner commits, then sees the report row and returns `409` with
+the disposition that won. `report_intent` is **never written by this endpoint** and stays
+NULL forever, which is the truth: nobody knows what was decided at quarantine time. What was
+decided *now* lives where later decisions belong — the report row's `submission_status`, its
+`backlog_audited_at`, and the audit entry. The unique index on `quarantine_id` remains the
+durable backstop if two transactions somehow reach the insert. The report insert, the
 `isSubmittable` evaluation, the enqueue, and the audit write all sit inside that same
 transaction under §5.2.3's SAVEPOINT rule.
 
@@ -2335,15 +2248,14 @@ catch it. Both `/backlog-audit/complete` **and** §7's activation gate count *bo
 populations, and the `409` names each count separately so the operator knows which list to
 open.
 
-**The incident alert's link needs a filter that can express its window.** §5.8's email
-promises a link to "the filtered ledger," and `GET /reports` could filter only by status,
-source, environment, and waiting state — so following the link once more than one incident
-had ever occurred showed the **entire historical failed population**, leaving the operator to
-reconstruct which rows the email had actually counted. `GET /reports` therefore accepts
-`incidentId` (resolved server-side to that incident's environment and `failed_at >=
-opened_at` bound — **the same derivation the handler's aggregate uses**, so the link cannot
-drift from the numbers in the email) plus raw `failedFrom` / `failedTo` / `lastErrorCode`
-for manual narrowing. Every notification renders the `incidentId` form.
+**Failure-time and error-code filters, because the alert names a report and the operator
+needs its neighbours.** A per-report alert answers *which* report failed; it does not answer
+*how many others failed at the same time with the same code*, which is the question that
+distinguishes an NCMEC outage from a single bad row. `GET /reports` therefore accepts
+`failedFrom` / `failedTo` and `lastErrorCode`, and the alert email links to the window
+around its own failure. This is the minimum the operator needs while aggregation is
+deferred (§9), and it is deliberately dumb — a time range and a code, no derived grouping,
+nothing to keep in sync.
 
 **The audit log's global feed needs its own endpoint, and §5.4 promised one before there
 was a contract for it.** §5.4 says the log renders "per report and as a global feed," but
@@ -2362,42 +2274,34 @@ all three together makes the resulting tuple a property of one request the gate 
 actually evaluate, and the write is serialized so two concurrent partial updates cannot
 interleave into an ungated state.
 
-**Alerts aggregate by incident; status stays per-report.** Emitting one email per failed
-report is correct at one failure and actively harmful at two hundred — the volume trains an
-operator to filter the channel, which is a worse outcome than a quieter alert. So all
-failures in an environment collapse into **one open incident** ("47 reports failed against
-`report.cybertip.org` since 03:12, dominant code 1000; 31 still retrying, 16 given up")
-linking to that incident's rows in the ledger. The incident **spans the whole outage** and
-notifies on open, then at most once per reminder interval, then once on recovery — so its
-email volume is bounded by *duration over the interval*, not by failure count and not by
-elapsed hours; §5.2.3 carries the reasoning and the arithmetic. Per-report `last_error` /
-`last_error_code` remain on each row — the aggregation is in the *notification*, never in
-the record.
+**Alerting is per report, and aggregation is deferred to its own plan (David, 2026-07-30).**
+One email per terminal failure. At one failure that is exactly right; at two hundred it is a
+flood, and the volume is what trains an operator to filter the channel — which is the harm
+aggregation existed to prevent.
 
-**Kept, on David's explicit decision (2026-07-29), after being put to him twice.** When
-bulk retry was deferred (round 9) I argued aggregation had to survive; round 10 then found
-it had **no mechanism at all**, and round 11 found four more defects in the mechanism that
-replaced it — a transaction-aborting enqueue, a wrong dominant code, tumbling windows
-described as rolling, and unachievable exactly-once delivery. That is the same
-defects-per-round profile that justified deferring bulk retry, so it was put to David again
-rather than defended a second time.
+**So this is a real cost, accepted with its eyes open, and here is the reasoning.** Batching
+was specified in round 5, then reviewed in rounds 10, 11, 14, 15 and 16. Every version
+failed on the same axis: deciding *which failures belong to which notification* is
+distributed coordination — who observed what, in which transaction, and whether anyone was
+told — and each rewrite traded one set of races for another. Round 10 found it had no
+mechanism at all; round 11 found four defects; round 15 found the batching window produced
+four days of silence and then ninety-six emails; round 16 found eleven defects in the
+interval model that replaced it. Meanwhile the submission worker, the lease, the reconciler
+and the admin surface had been stable for rounds.
 
-He chose to keep it as rewritten. The rewrite is why: the version that generated those
-findings maintained **derived state** (a counter and a dominant code beside the rows that
-already held both), and every one of those four defects came from that choice. The current
-design holds no derived state — a send-ledger row and a query — so the class of bug is
-gone rather than patched. What remains is honestly scoped: at most one alert per
-environment per hour, at-least-once delivery, numbers computed from the source of truth.
+David's call, given that history: **ship the reporting obligation and the surface, defer the
+batching.** It is a genuine scope reduction rather than a reliability regression, because
+invariant 8's guarantee does not depend on it — *"every terminal failure is notified"* is
+delivered by the per-report path in §5.2.3, which is strictly simpler and has no
+coordination surface at all. What batching bought was **inbox comfort during a rare
+multi-day outage**, not correctness. The retry budget (§5.2) means nothing alerts until a
+report has exhausted ≈98.6 h, so a blip sends nothing; only a genuine multi-day NCMEC outage
+produces the flood, and `GET /reports` gains `failedFrom` / `failedTo` / `lastErrorCode`
+(§5.8.1) so the operator can open the whole cohort from any one alert.
 
-**This also survives the bulk-retry deferral, and deliberately.** Aggregation and bulk retry
-both came out of round 5's outage finding, so it would be natural to cut them together.
-They are not the same kind of thing: bulk retry is an endpoint with a token protocol and a
-confirmation UX, while this is a few lines in the notification path. More importantly,
-deferring it would make the **remaining** design worse rather than smaller — invariant 8's
-guarantee that no failure is silent is delivered entirely through this alert channel, and
-two hundred emails in an hour is how an operator learns to ignore it. Cutting the recovery
-tool while keeping one report per row is a scope reduction; cutting the thing that keeps
-the alert channel usable is a reliability regression wearing a scope reduction's clothes.
+§9 records what a future aggregation plan has to solve, so the analysis this loop paid for
+is not lost. Per-report `last_error` / `last_error_code` remain on each row either way — the
+record was never where aggregation lived.
 
 Frontend: `artifacts/overhype-me/src/pages/admin/safety.tsx`, modeled on
 `emailQueue.tsx` (815 lines — a durable-queue admin page with statuses, the closest
@@ -2521,7 +2425,8 @@ Outage behavior (§5.2, §5.8):
   automatically resumed, with no operator action at all. One **longer** than it leaves
   every affected row `failed` with a durable notification and visible in the ledger —
   recoverable per row, which is the accepted cost of deferring bulk retry.
-- Two hundred concurrent failures produce **one** incident alert, not two hundred emails,
+- Two hundred concurrent terminal failures all **commit**, each with its own notification —
+  the SAVEPOINT rule holds and no status update is lost,
   while each row still carries its own `last_error_code`.
 - Notification dedupe keys are kind-scoped: an awaiting-activation alert still `pending`
   when a submission fails terminally does **not** suppress the failure alert.
@@ -2622,18 +2527,15 @@ Deployment, transition, and rollback (§7):
 - **The audit lifecycle endpoints exist and enforce their order**: `complete` before
   `start` is refused; `start` twice is refused; `complete` with rows outstanding is
   refused.
-- **Incident aggregation is concurrency-correct**: two hundred simultaneous failures produce
-  **one open incident** and one email reporting a count of two hundred — not two hundred
-  emails and not one email reporting a count of one — and a failure arriving after that
-  incident's alert has sent is covered by a **supplementary** alert, while a failure arriving
-  after the incident **resolved** opens a new one. Asserted against real concurrent
-  transactions, since the whole mechanism is an `ON CONFLICT` upsert on a partial unique
-  index and a dedupe index.
+- **Two hundred concurrent terminal commits all survive**: every row lands `failed` and every
+  row gets its own `ncmec:notify:failed:<reportId>` job. The failure under test is the
+  SAVEPOINT rule — without it the first commits and the rest roll back. Asserted against real
+  concurrent transactions.
 - **No failure is ever unalerted, including one that commits mid-handler.** Three cases,
   because the row-level coverage predicate (§5.2.3) is what invariant 8 now rests on:
   (a) a failure transaction held open across the handler's aggregate query **and its
   completion** — the email omits the row, the row's own enqueue dedupes against the still
-  -`processing` job, and reconciler pass 3 must produce a supplementary alert containing
+  -`processing` job, and reconciler pass 3 must cause pass 3 to re-enqueue a notification containing
   it; (b) a failure committing after the job goes terminal — same outcome by the ordinary
   path; (c) every row in a sent alert carries `alert_notified_at`, and no row outside it
   does. Case (a) is the one that fails without pass 3, so it is the one that must exist.
@@ -2655,27 +2557,24 @@ Deployment, transition, and rollback (§7):
 - **Repeated failure after a retry still alerts.** Alert a failed row, retry it (asserting
   `alert_notified_at` is cleared along with the status and `attempt_count`), fail it again
   with the second failure committing across a live handler's query-to-completion interval,
-  and assert a supplementary alert containing it. Without the clear, this test is silent.
+  and assert pass 3 to re-enqueue its notification. Without the clear, this test is silent.
 - **Mixed terminal job history resolves to the newest job.** A `failed` job followed by a
   newer `done` job must park the row for re-enqueue, not finalize it `failed`.
 - **A `not_reportable` row is never enqueued** — not by the reconciler, not by retry, not
   by the §7 activation sweep — and `reopen` can restore it.
-- **An outage is announced when it starts, not when it exhausts.** Drive a `1000` outage
-  with an injected clock: the incident must open on the **first retryable** failure, the
-  first alert must send within one reconciler interval plus the 2-minute grace, reminders
-  must arrive one per `ncmec_alert_reminder_interval_ms` and no faster, and a four-day
-  outage must produce **duration ÷ interval** notifications — not one per hourly bucket and
-  not four days of silence. Recovery must send exactly one closing notice and set
-  `resolved_at`; a fresh failure afterwards must open a **new** incident, not reopen it.
+- **Nothing alerts before the retry budget is spent, and everything alerts after it.** Drive a
+  `1000` outage with an injected clock: no notification is sent while attempts remain, and the
+  moment a row exhausts it produces exactly one — with its ISPWS code intact (below), not `-1`.
 - **An alert to nobody is not a notification.** With zero notifying admins and
-  `ncmec_safety_alert_email` unset, the handler must fail **retryably**: no row may carry
-  `alert_notified_at`, `last_notified_at` must still be NULL, and the job must remain
-  queued. Then set the fallback address and assert the same run succeeds and stamps. Also
-  assert a **partial** provider failure stamps nothing.
+  `ncmec_safety_alert_email` unset, the handler must fail **retryably**: the row must carry no
+  `alert_notified_at` and the job must stay queued. Set the fallback and assert the same run
+  succeeds and stamps. Assert a **partial** provider failure stamps nothing. And assert that
+  turning off the last notifying admin **while production is live** still leaves a resolvable
+  recipient, because the activation-time check alone does not hold over time.
 - **A retry between the handler's query and its stamp is not covered by the old alert.**
   Run the handler to just past its aggregate query, retry the row (status → `pending`,
   `alert_notified_at` cleared), then let the handler stamp: the row must be **left
-  unstamped**, and a subsequent failure must still produce a supplementary alert. Repeat
+  unstamped**, and a subsequent failure must still be re-enqueued by pass 3. Repeat
   with the row failing again before the stamp — the new `failed_at` must defeat the
   generation match.
 - **Disabling submission mid-sequence retracts rather than finishes.** Let a worker pass
@@ -2684,11 +2583,14 @@ Deployment, transition, and rollback (§7):
   must report a non-zero `inFlight` while that lease is held.
 - **An ISPWS outage does not report as `-1`.** Every retryable attempt must persist its
   `last_error_code` under the lease; a row exhausted after eight `1000`s must still read
-  `1000`, and the incident's dominant code must be `1000`. `-1` must appear **only** where a
+  `1000`, and `GET /reports?lastErrorCode=1000` must return the whole cohort. `-1` must appear **only** where a
   lost finalization is repaired and no attempt ever recorded a code.
-- **The safety jobs are not in the bulk lane.** Assert `ncmec_reconcile` and
-  `ncmec_incident_alert` register in `fast` and `ncmec_submit` in `bulk` — the lane is a
-  registration argument, so it regresses silently otherwise.
+- **The reconciler is not behind the bulk lane — in either half.** Assert `ncmec_reconcile`
+  registers in `fast`, that `ncmec_submit` and `ncmec_notify_failed` register in `bulk`, and
+  that the periodic reconcile **enqueue** is attached to the `fast` runner's timer rather than
+  the bulk maintenance pass. Lane and timer are both registration arguments, so both regress
+  silently otherwise; asserting only the lane would leave job creation stuck behind a
+  multi-minute batch while the test passed.
 - **The orphan list cannot leak a storage locator.** Assert `GET /orphans` returns the
   allowlisted fields and **no** `evidence_object_path`, object key, signed URL, vendor
   `raw_response`, or `request_metadata` — in the JSON **and** in the rendered DOM.
@@ -2713,9 +2615,29 @@ Deployment, transition, and rollback (§7):
   correction.
 - **Retry tells the operator what it did.** On a row with a live job, `POST /retry` must
   return `enqueued: false` with that job's id and status rather than `{ enqueued: true }`.
-- **The alert's link opens exactly the alert's rows.** `GET /reports?incidentId=N` must
-  return the same row set the notification counted, with a second concurrent incident
-  present.
+- **The alert's link opens the failure's cohort.** `GET /reports?failedFrom=…&failedTo=…` and
+  `?lastErrorCode=1000` must return every row that failed in that window with that code, so one
+  alert leads to the whole outage rather than to a single row.
+- **A worker that loses its lease still records what it saw.** Drive a `1000` response, expire
+  the lease before the persistence write, and assert `last_error_code = 1000` survives to
+  exhaustion — never `-1`. Then assert a lease-free **state** write is still refused, so the
+  narrow exemption has not widened.
+- **A `/finish` in flight is counted as in flight.** Expire the lease while `/finish` is
+  outstanding; `POST /config` must still report `inFlight >= 1`, not `0`.
+- **`attempt_count` counts submissions, not lease acquisitions.** A crash-recovery run that
+  acquires the lease, gets `5102` from retract-first, and marks the row `submitted` must leave
+  the counter unchanged.
+- **Retry that enqueues nothing changes nothing.** On a row with a live job, assert
+  `enqueued: false` **and** that `attempt_count`, `alert_notified_at` and `submission_status`
+  are all untouched.
+- **A reported orphan is enqueued, not re-audited.** Disposition a pre-cutoff orphan as
+  `report`; the created row must carry the quarantine `created_at`, be stamped
+  `backlog_audited_at`, and be **enqueued** — asserting the enqueue, because that is what a
+  missing audit stamp would silently prevent.
+- **An orphan disposition never writes `report_intent`.** After both dispositions, and after a
+  `reopen` of a `not_reportable` one, `quarantined_memes.report_intent` must still be NULL.
+- **The audit log survives a re-run of `0094`.** Apply the migration twice; assert it succeeds
+  and that `UPDATE`, `DELETE` and `TRUNCATE` all still raise afterwards.
 - **A stale config cache cannot file.** Two instances; disable submission and bust the
   cache on one; the worker on the **other** must still refuse, because its execution-time
   recheck is uncached.
@@ -2865,11 +2787,11 @@ verifies with the repository's own commands before the next begins.
 
 | # | Phase | Depends on | Verify with |
 |---|---|---|---|
-| 1 | Migration `0094` — columns, the four `ncmec_reports` indexes, `ncmec_alert_incidents` **with its partial unique index**, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`/`DELETE` on the audit log raises, `TRUNCATE` does not); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
+| 1 | Migration `0094` — columns, the three `ncmec_reports` indexes, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`/`DELETE` on the audit log raises, `TRUNCATE` does not); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
 | 2 | ISPWS client `ncmecClient.ts` + the two XML builders — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts` against the committed fixtures (§5.1); no network |
 | 3 | `isSubmittable` + `classifyWaitingState`, as pure functions with no callers | 1 | unit tests in `moderation.ncmecWorker.test.ts` |
 | 4 | Provenance, `report_intent`, and snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
-| 5 | Worker + reconciler (**all four passes**) + alert handler, registered but **gated off** — both in the `fast` lane (§5.3), `ncmec_submit` in `bulk` | 2, 3, 4 | `moderation.ncmecWorker.test.ts` full suite; lane assignments asserted |
+| 5 | Worker + reconciler (**all three passes**) + the `ncmec_notify_failed` handler, registered but **gated off** — reconciler in `fast` with its cadence on the `fast` timer, worker and notifier in `bulk` (§5.3) | 2, 3, 4 | `moderation.ncmecWorker.test.ts` full suite; lane assignments asserted |
 | 6 | Admin API + audit log + **the guarded config write path** + `lib/api-zod/src/ncmecSafety.ts` (§5.8.1) | 1, 3, 5 | `adminSafetyReports.test.ts`; **both** routes refuse unsafe activation; `pnpm run check:codegen-drift` **again**, because phase 6 adds an `api-zod` export |
 | 7 | `/admin/safety` page + both route registries | 6 | `safety.test.tsx`; page resolves, endpoints mounted |
 | 8 | Classifier caller changes (§5.6), flag still off and worker still hard-refusing | 4 | per-flow tests, all four call sites |
@@ -3151,9 +3073,32 @@ decision is a recorded position rather than an omission:
 ## 9. Out of scope
 
 - **Bulk incident response** — bulk retry, its preview-and-confirm token, per-row filter
-  revalidation, batch audit grouping, and the hard-limit UX. **Deferred by David
-  (2026-07-29)** on Codex's round-9 assessment; the reasoning and what covers the outage
-  case without it are in §5.8. Incident **alert aggregation** is explicitly *not* part of
+  selection, and the `bulk_retry` audit action, plus the `batch_id` grouping column. The
+  reasoning and the recovery path that exists without it are in §5.8.
+- **Incident alert aggregation** — batching many terminal failures into one notification
+  instead of one email per report (David, 2026-07-30). This plan alerts per report (§5.2.3),
+  which is correct and simple but floods the inbox during a multi-day outage.
+
+  **What a future plan has to solve, so this loop's analysis is not repaid twice.** Six
+  review rounds established that the hard part is not the email — it is deciding *which
+  failures belong to which notification* when N workers each see only their own transaction:
+
+  - A clock-keyed tumbling window cannot span an outage, so its email count grows with
+    elapsed hours; and keyed to *terminal* transitions it stays silent for the whole retry
+    budget, then fires once per bucket the exhaustions land in.
+  - An open interval per environment fixes both and introduces its own races: `now()` is
+    transaction-scoped, so an older failure can commit after the winning opener and fall
+    outside the interval's lower bound; closing must be serialized against a failure
+    committing after the "no rows remain" check; a recovery notice must not dedupe into a
+    still-pending reminder; a resolved incident's aggregate needs an upper bound or it
+    reports the next outage's rows; and a handler that crashes before persisting any typed
+    result opens no incident at all.
+  - Whatever replaces it must keep invariant 8 intact **without** relying on the aggregate:
+    per-row coverage (`alert_notified_at`) plus the pass-3 sweep is what actually guarantees
+    no failure is silent, and it should stay the backstop rather than become the mechanism.
+
+  A plan that starts from those five constraints is a much shorter plan than this one was.
+
   this deferral and ships with this plan. Revisit if an outage ever exceeds the 72-hour
   automatic budget in practice, or once the ledger is large enough that per-row recovery
   is unrealistic.
