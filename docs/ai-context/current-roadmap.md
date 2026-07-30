@@ -24,6 +24,32 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Loop ledger backfilled across its two blind cohorts + a CI guard against
+  future gaps** (PR #286). Between the ledger's creation (PR #270) and
+  2026-07-29 it had accrued 2 rows against 13 closed loops, with zero rows in
+  the bugfix and feature/code cohorts — the append-when-a-loop-closes
+  obligation had nowhere to fail, so it was silently skipped while every PR
+  stayed green. Backfilled: #274 (plan-review, 68.4% self-inflicted), #282
+  (plan-review, 72.1%, the ledger's new worst case at 32→9-round scale), #283
+  and #284 (the ledger's first `bugfix`-cohort row). #279 (32 rounds, 166
+  findings) landed mechanical-columns-only by an explicit, dated decision —
+  see the ledger's own row 6 note — rather than adjudicated, once its true
+  size turned out to be 4× the prior worst case. New `scripts/check-ledger-
+  coverage.mjs`, wired into the Build job, now fails CI when a closed loop has
+  neither a row nor a recorded exemption, and throws (rather than silently
+  skipping) if its own required CI inputs are missing. Also recorded in the
+  same window: David enabled Codex "Exhaustive code review" (2026-07-29),
+  which is now a boundary line in the ledger — pre/post rows aren't measuring
+  the same reviewer. See
+  [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger).
+  **Across the three adjudicated loops the self-inflicted share is 64.7% →
+  68.4% → 72.1% — not falling** (n=3, all pre-boundary); see the ledger for
+  the two structural findings underneath that number. Two things surfaced but
+  deliberately left unfixed, for David to decide: the ledger's own
+  `classifyCohort` drains bugfix loops into `prose/contract` whenever the PR
+  carries a doc, and #279 ran 32 rounds past the ~20-round soft cap meant to
+  trigger a check-in, with no record of whether one happened.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). Both Claude Code and Codex now append a row — mechanical
   columns machine-derived, judgment columns hand-entered and marked as such —

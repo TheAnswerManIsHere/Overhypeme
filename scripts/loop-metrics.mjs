@@ -496,9 +496,9 @@ export function flattenMcpThreads(reviewThreads, reviews) {
  * do that instead, and must say so explicitly: this throws unless
  * `snapshot.complete` marks all three paginated collections `true`.
  *
- * This is not a formality. A loop with 18 review rounds and 40 findings —
- * our worst case to date, and exactly the shape this adapter exists to
- * measure — will paginate on at least one of `get_reviews`,
+ * This is not a formality. A loop with 32 review rounds and 166 findings —
+ * PR #279's, our worst case to date, and exactly the shape this adapter
+ * exists to measure — will paginate on at least one of `get_reviews`,
  * `get_review_comments`, or `get_files`. Deriving a row from an unmarked
  * partial snapshot produces a number that looks measured and undercounts
  * rounds, findings, or artifact size on precisely the loops that matter most.

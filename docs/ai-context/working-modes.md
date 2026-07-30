@@ -404,8 +404,21 @@ be trusted.
    must set `complete: {reviews: true, files: true, reviewThreads: true}` only
    once every page is concatenated in. The script refuses an unmarked or
    partial snapshot rather than deriving a plausible-looking undercount, which
-   a large loop (18 rounds, 40 findings, on our worst case so far) would
-   otherwise produce silently.
+   a large loop (32 rounds, 166 findings — PR #279's, our worst case so far)
+   would otherwise produce silently.
+
+   **Before committing to backfill or blind-adjudicate a historical loop,
+   check its size cheaply first.** A plain `get_reviews`/`get_review_comments`
+   call (or the MCP `totalCount`) costs one round-trip and tells you the round
+   and finding count before you've built a snapshot or spent any tokens
+   classifying. The 2026-07-29 backfill skipped this and scoped its work from
+   the ledger's prior worst case (18 rounds / 40 findings) — the two loops it
+   then tried to backfill turned out to be 9 rounds/86 findings and 32
+   rounds/166 findings, the latter a 4× jump that forced a mid-task
+   renegotiation of what to actually adjudicate (see
+   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
+   row 6 note). A loop's size has no reason to resemble the last one measured;
+   check before scoping, not after building the snapshot.
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised / invalid), pre-open preflight
    minutes, breakers fired. **Ambiguous causes default to self-inflicted**,
