@@ -26,6 +26,7 @@ import {
   prepareOneTimeCheckout,
   prepareSubscriptionRefresh,
   releasePrepared,
+  resolveInvoiceForPaymentIntent,
   runNotifications,
   type NotificationAction,
   type Prepared,
@@ -655,27 +656,21 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         id: string;
         customer: string | { id: string } | null;
         payment_intent: string | { id: string } | null;
-        invoice: string | { id: string } | null;
         // `amount` is what makes partial distinguishable from full. Its absence
         // from the old destructured parameter is why the handler could not tell.
         amount: number;
         amount_refunded: number;
         currency: string;
       };
-      const refundInvoiceId = charge.invoice
-        ? (typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id)
-        : undefined;
       const refundPaymentIntentId = charge.payment_intent
         ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
         : null;
 
       // Not every PaymentIntent on a `charge.refunded` event is a lifetime
       // purchase — a subscription invoice, or any other charge, carries one too.
-      // This existence check (a plain read, not a Stripe call — safe during
-      // prepare) decides which of the two audit paths applies: a lifetime
-      // source routes through prepareLifetimeRefund, which records its own
-      // full/partial history tied to the entitlement; anything else falls back
-      // to the unconditional record-only path the old handler always took for a
+      // A lifetime source routes through prepareLifetimeRefund, which records
+      // its own full/partial history tied to the entitlement; anything else
+      // falls back to the record-only path the old handler always took for a
       // subscription/unrecognized refund, so it does not silently vanish from
       // the audit trail.
       const lifetimeSource = refundPaymentIntentId
@@ -694,10 +689,28 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
           currency: charge.currency,
         });
       } else if (refundPaymentIntentId) {
-        // Subscription invoice refund or an otherwise-unrecognized charge —
-        // record for the audit trail only; the subscription cancellation flow
-        // (if any) handles downgrades separately, same as the handler this
-        // replaces.
+        // No local lifetime source. That is NOT proof this was not a lifetime
+        // purchase: Stripe does not order deliveries, so `charge.refunded` can
+        // overtake the `checkout.session.completed` that would have created the
+        // row. Treating local absence as proof is how a fully refunded purchase
+        // ended up granting Legendary forever — the refund recorded audit-only
+        // and claimed the event, and the checkout that arrived afterwards still
+        // saw a succeeded PaymentIntent and created an ACTIVE source.
+        //
+        // So resolve it authoritatively instead. An invoice-backed charge pays a
+        // subscription invoice and can never become a one-time membership
+        // source, which settles the question for good; a charge that pays no
+        // invoice is a one-time payment whose source has simply not landed yet,
+        // and that is retryable rather than settled.
+        const refundInvoiceId = await resolveInvoiceForPaymentIntent(stripe, refundPaymentIntentId);
+        if (!refundInvoiceId) {
+          entitlement = { kind: "noop", reason: "source_unknown" };
+          break;
+        }
+
+        // Subscription invoice refund — record for the audit trail only; the
+        // subscription cancellation flow (if any) handles downgrades separately,
+        // same as the handler this replaces.
         const customerId = charge.customer
           ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
           : null;

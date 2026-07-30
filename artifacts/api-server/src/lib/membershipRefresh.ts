@@ -59,6 +59,8 @@ import { logger } from "./logger.js";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const PAGE_SIZE = 100;
+/** Same bound `listAllPages` applies; a truncated walk cannot support "this is the earliest". */
+const MAX_PAGES = 20;
 
 // ---------------------------------------------------------------------------
 // Deps.
@@ -166,32 +168,68 @@ export async function resolveGraceEpisodeStart(
   subscriptionId: string,
   deadline?: RetrievalDeadline,
 ): Promise<{ startedAt: Date } | { startedAt: null; reason: string }> {
-  let invoices: Stripe.Invoice[];
-  try {
-    // These three lists are the reason a per-REQUEST budget could not bound the
-    // phase: they run after the verifier has already spent an unknown share of
-    // it, and the charge list paginates. An exhausted budget surfaces here as
-    // "no resolvable start", which is the already-correct safe direction — no
-    // deadline is derived, the source keeps qualifying, and the case is
-    // reported rather than a start being guessed.
-    deadline?.assertCanIssue("invoices.list");
-    const page = await stripe.invoices.list({
-      subscription: subscriptionId,
-      limit: PAGE_SIZE,
-    });
-    invoices = page.data;
-  } catch (error) {
-    return { startedAt: null, reason: `invoice list failed: ${(error as Error).message}` };
-  }
-
   // `list` returns newest first. Walk back from the present and stop at the first
   // invoice that is NOT unpaid — everything after it belongs to an earlier,
   // resolved delinquency.
+  //
+  // PAGINATED, not one page: an episode longer than a page would otherwise end at
+  // the oldest invoice we happened to fetch rather than at the episode's own
+  // first unpaid invoice, moving the 14-day start FORWARD and extending access
+  // past the settled first-failure boundary. Reaching the page bound without
+  // finding the boundary is an explicit incomplete result, never a guess.
+  //
+  // These lists are the reason a per-REQUEST budget could not bound the phase:
+  // they run after the verifier has already spent an unknown share of it, and
+  // they paginate. An exhausted budget surfaces here as "no resolvable start",
+  // which is the already-correct safe direction — no deadline is derived, the
+  // source keeps qualifying, and the case is reported rather than guessed.
   const unpaidRun: Stripe.Invoice[] = [];
-  for (const invoice of invoices) {
-    const unpaid = invoice.status === "open" || invoice.status === "uncollectible";
-    if (!unpaid) break;
-    unpaidRun.push(invoice);
+  let startingAfter: string | undefined;
+  let episodeBoundaryFound = false;
+
+  for (let page = 0; page < MAX_PAGES && !episodeBoundaryFound; page += 1) {
+    let response: Stripe.ApiList<Stripe.Invoice>;
+    try {
+      deadline?.assertCanIssue("invoices.list");
+      response = await stripe.invoices.list({
+        subscription: subscriptionId,
+        limit: PAGE_SIZE,
+        starting_after: startingAfter,
+      });
+    } catch (error) {
+      return { startedAt: null, reason: `invoice list failed: ${(error as Error).message}` };
+    }
+
+    for (const invoice of response.data) {
+      const unpaid = invoice.status === "open" || invoice.status === "uncollectible";
+      if (!unpaid) {
+        episodeBoundaryFound = true;
+        break;
+      }
+      unpaidRun.push(invoice);
+    }
+    if (episodeBoundaryFound) break;
+
+    // Running off the end of the subscription's whole invoice history is also a
+    // boundary: the episode began with its very first invoice.
+    if (!response.has_more) {
+      episodeBoundaryFound = true;
+      break;
+    }
+
+    const last = response.data[response.data.length - 1];
+    // has_more with an empty page would loop forever on the same cursor.
+    if (!last) {
+      return { startedAt: null, reason: "invoice pagination: has_more with no cursor to advance" };
+    }
+    startingAfter = last.id;
+  }
+
+  if (!episodeBoundaryFound) {
+    return {
+      startedAt: null,
+      reason: `invoice pagination bound (${MAX_PAGES} pages) reached before the episode start`,
+    };
   }
 
   if (unpaidRun.length === 0) {
@@ -240,6 +278,41 @@ async function firstPaymentIntentForInvoice(
   } catch (error) {
     logger.warn({ err: error, invoiceId }, "could not list invoice payments for the grace anchor");
   }
+  return null;
+}
+
+/**
+ * The invoice a PaymentIntent paid, or null when it paid no invoice at all.
+ *
+ * Two callers, both needing the same fact for different reasons:
+ *
+ *   - a subscription refund's history row wants the invoice id for its receipt
+ *     link. `Charge` carries no `invoice` field in this API version — the cast
+ *     that used to read one always produced `undefined` — so it has to be looked
+ *     up rather than read off the event.
+ *   - `charge.refunded` and the dispute path need to know whether a charge is
+ *     invoice-backed at all. **Invoice-backed is the authoritative negative
+ *     proof that a charge is not a one-time membership purchase**, which is what
+ *     lets those handlers stop inferring it from the local absence of an
+ *     entitlement row — an inference that is false exactly when the refund
+ *     overtakes the checkout event that would have created the row.
+ *
+ * A `null` return is only sound because it distinguishes "no invoice" from "the
+ * lookup failed": a throw propagates rather than being flattened into null.
+ */
+export async function resolveInvoiceForPaymentIntent(
+  stripe: Stripe,
+  paymentIntentId: string,
+  deadline?: RetrievalDeadline,
+): Promise<string | null> {
+  deadline?.assertCanIssue("invoicePayments.list");
+  const payments = await stripe.invoicePayments.list({
+    payment: { payment_intent: paymentIntentId, type: "payment_intent" },
+    limit: 1,
+  });
+  const invoice = payments.data[0]?.invoice;
+  if (typeof invoice === "string") return invoice;
+  if (invoice && typeof invoice === "object") return invoice.id ?? null;
   return null;
 }
 
@@ -642,7 +715,24 @@ async function applySubscription(
     { graceStartedAt: prepared.graceStartedAt },
   );
 
-  if (created) {
+  // Activation is a LIFECYCLE transition, not a row insert. Keying it on
+  // `created` got both ends wrong: Stripe can deliver
+  // `customer.subscription.created` while the subscription is still
+  // `incomplete`, or the first event we see can retrieve an already-`canceled`
+  // one — both wrote "activated" — while the later move to `active` had
+  // `created === false` and wrote nothing at all.
+  //
+  // `past_due` counts as continuing rather than activating, so a recovery from
+  // dunning is not reported as a fresh activation; a genuine reactivation out of
+  // `canceled` or `incomplete` is.
+  const ACTIVATING = new Set(["active", "trialing"]);
+  const CONTINUING = new Set(["active", "trialing", "past_due"]);
+  const becameActive =
+    applied &&
+    ACTIVATING.has(verified.lifecycleStatus) &&
+    (previousLifecycleStatus === null || !CONTINUING.has(previousLifecycleStatus));
+
+  if (becameActive) {
     // A payment FACT, recorded whether or not the tier moved — same reasoning
     // as `lifetime_purchase` in `applyLifetimePurchase`. Gating this on
     // `recomputeMembership`'s tier-changed check would silently drop it
@@ -792,7 +882,8 @@ async function applyDispute(
   // Skipping recompute here would leave a permanently disqualified source
   // never demoting the stored tier.
   const lostRevocationWritten =
-    (outcome.outcome === "applied" || outcome.outcome === "no_op_terminal") &&
+    outcome.outcome !== "unrecognised_status" &&
+    outcome.outcome !== "source_unknown" &&
     outcome.lostRevocationWritten;
 
   if (outcome.outcome !== "applied" && !lostRevocationWritten) {

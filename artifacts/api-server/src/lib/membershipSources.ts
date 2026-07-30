@@ -249,12 +249,24 @@ export async function applySubscriptionSource(
   let graceExpiresAt: Date | null = null;
 
   if (state.lifecycleStatus === "past_due") {
-    // Prefer the episode already open; else the caller's resolved first-failure
-    // timestamp. When neither is available the first failed attempt was
-    // unresolvable, so NO deadline is derived — the source keeps qualifying and
-    // the case is reported. A guessed start can only be early, and early means
-    // revoking a paying customer.
-    const anchor = existing?.graceStartedAt ?? opts.graceStartedAt ?? null;
+    // Keep the episode already open, so duplicate `past_due` events cannot
+    // extend it — EXCEPT when the authoritative anchor identifies a strictly
+    // NEWER episode. A missed recovery webhook leaves the local row `past_due`
+    // with the previous episode's start; if Stripe has since recovered and
+    // entered a new delinquency, inheriting that stale start hands the new
+    // episode an already-expired deadline and revokes on the spot, when it is
+    // owed its own 14 days. The refresh resolved the new episode's first failure
+    // from the provider, so "newer than what we stored" is exactly the signal
+    // that the stored one belongs to a closed episode.
+    //
+    // When neither is available the first failed attempt was unresolvable, so NO
+    // deadline is derived — the source keeps qualifying and the case is
+    // reported. A guessed start can only be early, and early means revoking a
+    // paying customer.
+    const stored = existing?.graceStartedAt ?? null;
+    const resolved = opts.graceStartedAt ?? null;
+    const anchor =
+      resolved && (!stored || resolved.getTime() > stored.getTime()) ? resolved : stored;
     if (anchor) {
       graceStartedAt = anchor;
       graceExpiresAt = new Date(anchor.getTime() + GRACE_WINDOW_MS);
@@ -389,6 +401,7 @@ export async function markLifetimeRefunded(
 export type DisputeTransitionOutcome =
   | { outcome: "applied"; isTerminal: boolean; lostRevocationWritten: boolean }
   | { outcome: "no_op_terminal"; lostRevocationWritten: boolean }
+  | { outcome: "no_op_unchanged"; lostRevocationWritten: boolean }
   | { outcome: "unrecognised_status"; status: string }
   | { outcome: "source_unknown" };
 
@@ -437,6 +450,25 @@ export async function applyDisputeTransition(
     lostRevocationWritten = revoked.length > 0;
   }
 
+  // Stripe emits `charge.dispute.updated` for evidence changes as well as
+  // status transitions, so the row as it stands has to be read before the upsert
+  // to tell "this event moved the dispute" from "this event moved nothing".
+  // Without that, every evidence-only update appended a fresh `dispute_opened`
+  // history row — cluttering the audit trail and, because the access-revocation
+  // banner's dismissal key includes that timestamp, un-dismissing the banner the
+  // user had already dismissed.
+  const [before] = await tx
+    .select({
+      status: entitlementSourceDisputesTable.status,
+      isTerminal: entitlementSourceDisputesTable.isTerminal,
+    })
+    .from(entitlementSourceDisputesTable)
+    .where(eq(entitlementSourceDisputesTable.stripeDisputeId, input.stripeDisputeId))
+    .limit(1);
+
+  const unchanged =
+    before !== undefined && before.status === input.status && before.isTerminal === isTerminal;
+
   // The conditional upsert: DO UPDATE carries a WHERE on the EXISTING row, so a
   // terminal row is a silent no-op and RETURNING yields nothing — which is the
   // signal that the anomaly occurred.
@@ -466,6 +498,14 @@ export async function applyDisputeTransition(
     // must recompute on that, not skip recompute because the dispute-row upsert
     // happened to no-op.
     return { outcome: "no_op_terminal", lostRevocationWritten };
+  }
+
+  // The write went through, but it carried no transition. Reported separately so
+  // the caller records no history fact for it — while still surfacing a
+  // `lostRevocationWritten` that the unconditional revocation above may have
+  // performed on this same pass.
+  if (unchanged) {
+    return { outcome: "no_op_unchanged", lostRevocationWritten };
   }
 
   return { outcome: "applied", isTerminal, lostRevocationWritten };
