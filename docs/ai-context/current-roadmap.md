@@ -32,8 +32,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
   (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
-  into the Build job, fails CI when a closed loop has neither a row nor a
-  recorded exemption. Also recorded in the same window: David enabled Codex
+  into the Build job, fails CI when a loop that closed *before the current
+  PR opened* has neither a row nor a recorded exemption — a loop closing
+  while a PR is already in flight stays unenforced until the next one
+  opens. Also recorded in the same window: David enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
   mechanics, and the pre/post-boundary analysis all live in
@@ -46,9 +48,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger). Two things
   surfaced but deliberately left unfixed, for David to decide: the ledger's
-  own `classifyCohort` routes any PR carrying a non-ledger markdown file to
-  `prose/contract`, which is part of why the `feature/code` cohort is still
-  empty (see the ledger's cohort-leakage note for the precise mechanism);
+  own `classifyCohort` routes any **non-plan-review** PR carrying a
+  non-ledger markdown file to `prose/contract` (a `[PLAN REVIEW]`-titled PR
+  is checked first and stays `plan-review` regardless), which is part of
+  why the `feature/code` cohort is still empty (see the ledger's
+  cohort-leakage note for the precise mechanism);
   and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
   trigger a check-in, with no record of whether one happened (see the
   ledger's row 6).
