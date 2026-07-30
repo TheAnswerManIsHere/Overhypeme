@@ -45,6 +45,11 @@ import { db } from "@workspace/db";
 import { membershipLeasesTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import type { EntitlementSourceType } from "@workspace/db/schema";
+import {
+  APPLY_LOCK_TIMEOUT_MS,
+  APPLY_RETRY_ATTEMPTS,
+  APPLY_RETRY_BACKOFF_MS,
+} from "./membershipTiming.js";
 
 /** Scope for the lease guarding one entitlement source's retrieval-and-apply. */
 export function sourceLeaseScope(
@@ -254,11 +259,52 @@ export async function assertFenceHeld(tx: Tx, handle: LeaseHandle): Promise<void
   }
 }
 
+/** Postgres's error code when a statement is cancelled by `lock_timeout`. */
+const LOCK_NOT_AVAILABLE = "55P03";
+
 /**
- * Open the apply transaction and run the fence check first.
+ * The one way an entitlement apply transaction gets opened, everywhere.
  *
- * `lockTimeoutMs` is set inside the transaction. It is safe to bound because the
- * transaction holds no network I/O by construction.
+ * Two things every caller of `applyPrepared` needs, and neither was true of a
+ * bare `db.transaction(...)`:
+ *
+ *   - `lock_timeout` is set to the configured budget. Safe to bound because the
+ *     transaction holds no network I/O by construction — the entire point of
+ *     the prepare/apply split.
+ *   - a lock-timeout failure is retried, up to `APPLY_RETRY_ATTEMPTS` times with
+ *     exponential backoff. This is the budget `minimumLeaseTtlSeconds` is
+ *     derived from — a lease floor computed from a retry loop that never
+ *     actually ran would be calibrated against work the code doesn't do.
+ *
+ * Any OTHER error — a domain failure, a fence rejection — is not retried: only
+ * lock contention is a reason to try the same write again.
+ */
+export async function runBoundedApply<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SET LOCAL lock_timeout = ${sql.raw(String(Math.trunc(APPLY_LOCK_TIMEOUT_MS)))}`,
+        );
+        return fn(tx);
+      });
+    } catch (error) {
+      const code = (error as { code?: string } | null | undefined)?.code;
+      if (code !== LOCK_NOT_AVAILABLE || attempt >= APPLY_RETRY_ATTEMPTS) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, APPLY_RETRY_BACKOFF_MS * 2 ** (attempt - 1)),
+      );
+    }
+  }
+}
+
+/**
+ * Open the apply transaction for a single, already-fenced write and run the
+ * fence check first. A thin convenience wrapper over `runBoundedApply` for a
+ * caller that has exactly one `LeaseHandle` to check and nothing else to do
+ * before the fence — `applyPrepared`'s own callers don't use this, since they
+ * call `assertFenceHeld` themselves (their transaction body also does
+ * unrelated work, like the webhook's idempotency claim).
  */
 export async function withLeaseFence<T>(
   handle: LeaseHandle,

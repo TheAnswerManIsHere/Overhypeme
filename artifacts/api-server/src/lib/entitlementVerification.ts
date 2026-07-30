@@ -409,10 +409,20 @@ export async function verifyMembershipSubscription(
     providerRef: subscription.id,
     isMembershipProduct,
     lifecycleStatus: subscription.status,
-    plan: firstItem?.price?.id ?? null,
+    plan: planLabelFromInterval(firstItem?.price?.recurring?.interval),
     currentPeriodEnd: typeof periodEnd === "number" ? new Date(periodEnd * 1000) : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
   };
+}
+
+// SubscriptionPanel.tsx compares `plan` against "monthly"/"annual" for the
+// billing-cycle label and the monthly→annual switch UI — the raw Stripe price
+// id it used to carry meant every new price rotation silently broke that
+// comparison.
+function planLabelFromInterval(interval: Stripe.Price.Recurring.Interval | undefined): string | null {
+  if (interval === "month") return "monthly";
+  if (interval === "year") return "annual";
+  return null;
 }
 
 // ---------------------------------------------------------------------------

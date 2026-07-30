@@ -13,7 +13,9 @@ import {
   releasePrepared,
   runNotifications,
 } from "../lib/membershipRefresh";
+import { runBoundedApply } from "../lib/membershipLease";
 import { hasQualifyingLifetimeSource } from "../lib/membershipSources";
+import { getEffectiveMembership } from "../lib/membershipState";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
@@ -345,7 +347,10 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
       }
       const applied = await refreshSubscriptionSource(stripe, subscriptionId, {
         linkHintUserId: req.user.id,
-        transitionEvent: "subscription_activated",
+        expectedUserId: req.user.id,
+        // subscription_activated is now recorded unconditionally by applySubscription
+        // itself when the source is newly created — passing it here too would
+        // double-write the history fact.
       });
       if (!applied.applied) {
         logger.warn({ userId: req.user.id, sessionId, reason: applied.reason }, "checkout/confirm did not apply");
@@ -356,7 +361,8 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
         });
         return;
       }
-      res.json({ source: "subscription", result: "granted" });
+      const membership = await getEffectiveMembership(req.user.id);
+      res.json({ source: "subscription", result: "granted", tier: membership?.tier ?? null });
       return;
     }
 
@@ -372,13 +378,18 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
     }
 
     try {
-      const applied = await db.transaction((tx) => applyPrepared(tx, prepared));
+      const applied = await runBoundedApply((tx) => applyPrepared(tx, prepared));
       await runNotifications(applied.notifications);
       logger.info(
         { userId: req.user.id, sessionId, applied: applied.applied },
         "checkout/confirm applied through the trust boundary",
       );
-      res.json({ source: "lifetime", result: applied.applied ? "granted" : "already_recorded" });
+      const membership = await getEffectiveMembership(req.user.id);
+      res.json({
+        source: "lifetime",
+        result: applied.applied ? "granted" : "already_recorded",
+        tier: membership?.tier ?? null,
+      });
     } finally {
       await releasePrepared(prepared);
     }

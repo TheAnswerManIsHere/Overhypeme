@@ -62,12 +62,12 @@ interface MembershipData {
   isLifetime: boolean;
   lifetimeEntitlement: {
     id: number;
-    stripePaymentIntentId: string;
+    sourceType: "stripe_lifetime_payment" | "admin_grant";
+    stripePaymentIntentId: string | null;
     amount: number | null;
     createdAt: string;
     grantedByAdminId: string | null;
-    grantedByAdminDisplayName: string | null;
-    grantedByAdminEmail: string | null;
+    grantedByAdminLabel: string | null;
   } | null;
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
@@ -1150,20 +1150,21 @@ export default function AdminUsers() {
                         <div>
                           <p className="text-xs text-muted-foreground">
                             Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
-                            {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? (
+                            {membershipData.lifetimeEntitlement.sourceType === "admin_grant" ? (
                               <span>
                                 {" (admin"}
-                                {(membershipData.lifetimeEntitlement.grantedByAdminDisplayName || membershipData.lifetimeEntitlement.grantedByAdminEmail) && (
+                                {membershipData.lifetimeEntitlement.grantedByAdminLabel && (
                                   <span className="font-medium">
                                     {": "}
-                                    {membershipData.lifetimeEntitlement.grantedByAdminDisplayName ?? membershipData.lifetimeEntitlement.grantedByAdminEmail}
+                                    {membershipData.lifetimeEntitlement.grantedByAdminLabel}
                                   </span>
                                 )}
                                 {")"}
                               </span>
                             ) : ""}
                           </p>
-                          {!membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") && (
+                          {membershipData.lifetimeEntitlement.sourceType !== "admin_grant" &&
+                            membershipData.lifetimeEntitlement.stripePaymentIntentId && (
                             <div className="mt-0.5">
                               <StripeLink
                                 entity="payment_intents"

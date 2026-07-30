@@ -32,6 +32,7 @@ import {
   currentHolderId,
   heartbeatLease,
   releaseLease,
+  runBoundedApply,
   type LeaseHandle,
 } from "./membershipLease.js";
 import {
@@ -41,11 +42,13 @@ import {
 } from "./membershipTiming.js";
 import {
   applyPrepared,
+  makeVerificationDeps,
   prepareSubscriptionRefresh,
   releasePrepared,
+  resolveGraceEpisodeStart,
   runNotifications,
-  type Prepared,
 } from "./membershipRefresh.js";
+import { verifyMembershipSubscription, type SubscriptionVerification } from "./entitlementVerification.js";
 import { loadSourceSnapshots, recomputeMembership } from "./membershipSources.js";
 import {
   deriveEffectiveMembership,
@@ -83,6 +86,16 @@ export interface ReconcileReport {
 export interface StagedChange {
   userId: string;
   providerRef: string;
+  /**
+   * The USER'S overall before/after, not this source's in isolation. Computed
+   * once per user from every one of their staged sources applied TOGETHER — a
+   * user with two subscriptions that both become canceled must show
+   * "downgrade" on both rows, even though replacing either source alone,
+   * against the other's still-active baseline, would individually look
+   * unchanged. That per-source illusion is what let a real mass-downgrade
+   * bypass the guard: two "unchanged" verdicts never registered as one
+   * downgraded user.
+   */
   currentTier: string;
   intendedTier: string;
   direction: "upgrade" | "downgrade" | "unchanged";
@@ -184,16 +197,27 @@ function startHeartbeat(
   config: Record<MembershipConfigKey, number>,
 ): Heartbeat {
   let alive = true;
+  const markDead = (reason: string, err?: unknown) => {
+    alive = false;
+    logger.error(
+      { scope: lease.scope, err },
+      `reconciliation lost its run lease (${reason}) — abandoning rather than continuing unfenced`,
+    );
+  };
   const timer = setInterval(() => {
-    void heartbeatLease(lease, config.reconcile_run_lease_ttl_seconds).then((renewed) => {
-      if (!renewed) {
-        alive = false;
-        logger.error(
-          { scope: lease.scope },
-          "reconciliation lost its run lease — abandoning rather than continuing unfenced",
-        );
-      }
-    });
+    // A transient DB error here is exactly the ambiguous case a heartbeat
+    // exists to resolve: we cannot tell "the lease expired" from "the renewal
+    // request itself failed", and continuing on the optimistic assumption of
+    // aliveness is precisely the unfenced-continuation this whole mechanism is
+    // built to prevent. So a rejection is treated the same as a false renewal —
+    // marked dead, not left unhandled (which would otherwise be an unhandled
+    // promise rejection, able to crash the process outright).
+    heartbeatLease(lease, config.reconcile_run_lease_ttl_seconds).then(
+      (renewed) => {
+        if (!renewed) markDead("renewal returned false");
+      },
+      (err) => markDead("renewal threw", err),
+    );
   }, config.reconcile_heartbeat_interval_seconds * 1000);
   // Never hold the process open for a heartbeat.
   timer.unref?.();
@@ -204,6 +228,14 @@ function startHeartbeat(
   };
 }
 
+interface VerifiedStagingItem {
+  userId: string;
+  providerRef: string;
+  verified: Extract<SubscriptionVerification, { ok: true }>;
+  /** Only resolved when the verified status is `past_due` — see `resolveGraceEpisodeStart`. */
+  graceStartedAt: Date | null;
+}
+
 async function runStagedReconciliation(
   stripe: Stripe,
   config: Record<MembershipConfigKey, number>,
@@ -212,6 +244,7 @@ async function runStagedReconciliation(
   heartbeat: Heartbeat,
 ): Promise<ReconcileReport> {
   const asOf = opts.asOf ?? new Date();
+  const deps = makeVerificationDeps(stripe);
 
   const sources = await db
     .select({
@@ -222,79 +255,106 @@ async function runStagedReconciliation(
     .from(membershipEntitlementsTable)
     .where(eq(membershipEntitlementsTable.sourceType, "stripe_subscription"));
 
-  // Phase 1 — stage. Retrieval only; nothing is written, and the leases taken
-  // here are held until the apply so the state cannot move underneath us.
-  const prepared: Array<{ prepared: Prepared; userId: string; providerRef: string }> = [];
+  // Phase 1 — stage. VERIFY ONLY, no lease and nothing written.
+  //
+  // A per-source lease held for the whole staging pass is what let leases
+  // expire before this source's own apply phase ever ran (a fixed 60s
+  // per-source TTL, no heartbeat, held across however long the REST of the
+  // staged set took to classify and guard) — so this phase takes no lease at
+  // all, and the apply phase re-acquires and re-verifies fresh, right before
+  // writing, exactly like the webhook path does. That also means a staged
+  // classification can be based on a snapshot that is mildly stale by the time
+  // apply runs; that's accepted, not a regression — the guard's thresholds are
+  // safety valves against BULK bad behaviour, not a promise that the exact
+  // reported outcome is what gets written, and re-verifying at apply time is
+  // strictly MORE correct than writing a possibly-stale staged snapshot would
+  // have been.
+  const verified: VerifiedStagingItem[] = [];
 
   for (const source of sources) {
     if (!heartbeat.alive()) {
       report.aborted = true;
       report.abortReason = "run lease lost during staging";
-      await releaseAll(prepared);
       return report;
     }
     if (!source.providerRef) continue;
 
     report.examined += 1;
 
-    let result: Prepared;
+    let result: SubscriptionVerification;
     try {
-      result = await prepareSubscriptionRefresh(stripe, source.providerRef);
+      result = await verifyMembershipSubscription(source.providerRef, deps);
     } catch (error) {
       report.failed += 1;
       logger.warn({ err: error, providerRef: source.providerRef }, "reconcile: retrieval failed");
       continue;
     }
 
-    if (result.kind === "noop") {
-      if (result.reason === "source_busy") report.skipped += 1;
-      else if (result.reason === "incomplete_enumeration") report.ambiguous += 1;
+    if (!result.ok) {
+      if (result.code === "incomplete_enumeration") report.ambiguous += 1;
       else report.failed += 1;
       continue;
     }
 
-    prepared.push({ prepared: result, userId: source.userId, providerRef: source.providerRef });
+    let graceStartedAt: Date | null = null;
+    if (result.lifecycleStatus === "past_due") {
+      const grace = await resolveGraceEpisodeStart(stripe, source.providerRef);
+      graceStartedAt = grace.startedAt;
+    }
+
+    verified.push({ userId: source.userId, providerRef: source.providerRef, verified: result, graceStartedAt });
   }
 
-  // Phase 2 — classify, over the WHOLE staged set. Entry 22's "arriving in
-  // pieces" defeat is why this is not incremental.
+  // Phase 2 — classify PER USER, every one of that user's staged replacements
+  // applied TOGETHER against one baseline. Simulating one source at a time
+  // against the others' unchanged (pre-refresh) state is what let two
+  // subscriptions each independently look "unchanged" while their combined
+  // effect was a real downgrade — because each simulation still saw the
+  // OTHER source as still-active, when in reality both had just cancelled.
   const byUser = new Map<string, EntitlementSourceSnapshot[]>();
-  for (const item of prepared) {
+  for (const item of verified) {
     if (!byUser.has(item.userId)) {
       byUser.set(item.userId, await loadSourceSnapshots(db, item.userId));
     }
   }
 
-  for (const item of prepared) {
-    if (item.prepared.kind !== "subscription") continue;
-    const existing = byUser.get(item.userId) ?? [];
+  const itemsByUser = new Map<string, VerifiedStagingItem[]>();
+  for (const item of verified) {
+    const list = itemsByUser.get(item.userId) ?? [];
+    list.push(item);
+    itemsByUser.set(item.userId, list);
+  }
+
+  for (const [userId, userItems] of itemsByUser) {
+    const existing = byUser.get(userId) ?? [];
     const current = deriveEffectiveMembership(existing, asOf);
 
-    // Match by provider reference — the source's frozen identity. Matching by
-    // "the first subscription source" would apply one subscription's refreshed
-    // state to a different subscription for users who hold two.
-    const replacement = existing.find(
-      (source) =>
-        source.sourceType === "stripe_subscription" && source.providerRef === item.providerRef,
-    );
-
-    const intendedSources = replacement
-      ? withReplacement(existing, {
-          ...replacement,
-          isMembershipProduct: item.prepared.verified.isMembershipProduct,
-          lifecycleStatus: item.prepared.verified.lifecycleStatus,
-          // The refresh maintains the grace window in the same fenced apply, so
-          // the staged view has to model it too — otherwise a subscription that
-          // just entered `past_due` would stage as an immediate downgrade and
-          // trip the guard for a cohort that has not actually lost anything.
-          graceExpiresAt:
-            item.prepared.verified.lifecycleStatus === "past_due"
-              ? (item.prepared.graceStartedAt
-                  ? new Date(item.prepared.graceStartedAt.getTime() + GRACE_WINDOW_MS)
-                  : (replacement.graceExpiresAt ?? null))
-              : null,
-        })
-      : existing;
+    // Replace EVERY one of this user's verified sources simultaneously, not
+    // one at a time — a single combined view of what this user's whole
+    // qualifying set becomes.
+    let intendedSources = existing;
+    for (const item of userItems) {
+      const replacement = intendedSources.find(
+        (source) =>
+          source.sourceType === "stripe_subscription" && source.providerRef === item.providerRef,
+      );
+      if (!replacement) continue;
+      intendedSources = withReplacement(intendedSources, {
+        ...replacement,
+        isMembershipProduct: item.verified.isMembershipProduct,
+        lifecycleStatus: item.verified.lifecycleStatus,
+        // The refresh maintains the grace window in the same fenced apply, so
+        // the staged view has to model it too — otherwise a subscription that
+        // just entered `past_due` would stage as an immediate downgrade and
+        // trip the guard for a cohort that has not actually lost anything.
+        graceExpiresAt:
+          item.verified.lifecycleStatus === "past_due"
+            ? (item.graceStartedAt
+                ? new Date(item.graceStartedAt.getTime() + GRACE_WINDOW_MS)
+                : (replacement.graceExpiresAt ?? null))
+            : null,
+      });
+    }
 
     const intended = deriveEffectiveMembership(intendedSources, asOf);
 
@@ -305,13 +365,15 @@ async function runStagedReconciliation(
           ? "upgrade"
           : "downgrade";
 
-    report.staged.push({
-      userId: item.userId,
-      providerRef: item.providerRef,
-      currentTier: current.tier,
-      intendedTier: intended.tier,
-      direction,
-    });
+    for (const item of userItems) {
+      report.staged.push({
+        userId,
+        providerRef: item.providerRef,
+        currentTier: current.tier,
+        intendedTier: intended.tier,
+        direction,
+      });
+    }
 
     if (direction === "unchanged") report.unchanged += 1;
     else if (direction === "upgrade") report.upgraded += 1;
@@ -319,7 +381,9 @@ async function runStagedReconciliation(
   }
 
   // Phase 3 — the guard, PRE-APPLY. Nothing has been written yet, so an
-  // over-threshold run aborts having mutated nothing.
+  // over-threshold run aborts having mutated nothing. Counted per USER (the
+  // `report.staged` rows for one user all carry that user's shared direction,
+  // so deduplicating by userId is correct and not an undercount).
   report.cohort = await qualifyingPopulation(asOf);
   report.allowedDowngrades = allowedDowngrades(report.cohort, config);
 
@@ -344,25 +408,34 @@ async function runStagedReconciliation(
       { report: { ...report, staged: report.staged.length } },
       "reconciliation aborted before writing anything — failing closed means NOT revoking",
     );
-    await releaseAll(prepared);
     return report;
   }
 
   if (!opts.apply) {
-    await releaseAll(prepared);
     return report;
   }
 
-  // Phase 4 — apply. Each source commits under its own fence, so a source whose
-  // lease was lost while we staged is abandoned rather than written stale.
-  for (const item of prepared) {
+  // Phase 4 — apply. Fresh prepare (retrieve + lease + fence) right before each
+  // write, exactly like the webhook path — never the phase-1 staged snapshot.
+  // A source whose lease is held by someone else here is SKIPPED, not failed:
+  // reconciliation repairs it on the next pass, same as the webhook path's
+  // "abandon rather than proceed unordered".
+  for (const item of verified) {
     if (!heartbeat.alive()) {
       report.aborted = true;
       report.abortReason = "run lease lost during apply";
       break;
     }
+
+    const prepared = await prepareSubscriptionRefresh(stripe, item.providerRef);
+    if (prepared.kind === "noop") {
+      if (prepared.reason === "source_busy") report.skipped += 1;
+      else if (prepared.reason !== "incomplete_enumeration") report.failed += 1;
+      continue;
+    }
+
     try {
-      const result = await db.transaction((tx) => applyPrepared(tx, item.prepared));
+      const result = await runBoundedApply((tx) => applyPrepared(tx, prepared));
       await runNotifications(result.notifications);
     } catch (error) {
       report.failed += 1;
@@ -370,17 +443,12 @@ async function runStagedReconciliation(
         { err: error, providerRef: item.providerRef },
         "reconcile: apply abandoned — the source will be repaired on the next pass",
       );
+    } finally {
+      await releasePrepared(prepared);
     }
   }
 
-  await releaseAll(prepared);
   return report;
-}
-
-async function releaseAll(
-  prepared: Array<{ prepared: Prepared }>,
-): Promise<void> {
-  for (const item of prepared) await releasePrepared(item.prepared);
 }
 
 // ---------------------------------------------------------------------------

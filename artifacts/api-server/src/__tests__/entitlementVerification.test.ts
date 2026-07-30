@@ -45,8 +45,8 @@ const MERCH_PRODUCT = {
   metadata: {},
 } as unknown as Stripe.Product;
 
-const price = (id: string, productId: string) =>
-  ({ id, product: productId }) as unknown as Stripe.Price;
+const price = (id: string, productId: string, interval?: "month" | "year") =>
+  ({ id, product: productId, recurring: interval ? { interval } : null }) as unknown as Stripe.Price;
 
 const list = <T>(data: T[], hasMore = false) =>
   ({ object: "list", data, has_more: hasMore, url: "" }) as unknown as Stripe.ApiList<T>;
@@ -143,7 +143,7 @@ function membershipWorld(): FakeWorld {
       } as Partial<Stripe.Subscription>,
     },
     subscriptionItems: {
-      sub_ok: [{ id: "si_1", price: price("price_sub", "prod_member") } as unknown as Stripe.SubscriptionItem],
+      sub_ok: [{ id: "si_1", price: price("price_sub", "prod_member", "month") } as unknown as Stripe.SubscriptionItem],
     },
     products: { prod_member: MEMBERSHIP_PRODUCT, prod_merch: MERCH_PRODUCT },
     customers: { cus_1: "user-1" },
@@ -285,7 +285,7 @@ describe("verifyMembershipSubscription", () => {
     assert.equal(result.providerRef, "sub_ok");
     assert.equal(result.isMembershipProduct, true);
     assert.equal(result.lifecycleStatus, "active");
-    assert.equal(result.plan, "price_sub");
+    assert.equal(result.plan, "monthly");
     assert.equal(result.cancelAtPeriodEnd, false);
     assert.deepEqual(result.currentPeriodEnd, new Date(1_800_000_000 * 1000));
   });

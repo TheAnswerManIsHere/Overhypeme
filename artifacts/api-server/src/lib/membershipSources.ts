@@ -6,15 +6,11 @@
  * defect it replaces was fifteen call sites each maintaining a derived field by
  * hand with its own ad-hoc guards.
  *
- * The shape of every authoritative write is the same three steps:
- *
- *   1. `acquireLease` on the source, committed immediately.
- *   2. Retrieve from Stripe with **no transaction open**.
- *   3. `withLeaseFence` — a short apply transaction that re-checks the fence,
- *      writes the source under the version guard, and recomputes the user.
- *
- * `runSourceRefresh` is that sequence, so a caller cannot accidentally do it in
- * the wrong order or skip the fence.
+ * The shape of every authoritative write is the prepare/apply split in
+ * `membershipRefresh.ts`: retrieve from Stripe with no transaction open, then
+ * apply under `runBoundedApply` (`membershipLease.ts`), which sets the bounded
+ * `lock_timeout` and re-checks the source's fence before any of the writers
+ * below run.
  */
 
 import { db } from "@workspace/db";
@@ -37,15 +33,6 @@ import {
   type EntitlementSourceSnapshot,
   type MembershipTier,
 } from "./membershipState.js";
-import {
-  LeaseFenceError,
-  acquireLeaseWithWait,
-  releaseLease,
-  sourceLeaseScope,
-  withLeaseFence,
-  type LeaseHandle,
-} from "./membershipLease.js";
-import { APPLY_LOCK_TIMEOUT_MS, loadMembershipConfig } from "./membershipTiming.js";
 import { logger } from "./logger.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -230,7 +217,7 @@ export async function applySubscriptionSource(
   tx: Tx,
   state: SubscriptionSourceState,
   opts: { graceStartedAt?: Date | null } = {},
-): Promise<{ applied: boolean; sourceId: number | null }> {
+): Promise<{ applied: boolean; created: boolean; sourceId: number | null }> {
   const token = await nextSourceStateToken(tx);
 
   // Grace is an EPISODE: it starts on first entry to past_due and duplicate
@@ -291,7 +278,7 @@ export async function applySubscriptionSource(
       )
       .returning({ id: membershipEntitlementsTable.id });
 
-    return { applied: result.length > 0, sourceId: existing.id };
+    return { applied: result.length > 0, created: false, sourceId: existing.id };
   }
 
   const inserted = await tx
@@ -312,7 +299,7 @@ export async function applySubscriptionSource(
     .onConflictDoNothing()
     .returning({ id: membershipEntitlementsTable.id });
 
-  return { applied: inserted.length > 0, sourceId: inserted[0]?.id ?? null };
+  return { applied: inserted.length > 0, created: inserted.length > 0, sourceId: inserted[0]?.id ?? null };
 }
 
 /**
@@ -474,13 +461,22 @@ export async function applyDisputeTransition(
  * would lock a refunded user out of managing a subscription they do have.
  *
  * Answered by the same derivation as the tier, so the two cannot disagree.
+ *
+ * Counts both `stripe_lifetime_payment` and `admin_grant`: both are permanent,
+ * non-recurring entitlements from the caller's perspective (no subscription to
+ * cancel, no renewal date), which is exactly the distinction every caller of
+ * this helper is drawing. A comped Legendary-for-Life member is not a paying
+ * subscriber and should read the same as one who paid, everywhere this is used
+ * — the checkout allowlist, the cancel-subscription guard, and the admin
+ * membership screen alike.
  */
 export async function hasQualifyingLifetimeSource(userId: string): Promise<boolean> {
   const sources = await loadSourceSnapshots(db, userId);
   const asOf = new Date();
   return sources.some(
     (source) =>
-      source.sourceType === "stripe_lifetime_payment" && qualifySource(source, asOf).qualifies,
+      (source.sourceType === "stripe_lifetime_payment" || source.sourceType === "admin_grant") &&
+      qualifySource(source, asOf).qualifies,
   );
 }
 
@@ -504,73 +500,6 @@ export async function findSourceByProviderRef(
     )
     .limit(1);
   return row ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// The leased refresh — the sequence, so callers cannot get the order wrong.
-// ---------------------------------------------------------------------------
-
-export class SourceBusyError extends Error {
-  constructor(scope: string) {
-    super(`could not acquire the lease for ${scope}; the write is abandoned`);
-    this.name = "SourceBusyError";
-  }
-}
-
-/**
- * Lease -> retrieve (no transaction open) -> fenced apply.
- *
- * A waiter that times out throws `SourceBusyError` and the caller **abandons its
- * write** rather than proceeding unordered — reconciliation repairs it. That is
- * why the waiter timeout may be short: it trades latency for nothing.
- *
- * A `LeaseFenceError` from the apply is likewise not a failure to retry here:
- * the lease was lost, so this snapshot is stale by definition and re-applying it
- * is the resurrection bug the fence exists to prevent.
- */
-export async function runSourceRefresh<TRetrieved, TResult>(
-  sourceType: EntitlementSourceType,
-  providerRef: string,
-  retrieve: () => Promise<TRetrieved>,
-  apply: (tx: Tx, retrieved: TRetrieved) => Promise<TResult>,
-): Promise<TResult> {
-  const config = await loadMembershipConfig();
-  const scope = sourceLeaseScope(sourceType, providerRef);
-
-  const handle: LeaseHandle | null = await acquireLeaseWithWait(
-    scope,
-    config.lease_ttl_seconds,
-    config.lease_waiter_timeout_seconds,
-  );
-  if (!handle) throw new SourceBusyError(scope);
-
-  try {
-    // Deliberately outside any transaction: no lock is held across network I/O.
-    const retrieved = await retrieve();
-    return await withLeaseFenceOrReport(handle, (tx) => apply(tx, retrieved));
-  } finally {
-    await releaseLease(handle).catch((error) => {
-      logger.warn({ err: error, scope }, "failed to release entitlement source lease");
-    });
-  }
-}
-
-async function withLeaseFenceOrReport<T>(
-  handle: LeaseHandle,
-  fn: (tx: Tx) => Promise<T>,
-): Promise<T> {
-  try {
-    return await withLeaseFence(handle, APPLY_LOCK_TIMEOUT_MS, fn);
-  } catch (error) {
-    if (error instanceof LeaseFenceError) {
-      logger.warn(
-        { scope: handle.scope, err: error },
-        "entitlement apply abandoned — the lease was lost while retrieving; " +
-          "reconciliation will repair this source",
-      );
-    }
-    throw error;
-  }
 }
 
 // ---------------------------------------------------------------------------

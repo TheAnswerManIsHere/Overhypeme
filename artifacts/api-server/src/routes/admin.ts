@@ -510,13 +510,29 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
       })(),
     ]);
 
-    const appSub = subRows[0] ?? null;
+    // The shape this endpoint has always returned, rebuilt from the entitlement
+    // source so the admin client contract is unchanged — same pattern as
+    // GET /stripe/subscription.
+    const subSource = subRows[0] ?? null;
+    const appSub = subSource
+      ? {
+          id: subSource.id,
+          userId: subSource.userId,
+          stripeSubscriptionId: subSource.providerRef,
+          plan: subSource.plan,
+          status: subSource.lifecycleStatus,
+          currentPeriodEnd: subSource.currentPeriodEnd,
+          cancelAtPeriodEnd: subSource.cancelAtPeriodEnd ?? false,
+          createdAt: subSource.createdAt,
+          updatedAt: subSource.updatedAt,
+        }
+      : null;
 
     let stripeSub: Record<string, unknown> | null = null;
-    if (appSub?.providerRef) {
+    if (appSub?.stripeSubscriptionId) {
       const result = await db.execute(
         sql`SELECT s.id, s.status, s.current_period_start, s.current_period_end, s.cancel_at_period_end, s.canceled_at, s.created
-            FROM stripe.subscriptions s WHERE s.id = ${appSub.providerRef} LIMIT 1`,
+            FROM stripe.subscriptions s WHERE s.id = ${appSub.stripeSubscriptionId} LIMIT 1`,
       );
       stripeSub = (result.rows[0] as Record<string, unknown>) ?? null;
     }
@@ -2462,6 +2478,27 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
       if (existing.maxValue !== null && parsed > existing.maxValue) {
         res.status(400).json({ error: `Debug value must be at most ${existing.maxValue}` });
+        return;
+      }
+    }
+    // Debug mode makes debugValue the EFFECTIVE value everywhere (see
+    // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
+    // of breaking the lease/heartbeat/downgrade-allowance relationships as a
+    // write to value, and skipping the check here left debug mode a backdoor
+    // around it.
+    if (rawDebug !== null && isMembershipConfigKey(key)) {
+      const parsed = Number(rawDebug);
+      if (Number.isNaN(parsed)) {
+        res.status(400).json({ error: "Debug value must be a number" });
+        return;
+      }
+      const relationalError = validateMembershipConfigWrite(
+        key,
+        parsed,
+        await loadMembershipConfig(),
+      );
+      if (relationalError) {
+        res.status(400).json({ error: `Debug value: ${relationalError}` });
         return;
       }
     }

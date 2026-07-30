@@ -31,6 +31,7 @@ import {
   type Prepared,
 } from "./membershipRefresh";
 import { findSourceByProviderRef } from "./membershipSources";
+import { runBoundedApply } from "./membershipLease";
 
 /**
  * ─── Stripe webhook event coverage (Task #230) ────────────────────────────────
@@ -293,7 +294,10 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
           // The hint can only ever link a user who has no customer — it can
           // never re-point one that already belongs to someone else.
           ...(metadataUserId ? { linkHintUserId: metadataUserId } : {}),
-          transitionEvent: "subscription_activated",
+          // No transitionEvent here: a genuinely NEW source already gets an
+          // unconditional "subscription_activated" fact inside applySubscription.
+          // Passing one here too would double-write it whenever this event is
+          // also the one that happens to flip the tier.
         });
       } else if (session.mode === "payment") {
         // The session id, and nothing else. Amount, currency, payment status and
@@ -417,18 +421,28 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         logger.info({ userId: user.id, invoiceId: inv.id }, "invoice.payment_action_required: skipping SCA email — test-mode event");
         break;
       }
+      // Deferred to afterCommit: a genuine Stripe retry of an already-processed
+      // event must not resend this email. Moving it here is what actually makes
+      // that true — the claim's uniqueness check runs before afterCommit, never
+      // before this point in prepare.
       if (inv.hosted_invoice_url && user.email) {
-        const { subject, text, html } = buildSCAActionRequiredEmail({
-          hostedInvoiceUrl: inv.hosted_invoice_url,
-          amountMinor: inv.amount_due ?? null,
-          currency: inv.currency ?? null,
+        const hostedInvoiceUrl = inv.hosted_invoice_url;
+        const email = user.email;
+        const amountMinor = inv.amount_due ?? null;
+        const currency = inv.currency ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildSCAActionRequiredEmail({
+            hostedInvoiceUrl,
+            amountMinor,
+            currency,
+          });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+            logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
+          } catch (err) {
+            logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-          logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
-        } catch (err) {
-          logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
-        }
       } else {
         logger.warn(
           { userId: user.id, invoiceId: inv.id, hasUrl: !!inv.hosted_invoice_url, hasEmail: !!user.email },
@@ -474,19 +488,26 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         logger.info({ userId: user.id, subscriptionId }, "invoice.upcoming: skipping renewal reminder email — test-mode event");
         break;
       }
+      // Deferred to afterCommit — same reason as the SCA email above.
       if (user.email && inv.amount_due != null && inv.currency) {
-        const { subject, text, html } = buildRenewalReminderEmail({
-          amountMinor: inv.amount_due,
-          currency: inv.currency,
-          nextAttemptAt: inv.next_payment_attempt ?? null,
-          plan: plan ?? null,
+        const email = user.email;
+        const amountMinor = inv.amount_due;
+        const currency = inv.currency;
+        const nextAttemptAt = inv.next_payment_attempt ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildRenewalReminderEmail({
+            amountMinor,
+            currency,
+            nextAttemptAt,
+            plan: plan ?? null,
+          });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+            logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
+          } catch (err) {
+            logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-          logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
-        } catch (err) {
-          logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
-        }
       } else {
         logger.warn(
           { userId: user.id, hasEmail: !!user.email, hasAmount: inv.amount_due != null },
@@ -523,16 +544,19 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         logger.info({ userId: user.id, paymentMethodId: pm.id }, "payment_method.automatically_updated: skipping card-updated email — test-mode event");
         break;
       }
+      // Deferred to afterCommit — same reason as the SCA email above.
       if (user.email) {
-        const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({
-          brand: pm.card?.brand ?? null,
-          last4: pm.card?.last4 ?? null,
+        const email = user.email;
+        const brand = pm.card?.brand ?? null;
+        const last4 = pm.card?.last4 ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({ brand, last4 });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+          } catch (err) {
+            logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-        } catch (err) {
-          logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
-        }
       }
       break;
     }
@@ -566,15 +590,19 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         logger.warn({ err, chargeId }, "early_fraud_warning: could not retrieve charge from Stripe");
       }
 
-      void notifyAdminsOfFraudWarning({
-        warningId: warning.id,
-        chargeId,
-        amount: chargeAmount,
-        currency: chargeCurrency,
-        livemode: warning.livemode ?? event.livemode,
-        fraudType: warning.fraud_type ?? null,
-        actionable: warning.actionable ?? null,
-      });
+      // Deferred to afterCommit, same as every other admin alert in this
+      // switch — a retry of an already-processed warning must not re-alert.
+      afterCommit.push(() =>
+        notifyAdminsOfFraudWarning({
+          warningId: warning.id,
+          chargeId,
+          amount: chargeAmount,
+          currency: chargeCurrency,
+          livemode: warning.livemode ?? event.livemode,
+          fraudType: warning.fraud_type ?? null,
+          actionable: warning.actionable ?? null,
+        }),
+      );
 
       const resolved = await resolveUserForCharge(stripe, paymentIntentId, chargeId);
       if (!resolved) {
@@ -607,7 +635,21 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
       const refundPaymentIntentId = charge.payment_intent
         ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
         : null;
-      if (refundPaymentIntentId) {
+
+      // Not every PaymentIntent on a `charge.refunded` event is a lifetime
+      // purchase — a subscription invoice, or any other charge, carries one too.
+      // This existence check (a plain read, not a Stripe call — safe during
+      // prepare) decides which of the two audit paths applies: a lifetime
+      // source routes through prepareLifetimeRefund, which records its own
+      // full/partial history tied to the entitlement; anything else falls back
+      // to the unconditional record-only path the old handler always took for a
+      // subscription/unrecognized refund, so it does not silently vanish from
+      // the audit trail.
+      const lifetimeSource = refundPaymentIntentId
+        ? await findSourceByProviderRef(db, "stripe_lifetime_payment", refundPaymentIntentId)
+        : null;
+
+      if (refundPaymentIntentId && lifetimeSource) {
         // A PARTIAL refund records history and leaves the entitlement active
         // (settled decision 6). `charge.amount` is what makes partial
         // distinguishable from full, and its absence from the old handler's
@@ -618,6 +660,27 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
           chargeAmount: charge.amount,
           currency: charge.currency,
         });
+      } else if (refundPaymentIntentId) {
+        // Subscription invoice refund or an otherwise-unrecognized charge —
+        // record for the audit trail only; the subscription cancellation flow
+        // (if any) handles downgrades separately, same as the handler this
+        // replaces.
+        const customerId = charge.customer
+          ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
+          : null;
+        const user = customerId ? await findUserByStripeCustomerId(customerId) : null;
+        if (user) {
+          pushHistory(user.id, "refund", {
+            amount: charge.amount_refunded,
+            currency: charge.currency,
+            stripePaymentIntentId: refundPaymentIntentId,
+          });
+        } else {
+          logger.warn(
+            { chargeId: charge.id, paymentIntentId: refundPaymentIntentId },
+            "charge.refunded: non-lifetime refund, could not resolve user — nothing recorded",
+          );
+        }
       } else {
         logger.warn({ chargeId: charge.id }, "charge.refunded has no payment intent — nothing to apply");
       }
@@ -671,14 +734,18 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
           // Round up so a deadline 30 minutes out reads as "1 hour" rather than
           // "0 hours" — operators need a non-zero urgency cue in the subject line.
           const ceiledHours = Math.max(1, Math.ceil(hoursUntilDue));
-          void notifyAdminsOfDispute({
-            kind: "deadline_approaching",
-            disputeId: dispute.id,
-            amount: dispute.amount,
-            currency: dispute.currency,
-            livemode: dispute.livemode ?? event.livemode,
-            hoursUntilDue: ceiledHours,
-          });
+          // Deferred to afterCommit — a retry of an already-processed `.updated`
+          // must not re-alert with a recomputed (and now smaller) hours-until-due.
+          afterCommit.push(() =>
+            notifyAdminsOfDispute({
+              kind: "deadline_approaching",
+              disputeId: dispute.id,
+              amount: dispute.amount,
+              currency: dispute.currency,
+              livemode: dispute.livemode ?? event.livemode,
+              hoursUntilDue: ceiledHours,
+            }),
+          );
         }
       }
       break;
@@ -695,14 +762,17 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
       };
 
       // Always alert admins regardless of whether we can resolve the user — balance
-      // accounting matters even when the user lookup fails.
-      void notifyAdminsOfDispute({
-        kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
-        disputeId: dispute.id,
-        amount: dispute.amount,
-        currency: dispute.currency,
-        livemode: dispute.livemode ?? event.livemode,
-      });
+      // accounting matters even when the user lookup fails. Deferred to
+      // afterCommit, same reason as every other alert in this switch.
+      afterCommit.push(() =>
+        notifyAdminsOfDispute({
+          kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
+          disputeId: dispute.id,
+          amount: dispute.amount,
+          currency: dispute.currency,
+          livemode: dispute.livemode ?? event.livemode,
+        }),
+      );
 
       // Record a history entry against the user/dispute so the admin dispute
       // history page (#229) can show when Stripe actually debited / reinstated
@@ -804,7 +874,7 @@ export class WebhookHandlers {
       // No idempotency claim on this path — it is test-mode QA, replaying a
       // hand-built event deliberately. The prepare/apply split still holds, so
       // the same code runs here as in production.
-      const notifications = await db.transaction((tx) => applyDomainEvent(tx, prepared));
+      const notifications = await runBoundedApply((tx) => applyDomainEvent(tx, prepared));
       await runAfterCommit(prepared, notifications);
     } catch (err) {
       logger.error({ err, eventType: event.type }, "Test domain event handler error");
@@ -900,7 +970,7 @@ export class WebhookHandlers {
       // Phase B — apply. The claim and every domain write, one transaction, no
       // network. A throw rolls the claim back so Stripe's retry can succeed.
       const readyToApply = prepared;
-      const notifications = await db.transaction(async (tx) => {
+      const notifications = await runBoundedApply(async (tx) => {
         // Fails on duplicate under concurrent deliveries. Inside the transaction
         // it also holds the row lock for the whole of processing, so two
         // simultaneous deliveries of one event cannot both proceed.

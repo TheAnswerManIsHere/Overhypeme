@@ -19,7 +19,7 @@
 import type Stripe from "stripe";
 import { db } from "@workspace/db";
 import { membershipEntitlementsTable, membershipHistoryTable, usersTable } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   listAllPages,
@@ -34,6 +34,7 @@ import {
   assertFenceHeld,
   acquireLeaseWithWait,
   releaseLease,
+  runBoundedApply,
   sourceLeaseScope,
   type LeaseHandle,
 } from "./membershipLease.js";
@@ -48,7 +49,6 @@ import {
   findSourceByProviderRef,
   markLifetimeRefunded,
   recomputeMembership,
-  runSourceRefresh,
 } from "./membershipSources.js";
 import { logger } from "./logger.js";
 
@@ -91,11 +91,13 @@ export function makeVerificationDeps(stripe: Stripe): VerificationDeps {
     async linkCustomerToUser(userId, customerId) {
       // Only ever links a user who has NO customer yet. `WHERE stripe_customer_id
       // IS NULL` is what makes that true under concurrency, rather than a
-      // read-then-write that two requests can both pass.
+      // read-then-write that two requests can both pass. `eq(col, null)`
+      // compiles to `col = $1` with a null parameter, which SQL never treats as
+      // true regardless of the row's actual value — this must be `isNull`.
       const result = await db
         .update(usersTable)
         .set({ stripeCustomerId: customerId })
-        .where(and(eq(usersTable.id, userId), eq(usersTable.stripeCustomerId, null as never)))
+        .where(and(eq(usersTable.id, userId), isNull(usersTable.stripeCustomerId)))
         .returning({ id: usersTable.id });
       return result.length > 0;
     },
@@ -320,7 +322,7 @@ export async function releasePrepared(prepared: Prepared): Promise<void> {
 export async function prepareSubscriptionRefresh(
   stripe: Stripe,
   subscriptionId: string,
-  opts: { linkHintUserId?: string; transitionEvent?: string } = {},
+  opts: { expectedUserId?: string; linkHintUserId?: string; transitionEvent?: string } = {},
 ): Promise<Prepared> {
   const lease = await claimLease("stripe_subscription", subscriptionId);
   if (!lease) {
@@ -332,6 +334,7 @@ export async function prepareSubscriptionRefresh(
 
   try {
     const verified = await verifyMembershipSubscription(subscriptionId, makeVerificationDeps(stripe), {
+      ...(opts.expectedUserId ? { expectedUserId: opts.expectedUserId } : {}),
       ...(opts.linkHintUserId ? { linkHintUserId: opts.linkHintUserId } : {}),
     });
 
@@ -494,7 +497,7 @@ async function applySubscription(
 ): Promise<ApplyResult> {
   const { verified } = prepared;
 
-  await applySubscriptionSource(
+  const { created } = await applySubscriptionSource(
     tx,
     {
       sourceType: "stripe_subscription",
@@ -508,6 +511,23 @@ async function applySubscription(
     },
     { graceStartedAt: prepared.graceStartedAt },
   );
+
+  if (created) {
+    // A payment FACT, recorded whether or not the tier moved — same reasoning
+    // as `lifetime_purchase` in `applyLifetimePurchase`. Gating this on
+    // `recomputeMembership`'s tier-changed check would silently drop it
+    // whenever `checkout.session.completed` had already applied the tier
+    // change moments earlier (or a subscription arrives via `created` with no
+    // preceding checkout event at all) — the fact that a subscription became
+    // active is true independent of whether it was the source that flipped
+    // the tier.
+    await tx.insert(membershipHistoryTable).values({
+      userId: verified.userId,
+      event: "subscription_activated",
+      plan: verified.plan ?? undefined,
+      stripeSubscriptionId: verified.providerRef,
+    });
+  }
 
   const result = await recomputeMembership(tx, verified.userId, {
     ...(prepared.transitionEvent
@@ -654,11 +674,11 @@ async function applyDispute(
 export async function refreshSubscriptionSource(
   stripe: Stripe,
   subscriptionId: string,
-  opts: { linkHintUserId?: string; transitionEvent?: string } = {},
+  opts: { expectedUserId?: string; linkHintUserId?: string; transitionEvent?: string } = {},
 ): Promise<ApplyResult> {
   const prepared = await prepareSubscriptionRefresh(stripe, subscriptionId, opts);
   try {
-    const result = await db.transaction((tx) => applyPrepared(tx, prepared));
+    const result = await runBoundedApply((tx) => applyPrepared(tx, prepared));
     await runNotifications(result.notifications);
     return result;
   } finally {
