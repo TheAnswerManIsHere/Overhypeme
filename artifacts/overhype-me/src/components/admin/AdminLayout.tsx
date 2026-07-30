@@ -23,6 +23,7 @@ import {
   X,
   Activity,
   FlaskConical,
+  HeartPulse,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -43,6 +44,7 @@ const NAV_ITEMS = [
   { href: "/admin/engines", label: "Engines", icon: Boxes, badge: false as const },
   { href: "/admin/taxonomy-health", label: "Taxonomy Health", icon: Activity, badge: false as const },
   { href: "/admin/email-queue", label: "Email Queue", icon: Mail, badge: false as const },
+  { href: "/admin/queue-health", label: "Queue Health", icon: HeartPulse, badge: false as const },
   { href: "/admin/features", label: "Features", icon: ToggleLeft, badge: false as const },
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
 ];

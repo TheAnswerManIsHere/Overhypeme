@@ -312,6 +312,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // durable queue). Hand-authored idempotent DDL mirroring 0075's own
   // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
   "0093_facts_ai_meme_backfill_status",
+
+  // Phase 1 of the async-queue hardening plan: the worker_lane_heartbeats
+  // table + its last_scheduled_at index + one seeded admin_config row
+  // (instance_heartbeat_ttl_minutes). Hand-authored idempotent DDL, following
+  // 0093's shape; purely additive, no existing row read or rewritten.
+  // Source of truth: lib/db/src/schema/workerLaneHeartbeats.ts.
+  "0094_worker_lane_heartbeats",
 ]);
 
 interface JournalEntry {
