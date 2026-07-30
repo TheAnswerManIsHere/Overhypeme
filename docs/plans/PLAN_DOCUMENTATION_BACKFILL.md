@@ -205,7 +205,7 @@ stated per contested concept, with the losing side reduced to a link:
 | Admin field-level truth | `ADMIN_FIELD_REFERENCE.md` (**generated**) | `admin-console.md` chapter links it; never restates or hand-edits it. |
 | Term definitions | `glossary.md` | Chapters use the terms and link; new terms coined during the pass get added there, not defined inline. |
 | Rationale / why a decision is settled | `decisions.md` | Chapters' "Why it works this way" sections **cite** entries; they don't re-argue them. |
-| Pricing numbers | **Stripe, at runtime** (`pricingPlans.ts` fetches live) | Docs describe plan *shapes* (monthly / annual / one-time lifetime) and state that prices are Stripe-owned. **No price numbers in any doc** — that would be a guaranteed-drift second source. (Resolved without asking David; the repo answers it.) |
+| Pricing numbers | **Stripe upstream; a *synced local projection* at display time** — corrected in round 5, my earlier claim was wrong | `GET /api/stripe/plans` → `stripeStorage.listProductsWithPrices()` reads the synced `stripe.products` / `stripe.prices` tables; `pricingPlans.ts` only classifies what comes back and fetches nothing. So the payments chapter documents **both** the upstream owner and the sync projection — including its stale/failed-sync behavior, which is what actually determines what a user sees. **Still no price numbers in any doc.** |
 
 No new source of truth is created. Each of the 6 new specs opens with an
 explicit "what lives here vs. what lives elsewhere" header so the boundary is
@@ -263,7 +263,7 @@ double-submit + origin allowlist). Ownership is therefore assigned per fact:
 | Fact | Owner |
 | --- | --- |
 | Which sign-in methods exist and what a user does to use each | `accounts-and-auth.md` |
-| Account lifecycle states (registered → verified → member) and how a user moves between them | `accounts-and-auth.md` |
+| Account state — **three orthogonal dimensions, not a linear ladder** (corrected in round 5): account existence, email verification (`emailVerifiedAt`, a nullable timestamp), and membership tier (`membershipTier`, defaulting to `registered`). A user can be registered-and-unverified, verified without any tier change, or Legendary along a separate payment/admin dimension. | `accounts-and-auth.md` |
 | Email-verification and password-reset **journeys** (the steps, screens, and states a user sees) | `accounts-and-auth.md` |
 | Onboarding (captcha step, photo step) and profile/identity fields | `accounts-and-auth.md` |
 | How an account links to a membership tier (`unregistered \| registered \| legendary`) | `accounts-and-auth.md`, linking `payments-and-membership.md` for tier grants |
@@ -345,12 +345,27 @@ form.
    (method step 1) lists the endpoints, pages, and behaviors that chapter
    covers, each with its grounding source. That is where the mapping lives,
    verified, rather than in this plan, asserted.
-3. **The completeness check is a sweep, run once at close-out (PR 12):**
-   enumerate every route module, every endpoint within it, and every page under
-   `artifacts/overhype-me/src/pages/`, and confirm each appears in exactly one
-   chapter's claim table or in the exclusions below. **That sweep is the
-   Definition-of-Done coverage check** — mechanical, run against the code, and
-   not satisfiable by a table I wrote in advance.
+3. **The completeness check is a sweep, run once at close-out**, and its
+   inputs are the **production mount graph and the routed frontend** — not a
+   directory listing (corrected in round 5, which found live endpoints outside
+   the route modules and dead files inside the pages tree):
+
+   - **Backend:** every endpoint reachable in production — the route modules
+     *and* direct registrations in `artifacts/api-server/src/app.ts` (e.g.
+     `app.ts:300` registers `/api/config`). Enumerate from the registrations,
+     not from the `routes/` directory.
+   - **Frontend:** the surfaces actually routed in `App.tsx`, not every file
+     under `pages/`.
+   - **Dead and test files are neither covered nor silently ignored:** a file in
+     the tree that `App.tsx` never routes (e.g. `pages/admin/comments.tsx`) and
+     `*.test.tsx` files get **no** chapter disposition; unrouted *product* files
+     are recorded as dead-code **report items for David**. Otherwise "every page
+     under `pages/`" would either force dead code into the manual or block
+     close-out forever.
+
+   Every **live** endpoint and routed page — and only live surfaces — must
+   receive exactly one disposition. **That sweep is the Definition-of-Done
+   coverage check.**
 
 **Exclusions — the only things allowed to appear in no chapter**, named here
 because an exclusion must be a decision rather than an omission:
@@ -362,7 +377,7 @@ because an exclusion must be a decision rather than an omission:
 | `pages/not-found.tsx` | **Assigned, not excluded** (round 4): it is a shipped public surface — the catch-all route at `App.tsx:406` — and belongs to `public-site-and-sharing.md`. Listed here only because the plan previously counted 18 pages when the repo has 19. |
 
 Anything else that the close-out sweep finds unassigned is a coverage hole, not
-a judgment call, and blocks PR 12 the same way a partial chapter does.
+a judgment call, and blocks PR 13 the same way a partial chapter does.
 
 **Sub-chapter areas — named, so the derivation has fixed anchors:**
 **Sub-chapter areas — named, so "full coverage" is checkable:**
@@ -525,7 +540,7 @@ every chapter and spec:
    live in a draft, but **before that chapter's TOC row flips to *written***,
    every such claim must be either (a) confirmed by David, (b) dropped, or
    (c) explicitly excluded through his revised coverage. Any still-open marker
-   blocks the row from flipping, and therefore blocks PR 12 by the same
+   blocks the row from flipping, and therefore blocks PR 13 by the same
    close-out gate that catches *partial — pending fix*.
 4. **Drift found in `docs/ai-context/`** → correct the spec in the same PR (it
    is the canonical home) and list the correction in the PR body. **Hard cap:**
@@ -559,10 +574,15 @@ every chapter and spec:
    publishes the claim and the exact file that grounds it. Rung 1 was worse — it
    publishes an unremediated weakness by design. So:
 
-   - The moment grounding the auth, payments, admin, or legal/safety surfaces
-     surfaces a **previously undisclosed** missing guard, static-key reach,
-     fraud path, or bypass, **stop before writing either the chapter text or the
-     claim-table row**, and take it to David privately.
+   - **The trigger is the defect, not the chapter** (corrected in round 5 — a
+     surface whitelist left the same hole open elsewhere: `storage.ts`, signed
+     object paths, and private-meme delivery are assigned to the *studio*
+     chapter, yet `security-model.md:63-94` makes object ACLs, private-meme
+     visibility, and existence-hiding security boundaries). So: **in any
+     chapter**, the moment grounding surfaces a **previously undisclosed**
+     missing guard, authorization or object-access bypass, fraud path, secret
+     exposure, or static-key reach, **stop before writing either the chapter
+     text or the claim-table row**, and take it to David privately.
    - David's call decides the rung. Nothing about that finding is written to a
      public artifact before then.
    - **Rung-2 evidence is redacted, never omitted:** the claim table still gets
@@ -586,7 +606,7 @@ every chapter and spec:
    3. **Never** silently drop the claim and count the chapter done.
 
    *(The payments case below resolves to disposition 1. Note also the close-out
-   gate in *Implementation Steps*: a rung-2 chapter blocks PR 12 outright.)*
+   gate in *Implementation Steps*: a rung-2 chapter blocks PR 13 outright.)*
 
    The payments chapter is the concrete case, and it resolves to disposition 1:
    `stripe-payments-audit-findings.md:82-129` documents that a transient webhook
@@ -665,6 +685,16 @@ the link check and the path check, deliberately, because chapters cite "stable,
 high-value code entry points" and a wrong path in a human-facing chapter is the
 worst case the gate exists to prevent. Verified passing against today's tree.
 
+**The array edit alone does not deliver the invariant** (round 5). The checker
+only path-checks backticked tokens that *begin with a known top-level
+directory*; existing chapters cite bare filenames like
+`useTaxonomyHealthActions.ts`, which it silently skips. So the gate change comes
+with a **citation rule**: every code entry-point citation in a chapter uses a
+**root-relative, gate-recognized path** (`artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts`,
+not the bare filename), and PR 0's negative test exercises **that mandated
+form** — otherwise a passing negative test proves nothing about the citations
+chapters actually contain.
+
 ## Data Model and Migration Impact
 
 **None.** No schema, no stored data, no migration, no backfill of rows. The word
@@ -727,7 +757,7 @@ verification:
 
 ## Implementation Steps
 
-**13 PRs, and they are not all independent** — the original "every later PR is
+**14 PRs, and they are not all independent** — the original "every later PR is
 independent" claim was false (round 1, F6). The real graph:
 
 - **PR 0 blocks everything** (it establishes the TOC shape and the gate).
@@ -739,11 +769,11 @@ independent" claim was false (round 1, F6). The real graph:
   stated in the steps is now represented here.
 - **PR 7 (payments) depends on PR 6 (accounts)** — tier semantics build on
   account truth. My own plan said so while also claiming independence.
-- **PR 12 (close-out) depends on PRs 0–11 having landed *and* on zero chapters
+- **PR 13 (close-out) depends on PRs 0–12 having landed *and* on zero chapters
   sitting at *partial — pending fix*** (see the close-out gate below).
 - Everything else is genuinely parallel and may land in any order.
 
-**The close-out gate (round 2).** "PRs 0–11 landed" is not sufficient for PR 12.
+**The close-out gate (round 2).** "PRs 0–12 landed" is not sufficient for PR 12.
 A rung-2 chapter (disposition ladder, method step 7) does not count as complete,
 so while any TOC row reads *partial — pending fix*, PR 12 is **blocked** — it
 cannot retire the roadmap entry and declare the manual complete. Notifying David
@@ -810,10 +840,12 @@ does not clear it. Exactly one of these unblocks it:
   section) + routing.
 - **PR 10 — `meme-and-video-studio.md`**: new `video-pipeline.md` spec + chapter
   + routing, plus the media-storage-and-delivery section.
-- **PR 11 — Existing-chapter edits.** Two things, both touching already-written
-  chapters, split out of the studio PR so a chapter repair doesn't share an
-  unrelated PR's review and failure boundary:
-  - **`moderation.md`'s legal/safety section + its new spec
+- **PR 11 — `moderation.md`'s legal/safety section + its new spec.** Round 5
+  caught that bundling this with taxonomy contradicted decision 4 (one chapter
+  per PR) *and* the stated reason for splitting the moderation repair out in the
+  first place — so taxonomy now has its own PR 12 rather than sharing this
+  review and failure boundary.
+  - **The section + `docs/ai-context/legal-safety-moderation.md`
     `docs/ai-context/legal-safety-moderation.md`** (round 4, R4-12). The section
     was previously the one piece of new narrative with **no spec to link into** —
     `moderation-workflow.md` covers the separate content-quality system and
@@ -824,12 +856,12 @@ does not clear it. Exactly one of these unblocks it:
     which evasion-sensitive details stay private** — a scanner's exact
     thresholds and bypass-relevant specifics are rung-0 material, triaged with
     David before anything is written.
-  - **`taxonomy-and-enrichment.md`'s baseline line + any drift corrections**
-    (round 4, R4-2). It is the one chapter the DoD requires a
-    `Verified against <sha> · claim inventory in PR #<N>` line for while no PR
-    owned it, because its coverage-map row is "drift corrections only." This PR
-    is its owner.
-- **PR 12 — Close-out.** Runs the pre-close-out re-grounding sweep (method
+- **PR 12 — `taxonomy-and-enrichment.md`'s baseline line + any drift
+  corrections** (round 4, R4-2; split to its own PR in round 5). It is the one
+  chapter the DoD requires a `Verified against <sha> · claim inventory in
+  PR #<N>` line for while no PR owned it, because its coverage-map row is
+  "drift corrections only." This PR is its owner.
+- **PR 13 — Close-out.** Runs the pre-close-out re-grounding sweep (method
   step 8) and the coverage sweep (the derivation rule's step 3); retires the
   roadmap's backfill entry and moves it to recently-merged; appends anything
   deliberately deferred to `docs/engineering/deferred-work.md`. **Only after
@@ -872,7 +904,7 @@ consolidation instinct is — no revision-history narration inside chapters.
 - **A price or model name gets written down and immediately drifts.**
   *Mitigation:* the no-numbers rule in *Source-of-Truth Analysis*; vendor-owned
   values are described by shape and attributed to their runtime source.
-- **Volume fatigue** (~3,000 lines of verified prose across 13 PRs). *Mitigation:* per-PR
+- **Volume fatigue** (~3,000 lines of verified prose across 14 PRs). *Mitigation:* per-PR
   delivery with a truthful TOC after each, so stopping early leaves a coherent
   manual rather than a half-declared one.
 
@@ -930,8 +962,11 @@ subsystem narrative into it would blur what it is for.
 - [ ] **The manual reads front-to-back as a walkthrough**, not as 12 isolated
       essays: the README carries the orientation section and its TOC is in
       reading order, each chapter points at the next, and the
-      visual-pipeline (authoring-time) / studio (use-time) boundary holds with
-      neither restating the other (round 3).
+      **visual-pipeline / studio boundary holds by subject matter** — ch. 5
+      owns the shared rendering machinery whichever path invokes it, ch. 6 owns
+      the end-user controls, tier gates, and media journey — with neither
+      restating the other. (Round 5: this item still carried the
+      authoring-time/use-time wording that round 4 disproved.)
 - [ ] **The README's "Outside this manual" section exists** and links the
       operational, edge, dev-tooling, spec-layer, and generated-reference homes —
       so the ops exclusion is navigable after this plan-review PR closes.
@@ -960,8 +995,12 @@ subsystem narrative into it would blur what it is for.
       correct, no row claims a file that does not exist and none omits one.
 - [ ] `docs/manual/` is in `LIBRARY_DIRS`; `node scripts/check-docs-accuracy.mjs`
       passes, and was demonstrated to fail on a bad manual link/path.
-- [ ] Every chapter/spec claim is grounded per the method, or explicitly marked
-      **Needs David confirmation**; each PR body carries its verification note.
+- [ ] Every chapter/spec claim is grounded per the method, and **zero
+      *Needs David confirmation* markers remain unresolved** — each was
+      confirmed by David, dropped, or explicitly excluded through his revised
+      coverage before its chapter's row flipped to *written*. (Round 5: this
+      item still accepted the marker as a terminal state, contradicting method
+      step 3.)
 - [ ] No fact has two homes: each new spec's boundary header is present and
       `security-model.md` / the Stripe audit docs / `ADMIN_FIELD_REFERENCE.md`
       were not restated.
@@ -1003,7 +1042,7 @@ which is the loop working as intended. All verified; none rebutted.
 | # | Round | Finding | Severity | Status |
 | --- | --- | --- | --- | --- |
 | F1b | 2 | **F1 still open:** migrate-then-reduce named only *some* chapter-only facts, and a *post*-edit inventory cannot detect deleted prose. Codex found a third fact I had missed — the crash-reclaim guarantee at `background-work.md:87-88`, verified absent from all of `docs/ai-context/` | P1 | **Resolved** — the fact inventory is now a **pre-edit hard gate** mapping every machinery claim to relocate / retain / link, and the plan states that its own enumerated lists are examples, not the source of truth |
-| F5b | 2 | **F5 still open:** the DoD let a *partial — pending fix* row persist on notification alone, and PR 12 keyed only on "PRs 0–11 landed" — so close-out could still declare a complete manual with a defect-affected behavior omitted | P1 | **Resolved** — added an explicit close-out gate: any partial row **blocks PR 12**, cleared only by the fix landing or by David revising the promised coverage so close-out names the exclusion |
+| F5b | 2 | **F5 still open:** the DoD let a *partial — pending fix* row persist on notification alone, and PR 12 keyed only on "PRs 0–12 landed" — so close-out could still declare a complete manual with a defect-affected behavior omitted | P1 | **Resolved** — added an explicit close-out gate: any partial row **blocks PR 13**, cleared only by the fix landing or by David revising the promised coverage so close-out names the exclusion |
 | R2-3 | 2 | **New:** chapters are verified once, so a chapter grounded at PR 2 can be falsified by an unrelated merge before PR 12, and CI can't catch it (the gate checks links/paths, not behavior) | P1 | **Resolved** — method step 8: an in-chapter `Verified against <sha>` baseline, a pre-close-out re-grounding sweep, and a re-run if PR 12's base advances |
 | F6b | 2 | **F6 still open:** the dependency graph omitted the `PR 2–11 → PR 1` edge that the steps stated twice — an executor following the graph could land a chapter before the de-fork | P2 | **Resolved** — edge added; graph now represents every ordering constraint stated in the steps |
 
@@ -1042,7 +1081,36 @@ findings pointed at the plan's shape rather than its details.
 | R4-4 | 4 | The coverage-map heading still said "Chapters (8)" above a 12-row table | P2 | **Resolved** — count derived from the table |
 | R4-10 | 4 | `pages/not-found.tsx` (the catch-all at `App.tsx:406`) was unassigned; the plan counted 18 pages where the repo has 19 | P2 | **Resolved** — assigned to `public-site-and-sharing.md`, and named in the exclusions table as explicitly *not* excluded |
 
-**Still open: 0.** Rounds completed: 4.
+**Round 5 — intended as the confirming round; it did not confirm.** 8 findings
+(3×P1, 5×P2) against `c2080b6`, four of them *Still Open* reconciliations. All
+verified; none rebutted. Fixed in the following commit.
+
+| # | Round | Finding | Sev | Status |
+| --- | --- | --- | --- | --- |
+| R5-1 | 5 | **R4-11 still open:** the replacement sweep enumerated the `routes/` directory and the `pages/` tree, missing live endpoints registered directly in `app.ts` (e.g. `/api/config` at `app.ts:300`) and sweeping dead/test files that can never have a chapter | P1 | **Resolved** — sweep inputs are now the production mount graph and the routed `App.tsx` surface; dead and test files get no disposition, and unrouted product files become dead-code report items |
+| R5-2 | 5 | **R4-6 still open:** the DoD still demanded the authoring-time/use-time boundary that round 4 disproved | P1 | **Resolved** — DoD now states the subject-matter boundary. Third instance of the same pattern: fix a section, leave a stale restatement elsewhere |
+| R5-3 | 5 | **R4-1 still open:** rung 0 was scoped to four *named surfaces*, but `storage.ts` / private-meme delivery sit in the studio chapter while being security boundaries per `security-model.md:63-94` | P1 | **Resolved** — rung 0 is now **defect-based across every chapter**, not surface-based |
+| R5-4 | 5 | **R4-7 still open:** the DoD still accepted a claim being grounded *or* marked *Needs David confirmation* | P2 | **Resolved** — requires zero unresolved markers |
+| R5-5 | 5 | **Factual error:** the plan claimed prices are fetched live from Stripe. `GET /api/stripe/plans` reads the **synced** `stripe.products`/`stripe.prices` tables; `pricingPlans.ts` fetches nothing | P2 | **Resolved** — corrected to name the sync projection as the display-time source, including stale/failed-sync behavior. This was a claim I had recorded as "resolved from the repo without asking David" — and it was wrong |
+| R5-6 | 5 | **Factual error:** `registered → verified → member` is not a real state machine — `membershipTier` and `emailVerifiedAt` are independent columns | P2 | **Resolved** — replaced with three orthogonal dimensions |
+| R5-7 | 5 | PR 11 bundled `moderation.md` and `taxonomy-and-enrichment.md`, contradicting decision 4 and the stated reason for splitting the moderation repair out | P2 | **Resolved** — taxonomy gets its own PR 12; close-out becomes PR 13 |
+| R5-8 | 5 | Adding `docs/manual` to `LIBRARY_DIRS` does not protect the manual's actual citation style — the checker only path-checks tokens beginning with a top-level directory, so bare filenames are silently skipped | P2 | **Resolved** — added a citation rule requiring root-relative gate-recognized paths, and the negative test must exercise that form |
+
+**Still open: 0.** Rounds completed: 5.
+
+### What round 5 says about this plan, stated plainly
+
+The round that was supposed to confirm instead found three **factual errors
+about the codebase** inside the plan — the same class of defect that caused the
+round-4 trim, in the two ownership rows that survived it. The pattern is now
+established beyond doubt: **every time this plan asserts a specific fact about
+the code in advance, it eventually turns out to be wrong**, because those
+assertions are written from reading *around* the code rather than from grounding
+each claim the way the method itself demands. Findings by round: 7, 4, 5, 12, 8.
+
+The corrected rows are now flagged as *to be verified during their chapter's
+PR*, where the claim table catches exactly this. That is the round-4 decision
+applied consistently rather than a new one.
 
 ### What round 4 changed about the plan's shape, not just its content
 
