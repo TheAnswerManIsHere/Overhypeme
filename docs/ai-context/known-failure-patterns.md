@@ -501,7 +501,7 @@ source for that input. **Overhype:**
   `PromptIdentitySnapshot` + `ResolvedRenderStyleSnapshot` once and rendering
   the fact text from that same identity (PR #223). See
   [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
-- The Queue Health surface's terminal-vs-exhausted classification
+- The Queue Health surface's no-retry-budget-remaining classification
   re-resolved a queue's retry ceiling from **current** `admin_config` at read
   time for any row still carrying the `0` sentinel (the common case — no
   per-row override). A row that legitimately exhausted retries under an old,

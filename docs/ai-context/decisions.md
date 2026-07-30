@@ -58,7 +58,7 @@
   the surface this feeds.
 - **Revisit if:** a future phase adds a backfill for legacy `0`-sentinel
   rows (making the conservative `failed`-only treatment for them
-  unnecessary), or the terminal-vs-exhausted distinction needs to move
+  unnecessary), or the no-retry-budget-remaining distinction needs to move
   earlier in the pipeline (e.g. onto the job payload at enqueue time)
   instead of living on the finalize write.
 

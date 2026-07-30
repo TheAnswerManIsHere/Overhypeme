@@ -28,17 +28,20 @@ priorities (moderation speed, render/enrichment quality, video). See
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Read-only instrumentation only — no claim/retry/dedupe/lane
   semantics changed. Each lane's worker now publishes a heartbeat
-  (`worker_lane_heartbeats`), and three new endpoints surface it: an admin
-  aggregate view, a paginated per-item drill-down (all eleven queues, not
-  just email), and an unauthenticated `/api/health/queues` liveness probe
-  that returns a meaningful 503 when the API process is alive but every
-  worker has stopped scheduling a lane fleet-wide — a failure mode no other
-  endpoint reports. One narrow, David-approved exception to
-  "no finalize changes": the terminal-vs-exhausted classification now
+  (`worker_lane_heartbeats`), and three new endpoints comprise the surface:
+  an admin aggregate view and an unauthenticated `/api/health/queues`
+  liveness probe both read the heartbeat (the probe returns a meaningful 503
+  when the API process is alive but every worker has stopped scheduling a
+  lane fleet-wide — a failure mode no other endpoint reports); a paginated
+  per-item drill-down (all eleven queues, not just email) reads only
+  `async_jobs`, not the heartbeat. One narrow, David-approved exception to
+  "no finalize changes": the no-retry-budget-remaining classification now
   persists the resolved retry ceiling at the moment a row finalizes to
   `failed`, instead of re-deriving it live (see
   [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)).
-  Also closed a real gap from the lane split (PR #256): the shared DB pool's
+  Also closed a real gap from the five-lane expansion (PR #256, which added
+  the `pexels`/`ai_meme_backfill` lanes on top of PR #216's original
+  fast/render/bulk split): the shared DB pool's
   `max` is now explicit and derived (20) instead of pg's implicit default
   (10), which had left zero spare connections once all five lanes were
   simultaneously busy. See

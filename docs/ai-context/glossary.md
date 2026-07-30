@@ -155,9 +155,12 @@
 - **Lane (async-jobs)** — one of five independent scheduling groups (`fast` /
   `render` / `bulk` / `pexels` / `ai_meme_backfill`) the async-jobs worker
   splits queues into, each with its own poll timer, re-entrancy guard, and
-  concurrency bound, so slow work in one lane can never delay another's. Set
-  per-queue via `registerJobHandler(queue, handler, { lane })`; defaults to
-  `bulk`.
+  concurrency bound, so slow work in one lane can never delay another's
+  *scheduling*. Set per-queue via `registerJobHandler(queue, handler, {
+  lane })`; defaults to `bulk`. This isolation is at the scheduling level
+  only — all five lanes share one database connection pool, so a DB-heavy
+  lane consuming most of `DB_POOL_MAX` can still make another lane's claim
+  or heartbeat queries wait.
   → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 - **Worker lane heartbeat** — a `worker_lane_heartbeats` row, keyed
@@ -171,7 +174,7 @@
 - **Sentinel (`max_attempts`)** — the value `0` on an `async_jobs` row,
   meaning "resolve the retry ceiling from the queue's live `admin_config`
   setting" rather than a fixed per-row override. Replaced with the resolved
-  number once a row finalizes to `failed`, so its terminal-vs-exhausted
+  number once a row finalizes to `failed`, so its no-retry-budget-remaining
   classification stays pinned to the ceiling that actually applied, not
   whatever the config says today.
   → [decisions.md](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)

@@ -203,8 +203,8 @@ elsewhere.
   the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
   (the Queue Health page).
 - [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
-  why the terminal-vs-exhausted classification persists at finalize instead
-  of re-deriving live.
+  why the no-retry-budget-remaining classification persists at finalize
+  instead of re-deriving live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).

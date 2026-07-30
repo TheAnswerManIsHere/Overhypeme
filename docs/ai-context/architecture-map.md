@@ -288,8 +288,9 @@ deliberately excludes them and points here instead.
   default moves the real worst-case demand above 10, so `DB_POOL_MAX` needs
   reconsidering whenever lane concurrency changes, not only when the
   autoscale ceiling does. This closes the "no default spare connection" gap
-  the lane split (PR #256) had left as follow-up work, at default
-  concurrency settings.
+  the five-lane expansion (PR #256, adding `pexels`/`ai_meme_backfill` on top
+  of PR #216's original fast/render/bulk split) had left as follow-up work,
+  at default concurrency settings.
 
 ## Storage / CDN
 
