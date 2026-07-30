@@ -168,6 +168,20 @@ deliberately excludes them and points here instead.
   the fact with no record of the earlier successes even though their paid
   OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
   means `onAbandon` fires on the very first failure.
+- **The lanes' combined concurrency exactly consumes the default DB pool.**
+  Per-lane `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3
+  (both from `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1
+  — worst case **10** concurrent handlers. `lib/db/src/index.ts` constructs
+  its `Pool` **without a `max`**, so the ceiling is node-postgres's own
+  default, also **10**: nobody picked that number to match, and the match is
+  therefore coincidental rather than designed. With every lane saturated
+  there is **no** spare connection for admin or reader traffic — not thin
+  headroom, none. The `pexels`/`ai_meme_backfill` lanes (PR #256) consumed
+  what margin used to exist. Every one of these bounds is env-overridable
+  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so raising a lane's concurrency
+  without raising the pool's `max` makes this actively negative. Raising the
+  pool limit is deliberate follow-up work, not yet done — see
+  [`current-roadmap.md`](./current-roadmap.md).
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed

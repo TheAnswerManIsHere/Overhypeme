@@ -51,6 +51,34 @@ like [`ADMIN_FIELD_REFERENCE.md`](../ADMIN_FIELD_REFERENCE.md), the first step
 toward this manual — stay generated; chapters link to them and never
 hand-restate their content.
 
+### The one bounded exception: naming machinery without quantifying it
+
+Some areas' product story *is* their machinery — background work, the visual
+pipeline, enrichment. For those, a pure link leaves a chapter that reads
+"there are some moving parts; see the spec," which fails this manual's own
+quality bar. So chapters may cross the line in exactly one direction
+(David, 2026-07-30):
+
+- **Allowed — what exists and what it is for.** A chapter may name a
+  component and say who it serves: *"a lane for quick admin actions someone
+  is watching, another for batches nobody is watching."* This is the part a
+  reader needs to follow the story, and it changes only when the product
+  changes.
+- **Not allowed — any value.** Counts, intervals, concurrency bounds,
+  timeouts, thresholds, retry budgets, defaults, or which specific component
+  a queue is assigned to. Those live **only** in `docs/ai-context/`. They are
+  what actually drifts, they change without the product changing, and a
+  reader who needs them is already better served by the spec.
+
+The test: **if maintaining the sentence would require editing this file when
+a constant changes, the sentence is over the line.** "Five lanes" is over it;
+"independent lanes" is not. "Polls every 2 seconds" is over it; "polls
+frequently because someone is waiting" is not.
+
+This is an exception, not a general licence — it applies to the narrative
+sections of a chapter whose subject is machinery, and it never extends to
+restating a whole spec section.
+
 ## How the manual grows
 
 Written incrementally by the **`/document` ceremony**

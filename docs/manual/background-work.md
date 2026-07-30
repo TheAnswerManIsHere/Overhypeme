@@ -59,29 +59,30 @@ claimed until a recovery sweep picks it up. See the known limitation below.)
 The table's shape and the exact status flow are in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
-Work is drained by **five independent scheduling lanes**, and the important
-word is *independent*: each keeps its own timer, its own concurrency budget,
-and its own guard against overlapping runs, so a lane that is saturated can
-never hold up another. What separates them is **who is waiting and how much
-each job costs**:
+Work is drained by **independent scheduling lanes**, and the important word is
+*independent*: a lane that is saturated cannot hold up another. What separates
+them is **who is waiting, and how much each job costs to run**:
 
 - **`fast`** — pure-database admin actions with no AI or image call in the
   path, like sending a fact back to review. Someone clicked a button and is
-  watching for it to take effect, so this lane polls the most aggressively and
-  finishes in a couple of ticks almost regardless of what else is running.
-- **`render`** — single-item renders a moderator is actively watching a
-  spinner for. Sized to run a few at once, so firing several test renders
-  doesn't serialize them behind each other.
-- **`bulk`** — the default lane, for batches nobody is watching in real time:
-  re-enrichment, large backfills, visual-concept drafting, transactional email.
+  waiting to see it take effect, so this lane is tuned to feel immediate.
+- **`render`** — single-item renders a moderator is watching a spinner for.
+  Tuned so that firing off several test renders doesn't queue them behind one
+  another.
+- **`bulk`** — batches nobody is watching in real time: re-enrichment, large
+  backfills, visual-concept drafting, transactional email.
 - **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
-  fact (root or variant). Both are deliberately serialized to one job at a
-  time, because both spend money or rate-limit budget at an external provider.
+  fact. Both are deliberately serialized, because both spend money or
+  rate-limit budget at an external provider, and pacing them protects the
+  bill rather than the throughput.
 
-The mechanics behind all of this — poll intervals, concurrency bounds, which
-queue runs in which lane, and retry semantics — live in
-[`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues);
-this chapter doesn't restate them.
+That is what each lane is *for*. Everything quantitative about them — how many
+there are, how often each polls, how much runs at once, which queue is
+assigned where, and what happens on retry — lives in
+[`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues),
+and this chapter deliberately doesn't carry it. (See *the one bounded
+exception* in the [manual's charter](./README.md) for why a chapter about
+machinery may name the parts without quantifying them.)
 
 ### Email, the most consequential rider
 
@@ -147,16 +148,16 @@ elsewhere.
   (oldest due first); the lane split only isolates *between* lanes, not within
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
-- **All five lanes share one database connection pool.** Their combined
-  worst-case concurrent handler count (fast 2 + render 3 + bulk 3 + pexels 1 +
-  ai_meme_backfill 1 = 10) now exactly matches the pool's default limit (10) —
-  the `pexels`/`ai_meme_backfill` lanes added for variant independence (PR
-  #256) used up what used to be a small margin. That leaves **no** default
-  spare connection for admin + reader traffic outside these lanes when all
-  five are simultaneously busy, not just thin headroom. Raising the pool's
-  connection limit was deliberately left as follow-up work, not done
-  proactively — see
-  [`current-roadmap.md`](../ai-context/current-roadmap.md).
+- **The lanes share one database connection pool, and between them they can
+  use all of it.** If every lane is busy at once, there is no spare
+  connection left for ordinary admin or reader traffic — so the site itself
+  can feel slow while a big backfill runs, even though nothing is broken.
+  That is a known rough edge rather than a designed limit: the two newest
+  lanes consumed the margin that used to exist, and raising the pool's
+  ceiling is deliberate follow-up work that hasn't been done yet
+  ([`current-roadmap.md`](../ai-context/current-roadmap.md)). The exact
+  numbers, and why they line up the way they do, are in
+  [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but not quickly.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
   stranded forever. But recovery is deliberately unhurried: the sweep only
