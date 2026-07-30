@@ -1,8 +1,8 @@
 # Handoff — NCMEC CyberTipline plan review (PR #280)
 
-**Rewritten 2026-07-30 after round 17.** The session that ran rounds 14–17 exhausted its
-context here. Round 17's four Still Open reconciliations are fixed and pushed; **sixteen
-findings remain open, and none of round 17's twenty replies have been posted.**
+**Rewritten 2026-07-30 after round 17 was fully closed.** All twenty of round 17's findings
+are fixed (`7ed2475` + `7102b63`), all twenty replies are posted, and **round 18 has been
+requested**. The only thing owed is the round-17 ledger entry in the PR body.
 
 ---
 
@@ -13,9 +13,9 @@ findings remain open, and none of round 17's twenty replies have been posted.**
 | Plan file | `docs/plans/PLAN_NCMEC_CYBERTIPLINE_SUBMISSION.md` (~3,100 lines) |
 | Branch | `plan-review/ncmec-cybertipline-submission` — never merged, never reused for implementation |
 | PR | **#280**, draft, `[PLAN REVIEW] … — DO NOT MERGE` |
-| Head | `7ed2475` |
-| Rounds | **17.** 158 findings raised; 142 addressed; **16 open** |
-| Owed | All **20** round-17 thread replies, the round-17 ledger entry, the 16 fixes |
+| Head | `7102b63` |
+| Rounds | **17 closed, 18 requested.** 158 findings raised, **158 addressed, 0 open** |
+| Owed | The round-17 **ledger entry** in the PR body — nothing else |
 | Implementation branch (not started) | `claude/ncmec-reporting-integration-8mwpho` |
 
 **David's standing decision (2026-07-30):** option 3 — ship reporting + the admin surface
@@ -67,28 +67,29 @@ pull it into context.** Filter to threads whose only comment is by
 | 2615 + 2790 | Two tests still required unguarded `TRUNCATE` to succeed, contradicting the new trigger |
 | 2542 | An incident-era "unalerted" test still described a handler-wide aggregate query |
 
-### Still open — sixteen
+### All sixteen closed in `7102b63`
 
-| Line | Sev | Finding |
-|---|---|---|
-| 771 | P1 | **`0094` must backfill `quarantine_id` from the stub's existing `request_metadata.quarantineId`** before the unique index and pass 2 go live, with counts for missing/conflicting/linked — otherwise every legacy Arachnid quarantine gets a second report row |
-| 715 | P1 | The copy contract sets `match_source = source`, but `quarantined_memes.source` permits `fal_safety`/`manual` while `NCMEC_MATCH_SOURCES` permits only `arachnid`/`classifier` — pass 2 and the orphan `report` action fail their insert |
-| 592 | P1 | **Still Open.** §5.8's tuple gate still accepts a notifying admin *instead of* the fallback key, and §5.5 leaves that key on the generic route — production can activate with no fallback, then lose its last admin |
-| 884 | P1 | Moving the notifier to `bulk` starves the *submitter*: three stalled untimed provider calls occupy all three bulk slots and stop every `ncmec_submit` retry. Needs a bounded timeout or a third lane |
-| 1223 | P1 | `app.audit_maintenance` is settable by the ordinary application role, so the role the trigger blocks can `SET LOCAL` and bypass it. Needs a privileged role or a permissioned function |
-| 1503 | P1 | The pre-`/finish` recheck tests only `enabled`; the tuple `enabled = true, environment = test` passes it, so a worker can `/finish` a **production** report after the operator switched to test |
-| 1594 | P1 | `report_intent` is captured with `getConfigString`, which is process-cached for 60 s — a stale instance keeps freezing `true` for a minute after classifier reporting is disabled |
-| 1852 | P1 | §5.7 says manual filing rejects a non-null `report_id`; §5.8.1 accepts a `failed` row and calls the retained id "inert". If `/finish` succeeded but its response was lost, manual filing then duplicates a real filing |
-| 1969 | P1 | The backlog cutoff writes an **application** `$now` against `created_at` values from the database clock; host skew lets pre-existing rows land after the cutoff and skip the audit entirely |
-| 2084 | P1 | "Every transition out of `failed`" omits `mark-manually-filed`, which now accepts `failed` — so `failed → filed_manually → reopen → pending` keeps a stale `alert_notified_at` |
-| 478 | P2 | Rule 7's "completed exit" list omits the ordinary retryable return and a caught handler exception, so those still leave the lease held for up to 3 minutes |
-| 1080 | P2 | The non-final-only fence lets a **stale** worker's older observation overwrite a newer one's `last_error_code` / `last_attempt_failed_at`. Needs a monotonic generation fence |
-| 1392 | P2 | `IDX_ncmec_failed_alerting` keys on `(submission_environment, failed_at)` and covers all failed rows, but pass 3 filters `alert_notified_at IS NULL` — put that in the partial predicate |
-| 1437 | P2 | The two retry keys are editable with no minimums; lowering either silently destroys the >72 h horizon the §9 deferral rests on |
-| 1517 | P2 | Nothing clears `finish_started_at` after a crash mid-`/finish`, so `inFlight` can be inflated forever. Define clearing for each retract-first outcome and the pass-1 repair |
-| 1943 | P2 | Branch 3 (test attempt uncertain) has no endpoint to record the portal-inspection result, so the row cannot leave that state |
+| Line | Fix |
+|---|---|
+| 771 | `0094` backfills `quarantine_id` from the stub's `request_metadata.quarantineId` **before** the index and pass 2 go live, reporting linked / missing / conflicting |
+| 715 | `match_source` is **normalized** via `quarantine.ts:104`'s existing rule, not copied — `fal_safety` / `manual` would have violated `0043`'s CHECK |
+| 592 | The activation gate requires the **key**, not "a recipient resolves"; the generic route refuses to empty it while production is live |
+| 884 | `AbortSignal.timeout(30_000)` on the notification send — three untimed stalls would have occupied all three bulk slots and stopped `ncmec_submit` |
+| 1223 | The audit bypass is `overhype_audit_maintenance` **role membership**, not a settable GUC |
+| 1503 | The pre-`/finish` recheck evaluates the whole tuple; `enabled=true, environment=test` passed an enabled-only gate |
+| 1594 | `report_intent` is captured from an **uncached** read — it is written once and never re-derived |
+| 1852 | A retained `report_id` must be resolved (retract, or an audited portal determination) before manual filing |
+| 1969 | The backlog cutoff comes from `now()` with `RETURNING`, not an application clock |
+| 2084 | `mark-manually-filed` joins the enumerated set that clears `alert_notified_at` |
+| 478 | Retryable returns and caught exceptions release the lease |
+| 1080 | A monotonic guard (`last_attempt_failed_at < $observed_at`) on the observational triple |
+| 1392 | The pass-3 index carries `alert_notified_at IS NULL` in its predicate |
+| 1437 | The guarded write validates the **resulting** retry schedule still crosses 72 h |
+| 1517 | `finish_started_at` clearing defined across five resolution paths, including pass 1's repair |
+| 1943 | `resolve-test-attempt` gives branch 3 the found / not-found exit it lacked |
 
----
+Three endpoints were added to §5.8.1's **contract table**, not left in prose — the
+prose/table split is the defect class that reopened findings in rounds 12, 14, 15 and 17.
 
 ## 4. Then, in order
 
