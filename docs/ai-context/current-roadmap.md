@@ -35,10 +35,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   cohorts it `prose/contract` because its diff carries a doc (see the
   ledger's own cohort-leakage note). Also backfilled: #274 (plan-review,
   68.4% self-inflicted), #282 (plan-review, 72.1%, the ledger's new worst
-  case at 32→9-round scale). #279 (32 rounds, 166 findings) and #285 (a
-  concurrent session's plan-review loop, 5 rounds, 36 findings, converged and
-  approved) both landed mechanical-columns-only by explicit, dated decisions
-  rather than adjudicated — see the ledger's own row 6 and row 10 notes. New
+  case at 32→9-round scale), and — added on this PR's own third Codex
+  review round, correcting an earlier mistake — #285 (a concurrent session's
+  plan-review loop, 5 rounds, 36 findings, converged and approved, **44.4%
+  self-inflicted**). #285 was first folded in mechanical-only under #279's
+  size-based deferral reasoning; Codex correctly caught that #285's size
+  never warranted that exception, so it's classified here instead (two
+  independent cold passes, 0% disagreement across all 36 findings). #279
+  itself (32 rounds, 166 findings) is the one loop still deferred by an
+  actual, David-authorized decision — see the ledger's own row 6 note. New
   `scripts/check-ledger-coverage.mjs`, wired into the Build job, fails CI when
   a closed loop has neither a row nor a recorded exemption — **enforced at the
   next PR's open, not at the closing loop's own close**, so a loop that closes
@@ -49,22 +54,25 @@ priorities (moderation speed, render/enrichment quality, video). See
   line in the ledger — pre/post rows aren't measuring the same reviewer. See
   [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger).
-  **Six rows now carry a real adjudicated self-inflicted-share percentage:**
-  #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #286 0% (#284 is
-  adjudicated but has none to report — its one finding is `invalid`, zero
-  denominator). The three 0% rows are not a clean-workflow signal — they are
-  loops with only one **finding-bearing** round (not just one round: #286
-  genuinely had a second review round, but it found nothing), and a
-  finding-bearing round with no prior finding-bearing round in the same loop
-  can only produce new ground by the rubric's own construction
-  (propagation/wrong-fix require an earlier in-loop fix a later finding
-  responds to), so 0% is a structural floor, not a measurement. **The trend
-  is only meaningful across the three loops with more than one
+  **Seven rows now carry a real adjudicated self-inflicted-share percentage:**
+  #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285 44.4%, #286 0%
+  (#284 is adjudicated but has none to report — its one finding is
+  `invalid`, zero denominator). The three 0% rows are not a clean-workflow
+  signal — they are loops with only one **finding-bearing** round (not just
+  one round: #286 genuinely had a second review round, but it found
+  nothing), and a finding-bearing round with no prior finding-bearing round
+  in the same loop can only produce new ground by the rubric's own
+  construction, so 0% is a structural floor, not a measurement. **The trend
+  is only meaningful across the four loops with more than one
   finding-bearing round** — #270 (16 rounds), #274 (4 rounds), #282
-  (9 rounds) — where it runs 64.7% → 68.4% → 72.1%, not falling (n=3, all
-  pre-boundary); see the ledger for the
-  full reasoning and the two structural findings underneath that number. Two
-  things surfaced but
+  (9 rounds), #285 (5 rounds) — and here the earlier "not falling" claim
+  does **not** survive the fourth data point: ordered by PR number the share
+  runs 64.7% → 68.4% → 72.1% → 44.4%, not a rising trend. #285's own
+  pre-/post-exhaustive-review boundary status is unverified (its review
+  activity ran the same evening the boundary was set, with no exact toggle
+  time recorded). See the ledger for the corrected reasoning and the two
+  structural observations that **do** still replicate at n=4. Two things
+  surfaced but
   deliberately left unfixed, for David to decide: the ledger's own
   `classifyCohort` routes **any** PR carrying a non-ledger markdown file to
   `prose/contract` — bugfix loops with a UAT doc land there (the concrete
