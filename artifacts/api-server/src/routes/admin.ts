@@ -23,7 +23,7 @@ import {
   type OverrideLayers,
   type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
-import { enqueueJob } from "../lib/asyncJobs";
+import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
@@ -3193,9 +3193,23 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
     // Atomic conditional update: only resets the row if it is still failed.
     // This prevents a race where two concurrent admin retries both pass a
     // read-then-check and then both reset the same row to pending.
+    //
+    // maxAttempts is reset to the sentinel here too. Since PR288's finalize
+    // change, a row that exhausted or terminally failed carries the ceiling
+    // RESOLVED at that moment, persisted as a positive per-row value — correct
+    // for a dead row, but wrong for one an admin is deliberately reopening: a
+    // manual retry should follow whatever the queue's LIVE config says right
+    // now (which may have been raised or lowered since this row first failed),
+    // not the historical value frozen at the original failure.
     const [updated] = await db
       .update(asyncJobsTable)
-      .set({ status: "pending", attempts: 0, nextAttemptAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "pending",
+        attempts: 0,
+        maxAttempts: USE_CONFIGURED_MAX_ATTEMPTS,
+        nextAttemptAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(and(
         eq(asyncJobsTable.id, id),
         eq(asyncJobsTable.queue, "email"),

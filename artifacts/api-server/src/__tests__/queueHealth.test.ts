@@ -53,7 +53,7 @@ describe("queueHealth — derived statuses", () => {
     // contract makes "skipped" first-class and forbids collapsing it into a
     // checkmark, so it has to be derived or it is unreachable.
     const { displayStatus, skipReason } = deriveDisplayStatus(
-      { status: "done", result: { skipped: true, reason: "not_active" }, attempts: 1 },
+      { status: "done", result: { skipped: true, reason: "not_active" }, attempts: 1, maxAttempts: 5 },
       5,
     );
     assert.equal(displayStatus, "skipped");
@@ -62,7 +62,7 @@ describe("queueHealth — derived statuses", () => {
 
   it("leaves an ordinary success as `done`", () => {
     const { displayStatus } = deriveDisplayStatus(
-      { status: "done", result: { factId: 1 }, attempts: 1 },
+      { status: "done", result: { factId: 1 }, attempts: 1, maxAttempts: 5 },
       5,
     );
     assert.equal(displayStatus, "done");
@@ -72,10 +72,12 @@ describe("queueHealth — derived statuses", () => {
     // fact_ai_meme_backfill is configured never to retry, so its failures are
     // `failed` after a single attempt — a different operator story from
     // "exhausted five attempts", and indistinguishable without this.
-    const neverRetried = deriveDisplayStatus({ status: "failed", result: null, attempts: 1 }, 1);
+    // effectiveMax<=1 is always safe regardless of row.maxAttempts (0 here on
+    // purpose — even a legacy sentinel row is trustworthy in THIS branch).
+    const neverRetried = deriveDisplayStatus({ status: "failed", result: null, attempts: 1, maxAttempts: 0 }, 1);
     assert.equal(neverRetried.displayStatus, "abandoned_no_retry");
 
-    const exhausted = deriveDisplayStatus({ status: "failed", result: null, attempts: 5 }, 5);
+    const exhausted = deriveDisplayStatus({ status: "failed", result: null, attempts: 5, maxAttempts: 5 }, 5);
     assert.equal(exhausted.displayStatus, "failed");
 
     // A `terminalFailure()` on a queue whose normal ceiling is 5: the handler
@@ -84,14 +86,38 @@ describe("queueHealth — derived statuses", () => {
     // `failed` once `attempts >= effectiveMax`, so `attempts < effectiveMax`
     // here proves this row didn't get here via exhaustion — it must be a
     // terminal failure, and the health surface must say so rather than
-    // rendering it as an indistinguishable generic "Failed".
-    const terminalBeforeCeiling = deriveDisplayStatus({ status: "failed", result: null, attempts: 1 }, 5);
+    // rendering it as an indistinguishable generic "Failed". `maxAttempts: 5`
+    // is the persisted (non-zero) ceiling PR288's finalize fix now writes —
+    // required for this branch to trust the comparison at all (see the
+    // sentinel-guard test below for what happens without it).
+    const terminalBeforeCeiling = deriveDisplayStatus(
+      { status: "failed", result: null, attempts: 1, maxAttempts: 5 },
+      5,
+    );
     assert.equal(terminalBeforeCeiling.displayStatus, "abandoned_no_retry");
 
     // Same shape, but on a LATER attempt — some retries did happen before the
     // handler gave up. Still not exhaustion (2 < 5), so still derived.
-    const terminalAfterSomeRetries = deriveDisplayStatus({ status: "failed", result: null, attempts: 2 }, 5);
+    const terminalAfterSomeRetries = deriveDisplayStatus(
+      { status: "failed", result: null, attempts: 2, maxAttempts: 5 },
+      5,
+    );
     assert.equal(terminalAfterSomeRetries.displayStatus, "abandoned_no_retry");
+  });
+
+  it("treats a legacy sentinel row conservatively — never derives terminal from a live-config guess", () => {
+    // A `failed` row with the `0` sentinel predates PR288's finalize fix
+    // (migration 0094 does not backfill existing rows). `effectiveMax` here
+    // is only a live admin_config lookup, which may not match the ceiling
+    // that was actually in effect when this row failed — an admin raising the
+    // queue's ceiling afterward would otherwise retroactively relabel a
+    // genuine historical exhaustion as a terminal failure. Render it as plain
+    // `failed` instead of risking that false classification.
+    const legacyRow = deriveDisplayStatus(
+      { status: "failed", result: null, attempts: 3, maxAttempts: 0 },
+      5, // resolved from CURRENT config, not necessarily what applied at finalization
+    );
+    assert.equal(legacyRow.displayStatus, "failed", "a 0-sentinel row must not be derived as terminal");
   });
 
   it("sanitizes skip reasons against the closed set", () => {
@@ -169,6 +195,31 @@ describe("queueHealth — lane liveness", () => {
     const pexels = lanes.find((l) => l.lane === "pexels");
     assert.equal(pexels?.liveInstanceCount, 0, "a departed instance is not live");
     assert.equal(pexels?.stalled, true);
+  });
+
+  it("never lets the TTL cutoff undercut a lane's own stale threshold", async () => {
+    // Every real lane floors at a 60s stale threshold (staleThresholdMs's own
+    // 60s floor). A 30s TTL is deliberately shorter than that, to prove the
+    // live-instance query filter doesn't prune a heartbeat before the
+    // per-lane threshold check below even gets to run.
+    await clearRealLaneHeartbeats();
+    await db.insert(workerLaneHeartbeatsTable).values({
+      instanceId: randomUUID(),
+      lane: "fast",
+      workerProtocolVersion: WORKER_PROTOCOL_VERSION,
+      // 45s old: past a hypothetical 30s TTL, but well within the 60s floor
+      // every lane's stale threshold actually uses under default config.
+      lastScheduledAt: new Date(Date.now() - 45_000),
+    });
+
+    const lanes = await laneHealth(db, 0.5); // 30s TTL
+    const fast = lanes.find((l) => l.lane === "fast");
+    assert.equal(
+      fast?.liveInstanceCount,
+      1,
+      "a TTL shorter than the stale window must not prune a heartbeat the threshold check still needs",
+    );
+    assert.equal(fast?.stalled, false, "45s old is still inside the 60s floor — not actually stalled");
   });
 });
 

@@ -85,23 +85,32 @@ export function isSkipResult(result: unknown): boolean {
  * `admin_config` read per queue, and callers batch that across many rows.
  */
 export function deriveDisplayStatus(
-  row: { status: string; result: unknown; attempts: number },
+  row: { status: string; result: unknown; attempts: number; maxAttempts: number },
   effectiveMax: number,
 ): { displayStatus: DisplayStatus; skipReason: SanitizedSkipReason | null } {
   if (row.status === "done" && isSkipResult(row.result)) {
     const reason = sanitizeSkipReason((row.result as { reason?: unknown }).reason);
     return { displayStatus: "skipped", skipReason: reason };
   }
-  // A `failed` row reaches that status two ways: genuine retry exhaustion,
-  // which always requires `attempts >= effectiveMax` (processClaimedJob's
-  // `abandoned = newAttempts >= effectiveMax`), or a deterministic
-  // `terminalFailure()` that gives up immediately regardless of remaining
-  // budget. Any failed row with `attempts < effectiveMax` therefore CANNOT
-  // have arrived via exhaustion — it must be the terminal case.
-  // `effectiveMax <= 1` is the special case where both paths converge on
-  // attempts === effectiveMax === 1 and are equally "no retry" to an operator.
-  if (row.status === "failed" && (effectiveMax <= 1 || row.attempts < effectiveMax)) {
-    return { displayStatus: "abandoned_no_retry", skipReason: null };
+  if (row.status === "failed") {
+    // `effectiveMax <= 1` is always a safe signal, regardless of WHEN it was
+    // resolved: with a ceiling of one, "exhausted" and "terminal on the first
+    // attempt" are the identical fact — there is no partial-retry state a
+    // later config change could have altered.
+    if (effectiveMax <= 1) return { displayStatus: "abandoned_no_retry", skipReason: null };
+    // For every other ceiling, only trust `attempts < effectiveMax` when the
+    // row's OWN persisted `max_attempts` is non-zero — i.e. it was finalized
+    // by the post-PR288 code path, which snapshots the ceiling AT
+    // finalization (see processClaimedJob). A row still carrying the `0`
+    // sentinel predates that fix — `effectiveMax` for it was just resolved
+    // against LIVE admin_config, which may have drifted since this row
+    // actually failed, so it is not a safe basis for this distinction.
+    // Migration 0094 does not backfill existing rows, so this is the only
+    // available treatment for them: render as plain `failed` rather than risk
+    // a false "terminal" classification that a raised ceiling could produce.
+    if (row.maxAttempts > 0 && row.attempts < effectiveMax) {
+      return { displayStatus: "abandoned_no_retry", skipReason: null };
+    }
   }
   return { displayStatus: row.status as DisplayStatus, skipReason: null };
 }
@@ -143,8 +152,19 @@ export async function laneHealth(
   ttlMinutes?: number,
 ): Promise<LaneHealth[]> {
   const ttl = ttlMinutes ?? (await heartbeatTtlMinutes());
-  const liveCutoff = new Date(Date.now() - ttl * 60_000);
   const intervals = laneIntervalsMs();
+  // The live-instance filter below must never be TIGHTER than the loosest
+  // lane's own stall window — otherwise a heartbeat gets pruned by the TTL
+  // cutoff before the per-lane `stalled` check further down ever runs,
+  // reporting a merely-slow lane as stalled at the TTL boundary instead of
+  // after its documented three missed intervals. Both `ttl` (admin_config)
+  // and each lane's interval (env var override) are independently
+  // configurable, so nothing else enforces this relationship — widening the
+  // query-level cutoff to the max of the two is a pure safety margin: it
+  // can only ADMIT more candidate rows, never change the per-lane `stalled`
+  // verdict computed below, which still applies each lane's OWN threshold.
+  const widestStaleThresholdMs = Math.max(...ALL_LANES.map((lane) => staleThresholdMs(intervals[lane])));
+  const liveCutoff = new Date(Date.now() - Math.max(ttl * 60_000, widestStaleThresholdMs));
 
   // Departed instances are filtered out HERE, before any aggregation. Doing it
   // after would let a scaled-down instance's frozen row decide the lane's
@@ -268,10 +288,13 @@ export async function queueHealth(
     let abandonedNoRetry = 0;
     for (const group of failedByMax.filter((f) => f.queue === queue)) {
       const max = await effectiveMaxAttempts(queue, group.maxAttempts);
-      // Same condition as deriveDisplayStatus: a failed row that hasn't
-      // reached its own effective ceiling cannot have gotten there via
-      // exhaustion — it's a terminal failure.
-      if (max <= 1 || group.attempts < max) abandonedNoRetry += group.total;
+      // Same condition as deriveDisplayStatus, including the same guard: only
+      // trust `attempts < max` when group.maxAttempts is non-zero (finalized
+      // by the post-PR288 path, whose persisted ceiling is durable). A `0`
+      // group is a pre-existing row from before that fix — migration 0094
+      // does not backfill — so `max` here is a live-config guess that may not
+      // match what was true when the row actually failed.
+      if (max <= 1 || (group.maxAttempts > 0 && group.attempts < max)) abandonedNoRetry += group.total;
     }
 
     const pendingRow = of("pending");
@@ -388,7 +411,7 @@ export async function queueHealthJobs(
     rows: rows.map((r) => {
       const effectiveMax = r.maxAttempts > 0 ? r.maxAttempts : (maxByQueue.get(r.queue) ?? 5);
       const { displayStatus, skipReason } = deriveDisplayStatus(
-        { status: r.status, result: r.result, attempts: r.attempts },
+        { status: r.status, result: r.result, attempts: r.attempts, maxAttempts: r.maxAttempts },
         effectiveMax,
       );
       return {
