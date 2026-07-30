@@ -145,6 +145,39 @@ deliberately excludes them and points here instead.
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (`fal_video` is defined but marked a **future** queue — the video pipeline does
   not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
+- **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
+  `render`, `bulk`, `pexels`, `ai_meme_backfill` 5s each
+  (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
+  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` / `_PEXELS_` /
+  `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
+  them — the old `intervalMs` argument is gone.
+- **Lane is orthogonal to retry/dedupe/claim semantics.** `{ lane }` selects
+  *scheduling* only; nothing about retries, dedupe, or claim ordering follows
+  from it. Retry budget is an **enqueue-time** option on the queue, which is
+  why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
+  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**:
+  `generateAiMemeBackgrounds` persists images incrementally, so a partial
+  failure part-way through a fact's image set would re-pay the paid
+  OpenAI/fal.ai calls for the slots that already succeeded. Note `maxAttempts:
+  1` also means `onAbandon` fires on the very first failure.
+- **Stranded-row recovery is delayed by design (PR #283).** Claim commits
+  `processing` *before* the handler runs, so a crash — **or a rejection in the
+  finalize transaction after the handler returned** — leaves the row committed
+  as `processing`. `recoverStuckProcessing` requeues such rows to `pending`,
+  but **only** those whose `updatedAt` (stamped at claim) is older than
+  `RECOVER_STUCK_CUTOFF_MIN = 30` minutes, swept every `RECOVER_INTERVAL_MS`
+  (60s) by the **`bulk` runner only** (table-wide, so one owner is correct)
+  plus one sweep at boot. A genuinely crashed job therefore waits up to ~30
+  minutes, and that cost is deliberate: this deployment is
+  `deploymentTarget = "autoscale"` with the worker started in **every**
+  instance, so too aggressive a cutoff reclaims a *different live instance's*
+  in-flight row and both runs execute — for `email`, a duplicate send to a
+  real person. The cutoff is load-bearing only because finalize matches on row
+  id with **no fencing token**; the real fix (lease tokens + fenced finalize)
+  is Phase 3a in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+  The boot path passes the cutoff explicitly so it can never silently use a
+  shorter one.
 - Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll

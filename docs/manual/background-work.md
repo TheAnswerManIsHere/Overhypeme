@@ -49,44 +49,65 @@ contract, for the corpus-wide stock-image and AI-meme backfill queues.
 
 ### The machinery
 
-Everything rides one durable table, **`async_jobs`**: a `queue` discriminator
-(which kind of work), a JSON payload, an optional dedupe key, and retry
-bookkeeping. A row's status moves `pending → processing → done | failed`.
-Using one real database table — not an in-memory queue or a separate
-pub/sub system — means a crash or redeploy never loses queued work, and the
-state is always inspectable with a normal SQL query.
+Everything rides **one real database table**, not an in-memory queue or a
+separate pub/sub system. That single choice buys the property this whole
+chapter rests on: a crash or a redeploy never loses queued work, and at any
+moment you can see exactly what is waiting, running, or failed with an
+ordinary SQL query. The table's shape and the exact status flow are in
+[`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
-**Five independent scheduling lanes** claim and run those rows. Each lane —
-`fast`, `render`, `bulk`, `pexels`, `ai_meme_backfill` — has its own poll
-timer, its own concurrency limit, and (crucially) its own re-entrancy guard,
-so none of them can ever be delayed by another:
+Work is drained by **five independent scheduling lanes**, and the important
+word is *independent*: each keeps its own timer, its own concurrency budget,
+and its own guard against overlapping runs, so a lane that is saturated can
+never hold up another. What separates them is **who is waiting and how much
+each job costs**:
 
-- **`fast`** — pure-database admin actions with no AI/image call in the path
-  (e.g. "Send back to review," a projection repair). Polls every 2 seconds;
-  these finish in a couple of ticks almost regardless of what else is running.
+- **`fast`** — pure-database admin actions with no AI or image call in the
+  path, like sending a fact back to review. Someone clicked a button and is
+  watching for it to take effect, so this lane polls the most aggressively and
+  finishes in a couple of ticks almost regardless of what else is running.
 - **`render`** — single-item renders a moderator is actively watching a
-  spinner for (the image-prompt-planning step and the actual image
-  generation). Polls every 5 seconds with room for a few in parallel, so
-  firing 3–4 test renders at once doesn't serialize them.
-- **`bulk`** (the default for any queue that doesn't ask for a different lane)
-  — background batches nobody's watching in real time: re-enrichment,
-  large backfills, stock-photo search, visual-concept drafting, transactional
-  email. Polls every 5 seconds.
-- **`pexels`** — stock-image search/prep for a fact (root or variant),
-  concurrency capped at 1 so requests to the photo API stay paced the same
-  way the old direct-call code did.
-- **`ai_meme_backfill`** — AI-generated meme backgrounds for a fact (root or
-  variant), also capped at concurrency 1 for the same paid-API pacing reason —
-  and, unlike most queues, never retried automatically: a partial failure part
-  way through generating a fact's image set would otherwise re-pay for the
-  slots that already succeeded.
+  spinner for. Sized to run a few at once, so firing several test renders
+  doesn't serialize them behind each other.
+- **`bulk`** — the default lane, for batches nobody is watching in real time:
+  re-enrichment, large backfills, visual-concept drafting, transactional email.
+- **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
+  fact (root or variant). Both are deliberately serialized to one job at a
+  time, because both spend money or rate-limit budget at an external provider.
+  `ai_meme_backfill` goes further and is **never retried automatically**: it
+  saves each image as it goes, so re-running a half-finished set would pay for
+  the slots that already succeeded.
 
-A queue's lane is a one-line registration choice
-(`registerJobHandler(queue, handler, { lane: "fast" })`); nothing about
-retries, dedupe, or claim ordering changes based on lane. A job that fails
-retries with increasing backoff and is marked `failed` only after exhausting
-its attempt budget; a crash mid-run leaves a row safely reclaimable rather
-than stuck forever.
+Choosing a lane is a one-line decision when a queue is registered, and it
+changes **only scheduling** — retries, dedupe, and ordering behave the same in
+every lane. A job that fails is retried with increasing backoff and marked
+failed only once its attempt budget is spent. The per-lane poll intervals,
+concurrency bounds, and queue assignments live in
+[`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues);
+this chapter doesn't restate them.
+
+### Email, the most consequential rider
+
+Transactional email — verification links, password resets, notifications —
+rides the `bulk` lane like any other batch work, but it is worth calling out
+because it is the one queue whose failures reach a real person's inbox, and it
+carries three behaviors nothing else does:
+
+- **A bad API key disables sending process-wide, immediately.** If the email
+  provider rejects our credentials, the app stops attempting delivery rather
+  than burning every queued message's retry budget against a key that cannot
+  work. Delivery resumes after the key is rotated and the process restarts.
+- **An abandoned email tells the admins.** When a message exhausts its retries,
+  it doesn't just get marked failed and forgotten — the admin team is notified,
+  because a silently undelivered password reset looks identical to a user who
+  simply never clicked.
+- **That alert is exempt from the usual cleanup.** Ordinary email rows are
+  purged on a retention schedule; the alert thread about a failed email is
+  deliberately kept, so the evidence outlives the thing it is evidence about.
+
+When delivery isn't configured at all (local development), emails are logged
+rather than sent, and queued rows are left pending instead of being consumed —
+so nothing is lost and nothing is faked.
 
 ## Why it works this way
 
@@ -129,6 +150,17 @@ elsewhere.
   connection limit was deliberately left as follow-up work, not done
   proactively — see
   [`current-roadmap.md`](../ai-context/current-roadmap.md).
+- **A crashed job is recovered, but not quickly.** Work is never silently
+  lost — a job whose process died mid-run is put back in the queue rather than
+  stranded forever. But recovery is deliberately unhurried: the sweep only
+  reclaims a job that has looked stuck for **about half an hour**. That delay
+  is the safe choice, not an oversight. The app runs as several instances at
+  once, and a faster sweep would sometimes grab a job another instance is
+  still legitimately working on — running it twice. For an email, that means a
+  real person gets the message twice. Slow recovery of a rare crash is the
+  better trade, and the mechanism that would let it be both fast and safe is
+  tracked as follow-up work in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
 - **Retention is not an audit log.** Old `done`/`failed` rows are purged after
   a configurable number of days per queue; `async_jobs` is operational state,
   not permanent history.
