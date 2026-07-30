@@ -6,7 +6,6 @@ import {
   foreignKey,
   index,
   integer,
-  jsonb,
   pgTable,
   text,
   timestamp,
@@ -131,7 +130,7 @@ export const membershipEntitlementsTable = pgTable(
     currency: varchar("currency"),
     graceStartedAt: timestamp("grace_started_at", { withTimezone: true }),
     graceExpiresAt: timestamp("grace_expires_at", { withTimezone: true }),
-    /** Set once by the dispute-transition path (webhook or reconciliation); never cleared. */
+    /** Set once by the dispute-transition path; never cleared. */
     disputeLossRevokedAt: timestamp("dispute_loss_revoked_at", { withTimezone: true }),
     /** W1b grant provenance. The label, not the id, is what the CHECK requires. */
     grantedByAdminId: varchar("granted_by_admin_id").references(() => usersTable.id, {
@@ -334,14 +333,14 @@ export type InsertEntitlementSourceDispute =
 /**
  * Leases, keyed by an opaque scope string.
  *
- * Two users of one table:
- *   - per-source leases, `source:<source_type>:<provider_ref>`, held across a
- *     Stripe retrieval so exactly one retrieval-and-apply is in flight per
- *     source. Claimed in a short transaction that commits immediately, so the
- *     retrieval itself runs with no transaction open.
- *   - the reconciliation run lease, `reconcile:run`, which is **heartbeated**
- *     rather than given a long TTL. A whole staging run has no bounded duration,
- *     so expiry has to mean *the holder stopped*, not *the holder is slow*.
+ * One user today: per-source leases, `source:<source_type>:<provider_ref>`, held
+ * across a Stripe retrieval so exactly one retrieval-and-apply is in flight per
+ * source. Claimed in a short transaction that commits immediately, so the
+ * retrieval itself runs with no transaction open.
+ *
+ * The scope is an opaque string rather than a foreign key precisely so a second
+ * kind of lease can join without a migration — the deferred reconciliation run
+ * lease being the concrete case.
  *
  * `fence` comes from `membership_lease_fence_seq`, fresh on every acquisition
  * including one that steals an expired lease. The apply transaction re-reads
@@ -363,70 +362,3 @@ export const membershipLeasesTable = pgTable(
 );
 
 export type MembershipLease = typeof membershipLeasesTable.$inferSelect;
-
-/** One staged change, as persisted in `membership_reconciliation_runs.staged`. */
-export interface ReconciliationStagedChange {
-  userId: string;
-  providerRef: string;
-  /** The USER's overall before/after, not this source's in isolation. */
-  currentTier: string;
-  intendedTier: string;
-  direction: "upgrade" | "downgrade" | "unchanged";
-}
-
-/**
- * One row per reconciliation run, at BOTH the altitudes an unattended mutation
- * owes an operator.
- *
- * The aggregate columns answer "how did the last run go"; `staged` answers
- * "which users, and what would have happened to them" — the question an aborted
- * downgrade guard raises and which a count cannot answer. Before this table the
- * run's only trace was a log line that had already replaced the per-source
- * detail with its length.
- *
- * Runs that never acquired the run lease are deliberately NOT recorded: those
- * are a no-op, not a run, and on a short reconcile interval they would bury the
- * rows that describe real work.
- */
-export const membershipReconciliationRunsTable = pgTable(
-  "membership_reconciliation_runs",
-  {
-    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull().defaultNow(),
-    mode: varchar("mode", { length: 16 }).notNull().$type<"dry-run" | "apply">(),
-
-    examined: integer("examined").notNull().default(0),
-    unchanged: integer("unchanged").notNull().default(0),
-    upgraded: integer("upgraded").notNull().default(0),
-    downgraded: integer("downgraded").notNull().default(0),
-    ambiguous: integer("ambiguous").notNull().default(0),
-    failed: integer("failed").notNull().default(0),
-    skipped: integer("skipped").notNull().default(0),
-
-    /** The qualifying population the fractional bound was measured against. */
-    cohort: integer("cohort").notNull().default(0),
-    allowedDowngrades: integer("allowed_downgrades").notNull().default(0),
-
-    aborted: boolean("aborted").notNull().default(false),
-    abortReason: text("abort_reason"),
-
-    staged: jsonb("staged").notNull().$type<ReconciliationStagedChange[]>().default([]),
-    /** The true count, which `staged` may only be a prefix of. */
-    stagedTotal: integer("staged_total").notNull().default(0),
-    stagedTruncated: boolean("staged_truncated").notNull().default(false),
-  },
-  (table) => [
-    index("idx_membership_reconciliation_runs_started_at").on(table.startedAt.desc()),
-    check("membership_reconciliation_runs_mode_valid", sql`mode IN ('dry-run', 'apply')`),
-    check(
-      "membership_reconciliation_runs_staged_total_consistent",
-      sql`staged_total >= jsonb_array_length(staged)`,
-    ),
-  ],
-);
-
-export type MembershipReconciliationRun =
-  typeof membershipReconciliationRunsTable.$inferSelect;
-export type InsertMembershipReconciliationRun =
-  typeof membershipReconciliationRunsTable.$inferInsert;

@@ -5,9 +5,9 @@
 -- in the PR bootable; the deploy applies both back-to-back before the port binds.
 --
 -- This is a plain CREATE-AND-DROP, not a backfill. The membership tables hold no
--- real data (David, 2026-07-28), so there is nothing to preserve, and
--- reconciliation rebuilds every Stripe-backed source from the provider on its
--- first run.
+-- real data (David, 2026-07-28), so there is nothing to preserve: the next Stripe
+-- event for any source writes that source's row from authoritative provider
+-- state.
 --
 -- ## What happens during the rollout, stated plainly
 --

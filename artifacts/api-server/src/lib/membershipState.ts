@@ -311,3 +311,21 @@ export async function getEffectiveMembership(
 
   return row ? { tier: row.tier, validUntil: row.validUntil } : null;
 }
+
+/**
+ * How many active users currently qualify for the membership tier.
+ *
+ * A read over `effectiveTierExpr`, so it counts the tier authorization would
+ * actually grant right now rather than the stored column — a user whose grace
+ * horizon lapsed is excluded here even though `membership_tier` still says
+ * `legendary`, which is the whole point of asking through the expression.
+ */
+export async function qualifyingPopulation(asOf?: Date): Promise<number> {
+  const [row] = await db
+    .select({
+      cohort: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr(asOf)} = 'legendary')::int`,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.isActive, true));
+  return row?.cohort ?? 0;
+}

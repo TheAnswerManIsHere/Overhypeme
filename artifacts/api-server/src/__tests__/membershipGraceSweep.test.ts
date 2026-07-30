@@ -15,8 +15,9 @@ import { db } from "@workspace/db";
 import { membershipEntitlementsTable, membershipHistoryTable, usersTable } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
 
-import { qualifyingPopulation, sweepExpiredGrace } from "../lib/membershipReconcile.js";
-import { allowedDowngrades } from "../lib/membershipTiming.js";
+import { sweepExpiredGrace } from "../lib/membershipGraceSweep.js";
+import { qualifyingPopulation } from "../lib/membershipState.js";
+
 import { recomputeMembership } from "../lib/membershipSources.js";
 
 const PREFIX = "mrc-";
@@ -195,19 +196,5 @@ describe("qualifyingPopulation — the denominator", () => {
     const after = await qualifyingPopulation(NOW);
 
     assert.ok(after < before, "the lapsed user leaves the cohort as the clock passes their horizon");
-  });
-
-  it("is the population the guard protects, not the population examined", () => {
-    // The case that defeated both bounds when the denominator was users
-    // examined: 40 downgrades out of 10,000 examined reads as 0.4% and under the
-    // absolute cap of 50 — a complete wipeout of a 40-member cohort, passed.
-    const config = {
-      reconcile_max_downgrades_per_run: 50,
-      reconcile_max_downgrade_fraction: 0.05,
-      reconcile_min_downgrade_allowance: 3,
-    };
-    assert.equal(allowedDowngrades(10_000, config), 50, "measured against those examined");
-    assert.equal(allowedDowngrades(40, config), 3, "measured against those protected");
-    assert.ok(40 > allowedDowngrades(40, config), "so staging all forty aborts");
   });
 });

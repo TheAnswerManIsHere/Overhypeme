@@ -12,6 +12,13 @@ that first, before anything else is worth checking.
 Pre-merge gates (install, typecheck, codegen drift) are assumed green — they ran
 on the branch. Spot-check them only if something below fails.
 
+**Scope note — reconciliation is deferred.** This PR ships the entitlement model,
+its derivation, the write paths and read-path enforcement, plus the grace sweep.
+The Stripe-vs-local reconciliation job is **not** in it and lands separately. The
+practical consequence to hold while testing: a webhook Stripe never successfully
+delivers leaves local state stale until a later event for that same source
+arrives, with no background repair. That gap is known and accepted for this PR.
+
 ---
 
 ## 1. The deploy came up at all
@@ -24,8 +31,10 @@ drops. Left in place it would have raised `42P01` outside the migration runner's
 
 - [ ] The API server workflow is **running** and serving requests.
 - [ ] Its boot log contains no `42P01` / `relation … does not exist`.
-- [ ] The boot log contains `membership jobs scheduled` with a
-      `graceSweepIntervalSeconds` and a `reconcileIntervalSeconds`.
+- [ ] The boot log contains `membership grace sweep scheduled` with a
+      `graceSweepIntervalSeconds`. There is **no** reconciliation job in this
+      PR — see *Scope note* above — so a missing `reconcileIntervalSeconds` is
+      correct, not a defect.
 
 **If the server is not up, stop here and report the log.** Recovery is
 roll-forward only: redeploying the previous build does **not** restore the
@@ -126,31 +135,25 @@ failure:
 Things unit tests mock.
 
 - [ ] **Every new config key is listable.** `GET /admin/config` (or Admin →
-      Config) shows all twelve:
+      Config) shows all four:
       `grace_sweep_interval_seconds`, `grace_sweep_alert_after_seconds`,
-      `reconcile_interval_seconds`, `lease_ttl_seconds`,
-      `lease_waiter_timeout_seconds`, `reconcile_run_lease_ttl_seconds`,
-      `reconcile_heartbeat_interval_seconds`,
-      `reconcile_max_downgrades_per_run`, `reconcile_max_downgrade_fraction`,
-      `reconcile_min_downgrade_allowance`, `reconcile_max_ambiguous_per_run`,
-      `reconcile_max_errors_per_run`.
+      `lease_ttl_seconds`, `lease_waiter_timeout_seconds`.
 
       A key that exists only as a code fallback is invisible here and
-      un-editable without a deploy, which is why they are seeded.
+      un-editable without a deploy, which is why they are seeded. There are no
+      `reconcile_*` keys — reconciliation is deferred.
 
 - [ ] **Each is editable.** `PATCH /admin/config/lease_ttl_seconds` with a
-      valid value (say `90`) → **200**. Set it back to `60`.
+      valid value (say `120`) → **200**. Set it back to `90`.
 
 - [ ] **The relational validator rejects an incoherent set.** These pass every
       individual range and still must be refused:
 
   | Write | Expected |
   |---|---|
-  | `lease_ttl_seconds` → `5` | **400**, naming the derived floor (48s) |
-  | `reconcile_run_lease_ttl_seconds` → `60` | **400**, "at least 90s" |
-  | `reconcile_heartbeat_interval_seconds` → `60` | **400**, "at least 180s" — the *other* side of the same relation |
-  | `reconcile_max_downgrade_fraction` → `0` | **400** — the bound is strictly greater than zero, which `min_value` alone cannot express |
-  | `reconcile_min_downgrade_allowance` → `51` | **400** — above the absolute cap |
+  | `lease_ttl_seconds` → `5` | **400**, naming the derived floor (83s) |
+  | `lease_waiter_timeout_seconds` → `90` | **400** — a waiter may not outlive the lease it waits for |
+  | `grace_sweep_alert_after_seconds` → `1800` | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken |
 
   Each must leave the stored value unchanged. Confirm with a re-read.
 
@@ -180,14 +183,18 @@ Things unit tests mock.
   not commit.** This is the backstop against a repair script or a writer nobody
   enumerated, so it matters that it is live here and not only in CI.
 
-- [ ] **Reconciliation's first run is sane.** There is no CLI entry point in
-      this PR — reconciliation is scheduled, six-hourly, first firing six hours
-      after boot. So this is a **log check**, not a command: after the first
-      run, look for a `membership reconciliation complete` line carrying
-  `examined`, `unchanged`, `upgraded`, `downgraded`, `ambiguous`, `failed`,
-  `skipped`, `cohort` and `allowedDowngrades`. On a small live population
-  `downgraded` should be `0`; **if it is not, capture the line and stop** —
-  that is the guard's whole reason for existing.
+- [ ] **The grace sweep's first run is sane.** There is no CLI entry point —
+      the sweep is scheduled hourly, first firing an hour after boot. So this is
+      a **log check**, not a command. It logs only when it actually changed
+      something (`grace sweep converged stored tiers`, carrying `converged`), so
+      on a fresh live population the expected result is **silence** — nobody's
+      grace horizon has passed. What must **not** appear is `grace sweep failed`
+      or the alert-threshold error line.
+
+      The sweep only repairs the stored `membership_tier` projection; the read
+      path already enforces expiry on every request, so a sweep that fails is
+      cosmetic, not an access leak. That is what the `membershipReadPath` test
+      in section 5 proves.
 
 ## 5. Targeted test list
 
@@ -201,7 +208,7 @@ bash artifacts/api-server/scripts/run-test.sh \
   src/__tests__/membershipConfigSeeds.test.ts \
   src/__tests__/membershipLease.test.ts \
   src/__tests__/membershipReadPath.test.ts \
-  src/__tests__/membershipReconcile.test.ts \
+  src/__tests__/membershipGraceSweep.test.ts \
   src/__tests__/entitlementVerification.test.ts \
   src/__tests__/authMiddleware.test.ts \
   src/__tests__/tierMiddleware.test.ts \

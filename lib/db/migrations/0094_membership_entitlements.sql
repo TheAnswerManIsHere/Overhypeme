@@ -345,11 +345,10 @@ CREATE TRIGGER "trg_entitlement_source_disputes_guard_absorbing"
 -- ---------------------------------------------------------------------------
 -- 6. membership_leases.
 -- ---------------------------------------------------------------------------
--- Two users of one table: per-source leases ('source:<type>:<provider_ref>')
--- held across a Stripe retrieval so exactly one retrieval-and-apply is in flight
--- per source, and the reconciliation run lease ('reconcile:run'), which is
--- HEARTBEATED rather than given a long TTL — a staging run has no bounded
--- duration, so expiry has to mean "the holder stopped", not "the holder is slow".
+-- One user today: per-source leases ('source:<type>:<provider_ref>') held across
+-- a Stripe retrieval so exactly one retrieval-and-apply is in flight per source.
+-- The scope is an opaque string rather than a foreign key precisely so a second
+-- kind of lease can join later without a migration.
 --
 -- The lease is a committed row, claimed in a short transaction, so the retrieval
 -- itself runs with NO transaction open: it pins no connection and blocks no
@@ -396,53 +395,13 @@ INSERT INTO admin_config (key, value, data_type, label, description, min_value, 
    'How long the grace sweep may keep failing before an alert fires. The sweep dying does not revoke anyone late; what degrades is the accuracy of the stored tier, which this surfaces.',
    1, 604800, false),
 
-  ('reconcile_interval_seconds', '21600', 'integer',
-   'Membership reconciliation interval (s)',
-   'How often reconciliation compares local entitlement sources against authoritative Stripe state. This is the repair path for a permanently dropped webhook, so lateness here is a correctness window, not a cosmetic one. More expensive than the grace sweep because it enumerates Stripe.',
-   1, 604800, false),
-
-  ('lease_ttl_seconds', '60', 'integer',
+  ('lease_ttl_seconds', '90', 'integer',
    'Entitlement source lease TTL (s)',
-   'How long one retrieval-and-apply may hold a per-source lease. Must exceed the whole bounded budget: Stripe retrieval (timeout x attempts + retry sleep) plus the apply transaction (lock timeout x attempts + backoff), times a 1.5 margin for scheduling jitter. Too short and a valid holder expires mid-work and its fenced write aborts; too long and a crashed holder wedges that source until expiry.',
-   48, 600, false),
+   'How long one retrieval-and-apply may hold a per-source lease. Must exceed the whole bounded budget: the Stripe retrieval PHASE (every request a prepare makes under one lease — the subscription, its paginated items, a product per item, and for a past_due refresh the invoice/payment/charge lists behind the grace anchor) plus the apply transaction (lock timeout x attempts + backoff), times a 1.5 margin for scheduling jitter. Too short and a valid holder expires mid-work and its fenced write aborts; too long and a crashed holder wedges that source until expiry.',
+   83, 600, false),
 
   ('lease_waiter_timeout_seconds', '5', 'integer',
    'Entitlement lease waiter timeout (s)',
-   'How long a writer waits for a busy source lease before giving up. A waiter that times out abandons its write rather than proceeding unordered — reconciliation repairs it — so this trades latency for nothing and may be short.',
-   1, 60, false),
-
-  ('reconcile_run_lease_ttl_seconds', '120', 'integer',
-   'Reconciliation run lease TTL (s)',
-   'Expiry of the whole-run lease, which the holder renews on every heartbeat. Must stay at least three heartbeat intervals: one to send the beat, one to tolerate a missed beat, one for scheduling jitter. Below that the lease expires before its first renewal and every run is taken over.',
-   90, 3600, false),
-
-  ('reconcile_heartbeat_interval_seconds', '30', 'integer',
-   'Reconciliation heartbeat interval (s)',
-   'How often a running reconciliation renews its run lease. This is what makes lease expiry mean "the holder stopped" rather than "the holder is slow" — a staging run has no bounded duration, so no fixed TTL alone can tell those apart.',
-   5, 600, false),
-
-  ('reconcile_max_downgrades_per_run', '50', 'integer',
-   'Reconciliation: max downgrades per run',
-   'Absolute cap on how many users may lose their effective tier in one reconciliation run. Combined with the fraction and the minimum allowance: allowed = min(this, max(min_allowance, floor(fraction x qualifying_population))). A run staging more than that aborts having written nothing and reports the full staged change set.',
-   1, 100000, false),
-
-  ('reconcile_max_downgrade_fraction', '0.05', 'float',
-   'Reconciliation: max downgrade fraction',
-   'The same cap as a proportion of the CURRENTLY QUALIFYING population — not of users examined. Measured against users examined, a run over 10,000 users of whom 40 are members could revoke all forty and still read as 0.4%. Must be greater than 0 and at most 1.',
-   0, 1, false),
-
-  ('reconcile_min_downgrade_allowance', '3', 'integer',
-   'Reconciliation: minimum downgrade allowance',
-   'The floor that keeps an isolated repair possible at every population size, including one. Without it a small membership makes the fraction round to zero and no legitimate single downgrade can ever proceed. Must be at least 1 and at most the absolute per-run cap.',
-   1, 100000, false),
-
-  ('reconcile_max_ambiguous_per_run', '25', 'integer',
-   'Reconciliation: max ambiguous sources per run',
-   'How many sources a run may fail to classify before aborting. A run that cannot make sense of this many sources is reporting a systemic problem, not a handful of edge cases.',
-   0, 100000, false),
-
-  ('reconcile_max_errors_per_run', '10', 'integer',
-   'Reconciliation: max errors per run',
-   'How many Stripe retrieval or pagination failures a run tolerates before aborting. Failing closed here means not revoking, which is the safe direction.',
-   0, 100000, false)
+   'How long a writer waits for a busy source lease before giving up. A waiter that times out abandons its write rather than proceeding unordered; Stripe redelivers the event, so the write is retried rather than lost. This trades latency for nothing and may be short.',
+   1, 60, false)
 ON CONFLICT (key) DO NOTHING;

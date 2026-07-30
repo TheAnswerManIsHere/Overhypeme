@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, membershipReconciliationRunsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -55,7 +55,6 @@ import {
   validateMembershipConfigWrite,
 } from "../lib/membershipTiming";
 import { effectiveTierExpr } from "../lib/membershipState";
-import { graceSweepStaleSeconds } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
   hasQualifyingLifetimeSource,
@@ -667,40 +666,6 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
   } catch (err) {
     logger.error({ err }, "[admin] refunds-disputes error");
     const msg = err instanceof Error ? err.message : "Failed to load refunds and disputes";
-    res.status(500).json({ error: msg });
-  }
-});
-
-// GET /admin/membership/reconciliation-runs — the unattended repair job's record.
-//
-// Reconciliation mutates entitlements with no human in the loop, so it owes an
-// operator both altitudes: the aggregate outcome of each run, and the per-source
-// change set behind it. The second is what makes an aborted downgrade guard
-// actionable — "47 users would have lost access" is not a thing you can decide
-// about without seeing which 47.
-router.get("/admin/membership/reconciliation-runs", requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const limit = Math.min(Math.max(parseInt(String(req.query["limit"] ?? "20"), 10) || 20, 1), 100);
-
-    const runs = await db
-      .select()
-      .from(membershipReconciliationRunsTable)
-      .orderBy(desc(membershipReconciliationRunsTable.startedAt), desc(membershipReconciliationRunsTable.id))
-      .limit(limit);
-
-    // The schedule, so "the last run was 9 hours ago" is answerable here rather
-    // than by knowing the configured cadence by heart.
-    const config = await loadMembershipConfig();
-
-    res.json({
-      runs,
-      limit,
-      reconcileIntervalSeconds: config.reconcile_interval_seconds,
-      graceSweepStaleSeconds: graceSweepStaleSeconds(),
-    });
-  } catch (err) {
-    logger.error({ err }, "[admin] reconciliation-runs error");
-    const msg = err instanceof Error ? err.message : "Failed to load reconciliation runs";
     res.status(500).json({ error: msg });
   }
 });
@@ -2502,12 +2467,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
-    // Some settings are only coherent against each other: the entitlement
-    // lease must outlive the bounded Stripe retrieval plus the apply, the
-    // reconciliation run lease must outlive three heartbeats, and the downgrade
-    // allowance must not exceed the absolute cap. Every individual range can
-    // pass while the SET is broken, and a relational invariant enforced on one
-    // side only is not enforced — so this runs on a write to ANY component.
+    // Some settings are only coherent against each other: the entitlement lease
+    // must outlive the bounded Stripe retrieval plus the apply, a waiter must
+    // not outlive the lease it waits for, and the sweep alert must not fire
+    // before the sweep could have run again. Every individual range can pass
+    // while the SET is broken, and a relational invariant enforced on one side
+    // only is not enforced — so this runs on a write to ANY component.
     if (isMembershipConfigKey(key)) {
       const parsed = Number(rawValue);
       if (Number.isNaN(parsed)) {
@@ -2571,7 +2536,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     }
     // Debug mode makes debugValue the EFFECTIVE value everywhere (see
     // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
-    // of breaking the lease/heartbeat/downgrade-allowance relationships as a
+    // of breaking the lease/waiter/sweep-alert relationships as a
     // write to value, and skipping the check here left debug mode a backdoor
     // around it. CLEARING an override is not exempt either: clearing this
     // key's debug value does not make it inert, it reverts the EFFECTIVE value

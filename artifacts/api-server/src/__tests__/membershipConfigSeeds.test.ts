@@ -26,24 +26,13 @@ import { fileURLToPath } from "node:url";
 import {
   MEMBERSHIP_CONFIG_DEFAULTS,
   minimumLeaseTtlSeconds,
-  minimumRunLeaseTtlSeconds,
   type MembershipConfigKey,
 } from "../lib/membershipTiming.js";
 
-const MIGRATIONS_DIR = path.resolve(
+const MIGRATION = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../lib/db/migrations",
+  "../../../../lib/db/migrations/0094_membership_entitlements.sql",
 );
-const MIGRATION = path.join(MIGRATIONS_DIR, "0094_membership_entitlements.sql");
-/**
- * Migrations that RE-SEED a key 0094 already inserted.
- *
- * The effective seed is the insert as later migrations left it, not the insert
- * alone — so a re-seed that corrected a derived floor has to be read here too.
- * Reading only 0094 would make the drift tripwire below assert against a value
- * no database has had since 0096 ran, which is the tripwire failing open.
- */
-const RESEED_MIGRATIONS = ["0096_reconciliation_runs.sql"];
 
 const KEYS = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
 
@@ -81,85 +70,7 @@ function parseSeeds(sql: string): SeededRow[] {
   return rows;
 }
 
-/**
- * Does a re-seed's guard hold for the value the chain has produced so far?
- *
- * A re-seed is often conditional — "raise it only where it is now unsafe", so an
- * operator's deliberate higher setting survives. Whether it applies to a FRESH
- * database is then a question about the value 0094 inserted, which is exactly
- * what this evaluates. Only the numeric comparisons the migrations actually use
- * are modelled, and anything else THROWS rather than being skipped: a guard this
- * cannot read is a guard whose effect on the seed is unknown, and quietly
- * ignoring it would turn the drift tripwire below into a test that passes
- * because it stopped looking.
- */
-function guardHolds(where: string, row: SeededRow): boolean {
-  const conditions = where.match(/\bAND\b\s*([^)]*?)(?=\s*\bAND\b|$)/gi) ?? [];
-
-  for (const raw of conditions) {
-    const condition = raw.replace(/^\s*AND\s*/i, "").trim().replace(/;$/, "");
-    if (!condition) continue;
-
-    // A digits-only shape guard — always true of a seeded integer literal.
-    if (/^\(?\s*value\s*~\s*'\^\[0-9\]\+\$'\s*\)?$/i.test(condition)) {
-      if (!/^\d+$/.test(row.value)) return false;
-      continue;
-    }
-
-    const numeric = condition.match(/^\(?\s*value::integer\s*(<=|>=|<|>|=)\s*(-?\d+)\s*\)?$/i);
-    if (numeric) {
-      const actual = Number(row.value);
-      const bound = Number(numeric[2]);
-      const holds =
-        numeric[1] === "<" ? actual < bound
-        : numeric[1] === ">" ? actual > bound
-        : numeric[1] === "<=" ? actual <= bound
-        : numeric[1] === ">=" ? actual >= bound
-        : actual === bound;
-      if (!holds) return false;
-      continue;
-    }
-
-    throw new Error(
-      `unmodelled re-seed guard "${condition}" — teach guardHolds() what it means, ` +
-        `rather than letting the seed assertions run against a value no fresh database has`,
-    );
-  }
-
-  return true;
-}
-
-/**
- * Apply an `UPDATE admin_config SET … WHERE key = '…'` re-seed over the parsed
- * inserts, producing the seed a FRESH database actually ends up with.
- *
- * Only `value` and `min_value` are tracked — those are the two this file asserts
- * on, and a re-seed touching anything else would not change what "the effective
- * seed" means for these cases.
- */
-function applyReseeds(rows: Map<string, SeededRow>, sql: string): void {
-  const stmtPattern = /UPDATE\s+admin_config\s+SET\s+([\s\S]*?)WHERE\s+key\s*=\s*'([a-z_]+)'([\s\S]*?);/gi;
-
-  for (const stmt of sql.matchAll(stmtPattern)) {
-    const [, assignments, key, where] = stmt;
-    const row = rows.get(key);
-    if (!row) continue;
-    if (!guardHolds(where ?? "", row)) continue;
-
-    const minValue = assignments.match(/min_value\s*=\s*(-?\d+)/i);
-    if (minValue) row.minValue = Number(minValue[1]);
-
-    // Anchored to a `SET value =` assignment, so `min_value = …` cannot match
-    // as though it set the value.
-    const value = assignments.match(/(?:^|,)\s*value\s*=\s*'([^']*)'/i);
-    if (value) row.value = value[1];
-  }
-}
-
 const seeds = new Map(parseSeeds(fs.readFileSync(MIGRATION, "utf8")).map((r) => [r.key, r]));
-for (const file of RESEED_MIGRATIONS) {
-  applyReseeds(seeds, fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
-}
 
 describe("membership admin_config seeds", () => {
   it("parsed the migration at all — a zero-row parse would make every other case vacuous", () => {
@@ -193,9 +104,6 @@ describe("membership admin_config seeds", () => {
     }
   });
 
-  it("declares the fraction as float, not integer", () => {
-    assert.equal(seeds.get("reconcile_max_downgrade_fraction")!.dataType, "float");
-  });
 
   it("gives every key a min and a max, so the route has something to enforce", () => {
     for (const key of KEYS) {
@@ -229,10 +137,4 @@ describe("membership admin_config seeds", () => {
     );
   });
 
-  it("keeps the run-lease floor at three heartbeat intervals of the seeded heartbeat", () => {
-    assert.equal(
-      seeds.get("reconcile_run_lease_ttl_seconds")!.minValue,
-      minimumRunLeaseTtlSeconds(MEMBERSHIP_CONFIG_DEFAULTS.reconcile_heartbeat_interval_seconds),
-    );
-  });
 });

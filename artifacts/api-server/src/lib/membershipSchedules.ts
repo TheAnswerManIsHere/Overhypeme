@@ -1,22 +1,26 @@
 /**
- * The two recurring membership jobs, with a cadence, a home and a default each.
+ * The recurring membership job: the grace convergence sweep.
  *
- * They are deliberately separate settings rather than one shared value, because
- * they do different jobs:
+ * It converges a stored projection the read path already enforces correctly, so
+ * lateness is cosmetic. Hourly, and cheap — it makes no Stripe calls.
  *
- *   - the **grace sweep** converges a stored projection the read path already
- *     enforces correctly, so lateness is cosmetic. Hourly, and cheap.
- *   - **reconciliation** repairs SOURCE state that nothing else will discover, so
- *     lateness is a correctness window. Six-hourly, because it enumerates Stripe.
+ * It carries an alert: if it keeps failing, nobody loses access late — the read
+ * path still demotes on the deadline — but the stored tier drifts, and that is
+ * what the alert surfaces. A guarantee that depended on this job being healthy
+ * would not be a guarantee, which is exactly why it does not.
  *
- * The sweep also carries an alert: if it keeps failing, nobody loses access late
- * — the read path still demotes on the deadline — but the stored tier drifts, and
- * that is what the alert surfaces. A guarantee that depended on this job being
- * healthy would not be a guarantee, which is exactly why it does not.
+ * **Reconciliation used to be scheduled here too and is deferred** (PR #287).
+ * It repaired SOURCE state that nothing else discovers — the answer to "what if
+ * the event never arrives at all" — and its absence is a known, accepted gap:
+ * a webhook Stripe never successfully delivers is not repaired automatically,
+ * and needs a manual correction through the admin grant surface. That is a
+ * strictly smaller guarantee than the model itself makes, not a defect in it:
+ * every path that DOES receive its event is still authoritative, fenced and
+ * idempotent.
  */
 
 import { loadMembershipConfig } from "./membershipTiming.js";
-import { reconcileMemberships, sweepExpiredGrace } from "./membershipReconcile.js";
+import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
 
 let lastSuccessfulSweepAt = Date.now();
@@ -52,21 +56,8 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
   }
 }
 
-export async function runReconciliationOnce(): Promise<void> {
-  try {
-    const { getUncachableStripeClient } = await import("./stripeClient.js");
-    const stripe = await getUncachableStripeClient();
-    // Scheduled runs APPLY. The dry-run default protects a human invoking the
-    // script by hand; a job that never writes would repair nothing.
-    const report = await reconcileMemberships(stripe, { apply: true });
-    logger.info({ ...report, staged: report.staged.length }, "membership reconciliation complete");
-  } catch (err) {
-    logger.error({ err }, "membership reconciliation failed");
-  }
-}
-
 /**
- * Arm both schedules. Intervals are read once at boot; changing a cadence takes
+ * Arm the sweep. The interval is read once at boot; changing the cadence takes
  * effect on the next deploy, which is the same contract every other interval in
  * this process has.
  */
@@ -77,15 +68,10 @@ export async function scheduleMembershipJobs(): Promise<void> {
     void runGraceSweepOnce();
   }, config.grace_sweep_interval_seconds * 1000).unref();
 
-  setInterval(() => {
-    void runReconciliationOnce();
-  }, config.reconcile_interval_seconds * 1000).unref();
-
   logger.info(
     {
       graceSweepIntervalSeconds: config.grace_sweep_interval_seconds,
-      reconcileIntervalSeconds: config.reconcile_interval_seconds,
     },
-    "membership jobs scheduled",
+    "membership grace sweep scheduled",
   );
 }

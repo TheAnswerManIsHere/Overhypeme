@@ -59,9 +59,6 @@ export function sourceLeaseScope(
   return `source:${sourceType}:${providerRef}`;
 }
 
-/** Scope for the single reconciliation run lease. Heartbeated, not long-TTL'd. */
-export const RECONCILE_RUN_LEASE_SCOPE = "reconcile:run";
-
 /** A held lease. `fence` must be presented to every write made under it. */
 export interface LeaseHandle {
   scope: string;
@@ -128,8 +125,9 @@ export async function acquireLease(
  * Acquire, waiting up to `waiterTimeoutSeconds` for a busy scope.
  *
  * A waiter that times out returns null and its caller **abandons its write**
- * rather than proceeding unordered — reconciliation repairs it. That is why the
- * timeout may be short: it trades latency for nothing.
+ * rather than proceeding unordered; Stripe redelivers the event, so the write is
+ * retried rather than lost. That is why the timeout may be short: it trades
+ * latency for nothing.
  */
 export async function acquireLeaseWithWait(
   scope: string,
@@ -150,37 +148,6 @@ export async function acquireLeaseWithWait(
     if (now() >= deadline) return null;
     await sleep(pollIntervalMs);
   }
-}
-
-/**
- * Renew a lease the caller still owns. Used by the reconciliation run lease.
- *
- * Returns false when the lease has been taken over or already released — and a
- * run whose renewal fails **abandons rather than continuing unfenced**.
- *
- * Heartbeating is what makes expiry mean *the holder stopped* rather than *the
- * holder is slow*. A whole staging run has no bounded duration, so any fixed TTL
- * is either shorter than some legitimate run — the holder expires mid-run and
- * the fence then aborts it, so the run can never complete on a slow day — or
- * long enough that a crashed run blocks repair for that whole period.
- */
-export async function heartbeatLease(
-  handle: LeaseHandle,
-  ttlSeconds: number,
-): Promise<boolean> {
-  const result = await db
-    .update(membershipLeasesTable)
-    .set({ expiresAt: sql`now() + make_interval(secs => ${ttlSeconds}::double precision)` })
-    .where(
-      and(
-        eq(membershipLeasesTable.scope, handle.scope),
-        eq(membershipLeasesTable.holder, handle.holder),
-        eq(membershipLeasesTable.fence, handle.fence),
-      ),
-    )
-    .returning({ expiresAt: membershipLeasesTable.expiresAt });
-
-  return result.length > 0;
 }
 
 /**

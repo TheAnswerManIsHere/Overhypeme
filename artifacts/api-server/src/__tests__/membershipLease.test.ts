@@ -27,7 +27,6 @@ import {
   LeaseFenceError,
   acquireLease,
   acquireLeaseWithWait,
-  heartbeatLease,
   releaseLease,
   sourceLeaseScope,
   withLeaseFence,
@@ -209,47 +208,5 @@ describe("releaseLease — compare and release", () => {
     // The successor's lease is intact — a third party still cannot take it.
     assert.equal(await acquireLease(s, 60, "holder-c"), null);
     assert.equal(await releaseLease(successor), true);
-  });
-});
-
-describe("heartbeatLease", () => {
-  it("lets a heartbeating holder outlive its TTL", async () => {
-    // A whole staging run has no bounded duration, so expiry must mean "the
-    // holder stopped", not "the holder is slow".
-    const s = scope();
-    const handle = await acquireLease(s, 1, "runner-a");
-    assert.ok(handle);
-
-    assert.equal(await heartbeatLease(handle, 60), true);
-
-    // Past the ORIGINAL 1s TTL, nobody can take it over.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    assert.equal(await acquireLease(s, 60, "runner-b"), null);
-    // ...and its own apply still passes the fence.
-    assert.equal(await withLeaseFence(handle, LOCK_TIMEOUT_MS, async () => "ok"), "ok");
-  });
-
-  it("is taken over once it stops beating", async () => {
-    const s = scope();
-    const handle = await acquireLease(s, 1, "runner-a");
-    assert.ok(handle);
-
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-
-    const takeover = await acquireLease(s, 60, "runner-b");
-    assert.ok(takeover, "a run that stopped beating is taken over after expiry");
-
-    // And the abandoned run's own renewal now fails, so it abandons rather than
-    // continuing unfenced.
-    assert.equal(await heartbeatLease(handle, 60), false);
-  });
-
-  it("refuses to renew a lease taken over by someone else", async () => {
-    const s = scope();
-    const original = await acquireLease(s, 0, "runner-a");
-    assert.ok(original);
-    assert.ok(await acquireLease(s, 60, "runner-b"));
-
-    assert.equal(await heartbeatLease(original, 60), false);
   });
 });

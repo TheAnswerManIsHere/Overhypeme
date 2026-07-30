@@ -122,8 +122,7 @@ And the one that must never come back:
 
 - Open another dispute and mark it **lost**.
 - ✅ The user drops to Registered and **stays there** — even if Stripe later
-  reports the subscription as active again, and even after the six-hourly
-  reconciliation runs. A lost chargeback is permanent.
+  reports the subscription as active again. A lost chargeback is permanent.
 
 ## 7. Everything else still shows the right tier
 
@@ -175,8 +174,19 @@ based on a stale local row.
   deadline.** The user keeps access and the case is reported rather than guessed
   at. Deliberate: a guessed start date can only ever be too early, and too early
   means cutting off someone who is paying.
-- **Reconciliation runs every six hours, not instantly.** It is the safety net
-  for events that never arrive at all, not the primary path.
+- **There is no background repair for an event that never arrives.** Every
+  Stripe event we *do* receive is authoritative here, and duplicates and
+  out-of-order deliveries are handled. But if Stripe never successfully delivers
+  an event at all — the webhook endpoint is down for its whole retry window, say
+  — nothing sweeps up afterwards and finds the discrepancy on its own. That
+  user's tier stays whatever it was until the next event for the same
+  subscription or payment arrives, or until you correct it by hand through the
+  admin grant/revoke surface.
+
+  This is a **deliberate, accepted gap in this PR**, not an oversight: the
+  Stripe-vs-local reconciliation job that closes it is a separate piece of work,
+  deferred so this one could ship. Worth knowing while you test, because it is
+  the one scenario where the app can be confidently wrong.
 
 ## If something's wrong
 
