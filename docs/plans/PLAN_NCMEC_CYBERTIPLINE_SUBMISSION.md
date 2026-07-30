@@ -822,7 +822,7 @@ contract. The existing admin email stays — useful independently of automation.
 
 The single mechanism that closes every "row stuck in a non-final state with nobody
 told" path. `ncmec_reconcile` runs periodically (**`fast` lane — see below**) and at boot,
-and makes **four** passes. The first is the original one — repair any `ncmec_reports` row in a
+and makes **three** passes. The first is the original one — repair any `ncmec_reports` row in a
 non-final state by comparing it against its job:
 
 | Row state | Job state | Cause | Repair |
@@ -1040,10 +1040,18 @@ So the schedule is specified explicitly, following the pattern the queue already
 its own stuck-row backstop (`asyncJobs.ts:751-757`):
 
 - **A boot pass**, once per process start.
-- **A periodic timer in the bulk runner**, every 5 minutes, enqueuing an
+- **A periodic timer on the `fast` runner**, every 5 minutes, enqueuing an
   `ncmec_reconcile` job with the fixed dedupe key `ncmec:reconcile` — the partial unique
   index on non-terminal `(queue, dedupe_key)` means concurrent instances collapse to one
   in-flight pass rather than N.
+
+  **It must be the `fast` runner, not the bulk one, and this is the half that is easy to
+  get wrong.** The queue's own stuck-row backstop runs its maintenance *after* the awaited
+  bulk tick, and the lane's `ticking` guard drops every timer tick that arrives meanwhile
+  (`createLaneRunner`). Attaching this cadence there would leave job **creation** behind the
+  same multi-minute batch the lane assignment was chosen to escape — only execution would be
+  fast, and only once the row finally existed. Both halves must sit outside `bulk` or the
+  ≤5-minute bound is not a bound.
 - Without this, the "backstop" would run once at boot and silently stop, which is worse
   than no backstop because the plan would claim coverage it does not have.
 
@@ -2088,7 +2096,7 @@ not an audit trail.
 | `POST /reports/:id/audit` | `{ disposition: "reportable" \| "not_reportable" \| "file_without_identity", note: string }` | `{ report: NcmecReportDetail }` | 409 if the row is outside the audit scope (`created_at >= cutoff`), if the cutoff is unset, **if the row is already final, if a lease is held, or if the conditional transition affects zero rows** (below) | `{ backlogAuditedAt, identityOmissionApprovedAt, submissionStatus }` → **same, plus `disposition` and `note`** |
 | `POST /backlog-audit/start` | `{}` | `{ cutoff: string }` | **409 if already set** — the write-once conditional update affected zero rows | `{ cutoff: null }` → `{ cutoff }` |
 | `POST /backlog-audit/complete` | `{}` | `{ completedAt: string }` | 409 if unaudited **report** rows remain, **if undispositioned in-scope orphans remain** (both counts named in the refusal), or if the cutoff is unset | `{ completedAt: null }` → `{ completedAt }` |
-| `POST /config` | `{ submissionEnabled: boolean, ispwsEnvironment: "test" \| "production", reportClassifierHits: boolean }` — **the whole tuple, always** | **`{ config: NcmecSafetyConfig; inFlight: number }`** — `inFlight` counts rows holding an unexpired lease, so a disable says how many filings may still complete (§5.5) | 409 with **each** failing precondition named, when the **resulting** tuple would be production-enabled without a completed audit, without a zero orphan count, or without a resolvable alert recipient | `{ …all three… }` → `{ …all three… }` |
+| `POST /config` | `{ submissionEnabled: boolean, ispwsEnvironment: "test" \| "production", reportClassifierHits: boolean }` — **the whole tuple, always** | **`{ config: NcmecSafetyConfig; inFlight: number }`** — `inFlight` counts rows with **an unexpired lease OR `finish_started_at IS NOT NULL`** (§5.5), so a disable says how many filings may still complete; a `/finish` can outlive the lease that authorized it, and counting leases alone reports `0` in exactly that case | 409 with **each** failing precondition named, when the **resulting** tuple would be production-enabled without a completed audit, without a zero orphan count, or without a resolvable alert recipient | `{ …all three… }` → `{ …all three… }` |
 | `GET /connectivity` | — | `{ environment, responseCode, reachable: boolean, checkedAt }` | — (an unreachable host is a 200 with `reachable: false`, not a 5xx) | — (read) |
 
 **Retry's whole purpose is recovering `failed` rows, so `failed` cannot be a 409.** §5.8
@@ -2531,14 +2539,15 @@ Deployment, transition, and rollback (§7):
   row gets its own `ncmec:notify:failed:<reportId>` job. The failure under test is the
   SAVEPOINT rule — without it the first commits and the rest roll back. Asserted against real
   concurrent transactions.
-- **No failure is ever unalerted, including one that commits mid-handler.** Three cases,
-  because the row-level coverage predicate (§5.2.3) is what invariant 8 now rests on:
-  (a) a failure transaction held open across the handler's aggregate query **and its
-  completion** — the email omits the row, the row's own enqueue dedupes against the still
-  -`processing` job, and reconciler pass 3 must cause pass 3 to re-enqueue a notification containing
-  it; (b) a failure committing after the job goes terminal — same outcome by the ordinary
-  path; (c) every row in a sent alert carries `alert_notified_at`, and no row outside it
-  does. Case (a) is the one that fails without pass 3, so it is the one that must exist.
+- **No failure is ever unalerted.** Three cases, because the row-level coverage predicate
+  (§5.2.3) is what invariant 8 now rests on: (a) the notification job is enqueued but the
+  process dies before the send — the row keeps `alert_notified_at IS NULL` and pass 3
+  re-enqueues it; (b) the send succeeds but the process dies before the stamp — the same
+  predicate catches it, and the operator receives a duplicate rather than nothing, which is
+  the at-least-once trade stated in §5.2.3; (c) a row whose notification was refused for
+  want of a recipient stays queued and unstamped. Every case is the **same** predicate, and
+  none of them depends on knowing why the row was missed — which is the property that
+  survives failure modes neither of us has enumerated.
 - **Two concurrent orphan sweeps produce one report, not two.** Run two `ncmec_reconcile`
   pass-2 executions against the same orphaned quarantine row with real transactions; assert
   exactly one `ncmec_reports` row (the unique index rejected the second), exactly one
@@ -2610,9 +2619,10 @@ Deployment, transition, and rollback (§7):
   `POST /backlog-audit/complete` and the §7 activation gate must both refuse, naming the
   orphan count separately from the unaudited-report count.
 - **The audit log rejects mutation at the database.** A direct `UPDATE` and a direct
-  `DELETE` against `ncmec_safety_audit_log` must both raise; `TRUNCATE` must still work for
-  test teardown; and the `app.audit_maintenance` escape hatch must permit a deliberate
-  correction.
+  `DELETE` against `ncmec_safety_audit_log` **and a `TRUNCATE`** must all raise; each must
+  succeed only after the maintenance bypass is validly activated, which is what test teardown
+  does explicitly. An unguarded `TRUNCATE` must **not** be permitted — that exemption was the
+  audit-erasure hole the trigger exists to close.
 - **Retry tells the operator what it did.** On a row with a live job, `POST /retry` must
   return `enqueued: false` with that job's id and status rather than `{ enqueued: true }`.
 - **The alert's link opens the failure's cohort.** `GET /reports?failedFrom=…&failedTo=…` and
@@ -2787,7 +2797,7 @@ verifies with the repository's own commands before the next begins.
 
 | # | Phase | Depends on | Verify with |
 |---|---|---|---|
-| 1 | Migration `0094` — columns, the three `ncmec_reports` indexes, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`/`DELETE` on the audit log raises, `TRUNCATE` does not); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
+| 1 | Migration `0094` — columns, the three `ncmec_reports` indexes, the **append-only trigger** on `ncmec_safety_audit_log` (§5.4), config seeds, and schema constants (`NCMEC_SUBMISSION_STATUSES`, `CONTENT_ORIGINS`) **+ the generic route's reserved-key rejection** — one commit with the seeds it protects | — | `pnpm --filter @workspace/db run migrate`; `migrations.0094.test.ts` (including: a direct `UPDATE`, `DELETE` **and `TRUNCATE`** on the audit log all raise, and each succeeds only under the maintenance bypass); `pnpm run check:codegen-drift`; `PATCH /admin/config/:key` **refuses all five NCMEC keys** |
 | 2 | ISPWS client `ncmecClient.ts` + the two XML builders — pure, no persistence, no callers | 1 (none, strictly) | `moderation.ncmecClient.test.ts` against the committed fixtures (§5.1); no network |
 | 3 | `isSubmittable` + `classifyWaitingState`, as pure functions with no callers | 1 | unit tests in `moderation.ncmecWorker.test.ts` |
 | 4 | Provenance, `report_intent`, and snapshot capture at quarantine time; `quarantine.ts` writes the new columns | 1 | `moderation.quarantine.test.ts` — behavior unchanged, columns populated |
