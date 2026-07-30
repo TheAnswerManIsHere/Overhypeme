@@ -50,6 +50,19 @@ function makeApp(): Express {
   return app;
 }
 
+/**
+ * Mounted the way the real app actually mounts it (`app.ts`'s
+ * `app.use("/api", router)`) — used only by the `/health/queues` suite below.
+ * Mounting bare, like `makeApp()` above, would silently mask a wrong
+ * documented URL: the probe is really at `/api/health/queues` in production,
+ * not `/health/queues`, and a bare-mounted test would pass either way.
+ */
+function makeApiApp(): Express {
+  const app = express();
+  app.use("/api", healthRouter);
+  return app;
+}
+
 async function insertEvent(eventId: string, processedAt: Date): Promise<void> {
   await db.insert(stripeProcessedEventsTable).values({ eventId, processedAt });
 }
@@ -121,7 +134,7 @@ describe("GET /health/queues", () => {
       })),
     );
 
-    const res = await request(makeApp()).get("/health/queues");
+    const res = await request(makeApiApp()).get("/api/health/queues");
     assert.equal(res.status, 200);
     assert.deepEqual(Object.keys(res.body).sort(), ["laneCount", "ok", "stalledLaneCount", "ts"]);
     assert.equal(res.body.ok, true);
@@ -136,7 +149,7 @@ describe("GET /health/queues", () => {
     // healthy case above.
     await clearRealLaneHeartbeats();
 
-    const res = await request(makeApp()).get("/health/queues");
+    const res = await request(makeApiApp()).get("/api/health/queues");
     assert.equal(res.status, 503);
     assert.deepEqual(
       Object.keys(res.body).sort(),

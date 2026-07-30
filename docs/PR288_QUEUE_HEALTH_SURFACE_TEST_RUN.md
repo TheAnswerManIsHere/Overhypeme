@@ -122,19 +122,23 @@ mitigation.
    `last_scheduled_at` inside the last minute. **This is the check that proves
    the feature works at all** — the table existing proves only the migration ran.
 
-5. **`GET /health/queues` returns 200 on a healthy worker**, with a body
-   containing only `ok`, `ts`, `laneCount`, `stalledLaneCount`. Confirm it leaks
-   **no** queue names, payloads, error text or instance ids — it is
+5. **`GET /api/health/queues` returns 200 on a healthy worker**, with a body
+   containing only `ok`, `ts`, `laneCount`, `stalledLaneCount`. **Note the
+   `/api` prefix** — the route file's own path is `/health/queues`, but the
+   real app mounts it under `/api` (`app.ts`: `app.use("/api", router)`), so
+   that is the path any external monitor must actually be pointed at. Confirm
+   it leaks **no** queue names, payloads, error text or instance ids — it is
    unauthenticated by design, so that absence is a requirement, not an omission.
 
-6. **`GET /health/queues` returns 503 when a lane genuinely stalls — covered by
-   an automated test, not a manual step.** Stopping the API server workflow to
-   observe this doesn't work: that also stops the HTTP server that owns this
-   route, so the request fails to connect rather than returning the documented
-   503, and in the autoscaled topology hitting another live instance doesn't
-   help either — that instance is scheduling all five lanes too. The 200/503
-   wiring (and the minimal `{ok, ts, laneCount, stalledLaneCount}` field set on
-   *both* paths) is exercised directly against real DB state in
+6. **`GET /api/health/queues` returns 503 when a lane genuinely stalls —
+   covered by an automated test, not a manual step.** Stopping the API server
+   workflow to observe this doesn't work: that also stops the HTTP server that
+   owns this route, so the request fails to connect rather than returning the
+   documented 503, and in the autoscaled topology hitting another live
+   instance doesn't help either — that instance is scheduling all five lanes
+   too. The 200/503 wiring (and the minimal `{ok, ts, laneCount,
+   stalledLaneCount}` field set on *both* paths) is exercised directly against
+   real DB state, through the real `/api`-mounted path, in
    `routes.health.test.ts`'s `GET /health/queues` suite, already covered by the
    targeted test run above. Nothing to do here manually.
 

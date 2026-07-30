@@ -54,6 +54,10 @@ router.get("/health", async (_req, res) => {
  * later phases has a blind spot that only something outside the process can
  * close. Point any uptime monitor here.
  *
+ * **Mounted under `/api`** (`app.ts`: `app.use("/api", router)`), so the real
+ * path is `/api/health/queues`, not the bare route path below — a monitor
+ * configured against the wrong one silently never checks anything.
+ *
  * Two deliberate constraints:
  *
  * 1. **It leaks nothing.** No queue names, no payloads, no error text, no

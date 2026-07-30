@@ -81,17 +81,33 @@ read differently.
 You may see none of these on a healthy system. That's fine — the TEST_RUN doc has
 Replit confirm them against real rows if any exist.
 
-### 4. A stalled lane says so, in words
+### 4. A stalled lane says so, in words — not click-throughable yet, on purpose
 
-This is the whole reason the page exists, so it's worth seeing once. The easiest
-way is to have Replit stop the API server briefly (it's step 6 of the TEST_RUN
-checklist) and then look at the page from another browser — or simply trust
-Replit's report on that step.
+This is the whole reason the page exists, so I want to be straight about a real
+limitation rather than hand you a step that looks like it works but doesn't.
 
-- ✅ The lane's card flips to **"Not scheduling"** in red.
-- ✅ A red banner above the cards: *"N lanes not being scheduled by any live
+**I cannot give you a way to see this today.** The only process serving the
+page's own polling endpoint is the same process running the five lane
+schedulers — Phase 1 has no admin control that pauses one lane's scheduler
+while keeping the server up. Stopping the API server to *simulate* a stall
+doesn't show you this state: it shows you [section 5](#5-the-page-is-honest-when-it-cant-reach-the-server)'s
+"could not load" or "stale data" state instead, because the server that would
+render the red card is the same server that just went down. There is currently
+no way to force this state while leaving the page able to load.
+
+What it's *supposed* to look like, so you know it if it ever occurs naturally
+(a real lane genuinely stops scheduling) or once a later phase adds a way to
+simulate it safely:
+
+- The lane's card flips to **"Not scheduling"** in red.
+- A red banner above the cards: *"N lanes not being scheduled by any live
   worker: … Queued work in them is not moving."*
 - Not just a colour change — the sentence tells you what the consequence is.
+
+This is genuinely unverified by click-through in this PR. The backend wiring
+underneath it (whether `/health/queues` actually returns 503 when a lane is
+stalled) *is* covered — by an automated test, per the TEST_RUN doc — just not
+the frontend card and banner you'd see.
 
 ### 5. The page is honest when it can't reach the server
 
@@ -142,8 +158,8 @@ that's the one place this PR could plausibly bite.
 - **No alerts anywhere yet.** No email, no webhook, no banner when something
   fails. That's Phase 2. This PR only makes state *visible* if you go looking.
 - **The page won't tell you the app is completely down** — if the server is dead,
-  the page can't load either. That's what `/health/queues` is for: an external
-  monitor pointed at it. Wiring that monitor up is a separate step.
+  the page can't load either. That's what `/api/health/queues` is for: an
+  external monitor pointed at it. Wiring that monitor up is a separate step.
 - **"Skipped" and "never retried" counts may both be zero.** That means nothing
   has skipped or failed-without-retry recently, not that the feature is missing.
 - **`in flight` is usually 0.** Jobs are fast; you'd have to catch one mid-run.

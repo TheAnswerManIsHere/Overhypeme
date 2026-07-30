@@ -86,6 +86,7 @@ export async function stampLaneScheduled(
   lane: string,
   dbInstance: HeartbeatDb = defaultDb,
 ): Promise<void> {
+  const now = new Date();
   await bestEffort("stampLaneScheduled", lane, () =>
     dbInstance
       .insert(workerLaneHeartbeatsTable)
@@ -93,14 +94,24 @@ export async function stampLaneScheduled(
         instanceId: WORKER_INSTANCE_ID,
         lane,
         workerProtocolVersion: WORKER_PROTOCOL_VERSION,
-        lastScheduledAt: new Date(),
+        lastScheduledAt: now,
       })
       .onConflictDoUpdate({
         target: [workerLaneHeartbeatsTable.instanceId, workerLaneHeartbeatsTable.lane],
         set: {
-          lastScheduledAt: new Date(),
+          // GREATEST, not a plain overwrite — same idiom as decrementInFlight's
+          // floor below. This fires on EVERY timer tick unawaited, including
+          // while a previous tick's own stamp call is still in flight (the
+          // re-entrancy guard only gates `body()`, not this write), so two
+          // calls for the same (instance, lane) can commit out of order under
+          // pool contention. An unconditional SET would let the OLDER call's
+          // commit, landing second, move this column backward — which, if it
+          // crosses the 60s stale threshold, misreports an actively-scheduled
+          // lane as stalled. GREATEST makes the write commutative: whichever
+          // commits last, the stored value can only advance.
+          lastScheduledAt: sql`GREATEST(${workerLaneHeartbeatsTable.lastScheduledAt}, ${now})`,
           workerProtocolVersion: WORKER_PROTOCOL_VERSION,
-          updatedAt: new Date(),
+          updatedAt: now,
         },
       }),
   );
