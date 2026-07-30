@@ -152,12 +152,29 @@
   polled by a worker. Enqueue is not completion.
   → [architecture-map](./architecture-map.md), [async-ui-status](./async-ui-status.md)
 
-- **Lane (async-jobs)** — one of three independent scheduling groups (`fast` /
-  `render` / `bulk`) the async-jobs worker splits queues into, each with its own
-  poll timer, re-entrancy guard, and concurrency bound, so slow work in one lane
-  can never delay another's. Set per-queue via `registerJobHandler(queue,
-  handler, { lane })`; defaults to `bulk`.
+- **Lane (async-jobs)** — one of five independent scheduling groups (`fast` /
+  `render` / `bulk` / `pexels` / `ai_meme_backfill`) the async-jobs worker
+  splits queues into, each with its own poll timer, re-entrancy guard, and
+  concurrency bound, so slow work in one lane can never delay another's. Set
+  per-queue via `registerJobHandler(queue, handler, { lane })`; defaults to
+  `bulk`.
   → [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+- **Worker lane heartbeat** — a `worker_lane_heartbeats` row, keyed
+  `(instance_id, lane)`, that one worker instance publishes to say a lane is
+  still ticking and how many jobs it has in flight. The basis for the Queue
+  Health surface's per-lane liveness verdict and the `/api/health/queues`
+  public probe — the queue table alone can't distinguish "about to be
+  claimed" from "every worker died an hour ago."
+  → [architecture-map](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
+
+- **Sentinel (`max_attempts`)** — the value `0` on an `async_jobs` row,
+  meaning "resolve the retry ceiling from the queue's live `admin_config`
+  setting" rather than a fixed per-row override. Replaced with the resolved
+  number once a row finalizes to `failed`, so its terminal-vs-exhausted
+  classification stays pinned to the ceiling that actually applied, not
+  whatever the config says today.
+  → [decisions.md](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
 
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the

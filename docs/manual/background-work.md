@@ -88,6 +88,32 @@ retries with increasing backoff and is marked `failed` only after exhausting
 its attempt budget; a crash mid-run leaves a row safely reclaimable rather
 than stuck forever.
 
+### Worker liveness and the Queue Health surface
+
+Every lane's worker publishes a **heartbeat** — a small row saying "instance
+X is still ticking lane Y, N jobs in flight" — because the queue table alone
+can't tell you a worker has died: a `pending` row looks identical whether a
+worker is about to claim it or every worker crashed an hour ago. Admin →
+**Queue Health** is the fleet-wide view built on those heartbeats, and it's a
+**third** reference implementation of the two-altitude contract above — this
+time at the level of "is the whole background-work system alive," not one
+queue's items:
+
+- **Aggregate altitude** (`GET /admin/queue-health`) — every queue's raw
+  status tallies plus two states derived from the difference between a row's
+  attempts and its retry ceiling: `skipped` (a handler decided mid-run its
+  work no longer applied) and `abandoned_no_retry` (the worker deliberately
+  won't retry this one, a different story from "retried five times and gave
+  up"). Per lane: how many instances are actively scheduling it right now,
+  and whether the whole fleet has gone quiet on it.
+- **Per-item altitude** (`GET /admin/queue-health/jobs`) — the same drill-down
+  every queue gets, not just email.
+- **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
+  the one signal that survives the API process itself dying, since nothing
+  running *inside* that process can report its own absence. It only turns
+  unhealthy when a lane has gone quiet **fleet-wide**; a single instance
+  scaling down is normal, not an incident.
+
 ## Why it works this way
 
 The lane split (2026-07, PR #216) replaced a single shared worker that
@@ -120,15 +146,15 @@ elsewhere.
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
 - **All five lanes share one database connection pool.** Their combined
-  worst-case concurrent handler count (fast 2 + render 3 + bulk 3 + pexels 1 +
-  ai_meme_backfill 1 = 10) now exactly matches the pool's default limit (10) —
-  the `pexels`/`ai_meme_backfill` lanes added for variant independence (PR
-  #256) used up what used to be a small margin. That leaves **no** default
-  spare connection for admin + reader traffic outside these lanes when all
-  five are simultaneously busy, not just thin headroom. Raising the pool's
-  connection limit was deliberately left as follow-up work, not done
-  proactively — see
-  [`current-roadmap.md`](../ai-context/current-roadmap.md).
+  worst-case concurrent handler count is 10 (fast 2 + render 3 + bulk 3 +
+  pexels 1 + ai_meme_backfill 1) — this used to exactly match pg's implicit
+  default pool limit (also 10), leaving no spare connection for admin/reader
+  traffic when all five lanes were simultaneously busy. **Resolved in PR
+  #288**: the pool's `max` is now explicit and derived from measured
+  production headroom (20, doubling the lanes' worst case) instead of the
+  implicit default — see
+  [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues)
+  for the arithmetic.
 - **Retention is not an audit log.** Old `done`/`failed` rows are purged after
   a configurable number of days per queue; `async_jobs` is operational state,
   not permanent history.
@@ -156,7 +182,16 @@ elsewhere.
   and `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts` (the `pexels` /
   `ai_meme_backfill` queue handlers),
   `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
-  (the Bulk Media Backfill panel's polling hook).
+  (the Bulk Media Backfill panel's polling hook),
+  `lib/db/src/schema/workerLaneHeartbeats.ts` and
+  `artifacts/api-server/src/lib/workerHeartbeats.ts` (the heartbeat table +
+  writer), `artifacts/api-server/src/lib/queueHealth.ts` and
+  `artifacts/api-server/src/routes/health.ts` (the Queue Health queries +
+  the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
+  (the Queue Health page).
+- [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
+  why the terminal-vs-exhausted classification persists at finalize instead
+  of re-deriving live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).

@@ -13,6 +13,50 @@
 
 ---
 
+### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
+- **Decision:** When an `async_jobs` row transitions to `failed` (either
+  exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`
+  now persists the **resolved** effective `maxAttempts` onto the row itself,
+  instead of leaving the historical `0` sentinel ("follow whatever the
+  queue's live config says") in place. A row still `pending`/mid-retry keeps
+  the sentinel untouched — only a `failed` transition writes the resolved
+  value. This is a narrow, deliberate exception to Phase 1's own stated
+  scope ("instrument before changing the machine — no claim/finalize
+  changes"), approved by David after being presented as a genuine fork
+  (touch finalize minimally / accept the classification gap / silently drop
+  the distinction for sentinel rows) rather than decided unilaterally.
+- **Why:** The Queue Health surface (below) tells a genuine terminal failure
+  apart from exhausted retries by comparing a row's `attempts` against its
+  effective retry ceiling. For the common case — a row enqueued without a
+  per-row override — that ceiling lived only in `admin_config`, which is
+  mutable and cache-busted. Re-resolving it **live** at read time meant a
+  historical row that legitimately exhausted retries under an *old, lower*
+  ceiling could be silently reclassified as a "terminal, never really tried"
+  failure the moment an admin later raised that queue's ceiling — an
+  internally plausible but wrong answer, and worse, one that degrades
+  *after* the fact with no code change to explain it. Persisting the
+  resolved value at the one moment it's actually known (finalization) makes
+  an already-computed, already-terminal fact durable instead of
+  re-derivable-and-therefore-re-answerable-differently-later — the same
+  general lesson as [freezing enqueue-time inputs](./known-failure-patterns.md#un-frozen-input-re-resolved-live-between-enqueue-and-async-execution),
+  applied one pipeline stage later. A `failed` row is never re-claimed or
+  re-processed, so persisting one more field on it cannot affect any future
+  retry decision. Migration 0094 does not backfill existing rows, so
+  pre-deploy `failed` rows keep the `0` sentinel forever; the classification
+  logic treats a `0`-sentinel row conservatively (plain `failed`, never the
+  derived `abandoned_no_retry` state) rather than risking the same
+  misclassification on data it cannot resolve safely.
+- **Reference:** PR #288 (`artifacts/api-server/src/lib/asyncJobs.ts`'s
+  `processClaimedJob`, `artifacts/api-server/src/lib/queueHealth.ts`'s
+  `deriveDisplayStatus`). See
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) for
+  the surface this feeds.
+- **Revisit if:** a future phase adds a backfill for legacy `0`-sentinel
+  rows (making the conservative `failed`-only treatment for them
+  unnecessary), or the terminal-vs-exhausted distinction needs to move
+  earlier in the pipeline (e.g. onto the job payload at enqueue time)
+  instead of living on the finalize write.
+
 ### 2026-07-29 · Codex "Exhaustive code review" ON, review trigger stays "On PR open" — and the switch is a dated boundary in the ledger
 - **Decision:** In the Codex connector's code-review settings, **Exhaustive
   code review is enabled** ("keep looking for additional findings until it

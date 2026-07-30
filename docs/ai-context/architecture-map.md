@@ -162,6 +162,94 @@ deliberately excludes them and points here instead.
   consumer — see
   [`visual-pipeline.md`](./visual-pipeline.md#terminal-vs-retryable-render-failures).
 
+### Worker liveness heartbeats + the Queue Health surface (Phase 1, PR #288)
+
+- **`worker_lane_heartbeats`** (`lib/db/src/schema/workerLaneHeartbeats.ts`),
+  keyed `(instance_id, lane)` — `instance_id` is a process-start
+  `randomUUID()`, **not** a deployment identifier, so every autoscaled
+  instance gets its own row per lane instead of the fleet collapsing onto one
+  row (which would let a wedged worker hide behind a healthy peer).
+  `worker_protocol_version` is a capability marker (`1` today) for a future
+  Phase 3 lease-fence check, not a release identifier. Four write moments,
+  each load-bearing:
+  - `last_scheduled_at` stamps on **every** timer fire, including the
+    re-entrancy early-return, so a lane whose timer fires while its previous
+    tick is still running reads as healthy-but-slow, not dead.
+  - `in_flight_count` publishes as soon as the claim transaction commits,
+    **before** any handler is awaited — a completion-only write would leave a
+    wedged tick's count at zero and the (Phase 2) wedged-lane condition could
+    never fire in the one case it exists for.
+  - `last_tick_completed_at` stamps only on completion, clearing the count
+    there so a lost decrement self-corrects on the next tick instead of
+    leaving a healthy lane looking permanently wedged.
+  - Departed instances (an autoscale scale-down) are pruned on a purge
+    cadence — without it a lane would read as permanently stalled within
+    hours of any scale-down.
+  - Writes use `GREATEST(stored, incoming)` on `last_scheduled_at`, not an
+    unconditional overwrite — two racing ticks under pool contention can
+    commit out of order, and an unconditional write would let the *older*
+    one's timestamp land last and move the column backward past the stale
+    threshold.
+- **Per-lane "stalled" is `max(3× the lane's poll interval, 60s)`** of no
+  `last_scheduled_at` movement — one missed tick is noise; three is a fleet-
+  wide signal. **Two independently-configurable knobs feed the same
+  liveness check and must stay coupled at every consumer, not just the
+  primary read path**: the heartbeat TTL (`admin_config`) and each lane's own
+  stale threshold. A TTL shorter than a lane's threshold would prune the row
+  before the threshold check ever ran; the live-instance query cutoff is
+  `max(configured TTL, the widest stale threshold across all lanes)` — and
+  the periodic `pruneDepartedInstances()` delete sweep (which runs on its own
+  schedule, independent of any query) needed the identical widened cutoff, or
+  it could delete a row the widened query was specifically trying to still
+  see. Missing that second consumer was a real gap caught by review, not a
+  hypothetical.
+- **Three read surfaces**, all derived by query — nothing new is written by
+  a reader:
+  - `GET /admin/queue-health` — aggregate altitude. Per queue: the four raw
+    status tallies, two derived states (below), oldest-pending age, 24h
+    throughput. Per lane: live instance count, heartbeat ages, in-flight
+    count, fleet-wide stalled verdict. The two related queries run inside one
+    `repeatable read` transaction so a job finalizing mid-read can't produce
+    an internally impossible snapshot (e.g. `failed: 0` alongside
+    `abandonedNoRetry: 1`).
+  - `GET /admin/queue-health/jobs` — per-item altitude, paginated, capped at
+    100.
+  - `GET /api/health/queues` — **unauthenticated** liveness probe (mounted
+    under `/api`, not bare `/health/queues` — the app mounts routes there via
+    `app.use("/api", router)` in `app.ts`). The only signal that survives
+    total process death, since an in-process watchdog can't detect its own
+    absence. Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue
+    names, payloads, or error text, on both the healthy and evaluation-failed
+    paths — and is unhealthy only when a lane is stalled **fleet-wide**
+    (any-stale-heartbeat would page on every routine autoscale scale-down).
+- **Two derived display states**, because raw `async_jobs.status` collapses
+  distinctions the async-UI contract ([`async-ui-status.md`](./async-ui-status.md))
+  requires as first-class:
+  - `skipped` — a handler-level skip finishes as `done` with
+    `result.skipped`; the reason is sanitized against the existing
+    `TAXONOMY_HEALTH_SKIP_REASON_VALUES` enum rather than echoing arbitrary
+    handler text to an admin surface.
+  - `abandoned_no_retry` — a row is `failed` with `attempts < effectiveMax`,
+    which is only reachable via `terminalFailure()` (the exhaustion path can
+    only mark a row `failed` once `attempts >= effectiveMax`) — i.e. "the
+    worker deliberately won't retry this," a different operator story from
+    "retries exhausted." See
+    [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
+    for why this reads the row's own **persisted** `maxAttempts`, not a live
+    re-resolve of `admin_config`, and why a legacy `0`-sentinel row is
+    deliberately classified conservatively (plain `failed`) rather than risk
+    the same misclassification on data that can't be resolved safely.
+- **The connection pool's `max` is now explicit and derived**, not pg's
+  implicit default of 10 (`lib/db/src/index.ts`): production measured
+  `max_connections` 450, 7 superuser-reserved, ~13 in use on a live app
+  (direct connection, not pooled) →
+  `budget = 450 − 7 − 5 (migration/console/admin burst) − 40 (headroom) = 398`,
+  `max = min(20, floor(398 / max_instances))`. 20 doubles the five lanes'
+  worst-case simultaneous demand (10) and holds for any autoscale ceiling up
+  to 19 instances; `DB_POOL_MAX` overrides it for a larger ceiling. This
+  closes the "no default spare connection" gap the lane split (PR #256) had
+  left as follow-up work.
+
 ## Storage / CDN
 
 - Images persist to **Google Cloud Storage** via the Replit sidecar today. (The

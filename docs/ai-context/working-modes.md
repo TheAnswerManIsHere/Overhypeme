@@ -405,7 +405,17 @@ be trusted.
    once every page is concatenated in. The script refuses an unmarked or
    partial snapshot rather than deriving a plausible-looking undercount, which
    a large loop (18 rounds, 40 findings, on our worst case so far) would
-   otherwise produce silently.
+   otherwise produce silently. **A clean re-review has no review object to
+   count.** The Codex connector's own boilerplate says a round with nothing
+   to flag gets a 👍 reaction on the trigger comment rather than a posted
+   review — and a reaction is not a `pull_request_review` the GitHub API
+   exposes to `get_reviews`. So `rounds` (and any PR-body narration that
+   counts a final "clean" round by hand) can legitimately differ from a
+   loop's true number of re-review passes by exactly the trailing clean ones;
+   this is expected under `REVIEWER_LOGINS`'s definition of a round, not a
+   pagination bug to chase (confirmed on PR #288, where the mechanical count
+   landed one short of the PR body's own hand-narrated round count for
+   precisely this reason).
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised / invalid), pre-open preflight
    minutes, breakers fired. **Ambiguous causes default to self-inflicted**,

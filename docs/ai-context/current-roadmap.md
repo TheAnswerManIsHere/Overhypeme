@@ -24,6 +24,29 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
+  Health surface** (PR #288, from the plan reviewed on the closed-unmerged
+  PR #282). Read-only instrumentation only — no claim/retry/dedupe/lane
+  semantics changed. Each lane's worker now publishes a heartbeat
+  (`worker_lane_heartbeats`), and three new endpoints surface it: an admin
+  aggregate view, a paginated per-item drill-down (all eleven queues, not
+  just email), and an unauthenticated `/api/health/queues` liveness probe
+  that survives total process death. One narrow, David-approved exception to
+  "no finalize changes": the terminal-vs-exhausted classification now
+  persists the resolved retry ceiling at the moment a row finalizes to
+  `failed`, instead of re-deriving it live (see
+  [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)).
+  Also closed a real gap from the lane split (PR #256): the shared DB pool's
+  `max` is now explicit and derived (20) instead of pg's implicit default
+  (10), which had left zero spare connections once all five lanes were
+  simultaneously busy. See
+  [`architecture-map.md`](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
+  and the manual's [Background Work](../manual/background-work.md#worker-liveness-and-the-queue-health-surface)
+  chapter. **Open next:** Phases 2–4 of the same plan are not yet
+  scheduled — Phase 2 (two alert channels: in-app + an out-of-band webhook
+  that doesn't depend on the DB-backed email queue), Phase 3 (claim
+  fencing so a rare duplicate paid call is preferred over ever losing work),
+  Phase 4 (the enqueue primitive moves to `onConflictDoNothing`).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). Both Claude Code and Codex now append a row — mechanical
   columns machine-derived, judgment columns hand-entered and marked as such —
