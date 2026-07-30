@@ -48,7 +48,7 @@ checked in recently. Seeing that number change is normal and healthy.
 
 - ✅ A **Queues** section listing every registered queue, one row per queue,
   with a summary: *"N queued · N working · N done · N failed"*, plus *skipped*
-  and *never retried* counts, an *oldest* age when those apply, and a trailing
+  and *no more retries* counts, an *oldest* age when those apply, and a trailing
   *"24h: N done / N failed"* — the recent-throughput figures the approved plan
   requires alongside the four raw tallies.
 - ✅ Queues that have **never run** still appear, with zeros. This is deliberate:
@@ -160,8 +160,8 @@ that's the one place this PR could plausibly bite.
 - **The page won't tell you the app is completely down** — if the server is dead,
   the page can't load either. That's what `/api/health/queues` is for: an
   external monitor pointed at it. Wiring that monitor up is a separate step.
-- **"Skipped" and "never retried" counts may both be zero.** That means nothing
-  has skipped or failed-without-retry recently, not that the feature is missing.
+- **"Skipped" and "no more retries" counts may both be zero.** That means nothing
+  has skipped or failed-without-further-retry recently, not that the feature is missing.
 - **`in flight` is usually 0.** Jobs are fast; you'd have to catch one mid-run.
 - **Lane intervals are 2–5 seconds, but a lane is only called stalled after
   60 seconds.** Deliberate: a stricter threshold would false-alarm on ordinary

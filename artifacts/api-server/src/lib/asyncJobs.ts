@@ -439,6 +439,16 @@ async function processClaimedJob(
     const isTerminal = outcome.retryable === false;
     if (isTerminal) {
       terminalFailed = true;
+      // Persist the RESOLVED ceiling on a terminal failure, not just the
+      // sentinel that meant "use queue config" at enqueue time. `admin_config`
+      // is mutable, so re-resolving it later (as the queue-health surface
+      // does, to tell a terminal failure apart from genuine exhaustion) would
+      // otherwise answer against whatever the ceiling happens to be NOW rather
+      // than what it was at finalization — misclassifying a historical row if
+      // an admin later raises the queue's ceiling. A `failed` row is terminal
+      // and never re-enters this function, so writing this here is a durable
+      // fact, not a live decision this queue still has to make.
+      const effectiveMax = await effectiveMaxAttempts(row.queue, row.maxAttempts);
       await dbInstance.transaction(async (tx) => {
         await tx
           .update(asyncJobsTable)
@@ -448,6 +458,7 @@ async function processClaimedJob(
             lastError: outcome.error,
             nextAttemptAt: new Date(),
             updatedAt: new Date(),
+            maxAttempts: effectiveMax,
           })
           .where(eq(asyncJobsTable.id, row.id));
       });
@@ -467,6 +478,12 @@ async function processClaimedJob(
             lastError: outcome.error,
             nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
             updatedAt: new Date(),
+            // Same reasoning as the terminal branch above, and ONLY on the
+            // terminal transition: a still-`pending` row is not yet finalized,
+            // so it must keep tracking live config — an admin raising the
+            // ceiling mid-flight should let an in-progress job benefit from
+            // the extra retries, not freeze it to the value read at this tick.
+            ...(abandoned ? { maxAttempts: effectiveMax } : {}),
           })
           .where(eq(asyncJobsTable.id, row.id));
       });

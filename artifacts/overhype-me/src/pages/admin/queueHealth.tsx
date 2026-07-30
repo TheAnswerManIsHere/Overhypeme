@@ -333,7 +333,10 @@ export default function AdminQueueHealth() {
                     <span className="text-xs text-muted-foreground truncate">
                       {q.pending} queued · {q.processing} working · {q.done} done · {q.failed} failed
                       {q.skipped > 0 ? ` · ${q.skipped} skipped` : ""}
-                      {q.abandonedNoRetry > 0 ? ` · ${q.abandonedNoRetry} never retried` : ""}
+                      {/* Same wording as the per-item badge, and for the same reason: this
+                          also counts a terminalFailure() that gave up after SOME retries, not
+                          only a first-attempt failure, so "never retried" would misdescribe it. */}
+                      {q.abandonedNoRetry > 0 ? ` · ${q.abandonedNoRetry} no more retries` : ""}
                       {q.oldestPendingAgeSeconds != null
                         ? ` · oldest ${formatAge(q.oldestPendingAgeSeconds)}`
                         : ""}
