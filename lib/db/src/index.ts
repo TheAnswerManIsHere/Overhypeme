@@ -123,4 +123,100 @@ export async function closePool(): Promise<void> {
   await pool.end();
 }
 
+/** What the database currently enforces on `ncmec_safety_audit_log`. */
+export interface NcmecAuditBoundaryStatus {
+  /** The role the application connects as. */
+  applicationRole: string;
+  /** The role that owns the ledger table. */
+  tableOwner: string;
+  /** True when the maintenance role exists at all — the triggers fail closed without it. */
+  maintenanceRoleExists: boolean;
+  /** True when the application role could grant itself the maintenance bypass. */
+  applicationCanBypassTrigger: boolean;
+  /**
+   * True when the application role owns the table and could therefore run
+   * `ALTER TABLE … DISABLE TRIGGER` regardless of what the triggers say.
+   */
+  applicationOwnsTable: boolean;
+  /** Both append-only triggers present and enabled. */
+  triggersEnabled: boolean;
+}
+
+/**
+ * Report whether the append-only guarantee on `ncmec_safety_audit_log` is a
+ * real privilege boundary or only a convention with teeth.
+ *
+ * Migration 0095 creates the table, the role-gated triggers, and the
+ * maintenance role — but a migration cannot manufacture a privilege boundary
+ * above itself. It runs as the application role, so the application role owns
+ * what it creates and `ALTER TABLE … DISABLE TRIGGER` needs nothing more than
+ * ownership. Completing the boundary is a DBA step outside the migration
+ * (transfer ownership to `overhype_audit_owner`, grant the application role no
+ * membership in it), and 0095 prints exactly that command when it finds the
+ * step undone.
+ *
+ * This function is how the rest of the system finds out which of those two
+ * states it is in, so the activation gate can refuse production while the
+ * ledger is bypassable — blocking the dangerous STATE rather than one path
+ * into it. `boundaryEnforced` is the single predicate callers want:
+ * `!applicationOwnsTable && !applicationCanBypassTrigger && triggersEnabled`.
+ */
+export async function ncmecAuditBoundaryStatus(): Promise<
+  NcmecAuditBoundaryStatus & { boundaryEnforced: boolean }
+> {
+  const { rows } = await pool.query<{
+    application_role: string;
+    table_owner: string;
+    maintenance_role_exists: boolean;
+    application_can_bypass_trigger: boolean;
+    application_owns_table: boolean;
+    triggers_enabled: boolean;
+  }>(`
+    SELECT current_user::text AS application_role,
+           pg_get_userbyid(c.relowner) AS table_owner,
+           EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+             AS maintenance_role_exists,
+           -- pg_has_role raises on a role that does not exist, so the EXISTS
+           -- guard is required, not defensive noise. A superuser is an implicit
+           -- member of every role, which is why this reads TRUE for one.
+           (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+            AND pg_has_role(current_user, 'overhype_audit_maintenance', 'member'))
+             AS application_can_bypass_trigger,
+           pg_has_role(current_user, c.relowner, 'member') AS application_owns_table,
+           (SELECT count(*) FILTER (WHERE t.tgenabled <> 'D') = 2
+              FROM pg_trigger t
+             WHERE t.tgrelid = c.oid
+               AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
+                                'ncmec_safety_audit_log_no_truncate'))
+             AS triggers_enabled
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
+  `);
+
+  const row = rows[0];
+  if (!row) {
+    throw new Error(
+      "ncmec_safety_audit_log does not exist — migration 0095 has not been applied to this database.",
+    );
+  }
+
+  const status: NcmecAuditBoundaryStatus = {
+    applicationRole: row.application_role,
+    tableOwner: row.table_owner,
+    maintenanceRoleExists: row.maintenance_role_exists,
+    applicationCanBypassTrigger: row.application_can_bypass_trigger,
+    applicationOwnsTable: row.application_owns_table,
+    triggersEnabled: row.triggers_enabled,
+  };
+
+  return {
+    ...status,
+    boundaryEnforced:
+      status.triggersEnabled &&
+      !status.applicationOwnsTable &&
+      !status.applicationCanBypassTrigger,
+  };
+}
+
 export * from "./schema";

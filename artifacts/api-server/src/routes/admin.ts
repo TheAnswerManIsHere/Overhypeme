@@ -25,6 +25,7 @@ import {
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
+import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
   validateEnrichment,
@@ -2199,6 +2200,20 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
 
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
   const key = String(req.params["key"]);
+
+  // Refused BEFORE the body is inspected: a reserved key is off-limits to this
+  // route regardless of what the request is trying to do with it, and a
+  // 400 "value is required" for a key that could never have been written here
+  // would tell the caller the wrong thing about why.
+  //
+  // This route validates data type and min/max and nothing else, so an NCMEC
+  // filing switch reaching it is an activation gate with a door beside an open
+  // window. The keys are owned by the safety admin surface instead.
+  if (isNcmecReservedConfigKey(key)) {
+    res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
+    return;
+  }
+
   const body = req.body as {
     value?: unknown;
     valueLabel?: unknown;
