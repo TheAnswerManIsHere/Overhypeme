@@ -404,18 +404,39 @@ be trusted.
    must set `complete: {reviews: true, files: true, reviewThreads: true}` only
    once every page is concatenated in. The script refuses an unmarked or
    partial snapshot rather than deriving a plausible-looking undercount, which
-   a large loop (18 rounds, 40 findings, on our worst case so far) would
-   otherwise produce silently. **A clean re-review has no review object to
-   count.** The Codex connector's own boilerplate says a round with nothing
-   to flag gets a 👍 reaction on the trigger comment rather than a posted
-   review — and a reaction is not a `pull_request_review` the GitHub API
-   exposes to `get_reviews`. So `rounds` (and any PR-body narration that
-   counts a final "clean" round by hand) can legitimately differ from a
-   loop's true number of re-review passes by exactly the trailing clean ones;
-   this is expected under `REVIEWER_LOGINS`'s definition of a round, not a
-   pagination bug to chase (confirmed on PR #288, where the mechanical count
-   landed one short of the PR body's own hand-narrated round count for
-   precisely this reason).
+   a large loop (32 rounds, 166 findings — PR #279's, our worst case so far)
+   would otherwise produce silently.
+
+   **Before committing to backfill or blind-adjudicate a historical loop,
+   check its size cheaply first.** A plain `get_reviews`/`get_review_comments`
+   call (or the MCP `totalCount`) costs one round-trip and tells you the round
+   and finding count before you've built a snapshot or spent any tokens
+   classifying. The 2026-07-29 backfill skipped this and scoped its work from
+   the ledger's prior worst case (18 rounds / 40 findings) — the two loops it
+   then tried to backfill turned out to be 9 rounds/86 findings and 32
+   rounds/166 findings, the latter a 4× jump that forced a mid-task
+   renegotiation of what to actually adjudicate (see
+   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
+   row 6 note). A loop's size has no reason to resemble the last one measured;
+   check before scoping, not after building the snapshot.
+
+   **A clean re-review has no review object to count, and this has now
+   recurred twice independently.** A round that finds nothing new doesn't
+   reliably produce a formal `pull_request_review` the GitHub API exposes to
+   `get_reviews` — on PR #286 it posted as a plain issue comment ("Codex
+   Review: Didn't find any major issues. Delightful!"), and on PR #288 the
+   final clean round most likely posted only as a 👍 reaction on the trigger
+   comment (per the connector's own boilerplate: "If Codex has suggestions,
+   it will comment; otherwise it will react with 👍"). Neither shape is a
+   `pull_request_review`, so `rounds` (and any PR-body narration that counts
+   a final "clean" round by hand) can legitimately undercount a loop's true
+   number of re-review passes by exactly its trailing clean ones — expected
+   under `REVIEWER_LOGINS`'s definition of a round, not a pagination bug to
+   chase. Two independent instances is enough to stop treating this as a
+   one-off: see
+   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
+   *Rounds undercounted when a re-review is clean* note (row 11, #286) for
+   the first sighting and its own concrete `rounds`/`review hrs` impact.
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised / invalid), pre-open preflight
    minutes, breakers fired. **Ambiguous causes default to self-inflicted**,
