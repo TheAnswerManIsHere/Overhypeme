@@ -523,6 +523,25 @@ purpose is a ledger append.** If no further PR is imminent, the next
 `/maintenance` or `/document` pass is the backstop that catches any row still
 owed.
 
+**CI enforces this — the backstop is no longer memory.**
+`scripts/check-ledger-coverage.mjs` runs in the Build job and fails when a
+loop that closed *before this PR opened* has neither a row nor an entry in the
+ledger's *Deliberately not measured* table. It also checks, offline, that each
+row's five causal counts sum to its own findings total. The guard exists
+because the obligation above met its first fast build run and lost: by
+2026-07-29 the ledger held 2 rows against 13 closed loops, with zero rows in
+the feature/code and bugfix cohorts, and nothing had gone wrong mechanically —
+the rule simply had nowhere to fail, so every PR stayed green while coverage
+collapsed. That is the repo's standing "a recurring failure pattern becomes a
+CI guard" rule applied to our own ceremony rather than to product code.
+
+Two things the guard deliberately does **not** do. It does not demand a row
+for a loop that closed *after* the current PR opened — that row belongs to the
+next PR, and failing an in-flight PR for it would be unsatisfiable. And it
+excludes Dependabot PRs by policy rather than by hand-written exemption, since
+those carry no plan, fix tier, or review loop; it reports the count it skipped
+on every run, so the exclusion is visible rather than silent.
+
 **What it is for.** The primary question is whether the **self-inflicted
 finding share** — findings that exist only because an earlier fix in the same
 loop was incomplete or wrong — is falling. **Round count is recorded, never

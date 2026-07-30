@@ -13,7 +13,8 @@
     "worker:deploy": "pnpm --filter @workspace/og-router run deploy",
     "worker:dev": "pnpm --filter @workspace/og-router run dev",
     "check:docs": "node scripts/check-docs-accuracy.mjs",
-    "check:codegen-drift": "bash scripts/check-codegen-drift.sh"
+    "check:codegen-drift": "bash scripts/check-codegen-drift.sh",
+    "check:ledger": "node scripts/check-ledger-coverage.mjs"
   },
   "private": true,
   "devDependencies": {
