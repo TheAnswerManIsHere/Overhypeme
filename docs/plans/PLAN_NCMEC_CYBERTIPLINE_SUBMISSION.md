@@ -471,11 +471,18 @@ this plan must not change the shared queue's contract for one consumer:
    its lease, or whose row was marked `filed_manually` by an operator meanwhile (§5.8),
    cannot overwrite that decision.
 
-7. **Every completed exit releases the lease**, in the same token-conditional update that
-   writes its outcome: success, terminal failure, a reversible refusal, and the pre-`/finish`
-   abort all set `submission_lease_owner` and `submission_lease_until` back to NULL. Only a
-   **genuinely lost** lease is left to expire, because that is the one case where the worker
-   cannot safely write anything.
+7. **Every exit where the worker still holds its lease releases it**, in the same
+   token-conditional update that writes its outcome — and the list is *every* return path, not
+   only the tidy ones: success, terminal failure, a reversible refusal, the pre-`/finish`
+   abort, **an ordinary retryable ISPWS error, and a caught handler exception**. Only two
+   cases are left to expire: a **genuinely lost** lease (the worker has nothing it may safely
+   write) and **process death** (it has no opportunity to).
+
+   The retryable path is the most common exit during an outage and the one an "exhaustive"
+   list is likeliest to omit — leaving the lease held for its full three minutes after
+   execution ended, blocking `mark-manually-filed` and inflating `inFlight` exactly when an
+   operator is trying to intervene. §6 asserts a retryable return **and** a thrown handler
+   both leave the row unleased.
 
    Leaving a finished row leased for the remainder of its three minutes is not harmless
    bookkeeping. `mark-manually-filed` refuses a leased row (§5.8.1), so an operator recovering
