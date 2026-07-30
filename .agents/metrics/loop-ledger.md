@@ -141,11 +141,15 @@ gap, not a consequence of the first. Both gaps happen to coincide in a
 one-finding-round loop, which is why all three categories are unreachable
 there, but they are unreachable for different reasons and the ledger should
 say so rather than imply propagation/wrong-fix/re-raised share one
-precondition when only two of them do. A one-finding-round loop's findings
-are new ground by construction, every time, which makes its self-inflicted
-share 0% independent of the loop's real quality. Mixing these into a trend
-with multi-finding-round loops would understate the real number, exactly the
-failure mode this backfill exists to prevent in the other direction.
+precondition when only two of them do. **Every valid finding** on a
+one-finding-round loop is new ground by construction, every time — "valid"
+matters here: `invalid` remains possible on a first occurrence regardless of
+round count, and row 9 (#284) is exactly that case, which is why it's
+recorded as `n/a` rather than folded into this 0% group at all. For the three
+loops that do have a real 0% (#276, #283, #286), that share is independent of
+the loop's real quality. Mixing these into a trend with multi-finding-round
+loops would understate the real number, exactly the failure mode this
+backfill exists to prevent in the other direction.
 
 **The self-inflicted-share trend is only informative for loops with more
 than one finding-bearing round** — where propagation and wrong-fix are
@@ -156,43 +160,56 @@ findings in every one). #286 does not qualify
 despite its true two-round engagement, because only round 1 produced
 findings.
 
-**Across the four qualifying loops, ordered by PR number: 64.7% → 68.4% →
-72.1% → 44.4%. This is not a rising trend, and the "not falling" claim this
-section made with three points does not survive the fourth — it is corrected
-here rather than left standing.** #285 was classified only after Codex
-review on PR #290 caught that its earlier `not classified` deferral had no
-real justification (see its own row's note); its 44.4% is real, not an
-artifact of looser scrutiny — its adjudication agreed with itself at 0%
-disagreement across all 36 findings, the cleanest agreement in this file.
-The honest read at n=4 is that self-inflicted share does **not** simply climb
-with round count or loop size: #285 (5 rounds, 36 findings) sits below both
-#274 (4 rounds, 19 findings) and #282 (9 rounds, 86 findings), and #270 (16
-rounds, 34 findings) — the longest loop measured — sits in the middle of the
-range, not at either end. **What does replicate at n=4** is the two
-structural observations below, both of which #285 confirms independently:
+**Of these four, three are confirmed pre-boundary and one is confirmed
+post-boundary — they are not one population, and averaging them into a
+single four-point trend was the error to correct here, not the direction of
+any single point.** David enabled Codex "Exhaustive code review" shortly
+after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent is
+timestamped then, and he confirmed the change in the same breath). #270,
+#274, and #282 all ran their review rounds before that time and are
+confirmed pre-boundary. **#285 is confirmed post-boundary, not merely
+later-dated or unverified** — its entire review window (2026-07-29T22:39 to
+2026-07-30T02:09) falls after 6:56 PM that same day, so it was reviewed under
+the new setting throughout. An earlier draft of this section hedged this as
+"unverified" and required an exact toggle timestamp that the settled decision
+never asked for; that hedge was itself the error, per Codex review on
+PR #290.
+
+**The pre-boundary trend (n=3) stands as originally measured: 64.7% → 68.4%
+→ 72.1%, not falling.** #285 is a separate, single post-boundary data point
+at 44.4% — lower than every pre-boundary loop's share, which is suggestive of
+exhaustive review's intended effect (fewer self-inflicted findings once a
+round looks harder before stopping) but is one loop, run by a different
+session, and nowhere near enough to claim the effect. It is recorded as this
+ledger's **first post-boundary multi-round data point**, to be confirmed or
+killed by the rows that follow it — not folded into the pre-boundary trend,
+and not treated as an early confirmation of anything.
+
+**Two structural observations from the pre-boundary loops, both from counted
+data rather than impression:**
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
-  ground; from round 2 onward, new ground was a minority in every round. The
-  same shape holds in #274 (5/5 new ground in round 1) and now #285 (7/7 new
-  ground in round 1). Later rounds are predominantly the loop repairing its
-  own earlier fixes.
-- **Wrong fix dominates propagation.** In #282, 38 wrong-fix against 24
-  propagation. #285 replicates the same skew at smaller scale: 11 wrong-fix
-  against 5 propagation. The characteristic failure is not "the fix broke a
-  neighbor" but "the fix corrected one site and left the others" — a plan
-  edited in one place while other sections still assert the old thing.
+  ground; in #274, 5/5. #285 — post-boundary, so not part of this trend's
+  population, but worth noting as a separate replication — shows the same
+  shape (7/7 new ground in round 1), suggesting this pattern isn't an
+  artifact of the pre-boundary reviewer specifically.
+- **Wrong fix dominates propagation in three of the four loops, not all
+  four.** #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), and #285 (11
+  vs 5) all show it. **#270 does not** — row 3's own figures are 18
+  propagation against 4 wrong-fix, the reverse. That is not a contradiction
+  to gloss over: row 3 already explains it — #270 was this ledger's own
+  bootstrapping loop, and its propagation findings concentrate in subsystems
+  built *mid-loop* (the MCP adapter, the adjudication rubric itself),
+  defects in genuinely new code rather than "fixed one site, left another."
+  That is a different failure shape than #274/#282/#285's plan-editing
+  loops, where propagation and wrong-fix both apply to a single, mostly
+  fixed document. The dominance pattern holds for loops of that shape; #270
+  isn't one of them.
 
-This is a hypothesis with n=4, not a finding. #270, #274, and #282 confirmed
-predate the 2026-07-29 exhaustive-review boundary (see `decisions.md`).
-**#285's own boundary status is unverified, not confirmed pre-boundary** — its
-review activity ran 2026-07-29T22:39–2026-07-30T02:09, in the same evening
-window as the exhaustive-review decision itself, and no exact toggle
-timestamp is recorded to place it on either side. Recorded as an open
-question rather than asserted either way; if it turns out post-boundary,
-#285 is this ledger's first post-boundary multi-round data point, which
-would need calling out on its own rather than folded into the pre-boundary
-n=4. It is recorded here so the next rows can confirm or kill the hypothesis
-rather than re-deriving it.
+This is a hypothesis at n=3 pre-boundary (not falling) plus n=1 post-boundary
+(lower, unconfirmed), not a finding. It is recorded here so the next rows —
+on either side of the boundary — can confirm or kill it rather than
+re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
