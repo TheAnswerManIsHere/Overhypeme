@@ -66,4 +66,21 @@ describe("getSafeReturnTo", () => {
     expect(getSafeReturnTo("evil.com")).toBe(null);
     expect(getSafeReturnTo(" /facts/123")).toBe(null);
   });
+
+  // Codex review, PR #292: RFC 3986 dot-segment removal means a value can
+  // fail both the "//" prefix check and the hostname check, yet still
+  // resolve to a protocol-relative path once WHATWG URL normalizes it.
+  it("rejects a value whose dot-segment-normalized path becomes protocol-relative", () => {
+    // Neither starts with "//", and both resolve to hostname "localhost" —
+    // only re-checking the *serialized* path afterward catches these.
+    expect(getSafeReturnTo("/a/..//evil.com")).toBe(null);
+    expect(getSafeReturnTo("/..//evil.com")).toBe(null);
+    expect(getSafeReturnTo("/a/../..//evil.com")).toBe(null);
+    expect(getSafeReturnTo("/a/b/../..//evil.com")).toBe(null);
+  });
+
+  it("still resolves a dot-segment path that normalizes to a same-origin path", () => {
+    expect(getSafeReturnTo("/a/../evil.com")).toBe("/evil.com");
+    expect(getSafeReturnTo("/facts/../profile")).toBe("/profile");
+  });
 });
