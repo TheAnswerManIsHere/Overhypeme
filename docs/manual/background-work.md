@@ -52,8 +52,11 @@ contract, for the corpus-wide stock-image and AI-meme backfill queues.
 Everything rides **one real database table**, not an in-memory queue or a
 separate pub/sub system. That single choice buys the property this whole
 chapter rests on: a crash or a redeploy never loses queued work, and at any
-moment you can see exactly what is waiting, running, or failed with an
-ordinary SQL query. The table's shape and the exact status flow are in
+moment an ordinary SQL query shows the queue's recorded state — what is
+waiting, what has been claimed, what failed. (Recorded, not live: there is no
+lease or heartbeat, so a row a crashed worker left behind still reads as
+claimed until a recovery sweep picks it up. See the known limitation below.)
+The table's shape and the exact status flow are in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
 Work is drained by **five independent scheduling lanes**, and the important

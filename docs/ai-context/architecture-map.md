@@ -156,13 +156,18 @@ deliberately excludes them and points here instead.
   from it. Retry budget is an **enqueue-time** option on the queue, which is
   why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
   (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
-  The reason is the *shape* of the partial failure, not merely its cost:
-  `generateAiMemeBackgrounds` uploads each slot's image as it goes but writes
-  `facts.aiMemeImages` **once, after the whole slot loop** (`aiMemePipeline.ts`),
-  so a failure on a late slot leaves the fact with **no record** of the earlier
-  successful slots even though their paid OpenAI/fal.ai calls and uploads
-  already happened. An automatic retry would regenerate and re-pay for them.
-  Note `maxAttempts: 1` also means `onAbandon` fires on the very first failure.
+  The reason is that a retry could not help, not that it would cost twice:
+  the handler opens with a **replay guard** keyed on `facts.aiMemeBackfillStatus`,
+  and a failing attempt stamps that column `"failed"` before returning — so a
+  second attempt exits at the `existing === "failed"` branch **without calling
+  `generate` at all**. Extra attempts would burn the budget and delay
+  abandonment while doing nothing. The guard refuses rather than resumes
+  because there is nothing to resume from: `generateAiMemeBackgrounds` uploads
+  each slot's image as it goes but writes `facts.aiMemeImages` **once, after
+  the whole slot loop** (`aiMemePipeline.ts`), so a late-slot failure leaves
+  the fact with no record of the earlier successes even though their paid
+  OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
+  means `onAbandon` fires on the very first failure.
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed
