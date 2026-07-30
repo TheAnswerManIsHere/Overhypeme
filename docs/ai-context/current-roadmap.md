@@ -31,7 +31,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   (`worker_lane_heartbeats`), and three new endpoints surface it: an admin
   aggregate view, a paginated per-item drill-down (all eleven queues, not
   just email), and an unauthenticated `/api/health/queues` liveness probe
-  that survives total process death. One narrow, David-approved exception to
+  that returns a meaningful 503 when the API process is alive but every
+  worker has stopped scheduling a lane fleet-wide — a failure mode no other
+  endpoint reports. One narrow, David-approved exception to
   "no finalize changes": the terminal-vs-exhausted classification now
   persists the resolved retry ceiling at the moment a row finalizes to
   `failed`, instead of re-deriving it live (see

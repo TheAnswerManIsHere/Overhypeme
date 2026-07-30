@@ -100,11 +100,13 @@ time at the level of "is the whole background-work system alive," not one
 queue's items:
 
 - **Aggregate altitude** (`GET /admin/queue-health`) — every queue's raw
-  status tallies plus two states derived from the difference between a row's
-  attempts and its retry ceiling: `skipped` (a handler decided mid-run its
-  work no longer applied) and `abandoned_no_retry` (the worker deliberately
-  won't retry this one, a different story from "retried five times and gave
-  up"). Per lane: how many instances have a heartbeat row recent enough to
+  status tallies plus two derived states, each from a different signal:
+  `skipped` (a successful `done` row whose handler result says mid-run its
+  work no longer applied — nothing to do with attempts or the ceiling) and
+  `abandoned_no_retry` (derived from comparing a `failed` row's attempts
+  against its retry ceiling: the worker deliberately won't retry this one, a
+  different story from "retried five times and gave up"). Per lane: how many
+  instances have a heartbeat row recent enough to
   still count as live (not necessarily still actively ticking this exact
   second — a heartbeat can be silent past its own stale threshold but still
   inside the wider retention window), and whether the whole fleet has gone
@@ -151,13 +153,17 @@ elsewhere.
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
 - **All five lanes share one database connection pool.** Their combined
-  worst-case concurrent handler count is 10 (fast 2 + render 3 + bulk 3 +
-  pexels 1 + ai_meme_backfill 1) — this used to exactly match pg's implicit
-  default pool limit (also 10), leaving no spare connection for admin/reader
-  traffic when all five lanes were simultaneously busy. **Resolved in PR
-  #288**: the pool's `max` is now explicit and derived from measured
-  production headroom (20, doubling the lanes' worst case) instead of the
-  implicit default — see
+  worst-case concurrent handler count is 10 at **default** settings (fast 2 +
+  render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1) — this used to exactly
+  match pg's implicit default pool limit (also 10), leaving no spare
+  connection for admin/reader traffic when all five lanes were simultaneously
+  busy at those defaults. Each lane's concurrency is independently
+  environment-configurable with no aggregate cap, so raising any of them past
+  its default moves the real worst case above 10. **Resolved in PR #288**:
+  the pool's `max` is now explicit and derived from measured production
+  headroom (20, doubling the lanes' **default** worst case) instead of the
+  implicit default. `DB_POOL_MAX` needs reconsidering whenever lane
+  concurrency is raised, not only when the autoscale ceiling is — see
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues)
   for the arithmetic.
 - **Retention is not an audit log.** Old `done`/`failed` rows are purged after
