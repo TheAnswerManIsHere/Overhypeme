@@ -10,10 +10,7 @@
  * same normalization defect in both copies at once — this script is the
  * mechanical guard against a future correction landing on only one of them.
  *
- * Run with: artifacts/api-server/node_modules/.bin/tsx scripts/check-return-to-parity.mjs
- * (not wired into a package.json script or CI yet — the two test suites
- * already pin the current behavior; this is an extra cross-check, not a
- * merge gate, unless that's wanted as a standing addition.)
+ * Run with: pnpm run check:return-to-parity (wired into the Build workflow).
  */
 import { getSafeReturnTo as clientGetSafeReturnTo } from "../artifacts/overhype-me/src/lib/safe-return-to.ts";
 import { getSafeReturnTo as serverGetSafeReturnTo } from "../artifacts/api-server/src/lib/safeReturnTo.ts";
