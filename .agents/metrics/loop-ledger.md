@@ -76,6 +76,9 @@ and a round target would score both backwards.
 | 8 | [#283](https://github.com/TheAnswerManIsHere/Overhypeme/pull/283) | prose/contract | 3 | 116 | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.0 | — | none | ✓ **0%** (1/1, full population) | Merged. A bugfix by intent, but the script cohorts it `prose/contract` because the diff carries `docs/engineering/deferred-work.md` and that cohort includes mixed — the same leakage as row 5; see the cohort note below. `review hrs` is a **measured** 0.0 (2m52s from open to review), not an unmeasured blank. The single finding: a code comment cited a `docs/plans/` path that only ever existed on a never-merged plan-review branch — a recurrence of the retired mistake in [`plan-doc-path-never-cite-from-code.md`](../memory/plan-doc-path-never-cite-from-code.md), caught by review rather than by the guard that memory note was supposed to be. |
 | 9 | [#284](https://github.com/TheAnswerManIsHere/Overhypeme/pull/284) | bugfix | 5 | 18 | 71 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | **n/a — clean loop** | 5.1 | — | none | ✓ **0%** (1/1, full population) | Merged. **The ledger's first `bugfix`-cohort row**, and the first to exercise the "every finding invalid" branch. The sole finding argued the route deletion was an intentional behavior change requiring Tier C ceremony and a plan; the author rebutted with a repo-wide grep showing no caller of the removed soft-phase PII-scrub path, and David — shown that nuance explicitly — confirmed Tier A stands. Invalid subcase (b) with (a) support, so the denominator is zero: `n/a`, never `0%`. |
 | 10 | [#285](https://github.com/TheAnswerManIsHere/Overhypeme/pull/285) | plan-review | 1 | 1128 | 0 | 5 | 36 | 18 | 6 | 12 | 0 | 0 | **50.0%** | 3.4 | — | none | ✓ **8.3%** (3/36, full population) | Closed unmerged (documentation-backfill plan, approved 2026-07-30 for execution on a normal branch). `pre-open preflight` is blank, not zero: this loop rode the session's pre-existing designated branch (decision 8 in the plan) rather than a freshly cut `plan-review/*` branch, so "branch cut → PR open" has no clean start point to measure from. `breakers fired: none` — 5 rounds, well inside the ~20-round soft cap, no non-convergence escalation. 3 of 36 adjudication disagreements, all on the new-ground/self-inflicted boundary or a same-side prop↔wrong-fix reclassification (R4-11); two of the three (R3-4, R4-4) cross that boundary in opposite directions and net to the same total, so the author's 50.0% self-inflicted share and the adjudicator's independently-computed share are identical despite the per-finding disagreements. |
+| 11 | [#289](https://github.com/TheAnswerManIsHere/Overhypeme/pull/289) | prose/contract | 8 | 146 | 45 | 2 | 9 | — | — | — | — | — | *not classified* | 1.0 | — | — | ✗ **not run** | Merged. PR 0 of the documentation-backfill pass (plan approved via #285, row 10) — the reading-order TOC, orientation section, and putting `docs/manual` behind the docs-accuracy gate. **Mechanical columns only** — deferred alongside #280 and #288 in one batch decision; see *Rows 11–13* below for why a loop this small (9 findings, 2 rounds) still went mechanical-only rather than being classified on the spot. |
+| 12 | [#280](https://github.com/TheAnswerManIsHere/Overhypeme/pull/280) | plan-review | 2 | 3574 | 0 | 18 | 180 | — | — | — | — | — | *not classified* | 34.7 | — | — | ✗ **not run** | Closed unmerged. NCMEC CyberTipline submission + safety admin surface, plan review. **Mechanical columns only** — see *Rows 11–13* below. Now the largest loop in this ledger: 180 findings across 18 rounds, surpassing #279's 166/32. The PR's own findings ledger in the body narrates "158 findings" through round 17 (`docs/plans/HANDOFF_NCMEC_PLAN_REVIEW.md`, committed in this PR's diff); the script-derived total from the fully paginated MCP snapshot — which includes the round-18 review that had already completed by the time this row was computed — is 180. That gap is exactly the narrated-vs-counted discrepancy this ledger exists to catch (see row 3's rounds-narration gap), so 180 is what's recorded, not 158. Rounds reconcile exactly either way: 18 completed `chatgpt-codex-connector` review events. |
+| 13 | [#288](https://github.com/TheAnswerManIsHere/Overhypeme/pull/288) | prose/contract | 21 | 2749 | 15 | 5 | 20 | — | — | — | — | — | *not classified* | 1.6 | — | — | ✗ **not run** | Merged. Phase 1 of async-queue hardening — worker liveness + Queue Health surface (plan approved via #282, row 7). Cohort is `prose/contract` despite being overwhelmingly code (2749 of 2764 added lines) because the diff carries the two feature-mode-required `PR288_*` docs (TEST_RUN, UAT) and `classifyCohort` checks for any `.md` file before the fix-tier field — the same leakage rows 5/8 hit on bugfix PRs, here landing on a feature-mode PR instead. **Mechanical columns only** — see *Rows 11–13* below. |
 
 ### Row 6 (#279): judgment half deferred by decision
 
@@ -101,6 +104,31 @@ signal it carries. It is not `n/a — clean loop` — #279 has 166 findings,
 which is the opposite of nothing to measure. Row 6 is excluded from the
 self-inflicted-share trend and must not be read as either a pass or a
 failure. Its **mechanical** columns are fully derived and sound on their own.
+
+### Rows 11–13 (#289, #280, #288): same deferral, a mixed reason
+
+Row 6 deferred #279's judgment half for one reason: sheer scale. Rows 11–13 got the
+identical mechanical-only treatment for **two different reasons that happen to land on
+three PRs closed the same day**, and the two should not be conflated into one justification
+that doesn't actually cover all three.
+
+- **#280 is scale, exactly like row 6.** 180 findings across 18 rounds — now the largest
+  loop in this ledger, surpassing #279's 166/32. Classifying 180 individual findings' causes
+  and then blind-adjudicating the full population is a multi-hour undertaking on its own,
+  the same argument row 6 made for #279.
+- **#289 and #288 are not large** (9 findings/2 rounds; 20 findings/5 rounds — well inside
+  the range this ledger classifies routinely, e.g. row 5's 1 finding or row 10's 36) **but
+  were deferred anyway, for a reason distinct from scale:** the session that owed this
+  ledger entry was simultaneously mid-implementation on an actively-reviewed, CI-blocked PR
+  (#293) and did not have the turn-budget to run full causal classification plus blind
+  adjudication across three PRs in one sitting. That is stated plainly rather than dressed
+  up as a scale argument it isn't — #289's and #288's judgment halves are cheap to add in a
+  later pass, unlike #280's.
+
+Same `not classified` semantics as row 6 apply to all three: distinct from `unmeasured`
+(reserved for a loop whose blind adjudication disagreed beyond the 20% gate) and from
+`n/a — clean loop` (reserved for zero valid findings) — these rows have real findings,
+simply not yet causally classified.
 
 ### What the classified plan-review rows now show
 
