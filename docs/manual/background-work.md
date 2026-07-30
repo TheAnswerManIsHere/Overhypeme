@@ -74,15 +74,11 @@ each job costs**:
 - **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
   fact (root or variant). Both are deliberately serialized to one job at a
   time, because both spend money or rate-limit budget at an external provider.
-  `ai_meme_backfill` goes further and is **never retried automatically**: it
-  saves each image as it goes, so re-running a half-finished set would pay for
-  the slots that already succeeded.
 
-Choosing a lane is a one-line decision when a queue is registered, and it
-changes **only scheduling** — retries, dedupe, and ordering behave the same in
-every lane. A job that fails is retried with increasing backoff and marked
-failed only once its attempt budget is spent. The per-lane poll intervals,
-concurrency bounds, and queue assignments live in
+Choosing a lane is a one-line decision when a queue is registered, and what it
+buys is isolation — nothing else about how a job behaves. The poll intervals,
+concurrency bounds, queue assignments, retry semantics, and the one queue that
+deliberately opts out of automatic retries all live in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues);
 this chapter doesn't restate them.
 
@@ -93,21 +89,31 @@ rides the `bulk` lane like any other batch work, but it is worth calling out
 because it is the one queue whose failures reach a real person's inbox, and it
 carries three behaviors nothing else does:
 
-- **A bad API key disables sending process-wide, immediately.** If the email
-  provider rejects our credentials, the app stops attempting delivery rather
-  than burning every queued message's retry budget against a key that cannot
-  work. Delivery resumes after the key is rotated and the process restarts.
-- **An abandoned email tells the admins.** When a message exhausts its retries,
-  it doesn't just get marked failed and forgotten — the admin team is notified,
-  because a silently undelivered password reset looks identical to a user who
-  simply never clicked.
+- **A rejected API key stops delivery attempts process-wide, immediately** —
+  and that is not the same as pausing them. Once the provider rejects our
+  credentials, no further calls are made for the life of that process, but
+  each queued message that comes up for delivery still fails, still consumes
+  one of its retry attempts, and can exhaust its budget and be marked failed.
+  So rotating the key and restarting resumes sending, but it does **not**
+  guarantee everything queued during the outage is still deliverable.
+- **An abandoned email can alert the admins — if that alert is switched on.**
+  When a message exhausts its retries it would otherwise just be marked failed
+  and forgotten, which matters because a silently undelivered password reset
+  looks identical to a user who never clicked. The alert is **off by default**
+  and only fires when the abandoned-email alert setting is explicitly enabled,
+  so a fresh or local environment gets no notification.
 - **That alert is exempt from the usual cleanup.** Ordinary email rows are
-  purged on a retention schedule; the alert thread about a failed email is
+  purged on a retention schedule; the alert about a failed email is
   deliberately kept, so the evidence outlives the thing it is evidence about.
 
-When delivery isn't configured at all (local development), emails are logged
-rather than sent, and queued rows are left pending instead of being consumed —
-so nothing is lost and nothing is faked.
+When delivery isn't configured at all (local development), the two directions
+behave differently, and the distinction matters:
+
+- A **newly sent** email is logged and returns — it is **never queued**, so it
+  will not be delivered later once a key is configured. Nothing is faked, but
+  nothing is stored either.
+- A row **already in the queue** is left pending and retried later rather than
+  being consumed and failed, so genuinely queued work survives.
 
 ## Why it works this way
 
