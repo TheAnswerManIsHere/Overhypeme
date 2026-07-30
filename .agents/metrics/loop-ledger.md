@@ -70,6 +70,7 @@ and a round target would score both backwards.
 | 2 | [#269](https://github.com/TheAnswerManIsHere/Overhypeme/pull/269) | plan-review | 1 | 1111 | 0 | 7 | 40 | 28 | 6 | 5 | 1 | — | **27.5%** | — | none | — | ✗ **unadjudicated** | Closed unmerged. Artifact grew 315→1111 lines (corrected from an earlier 1092 — that was a mid-review `wc -l`, not the file's state at its actual final commit `57ae1148`). `-lines` is genuinely 0: the file was new to `main`, so the base→head diff cannot show a removal of pre-existing content, even though the loop itself rewrote large sections in place across its revisions. |
 | 3 | [#270](https://github.com/TheAnswerManIsHere/Overhypeme/pull/270) | prose/contract | 6 | 1959 | 0 | 16 | 34 | 12 | 18 | 4 | 0 | 0 | **64.7%** | 2.2 | none | none | ✓ **14.7%** (5/34, full population) | First row produced by the mechanism (script over a fully-paginated, attested MCP snapshot), not recalled — the acceptance test for the whole pipeline. `rounds` is 16, not 15: it includes one review event with zero findings that the author's own round-by-round narration missed, exactly the recall-vs-count gap this file exists to close. High propagation share is dominated by defects in subsystems *added mid-loop* (the MCP adapter, the adjudication rubric itself) — the causal test charges those to propagation by design, not because fixes broke pre-existing code. 4 of 5 adjudication disagreements were prop-vs-wrong-fix (both self-inflicted, no effect on the share); the one boundary-crossing disagreement (author: propagation, adjudicator: new ground) makes the author's 64.7% the more self-critical of the two figures (adjudicator's independent share: 61.8%). |
 | 4 | [#276](https://github.com/TheAnswerManIsHere/Overhypeme/pull/276) | prose/contract | 6 | 683 | 35 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | ~6 | none | ✓ **0%** (1/1, full population) | Merged. §1.1 of the plan reviewed on #274, shipped alone after David cut the rest. Cohort is the script's own first-match output — the diff is majority code but carries two `PR276_*` docs, and `prose/contract` includes mixed. The single finding was against the original diff on the auto-review round, so no in-loop fix could have caused it: an empty Stripe catalog completes a sync with every `last_synced_at` still NULL (the pinned library writes that column only in `updateSyncCursor`), and the new module read a missing stamp as "never synced". `pre-open preflight` is wall-clock branch-cut→PR-open, not an estimate of effort. |
+| 5 | [#283](https://github.com/TheAnswerManIsHere/Overhypeme/pull/283) | prose/contract | 3 | 116 | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.0 | <1 | none | ✓ **0%** (1/1, full population) | Merged. Tier B bugfix — the autoscale reclaim-cutoff mitigation (10→30 min) hoisted out of #282's plan review at David's direction. Cohort is the script's own first-match output: `prose/contract` wins on the `deferred-work.md` edit even though the substance is a code fix, same as row 4. `review hrs` is a genuine 0.0, not missing — Codex auto-reviewed 2m52s after the PR opened. `pre-open preflight` is wall-clock first-commit→PR-open (29s); the *diagnosis* that produced this fix happened inside #282's plan-review loop and is attributed there, not double-counted here. The one finding was a code comment citing `docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md`, a path that only ever existed on a never-merged `plan-review/*` branch — raised on the auto-review round against the original diff, so no in-loop fix could have caused it. **Worth reading alongside the row:** `.agents/memory/plan-doc-path-never-cite-from-code.md` already existed and stated exactly this rule before this PR was written, so the memory note did not prevent the mistake — a data point for the standing "a rule broken twice is a candidate for a CI guard, not a better memory" practice. |
 
 ### Row provenance — read before using these numbers
 
@@ -153,4 +154,53 @@ must not be counted as either a pass or a failure in any trend.
 `complete: {reviews, files, reviewThreads}`, run
 `node scripts/loop-metrics.mjs --mcp-snapshot <file>`, adjudicate the 19
 findings blind against the five-category rubric, and fold the row into the
+next PR on any subject.
+
+---
+
+## Owed: PR #282
+
+**A row for [#282](https://github.com/TheAnswerManIsHere/Overhypeme/pull/282) is
+owed.** Unlike #274 above, most of its mechanical half is already counted from
+source and is recorded here so the closing session does not redo it. What is
+missing is stated precisely rather than estimated.
+
+The loop: the async-queue-hardening `[PLAN REVIEW]` draft PR, closed unmerged
+2026-07-29 after David chose to stop and build Phase 1 (which shipped as #288).
+Its final plan file is `ba3c852` on `plan-review/async-queue-hardening`.
+
+**Counted from source, not recalled:**
+
+| Column | Value | How |
+|---|---|---|
+| `cohort` | `plan-review` | Title matches `^\[PLAN REVIEW\]`. |
+| `files` / `+lines` / `-lines` | 1 / 2317 / 0 | `get_files`, single page. `-lines` is genuinely 0 for the same reason as row 2: the plan file was new to `main`, so a base→head diff cannot show removal of pre-existing content even though the loop rewrote large sections in place. |
+| `rounds` | **9** | `get_reviews` paginated to completion (page 2 empty), 9 review events by `chatgpt-codex-connector[bot]`, one per revision `55b4c48` → `60f761b`. |
+| `review hrs` | **6.3** | PR opened 2026-07-29T11:05:37Z → final reviewer event 17:25:18Z. One interval, not a sum. |
+
+**`findings` is NOT yet settled, and the discrepancy is the point.** The PR
+body's hand-maintained findings ledger claims **76** findings. The source says
+**86 review threads** (`get_review_comments`, `totalCount: 86`). Those numbers
+cannot both be right, and per this file's founding rule the hand-maintained one
+is the one to distrust: it is the fourth time in this repo that a figure
+produced by tracking-as-you-go has failed against a figure produced by counting
+the source. The final number still requires the script's own reviewer-root count
+over a fully-paginated `reviewThreads` — thread count is a close proxy but not
+the definition, since a thread rooted by the author rather than the reviewer is
+not a finding.
+
+**The judgment half is not computed.** 86-or-so findings need blind
+adjudication against the five-category rubric, and the author's own
+classification has to exist first — which means reading each finding, not
+re-reading the PR body's round summaries. That is a session's work on its own,
+and this file's rule is that a recalled number is worse than a missing one.
+
+**Not `unmeasured`** — that value is reserved for a loop whose blind
+adjudication disagreed beyond 20%. This row is absent, which is different, and
+must not be counted as either a pass or a failure in any trend.
+
+**To close it:** page `reviewThreads` to completion, assemble the snapshot with
+the mechanical values above (they are already verified), run
+`node scripts/loop-metrics.mjs --mcp-snapshot <file>` for the authoritative
+`findings`, classify each finding, adjudicate blind, and fold the row into the
 next PR on any subject.
