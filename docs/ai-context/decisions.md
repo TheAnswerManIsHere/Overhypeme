@@ -25,11 +25,15 @@
   changes"), approved by David after being presented as a genuine fork
   (touch finalize minimally / accept the classification gap / silently drop
   the distinction for sentinel rows) rather than decided unilaterally.
-- **Why:** The Queue Health surface (below) tells a genuine terminal failure
-  apart from exhausted retries by comparing a row's `attempts` against its
-  effective retry ceiling. For the common case — a row enqueued without a
-  per-row override — that ceiling lived only in `admin_config`, which is
-  mutable and cache-busted. Re-resolving it **live** at read time meant a
+- **Why:** The Queue Health surface (below) classifies a `failed` row as
+  `abandoned_no_retry` — distinct from plain `failed` (retries genuinely
+  exhausted) — via either of two branches: `effectiveMax <= 1` (no retry
+  budget at all, regardless of *why* the one attempt failed) or
+  `attempts < effectiveMax` (the row failed before its ceiling was reached,
+  only reachable via a deterministic `terminalFailure()`). Both branches
+  compare against the row's effective retry ceiling. For the common case —
+  a row enqueued without a per-row override — that ceiling lived only in
+  `admin_config`, which is mutable and cache-busted. Re-resolving it **live** at read time meant a
   historical row that legitimately exhausted retries under an *old, lower*
   ceiling could be silently reclassified as a "terminal, never really tried"
   failure the moment an admin later raised that queue's ceiling — an
