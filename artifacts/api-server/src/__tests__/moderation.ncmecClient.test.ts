@@ -228,15 +228,31 @@ describe("NcmecClient — response-code classification", () => {
     assert.equal(calls.length, 0, "an unconfigured client must not reach the network");
   });
 
-  it("treats a transport failure as retryable", async () => {
+  it("treats a transport failure on /finish as retryable — the id makes a retry a no-op", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status === "err" && result.retryable, true);
+    assert.equal(result.status === "err" && result.kind, "network");
+    assert.equal(result.status === "err" && result.responseCode, null);
+  });
+
+  it("does NOT treat a transport failure on /submit as retryable — no reportId to reconcile against", async () => {
+    // /submit is the one call in the sequence with no id yet. A retry after a lost response
+    // cannot tell "NCMEC never saw it" from "NCMEC opened a report and the ack was lost" —
+    // and in the second case a retry files a second report for the same hit with no way to
+    // find the first.
     const fetchImpl = (async () => {
       throw new Error("ECONNRESET");
     }) as unknown as typeof fetch;
     const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
     const result = await instance.submitReport("<report/>");
-    assert.equal(result.status === "err" && result.retryable, true);
-    assert.equal(result.status === "err" && result.kind, "network");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
     assert.equal(result.status === "err" && result.responseCode, null);
+    assert.match(result.status === "err" ? result.message : "", /not retrying automatically/);
   });
 
   it("treats success-with-a-missing-element as terminal, not as something to repeat", async () => {
@@ -325,6 +341,30 @@ describe("NcmecClient — parser hardening", () => {
     const { instance } = client('<?xml version="1.0"?><somethingElse><responseCode>0</responseCode></somethingElse>');
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("rejects a mismatched closing tag instead of trusting the fields it can still find", async () => {
+    // XMLParser.parse() does not validate well-formedness by default: fed a body whose
+    // <reportId> is closed by an unrelated tag, it still returns the responseCode it managed
+    // to read, and a caller trusting that would have reported /finish as successful for a
+    // truncated or corrupted document. XMLValidator must catch this before any field is read.
+    const { instance } = client(
+      "<reportDoneResponse><responseCode>0</responseCode><reportId>123</wrong></reportDoneResponse>",
+    );
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /well-formed/);
+  });
+
+  it("rejects a document with more than one root element", async () => {
+    const { instance } = client(
+      "<reportResponse><responseCode>0</responseCode></reportResponse><reportResponse><responseCode>0</responseCode></reportResponse>",
+    );
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /well-formed/);
   });
 });
 

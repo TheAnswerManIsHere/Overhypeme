@@ -34,6 +34,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 import {
   CONTENT_ORIGINS,
@@ -193,7 +194,7 @@ describe("migration 0095 — static contract", () => {
 
   it("the unique quarantine index is created after the backfill, not before", () => {
     const backfillAt = MIGRATION_SQL.indexOf(BACKFILL_START);
-    const indexAt = MIGRATION_SQL.indexOf('CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"');
+    const indexAt = MIGRATION_SQL.indexOf('UQ_ncmec_reports_quarantine');
     assert.ok(backfillAt >= 0 && indexAt >= 0);
     assert.ok(
       backfillAt < indexAt,
@@ -309,6 +310,42 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
     assert.ok(raised, `expected ${sql} to raise, but it succeeded`);
     assert.match(String((raised as Error).message), messageLike);
+  }
+
+  /**
+   * Run `sql` as a genuinely separate, authenticated, non-superuser connection.
+   *
+   * `SET ROLE` cannot be tested by nesting it inside `SET ROLE` on the shared
+   * pool connection, the way every other role-scoped assertion in this file
+   * does it. Verified directly: `SET ROLE target` is authorized against
+   * **`session_user`**, not `current_user` — so once a session has
+   * authenticated as a superuser, every subsequent `SET ROLE`, no matter how
+   * many deep, succeeds regardless of the currently-assumed role's real
+   * grants, because the superuser `session_user` never stops being the one
+   * `SET ROLE` actually checks. `pg_has_role()` has no such quirk (it is a
+   * plain catalog query keyed on whatever role name is passed to it), which
+   * is why every other test in this file can safely use `SET ROLE` on the
+   * shared connection — they gate on `pg_has_role`, not on `SET ROLE` itself
+   * succeeding or failing. The migration's new ownership-assumption guard
+   * gates on `SET ROLE` succeeding or failing, so testing it honestly
+   * requires a connection whose `session_user` really is the restricted role
+   * — a fresh `psql` process authenticating with that role's own password.
+   */
+  function execSqlAsLoginRole(login: string, password: string, sql: string): { ok: boolean; output: string } {
+    assert.ok(pool, "pool unavailable");
+    const dbUrl = new URL(process.env.DATABASE_URL!);
+    dbUrl.username = login;
+    dbUrl.password = password;
+    try {
+      const output = execFileSync("psql", [dbUrl.toString(), "-v", "ON_ERROR_STOP=1", "-c", sql], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { ok: true, output };
+    } catch (err) {
+      const e = err as { stdout?: Buffer | string; stderr?: Buffer | string };
+      return { ok: false, output: `${String(e.stdout ?? "")}${String(e.stderr ?? "")}` };
+    }
   }
 
   it("adds every ncmec_reports column the later phases write", async (t) => {
@@ -509,27 +546,65 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       assert.deepEqual(rows.map((r) => r.member), [], "overhype_audit_maintenance must be granted to nobody");
     });
 
+    /**
+     * Both of these tests mutate real, COMMITTED state (a fresh LOGIN role must be
+     * committed for a separate `psql` process to authenticate as it — see
+     * `execSqlAsLoginRole`), unlike every other test in this file. Ownership is always
+     * restored and the roles always dropped in `finally`, run against the shared `pool`
+     * directly rather than through `inRolledBackTx`.
+     */
+    async function withOwnershipTransferredToRestrictedRole(
+      mutate: (owner: string, app: string, appPassword: string) => Promise<void>,
+      run: (app: string, appPassword: string) => Promise<void>,
+    ): Promise<void> {
+      assert.ok(pool, "pool unavailable");
+      const owner = `ncmec_own_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE ROLE ${owner} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await mutate(owner, app, appPassword);
+        await run(app, appPassword);
+      } finally {
+        // Ownership must move back to the pool's own role before either temp role can be
+        // dropped, and before the shared table/function are usable by later tests again.
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        // The "guards are missing" test drops a trigger and never gets far enough (by
+        // design) to have it recreated. Re-running the guard block now, as the pool's own
+        // role which owns everything again, cleanly recreates or verifies both — restoring
+        // full protection for every test that runs after this one.
+        await pool.query(auditGuardBlock());
+        // DROP ROLE refuses a role that still holds any GRANT, not only ownership — the
+        // SELECT/INSERT grants above must go too, or the drop fails with "role cannot be
+        // dropped because some objects depend on it".
+        await pool.query(`DROP OWNED BY ${owner}`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${owner}`);
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+      }
+    }
+
     it("re-runs cleanly when the ledger is owned by a role this session cannot touch", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // The recovery case: schema survived, migration tracking did not. After the DBA
       // hardening step an unguarded `CREATE OR REPLACE FUNCTION` fails with "must be owner
       // of function", so the guard must verify-and-continue instead.
-      await inRolledBackTx(async (client) => {
-        const owner = `ncmec_own_${randomUUID().slice(0, 8)}`;
-        const app = `ncmec_app_${randomUUID().slice(0, 8)}`;
-        await client.query(`CREATE ROLE ${owner} NOLOGIN`);
-        await client.query(`CREATE ROLE ${app} NOLOGIN`);
-        await client.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
-        await client.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
-        await client.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
-
-        // As a role that is a member of neither the owner nor the maintenance role — which
-        // is the whole point, since a superuser is an implicit member of both and would make
-        // this assertion vacuous.
-        await client.query(`SET ROLE ${app}`);
-        await client.query(auditGuardBlock());
-        await client.query("RESET ROLE");
-      });
+      await withOwnershipTransferredToRestrictedRole(
+        async (owner, app) => {
+          await pool!.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+          await pool!.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
+          await pool!.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
+        },
+        async (app, appPassword) => {
+          // A role that is a member of neither the owner nor the maintenance role — the
+          // whole point, and now genuinely tested: this is `session_user`, not a nested
+          // `SET ROLE` on a superuser connection.
+          const result = execSqlAsLoginRole(app, appPassword, auditGuardBlock());
+          assert.ok(result.ok, `expected the guard block to succeed cleanly; got: ${result.output}`);
+        },
+      );
     });
 
     it("refuses to continue when the ledger is unreachable AND its guards are missing", async (t) => {
@@ -537,20 +612,19 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       // Verify-and-continue is only correct while the guards are actually there. With them
       // gone and no way to recreate them, finishing quietly would leave the ledger
       // unguarded — which is worse than a failed migration.
-      await inRolledBackTx(async (client) => {
-        const owner = `ncmec_own_${randomUUID().slice(0, 8)}`;
-        const app = `ncmec_app_${randomUUID().slice(0, 8)}`;
-        await client.query(`CREATE ROLE ${owner} NOLOGIN`);
-        await client.query(`CREATE ROLE ${app} NOLOGIN`);
-        await client.query(`DROP TRIGGER ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
-        await client.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
-        await client.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
-        await client.query(`GRANT SELECT ON ncmec_safety_audit_log TO ${app}`);
-
-        await client.query(`SET ROLE ${app}`);
-        await expectRaises(client, auditGuardBlock(), /refusing to leave the ledger unguarded/);
-        await client.query("RESET ROLE");
-      });
+      await withOwnershipTransferredToRestrictedRole(
+        async (owner, app) => {
+          await pool!.query(`DROP TRIGGER ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
+          await pool!.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+          await pool!.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
+          await pool!.query(`GRANT SELECT ON ncmec_safety_audit_log TO ${app}`);
+        },
+        async (app, appPassword) => {
+          const result = execSqlAsLoginRole(app, appPassword, auditGuardBlock());
+          assert.equal(result.ok, false, "expected the guard block to fail");
+          assert.match(result.output, /refusing to leave the ledger unguarded/);
+        },
+      );
     });
 
     it("does not count a replica-only trigger as an enforced boundary", async (t) => {
@@ -769,6 +843,30 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
       // And a second application on top, which is what a partially-recovered deployment does.
       await client.query(executableMigration());
+    });
+  });
+
+  it("refuses to accept a same-named quarantine index whose definition is wrong", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // A partially recovered or manually drifted database could have an index called
+    // "UQ_ncmec_reports_quarantine" that is not this migration's constraint at all — not
+    // unique, or missing the predicate. `CREATE UNIQUE INDEX IF NOT EXISTS` would accept the
+    // name and record 0095 as applied while the correctness constraint stayed absent.
+    await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+      // First bring the database to a genuine 0095 state, so quarantine_id exists to index.
+      await client.query(executableMigration());
+      // Then swap the real (correct) index for a wrong one under the same name — not
+      // unique, so two reports could still claim one quarantine hit — and rerun.
+      await client.query(`DROP INDEX "UQ_ncmec_reports_quarantine"`);
+      await client.query(
+        `CREATE INDEX "UQ_ncmec_reports_quarantine" ON ncmec_reports (quarantine_id)`,
+      );
+      await expectRaises(
+        client,
+        executableMigration(),
+        /already exists but is not the exact unique constraint/,
+      );
     });
   });
 

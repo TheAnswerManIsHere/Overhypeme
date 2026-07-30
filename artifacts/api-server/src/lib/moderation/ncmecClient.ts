@@ -32,7 +32,7 @@
  * categorically.
  */
 
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 import { logger } from "../logger";
 
@@ -102,6 +102,13 @@ export const NCMEC_MAX_NESTED_TAGS = 50;
 export type NcmecErrorKind =
   /** No response at all — DNS, connection, timeout, abort. */
   | "network"
+  /**
+   * A `/submit` call whose response never arrived, so it is unknown whether NCMEC opened a
+   * report before the failure. Always `retryable: false` — unlike every other endpoint, a
+   * blind retry here is not a safe no-op, because no `reportId` exists yet to hand the
+   * retract-first guard. See `submitReport()`.
+   */
+  | "ambiguous"
   /** A response arrived but the body was absent, oversized, hostile, or unparseable. */
   | "malformed"
   /** A non-2xx HTTP status whose body carried no usable `<responseCode>`. */
@@ -309,6 +316,19 @@ function listOf(value: unknown): string[] {
 function parseEnvelope(xml: string): ParsedEnvelope {
   assertNoDoctype(xml);
 
+  // `XMLParser.parse()` does not validate well-formedness by default — it happily returns
+  // a value for a document with a mismatched closing tag, a truncated tail, or more than one
+  // root element, so long as the fields it does manage to read look right. A body like
+  // `<reportDoneResponse><responseCode>0</responseCode><reportId>123</wrong>` would parse a
+  // clean responseCode from that and report success. XMLValidator.validate() is fast-xml-
+  // parser's own well-formedness check; running it first means a mismatched, truncated, or
+  // multi-root document is rejected at the parser boundary instead of by accident, later,
+  // whenever some other field happens to be missing.
+  const validation = XMLValidator.validate(xml);
+  if (validation !== true) {
+    throw new NcmecResponseError("malformed", `ISPWS response was not well-formed XML: ${validation.err.msg}`);
+  }
+
   let parsed: Record<string, unknown>;
   try {
     parsed = parser.parse(xml) as Record<string, unknown>;
@@ -469,7 +489,25 @@ export class NcmecClient {
       // non-ASCII characters can be mistransmitted.
       contentType: "text/xml; charset=utf-8",
     });
-    if ("status" in result) return result;
+    if ("status" in result) {
+      // `call()`'s generic "network" classification (retryable — nothing is known to be
+      // wrong) is correct everywhere else in this client, but not here. `/submit` is the one
+      // endpoint that creates state with no id this method has yet recovered: if NCMEC
+      // accepted the report and opened it before the connection dropped, a retry does not
+      // repeat a no-op — it opens a SECOND report for the same hit, and the retract-first
+      // guard has nothing to retract against because no reportId was ever persisted. Every
+      // other endpoint either mutates nothing until a report already exists, or carries its
+      // own id so a retry IS a no-op — this downgrade is deliberately scoped to /submit alone.
+      if (result.kind === "network" && result.retryable) {
+        return {
+          ...result,
+          retryable: false,
+          kind: "ambiguous",
+          message: `${result.message} — not retrying automatically: ISPWS may have already opened a report, and no reportId was recovered to reconcile against. Requires manual review.`,
+        };
+      }
+      return result;
+    }
     const reportId = textOf(result.values["reportId"]);
     if (!reportId) {
       return missingElement("/submit", "reportId");

@@ -330,8 +330,47 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_failed_unalerted"
 -- filable ones. Postgres permits many NULLs in a unique index, so unlinked
 -- legacy rows are unaffected. Created AFTER the backfill, so a pre-existing
 -- duplicate surfaces here rather than being silently skipped.
-CREATE UNIQUE INDEX IF NOT EXISTS "UQ_ncmec_reports_quarantine"
-  ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
+--
+-- Verified, not merely named: `CREATE UNIQUE INDEX IF NOT EXISTS` accepts any
+-- pre-existing object with this name regardless of its actual definition. A
+-- partially recovered or manually drifted database could have a same-named
+-- index that is not unique, is on the wrong column, or has no predicate — the
+-- constraint that makes concurrent orphan sweeps converge would be silently
+-- absent while this migration is recorded as having applied it cleanly. So
+-- this inspects pg_index directly (unique, exactly one key column —
+-- quarantine_id — and the exact predicate) rather than trusting the name, and
+-- only creates the index when none exists yet.
+DO $$
+DECLARE
+  ix_oid oid;
+  is_correct boolean;
+BEGIN
+  SELECT c.oid INTO ix_oid
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relname = 'UQ_ncmec_reports_quarantine' AND n.nspname = 'public';
+
+  IF ix_oid IS NOT NULL THEN
+    SELECT
+      i.indisunique
+      AND i.indnkeyatts = 1
+      AND i.indkey[0] = (
+        SELECT attnum FROM pg_attribute
+         WHERE attrelid = i.indrelid AND attname = 'quarantine_id'
+      )
+      AND pg_get_expr(i.indpred, i.indrelid) = '(quarantine_id IS NOT NULL)'
+      INTO is_correct
+      FROM pg_index i
+     WHERE i.indexrelid = ix_oid;
+
+    IF NOT is_correct THEN
+      RAISE EXCEPTION '0095: an index named "UQ_ncmec_reports_quarantine" already exists but is not the exact unique constraint this migration requires (unique on ncmec_reports(quarantine_id) WHERE quarantine_id IS NOT NULL). This is the constraint that keeps two concurrent orphan sweeps from filing two reports for one quarantine hit; refusing to silently accept a wrong or drifted index. Inspect it with: SELECT indexdef FROM pg_indexes WHERE indexname = ''UQ_ncmec_reports_quarantine''; — then drop it and rerun this migration.';
+    END IF;
+  ELSE
+    CREATE UNIQUE INDEX "UQ_ncmec_reports_quarantine"
+      ON "ncmec_reports" ("quarantine_id") WHERE "quarantine_id" IS NOT NULL;
+  END IF;
+END $$;
 --> statement-breakpoint
 
 -- ─── 6. ncmec_safety_audit_log — append-only ────────────────────────────────
@@ -469,11 +508,11 @@ END $$;
 -- >>> ncmec-0095 audit guard block (start)
 DO $outer$
 DECLARE
-  fn_owner   oid;
-  tbl_owner  oid;
-  can_fn     boolean;
-  can_tbl    boolean;
-  trg_count  int;
+  fn_owner       oid;
+  tbl_owner      oid;
+  can_fn         boolean := false;
+  can_tbl        boolean := false;
+  trg_count      int;
 BEGIN
   SELECT p.proowner INTO fn_owner
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -482,10 +521,46 @@ BEGIN
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public';
 
-  can_fn  := fn_owner IS NULL OR pg_has_role(current_user, fn_owner, 'usage');
-  can_tbl := tbl_owner IS NOT NULL AND pg_has_role(current_user, tbl_owner, 'usage');
+  -- Can this role actually BECOME the owner via SET ROLE? `pg_has_role(..., 'usage')`
+  -- is NOT this question — verified directly against this repository's PostgreSQL 16
+  -- target: a role granted membership with INHERIT FALSE, SET TRUE reports
+  -- `usage = false` (correctly — the owner's privileges are not automatically available)
+  -- while `SET ROLE` to it still succeeds and hands over its full privileges, including
+  -- `ALTER TABLE ... DISABLE TRIGGER`. `usage` alone would have under-reported capability
+  -- here — the opposite direction from a security bug, but it also means a role that
+  -- genuinely can complete the hardening step (SET-only, no INHERIT) would have been
+  -- wrongly told it cannot, and would fall through to the exception branch below on a
+  -- database it could actually service. Tested by attempting the SET, not by asking a
+  -- catalog function that does not answer this question. If the object does not exist
+  -- yet, or this session already IS the owner, no role switch is needed at all.
+  IF fn_owner IS NULL OR fn_owner = to_regrole(current_user) THEN
+    can_fn := true;
+  ELSE
+    BEGIN
+      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(fn_owner));
+      can_fn := true;
+    EXCEPTION WHEN OTHERS THEN
+      can_fn := false;
+    END;
+    RESET ROLE;
+  END IF;
+
+  IF tbl_owner IS NOT NULL AND tbl_owner = to_regrole(current_user) THEN
+    can_tbl := true;
+  ELSIF tbl_owner IS NOT NULL THEN
+    BEGIN
+      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(tbl_owner));
+      can_tbl := true;
+    EXCEPTION WHEN OTHERS THEN
+      can_tbl := false;
+    END;
+    RESET ROLE;
+  END IF;
 
   IF can_fn THEN
+    IF fn_owner IS NOT NULL AND fn_owner <> to_regrole(current_user) THEN
+      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(fn_owner));
+    END IF;
     EXECUTE $fn$
       CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $body$
       BEGIN
@@ -493,6 +568,15 @@ BEGIN
         -- not exist, so without it a deployment that could not create the role would block
         -- every operation with a confusing "role does not exist" error instead of this one.
         -- Fails closed either way; this fails closed legibly.
+        --
+        -- 'usage' here is deliberate and correct, unlike the migration-guard use above:
+        -- this predicate decides whether an ordinary application statement should be let
+        -- through, and an ordinary statement runs with whatever the session's INHERITED
+        -- privileges already are — it never issues its own SET ROLE. A maintenance session
+        -- that reaches this point via SET ROLE has current_user *equal to* the maintenance
+        -- role, under which 'usage' is trivially true; a session that only *could* SET ROLE
+        -- but has not is correctly still blocked here, exactly as it should be until it
+        -- actually assumes the role.
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
            OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
           RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
@@ -506,9 +590,13 @@ BEGIN
         RETURN NEW;
       END; $body$ LANGUAGE plpgsql;
     $fn$;
+    RESET ROLE;
   END IF;
 
   IF can_tbl THEN
+    IF tbl_owner IS NOT NULL AND tbl_owner <> to_regrole(current_user) THEN
+      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(tbl_owner));
+    END IF;
     -- DROP IF EXISTS before each CREATE, because this migration is required to be
     -- rerunnable and an unguarded CREATE TRIGGER fails on the second pass.
     EXECUTE 'DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON "ncmec_safety_audit_log"';
@@ -523,16 +611,30 @@ BEGIN
     EXECUTE 'CREATE TRIGGER ncmec_safety_audit_log_no_truncate
                BEFORE TRUNCATE ON "ncmec_safety_audit_log"
                FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
+    RESET ROLE;
   ELSE
+    -- Verified with the SAME rigor as ncmecAuditBoundaryStatus() (lib/db/src/index.ts) —
+    -- name and tgenabled alone are not enough. A same-named trigger recreated wrong during
+    -- a hardening step (wrong function, wrong events, or left REPLICA-only) would satisfy a
+    -- name+enabled check while leaving the ledger genuinely unguarded, and this branch is
+    -- the one case where the migration cannot fall back on creating the real thing itself.
     SELECT count(*) INTO trg_count
       FROM pg_trigger t
      WHERE t.tgrelid = '"ncmec_safety_audit_log"'::regclass
        AND t.tgname IN ('ncmec_safety_audit_log_no_mutate', 'ncmec_safety_audit_log_no_truncate')
-       AND t.tgenabled IN ('O', 'A');
+       AND t.tgenabled IN ('O', 'A')
+       AND t.tgfoid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure
+       -- tgtype bits: 1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
+       AND (t.tgtype & 2) = 2
+       AND CASE t.tgname
+             WHEN 'ncmec_safety_audit_log_no_mutate'
+               THEN (t.tgtype & 1) = 1 AND (t.tgtype & 8) = 8 AND (t.tgtype & 16) = 16
+             ELSE (t.tgtype & 32) = 32
+           END;
     IF trg_count = 2 THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role and both append-only triggers are already present and enabled — leaving them alone.';
+      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role and both append-only triggers are already present, enabled and correctly wired — leaving them alone.';
     ELSE
-      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session is not a member of, and only % of the 2 append-only triggers are present and origin-enabled. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.', trg_count;
+      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session cannot assume, and the append-only triggers are not both present, origin-enabled, and correctly wired to the guard function. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.';
     END IF;
   END IF;
 END $outer$;

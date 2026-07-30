@@ -131,11 +131,14 @@ export interface NcmecAuditBoundaryStatus {
   tableOwner: string;
   /** True when the maintenance role exists at all — the triggers fail closed without it. */
   maintenanceRoleExists: boolean;
-  /** True when the application role could grant itself the maintenance bypass. */
+  /** True when the application role can `SET ROLE` to the maintenance role. */
   applicationCanBypassTrigger: boolean;
   /**
-   * True when the application role owns the table and could therefore run
-   * `ALTER TABLE … DISABLE TRIGGER` regardless of what the triggers say.
+   * True when the application role can `SET ROLE` to the table's owner, and
+   * could therefore run `ALTER TABLE … DISABLE TRIGGER` regardless of what
+   * the triggers say. Named `applicationOwnsTable` for the property it
+   * guards (ownership-equivalent access), not literal `pg_class.relowner`
+   * equality — `SET ROLE` to the owner is exactly as dangerous as being it.
    */
   applicationOwnsTable: boolean;
   /** Both append-only triggers present and enabled. */
@@ -161,6 +164,50 @@ export interface NcmecAuditBoundaryStatus {
  * into it. `boundaryEnforced` is the single predicate callers want:
  * `!applicationOwnsTable && !applicationCanBypassTrigger && triggersEnabled`.
  */
+/**
+ * Can this connection actually become `role` via `SET ROLE`?
+ *
+ * `pg_has_role(current_user, role, 'usage')` is NOT the right question here,
+ * and using it was a real defect this function replaces: `usage` reports
+ * whether `role`'s privileges are available *without* `SET ROLE` (i.e. the
+ * membership grants `INHERIT`). A membership granted `INHERIT FALSE, SET
+ * TRUE` — a normal, supportable grant shape — reports `usage = false` while
+ * `SET ROLE role` still succeeds and hands the session that role's full
+ * privileges, including the ability to `ALTER TABLE … DISABLE TRIGGER` or
+ * bypass the append-only gate. Verified directly against this repository's
+ * PostgreSQL 16 target: a role granted with exactly that shape shows
+ * `pg_has_role(..., 'usage') = false` and `SET ROLE` succeeding regardless.
+ *
+ * There is no single `pg_has_role` privilege type that answers "can this
+ * session `SET ROLE` to X" — `MEMBER` ignores both `INHERIT` and `SET`,
+ * `USAGE` tests only `INHERIT`. So this asks Postgres directly: attempt the
+ * `SET ROLE` inside a transaction that is always rolled back, and observe
+ * whether it raised. A dedicated client is used (not `pool.query`, whose
+ * BEGIN/ROLLBACK could interleave across pooled connections) so the
+ * transaction is guaranteed to run start-to-finish on one connection.
+ */
+async function canAssumeRole(role: string): Promise<boolean> {
+  // SET ROLE takes an identifier, not a bind parameter — quoted per Postgres'
+  // own rule (wrap in double quotes, double any embedded double quote), not
+  // JSON escaping, which follows different rules. `role` is always sourced
+  // from catalog data or a hardcoded constant here, never external input.
+  const quotedRole = `"${role.replace(/"/g, '""')}"`;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    try {
+      await client.query(`SET LOCAL ROLE ${quotedRole}`);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await client.query("ROLLBACK");
+    }
+  } finally {
+    client.release();
+  }
+}
+
 export async function ncmecAuditBoundaryStatus(): Promise<
   NcmecAuditBoundaryStatus & { boundaryEnforced: boolean }
 > {
@@ -168,30 +215,12 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     application_role: string;
     table_owner: string;
     maintenance_role_exists: boolean;
-    application_can_bypass_trigger: boolean;
-    application_owns_table: boolean;
     triggers_enabled: boolean;
   }>(`
     SELECT current_user::text AS application_role,
            pg_get_userbyid(c.relowner) AS table_owner,
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
              AS maintenance_role_exists,
-           -- pg_has_role raises on a role that does not exist, so the EXISTS
-           -- guard is required, not defensive noise. A superuser is an implicit
-           -- member of every role, which is why this reads TRUE for one.
-           --
-           -- 'usage', not 'member': on PostgreSQL 16, CREATE ROLE auto-grants the
-           -- new role to its creator with admin option but WITHOUT inherit or set,
-           -- so 'member' is true for a path the session cannot actually exercise.
-           -- The migration revokes that grant, and this asks the question that
-           -- matters either way — does this session hold the role's privileges now.
-           (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-            AND pg_has_role(current_user, 'overhype_audit_maintenance', 'usage'))
-             AS application_can_bypass_trigger,
-           -- Ownership is what ALTER TABLE ... DISABLE TRIGGER needs, and 'usage'
-           -- is again the honest test: an inheritable path to the owner is a path
-           -- to disabling the guard.
-           pg_has_role(current_user, c.relowner, 'usage') AS application_owns_table,
            -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only.
            -- A replica-only trigger does not fire for ordinary application
            -- statements, so counting it as enabled would report an enforced
@@ -231,8 +260,10 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     applicationRole: row.application_role,
     tableOwner: row.table_owner,
     maintenanceRoleExists: row.maintenance_role_exists,
-    applicationCanBypassTrigger: row.application_can_bypass_trigger,
-    applicationOwnsTable: row.application_owns_table,
+    applicationCanBypassTrigger: row.maintenance_role_exists
+      ? await canAssumeRole("overhype_audit_maintenance")
+      : false,
+    applicationOwnsTable: await canAssumeRole(row.table_owner),
     triggersEnabled: row.triggers_enabled,
   };
 
