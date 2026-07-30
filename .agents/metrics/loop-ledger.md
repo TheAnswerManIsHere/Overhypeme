@@ -73,31 +73,55 @@ and a round target would score both backwards.
 | 5 | [#276](https://github.com/TheAnswerManIsHere/Overhypeme/pull/276) | prose/contract | 6 | 683 | 35 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | ~6 | none | ✓ **0%** (1/1, full population) | Merged. §1.1 of the plan reviewed on #274, shipped alone after David cut the rest. Cohort is the script's own first-match output — the diff is majority code but carries two `PR276_*` docs, and `prose/contract` includes mixed. The single finding was against the original diff on the auto-review round, so no in-loop fix could have caused it: an empty Stripe catalog completes a sync with every `last_synced_at` still NULL (the pinned library writes that column only in `updateSyncCursor`), and the new module read a missing stamp as "never synced". `pre-open preflight` is wall-clock branch-cut→PR-open, not an estimate of effort. |
 
 | 6 | [#279](https://github.com/TheAnswerManIsHere/Overhypeme/pull/279) | plan-review | 2 | 2711 | 1 | 32 | 166 | — | — | — | — | — | *not classified* | 23.7 | — | — | ✗ **not run** | Closed unmerged. **Mechanical columns only** — see *Rows whose judgment half is deferred* below. By far the largest loop this ledger has seen: 166 findings is over 4× #268's 40, and its 32 rounds exceed the ~20-round soft cap in `CLAUDE.md`, which is supposed to trigger a pause-and-check-in with David rather than a silent continuation. Whether that check-in happened is **not visible in the PR record**, so this row does not assert either way. |
-| 7 | [#282](https://github.com/TheAnswerManIsHere/Overhypeme/pull/282) | plan-review | 1 | 2317 | 0 | 9 | 86 | — | — | — | — | — | *not classified* | 6.3 | — | — | ✗ **not run** | Closed unmerged. **Mechanical columns only** — see below. 86 findings across 9 rounds is the densest per-round rate in the ledger (9.6/round against #268's 2.2), on a 2317-line plan artifact. |
+| 7 | [#282](https://github.com/TheAnswerManIsHere/Overhypeme/pull/282) | plan-review | 1 | 2317 | 0 | 9 | 86 | 24 | 24 | 38 | 0 | 0 | **72.1%** | 6.3 | — | none | ✓ **18.6%** (16/86, full population) | Closed unmerged. Densest loop in the ledger — 9.6 findings/round against #268's 2.2, on a 2317-line plan — and the **highest self-inflicted share yet recorded**. 38 of 86 are wrong-fix: an earlier fix in the same loop corrected one site and left others, or did not achieve what it claimed. Round 1 is entirely new ground (11/11); from round 2 on, new ground is a minority in every single round. **The adjudication passed the gate but only just, and the margin should be read as a real caveat rather than a pass:** 16 disagreements, and the adjudicator flagged that for several findings the digest gave no way to date the offending text, so provenance was decided by the ambiguous default rather than by evidence. Most disagreements (11 of 16) were boundary crossings between new ground and self-inflicted rather than prop-vs-wrong-fix reshuffles, which is why the two shares differ by more than row 3's did: author 72.1%, adjudicator 61.6%. The author's is the more self-critical figure and is the one recorded, per row 3's precedent. |
 | 8 | [#283](https://github.com/TheAnswerManIsHere/Overhypeme/pull/283) | prose/contract | 3 | 116 | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.0 | — | none | ✓ **0%** (1/1, full population) | Merged. A bugfix by intent, but the script cohorts it `prose/contract` because the diff carries `docs/engineering/deferred-work.md` and that cohort includes mixed — the same leakage as row 5; see the cohort note below. `review hrs` is a **measured** 0.0 (2m52s from open to review), not an unmeasured blank. The single finding: a code comment cited a `docs/plans/` path that only ever existed on a never-merged plan-review branch — a recurrence of the retired mistake in [`plan-doc-path-never-cite-from-code.md`](../memory/plan-doc-path-never-cite-from-code.md), caught by review rather than by the guard that memory note was supposed to be. |
 | 9 | [#284](https://github.com/TheAnswerManIsHere/Overhypeme/pull/284) | bugfix | 5 | 18 | 71 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | **n/a — clean loop** | 5.1 | — | none | ✓ **0%** (1/1, full population) | Merged. **The ledger's first `bugfix`-cohort row**, and the first to exercise the "every finding invalid" branch. The sole finding argued the route deletion was an intentional behavior change requiring Tier C ceremony and a plan; the author rebutted with a repo-wide grep showing no caller of the removed soft-phase PII-scrub path, and David — shown that nuance explicitly — confirmed Tier A stands. Invalid subcase (b) with (a) support, so the denominator is zero: `n/a`, never `0%`. |
 
-### Rows whose judgment half is deferred
+### Row 6 (#279): judgment half deferred by decision
 
-**Rows 6 (#279) and 7 (#282) carry mechanical columns and no causal
-classification.** This is a *deliberate, dated* deferral, recorded here rather
-than left as five em-dashes for a reader to interpret.
+**Row 6 carries mechanical columns and no causal classification.** This is a
+*deliberate, dated* deferral, recorded here rather than left as five
+em-dashes for a reader to interpret.
 
 The 2026-07-29 backfill was scoped on an estimate that the plan-review loops
 were comparable in size to what the ledger already held. They were not: #279
 alone produced 166 findings and #282 produced 86, against a prior worst case
-of 40. Full-population blind adjudication of 252 additional findings is a
-materially larger job than the backfill David authorised, and the choice of
-whether to spend it is his, not something to absorb silently.
+of 40. Presented with that, David scoped the classification work to #282 —
+the more representative loop, converged normally at 9 rounds — and left #279
+mechanical. The reasoning was that #279's 32 rounds of interdependent fixes
+make it both the most expensive loop to classify and the one most likely to
+exceed the 20% disagreement gate and yield `unmeasured` anyway. #282's
+adjudication then landed at 18.6%, just inside the gate, which supports that
+call: the harder loop would very likely have fallen outside it.
 
-**These are `not classified`, which is distinct from both of the file's other
-absence values.** It is not `unmeasured` — that is reserved for a loop whose
-blind adjudication disagreed beyond 20%, and using it here would corrupt the
-one signal it carries. It is not `n/a — clean loop` — these loops have 252
-findings between them, which is the opposite of nothing to measure. They are
-excluded from the self-inflicted-share trend and must not be read as either a
-pass or a failure. Their **mechanical** columns are fully derived and are
-sound on their own.
+**`not classified` is distinct from both of the file's other absence
+values.** It is not `unmeasured` — that is reserved for a loop whose blind
+adjudication disagreed beyond 20%, and using it here would corrupt the one
+signal it carries. It is not `n/a — clean loop` — #279 has 166 findings,
+which is the opposite of nothing to measure. Row 6 is excluded from the
+self-inflicted-share trend and must not be read as either a pass or a
+failure. Its **mechanical** columns are fully derived and sound on their own.
+
+### What the classified plan-review rows now show
+
+Three plan-review loops are classified (#269 retrospective, #274, #282) and
+two of those are adjudicated. The self-inflicted share across the adjudicated
+population — #270 64.7%, #274 68.4%, #282 72.1% — is **not falling, and is the
+metric this file exists to track.** Two structural observations, both from
+counted data rather than impression:
+
+- **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
+  ground; from round 2 onward, new ground was a minority in every round. The
+  same shape holds in #274 (5/5 new ground in round 1). Later rounds are
+  predominantly the loop repairing its own earlier fixes.
+- **Wrong fix dominates propagation.** In #282, 38 wrong-fix against 24
+  propagation. The characteristic failure is not "the fix broke a neighbor"
+  but "the fix corrected one site and left the others" — a plan edited in one
+  place while three other sections still assert the old thing.
+
+This is a hypothesis with n=3, not a finding, and all three loops predate the
+2026-07-29 exhaustive-review boundary (see `decisions.md`). It is recorded
+here so the next rows can confirm or kill it rather than re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
