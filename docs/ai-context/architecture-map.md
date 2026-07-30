@@ -191,8 +191,9 @@ deliberately excludes them and points here instead.
   (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so raising one still raises
   claim/finalize contention against an unchanged pool — the reason raising
   the pool limit is tracked as follow-up work
-  ([`current-roadmap.md`](./current-roadmap.md)) — but the headroom cost has
-  not been measured, and this doc does not assert one.
+  ([`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning))
+  — but the headroom cost has **not** been measured, and this doc does not
+  assert one.
 - **Stranded-row recovery is delayed by design (PR #283).** Claim commits
   `processing` *before* the handler runs, so a crash — **or a rejection in the
   finalize transaction after the handler returned** — leaves the row committed

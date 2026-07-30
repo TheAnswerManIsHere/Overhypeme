@@ -88,15 +88,18 @@ machinery may name the parts without quantifying them.)
 ### Email, the most consequential rider
 
 Transactional email — verification links, password resets, notifications —
-rides the `bulk` lane like any other batch work, but it is worth calling out
+is queued like any other background work, but it is worth calling out
 because it is the one queue whose failures reach a real person's inbox, and it
 carries three behaviors nothing else does:
 
-- **A rejected API key stops delivery attempts process-wide, immediately** —
-  and that is not the same as pausing them. Once the provider rejects our
-  credentials, no further calls are made for the life of that process, but
-  each queued message that comes up for delivery still fails, still consumes
-  one of its retry attempts, and can exhaust its budget and be marked failed.
+- **A rejected API key stops further delivery attempts process-wide** — and
+  that is not the same as pausing them. Once the provider rejects our
+  credentials, the app stops attempting delivery for the life of that
+  process. (Not instantly to the last message: sends already in flight when
+  the rejection lands can still reach the provider. It is later attempts that
+  are cut off, not in-progress ones.) Meanwhile each queued message that comes
+  up for delivery still fails, still consumes one of its retry attempts, and
+  can exhaust its budget and be marked failed.
   So rotating the key and restarting resumes sending, but it does **not**
   guarantee everything queued during the outage is still deliverable.
 - **An abandoned email can alert the admins — if that alert is switched on.**
@@ -149,22 +152,23 @@ elsewhere.
   (oldest due first); the lane split only isolates *between* lanes, not within
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
-- **The lanes share one database connection pool, and between them they can
-  use all of it.** If every lane is busy at once, there is no spare
-  connection left for ordinary admin or reader traffic — so the site itself
-  can feel slow while a big backfill runs, even though nothing is broken.
-  That is a known rough edge rather than a designed limit: the two newest
-  lanes consumed the margin that used to exist, and raising the pool's
-  ceiling is deliberate follow-up work that hasn't been done yet
-  ([`current-roadmap.md`](../ai-context/current-roadmap.md)). The exact
-  numbers, and why they line up the way they do, are in
+- **The lanes and ordinary site traffic share one database connection pool,
+  and how much room that leaves has never been measured.** The lanes' maximum
+  combined worker count happens to equal the pool's default size, which looks
+  alarming — but a worker holds a connection only briefly at the start and end
+  of a job, not while it waits on an outside service, so the two numbers are
+  not comparable and the real contention is unknown. It is on the list to
+  look at rather than to assume
+  ([`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning)),
+  and the reasoning is in
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but not quickly.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
-  stranded forever. But recovery is **not prompt**, and how long it takes is
-  not something to plan around: a job must look stuck for a good while before
-  the sweep will touch it, and if the queue is busy it waits longer still.
-  The delay is the safe choice, not an oversight. The app **can** run as
+  stranded forever. But recovery runs **on a deliberate delay** rather than
+  the moment a job goes quiet, and the wait is not something to plan around:
+  a job must look stuck before the sweep will touch it, and a busy queue
+  pushes that further out. The delay is the safe choice, not an oversight.
+  The app **can** run as
   several instances at once, and a faster sweep would sometimes grab a job
   another instance is still legitimately working on — running it twice. For an
   email, that means a real person gets the message twice. Slow recovery of a

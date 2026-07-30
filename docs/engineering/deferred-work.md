@@ -244,20 +244,30 @@ re-gather it when the work is scheduled.
 
 - **Async-jobs DB connection pool `max`.**
   - **What.** The fast/render/bulk lane split (PR #216, 2026-07) deliberately
-    left the `pg.Pool` default `max` of 10 unraised, at the time leaving thin
-    headroom (3 lanes, combined handler concurrency 8) shared with concurrent
-    HTTP traffic. The `pexels`/`ai_meme_backfill` lanes added by variant
-    independence (PR #256, 2026-07-25) used up that margin: 5 lanes now sum
-    to exactly 10 (fast 2 + render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1)
-    — **zero** spare connections under simultaneous full-lane load, not just
-    thin headroom.
+    left the `pg.Pool` default `max` of 10 unraised. The
+    `pexels`/`ai_meme_backfill` lanes added by variant independence
+    (PR #256, 2026-07-25) bring the lanes' combined **handler** concurrency to
+    exactly 10 (fast 2 + render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1),
+    numerically equal to the pool default.
+  - **Correction (2026-07-30, PR #291).** This entry previously read that
+    equality as "**zero** spare connections under simultaneous full-lane
+    load." That does not follow, and the claim is withdrawn.
+    `maxConcurrency` bounds concurrent **handler promises, not checked-out
+    clients**: `asyncJobsTick` commits and releases the claim transaction
+    *before* `mapWithConcurrency` invokes any handler, a handler awaiting an
+    external provider holds no connection at all, and each outcome opens only
+    a short finalize transaction. Pool occupancy is therefore bursty at
+    claim/finalize boundaries, not pinned at the handler count. See
+    [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
   - **Why deferred now.** Raising it is an infra/cost decision, not a code
     change to make proactively — no evidence yet that the current `max` is
     actually a bottleneck.
-  - **Cost of waiting.** Was thin headroom under load; is now zero headroom —
-    could show up as pool-acquisition wait time or provider rate-limit errors
-    before anyone notices otherwise, and PR #256 raised the odds of that by
-    adding two lanes with no added pool capacity.
+  - **Cost of waiting.** **Unmeasured, and deliberately not estimated.** The
+    plausible symptom is still pool-acquisition wait time or provider
+    rate-limit errors under load, and adding two lanes without adding pool
+    capacity can only have increased claim/finalize contention — but by how
+    much is unknown, and the previous "zero headroom" framing asserted a
+    severity nobody had measured.
   - **Revisit trigger.** Pool-acquisition wait time or provider rate-limit
     errors actually show up under load. See
     [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).

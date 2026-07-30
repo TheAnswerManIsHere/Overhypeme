@@ -81,12 +81,21 @@ describing the tuning does not, even in words.
 | "five lanes" | "independent lanes" |
 | "polls every 2 seconds" / "polls frequently" | "for work someone is waiting on" |
 | "serialized to one job at a time" | "for work that spends money at an external provider" |
-| "recovered after about half an hour" | "recovered, but not promptly" |
+| "recovered after about half an hour" / "not promptly" | "recovered automatically, on a deliberate delay" |
 
 The rightmost column stays true whether the interval is two seconds or two
-hours — which is the whole point. If a change to a constant would genuinely
-falsify the right-hand phrasing, the *product* has changed, and the chapter
-should be rewritten anyway.
+hours — which is the whole point. Note the last row: *"not promptly"* is over
+the line too. It sounds qualitative but it is a claim about magnitude, and
+shrinking the delay would falsify it. *"On a deliberate delay"* says the thing
+a reader actually needs — recovery is not instant, and that is a choice, not a
+bug — without betting on how long.
+
+**There is no "but the product changed" escape.** An earlier draft of this
+rule said that if a constant change would falsify the narrative phrasing, the
+product had changed and the chapter should be rewritten. That let any tuning
+drift be relabelled a product change, which is the loophole the rule exists to
+close. The test is mechanical: **if the sentence's truth depends on the value,
+it belongs in the spec** — no matter how the change is characterised.
 
 This is an exception, not a general licence — it applies to the narrative
 sections of a chapter whose subject is machinery, and it never extends to
