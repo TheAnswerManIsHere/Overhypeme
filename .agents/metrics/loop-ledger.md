@@ -126,22 +126,33 @@ surfaced findings**, not raw round count — that distinction matters
 specifically for #286, whose true engagement was two rounds (see *Rounds
 undercounted when a re-review is clean* above) but whose second round found
 **nothing**. #276 and #283 each had exactly one round, full stop. All three
-had exactly one round that raised any finding at all, and by the rubric's own
-precedence rules propagation / wrong fix / re-raised all require an **earlier
-fix within the same loop that a later round's finding responds to** — a loop
-with only one finding-bearing round has no later round for any finding to
-respond to, so none of those three categories can apply to it, regardless of
-how the loop actually went. A one-finding-round loop's findings are new
-ground by construction, every time, which makes its self-inflicted share 0%
-independent of the loop's real quality. Mixing these into a trend with
-multi-finding-round loops would understate the real number, exactly the
+had exactly one round that raised any finding at all, and none of the three
+self-inflicted categories can occur on a loop's first finding-bearing round —
+for two distinct reasons, not one shared one. **Propagation and wrong fix**
+require an **earlier fix within the same loop** that the later finding
+responds to; a loop with only one finding-bearing round has no earlier fix to
+respond to. **Re-raised** requires something different: an **earlier
+finding** to restate (with no fix attempted in between — a fix attempt
+between the original and the restatement makes it wrong fix instead, always,
+per the rubric's own precedence). A loop with only one finding-bearing round
+has no earlier finding either, for the same reason it has no earlier fix —
+round 1 is the first round, full stop — but that is a second, independent
+gap, not a consequence of the first. Both gaps happen to coincide in a
+one-finding-round loop, which is why all three categories are unreachable
+there, but they are unreachable for different reasons and the ledger should
+say so rather than imply propagation/wrong-fix/re-raised share one
+precondition when only two of them do. A one-finding-round loop's findings
+are new ground by construction, every time, which makes its self-inflicted
+share 0% independent of the loop's real quality. Mixing these into a trend
+with multi-finding-round loops would understate the real number, exactly the
 failure mode this backfill exists to prevent in the other direction.
 
 **The self-inflicted-share trend is only informative for loops with more
 than one finding-bearing round** — where propagation and wrong-fix are
-structurally possible — which is #270 (16 rounds, findings in every one),
-#274 (4 rounds, findings in every one), #282 (9 rounds, findings in every
-one), and #285 (5 rounds, findings in every one). #286 does not qualify
+structurally possible — which is #270 (16 rounds, 15 finding-bearing — row 3
+notes one review event with zero findings), #274 (4 rounds, findings in
+every one), #282 (9 rounds, findings in every one), and #285 (5 rounds,
+findings in every one). #286 does not qualify
 despite its true two-round engagement, because only round 1 produced
 findings.
 

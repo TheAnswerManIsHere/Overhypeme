@@ -78,10 +78,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   `prose/contract` — bugfix loops with a UAT doc land there (the concrete
   case the cohort-leakage note documents), but so would a `feature/code`
   loop that ships with its normal doc updates, which this repo's own
-  practice makes routine. That is the more general reason `feature/code`
-  above is still empty: no loop has closed in the enforced window whose
-  diff was purely code with zero markdown — not something specific to
-  bugfix loops. #279 ran 32 rounds, about 12 past the ~20-round soft cap
+  practice makes routine. **This isn't the whole mechanism, though — it's
+  necessary but not sufficient.** `classifyCohort` checks `[PLAN REVIEW]`
+  titles and the bugfix Fix-tier field *before* it ever checks for markdown,
+  so a zero-markdown loop doesn't automatically land in `feature/code`
+  either: #284 is exactly such a loop (zero markdown files) and it's cohorted
+  `bugfix`, caught by that earlier check. The precise, narrower reason
+  `feature/code` above is still empty: no loop has closed in the enforced
+  window that is both **feature-intent** (not plan-review-titled, not
+  bugfix-tiered) **and** zero-markdown — not "no zero-markdown loop closed,"
+  which is false, and not something specific to bugfix loops either. #279
+  ran 32 rounds, about 12 past the ~20-round soft cap
   meant to trigger a check-in, with no record of whether one happened.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). Both Claude Code and Codex now append a row — mechanical
