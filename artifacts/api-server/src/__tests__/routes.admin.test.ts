@@ -877,11 +877,27 @@ describe("PATCH /admin/config/:key", () => {
     // It cannot cause a filing, and reserving it would make a routine
     // operational edit need a bespoke endpoint. It is guarded by the activation
     // gate instead — production is refused unless a recipient resolves.
-    const [before_] = await db
+    //
+    // Seeded here rather than assumed present: the sharded test runner clones
+    // each worker database from a `pg_dump --schema-only` template, so 0095's
+    // seed INSERTs from the shared "pretest" migrate run never reach a worker's
+    // admin_config — only the schema does. Seeding it (idempotently, matching
+    // 0095's own row shape) makes this test self-contained regardless of which
+    // database state it runs against.
+    const [existing] = await db
       .select({ value: adminConfigTable.value })
       .from(adminConfigTable)
       .where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
-    assert.ok(before_, "0095 must have seeded ncmec_safety_alert_email");
+    if (!existing) {
+      await db.insert(adminConfigTable).values({
+        key: "ncmec_safety_alert_email",
+        value: "",
+        dataType: "text",
+        label: "NCMEC Safety Alert Email",
+        isPublic: false,
+      }).onConflictDoNothing();
+    }
+    const originalValue = existing?.value ?? "";
     try {
       const res = await request(makeApp())
         .patch("/admin/config/ncmec_safety_alert_email")
@@ -889,10 +905,14 @@ describe("PATCH /admin/config/:key", () => {
         .send({ value: "safety@example.test" });
       assert.equal(res.status, 200);
     } finally {
-      await db
-        .update(adminConfigTable)
-        .set({ value: before_.value })
-        .where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+      if (existing) {
+        await db
+          .update(adminConfigTable)
+          .set({ value: originalValue })
+          .where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+      } else {
+        await db.delete(adminConfigTable).where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+      }
     }
   });
 });

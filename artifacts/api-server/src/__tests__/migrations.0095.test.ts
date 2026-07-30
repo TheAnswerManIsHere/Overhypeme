@@ -376,34 +376,50 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   it("seeds the eight config keys with their documented defaults", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const { rows } = await pool.query<{ key: string; value: string }>(
-      `SELECT key, value FROM admin_config WHERE key = ANY($1)`,
-      [[...NCMEC_SEEDED_CONFIG_KEYS]],
-    );
-    const byKey = new Map(rows.map((r) => [r.key, r.value]));
-    assert.equal(byKey.size, NCMEC_SEEDED_CONFIG_KEYS.length);
-    assert.equal(byKey.get("ncmec_submission_enabled"), "false");
-    assert.equal(byKey.get("ncmec_ispws_environment"), "test");
-    assert.equal(byKey.get("ncmec_report_classifier_hits"), "false");
-    // Load-bearing, not tidy: without these seeds production keeps the queue
-    // defaults (5 attempts, 8h) and exhausts at ~10.5 hours while the design
-    // assumes ~98.6. A test that injected the config would pass against a
-    // production that never had it — so this reads what the migration left.
-    assert.equal(byKey.get("async_job_ncmec_submit_max_attempts"), "8");
-    assert.equal(byKey.get("async_job_ncmec_submit_retry_delay_4_ms"), "86400000");
+    // Self-contained rather than reading ambient state: the sharded test runner
+    // (run-tests-sharded.sh) clones each worker database from a template built by
+    // `pg_dump --schema-only` — SCHEMA only, no data — so a migration's seed
+    // INSERTs from the shared "pretest" migrate run are never present in a
+    // worker's admin_config. Re-applying the migration inside the rolled-back
+    // transaction guarantees the seeds exist for this assertion regardless of
+    // which database state it runs against, the same self-contained pattern the
+    // 0094->0095 transition test already uses.
+    await inRolledBackTx(async (client) => {
+      await client.query(executableMigration());
+      const { rows } = await client.query<{ key: string; value: string }>(
+        `SELECT key, value FROM admin_config WHERE key = ANY($1)`,
+        [[...NCMEC_SEEDED_CONFIG_KEYS]],
+      );
+      const byKey = new Map(rows.map((r) => [r.key, r.value]));
+      assert.equal(byKey.size, NCMEC_SEEDED_CONFIG_KEYS.length);
+      assert.equal(byKey.get("ncmec_submission_enabled"), "false");
+      assert.equal(byKey.get("ncmec_ispws_environment"), "test");
+      assert.equal(byKey.get("ncmec_report_classifier_hits"), "false");
+      // Load-bearing, not tidy: without these seeds production keeps the queue
+      // defaults (5 attempts, 8h) and exhausts at ~10.5 hours while the design
+      // assumes ~98.6. A test that injects the config would pass against a
+      // production that never had it — so this reads what the migration itself
+      // wrote, freshly, rather than trusting a row that might already be there.
+      assert.equal(byKey.get("async_job_ncmec_submit_max_attempts"), "8");
+      assert.equal(byKey.get("async_job_ncmec_submit_retry_delay_4_ms"), "86400000");
+    });
   });
 
   it("gives the retry keys bounds, so a typo cannot silently destroy the horizon", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const { rows } = await pool.query<{ key: string; min_value: number | null; max_value: number | null }>(
-      `SELECT key, min_value, max_value FROM admin_config
-        WHERE key IN ('async_job_ncmec_submit_max_attempts','async_job_ncmec_submit_retry_delay_4_ms')`,
-    );
-    assert.equal(rows.length, 2);
-    for (const row of rows) {
-      assert.ok(row.min_value !== null, `${row.key} has no min_value`);
-      assert.ok(row.max_value !== null, `${row.key} has no max_value`);
-    }
+    // Same self-containment reason as above.
+    await inRolledBackTx(async (client) => {
+      await client.query(executableMigration());
+      const { rows } = await client.query<{ key: string; min_value: number | null; max_value: number | null }>(
+        `SELECT key, min_value, max_value FROM admin_config
+          WHERE key IN ('async_job_ncmec_submit_max_attempts','async_job_ncmec_submit_retry_delay_4_ms')`,
+      );
+      assert.equal(rows.length, 2);
+      for (const row of rows) {
+        assert.ok(row.min_value !== null, `${row.key} has no min_value`);
+        assert.ok(row.max_value !== null, `${row.key} has no max_value`);
+      }
+    });
   });
 
   describe("ncmec_safety_audit_log is append-only in the database", () => {
