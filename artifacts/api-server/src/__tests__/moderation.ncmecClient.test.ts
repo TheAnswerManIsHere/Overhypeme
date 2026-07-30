@@ -1,0 +1,582 @@
+/**
+ * NCMEC ISPWS client and XML builders — phase 2 of the CyberTipline plan.
+ *
+ * Every test here runs with `fetchImpl` stubbed against committed fixtures and **no network
+ * access at all**. That is what makes the phase independently verifiable, and it is why CI
+ * never reaches NCMEC.
+ *
+ * The fixtures are real `<reportResponse>` / `<reportDoneResponse>` documents transcribed
+ * from NCMEC's public documentation, not hand-typed strings — see
+ * `fixtures/ncmec/README.md`. Asserting the classification table against invented shapes
+ * would make the invention the de-facto contract.
+ */
+
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  NcmecClient,
+  NCMEC_ISPWS_BASE_URLS,
+  NCMEC_MAX_RESPONSE_BYTES,
+  NCMEC_RESPONSE_CODES,
+  classifyNcmecResponseCode,
+  ncmecBaseUrlFor,
+} from "../lib/moderation/ncmecClient.js";
+import {
+  NcmecMappingError,
+  buildFileDetailsXml,
+  buildReportXml,
+  ncmecIncidentTypeFor,
+} from "../lib/moderation/ncmecXml.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES = path.join(__dirname, "fixtures/ncmec");
+
+function fixture(name: string): string {
+  return fs.readFileSync(path.join(FIXTURES, `${name}.xml`), "utf-8");
+}
+
+const CREDENTIALS = { username: "usr123", password: "pswd123" };
+
+interface CapturedRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+/** A `fetch` that answers with one fixture and records exactly what it was asked. */
+function stubFetch(
+  body: string,
+  init: { status?: number } = {},
+): { fetchImpl: typeof fetch; calls: CapturedRequest[] } {
+  const calls: CapturedRequest[] = [];
+  const fetchImpl = (async (url: string | URL | Request, options: RequestInit = {}) => {
+    calls.push({
+      url: String(url),
+      method: options.method ?? "GET",
+      headers: (options.headers ?? {}) as Record<string, string>,
+      body: options.body,
+    });
+    return new Response(body, {
+      status: init.status ?? 200,
+      headers: { "content-type": "text/xml" },
+    });
+  }) as unknown as typeof fetch;
+  return { fetchImpl, calls };
+}
+
+function client(body: string, init: { status?: number } = {}) {
+  const { fetchImpl, calls } = stubFetch(body, init);
+  return {
+    calls,
+    instance: new NcmecClient({
+      fetchImpl,
+      credentials: CREDENTIALS,
+      baseUrl: NCMEC_ISPWS_BASE_URLS.test,
+    }),
+  };
+}
+
+// ─── Happy paths ────────────────────────────────────────────────────────────
+
+describe("NcmecClient — successful calls", () => {
+  it("parses the report id out of a /submit response", async () => {
+    const { instance, calls } = client(fixture("submit-ok"));
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "ok");
+    assert.equal(result.status === "ok" && result.data.reportId, "4564654");
+
+    const call = calls[0]!;
+    assert.equal(call.url, `${NCMEC_ISPWS_BASE_URLS.test}/submit`);
+    assert.equal(call.method, "POST");
+    // NCMEC's own documentation calls out the charset: without it non-ASCII characters can
+    // be mistransmitted, and a report naming a person is exactly where that matters.
+    assert.equal(call.headers["content-type"], "text/xml; charset=utf-8");
+    assert.match(call.headers["authorization"] ?? "", /^Basic /);
+  });
+
+  it("parses fileId and hash out of an /upload response, and sends multipart id + file", async () => {
+    const { instance, calls } = client(fixture("upload-ok"));
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg", "e.jpg");
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.status === "ok" && result.data, {
+      fileId: "b0754af766b426f2928a02c651ed4b99",
+      hash: "fafa5efeaf3cbe3b23b2748d13e629a1",
+    });
+
+    const body = calls[0]!.body as FormData;
+    assert.ok(body instanceof FormData, "the upload body must be multipart form data");
+    assert.equal(body.get("id"), "4564654");
+    assert.ok(body.get("file") instanceof Blob, "the file part must carry the bytes themselves");
+    // No hand-set content-type: FormData has to supply its own multipart boundary, and
+    // overriding it produces a body the server cannot split.
+    assert.equal(calls[0]!.headers["content-type"], undefined);
+  });
+
+  it("parses a /fileinfo response", async () => {
+    const { instance } = client(fixture("fileinfo-ok"));
+    const result = await instance.submitFileInfo("<fileDetails/>");
+    assert.equal(result.status === "ok" && result.data.reportId, "4564654");
+  });
+
+  it("reads /finish from its own root element and collects the file ids", async () => {
+    // /finish is the one call that answers with <reportDoneResponse> rather than
+    // <reportResponse>. A parser keyed only on the latter would treat the single most
+    // important call in the sequence as malformed.
+    const { instance, calls } = client(fixture("finish-ok"));
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.status === "ok" && result.data, {
+      reportId: "4564654",
+      fileIds: ["b0754af766b426f2928a02c651ed4b99"],
+    });
+    assert.equal((calls[0]!.body as FormData).get("id"), "4564654");
+  });
+
+  it("collects every file id when /finish returns more than one", async () => {
+    // A single-element list parses as a scalar, so a one-file fixture alone would hide a
+    // mapping that only ever reads the first entry.
+    const { instance } = client(fixture("finish-ok-multifile"));
+    const result = await instance.finishReport("4564654");
+    assert.deepEqual(result.status === "ok" && result.data.fileIds, [
+      "b0754af766b426f2928a02c651ed4b99",
+      "c1865bf877c537f3039b13d762fe5caa",
+    ]);
+  });
+
+  it("parses a /retract response", async () => {
+    const { instance, calls } = client(fixture("retract-ok"));
+    const result = await instance.retractReport("4564654");
+    assert.equal(result.status === "ok" && result.data.responseCode, 0);
+    assert.equal((calls[0]!.body as FormData).get("id"), "4564654");
+  });
+
+  it("checks connectivity with a GET and no body", async () => {
+    const { instance, calls } = client(fixture("status-ok"));
+    const result = await instance.checkStatus();
+    assert.equal(result.status === "ok" && result.data.responseCode, 0);
+    assert.match(result.status === "ok" ? (result.data.description ?? "") : "", /Remote User/);
+    assert.equal(calls[0]!.method, "GET");
+    assert.equal(calls[0]!.body, undefined);
+  });
+});
+
+// ─── Response-code classification ───────────────────────────────────────────
+
+describe("NcmecClient — response-code classification", () => {
+  const cases = [
+    { code: 1000, kind: "server", retryable: true, credentialFailure: false },
+    { code: 2000, kind: "auth", retryable: false, credentialFailure: true },
+    { code: 3000, kind: "auth", retryable: false, credentialFailure: true },
+    { code: 4100, kind: "request", retryable: false, credentialFailure: false },
+    { code: 5001, kind: "state", retryable: false, credentialFailure: false },
+    { code: 5102, kind: "state", retryable: false, credentialFailure: false },
+  ] as const;
+
+  for (const expected of cases) {
+    it(`classifies ${expected.code} from its real response document`, async () => {
+      const { instance } = client(fixture(`err-${expected.code}`));
+      const result = await instance.submitReport("<report/>");
+      assert.equal(result.status, "err");
+      if (result.status !== "err") return;
+      assert.equal(result.responseCode, expected.code);
+      assert.equal(result.kind, expected.kind);
+      assert.equal(result.retryable, expected.retryable);
+      assert.equal(result.credentialFailure, expected.credentialFailure);
+      // Classification never depends on parsing the English description.
+      assert.ok(result.message.length > 0);
+    });
+  }
+
+  it("4100 is terminal — a validation bug must not burn the retry budget on every report", async () => {
+    const { instance } = client(fixture("err-4100"));
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
+  it("classifies by family, so NCMEC's undocumented codes are not mis-handled", () => {
+    // NCMEC's published list is explicitly non-exhaustive and already contains these.
+    assert.equal(classifyNcmecResponseCode(1100).retryable, true, "save failed is NCMEC's side");
+    assert.equal(classifyNcmecResponseCode(1111).retryable, true, "file upload failed is NCMEC's side");
+    assert.equal(classifyNcmecResponseCode(3100).credentialFailure, true, "no submission authorization must alert");
+    assert.equal(classifyNcmecResponseCode(4110).retryable, false, "malformed XML cannot be fixed by repeating it");
+    assert.equal(classifyNcmecResponseCode(4200).kind, "request");
+    assert.equal(classifyNcmecResponseCode(5002).kind, "state");
+    assert.equal(classifyNcmecResponseCode(5101).kind, "state", "already retracted is a state, not a failure to repeat");
+  });
+
+  it("treats a code outside every documented family as retryable", () => {
+    // The asymmetry decides it: a wrong "terminal" abandons a report that would have gone
+    // through, while a wrong "retryable" costs the horizon and lands in the same
+    // terminal-plus-alert state anyway.
+    const verdict = classifyNcmecResponseCode(9999);
+    assert.equal(verdict.kind, "unknown");
+    assert.equal(verdict.retryable, true);
+  });
+
+  it("refuses to call at all when credentials are unconfigured", async () => {
+    const { fetchImpl, calls } = stubFetch(fixture("submit-ok"));
+    const instance = new NcmecClient({ fetchImpl, credentials: null });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.equal(result.status === "err" && result.credentialFailure, true);
+    assert.equal(calls.length, 0, "an unconfigured client must not reach the network");
+  });
+
+  it("treats a transport failure as retryable", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status === "err" && result.retryable, true);
+    assert.equal(result.status === "err" && result.kind, "network");
+    assert.equal(result.status === "err" && result.responseCode, null);
+  });
+
+  it("treats success-with-a-missing-element as terminal, not as something to repeat", async () => {
+    // NCMEC said the call succeeded, so repeating /submit would open a SECOND report rather
+    // than recover the id of the first — the exact duplicate this design exists to prevent.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode></reportResponse>',
+    );
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.equal(result.status === "err" && result.responseCode, NCMEC_RESPONSE_CODES.SUCCESS);
+    assert.match(result.status === "err" ? result.message : "", /omitted <reportId>/);
+  });
+
+  it("treats a non-2xx with an unusable body as a retryable HTTP failure", async () => {
+    const { instance } = client("<html><body>502 Bad Gateway</body></html>", { status: 502 });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status === "err" && result.kind, "http");
+    assert.equal(result.status === "err" && result.retryable, true);
+  });
+});
+
+// ─── Parser hardening ───────────────────────────────────────────────────────
+
+describe("NcmecClient — parser hardening", () => {
+  it("rejects a response carrying a DOCTYPE with an entity declaration", async () => {
+    const { instance } = client(fixture("hostile-doctype-entity"));
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /DOCTYPE/);
+  });
+
+  it("rejects a HARMLESS DOCTYPE too — the gate is ours, not the parser's", async () => {
+    // This is the assertion that makes the previous one mean something. `processEntities:
+    // false` disables entity EXPANSION but does not reject a document containing a DOCTYPE,
+    // so without this case the entity test could pass merely because expansion happened to
+    // be off, while the gate it is supposed to prove does not exist.
+    const { instance } = client(fixture("hostile-doctype-harmless"));
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /DOCTYPE/);
+  });
+
+  it("rejects a response nested past the depth cap", async () => {
+    const { instance } = client(fixture("hostile-deep-nesting"));
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("abandons an oversized body during the read rather than after it", async () => {
+    // Generated rather than committed: it has to exceed 1 MiB, and a megabyte of filler in
+    // version control costs more than the four lines that produce it. Served as a stream
+    // because the cap can only work during the read — response.text() and arrayBuffer()
+    // buffer the entire remote body before any size check could run.
+    const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+    let served = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (served > NCMEC_MAX_RESPONSE_BYTES * 2) {
+          controller.close();
+          return;
+        }
+        served += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const fetchImpl = (async () =>
+      new Response(stream, { status: 200, headers: { "content-type": "text/xml" } })) as unknown as typeof fetch;
+
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /exceeded/);
+    assert.ok(
+      served <= NCMEC_MAX_RESPONSE_BYTES + chunk.byteLength * 2,
+      `read should abort near the cap, but consumed ${served} bytes`,
+    );
+  });
+
+  it("rejects a body that is well-formed XML but not an ISPWS envelope", async () => {
+    const { instance } = client('<?xml version="1.0"?><somethingElse><responseCode>0</responseCode></somethingElse>');
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+});
+
+// ─── Endpoint selection ─────────────────────────────────────────────────────
+
+describe("NcmecClient — endpoint selection", () => {
+  it("defaults to the test host, never production", async () => {
+    // A default in the other direction would let a missing or unresolved configuration file
+    // real reports. Production is always passed explicitly.
+    const { fetchImpl } = stubFetch(fixture("status-ok"));
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    assert.equal(instance.endpoint, NCMEC_ISPWS_BASE_URLS.test);
+  });
+
+  it("maps both environments to their documented hosts", () => {
+    assert.equal(ncmecBaseUrlFor("test"), "https://exttest.cybertip.org/ispws");
+    assert.equal(ncmecBaseUrlFor("production"), "https://report.cybertip.org/ispws");
+  });
+});
+
+// ─── Evidence read path ─────────────────────────────────────────────────────
+
+describe("evidence never leaves this process by URL", () => {
+  it("the client module never references the signed-URL helper", () => {
+    // getObjectEntityDownloadURL signs ANY private subpath with no `restricted/` guard, so
+    // reaching for it here would mint a time-limited, credential-free bearer URL to
+    // suspected CSAM — breaking the no-signed-URL invariant without anyone adding a route,
+    // which is exactly the violation route-level review would miss.
+    for (const file of ["ncmecClient.ts", "ncmecXml.ts"]) {
+      const source = fs.readFileSync(path.join(__dirname, "../lib/moderation", file), "utf-8");
+      const code = source.replace(/\/\*\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      assert.doesNotMatch(code, /getObjectEntityDownloadURL/, `${file} must not reach for a signed URL`);
+      assert.doesNotMatch(code, /signObjectURL/, `${file} must not sign object URLs`);
+    }
+  });
+
+  it("uploadFile takes bytes, so there is no path that could pass a URL instead", async () => {
+    const { instance, calls } = client(fixture("upload-ok"));
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff]);
+    await instance.uploadFile("4564654", bytes, "image/jpeg");
+    const file = (calls[0]!.body as FormData).get("file");
+    assert.ok(file instanceof Blob);
+    assert.equal(await (file as Blob).slice().arrayBuffer().then((b) => new Uint8Array(b).length), 3);
+  });
+});
+
+// ─── XML builders ───────────────────────────────────────────────────────────
+
+const ESP = {
+  organizationName: "Availeron Consulting, Inc.",
+  contactEmail: "cybertip@example.test",
+  contactFirstName: "Jane",
+  contactLastName: "Doe",
+};
+
+const BASE_REPORT = {
+  matchSource: "arachnid",
+  incidentAt: new Date("2026-07-30T12:00:00.000Z"),
+  platform: { name: "Overhype.me", url: "https://overhype.me/m/abc" },
+  esp: ESP,
+  reportedPerson: { email: "uploader@example.test", espIdentifier: "user_42" },
+} as const;
+
+describe("buildReportXml", () => {
+  it("emits the documented element order, exactly", () => {
+    // The ISPWS schema is a sequence, so a correctly-populated document with its children
+    // in the wrong order is rejected with 4100 — which this design classifies as terminal.
+    // A wrong order therefore burns a report rather than a retry, which is why this asserts
+    // the whole document rather than element presence.
+    assert.equal(
+      buildReportXml({ ...BASE_REPORT }),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<report xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://report.cybertip.org/ispws/xsd">
+    <incidentSummary>
+        <incidentType>Child Pornography (possession, manufacture, and distribution)</incidentType>
+        <platform>Overhype.me</platform>
+        <incidentDateTime>2026-07-30T12:00:00.000Z</incidentDateTime>
+    </incidentSummary>
+    <internetDetails>
+        <webPageIncident>
+            <url>https://overhype.me/m/abc</url>
+        </webPageIncident>
+    </internetDetails>
+    <reporter>
+        <reportingPerson>
+            <firstName>Jane</firstName>
+            <lastName>Doe</lastName>
+            <email>cybertip@example.test</email>
+        </reportingPerson>
+        <companyTemplate>Availeron Consulting, Inc.</companyTemplate>
+    </reporter>
+    <personOrUserReported>
+        <personOrUserReportedPerson>
+            <email>uploader@example.test</email>
+        </personOrUserReportedPerson>
+        <espIdentifier>user_42</espIdentifier>
+    </personOrUserReported>
+</report>
+`,
+    );
+  });
+
+  it("omits <personOrUserReported> entirely for an anonymous upload", () => {
+    // An omitted element is visibly incomplete and can be corrected. An empty one asserts a
+    // suspect record with nothing in it.
+    const xml = buildReportXml({ ...BASE_REPORT, reportedPerson: null });
+    assert.doesNotMatch(xml, /personOrUserReported/);
+  });
+
+  it("omits it for a snapshot that carries nothing reportable, rather than emitting an empty shell", () => {
+    const xml = buildReportXml({
+      ...BASE_REPORT,
+      reportedPerson: { email: null, displayName: null, espIdentifier: null },
+    });
+    assert.doesNotMatch(xml, /personOrUserReported/);
+  });
+
+  it("refuses to build a classifier report at all", () => {
+    // A hard block, not a default. If the classifier flag were merely default-off, turning
+    // it on would leave three bad options: guess an incident type, omit a required element,
+    // or send reports NCMEC rejects with 4100. Refusing to produce the document means the
+    // flag is a live control rather than a trapdoor.
+    assert.equal(ncmecIncidentTypeFor("classifier"), null);
+    assert.throws(
+      () => buildReportXml({ ...BASE_REPORT, matchSource: "classifier" }),
+      (err: unknown) =>
+        err instanceof NcmecMappingError && err.reason === "incident-type-unresolved",
+    );
+  });
+
+  it("refuses to build without a registered reporting contact email", () => {
+    // NCMEC requires <email> on <reportingPerson>, and there is no safe placeholder: a wrong
+    // address means the statutory notification of receipt goes nowhere.
+    assert.throws(
+      () => buildReportXml({ ...BASE_REPORT, esp: { ...ESP, contactEmail: "  " } }),
+      (err: unknown) => err instanceof NcmecMappingError && err.reason === "reporter-contact-missing",
+    );
+  });
+
+  it("escapes XML metacharacters rather than emitting them raw", () => {
+    const xml = buildReportXml({
+      ...BASE_REPORT,
+      platform: { name: "Overhype.me", url: "https://overhype.me/m?a=1&b=<2>" },
+    });
+    assert.match(xml, /<url>https:\/\/overhype\.me\/m\?a=1&amp;b=&lt;2&gt;<\/url>/);
+  });
+
+  it("omits <internetDetails> when there is no meaningful URL", () => {
+    const xml = buildReportXml({ ...BASE_REPORT, platform: { name: "Overhype.me", url: null } });
+    assert.doesNotMatch(xml, /internetDetails/);
+  });
+
+  it("uses the incident time it was given, not the current clock", () => {
+    const xml = buildReportXml({ ...BASE_REPORT, incidentAt: new Date("2024-01-02T03:04:05.000Z") });
+    assert.match(xml, /<incidentDateTime>2024-01-02T03:04:05\.000Z<\/incidentDateTime>/);
+  });
+});
+
+describe("buildFileDetailsXml", () => {
+  it("emits the documented element order, exactly", () => {
+    assert.equal(
+      buildFileDetailsXml({
+        reportId: "4564654",
+        fileId: "b0754af766b426f2928a02c651ed4b99",
+        originalFileName: "meme.jpg",
+        contentOrigin: "generated",
+        potentialMeme: true,
+        ipCapture: { ipAddress: "203.0.113.7", capturedAt: new Date("2026-07-30T12:00:00.000Z") },
+        additionalInfo: "Quarantined on upload",
+      }),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<fileDetails xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://report.cybertip.org/ispws/xsd">
+    <reportId>4564654</reportId>
+    <fileId>b0754af766b426f2928a02c651ed4b99</fileId>
+    <originalFileName>meme.jpg</originalFileName>
+    <fileRelevance>Reported</fileRelevance>
+    <fileAnnotations>
+        <potentialMeme>1</potentialMeme>
+        <generativeAi>1</generativeAi>
+    </fileAnnotations>
+    <ipCaptureEvent>
+        <ipAddress>203.0.113.7</ipAddress>
+        <eventName>Upload</eventName>
+        <dateTime>2026-07-30T12:00:00.000Z</dateTime>
+    </ipCaptureEvent>
+    <additionalInfo>Quarantined on upload</additionalInfo>
+</fileDetails>
+`,
+    );
+  });
+
+  it("writes annotations as 0|1 values, not as empty marker elements", () => {
+    // The report-level <reportAnnotations> ARE empty markers and the two are easy to
+    // conflate; <fileAnnotations> children are 0|1.
+    const xml = buildFileDetailsXml({
+      reportId: "1",
+      fileId: "f",
+      contentOrigin: "user_upload",
+      potentialMeme: false,
+    });
+    assert.match(xml, /<potentialMeme>0<\/potentialMeme>/);
+    assert.match(xml, /<generativeAi>0<\/generativeAi>/);
+    assert.doesNotMatch(xml, /<generativeAi\s*\/>/);
+  });
+
+  it("sets <generativeAi> only from persisted provenance", () => {
+    const generated = buildFileDetailsXml({ reportId: "1", fileId: "f", contentOrigin: "generated" });
+    assert.match(generated, /<generativeAi>1<\/generativeAi>/);
+    for (const origin of ["user_upload", "stock", "template", "identity"] as const) {
+      const xml = buildFileDetailsXml({ reportId: "1", fileId: "f", contentOrigin: origin });
+      assert.match(xml, /<generativeAi>0<\/generativeAi>/, `${origin} must not be reported as AI-generated`);
+    }
+  });
+
+  it("omits <generativeAi> when provenance is genuinely unknown", () => {
+    // `0` is a positive claim that the file is NOT AI-generated. Where the origin was never
+    // captured, omission is the honest answer.
+    const xml = buildFileDetailsXml({ reportId: "1", fileId: "f", contentOrigin: null });
+    assert.doesNotMatch(xml, /generativeAi/);
+  });
+
+  it("omits <fileAnnotations> entirely when there is nothing to annotate", () => {
+    const xml = buildFileDetailsXml({ reportId: "1", fileId: "f", contentOrigin: null });
+    assert.doesNotMatch(xml, /fileAnnotations/);
+  });
+
+  it("never emits an industry classification", () => {
+    // The A1/A2/B1/B2 mapping from an Arachnid classification is an open question with
+    // NCMEC. A categorization scale is not something to infer onto a federal report.
+    const xml = buildFileDetailsXml({
+      reportId: "1",
+      fileId: "f",
+      contentOrigin: "generated",
+      potentialMeme: true,
+    });
+    assert.doesNotMatch(xml, /industryClassification/);
+  });
+
+  it("emits <fileRelevance>Reported</fileRelevance>, which the annotations depend on", () => {
+    // "Only 'Reported' files may be identified as potential meme or be given an industry
+    // classification" — so the relevance is a precondition for the annotation, not decoration.
+    const xml = buildFileDetailsXml({
+      reportId: "1",
+      fileId: "f",
+      contentOrigin: "generated",
+      potentialMeme: true,
+    });
+    assert.match(xml, /<fileRelevance>Reported<\/fileRelevance>/);
+  });
+
+  it("omits <ipCaptureEvent> when no request context was captured", () => {
+    const xml = buildFileDetailsXml({ reportId: "1", fileId: "f", contentOrigin: "generated", ipCapture: null });
+    assert.doesNotMatch(xml, /ipCaptureEvent/);
+  });
+});

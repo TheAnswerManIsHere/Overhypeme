@@ -189,9 +189,23 @@ describe("migration 0095 — static contract", () => {
 });
 
 describe("migration 0095 — database behaviour (skipped when DATABASE_URL is unset)", () => {
-  type PoolClient = import("pg").PoolClient;
+  // Structural, rather than `import type { PoolClient } from "pg"`: `pg` is a dependency of
+  // `@workspace/db`, not of this package, and adding it here to type four calls would be a
+  // dependency edge bought for a test. Naming exactly the surface used also documents it.
+  interface QueryResult<R> {
+    rows: R[];
+    rowCount: number | null;
+  }
+  interface PoolClient {
+    query<R = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<R>>;
+    release(): void;
+  }
+  interface Pool {
+    connect(): Promise<PoolClient>;
+    query<R = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<R>>;
+  }
 
-  let pool: import("pg").Pool | null = null;
+  let pool: Pool | null = null;
   let ncmecAuditBoundaryStatus:
     | typeof import("@workspace/db")["ncmecAuditBoundaryStatus"]
     | null = null;
@@ -200,7 +214,8 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     if (!process.env.DATABASE_URL) return;
     try {
       const mod = await import("@workspace/db");
-      pool = mod.pool;
+      // `pg`'s Pool carries callback overloads the structural type above deliberately omits.
+      pool = mod.pool as unknown as Pool;
       ncmecAuditBoundaryStatus = mod.ncmecAuditBoundaryStatus;
     } catch {
       pool = null;
