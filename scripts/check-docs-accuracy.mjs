@@ -32,7 +32,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // that were never meant to resolve inside this repo specifically. Their
 // internal cross-references (SKILL.md → references/*.md) still must resolve,
 // so they keep the LINK check.
-const LIBRARY_DIRS = ["docs/ai-context", "docs/engineering"];
+const LIBRARY_DIRS = ["docs/ai-context", "docs/engineering", "docs/manual"];
 const LIBRARY_EXTRA = ["AGENTS.md", ".agents/PLANS.md"];
 const LINK_ONLY_EXTRA = ["CLAUDE.md"];
 const LINK_ONLY_DIRS = [".claude/skills"];

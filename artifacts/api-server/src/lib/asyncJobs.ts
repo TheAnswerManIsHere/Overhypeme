@@ -691,9 +691,25 @@ const RECOVER_INTERVAL_MS = 60_000;
  * Only reclaim rows whose `updatedAt` (stamped at claim) is older than this.
  * Must sit comfortably above the slowest real handler (planner ≤180s + image
  * gen) so an in-flight job is never yanked out from under itself and re-run
- * concurrently — 10 min leaves wide margin while still bounding stuck-row retry.
+ * concurrently.
+ *
+ * Raised 10 → 30 min because the margin was not actually wide: this deployment
+ * is `deploymentTarget = "autoscale"` (`.replit`) and `index.ts` starts the
+ * worker in EVERY instance, so "the slowest handler" is not the only thing
+ * racing this cutoff — a *different* instance's in-flight row is. Combined with
+ * a finalize that matches on row id alone (no fencing token), a reclaim while
+ * the original run is still working means both runs execute and the first to
+ * finish overwrites the other. For the `email` queue that is a duplicate send
+ * to a real person.
+ *
+ * The cost is deliberate and bounded: a genuinely crashed job now waits up to
+ * 30 min for recovery instead of 10. That is the right trade against silent
+ * double-execution, and it is an interim mitigation — the real fix is lease
+ * tokens with fenced finalizes (see the "Async-jobs reclaim finalize has no
+ * fencing token" entry in docs/engineering/deferred-work.md, Phase 3a),
+ * after which this cutoff stops being load-bearing.
  */
-const RECOVER_STUCK_CUTOFF_MIN = 10;
+export const RECOVER_STUCK_CUTOFF_MIN = 30;
 
 /** Static scheduling config for one lane's runner. Queues are resolved per-tick. */
 export interface LaneConfig {
@@ -840,7 +856,12 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
   ];
 
   // Startup recovery once (the bulk runner also sweeps periodically thereafter).
-  recoverStuckProcessing(defaultDb).catch((err) => {
+  // Pass the cutoff EXPLICITLY rather than relying on `recoverStuckProcessing`'s
+  // 5-minute default: on an autoscaled deployment a booting instance runs this
+  // against rows that other, healthy instances are actively processing, so the
+  // boot path is if anything more exposed to the reclaim race than the periodic
+  // sweep — it must not silently use a shorter, more aggressive cutoff.
+  recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN).catch((err) => {
     logger.error({ err }, "[asyncJobs] startup recovery failed");
   });
 

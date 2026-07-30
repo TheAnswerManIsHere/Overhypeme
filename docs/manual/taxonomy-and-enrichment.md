@@ -192,3 +192,6 @@ side effect of an unrelated config change.
   (the two-altitude status rule bulk send-back follows).
 - Rationale: the staleness/bulk-send-back entry in
   [`decisions.md`](../ai-context/decisions.md).
+
+**Next:** chapter 5 — *visual pipeline*, how an authored Visual Concept becomes
+a rendered image. [Not yet written](./README.md#contents).

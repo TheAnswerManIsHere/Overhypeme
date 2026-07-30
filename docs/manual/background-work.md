@@ -37,7 +37,8 @@ altitudes** — per item (this specific fact's row: queued → working →
 done/failed/skipped/still-running) and in aggregate (a running tally like
 "7 of 25 done · 2 failed"). A single spinner with no per-item detail is
 considered a bug, not a valid loading state. **Taxonomy Health
-(`useTaxonomyHealthActions.ts`) is the reference implementation** — copy its
+(`artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts`) is
+the reference implementation** — copy its
 pattern rather than inventing a new one. The full contract, including why
 "skipped" and "still running" are first-class states and why the UI never
 imposes a timeout on a legitimately long job, is
@@ -152,6 +153,10 @@ elsewhere.
   `artifacts/api-server/src/lib/asyncJobs.ts` (the worker + lanes),
   `artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts` (the
   reference UI polling pattern), `artifacts/api-server/src/lib/factPexelsJobs.ts`
-  / `aiMemeBackfillJobs.ts` (the `pexels` / `ai_meme_backfill` queue handlers),
+  and `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts` (the `pexels` /
+  `ai_meme_backfill` queue handlers),
   `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
   (the Bulk Media Backfill panel's polling hook).
+
+**Next:** this is the last chapter — back to the
+[contents](./README.md#contents).

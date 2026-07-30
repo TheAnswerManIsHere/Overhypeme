@@ -13,6 +13,13 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
+    # Explicit least-privilege. `pull-requests: read` is what the loop-ledger
+    # coverage guard needs to list closed PRs; every other step in this job
+    # only reads the checkout.
+    permissions:
+      contents: read
+      pull-requests: read
+
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -39,6 +46,22 @@ jobs:
       # authority it exists to remove.
       - name: Check loop-metrics derivation
         run: node --test scripts/__tests__/loop-metrics.test.mjs
+
+      - name: Check ledger-coverage guard logic
+        run: node --test scripts/__tests__/check-ledger-coverage.test.mjs
+
+      # The ledger only answers questions if the rows are actually in it. On
+      # 2026-07-29 it held 2 rows against 13 closed loops — the obligation had
+      # nowhere to fail, so it was skipped silently while CI stayed green.
+      # This makes a missing row a red check instead of a memory problem.
+      # PR_NUMBER is empty on push-to-main, where the coverage half is skipped
+      # (a just-merged loop's row belongs to the NEXT PR, not to itself) and
+      # only the offline arithmetic check runs.
+      - name: Check loop-ledger coverage
+        run: node scripts/check-ledger-coverage.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
