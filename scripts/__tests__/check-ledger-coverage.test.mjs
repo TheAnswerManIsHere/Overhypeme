@@ -57,6 +57,29 @@ test("countCell distinguishes an unmeasured cell from zero", () => {
   assert.equal(countCell("n/a"), null);
 });
 
+test("countCell rejects malformed text instead of silently treating it as unmeasured", () => {
+  // A typo like "4x" is neither a number nor a recognized "not measured"
+  // sentinel. Folding it into null would let a corrupted `findings` cell skip
+  // its row out of checkArithmetic entirely, and a corrupted causal cell
+  // could pass arithmetic outright whenever the other columns already summed
+  // correctly — the guard reporting the ledger reconciles while it doesn't.
+  assert.throws(() => countCell("4x", "PR #1's finding"), /neither a number nor a recognized/);
+  assert.throws(() => countCell("abc"), /neither a number nor a recognized/);
+});
+
+test("a row with a malformed count cell fails parsing loudly, not silently as unmeasured", () => {
+  const doc = ledgerDoc([row(283, { findings: "4x", causes: [1, 0, 0, 0, 0] })]);
+  assert.throws(() => parseLedger(doc), /neither a number nor a recognized/);
+});
+
+test("two rows for the same PR are rejected rather than both silently accepted", () => {
+  const doc = ledgerDoc([
+    row(283, { findings: 1, causes: [1, 0, 0, 0, 0] }),
+    row(283, { findings: 1, causes: [1, 0, 0, 0, 0] }),
+  ]);
+  assert.throws(() => parseLedger(doc), /appears more than once in the "## Rows" table/);
+});
+
 test("a table is read only up to the next heading", () => {
   const parsed = tableUnderHeading(ledgerDoc([row(283, { findings: 1, causes: [1, 0, 0, 0, 0] })]), "Rows");
   assert.equal(parsed.rows.length, 1);
@@ -147,4 +170,38 @@ test("the exemption table is parsed with its reason text", () => {
   );
   const { exempt } = parseLedger(doc);
   assert.equal(exempt.get(277), "Not backfilled — scoped out of the 2026-07-29 pass.");
+});
+
+test("the reason is resolved by its header, not by 'last cell' guesswork", () => {
+  // A misaligned or short row could otherwise have its cohort column read as
+  // the reason. Column order in the fixture below is fine, but this pins the
+  // resolution mechanism itself: swapping cohort and reason positions would
+  // fail this test if the lookup ever regressed to a positional guess.
+  const doc = ledgerDoc(
+    [row(283, { findings: 1, causes: [1, 0, 0, 0, 0] })],
+    [`| ${PULL(277)} | prose/contract | Deliberately not backfilled. |`],
+  );
+  const { exempt } = parseLedger(doc);
+  assert.equal(exempt.get(277), "Deliberately not backfilled.");
+});
+
+test("an exemption with an empty reason is rejected, not accepted as a silent pass", () => {
+  const doc = ledgerDoc(
+    [row(283, { findings: 1, causes: [1, 0, 0, 0, 0] })],
+    [`| ${PULL(277)} | prose/contract |  |`],
+  );
+  // An exemption with no stated reason is indistinguishable from a row
+  // someone forgot to write — the whole point of the table is the reason.
+  assert.throws(() => parseLedger(doc), /empty reason/);
+});
+
+test("two exemption entries for the same PR are rejected", () => {
+  const doc = ledgerDoc(
+    [row(283, { findings: 1, causes: [1, 0, 0, 0, 0] })],
+    [
+      `| ${PULL(277)} | prose/contract | First reason. |`,
+      `| ${PULL(277)} | prose/contract | Second, conflicting reason. |`,
+    ],
+  );
+  assert.throws(() => parseLedger(doc), /appears more than once in "Deliberately not measured"/);
 });

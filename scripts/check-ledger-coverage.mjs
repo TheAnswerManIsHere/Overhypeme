@@ -96,16 +96,34 @@ function prNumberIn(cells) {
   return match ? Number(match[1]) : null;
 }
 
+/** The only strings that mean "not measured" — everything else must be a real number. */
+const UNMEASURED_SENTINELS = new Set(["", "—", "-", "n/a"]);
+
 /**
  * A cell holding a count. Strips markdown bold. Returns null for an
- * explicitly-unmeasured cell ("—" or empty), which the ledger distinguishes
- * from zero on purpose — blank means *not measured*, never *zero*.
+ * explicitly-unmeasured cell (one of `UNMEASURED_SENTINELS`), which the
+ * ledger distinguishes from zero on purpose — blank means *not measured*,
+ * never *zero*.
+ *
+ * A cell that is neither a recognized sentinel nor a valid number — a typo
+ * like "4x" — is NOT silently folded into "unmeasured". That would let a
+ * corrupted `findings` cell skip its row out of `checkArithmetic` entirely
+ * (row 163's `findings === null` guard), and a corrupted causal cell could
+ * pass arithmetic outright whenever the remaining columns already happened to
+ * sum correctly — the guard reporting the ledger reconciles while the ledger
+ * itself is corrupted. Malformed text throws instead.
  */
-function countCell(raw) {
+function countCell(raw, context) {
   const clean = (raw ?? "").replace(/\*\*/g, "").trim();
-  if (clean === "" || clean === "—" || clean === "-" || clean === "n/a") return null;
+  if (UNMEASURED_SENTINELS.has(clean)) return null;
   const n = Number(clean);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) {
+    throw new Error(
+      `${LEDGER}: ${context} is neither a number nor a recognized "not measured" marker ` +
+        `(${[...UNMEASURED_SENTINELS].map((s) => JSON.stringify(s)).join(", ")}) — got ${JSON.stringify(raw)}.`,
+    );
+  }
+  return n;
 }
 
 function parseLedger(text) {
@@ -127,29 +145,61 @@ function parseLedger(text) {
     invalid: col("invalid"),
   };
 
+  const seenRowPrs = new Set();
   const rows = rowsTable.rows
-    .map((cells) => ({
-      pr: prNumberIn(cells),
-      findings: countCell(cells[idx.findings]),
-      causes: {
-        new: countCell(cells[idx.new]),
-        prop: countCell(cells[idx.prop]),
-        wrong: countCell(cells[idx.wrong]),
-        reRaised: countCell(cells[idx.reRaised]),
-        invalid: countCell(cells[idx.invalid]),
-      },
-    }))
+    .map((cells) => {
+      const pr = prNumberIn(cells);
+      if (pr === null) return { pr };
+      // A duplicated row for the same PR would pass arithmetic on each copy
+      // independently and pass coverage via a presence check that can't tell
+      // one row from two — inflating row counts and any cohort trend derived
+      // from them, silently, forever. One row per loop is the contract; catch
+      // the violation here rather than trusting every future editor of this
+      // file to notice a copy-paste.
+      if (seenRowPrs.has(pr)) {
+        throw new Error(`${LEDGER}: PR #${pr} appears more than once in the "## Rows" table. One row per loop.`);
+      }
+      seenRowPrs.add(pr);
+      return {
+        pr,
+        findings: countCell(cells[idx.findings], `PR #${pr}'s "findings" cell`),
+        causes: {
+          new: countCell(cells[idx.new], `PR #${pr}'s "new" cell`),
+          prop: countCell(cells[idx.prop], `PR #${pr}'s "prop" cell`),
+          wrong: countCell(cells[idx.wrong], `PR #${pr}'s "wrong" cell`),
+          reRaised: countCell(cells[idx.reRaised], `PR #${pr}'s "re-raised" cell`),
+          invalid: countCell(cells[idx.invalid], `PR #${pr}'s "invalid" cell`),
+        },
+      };
+    })
     .filter((r) => r.pr !== null);
 
   const exemptTable = tableUnderHeading(text, "Deliberately not measured");
+  const exemptReasonCol = exemptTable ? exemptTable.header.findIndex((h) => h.toLowerCase() === "reason") : -1;
+  if (exemptTable && exemptReasonCol === -1) {
+    throw new Error(`${LEDGER}: the "Deliberately not measured" table has no "reason" column.`);
+  }
+
   const exempt = new Map();
   for (const cells of exemptTable?.rows ?? []) {
     const pr = prNumberIn(cells);
     if (pr === null) continue;
-    // The reason is the whole point of the table: an exemption with no stated
-    // reason is indistinguishable from a row someone forgot.
-    const reason = cells[cells.length - 1] ?? "";
-    exempt.set(pr, reason.trim());
+    if (exempt.has(pr)) {
+      throw new Error(`${LEDGER}: PR #${pr} appears more than once in "Deliberately not measured". One entry per loop.`);
+    }
+    // The reason is the whole point of the table — it is what distinguishes a
+    // deliberate decision not to measure from a row someone simply forgot.
+    // Resolved by header, not "last cell", so a short/misaligned row can't
+    // have its cohort column silently read as the reason; empty or missing
+    // is rejected rather than accepted as a same-thing-as-omitted exemption.
+    const reason = (cells[exemptReasonCol] ?? "").trim();
+    if (reason === "") {
+      throw new Error(
+        `${LEDGER}: PR #${pr}'s entry in "Deliberately not measured" has an empty reason. ` +
+          `An exemption with no stated reason is indistinguishable from a row someone forgot.`,
+      );
+    }
+    exempt.set(pr, reason);
   }
 
   return { rows, exempt };
