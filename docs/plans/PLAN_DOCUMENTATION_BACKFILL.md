@@ -3,7 +3,7 @@
 > **Status:** plan under review. Not approved. Not started.
 >
 > Scope in one line: bring the [Overhype.me Manual](../manual/README.md) to full
-> first-version coverage — 12 chapters, 9 of them newly written — write the 5
+> first-version coverage — 12 chapters, 9 of them newly written — write the 6
 > missing `docs/ai-context/`
 > subsystem specs those chapters need to link into, and put `docs/manual/`
 > behind the existing docs-accuracy merge gate.
@@ -87,8 +87,9 @@ review and David reads them one at a time.
    this over finishing only the 4 planned), **and community & engagement**
    (ratings, comments, comment hearts, the activity feed — added in round 1;
    see decision 9).
-2. **Write the 5 missing specs** rather than letting new chapters carry deep
-   detail themselves. Rejected alternative: self-contained chapters — faster,
+2. **Write the 6 missing specs** rather than letting new chapters carry deep
+   detail themselves (5 chapter specs + `legal-safety-moderation.md`, added in
+   round 4 — see decision 12). Rejected alternative: self-contained chapters — faster,
    but forks truth, which is the exact failure the two-layer design exists to
    prevent.
 3. **Verify every claim against code**, accepting that this surfaces drift in
@@ -164,7 +165,8 @@ review and David reads them one at a time.
   `videoJobs.ts`, `pulidJobs.ts`, `share.ts`, `shareCopy.ts`, `shareIntents.ts`,
   `og.ts`, `memes.ts`, `stripe.ts`, `auth.ts`, `localAuth.ts`, `eval.ts`,
   `affiliate.ts`, `heroExamples.ts`), `artifacts/overhype-me/src/pages/`
-  (18 public pages), `artifacts/overhype-me/src/pages/admin/` (16 admin
+  (**19** public pages — the plan said 18 until round 4 caught the omitted
+  catch-all `not-found.tsx`), `artifacts/overhype-me/src/pages/admin/` (16 admin
   surfaces + their tests).
 - **One assumption tested rather than asserted:** added `"docs/manual"` to
   `LIBRARY_DIRS` and ran the gate — **passes** (`114 files, all relative links
@@ -205,7 +207,7 @@ stated per contested concept, with the losing side reduced to a link:
 | Rationale / why a decision is settled | `decisions.md` | Chapters' "Why it works this way" sections **cite** entries; they don't re-argue them. |
 | Pricing numbers | **Stripe, at runtime** (`pricingPlans.ts` fetches live) | Docs describe plan *shapes* (monthly / annual / one-time lifetime) and state that prices are Stripe-owned. **No price numbers in any doc** — that would be a guaranteed-drift second source. (Resolved without asking David; the repo answers it.) |
 
-No new source of truth is created. Each of the 5 new specs opens with an
+No new source of truth is created. Each of the 6 new specs opens with an
 explicit "what lives here vs. what lives elsewhere" header so the boundary is
 enforced by the document itself, not just by this plan.
 
@@ -283,7 +285,8 @@ homes.
 
 ### Coverage map — every area gets exactly one home
 
-**Chapters (8).** ✅ = already written.
+**Chapters (12).** ✅ = already written. (Round 4: this heading said 8 while the
+table below listed 12 — the count is now derived from the table, not restated.)
 
 | Chapter | Status after this pass | Spec it links into |
 | --- | --- | --- |
@@ -304,52 +307,64 @@ That is **12 chapter files** when the pass completes: **9 newly written** (the 4
 originally planned + 4 new areas + community & engagement) and **3 existing**
 (one de-forked, two taking additive sections).
 
-**New specs (5):** `docs/ai-context/accounts-and-auth.md`,
+**New specs (6):** `docs/ai-context/accounts-and-auth.md`,
 `payments-and-membership.md`, `community-and-engagement.md`,
-`public-site-and-sharing.md`, `video-pipeline.md`. Each is added to `AGENTS.md`
+`public-site-and-sharing.md`, `video-pipeline.md`, and
+`legal-safety-moderation.md` (round 4, R4-12). Each is added to `AGENTS.md`
 routing in its own PR (documentation-workflow Step 2's "a brand-new context doc
 was created" row).
 
-#### Every route module and public page, assigned
+#### How coverage is derived — a rule, not a pre-computed table (round 4)
 
-The original "coverage map" was area-level, which let a whole interaction loop
-fall through it — Codex enumerated all 31 route modules and found ratings,
-comments, comment hearts, and the activity feed assigned to nothing (F3;
-verified at `facts.ts` `POST /facts/:factId/rating`, `GET|POST
-/facts/:factId/comments`, `POST /comments/:id/heart`, and `reviews.ts` `GET
-/activity-feed` + `POST /activity-feed/mark-read`). The fix is to assign at
-**module** granularity so the coverage claim can be checked mechanically.
+**Round 1 added a hand-written route-module → chapter table here. Round 4
+disproved it, and David chose to remove it rather than rebuild it.** The table
+was meant to make "full coverage" mechanically checkable; what it actually was
+is an unverified transcription of the API surface, written from a directory
+listing rather than from reading endpoints. Three errors Codex confirmed in it:
 
-| Route module | Home |
+- The user submission endpoint is `POST /facts/submit-review` at
+  `reviews.ts:131` — the table assigned submission to `facts.ts`.
+- `facts.ts:347` owns `POST /facts/:factId/share`, a sharing endpoint filed
+  under content-lifecycle.
+- `memes.ts` holds **23** endpoints spanning meme hearts (community), Zazzle
+  export/redirect (merch), and admin-only prompt routes — assigned wholesale to
+  the studio chapter.
+
+Module-level assignment is also the wrong *granularity*: mixed route files can
+be fully "ticked" while a behavior inside them goes undocumented. And the
+correct mapping is precisely what writing each chapter produces as a verified
+by-product, so pre-computing it here duplicates the work in its least reliable
+form.
+
+**The rule that replaces the table:**
+
+1. **Coverage is derived per chapter, at endpoint/behavior granularity, and
+   verified against code** — never assigned wholesale by module. A mixed module
+   is split by behavior across the chapters that own those behaviors.
+2. **The derivation is evidence, not prose.** Each chapter PR's claim table
+   (method step 1) lists the endpoints, pages, and behaviors that chapter
+   covers, each with its grounding source. That is where the mapping lives,
+   verified, rather than in this plan, asserted.
+3. **The completeness check is a sweep, run once at close-out (PR 12):**
+   enumerate every route module, every endpoint within it, and every page under
+   `artifacts/overhype-me/src/pages/`, and confirm each appears in exactly one
+   chapter's claim table or in the exclusions below. **That sweep is the
+   Definition-of-Done coverage check** — mechanical, run against the code, and
+   not satisfiable by a table I wrote in advance.
+
+**Exclusions — the only things allowed to appear in no chapter**, named here
+because an exclusion must be a decision rather than an omission:
+
+| Excluded | Why |
 | --- | --- |
-| `facts.ts` (submission, publish) | `content-lifecycle.md` |
-| `facts.ts` (rating, comments, comment hearts) | `community-and-engagement.md` |
-| `reviews.ts` (review gates) | `moderation.md` |
-| `reviews.ts` (`/activity-feed`, `/activity-feed/mark-read`) | `community-and-engagement.md` |
-| `import.ts` (API-key bulk fact import) | `content-lifecycle.md` (a second entrance) |
-| `ai.ts` (tokenize, suggest-hashtags, check-duplicate) | `content-lifecycle.md` + `personalization-and-grammar.md` |
-| `render.ts`, `adminImagePrompt.ts` | `visual-pipeline.md` |
-| `memes.ts`, `videos.ts`, `videoJobs.ts`, `pulidJobs.ts` | `meme-and-video-studio.md` |
-| `storage.ts` (upload URLs, public/private object serving) | **section in `meme-and-video-studio.md`** ("where media lives and how it's served"), linking `security-model.md` for object authorization |
-| `stripe.ts` | `payments-and-membership.md` |
-| `auth.ts`, `localAuth.ts`, `users.ts` | `accounts-and-auth.md` |
-| `hashtags.ts`, `og.ts`, `share.ts`, `shareCopy.ts`, `shareIntents.ts`, `heroExamples.ts` | `public-site-and-sharing.md` |
-| `affiliate.ts` | section in `public-site-and-sharing.md` (merch) |
-| `admin.ts`, `adminEngines.ts`, `adminReferenceResearch.ts`, `eval.ts` | `admin-console.md` |
-| `adminTaxonomyHealth.ts` | `taxonomy-and-enrichment.md` (+ admin surface in `admin-console.md`) |
-| `jobs.ts` | `background-work.md` |
-| `health.ts`, `routeStats.ts` | **none — explicit non-goal** (decision 10) |
-| `index.ts` | none — route mounting, not a surface |
+| `health.ts`, `routeStats.ts` | Operational tooling, not product narrative (decision 10); pointed at from the README's "Outside this manual" section. |
+| `index.ts` | Route mounting, not a surface. |
+| `pages/not-found.tsx` | **Assigned, not excluded** (round 4): it is a shipped public surface — the catch-all route at `App.tsx:406` — and belongs to `public-site-and-sharing.md`. Listed here only because the plan previously counted 18 pages when the repo has 19. |
 
-Public pages map the same way: `Home`/`Search`/`TopFacts`/`Hashtags`/`Profile`/
-`WearIt` → public-site; `FactDetail` (comments) / `ActivityFeed` → community;
-`Library` (its `liked`/`submitted`/`history` tabs → community, its
-`images`/`memes` tabs → studio); `SubmitFact` → content-lifecycle;
-`Login`/`ForgotPassword`/`ResetPassword`/`VerifyEmail`/`Onboard` → accounts;
-`Pricing` → payments; `MemePage`/`VideoPage` → studio (+ public-site for the
-share surface); admin pages → `admin-console.md` except the three that belong to
-their subsystem chapter (`moderation`, `taxonomy-health`, `videoStyles`).
+Anything else that the close-out sweep finds unassigned is a coverage hole, not
+a judgment call, and blocks PR 12 the same way a partial chapter does.
 
+**Sub-chapter areas — named, so the derivation has fixed anchors:**
 **Sub-chapter areas — named, so "full coverage" is checkable:**
 
 | Area | Home | Why there |
@@ -359,7 +374,7 @@ their subsystem chapter (`moderation`, `taxonomy-health`, `videoStyles`).
 | Email queue mechanics | additive section in `background-work.md` | An `async_jobs` lane consumer; that chapter owns lane narrative. |
 | Email Queue **admin surface** | section in `admin-console.md` | Surface vs. mechanics split, matching the two-layer pattern. |
 | Eval dashboard (`eval.ts`, `evalDashboard.tsx`) | section in `admin-console.md` | An admin surface. |
-| Comment **moderation** admin surface (`admin/comments.tsx`) | section in `admin-console.md`, cross-linked from `community-and-engagement.md` | The engagement chapter owns what comments *are*; the admin chapter owns the surface that moderates them. |
+| Comment **moderation** admin surface — `pages/admin/moderation.tsx` | section in `admin-console.md`, cross-linked from `community-and-engagement.md` | The engagement chapter owns what comments *are*; the admin chapter owns the surface that moderates them. **Round 4 correction:** the plan previously named `pages/admin/comments.tsx`, which is **not routed** — `App.tsx:382` sends `/admin/comments` through `AdminModerationRedirect` and the file is imported nowhere. Documenting it would have described a screen no user reaches. The dead file itself is a **report item for David**, not a drive-by deletion (docs-only boundary). |
 | Legal/safety moderation (`quarantined_memes`, `ncmec_reports`, `lib/moderation/`) | additive section in `moderation.md`, **in its own PR** | `architecture-map.md` establishes two separate moderation systems; the chapter documents only content-quality review today. Split out of the studio PR per F6 so a chapter repair doesn't share an unrelated PR's review boundary. |
 
 ### Reading order — the manual is a walkthrough, not 12 essays (round 3)
@@ -395,20 +410,53 @@ product; 11–12 are the machinery, last because a reader doesn't need them to
 understand the product. Each chapter ends by pointing at the next, so
 front-to-back actually reads as a sequence.
 
+**How "point at the next chapter" survives parallel landing and the link gate
+(round 4, R4-9).** These two rules collided: chapters must point forward, PR 0
+puts `docs/manual/` under a gate that fails on unresolved links, and PRs 2–11
+may land in any order — so PR 4's chapter pointing directly at a file PR 10
+creates would either break CI or ship a broken promise. Same problem for the
+auth chapter (PR 6) linking the payments spec (PR 7). The resolution:
+
+1. **A forward pointer targets the README's reading-order entry, not the file**,
+   until that file exists. The README always exists from PR 0, so the link
+   always resolves and the gate stays green.
+2. **Each chapter PR backfills its predecessor's pointer** to the direct file
+   link as part of landing — a one-line edit, listed in that PR's scope.
+3. The interim pointer is **truthful, not a placeholder**: it reads as "next:
+   *&lt;chapter&gt;* — not yet written," which is exactly what the TOC says.
+
+This adds no dependency edges — any landing order stays legal — which is why it
+beats encoding "PR 4 depends on PR 10."
+
 **The visual-pipeline ↔ studio boundary, stated explicitly** because round 3 was
 right that "separate chapters" alone leaves an executor guessing and invites
 overlap:
 
-- **`visual-pipeline.md` (ch. 5) is authoring-time and moderator-facing:** the
-  Visual Concept as the authoritative scene, the frontier planner, the prompt
-  compiler, render modes, frozen inputs, readable-text policy. Its actor is a
-  **moderator** deciding whether a gag works as a picture.
-- **`meme-and-video-studio.md` (ch. 6) is use-time and end-user-facing:** what a
-  visitor does in the meme/video builders, photo memes (free) vs. AI image and
-  video memes (Legendary), the video stages, where media lives and how it's
-  served. Its actor is a **reader making a meme of themselves**.
-- Neither restates the other; ch. 6 links ch. 5 for how an image is actually
-  produced, and ch. 5 links ch. 6 for what an end user ultimately gets.
+**Corrected in round 4 — my first attempt at this boundary was factually
+wrong.** I split it as authoring-time/moderator-facing (ch. 5) vs.
+use-time/end-user-facing (ch. 6). `visual-pipeline.md:61-77` disproves that: a
+render's identity and style are frozen **"at the moment the user clicks
+generate,"** and that machinery is explicitly wired into the user-facing
+`/memes/ai/:factId/generate-v2` and the generic `/generate` branch. The image
+pipeline is **shared** between moderation renders and end-user generation, so an
+actor-based split would have forced an executor either to omit the production
+path from ch. 5 or to duplicate its mechanics in ch. 6. The boundary is
+therefore drawn by **subject matter, not by actor**:
+
+- **`visual-pipeline.md` (ch. 5) owns the shared image-generation machinery**,
+  whichever path invokes it: the Visual Concept as the authoritative scene, the
+  frontier planner, the prompt compiler, render modes, frozen identity/style
+  inputs and their reproducibility guarantee, readable-text policy. It covers
+  both the moderation render path and the user-generation path, and notes where
+  they differ (moderation/eval renders use fixed sample identities and the
+  `reviewRenderSubject` mechanism rather than live style).
+- **`meme-and-video-studio.md` (ch. 6) owns the end-user experience around that
+  machinery**: the meme/video builder controls, photo memes (free) vs. AI image
+  and video memes (Legendary), the tier gates, the video-specific stages, and
+  where media lives and how it's served. It **links** ch. 5 for how an image is
+  produced rather than restating any of it.
+- The one-line test for an executor: *if it is true regardless of who triggered
+  the render, it belongs to ch. 5.*
 
 ### The verification method (the load-bearing part)
 
@@ -463,11 +511,22 @@ every chapter and spec:
    a less careful pass would have "found drift" in a chapter that is in fact
    correct. Claim-specific grounding has to include "look again before
    concluding the enforcement doesn't exist."
-3. **Three dispositions for an ungroundable claim:** drop it; keep it marked
-   **Needs David confirmation** (per the README's style rule); or — if it is a
-   *rationale* claim rather than a behavioral one — cite the `decisions.md`
-   entry that settles it. Rationale is grounded by the decision record, not by
-   code.
+3. **Three dispositions for an ungroundable claim:** drop it; mark it **Needs
+   David confirmation**; or — if it is a *rationale* claim rather than a
+   behavioral one — cite the `decisions.md` entry that settles it. Rationale is
+   grounded by the decision record, not by code.
+
+   **"Needs David confirmation" is a draft state, not a shippable one
+   (corrected in round 4, R4-7).** I had it as a terminal disposition and the
+   DoD accepted it, which contradicts
+   `documentation-workflow.md`'s rule to stop before committing a claim that
+   needs product judgment and ask David — and would have let a "complete"
+   first-version manual carry unresolved product assertions. So the marker may
+   live in a draft, but **before that chapter's TOC row flips to *written***,
+   every such claim must be either (a) confirmed by David, (b) dropped, or
+   (c) explicitly excluded through his revised coverage. Any still-open marker
+   blocks the row from flipping, and therefore blocks PR 12 by the same
+   close-out gate that catches *partial — pending fix*.
 4. **Drift found in `docs/ai-context/`** → correct the spec in the same PR (it
    is the canonical home) and list the correction in the PR body. **Hard cap:**
    if the drift turns out to be a *code* defect rather than a doc error, it is a
@@ -491,14 +550,39 @@ every chapter and spec:
    complete. It cannot. Exactly one of these applies, and which one is recorded
    in the PR body:
 
-   1. **Document the real behavior as a known limitation** — the default. It
-      goes in the chapter's *Boundaries & known limitations* section, linking the
-      finding, and the code fix is filed as a report item for David. The chapter
-      counts as complete.
+   **Rung 0 — private triage first, before *any* public artifact exists
+   (added in round 4, R4-1).** This ladder previously ran straight to a public
+   outcome, while method steps 1 and 6 require the full claim table — including
+   each claim, its grounding source, and the rung applied — to appear in a
+   **public** PR body. Those two rules together were self-defeating: rung 2
+   correctly omits a sensitive claim from the chapter, and then the PR body
+   publishes the claim and the exact file that grounds it. Rung 1 was worse — it
+   publishes an unremediated weakness by design. So:
+
+   - The moment grounding the auth, payments, admin, or legal/safety surfaces
+     surfaces a **previously undisclosed** missing guard, static-key reach,
+     fraud path, or bypass, **stop before writing either the chapter text or the
+     claim-table row**, and take it to David privately.
+   - David's call decides the rung. Nothing about that finding is written to a
+     public artifact before then.
+   - **Rung-2 evidence is redacted, never omitted:** the claim table still gets
+     a row, carrying an opaque reference (`security-hold-<n>` — area and date
+     only, no mechanism, no file path) plus the rung. Auditability is preserved
+     — a reviewer can see that a claim exists and was withheld — without the
+     row becoming the disclosure.
+   - A finding **already public on `main`** (like the payments case below)
+     skips triage and goes straight to rung 1; the test is *previously
+     undisclosed*, not *security-adjacent*.
+
+   1. **Document the real behavior as a known limitation** — the default for
+      anything already public or non-exploitable. It goes in the chapter's
+      *Boundaries & known limitations* section, linking the finding, and the code
+      fix is filed as a report item for David. The chapter counts as complete.
    2. **Only if documenting it would disclose an exploitable specific** in this
       public repo: the chapter ships without that claim **and its TOC row is
-      marked partial — pending fix**, with the gap taken to David privately. The
-      chapter does **not** count as complete.
+      marked partial — pending fix**, the claim table carries the redacted row
+      above, and the gap goes to David privately. The chapter does **not** count
+      as complete.
    3. **Never** silently drop the claim and count the chapter done.
 
    *(The payments case below resolves to disposition 1. Note also the close-out
@@ -540,9 +624,21 @@ every chapter and spec:
         table/field (not just the one the chapter names) and confirm the
         constraint or guard still governs all of them; for a behavior claim,
         re-enumerate the **current** route/handler set for that surface.
-      - **Diff the whole owning subsystem** between baseline and `main`
-        (e.g. `artifacts/api-server/src/routes/`, the relevant `src/lib/`
-        subtree, `lib/db/src/schema/`, and new migrations) — not only the files
+      - **Re-derive UI claims from the frontend, claim-type-specifically**
+        (added in round 4, R4-8 — the sweep was backend-only while method step 2
+        grounds UI claims in component/state code, so a changed React page,
+        route, hook, or state transition could falsify a documented UI claim
+        without ever entering the sweep). For every "the UI shows S in state T"
+        claim, re-enumerate the owning page/component/state surface and confirm
+        the state still exists and still renders as described. This matters most
+        for `admin-console`, `public-site-and-sharing`, `accounts-and-auth`,
+        `community-and-engagement`, and `meme-and-video-studio`, which are
+        largely UI chapters.
+      - **Diff the whole owning subsystem** between baseline and `main` — on the
+        backend `artifacts/api-server/src/routes/`, the relevant `src/lib/`
+        subtree, `lib/db/src/schema/`, and new migrations; **and on the frontend**
+        `artifacts/overhype-me/src/pages/` (incl. `pages/admin/`), the owning
+        `src/components/` subtree, and `App.tsx` routing — not only the files
         cited.
       - Re-ground anything that moved, and update the chapter plus its baseline
         line.
@@ -689,10 +785,16 @@ does not clear it. Exactly one of these unblocks it:
   PR 0 is still the "no prose claims" PR: the orientation text restates the
   core loop from `product-brief.md` and links it, and the outside-this-manual
   list is pointers only.
-- **PR 1 — De-fork the async-lane truth.** Migrate chapter-only lane facts into
-  `architecture-map.md`, then reduce `background-work.md`'s machinery section to
-  narrative + link (see *Source-of-Truth Analysis*). Lands before any new
-  chapter so the no-two-homes bar is true when the rest is measured against it.
+- **PR 1 — De-fork the async-lane truth, and add the email-queue section.**
+  Migrate chapter-only lane facts into `architecture-map.md`, then reduce
+  `background-work.md`'s machinery section to narrative + link (see
+  *Source-of-Truth Analysis*). **Also lands that chapter's email-queue-mechanics
+  additive section** — round 4 (R4-3) caught that the coverage map and the DoD
+  both require it while no PR in the list actually performed it (PR 5 covers the
+  distinct *admin surface*), so an executor could land PRs 0–11 and discover the
+  omission only at close-out. It rides here because this is the only PR that
+  edits that chapter. Lands before any new chapter so the no-two-homes bar is
+  true when the rest is measured against it.
 - **PR 2 — `content-lifecycle.md`.** Spec exists. First new chapter, so it
   calibrates the verification method and the review rhythm on strong-spec ground.
 - **PR 3 — `personalization-and-grammar.md`.** Spec exists.
@@ -708,12 +810,38 @@ does not clear it. Exactly one of these unblocks it:
   section) + routing.
 - **PR 10 — `meme-and-video-studio.md`**: new `video-pipeline.md` spec + chapter
   + routing, plus the media-storage-and-delivery section.
-- **PR 11 — `moderation.md` legal/safety section.** Its own PR, split out of the
-  studio PR so an existing-chapter repair doesn't share an unrelated PR's
-  review and failure boundary.
-- **PR 12 — Close-out.** Retire the roadmap's backfill entry and move it to
-  recently-merged; append anything deliberately deferred to
-  `docs/engineering/deferred-work.md`. **Only after PRs 0–11 have landed.**
+- **PR 11 — Existing-chapter edits.** Two things, both touching already-written
+  chapters, split out of the studio PR so a chapter repair doesn't share an
+  unrelated PR's review and failure boundary:
+  - **`moderation.md`'s legal/safety section + its new spec
+    `docs/ai-context/legal-safety-moderation.md`** (round 4, R4-12). The section
+    was previously the one piece of new narrative with **no spec to link into** —
+    `moderation-workflow.md` covers the separate content-quality system and
+    `architecture-map.md` offers only a one-line pointer, so a non-skeletal
+    section would have had to duplicate code-level truth or invent it. That
+    violated decision 2 applied to itself. The spec covers classifier decisions,
+    quarantine, evidence retention, and the NCMEC-reporting path, and **names
+    which evasion-sensitive details stay private** — a scanner's exact
+    thresholds and bypass-relevant specifics are rung-0 material, triaged with
+    David before anything is written.
+  - **`taxonomy-and-enrichment.md`'s baseline line + any drift corrections**
+    (round 4, R4-2). It is the one chapter the DoD requires a
+    `Verified against <sha> · claim inventory in PR #<N>` line for while no PR
+    owned it, because its coverage-map row is "drift corrections only." This PR
+    is its owner.
+- **PR 12 — Close-out.** Runs the pre-close-out re-grounding sweep (method
+  step 8) and the coverage sweep (the derivation rule's step 3); retires the
+  roadmap's backfill entry and moves it to recently-merged; appends anything
+  deliberately deferred to `docs/engineering/deferred-work.md`. **Only after
+  PRs 0–11 have landed, and only with zero chapters at *partial — pending fix*
+  and zero unresolved *Needs David confirmation* markers.**
+
+  **This PR carries the sweep's re-grounding evidence for all 12 chapters**
+  (round 4, R4-2 — the plan required close-out inventories without saying where
+  they live). That does not violate one-chapter-per-PR: it publishes *deltas*
+  from a single sweep, not twelve new chapters, and any chapter whose re-grounding
+  turns out to need real rewriting gets its own follow-up PR instead of being
+  buried here.
 
 **Stopping early stays safe, with the distinction F6 exposed:** every PR leaves
 the **TOC** truthful (unwritten chapters read *not yet written*), and the
@@ -731,7 +859,7 @@ consolidation instinct is — no revision-history narration inside chapters.
   code defects become report items, never drive-by fixes. If one chapter's drift
   is large enough to be its own workstream, I stop and bring it to David rather
   than absorbing it into a docs PR.
-- **Forking truth** — 5 new specs overlapping `security-model.md` and the Stripe
+- **Forking truth** — 6 new specs overlapping `security-model.md` and the Stripe
   audit docs. *Mitigation:* the ownership table above, plus a
   "what lives here vs. elsewhere" header in each new spec so the boundary is
   self-enforcing.
@@ -807,8 +935,8 @@ subsystem narrative into it would blur what it is for.
 - [ ] **The README's "Outside this manual" section exists** and links the
       operational, edge, dev-tooling, spec-layer, and generated-reference homes —
       so the ops exclusion is navigable after this plan-review PR closes.
-- [ ] **5 new specs** exist in `docs/ai-context/` and are routed from
-      `AGENTS.md`.
+- [ ] **6 new specs** exist in `docs/ai-context/` and are routed from
+      `AGENTS.md` (the 5 chapter specs + `legal-safety-moderation.md`).
 - [ ] **Zero TOC rows read *partial — pending fix*** — and if one does, PR 12 is
       blocked, not merely accompanied by a notification (round 2: telling David
       was previously enough, which reopened the same completion loophole F5
@@ -893,4 +1021,40 @@ none rebutted.
 | R3-4 | 3 | The DoD's per-file criteria contradicted the coverage map — it demanded an additive taxonomy section (map says drift corrections only) and described background-work as only de-forked (map also assigns it the email-queue section) | P2 | **Resolved** — per-file criteria now match the map exactly |
 | R3-5 | 3 | The ops exclusion existed only in this plan, which never reaches `main` — so the shipped README would claim full coverage with no pointer to where diagnostics/deployment material lives | P2 | **Resolved** — PR 0 adds an "Outside this manual" section to the shipped README; the decision survives this PR's closure |
 
-**Still open: 0.** Rounds completed: 3.
+**Round 4 — lens: public-repo disclosure risk + internal consistency after
+three rounds of edits.** **12 findings** (6×P1, 6×P2) against `0ce2c85` — up
+from 5, with three *Still Open* reconciliations. All verified against the repo;
+none rebutted. **David was consulted before revising** (see below), because the
+findings pointed at the plan's shape rather than its details.
+
+| # | Round | Finding | Severity | Status |
+| --- | --- | --- | --- | --- |
+| R4-1 | 4 | The round-3 transparency fix collided with the disclosure carve-out: the full claim table goes in a **public** PR body, so rung 2 would publish the very claim and source the chapter withheld, and rung 1 publishes an unremediated weakness by design | P1 | **Resolved** — added **rung 0**: private triage with David before any public artifact, and rung-2 evidence becomes a redacted `security-hold-<n>` row rather than an omission |
+| R4-11 | 4 | Module-level coverage assignment is neither exhaustive nor correct: submission is `reviews.ts:131` not `facts.ts`; `facts.ts:347` owns a share endpoint; `memes.ts` holds 23 endpoints spanning community, merch, and admin | P1 | **Superseded** — David chose to **delete** the hand-written table rather than rebuild it. Coverage is now derived per chapter at endpoint granularity, verified in the claim table, with a mechanical close-out sweep as the completeness check |
+| R4-6 | 4 | **R3-3 still open:** the authoring-time/use-time chapter split is contradicted by `visual-pipeline.md:61-77` — render inputs freeze when *the user* clicks generate, wired into user-facing generate routes. The image pipeline is shared | P1 | **Resolved** — boundary redrawn by subject matter: ch. 5 owns the shared machinery whichever path invokes it; ch. 6 owns end-user controls, tier gates, and media journey |
+| R4-2 | 4 | **R3-2 still open:** no PR owned `taxonomy-and-enrichment.md`, yet the DoD requires its baseline to name the PR carrying its claim table; close-out inventories had no home either | P1 | **Resolved** — PR 11 becomes "existing-chapter edits" and owns taxonomy; PR 12 explicitly carries the sweep's re-grounding evidence |
+| R4-8 | 4 | **R2-3b still open:** the sweep re-derives only DB writers and route/handler sets, so a changed React page, route, hook, or state transition could falsify a UI claim without entering it | P1 | **Resolved** — added claim-type-specific frontend re-derivation and frontend subtree diffing |
+| R4-9 | 4 | Chapters must point at the next chapter, but the gate rejects unresolved links and PRs 2–11 land in any order — so a forward pointer would break CI or ship a broken promise | P1 | **Resolved** — forward pointers target the README reading-order entry until the file exists; each PR backfills its predecessor's direct link. Adds no dependency edges |
+| R4-12 | 4 | The legal/safety section was the one piece of new narrative with **no spec to link into** — decision 2 not applied to itself | P1 | **Resolved** — new 6th spec `legal-safety-moderation.md`, assigned to PR 11, with evasion-sensitive details routed through rung 0 |
+| R4-7 | 4 | **Needs David confirmation** was a terminal disposition the DoD accepted, contradicting `documentation-workflow.md` and letting a "complete" manual carry unresolved product assertions | P2 | **Resolved** — draft-only state; must be confirmed, dropped, or excluded before a TOC row flips to written, and it blocks close-out |
+| R4-3 | 4 | The email-queue section was required by the coverage map and DoD but performed by no PR in the list | P2 | **Resolved** — explicitly added to PR 1, the only PR that edits that chapter |
+| R4-5 | 4 | `pages/admin/comments.tsx` is **not routed** (`App.tsx:382` redirects to the moderation panel; the file is imported nowhere) — the plan named a dead screen as a coverage target | P2 | **Resolved** — row now names `pages/admin/moderation.tsx`; the dead file is a report item for David, not a drive-by deletion |
+| R4-4 | 4 | The coverage-map heading still said "Chapters (8)" above a 12-row table | P2 | **Resolved** — count derived from the table |
+| R4-10 | 4 | `pages/not-found.tsx` (the catch-all at `App.tsx:406`) was unassigned; the plan counted 18 pages where the repo has 19 | P2 | **Resolved** — assigned to `public-site-and-sharing.md`, and named in the exclusions table as explicitly *not* excluded |
+
+**Still open: 0.** Rounds completed: 4.
+
+### What round 4 changed about the plan's shape, not just its content
+
+Findings went 7 → 4 → 5 → **12**, and they clustered on one section: the
+pre-computed route-module coverage map added in round 1. That section was
+supposed to make coverage checkable; instead it was an unverified transcription
+of the API surface that was wrong in specifics and generated most of each
+round's findings, while every fix to it created new surface for the next round.
+
+**David's call (option 1 of three I put to him): trim the plan rather than keep
+grinding.** The map is deleted; coverage is derived per chapter, verified
+against code as part of the work, and checked mechanically once at close-out.
+The parts of the plan that have survived contact unchanged — the verification
+method, the de-fork, the sequencing and close-out gates, the reading order, the
+disclosure discipline — stay. One confirming round follows.
