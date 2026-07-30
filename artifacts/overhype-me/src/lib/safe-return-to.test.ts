@@ -83,4 +83,18 @@ describe("getSafeReturnTo", () => {
     expect(getSafeReturnTo("/a/../evil.com")).toBe("/evil.com");
     expect(getSafeReturnTo("/facts/../profile")).toBe("/profile");
   });
+
+  // Codex review, PR #292 round 2: percent-encoded spellings of ".." reach the
+  // same dangerous serialization as the literal-dot case above, once decoded.
+  // These already pass against the fix — this pins that behavior against a
+  // future parser or validation rewrite silently regressing it.
+  it("rejects percent-encoded dot-segment spellings that resolve to protocol-relative", () => {
+    expect(getSafeReturnTo("/a/%2e%2e//evil.com")).toBe(null);
+    expect(getSafeReturnTo("/a/.%2e//evil.com")).toBe(null);
+    expect(getSafeReturnTo("/a/%2e.//evil.com")).toBe(null);
+  });
+
+  it("still resolves a percent-encoded dot-segment path that normalizes same-origin", () => {
+    expect(getSafeReturnTo("/a/%2e%2e/evil.com")).toBe("/evil.com");
+  });
 });

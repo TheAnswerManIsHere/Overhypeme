@@ -14,16 +14,21 @@ really did just log in to the real site a second earlier.
 The nastier version used `?from=javascript:…`, which ran the attacker's code on
 our own domain, at the exact moment you were freshly logged in.
 
-**Why it mattered here specifically:** we keep your auth token in the browser's
-local storage, and our Content-Security-Policy is still in report-only mode —
-it watches and reports, it doesn't block. So there was nothing sitting behind
-this to catch it.
+**Why it mattered here specifically:** your ordinary session cookie isn't
+readable by that injected code — it's locked down (HttpOnly) precisely so
+script on the page can't touch it. But that code still runs *as you*, on our
+own site, at the exact moment you're freshly logged in — so it can still take
+any action the page itself could take while you're signed in. And our
+Content-Security-Policy is still in report-only mode — it watches and reports,
+it doesn't block. So there was nothing sitting behind this to catch it.
 
-**What changed.** The server has always enforced "only send people to a page on
-our own site," and the Google/Apple buttons on the login page already went
-through that check. Only the email-and-password path skipped it. Now it doesn't,
-and the check is applied once, at the source, so all four places on that page
-that use `?from=` are covered.
+**What changed.** The server already had a check for "only send people to a
+page on our own site," and the Google/Apple buttons on the login page already
+went through it — but that check turned out to have the same gap this fix
+closes (a value like `/a/..//evil.com` slipped past it too), so it's fixed
+everywhere, not just on the email-and-password path that skipped it entirely.
+The check is now applied once, at the source, so all four places on the login
+page that use `?from=` are covered.
 
 There is **no visual change anywhere.** This UAT is entirely about where you
 end up after signing in.

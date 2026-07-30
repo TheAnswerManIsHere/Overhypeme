@@ -87,4 +87,16 @@ describe("getSafeReturnTo", () => {
     assert.equal(getSafeReturnTo("/a/../evil.com"), "/evil.com");
     assert.equal(getSafeReturnTo("/facts/../profile"), "/profile");
   });
+
+  // Codex review, PR #292 round 2: percent-encoded spellings of ".." reach the
+  // same dangerous serialization as the literal-dot case above, once decoded.
+  it("rejects percent-encoded dot-segment spellings that resolve to protocol-relative", () => {
+    assert.equal(getSafeReturnTo("/a/%2e%2e//evil.com"), "/");
+    assert.equal(getSafeReturnTo("/a/.%2e//evil.com"), "/");
+    assert.equal(getSafeReturnTo("/a/%2e.//evil.com"), "/");
+  });
+
+  it("still resolves a percent-encoded dot-segment path that normalizes same-origin", () => {
+    assert.equal(getSafeReturnTo("/a/%2e%2e/evil.com"), "/evil.com");
+  });
 });
