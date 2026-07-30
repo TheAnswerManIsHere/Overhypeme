@@ -25,6 +25,7 @@ import {
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
   validateEnrichment,
   computeBaselineChangedPaths,
@@ -3012,8 +3013,17 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
  * as "no alerts" on the very page whose job is to reveal problems, when the
  * truth is "alerting does not exist yet". Phase 2 adds it alongside the table.
  */
-router.get("/admin/queue-health", requireAdmin, async (_req: Request, res: Response) => {
+router.get("/admin/queue-health", requireAdmin, async (req: Request, res: Response) => {
   try {
+    // The page polls this every 5s (see the UAT doc); 60/60s per (ip, admin
+    // user) comfortably covers one client's steady polling plus several open
+    // tabs, same shape as the taxonomy-health job-status limiter below.
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.queue-health", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
     const [queues, lanes] = await Promise.all([queueHealth(db), laneHealth(db)]);
     const now = Date.now();
     res.json({
@@ -3052,6 +3062,15 @@ router.get("/admin/queue-health", requireAdmin, async (_req: Request, res: Respo
  */
 router.get("/admin/queue-health/jobs", requireAdmin, async (req: Request, res: Response) => {
   try {
+    // Only fetched on-demand (a queue row expanding), but shares the endpoint's
+    // rate-limit family so a runaway client can't dump the table via repeated
+    // paginated requests either.
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.queue-health.jobs", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
     const page = await queueHealthJobs(
       {
         queue: String(req.query["queue"] ?? "").trim() || undefined,
