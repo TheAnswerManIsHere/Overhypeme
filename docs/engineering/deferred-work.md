@@ -267,10 +267,18 @@ re-gather it when the work is scheduled.
     worst-case 10. Kept here rather than deleted because the Correction above
     is the record of a claim two documents asserted for weeks.
   - **What is still open**, and is not this item: the residual contention
-    question. Worker-handler count was never a proxy for connection count, so
-    neither the old ceiling's severity nor the new one's headroom has been
-    *measured* under load. The revisit trigger is unchanged — pool-acquisition
-    wait time or provider rate-limit errors actually showing up. See
+    question. Handler count was never a proxy for connection count — handlers
+    hold a connection for their own DB work but not while awaiting a provider
+    — so neither the old ceiling's severity nor the new one's headroom has
+    been *measured* under load.
+  - **Revisit trigger — pool-acquisition wait time only.** Provider
+    rate-limit errors are **not** evidence for this item and were wrongly
+    listed as such: a provider call runs after the claim transaction is
+    released, so a 429 indicates external-call concurrency or missing
+    provider pacing, not a Postgres acquisition bottleneck. Raising
+    `Pool.max` cannot cure it and would let *more* calls reach the provider.
+    Route provider throttling to lane-concurrency / rate-limit tuning
+    instead. See
     [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
 
 ## Code-level tech debt

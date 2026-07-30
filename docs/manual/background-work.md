@@ -14,8 +14,11 @@ A lot of what Overhype.me does is too slow, too unreliable, or too expensive to
 do inline while someone's request is waiting: classifying a fact's joke
 mechanism with an LLM, generating an AI image, sending a transactional email,
 finding a stock photo, re-running enrichment on hundreds of facts at once,
-repairing derived data. All of that runs as **background work** — durably
-queued, and never lost to a server restart mid-run. **Most** of it is also
+repairing derived data. All of that runs as **background work** — recorded in
+the database rather than held in memory, so a server restart mid-run doesn't
+lose it. (One exception worth knowing: in a local setup with no email provider
+configured, an outgoing email is logged instead of being queued at all — see
+the email section below.) **Most** of it is also
 retried automatically when it fails transiently. Not all: where a retry
 couldn't actually finish the job — because a half-completed run can't be
 resumed — the queue deliberately opts out rather than spending attempts on
@@ -31,8 +34,9 @@ an admin is actively watching and deciding what to do next.
 
 ### For the reader / user
 
-Nothing is directly visible. A render or an email simply arrives a little
-after the action that triggered it. There is no queue UI on the consumer side.
+Nothing is directly visible. A render or an email arrives after the action
+that triggered it rather than holding that action up. There is no queue UI on
+the consumer side.
 
 ### For the admin
 
@@ -69,11 +73,9 @@ Work is drained by **independent scheduling lanes**, and the important word is
 them is **who is waiting, and how much each job costs to run**:
 
 - **`fast`** — pure-database admin actions with no AI or image call in the
-  path, like sending a fact back to review. Someone clicked a button and is
-  waiting to see it take effect.
+  path. Someone clicked a button and is waiting to see it take effect.
 - **`render`** — single-item renders a moderator is watching a spinner for.
-- **`bulk`** — batches nobody is watching in real time: re-enrichment, large
-  backfills, visual-concept drafting, transactional email.
+- **`bulk`** — the catch-all for batch work nobody is watching in real time.
 - **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
   fact. Both spend money or rate-limit budget at an external provider, so what
   matters here is protecting the bill, not finishing quickly.
@@ -106,9 +108,9 @@ carries three behaviors nothing else does:
 - **An abandoned email can alert the admins — if that alert is switched on.**
   When a message exhausts its retries it would otherwise just be marked failed
   and forgotten, which matters because a silently undelivered password reset
-  looks identical to a user who never clicked. The alert is **off by default**
-  and only fires when the abandoned-email alert setting is explicitly enabled,
-  so a fresh or local environment gets no notification.
+  looks identical to a user who never clicked. The alert is **configuration-
+  dependent**: it fires only where the abandoned-email alert setting has been
+  switched on, so an environment that hasn't enabled it gets no notification.
 - **That alert is exempt from the usual cleanup.** Ordinary email rows are
   purged on a retention schedule; the alert about a failed email is
   deliberately kept, so the evidence outlives the thing it is evidence about.
@@ -157,12 +159,12 @@ elsewhere.
   For a while the pool was small enough that a fully busy queue could in
   principle crowd out ordinary page requests; it has since been given
   deliberate headroom, sized against what the database actually allows. Two
-  things are still worth knowing: a worker holds a connection only briefly at
-  the start and end of a job — not while it waits on an outside service — so
-  worker count and connection use are not the same measure, and nobody has
-  measured the real contention under load. The sizing and the reasoning are in
+  things are still worth knowing: a job holds a connection while it is doing
+  database work but not while it waits on an outside service, so the number of
+  jobs running is not the same measure as the number of connections in use —
+  and nobody has measured the real contention under load. The sizing and the reasoning are in
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
-- **A crashed job is recovered, but not quickly.** Work is never silently
+- **A crashed job is recovered, but on a deliberate delay.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
   stranded forever. But recovery runs **on a deliberate delay** rather than
   the moment a job goes quiet, and the wait is not something to plan around:
@@ -171,8 +173,8 @@ elsewhere.
   The app **can** run as
   several instances at once, and a faster sweep would sometimes grab a job
   another instance is still legitimately working on — running it twice. For an
-  email, that means a real person gets the message twice. Slow recovery of a
-  rare crash is the
+  email, that means a real person gets the message twice. Delayed recovery of
+  a rare crash is the
   better trade, and the mechanism that would let it be both fast and safe is
   tracked as follow-up work in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).

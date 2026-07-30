@@ -186,12 +186,17 @@ deliberately excludes them and points here instead.
   Even so, do not read handler count as connection count in either
   direction: `maxConcurrency` bounds concurrent *handler promises*, not
   checked-out clients. `asyncJobsTick` **commits and releases the claim
-  transaction before** `mapWithConcurrency` invokes any handler, a handler
-  awaiting an external provider holds no connection at all, and each outcome
-  opens only a short finalize transaction. Pool occupancy is bursty at
-  claim/finalize boundaries rather than pinned at the handler count — which
-  is why the old 10-vs-10 framing overstated the problem even before the
-  ceiling was raised. Every lane bound is env-overridable
+  transaction before** `mapWithConcurrency` invokes any handler, and each
+  outcome opens only a short finalize transaction. **But occupancy is not
+  confined to those two boundaries** — handlers do their own DB work while
+  running (`factSendBackHandler` → `sendFactBackToReview` holds a transaction
+  across several reads and writes; the enrichment and image handlers query
+  too), so a handler *can* occupy a connection during its promise. What it
+  reliably does **not** do is hold one while awaiting an external provider,
+  which for the provider-bound lanes is most of a job's wall-clock. Occupancy
+  is therefore workload-dependent and bursty rather than pinned at the handler
+  count — which is why the old 10-vs-10 framing overstated the problem even
+  before the ceiling was raised. Every lane bound is env-overridable
   (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so a raised lane still adds
   claim/finalize contention; the headroom cost of that has never been
   measured and this doc does not assert one.
