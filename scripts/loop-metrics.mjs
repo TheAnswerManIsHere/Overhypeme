@@ -160,8 +160,18 @@ export function reviewerPasses(reviews, issueComments = []) {
     }
   }
 
+  // Deduplicated by id first, same reasoning as `formal` above: a bad fixture
+  // or two overlapping concatenated `get_comments` pages can repeat a comment
+  // record. Root comments and formal reviews already guard against this input
+  // shape; a repeated clean-pass announcement would otherwise silently
+  // fabricate a second round with zero findings — invisible to derive()'s
+  // reconciliation check, since a zero-finding round can't disagree with
+  // anything.
+  const seenCommentIds = new Set();
   for (const comment of issueComments) {
     if (!REVIEWER_LOGINS.has(comment.user?.login)) continue;
+    if (seenCommentIds.has(comment.id)) continue;
+    seenCommentIds.add(comment.id);
     const marker = REVIEWED_COMMIT_MARKER.exec(comment.body ?? "");
     if (!marker) continue;
     // Not deduplicated against the formal announcements: the two shapes are
@@ -745,14 +755,20 @@ export function assertMcpSnapshotShape(snapshot) {
     );
   }
   (snapshot.issueComments ?? []).forEach((c, i) => {
-    // Only the two fields reviewerPasses/reviewInterval actually read. A
-    // missing body would make a real clean pass invisible and a missing
-    // created_at would sort it to the epoch — both silent, both wrong.
-    if (typeof c.body !== "string" || typeof c.user?.login !== "string" || !c.created_at) {
+    // body/user.login/created_at are what reviewerPasses/reviewInterval read —
+    // missing either silently hides a real clean pass or sorts it to the
+    // epoch. id is required for the same reason reviews require a stable id
+    // (see hasStableId below): reviewerPasses dedupes issue comments by id,
+    // and an id-less comment would either collide with every other id-less
+    // comment (silently dropping distinct passes) or, if left unvalidated,
+    // could be repeated across concatenated pages and fabricate a phantom
+    // zero-finding round that findings reconciliation cannot catch.
+    const hasStableCommentId = typeof c.id === "number" || typeof c.id === "string";
+    if (!hasStableCommentId || typeof c.body !== "string" || typeof c.user?.login !== "string" || !c.created_at) {
       throw new Error(
-        `MCP snapshot malformed: issueComments[${i}] must have a string body, a string user.login, and a ` +
-          `created_at (got body=${typeof c.body}, user.login=${JSON.stringify(c.user?.login)}, ` +
-          `created_at=${JSON.stringify(c.created_at)}).`,
+        `MCP snapshot malformed: issueComments[${i}] must have a stable id (number or string), a string body, ` +
+          `a string user.login, and a created_at (got id=${JSON.stringify(c.id)}, body=${typeof c.body}, ` +
+          `user.login=${JSON.stringify(c.user?.login)}, created_at=${JSON.stringify(c.created_at)}).`,
       );
     }
   });

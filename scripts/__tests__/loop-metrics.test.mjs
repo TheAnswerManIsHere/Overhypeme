@@ -26,7 +26,9 @@ const ME = { login: "TheAnswerManIsHere" };
  * suffix varies ("Delightful!" / "Swish!" / ":+1:"), which is exactly why
  * detection keys on the marker and not the prose.
  */
-const cleanPass = (sha, at, flourish = "Delightful!") => ({
+let cleanPassAutoId = 900000;
+const cleanPass = (sha, at, id = ++cleanPassAutoId, flourish = "Delightful!") => ({
+  id,
   user: BOT,
   created_at: at,
   body: `Codex Review: Didn't find any major issues. ${flourish}\n\n**Reviewed commit:** \`${sha}\`\n`,
@@ -123,6 +125,17 @@ test("a trailing carrier with no announcement after it stands alone", () => {
     carrier(2, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "2026-07-30T02:00:00Z"),
   ];
   assert.equal(countRounds(reviews), 2);
+});
+
+test("a duplicated clean-pass issue comment counts as one round, not two", () => {
+  // Same reasoning as the review-record and root-comment dedup above, applied
+  // to issue comments: two overlapping concatenated get_comments pages (or a
+  // bad fixture) could otherwise repeat one clean-pass announcement into two
+  // phantom rounds, each with zero findings — invisible to derive()'s
+  // reconciliation check since a zero-finding round can't disagree with
+  // anything.
+  const dupe = cleanPass("bbbbbbbbbb", "2026-07-30T02:00:00Z", 42);
+  assert.equal(countRounds([], [dupe, { ...dupe }]), 1);
 });
 
 test("a reviewer issue comment with no reviewed-commit marker is not a pass", () => {
@@ -823,10 +836,22 @@ test("fromMcp preserves an omitted issueComments as undefined, not as an empty a
 
 test("fromMcp refuses an issue comment missing the fields pass detection reads", () => {
   const bad = realSnapshot({
-    issueComments: [{ user: { login: "chatgpt-codex-connector[bot]" }, created_at: "2026-07-30T02:00:00Z" }],
+    issueComments: [{ id: 1, user: { login: "chatgpt-codex-connector[bot]" }, created_at: "2026-07-30T02:00:00Z" }],
     complete: { reviews: true, files: true, reviewThreads: true, issueComments: true },
   });
-  assert.throws(() => fromMcp(bad), /issueComments\[0\] must have a string body/);
+  assert.throws(() => fromMcp(bad), /issueComments\[0\] must have a stable id.*a string body/);
+});
+
+test("fromMcp refuses an issue comment with no stable id", () => {
+  // reviewerPasses dedupes issue comments by id; an id-less comment would
+  // either collide with every other id-less comment or, left unvalidated,
+  // could repeat across concatenated pages and fabricate a phantom round.
+  const bad = realSnapshot({
+    issueComments: [cleanPass("aaaaaaaaaa", "2026-07-30T02:00:00Z")],
+    complete: { reviews: true, files: true, reviewThreads: true, issueComments: true },
+  });
+  delete bad.issueComments[0].id;
+  assert.throws(() => fromMcp(bad), /issueComments\[0\] must have a stable id/);
 });
 
 test("flattenMcpThreads assigns no review id when the comment predates every review by that author", () => {

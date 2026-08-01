@@ -250,6 +250,34 @@ test("the audit honours rows, exemptions, Dependabot, and the first-enforced bou
   assert.equal(skippedNonLoop, 1);
 });
 
+test("a PR merged into a stacked parent branch is not a landed carrier", () => {
+  // working-modes.md's "Dependent bugs" note: a stacked bugfix PR bases
+  // against another open bugfix PR's head, not main. GitHub stamps merged_at
+  // on that stack merge exactly like a merge into main — nothing in the field
+  // alone says which branch received it. Only base.ref === "main" actually
+  // reached the branch this audit runs against.
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      {
+        number: 295,
+        created_at: "2026-07-31T00:00:00Z",
+        closed_at: "2026-07-31T01:00:00Z",
+        merged_at: "2026-07-31T01:00:00Z",
+        base: { ref: "claude/bug-parent-abc123" },
+        title: "stacked dependent bugfix",
+        user: { login: "me" },
+      },
+    ],
+    ledger: emptyLedger,
+  });
+  // #295 itself is a second closed loop owing a row — pending too, not
+  // overdue, since nothing has landed on main since it closed either. The
+  // assertion under test is that it does NOT make #290 overdue.
+  assert.deepEqual(overdue, []);
+  assert.deepEqual(pending.map((p) => p.number).sort(), [290, 295]);
+});
+
 test("a merged carrier does not count itself as its own missed carrier", () => {
   // A merged PR is both a closed loop owing a row AND a landed PR. Without
   // the self-exclusion it would report itself overdue the instant it merged,

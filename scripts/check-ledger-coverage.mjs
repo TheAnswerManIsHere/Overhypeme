@@ -328,6 +328,16 @@ export function owedRows({ allPrs, currentPr, ledger }) {
  * `[PLAN REVIEW]` PR is closed unmerged by contract, so a row folded into one
  * would never reach `main`. Treating such a PR as a missed carrier would
  * report a debt nobody could ever have paid.
+ *
+ * Requiring the carrier's BASE to be `main` matters for the same reason, one
+ * level down: this repo stacks a dependent bugfix PR on another open bugfix
+ * PR's head rather than on `main` (working-modes.md's *Dependent bugs* note),
+ * and GitHub stamps `merged_at` on that stack merge exactly like a merge into
+ * `main` — nothing in the field itself says which branch received it. A
+ * stacked PR's commits reach `main` only later, when its PARENT merges into
+ * `main` in turn. Counting the stacked merge itself as a landed carrier would
+ * report a loop's row as overdue against a PR that never actually reached the
+ * branch this audit runs against.
  */
 export function auditLedgerDebt({ allPrs, ledger }) {
   const overdue = [];
@@ -335,7 +345,7 @@ export function auditLedgerDebt({ allPrs, ledger }) {
   let skippedNonLoop = 0;
 
   const landed = allPrs
-    .filter((pr) => pr.merged_at)
+    .filter((pr) => pr.merged_at && (pr.base?.ref ?? "main") === "main")
     .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at), merged: new Date(pr.merged_at) }));
 
   for (const pr of allPrs) {
