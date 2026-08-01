@@ -246,10 +246,11 @@ impression, now checked against six loops instead of four:**
   is not yet tested on a genuinely large *pure-docs-harvest* loop (like this
   PR, #294, once it closes) the way #270 tested it for code.
 
-This is a hypothesis at n=3 pre-boundary (not falling) and n=3 post-boundary
-(declining, cohort-confounded), not a finding. It is recorded here so the
-next rows — on either side of the boundary — can confirm or kill it rather
-than re-deriving it.
+This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
+post-boundary (declining; #285 excluded as a boundary straddle, not a
+cohort confound), not a finding. It is recorded here so the next rows — on
+either side of the boundary — can confirm or kill it rather than
+re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 

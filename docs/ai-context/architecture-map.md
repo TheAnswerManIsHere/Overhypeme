@@ -236,11 +236,14 @@ deliberately excludes them and points here instead.
     `app.use("/api", router)` in `app.ts`). On total API-process death this
     route is as unreachable as any other (`/api/health`, `/api/healthz`) — an
     external monitor just sees the same connection failure either way, so
-    that isn't what's distinctive about it. What it uniquely adds is a
-    meaningful non-200 while the **process itself is alive**: it returns 503
-    when every worker has stopped scheduling a lane fleet-wide (a failure
-    mode no other endpoint reports — an in-process watchdog can't detect its
-    own worker's death any more reliably than the worker itself can), **and**
+    that isn't what's distinctive about it. The aggregate endpoint above
+    already reports the same fleet-wide `stalled` verdict per lane — as JSON
+    data, always behind a 200 (`/admin/queue-health` never sets a non-200
+    status for a stalled lane, only for a request-level failure). What the
+    probe uniquely adds is turning that verdict into the **HTTP status code
+    itself**: a meaningful non-200 while the **process itself is alive**, so
+    a monitor doesn't have to parse a body to detect the problem — it returns
+    503 when every worker has stopped scheduling a lane fleet-wide, **and**
     fails closed with the same 503 shape if evaluating lane health itself
     throws (e.g. the DB query fails) — a genuinely unhealthy-looking response
     rather than the looks-fine-while-broken shape this endpoint exists to

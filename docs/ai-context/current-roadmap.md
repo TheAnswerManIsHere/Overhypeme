@@ -31,9 +31,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   write new state (see below). Each lane's worker now publishes a heartbeat
   (`worker_lane_heartbeats`), and three new endpoints comprise the surface:
   an admin aggregate view and an unauthenticated `/api/health/queues`
-  liveness probe both read the heartbeat (the probe returns a meaningful 503
-  when the API process is alive but every worker has stopped scheduling a
-  lane fleet-wide — a failure mode no other endpoint reports); a paginated
+  liveness probe both read the heartbeat — the aggregate view already
+  reports a fleet-wide stall as JSON data (always behind a 200); the probe
+  uniquely turns that same verdict into the HTTP status code itself, a
+  meaningful 503 when the API process is alive but every worker has stopped
+  scheduling a lane fleet-wide; a paginated
   per-item drill-down (all eleven queues, not just email) reads only
   `async_jobs`, not the heartbeat. One narrow, David-approved exception to
   "no finalize changes": the `abandoned_no_retry` classification now
