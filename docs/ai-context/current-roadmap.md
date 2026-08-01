@@ -24,6 +24,38 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
+  Health surface** (PR #288, from the plan reviewed on the closed-unmerged
+  PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
+  this phase adds observability, not new queue behavior, though it does
+  write new state (see below). Each lane's worker now publishes a heartbeat
+  (`worker_lane_heartbeats`), and three new endpoints comprise the surface:
+  an admin aggregate view and an unauthenticated `/api/health/queues`
+  liveness probe both read the heartbeat — the aggregate view already
+  reports a fleet-wide stall as JSON data (always behind a 200); the probe
+  uniquely turns that same verdict into the HTTP status code itself, a
+  meaningful 503 when the API process is alive but every worker has stopped
+  scheduling a lane fleet-wide; a paginated
+  per-item drill-down (all eleven queues, not just email) reads only
+  `async_jobs`, not the heartbeat. One narrow, David-approved exception to
+  "no finalize changes": `processClaimedJob` now persists the resolved
+  retry ceiling at the moment a row finalizes to `failed` — the
+  `abandoned_no_retry` classification itself stays derived on every read,
+  never stored (see
+  [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)).
+  Also closed a real gap from the five-lane expansion (PR #256, which added
+  the `pexels`/`ai_meme_backfill` lanes on top of PR #216's original
+  fast/render/bulk split): the shared DB pool's
+  `max` is now explicit and derived (20) instead of pg's implicit default
+  (10), which had left zero spare connections once all five lanes were
+  simultaneously busy. See
+  [`architecture-map.md`](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
+  and the manual's [Background Work](../manual/background-work.md#worker-liveness-and-the-queue-health-surface)
+  chapter. **Open next:** Phases 2–4 of the same plan are not yet
+  scheduled — Phase 2 (two alert channels: in-app + an out-of-band webhook
+  that doesn't depend on the DB-backed email queue), Phase 3 (claim
+  fencing so a rare duplicate paid call is preferred over ever losing work),
+  Phase 4 (the enqueue primitive moves to `onConflictDoNothing`).
 - **Loop ledger backfilled + a CI guard against future gaps** (PR #286, rows
   #285/#286 folded in later via PR #290). Between the ledger's creation
   (PR #270) and 2026-07-29 it had accrued 2 rows against 13 closed loops,
