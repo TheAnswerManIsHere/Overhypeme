@@ -4,11 +4,14 @@
 
 CodeQL flags 213 `js/missing-rate-limiting` alerts across this repo's API routes. This repo already has real rate limiting — `checkSharedRateLimit` (`artifacts/api-server/src/lib/sharedRateLimiter.ts`), a DB-backed window counter, called either inline or via `createRateLimiter`'s Express-middleware wrapper (`artifacts/api-server/src/lib/rateLimit.ts`) — but CodeQL's `js/missing-rate-limiting` query only recognizes a hardcoded list of known npm packages (`express-rate-limit`, `express-brute`, `express-limiter`, `rate-limiter-flexible`, `@fastify/rate-limit`) as satisfying the check. It has no extension mechanism, so no amount of correctly-functioning custom code will ever clear it — confirmed empirically this session (`checkSharedRateLimit` registered as real Express middleware still gets flagged).
 
-**Proven locally this session:** building a CodeQL database against a copy of the repo with one addition — `import { rateLimit } from "express-rate-limit"` and `app.use("/api", rateLimit({ windowMs: 60_000, limit: 30 }), router)` in `app.ts` — took the alert count from 213 to 0 in a full local scan. That proof used `express-rate-limit`'s default in-memory `MemoryStore`.
+**Proven locally, three times as the design changed shape:**
+1. Original proof: `import { rateLimit } from "express-rate-limit"` + `app.use("/api", rateLimit({...}), router)` — 213 → 0.
+2. Round-2's revised (function-wrapped) mount shape — re-scanned after Codex flagged that CodeQL is pattern-sensitive and a wrapper could break recognition: still 0.
+3. **This plan's actual final shape** (early-mounted, direct-passed `rateLimit(...)`, a separate non-wrapping counting middleware — see §3): re-scanned after this round's mount-order changes: **also 0.** All three scans used the CLI + database infra already set up in this session's scratchpad.
 
-**Why not ship that as-is:** this repo's existing rate limiting is deliberately DB-backed (`rate_limit_counters` table) specifically so counts are correct across multiple server processes/instances, not per-process. Wiring the CodeQL-satisfying middleware to the default in-memory store would be a real regression of that guarantee for the one rate limiter CodeQL can see, even though it's cosmetically "the same fix." This plan closes that gap: same proven CodeQL-satisfying shape, backed by a custom `Store` that reuses the existing DB table.
+**Why not ship the simplest version as-is:** this repo's existing rate limiting is deliberately DB-backed (`rate_limit_counters` table) specifically so counts are correct across multiple server processes/instances, not per-process. This plan closes that gap: same proven CodeQL-satisfying shape, backed by a custom `Store` that reuses the existing DB table.
 
-**Outcome:** all 213 alerts clear (re-verified via local CodeQL scan before calling this done), no change to any existing narrow rate limiter's behavior, no new migration.
+**Outcome:** all 213 alerts clear, no change to any existing narrow rate limiter's behavior, no new table/schema migration.
 
 ## Design
 
@@ -20,21 +23,20 @@ Verified externally against current docs:
 - v8 supports Express 5. [Release notes](https://github.com/express-rate-limit/express-rate-limit/releases)
 - `limit` (but not `windowMs` — see §3) may be an async function evaluated per request. [Changelog](https://express-rate-limit.mintlify.app/reference/changelog)
 - `passOnStoreError: true` — built-in option that allows the request through if the `Store` throws.
-- `ipKeyGenerator(ip: string, ipv6Subnet = 56)` — an exported helper that returns the IP as-is for IPv4, or the `/56` CIDR subnet for IPv6 (so a client with many addresses in one subnet gets one bucket, not one per address), with a specific carve-out for IPv4-mapped IPv6 addresses (`::ffff:1.2.3.4`) to avoid them collapsing into one shared `::/56` bucket. This exact gap was CVE-2026-30827 in this package before the carve-out existed — using the exported helper rather than a naive raw-string key is the reason this design isn't exposed to it. [Advisory](https://github.com/express-rate-limit/express-rate-limit/security/advisories/GHSA-46wh-pxpv-q5gq)
+- `ipKeyGenerator(ip: string, ipv6Subnet = 56)` — normalizes IPv6 to a `/56` subnet, with an IPv4-mapped-IPv6 carve-out (the CVE-2026-30827 bug class). [Advisory](https://github.com/express-rate-limit/express-rate-limit/security/advisories/GHSA-46wh-pxpv-q5gq)
+- `handler` signature is `(req, res, next, options)` — `next` is available, used for dry-run mode (§3). [Search-confirmed against the package's configuration reference.]
 
-Considered and rejected: `@acpr/rate-limit-postgresql`, a third-party Postgres store (1.1k weekly downloads, not published under the `express-rate-limit` org's own npm scope). Rejected because it needs its own DB connection config and its own table — a new migration and a second DB connection path, when we can reuse the existing table and `db` client with ~30 lines of code that mirror an already-proven pattern.
+Considered and rejected: `@acpr/rate-limit-postgresql` (needs its own DB connection/table).
 
 ### 2. Custom `Store`: reuse `rate_limit_counters`, don't add a table
 
-New file `artifacts/api-server/src/lib/globalRateLimitStore.ts`. Implements the `Store` interface using the same atomic `INSERT ... ON CONFLICT DO UPDATE` shape already proven in `checkSharedRateLimit` (`sharedRateLimiter.ts:51-68`) against the same `rate_limit_counters` table and the same `db` client.
+New file `artifacts/api-server/src/lib/globalRateLimitStore.ts`. Implements the `Store` interface using the same atomic `INSERT ... ON CONFLICT DO UPDATE` shape already proven in `checkSharedRateLimit` (`sharedRateLimiter.ts:51-68`).
 
-Kept as a standalone implementation rather than sharing code with `checkSharedRateLimit` — that function also tracks `nearLimit`, which doesn't apply here, and the `Store` interface's return shape differs from `checkSharedRateLimit`'s. Two similar small SQL blocks read more clearly than a shared abstraction built for two callers with different needs.
+**Both persisted columns are salted digests — round 3 finding, not just `key_raw`.** Round 2 fixed `key_raw` to store a salted hash instead of the plaintext key, but left `key_hash` (the primary key) as plain, unsalted `sha256("grl:" + resolvedKey)` — over the whole IPv4 space (~4 billion addresses) that's a cheaply precomputable rainbow table, so "no raw address stored" didn't actually mean "not recoverable." Both columns are now derived from the same salted digest: `key_hash = sha256("grl:" + hashIp(resolvedKey))`, `key_raw = "grl:" + hashIp(resolvedKey)` (reusing `hashIp`, `transientRenderLog.ts:68-69` — the existing salt, not a new one). Tests assert neither column equals the unsalted digest, not just that it doesn't equal the literal address.
 
-**Key namespacing and hashing:** the resolved, subnet-normalized key (§3) gets a `"grl:"` prefix, then is SHA-256 hashed for `key_hash` (the primary key) — same as `checkSharedRateLimit`. **Unlike `checkSharedRateLimit`, `key_raw` does not store the plaintext key.** Round-2 finding: `checkSharedRateLimit`'s own `key_raw` column is fine to leave unhashed because its key is already a composite (`rl|endpoint|ip:x|uid:y|to:z`), but this Store's key is *only* a client IP — persisting it verbatim in a column every API request writes to would be exactly the raw-IP storage `transientRenderLog.ts` deliberately avoids (it salts and hashes via `hashIp`, `transientRenderLog.ts:68-69`, before ever touching the DB). `key_raw` here stores `` `grl:${hashIp(resolvedKey)}` `` — the same salted digest, not the address — retaining the "which namespace is this row from" legibility `key_raw` exists for without persisting anything address-shaped. A test asserts no raw IPv4/IPv6 address appears in either column.
+**Window is captured via `init(options)`, not the constructor**, called once at setup before any request is handled.
 
-**Window is captured via `init(options)`, not the constructor.** `rateLimit()` calls `init(options)` once at setup, synchronously, before the middleware handles any request — `options.windowMs` is read there and stored on the instance for every subsequent `increment` call to compute `expires_at`.
-
-**On a DB error, `increment`/`decrement`/`resetKey` let the exception propagate** (they do not catch-and-degrade internally) — `passOnStoreError: true` on the `rateLimit()` config is what turns that into "let the request through." This is deliberate: this middleware is explicitly "a generous backstop, not the real protection" — the narrow per-feature limiters and Cloudflare's edge-level rate limiting rules (`docs/cloudflare-rate-limits.md`) are the actual defense and are untouched by a Store outage. Fail-closed here would mean a transient DB hiccup — pool exhaustion, a slow query, a brief network blip — turns into an API-wide 429 storm on every route, including ones that touch no database at all. That's a worse outage than the backstop it would be protecting. **Telemetry still needs to see the error** (§3), so the one place a `try`/`catch` appears around a Store call is telemetry-only and always rethrows — never swallows.
+**On a DB error, `increment`/`decrement`/`resetKey` let the exception propagate** — `passOnStoreError: true` (§3) is what turns that into "let the request through," not internal catch-and-degrade logic. The one `try`/`catch` in the Store is telemetry-only (increments `storeError`, logs, **rethrows** — required, or `passOnStoreError` silently breaks).
 
 ```ts
 class GlobalRateLimitStore implements Store {
@@ -48,29 +50,50 @@ class GlobalRateLimitStore implements Store {
 }
 ```
 
-**Concurrency:** the underlying SQL is the same single-statement `INSERT ... ON CONFLICT (key_hash) DO UPDATE ... RETURNING` already proven atomic in `checkSharedRateLimit` — Postgres serializes conflicting writes to the same row at the statement level, so no additional locking is needed. Verified with a real concurrency test, not just sequential logic (§5).
+**Concurrency:** same single-statement `INSERT ... ON CONFLICT ... RETURNING` already proven atomic in `checkSharedRateLimit`. Verified with a real concurrency test (§5), not just sequential logic.
 
-**Row lifetime:** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83`) already exists but had **no production caller** — only test callers, and the one existing test (`rateLimit.test.ts:55-57`) calls it without creating rows or asserting anything, so it never actually verified the delete behavior either. Fixed two ways: (1) wired the existing function into an hourly job mirroring `jobs/transientRenderPurger.ts`'s self-rescheduling `setTimeout` pattern exactly — same schedule-at-top-of-hour shape, same try/catch-log-then-reschedule resilience so one failed run can't silently stop all future cleanup (`index.ts:221-234`/`:407`); new `jobs/rateLimitCounterPurger.ts` + matching `index.ts` registration. (2) A real test for the new job, mirroring `phase4.purger.test.ts`'s exact pattern (insert active + expired counter rows, run the purger, assert only expired rows are gone) plus a test that a thrown error during one scheduled run doesn't prevent the next — and the pre-existing trivial `rateLimit.test.ts` purge test is strengthened the same way while touching this area, rather than left as a known-weak neighbor.
+**Row lifetime:** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83`) had no production caller and no real test. Fixed: wired into an hourly job mirroring `jobs/transientRenderPurger.ts`'s exact self-rescheduling pattern (`jobs/rateLimitCounterPurger.ts` + `index.ts` registration), with a real test mirroring `phase4.purger.test.ts` (active + expired rows, assert the boundary) plus a scheduler-resilience test (a thrown error on one run doesn't block the next). Also strengthens the pre-existing trivial `rateLimit.test.ts:55-57` purge assertion while touching this area.
 
-**Telemetry, redesigned from round 1's version to fix a real architectural problem it had:** round 1 tried to have the Store itself track "allowed" outcomes, but the Store's `increment()` only returns a hit count — it doesn't know whether that count is *under* the limit, because the limit is resolved separately (and asynchronously, per §3) by the middleware after `increment()` returns. Fixed by moving counting to where each outcome is actually observable:
-- A thin wrapper middleware around `globalLimiter` increments `globalRateLimitMetrics.total` for every request that reaches it (i.e., every request not already `skip`-exempted).
-- `blocked` increments inside the `handler` (§3) — the one place a block is actually decided.
-- `storeError` increments via a `try { ... } catch (err) { globalRateLimitMetrics.storeError++; logger.warn({ err }, "..."); throw err; }` wrapper around each Store method's real logic — rethrowing is required, or `passOnStoreError` silently stops working.
-- `allowed` is not separately tracked — it's `total - blocked - storeError`, computed when reporting rather than incremented at a nonexistent hook. This avoids inventing a hook the package doesn't provide.
+### 3. Wiring in `app.ts` — mount point, exemptions, and the dry-run rollout
 
-No raw client IPs in any metric or log line — only counts and, on block/error, the request path.
+**Mounted early, and scoped, and pattern-verified against CodeQL — three separate round-3 findings, addressed together because they interact:**
 
-### 3. Wiring in `app.ts`
+- **Early (round-3 finding, P2):** the earlier design mounted right before the `/api` router, which is *after* `express.json`/`urlencoded`, both origin/CSRF checks, and `authMiddleware` (`authMiddleware.ts:73-105` does real session/user DB work). A request this limiter will ultimately reject still paid for body parsing and a DB-backed auth lookup first — exactly the cost a backstop against abuse shouldn't impose. Moved to immediately after `securityHeaders()` (`app.ts:82`), before the request logger, CORS, body parsing, CSRF, and auth.
+- **Scoped (round-3 finding, P2 — a regression introduced by round 2's own fix):** round 2 fixed the mount-stripping bug by moving to an *unscoped* top-level `app.use()`, which then ran for every request reaching the app, not just `/api/*`. Fixed by scoping to `app.use("/api", ...)` while keeping the exemption predicates working correctly — see the next point for how.
+- **`req.originalUrl`, not `req.path`, for exemption matching:** mounting via `app.use("/api", ...)` strips the prefix from `req.path` inside the middleware — the exact mechanism that broke round 1's exemptions in the first place. Rather than reintroduce that bug by scoping back to `/api`, the exemption check here reads `req.originalUrl.split("?")[0]` (always the full, un-stripped path) instead of `req.path`. `isPublicAssetRequest` is refactored to accept an explicit path string (`isPublicAssetRequest(method, path)`) rather than a `Request`, so both call sites — the existing top-level CSRF-cookie check (passing `req.path`, correct there since it's unmounted) and this new one (passing the `originalUrl` path) — get the right value for their own mount depth from one shared implementation, instead of one of them being silently wrong again.
+- **Direct-passed, not wrapped, and CodeQL-reverified (round-3 finding, P1):** `rateLimit(...)` is passed directly to `app.use()` as its own middleware argument — `app.use("/api", countGlobalLimiterRequest, globalLimiter)` — not invoked from inside a wrapping arrow function. The wrapped shape from round 2's fix was independently re-scanned and still cleared CodeQL (0 alerts), but there's no reason to keep the indirection once a direct-pass shape works too, and direct-passing is the closer match to the original proof, less exposed to a future CodeQL model becoming stricter about indirection. **This exact final shape — early mount, `/api`-scoped, direct-passed — was itself re-scanned locally and clears at 0** (see Context).
 
 ```ts
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { GlobalRateLimitStore, globalRateLimitMetrics } from "./lib/globalRateLimitStore";
 import { ipFromRequest } from "./lib/transientRenderLog";
-import { getConfigInt } from "./lib/adminConfig";
+import { getConfigInt, getConfigBoolean } from "./lib/adminConfig";
 import { logger } from "./lib/logger";
 
 const GLOBAL_RATE_WINDOW_MS = parsePositiveInt(process.env.GLOBAL_RATE_WINDOW_MS, 60_000);
 const HEALTH_PATHS = new Set(["/api/healthz", "/api/health", "/api/health/queues"]);
+// Registration-order exemptions made explicit now that the limiter runs
+// earlier than they do — see the mount-point note above.
+const EARLY_EXEMPT_PATHS = new Set([
+  "/api/stripe/webhook",
+  "/api/config",
+  "/api/admin/config/global_rate_limit_max", // the ceiling's own self-rescue endpoint — see §5
+]);
+
+function isExemptRequest(req: Request): boolean {
+  const path = req.originalUrl.split("?")[0];
+  return (
+    isPublicAssetRequest(req.method, path) ||
+    HEALTH_PATHS.has(path) ||
+    EARLY_EXEMPT_PATHS.has(path)
+  );
+}
+
+function countGlobalLimiterRequest(req: Request, res: Response, next: NextFunction): void {
+  if (isExemptRequest(req)) return next();
+  globalRateLimitMetrics.total++;
+  next();
+}
 
 const globalLimiter = rateLimit({
   windowMs: GLOBAL_RATE_WINDOW_MS,
@@ -78,73 +101,64 @@ const globalLimiter = rateLimit({
   store: new GlobalRateLimitStore(),
   keyGenerator: (req) => ipKeyGenerator(ipFromRequest(req)),
   passOnStoreError: true,
-  standardHeaders: true, // RateLimit-* / Retry-After response headers
-  skip: (req) => isPublicAssetRequest(req) || HEALTH_PATHS.has(req.path) || req.path === "/api/config",
-  handler: (req, res) => {
+  standardHeaders: true,
+  skip: (req) => isExemptRequest(req),
+  handler: async (req, res, next) => {
     globalRateLimitMetrics.blocked++;
-    logger.warn({ path: req.path }, "global rate limit exceeded");
+    logger.warn({ path: req.originalUrl.split("?")[0] }, "global rate limit exceeded");
+    const dryRun = await getConfigBoolean("global_rate_limit_dry_run", true);
+    if (dryRun) return next(); // observe, don't enforce — see the rollout note below
+    res.set("Cache-Control", "no-store");
     res.status(429).json({ error: "Too many requests. Please slow down." });
   },
 });
 
-// Mounted at the TOP level, not nested inside `app.use("/api", ...)` — see the
-// mount-point note below for why this isn't cosmetic.
-app.use((req, res, next) => {
-  globalRateLimitMetrics.total++;
-  globalLimiter(req, res, next);
-});
-app.use("/api", router);
+app.use("/api", countGlobalLimiterRequest, globalLimiter);
 ```
 
-Changes from round 1, each closing a specific finding:
+**Dry-run rollout — replaces the earlier "watch after the fact" plan with an actual pre-enforcement measurement (round-3 finding, Reconciliation):** round 2's post-rollout monitoring rule couldn't distinguish a scraper being correctly blocked from a legitimate shared-NAT population being incorrectly blocked — both produce the same "many blocks from one key" signal, and the plan had no way to tell them apart. Rather than invent a differentiation heuristic (path diversity, request timing, etc. — all guesses without real data), the rollout now has an actual **observe-before-enforce** phase: `global_rate_limit_dry_run` (new `admin_config` boolean, default `true`) makes `handler` count and log what *would* have been blocked but always calls `next()` instead of returning 429 while dry-run is active. This means the first deployment collects real block-rate data against real traffic, with zero user-facing risk, before a single legitimate request is ever actually rejected. David flips `global_rate_limit_dry_run` to `false` (live, no deploy) once the dry-run block log shows no plausible false-positive pattern over an observation window — replacing the earlier "72 hours, then decide from imperfect signal" rule with "watch the dry-run log, then decide from real evidence, on your own timeline." This is a materially stronger answer than the round-2 version, not a rewording of the same trade-off.
 
-- **Mount point moved out of the `/api` nesting (round-2 finding, P1 — a real bug, not a style choice):** round 1's `app.use("/api", globalLimiter, router)` runs `globalLimiter` *inside* the `/api` mount, where Express strips the mount prefix — so `req.path` inside it was `/healthz`, not `/api/healthz`, and `HEALTH_PATHS`/`PUBLIC_ASSET_PATH_PATTERNS` (both written expecting the full `/api/...` path) never matched anything. The health and asset exemptions from round 1 looked correct on paper and did nothing. Fixed by mounting `globalLimiter` as its own top-level `app.use()`, immediately before `app.use("/api", router)`, matching how the *existing* CSRF-cookie `isPublicAssetRequest` check at `app.ts:217` already works (also a top-level, unnested `app.use()`) — so `req.path` carries the full path in both places, consistently, with no `req.originalUrl` workaround needed. The integration test now asserts the Store is never invoked for exempt paths (checked via the Store's own hit count, not just "no 429"), not merely that fail-open would have masked the bug.
-- **`keyGenerator: (req) => ipKeyGenerator(ipFromRequest(req))`** (round-1 P1, round-2 found the fix incomplete): `ipFromRequest` resolves the trusted address (`CF-Connecting-IP` first, per `docs/cloudflare-rate-limits.md:86-105` — not `req.ip`/XFF); `ipKeyGenerator` (§1) then normalizes it the way the package's own default generator would, so IPv6 clients can't split one subnet across many buckets. Composing the two closes both the spoofing gap (round 1) and the normalization gap (round 2) with the trusted address as the input to the package's own normalizer, not a hand-rolled one.
-- **`skip` adds `/api/config`** (round-2 finding, P2): `/api/config` (`app.ts:299-308`) is registered before the router mount and ends its own response without `next()`, so it was already unreachable by any router-nested middleware in round 1's version — but round 1's "must not change" wording implied every non-exempt route gets the new ceiling, which this route silently didn't. Made explicit rather than an accidental byproduct of registration order: it's public, read-only, served from a 60-second in-memory cache (`getPublicConfig`), and carries no abuse surface worth protecting — listed in §5 as a named exemption with that rationale, not left implicit.
-- **`handler`**: the package's default 429 response is plain text; every existing limiter in this codebase returns `{ error: "..." }` JSON, and multiple frontend callers parse error bodies with `res.json()`. `standardHeaders: true` keeps the standard `RateLimit-*`/`Retry-After` response headers explicit rather than relying on the package default.
-- **`limit` as `() => getConfigInt("global_rate_limit_max", 600)`** — see the config-source and provisioning notes below.
+**`Cache-Control: no-store` on the enforced 429** (round-3 finding, folded in here): the earlier mount position was covered by the existing `noStore` middleware list (`app.ts`, later in the chain); the new earlier position isn't, so a 429 could otherwise be cached by an intermediate proxy and served stale to a since-recovered client. Set directly in `handler` rather than relying on the later `noStore` list, since this middleware now runs before it.
 
-**Config source and provisioning for the tunable ceiling:** `limit` reads the live (60-second-cached) `admin_config` value via `getConfigInt`, matching this repo's established pattern for exactly this kind of value (`transient_renders.retention_days`, `pricing_refresh_interval_ms`). **Round 2 found this incomplete on its own: `getConfigInt` only reads a row that already exists — nothing provisioned one, and `routes/admin.ts:2220-2228` 404s on a missing key, so the admin UI would have had nothing to show and David could never actually tune it live, which was the entire point of moving off an env var.** Fixed with a new migration seeding `global_rate_limit_max` (integer, default `600`, `min_value: 1`) using this repo's existing idempotent seed pattern (`ON CONFLICT (key) DO UPDATE SET label = ..., description = ..., data_type = ...` — deliberately *not* overwriting `value` on conflict, so a value David has already tuned survives a future migration re-run, matching `migrations/0014_legendary_generation_limit.sql`'s exact shape). `windowMs` stays a plain env var (`GLOBAL_RATE_WINDOW_MS`, default 60 000) — not moved to `admin_config` — since it isn't the value expected to need live tuning, and a changing window mid-flight would create rollover edge cases in already-open counter rows that aren't worth the complexity for a value with no real reason to move.
-
-**Default value and validating it against real traffic shapes — not just "600 eventually blocks":** `global_rate_limit_max` default **600 requests/minute per IP**. This is a coarse ceiling meant to catch gross abuse/scraping; the existing narrow limiters (30/min general, 5/min fact-submit, etc.) remain the actual per-feature protection. Two separate questions round 2 correctly split apart, each with its own answer:
-- **Can the system afford the extra write at scale?** Answered by the load budget in §5 — concrete numbers, not "representative."
-- **Does 600/min risk blocking legitimate shared-IP traffic (office/school/carrier NAT)?** This can't be fully answered pre-deploy without production traffic data this repo has no shadow-sampling infrastructure to collect, and building that infrastructure isn't proportionate to a generous, already-tunable backstop value. The honest, explicit answer is a **documented post-rollout decision rule** rather than a pre-deploy synthetic test standing in for one: for the first 72 hours after rollout, `globalRateLimitMetrics.blocked` and the per-block `logger.warn` path field are monitored; if any single path shows a sustained block rate above 5/hour, or a support/bug report cites unexpected 429s from normal use, `global_rate_limit_max` is raised via `admin_config` immediately — no deploy required, which is the entire reason this value was moved off an env var. This is a deliberate choice given the infrastructure gap, not an unaddressed finding — flagged to David as a real trade-off rather than asserted as fully resolved.
-
-Same mount-point-adjacent behavior as before: the Stripe webhook (`app.post("/api/stripe/webhook", ...)`, registered earlier at the top level) stays naturally exempt — it ends its response before this middleware is ever reached.
+**Admin routes — genuinely open, not decided here (round-3 finding, P1, tagged Product Decision):** `current-roadmap.md:280-288` already records rate-limiting admin routes as an explicit, still-pending David decision. This plan's mount change (scoped to all of `/api`, moved earlier) would silently resolve that question by inclusion — every admin route now sits behind this ceiling too, including, worse, `/api/admin/config/:key` itself, the endpoint that raises the ceiling if it's ever set too low. Two things, kept separate:
+- **The self-rescue endpoint is exempted regardless of the broader answer** (`EARLY_EXEMPT_PATHS` above) — a limiter that can trap its own escape hatch is a design defect independent of whether admin routes in general should be covered, so this part isn't waiting on David.
+- **Whether the rest of `/api/admin/*` sits behind this ceiling is not decided by this plan.** That's the pre-existing open roadmap question, and this plan doesn't get to answer it by omission. Flagged to David as a real fork — see the PR thread.
 
 ### 4. Files touched
 
 - `artifacts/api-server/package.json` and the regenerated root `pnpm-lock.yaml` — add `express-rate-limit`.
 - `artifacts/api-server/src/lib/globalRateLimitStore.ts` — new: the `Store` implementation, `globalRateLimitMetrics`.
-- `lib/db/migrations/00XX_global_rate_limit_max_config.sql` — new: idempotent seed of the `global_rate_limit_max` admin_config row.
-- `artifacts/api-server/src/lib/rateLimit.ts` — add `GLOBAL_RATE_WINDOW_MS`, `HEALTH_PATHS`.
-- `artifacts/api-server/src/app.ts` — wire the global limiter as its own top-level `app.use()`, immediately before the `/api` router mount (not nested inside it).
+- `lib/db/migrations/0095_global_rate_limit_max_config.sql` **and its `lib/db/migrations/meta/_journal.json` entry** — round-3 finding: the production migration runner (`migrate.ts:140-143`) only applies files with a matching journal entry; a SQL file alone is silently never run. Idempotent seed of `global_rate_limit_max` (default 600) and `global_rate_limit_dry_run` (default `true`), same `ON CONFLICT (key) DO UPDATE SET label/description/data_type` pattern as `migrations/0014_legendary_generation_limit.sql` (not overwriting `value`, so a live-tuned value survives a re-run).
+- `artifacts/api-server/src/lib/adminConfig.ts` — add `getConfigBoolean` (mirrors `getConfigInt`'s shape) if it doesn't already exist; **add single-flight refresh to `loadAll()`** (round-3 finding, P2): `loadAll()` has no in-flight-request dedup, so every concurrent request arriving while the 60-second cache is expired/missing issues its own full `admin_config` SELECT — fine at the function's previous low call volume, a real periodic burst now that it's on every `/api` request's hot path. Fixed with the standard single-flight pattern (concurrent callers await one shared in-flight promise instead of each issuing a query); this benefits every existing caller, not just this one. A load-test scenario (§5) exercises a cold/expired-cache burst specifically.
+- `artifacts/api-server/src/app.ts` — mount early (right after `securityHeaders()`), scoped to `/api`, direct-passed; refactor `isPublicAssetRequest` to take an explicit path argument.
 - `artifacts/api-server/src/jobs/rateLimitCounterPurger.ts` — new, mirrors `jobs/transientRenderPurger.ts`; `index.ts` gets the matching `scheduleRateLimitCounterPurger()` call.
-- `artifacts/api-server/src/__tests__/globalRateLimitStore.test.ts` — new: Store unit tests (increment/decrement/resetKey semantics, key hashing with no raw-IP persistence, window/expiry rollover), plus a real concurrency test (parallel `increment` against both a fresh key and an about-to-expire key, asserting no lost increments and exactly one rollover).
-- `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts` — new: a real-`app` integration test (following `csrf.integration.test.ts`'s existing pattern) with an injectable low limit — proves 429/JSON-body/headers, that the Store is never called for `skip`-exempt paths (not just "no 429"), IPv6 subnet collapsing and IPv4-mapped-IPv6 handling via `ipKeyGenerator`, and `passOnStoreError` via a forced Store error.
-- `artifacts/api-server/src/__tests__/rateLimitCounterPurger.test.ts` — new: mirrors `phase4.purger.test.ts`'s pattern (active + expired rows, run the purger, assert the boundary), plus a scheduler-resilience test (a thrown error on one run doesn't stop the next). Also strengthens the pre-existing trivial purge assertion in `rateLimit.test.ts:55-57` while touching this area.
+- `artifacts/api-server/src/__tests__/globalRateLimitStore.test.ts` — new: Store unit tests (increment/decrement/resetKey semantics, both persisted columns are salted — not equal to the unsalted digest, not just not-the-literal-address — window/expiry rollover), plus a real concurrency test.
+- `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts` — new: real-`app` integration test with an injectable low limit — 429/JSON-body/headers/no-store, exempt paths never touch the Store (asserted via hit count) including the non-`/api`-request case (proves the scoping fix), `ipKeyGenerator` behavior, `passOnStoreError`, dry-run mode (blocked-but-passed-through), **and the trusted-IP resolution order restored from round 1** — `CF-Connecting-IP` wins over a spoofed `X-Forwarded-For`, and the dev/test fallback still works, asserted against the actual resulting Store bucket/key, not just that some value was picked.
+- `artifacts/api-server/src/__tests__/rateLimitCounterPurger.test.ts` — new, mirrors `phase4.purger.test.ts`.
 - `.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md` — add the resolution.
 
 ### 5. Must not change
 
-- **The existing narrow limiters' own behavior and thresholds are unchanged** — `checkSharedRateLimit`, `createRateLimiter`, `createFactSubmitRateLimiter` keep exactly their current limits, keys, and responses. This global middleware is an *additional*, much coarser layer above them.
-- **Explicitly exempt, and reachable regardless of this middleware's Store state:** `/api/healthz`, `/api/health`, `/api/health/queues` (liveness/readiness), the existing public crawler-asset patterns (`isPublicAssetRequest`), and `/api/config` (public, cached, no abuse surface — see §3).
-- **Every other route may now receive a 429 it could not receive before**, past the configured ceiling — this is the feature, not a regression.
-- No new table/schema migration for `rate_limit_counters` — reuses it as-is. (The new `admin_config` seed migration is data-only, not a schema change.)
-- No change to the Stripe webhook's exemption (preserved by registration order).
-- No raw client IP addresses persisted in `rate_limit_counters` or emitted in metrics/logs (§2).
+- **The existing narrow limiters' own behavior and thresholds are unchanged.**
+- **Explicitly exempt, reachable regardless of this middleware's Store state or configured ceiling:** `/api/healthz`, `/api/health`, `/api/health/queues`, the existing public crawler-asset patterns, `/api/config`, the Stripe webhook, and `/api/admin/config/global_rate_limit_max` specifically (the self-rescue path — see §3).
+- **Whether the rest of `/api/admin/*` is covered by this ceiling is an open product question, not settled by this plan** — see §3's admin-routes note. This plan does not silently resolve `current-roadmap.md`'s pending decision.
+- **Ships in observe-only (dry-run) mode by default** — no request is actually blocked until `global_rate_limit_dry_run` is explicitly set to `false`.
+- No new table/schema migration for `rate_limit_counters` (the `admin_config` seed migration is data-only).
+- No raw client IP addresses, and no unsalted digest of one, persisted anywhere or emitted in metrics/logs.
 
 ## Verification
 
-1. `pnpm run typecheck` / `pnpm run build` — clean. `pnpm install --frozen-lockfile` succeeds with the new dependency and updated lockfile.
-2. New `GlobalRateLimitStore` unit tests pass, including the concurrency test and the no-raw-IP-persisted assertion.
-3. New real-`app` integration test passes: 429 + JSON body + headers past an injected low limit; `skip`-exempt paths never touch the Store at all (asserted via hit count, not inferred from absence of a 429); IPv6 subnet/IPv4-mapped handling via `ipKeyGenerator`; a forced Store error passes the request through per `passOnStoreError`.
-4. New purger tests pass: active rows survive, expired rows are deleted, a thrown error on one scheduled run doesn't block the next.
-5. Full existing test suite (`pnpm run test` in `api-server`, plus the E2E Smoke path) — no new failures. (This step only confirms nothing else broke — see §3, it doesn't validate the 600/min default; that's step 7.)
-6. Local CodeQL re-scan confirms `js/missing-rate-limiting` drops from 213 to 0.
-7. **Load budget — concrete numbers, run before this is considered done:**
-   - Workload A ("many unique keys"): 500 concurrent requests spread across 200 distinct client keys, sustained 30s.
-   - Workload B ("one busy shared key"): 500 concurrent requests against a single client key, sustained 30s (the real contention case for the `INSERT ... ON CONFLICT` path).
-   - Pass criteria for both: p95 latency added by the Store's upsert ≤ 15ms per request; sustained pool usage ≤ 16 of the pool's 20 connections (`lib/db/src/index.ts`'s `POOL_MAX_DEFAULT`); 0% error rate attributable to the Store.
-8. Manual: hit an `/api` route past the configured ceiling from one IP against a real running instance, confirm a 429 with the expected JSON body and headers; confirm the existing narrow limiters (e.g. `ai.ts`'s 30/min) still fire independently; confirm `/api/healthz` and `/api/config` keep responding through it.
-9. Post-rollout (not pre-deploy — see §3's NAT-traffic note): monitor blocked-request telemetry for 72 hours; raise `global_rate_limit_max` via `admin_config` immediately if a sustained (>5/hour) block pattern or a legitimate-use report appears.
+1. `pnpm run typecheck` / `pnpm run build` — clean. `pnpm install --frozen-lockfile` succeeds.
+2. New `GlobalRateLimitStore` unit tests pass, including concurrency and the salted-both-columns assertion.
+3. New real-`app` integration test passes: 429 (when not in dry-run) + JSON body + `Cache-Control: no-store` + headers past an injected low limit; dry-run mode logs/counts but never blocks; exempt paths (including non-`/api` paths, proving the scoping fix) never touch the Store; trusted-IP precedence (`CF-Connecting-IP` over spoofed XFF, dev fallback) proven against actual bucket sharing; `ipKeyGenerator` IPv6/IPv4-mapped handling; `passOnStoreError` via a forced Store error.
+4. New purger tests pass.
+5. **Migration test:** run the repository's migration command against a database missing both new `admin_config` rows, confirm both are created with their default values and are then visible/editable via the admin config endpoint.
+6. Full existing test suite + E2E Smoke — no new failures (confirms nothing else broke; does not validate the 600/min default — see step 8).
+7. Local CodeQL re-scan of the actual final code (not just the scratchpad proof already run for this plan — the real diff, once written) confirms `js/missing-rate-limiting` drops from 213 to 0.
+8. **Load budget — concrete numbers:**
+   - Workload A: 500 concurrent requests / 200 distinct keys, sustained 30s.
+   - Workload B: 500 concurrent requests / 1 shared key, sustained 30s.
+   - Workload C (round-3 addition): a cold/expired `admin_config` cache burst — many concurrent requests arriving the instant the 60s cache expires — proving the single-flight fix results in one refresh query, not N.
+   - Pass criteria for all three: p95 latency added ≤ 15ms; sustained pool usage ≤ 16 of 20 connections; 0% Store-attributable error rate.
+9. Manual: hit an `/api` route past the ceiling from one IP, confirm dry-run logs a would-be-block without actually 429ing; flip `global_rate_limit_dry_run` to `false` locally, confirm an actual 429 with the right body/headers; confirm the narrow limiters and `/api/healthz`/`/api/config`/the self-rescue admin endpoint are unaffected; confirm a non-`/api` request never increments `globalRateLimitMetrics.total`.
+10. Post-flip-to-enforcement (not pre-deploy — the dry-run phase *is* the pre-deploy evidence now): continue monitoring `globalRateLimitMetrics` after enforcement is enabled; the dry-run data is what justifies the initial default, not a blind 72-hour post-enforcement watch.
