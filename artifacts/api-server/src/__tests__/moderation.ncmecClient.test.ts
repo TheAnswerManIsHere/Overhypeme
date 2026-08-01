@@ -295,11 +295,22 @@ describe("NcmecClient — response-code classification", () => {
 // ─── Parser hardening ───────────────────────────────────────────────────────
 
 describe("NcmecClient — parser hardening", () => {
+  // Every rejection in this block that flows through submitReport() shows up here with
+  // kind "ambiguous", not "malformed": a 2xx response body this client cannot parse is the
+  // same fact for /submit as a dropped connection — NCMEC's own verdict, if it rendered one,
+  // never reached this process. call() now reports that as retryable, and submitReport()'s
+  // existing ambiguity downgrade (tested above under "response-code classification") is what
+  // turns it into the non-retryable, manual-review "ambiguous" a caller actually sees — kept
+  // as one shared mechanism rather than a second endpoint-specific "is this safe to retry"
+  // check. The endpoints that already carry a reportId (asserted separately below) stay
+  // genuinely retryable, since a retry there is a safe no-op.
+
   it("rejects a response carrying a DOCTYPE with an entity declaration", async () => {
     const { instance } = client(fixture("hostile-doctype-entity"));
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /DOCTYPE/);
   });
 
@@ -311,7 +322,8 @@ describe("NcmecClient — parser hardening", () => {
     const { instance } = client(fixture("hostile-doctype-harmless"));
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /DOCTYPE/);
   });
 
@@ -319,7 +331,8 @@ describe("NcmecClient — parser hardening", () => {
     const { instance } = client(fixture("hostile-deep-nesting"));
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
   });
 
   it("abandons an oversized body during the read rather than after it", async () => {
@@ -345,7 +358,8 @@ describe("NcmecClient — parser hardening", () => {
     const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /exceeded/);
     assert.ok(
       served <= NCMEC_MAX_RESPONSE_BYTES + chunk.byteLength * 2,
@@ -392,10 +406,34 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status === "err" && result.retryable, false);
   });
 
+  it("treats a malformed 2xx body on /finish as retryable — the id makes a retry a no-op", async () => {
+    // NCMEC answered 2xx (it received the /finish call) but the body didn't survive transit
+    // intact. Unlike /submit, this call already carries a reportId, so repeating it is a safe
+    // no-op — the same reasoning that already makes a dropped connection retryable here.
+    const { instance } = client(
+      "<reportDoneResponse><responseCode>0</responseCode><reportId>123</wrong></reportDoneResponse>",
+    );
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
+  });
+
+  it("treats a malformed 2xx body on /retract as retryable, same as /finish", async () => {
+    const { instance } = client(
+      "<reportResponse><responseCode>0</responseCode></reportResponse><reportResponse><responseCode>0</responseCode></reportResponse>",
+    );
+    const result = await instance.retractReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
+  });
+
   it("rejects a body that is well-formed XML but not an ISPWS envelope", async () => {
     const { instance } = client('<?xml version="1.0"?><somethingElse><responseCode>0</responseCode></somethingElse>');
     const result = await instance.submitReport("<report/>");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
   });
 
   it("rejects a mismatched closing tag instead of trusting the fields it can still find", async () => {
@@ -408,7 +446,8 @@ describe("NcmecClient — parser hardening", () => {
     );
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /well-formed/);
   });
 
@@ -418,7 +457,8 @@ describe("NcmecClient — parser hardening", () => {
     );
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /well-formed/);
   });
 

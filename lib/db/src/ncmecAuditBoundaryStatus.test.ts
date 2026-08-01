@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import pg from "pg";
 
-import { pool as sharedPool, canEffectivelyAssumeRole } from "./index.js";
+import { pool as sharedPool, canEffectivelyAssumeRole, ncmecAuditBoundaryStatus } from "./index.js";
 
 describe("canEffectivelyAssumeRole — from a genuinely restricted connection", () => {
   if (!process.env.DATABASE_URL) {
@@ -79,6 +79,67 @@ describe("canEffectivelyAssumeRole — from a genuinely restricted connection", 
       assert.equal(await canEffectivelyAssumeRole(targetRole, loginPool), true);
     } finally {
       await sharedPool.query(`REVOKE "${targetRole}" FROM "${loginRole}"`);
+    }
+  });
+});
+
+/**
+ * `ncmecAuditBoundaryStatus()` itself has the identical defect `canEffectivelyAssumeRole` had
+ * before `targetPool` existed: called with no argument (every caller outside this file), it
+ * queries through this module's own `pool`, a superuser — so `applicationOwnsTable`,
+ * `applicationOwnsFunction`, and `applicationCanBypassTrigger` would report `true`
+ * unconditionally, regardless of migration 0095's real, current ownership state. This does
+ * not mutate `ncmec_safety_audit_log`'s actual ownership (a shared, migration-owned object) —
+ * it only compares what two different connections report about whatever state it is already
+ * in, which is enough to prove the injected pool is actually driving these fields rather than
+ * being accepted and ignored.
+ */
+describe("ncmecAuditBoundaryStatus — pool injection", () => {
+  if (!process.env.DATABASE_URL) {
+    it("skipped — DATABASE_URL not set", (t) => t.skip());
+    return;
+  }
+
+  const runId = crypto.randomBytes(4).toString("hex");
+  const loginRole = `nabs_login_${runId}`;
+  const password = crypto.randomBytes(16).toString("hex");
+  let loginPool: pg.Pool;
+
+  before(async () => {
+    await sharedPool.query(`CREATE ROLE "${loginRole}" LOGIN PASSWORD '${password}'`);
+    const url = new URL(process.env.DATABASE_URL!);
+    url.username = loginRole;
+    url.password = password;
+    loginPool = new pg.Pool({ connectionString: url.toString() });
+  });
+
+  after(async () => {
+    await loginPool.end();
+    await sharedPool.query(`DROP OWNED BY "${loginRole}"`).catch(() => {});
+    await sharedPool.query(`DROP ROLE IF EXISTS "${loginRole}"`);
+  });
+
+  it("a role with no relationship to any owner role never reports ownership-equivalent access", async () => {
+    // loginRole was just created and has never been granted membership in anything, so
+    // whatever currently owns the table/function/maintenance role in this sandbox, loginRole
+    // cannot be a member of it, SET ROLE to it, or hold ADMIN OPTION on it.
+    const status = await ncmecAuditBoundaryStatus(loginPool);
+    assert.equal(status.applicationOwnsTable, false);
+    assert.equal(status.applicationOwnsFunction, false);
+    assert.equal(status.applicationCanBypassTrigger, false);
+  });
+
+  it("the module's own (superuser) pool reports ownership-equivalent access unconditionally — the gap targetPool exists to bypass", async () => {
+    // Same table, same function, same maintenance role, queried through the same connection
+    // every real caller uses by default. A superuser satisfies pg_has_role(..., 'usage') for
+    // any role with zero explicit grant, so these read true regardless of who actually owns
+    // anything — proving why boundaryEnforced can never usefully be asserted true through
+    // this default pool (see migrations.0095.test.ts's comment on the same limitation).
+    const status = await ncmecAuditBoundaryStatus();
+    assert.equal(status.applicationOwnsTable, true);
+    assert.equal(status.applicationOwnsFunction, true);
+    if (status.maintenanceRoleExists) {
+      assert.equal(status.applicationCanBypassTrigger, true);
     }
   });
 });

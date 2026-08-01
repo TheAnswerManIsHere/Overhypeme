@@ -69,7 +69,7 @@ BEGIN
   ) THEN
     ALTER TABLE "ncmec_reports"
       ADD CONSTRAINT "ncmec_reports_quarantine_id_fk"
-      FOREIGN KEY ("quarantine_id") REFERENCES "public"."quarantined_memes"("id")
+      FOREIGN KEY ("quarantine_id") REFERENCES "quarantined_memes"("id")
       ON DELETE set null ON UPDATE no action;
   END IF;
 END $$;
@@ -441,7 +441,7 @@ BEGIN
   ) THEN
     ALTER TABLE "ncmec_safety_audit_log"
       ADD CONSTRAINT "ncmec_safety_audit_log_report_id_fk"
-      FOREIGN KEY ("report_id") REFERENCES "public"."ncmec_reports"("id")
+      FOREIGN KEY ("report_id") REFERENCES "ncmec_reports"("id")
       ON DELETE set null ON UPDATE no action;
   END IF;
 END $$;
@@ -758,10 +758,32 @@ BEGIN
     FROM pg_proc WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
   fn_done := COALESCE(fn_done, false);
 
-  grants_done := has_table_privilege(app_role, 'ncmec_safety_audit_log', 'SELECT')
-             AND has_table_privilege(app_role, 'ncmec_safety_audit_log', 'INSERT')
-             AND has_sequence_privilege(app_role, 'ncmec_safety_audit_log_id_seq', 'USAGE')
-             AND has_sequence_privilege(app_role, 'ncmec_safety_audit_log_id_seq', 'SELECT');
+  -- has_table_privilege()/has_sequence_privilege() answer "does app_role have this privilege
+  -- right now", which is exactly wrong here: on the very first hardening run app_role still
+  -- OWNS both objects, so both would report true before a single explicit GRANT has ever been
+  -- issued. That stale true then skips the GRANT block below, and once ownership moves to
+  -- overhype_audit_owner the application is left with nothing durable — masked only for as
+  -- long as it still inherits overhype_audit_owner's membership, until the DBA runs the
+  -- (non-optional) REVOKE. aclexplode() reads the literal ACL entries instead — but is only a
+  -- RELIABLE signal for app_role once app_role is confirmed NOT to be the current owner
+  -- (tbl_done): verified directly against this repository's PostgreSQL 16 target that once an
+  -- object's ACL is non-NULL for any reason (its own history, not just this block), `ALTER
+  -- ... OWNER TO` materializes the NEW owner's full implicit privilege set as an EXPLICIT ACL
+  -- entry — indistinguishable, from aclexplode() alone, from a genuinely narrow explicit
+  -- GRANT. So this value is used ONLY for the "already fully done, nothing to do" fast path
+  -- below (safe: reachable only when tbl_done/fn_done are already true, at which point
+  -- app_role cannot be the owner and any entry naming it is necessarily a real grant) — never
+  -- to gate whether the GRANT statements themselves run, which are unconditional and
+  -- idempotent instead.
+  grants_done :=
+    EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log'))) a
+             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'SELECT')
+    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log'))) a
+             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'INSERT')
+    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log_id_seq'))) a
+             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'USAGE')
+    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log_id_seq'))) a
+             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'SELECT');
 
   IF tbl_done AND fn_done AND grants_done THEN
     RAISE NOTICE '0095: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place.';
@@ -787,11 +809,12 @@ BEGIN
     IF to_regrole('overhype_audit_owner') <> to_regrole(current_user) THEN
       EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
     END IF;
-    -- The application role keeps exactly what it needs to append and read.
-    IF NOT grants_done THEN
-      EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
-      EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
-    END IF;
+    -- The application role keeps exactly what it needs to append and read. Unconditional
+    -- rather than gated on grants_done: GRANT is idempotent (re-granting an already-held
+    -- privilege is a no-op), and grants_done is not a trustworthy signal at this specific
+    -- point — see the comment on its computation above for why.
+    EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
     RESET ROLE;
     RAISE NOTICE '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %) — now complete.',
       tbl_done, fn_done, grants_done;

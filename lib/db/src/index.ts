@@ -146,6 +146,19 @@ export interface NcmecAuditBoundaryStatus {
    * (ownership-equivalent access), not literal `pg_class.relowner` equality.
    */
   applicationOwnsTable: boolean;
+  /** The role that owns the guard function itself. */
+  functionOwner: string;
+  /**
+   * True when the application role effectively holds the guard function owner's privileges
+   * (by `SET ROLE` or `INHERIT`), and could therefore `CREATE OR REPLACE FUNCTION` it with a
+   * permissive body regardless of what `guardFunctionIntact` reports right now. Table
+   * ownership alone is not the whole boundary: a DBA sequence interrupted after transferring
+   * the TABLE but before the FUNCTION (a real, tested partial state — see the migration's
+   * ownership-hardening block) leaves the application free to rewrite the guard itself, and a
+   * point-in-time `guardFunctionIntact: true` read says nothing about whether it stays that
+   * way past this call.
+   */
+  applicationOwnsFunction: boolean;
   /** Both append-only triggers present and enabled. */
   triggersEnabled: boolean;
   /**
@@ -303,12 +316,21 @@ export async function canEffectivelyAssumeRole(role: string, targetPool: pg.Pool
   return canAssumeRole(role, targetPool);
 }
 
-export async function ncmecAuditBoundaryStatus(): Promise<
-  NcmecAuditBoundaryStatus & { boundaryEnforced: boolean }
-> {
-  const { rows } = await pool.query<{
+/**
+ * `targetPool` defaults to this module's own `pool`, but is accepted so a test can pass a
+ * `Pool` connected as a genuinely restricted, non-superuser role — see `canAssumeRole`'s doc
+ * comment above for why this matters. Without it, every ownership/bypass field this function
+ * reports (`applicationOwnsTable`, `applicationOwnsFunction`, `applicationCanBypassTrigger`)
+ * would read `true` unconditionally when tested through this module's own pool, since
+ * `pg_has_role(<superuser>, <any role>, 'usage')` is true regardless of any actual grant.
+ */
+export async function ncmecAuditBoundaryStatus(
+  targetPool: pg.Pool = pool,
+): Promise<NcmecAuditBoundaryStatus & { boundaryEnforced: boolean }> {
+  const { rows } = await targetPool.query<{
     application_role: string;
     table_owner: string;
+    function_owner: string | null;
     maintenance_role_exists: boolean;
     triggers_enabled: boolean;
     guard_function_intact: boolean;
@@ -316,6 +338,9 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     `
     SELECT current_user::text AS application_role,
            pg_get_userbyid(c.relowner) AS table_owner,
+           (SELECT pg_get_userbyid(proowner)
+              FROM pg_proc
+             WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
              AS maintenance_role_exists,
            -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only.
@@ -372,9 +397,15 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     tableOwner: row.table_owner,
     maintenanceRoleExists: row.maintenance_role_exists,
     applicationCanBypassTrigger: row.maintenance_role_exists
-      ? await canEffectivelyAssumeRole("overhype_audit_maintenance")
+      ? await canEffectivelyAssumeRole("overhype_audit_maintenance", targetPool)
       : false,
-    applicationOwnsTable: await canEffectivelyAssumeRole(row.table_owner),
+    applicationOwnsTable: await canEffectivelyAssumeRole(row.table_owner, targetPool),
+    // A missing function owner (function doesn't exist) fails safe as "owns it" — it means
+    // triggersEnabled/guardFunctionIntact are already false too, since a nonexistent function
+    // can neither be a trigger's tgfoid target nor match prosrc.
+    functionOwner: row.function_owner ?? "",
+    applicationOwnsFunction:
+      row.function_owner != null ? await canEffectivelyAssumeRole(row.function_owner, targetPool) : true,
     triggersEnabled: row.triggers_enabled,
     guardFunctionIntact: row.guard_function_intact,
   };
@@ -385,6 +416,7 @@ export async function ncmecAuditBoundaryStatus(): Promise<
       status.triggersEnabled &&
       status.guardFunctionIntact &&
       !status.applicationOwnsTable &&
+      !status.applicationOwnsFunction &&
       !status.applicationCanBypassTrigger,
   };
 }

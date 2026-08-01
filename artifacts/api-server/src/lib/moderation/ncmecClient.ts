@@ -464,15 +464,23 @@ export class NcmecClient {
       envelope = parseEnvelope(await readBoundedText(response, NCMEC_MAX_RESPONSE_BYTES));
     } catch (err) {
       if (err instanceof NcmecResponseError) {
-        // A non-2xx with an unreadable body is an HTTP-level failure and may well be
-        // transient (a gateway page in front of NCMEC); a 2xx with an unreadable body means
-        // the document itself is wrong, and repeating the request will produce it again.
+        // A non-2xx with an unreadable body (a gateway page in front of NCMEC) and a 2xx with
+        // an unreadable body (headers arrived and NCMEC answered, but the document itself
+        // didn't survive transit intact) are the same fact for every endpoint here except
+        // /submit: NCMEC's own verdict, if it rendered one at all, wasn't recoverable from
+        // this response. Both are retryable — every call site but /submit already carries a
+        // reportId from an earlier step, so repeating the request is a safe no-op, the same
+        // reasoning that already makes a dropped connection retryable everywhere. /submit is
+        // the one exception (no id yet to reconcile a retry against), and its own downgrade
+        // to non-retryable "ambiguous" in submitReport() below handles it — retryable here
+        // is what makes that downgrade trigger, rather than this case escaping it as a
+        // generic non-retryable "malformed".
         const httpLevel = !response.ok;
         return {
           status: "err",
           responseCode: null,
           message: httpLevel ? `ISPWS returned HTTP ${response.status}: ${err.message}` : err.message,
-          retryable: httpLevel,
+          retryable: true,
           kind: httpLevel ? "http" : err.kind,
           credentialFailure: false,
         };

@@ -702,12 +702,18 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       ).rowCount! > 0;
       if (!ownerRoleExisted) {
         await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
-        // Required on PostgreSQL 15+, which no longer grants CREATE on the public schema to
-        // every role by default — without this, ALTER TABLE ... OWNER TO fails with
-        // "permission denied for schema public" (the NEW owner needs CREATE, not the
-        // executing role). Matches the corrected DBA instructions this test is verifying.
-        await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
       }
+      // Required on PostgreSQL 15+, which no longer grants CREATE on the public schema to
+      // every role by default — without this, ALTER TABLE ... OWNER TO fails with
+      // "permission denied for schema public" (the NEW owner needs CREATE, not the executing
+      // role). Matches the corrected DBA instructions this test is verifying. Issued
+      // unconditionally rather than only when this test creates the role: roles are
+      // cluster-wide, but this GRANT is per-database — a sharded test run's per-database
+      // isolation means `overhype_audit_owner` existing elsewhere in the cluster says nothing
+      // about whether it already holds CREATE on THIS database's public schema. GRANT is
+      // idempotent, so re-issuing it when the role already existed (and already has it) is a
+      // harmless no-op.
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
       await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
       try {
         await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
@@ -721,6 +727,22 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           `SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE relname = 'ncmec_safety_audit_log'`,
         );
         assert.equal(rows[0]?.owner, "overhype_audit_owner");
+
+        // This is the "normal", first-time hardening path: app_role owned both objects
+        // outright right up until this block ran, so has_table_privilege(app_role, ...)
+        // reported true via implicit OWNERSHIP before the transfer — a stale true that a
+        // grants_done check reading has_table_privilege at that point would wrongly treat as
+        // "already granted" and skip the GRANT statements entirely. Since this grant is
+        // INHERIT FALSE, app_role's post-transfer privileges reflect only an explicit ACL
+        // entry, not ownership (gone) or inherited membership (disabled) — so this check
+        // fails exactly when that GRANT was wrongly skipped.
+        const { rows: grantRows } = await pool.query<{ has_select: boolean; has_insert: boolean }>(
+          `SELECT has_table_privilege($1, 'ncmec_safety_audit_log', 'SELECT') AS has_select,
+                  has_table_privilege($1, 'ncmec_safety_audit_log', 'INSERT') AS has_insert`,
+          [app],
+        );
+        assert.equal(grantRows[0]?.has_select, true, "the app role must end up with a durable SELECT grant");
+        assert.equal(grantRows[0]?.has_insert, true, "the app role must end up with a durable INSERT grant");
       } finally {
         await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
         await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
@@ -749,8 +771,10 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       ).rowCount! > 0;
       if (!ownerRoleExisted) {
         await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
-        await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
       }
+      // Unconditional — see the sibling test's comment above on why this must not be gated
+      // on ownerRoleExisted (cluster-wide role vs. per-database grant).
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
       await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
       try {
         // Table transferred already; function still owned by app; no grants issued yet —
@@ -848,6 +872,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       assert.equal(status.triggersEnabled, true, "both append-only triggers must be enabled");
       assert.equal(status.guardFunctionIntact, true, "the guard function's source must match exactly, untampered");
       assert.equal(typeof status.tableOwner, "string");
+      assert.equal(typeof status.functionOwner, "string");
       // `boundaryEnforced` is deliberately not asserted true: completing it is a
       // DBA step outside the migration (transfer ownership to
       // overhype_audit_owner, grant the app role no membership), and a
@@ -859,9 +884,23 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         status.triggersEnabled &&
           status.guardFunctionIntact &&
           !status.applicationOwnsTable &&
+          !status.applicationOwnsFunction &&
           !status.applicationCanBypassTrigger,
       );
     });
+
+    // No behavioral test here for "applicationOwnsFunction gates enforcement when only the
+    // table was transferred": ncmecAuditBoundaryStatus() always queries through this file's
+    // shared `pool`, which is a superuser — and pg_has_role(superuser, <any role>, 'usage')
+    // is unconditionally true regardless of any actual grant (verified directly against this
+    // repository's PostgreSQL 16 target), so applicationOwnsFunction would read true here no
+    // matter what the real ownership state is. That is the identical class of gap the round-4
+    // ADMIN OPTION fix closed for canAssumeRole/canEffectivelyAssumeRole via an injectable
+    // pool; the same fix is now applied one level up (see ncmecAuditBoundaryStatus's new
+    // `targetPool` parameter in lib/db/src/index.ts) and exercised from a genuinely
+    // restricted, non-superuser connection in lib/db/src/ncmecAuditBoundaryStatus.test.ts —
+    // this file still cannot construct that connection itself (no direct `pg` dependency;
+    // see the sibling helpers' comments on this constraint), so the real coverage lives there.
 
     it("reports the guard function as tampered when its source no longer matches", async (t) => {
       if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
