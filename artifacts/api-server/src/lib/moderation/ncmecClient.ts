@@ -404,7 +404,20 @@ export class NcmecClient {
 
   private async call(
     path: string,
-    init: { method: "GET" | "POST"; body?: string | FormData; contentType?: string },
+    init: {
+      method: "GET" | "POST";
+      body?: string | FormData;
+      contentType?: string;
+      /**
+       * `parseEnvelope()` accepts either root for every endpoint, because the root name
+       * alone isn't a well-formedness question — it's a per-endpoint contract question,
+       * which belongs here, at the one place that knows which endpoint was called.
+       * Every endpoint documents exactly one root it answers with (`/finish` alone uses
+       * `<reportDoneResponse>`); a response carrying the other one is never a legitimate
+       * answer to this call, so it is rejected before any caller reads a field off it.
+       */
+      expectedRoot: ParsedEnvelope["root"];
+    },
   ): Promise<ParsedEnvelope | NcmecCallErr> {
     if (!this.credentials) {
       // Not classified as `auth`: that kind means NCMEC rejected us, which is a different
@@ -467,6 +480,23 @@ export class NcmecClient {
       throw err;
     }
 
+    if (envelope.root !== init.expectedRoot) {
+      // A misrouted or invalid response confirming the wrong thing is worse than an
+      // obviously-broken one: read uncritically, `/finish` returning a well-formed
+      // <reportResponse> with responseCode 0 would look exactly like a successful
+      // completion to a caller that never checks which root it got. Not retryable —
+      // this is ISPWS answering the wrong question, not a transient condition repeating
+      // the request would fix.
+      return {
+        status: "err",
+        responseCode: envelope.responseCode,
+        message: `ISPWS answered ${path} with <${envelope.root}>, not the documented <${init.expectedRoot}> — refusing to trust fields read off the wrong envelope`,
+        retryable: false,
+        kind: "malformed",
+        credentialFailure: false,
+      };
+    }
+
     if (envelope.responseCode !== NCMEC_RESPONSE_CODES.SUCCESS) {
       return errFromCode(envelope.responseCode, envelope.description);
     }
@@ -475,7 +505,7 @@ export class NcmecClient {
 
   /** Connectivity and credential check. Reports nothing about any individual report. */
   async checkStatus(): Promise<NcmecCall<NcmecStatusResult>> {
-    const result = await this.call("/status", { method: "GET" });
+    const result = await this.call("/status", { method: "GET", expectedRoot: "reportResponse" });
     if ("status" in result) return result;
     return { status: "ok", data: { responseCode: result.responseCode, description: result.description } };
   }
@@ -488,17 +518,26 @@ export class NcmecClient {
       // The charset is explicit because NCMEC's own documentation calls it out: without it
       // non-ASCII characters can be mistransmitted.
       contentType: "text/xml; charset=utf-8",
+      expectedRoot: "reportResponse",
     });
     if ("status" in result) {
-      // `call()`'s generic "network" classification (retryable — nothing is known to be
-      // wrong) is correct everywhere else in this client, but not here. `/submit` is the one
-      // endpoint that creates state with no id this method has yet recovered: if NCMEC
-      // accepted the report and opened it before the connection dropped, a retry does not
-      // repeat a no-op — it opens a SECOND report for the same hit, and the retract-first
-      // guard has nothing to retract against because no reportId was ever persisted. Every
-      // other endpoint either mutates nothing until a report already exists, or carries its
-      // own id so a retry IS a no-op — this downgrade is deliberately scoped to /submit alone.
-      if (result.kind === "network" && result.retryable) {
+      // `call()`'s generic classification (retryable when nothing is known to be wrong) is
+      // correct everywhere else in this client, but not here. `/submit` is the one endpoint
+      // that creates state with no id this method has yet recovered: if NCMEC accepted the
+      // report and opened it before the failure, a retry does not repeat a no-op — it opens
+      // a SECOND report for the same hit, and the retract-first guard has nothing to retract
+      // against because no reportId was ever persisted. Every other endpoint either mutates
+      // nothing until a report already exists, or carries its own id so a retry IS a no-op —
+      // this downgrade is deliberately scoped to /submit alone.
+      //
+      // The condition is "no response code was ever obtained AND call() judged it
+      // retryable" rather than a specific `kind`, because ambiguity has two distinct
+      // sources here: a transport failure before any response arrived (`kind: "network"` —
+      // e.g. the connection dropped), and a non-2xx response whose body could not be read
+      // (`kind: "http"` — e.g. a gateway's 502 page in front of NCMEC, which can equally
+      // follow an upstream accept). Both leave this method with no reportId and no
+      // responseCode: NCMEC's own verdict, if it rendered one at all, never reached here.
+      if (result.responseCode === null && result.retryable) {
         return {
           ...result,
           retryable: false,
@@ -533,7 +572,7 @@ export class NcmecClient {
     // duplicating the whole evidence buffer to satisfy a variance rule.
     form.append("file", new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mimeType }), fileName);
     // No explicit content-type: FormData must set its own multipart boundary.
-    const result = await this.call("/upload", { method: "POST", body: form });
+    const result = await this.call("/upload", { method: "POST", body: form, expectedRoot: "reportResponse" });
     if ("status" in result) return result;
     const fileId = textOf(result.values["fileId"]);
     const hash = textOf(result.values["hash"]);
@@ -549,6 +588,7 @@ export class NcmecClient {
       method: "POST",
       body: fileDetailsXml,
       contentType: "text/xml; charset=utf-8",
+      expectedRoot: "reportResponse",
     });
     if ("status" in result) return result;
     const reportId = textOf(result.values["reportId"]);
@@ -565,7 +605,7 @@ export class NcmecClient {
   async finishReport(reportId: string): Promise<NcmecCall<NcmecFinishResult>> {
     const form = new FormData();
     form.append("id", reportId);
-    const result = await this.call("/finish", { method: "POST", body: form });
+    const result = await this.call("/finish", { method: "POST", body: form, expectedRoot: "reportDoneResponse" });
     if ("status" in result) return result;
     const returnedId = textOf(result.values["reportId"]);
     if (!returnedId) {
@@ -582,7 +622,7 @@ export class NcmecClient {
   async retractReport(reportId: string): Promise<NcmecCall<NcmecStatusResult>> {
     const form = new FormData();
     form.append("id", reportId);
-    const result = await this.call("/retract", { method: "POST", body: form });
+    const result = await this.call("/retract", { method: "POST", body: form, expectedRoot: "reportResponse" });
     if ("status" in result) return result;
     return { status: "ok", data: { responseCode: result.responseCode, description: result.description } };
   }

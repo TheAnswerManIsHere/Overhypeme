@@ -351,8 +351,15 @@ BEGIN
    WHERE c.relname = 'UQ_ncmec_reports_quarantine' AND n.nspname = 'public';
 
   IF ix_oid IS NOT NULL THEN
+    -- indisvalid matters as much as indisunique: a CREATE UNIQUE INDEX CONCURRENTLY left
+    -- half-built by a crashed or cancelled prior attempt can have the right uniqueness flag,
+    -- key column and predicate while indisvalid is false — meaning Postgres does not actually
+    -- enforce it. indrelid is checked too, so a same-named index that happens to exist on some
+    -- OTHER table cannot be mistaken for this one.
     SELECT
-      i.indisunique
+      i.indrelid = '"ncmec_reports"'::regclass
+      AND i.indisunique
+      AND i.indisvalid
       AND i.indnkeyatts = 1
       AND i.indkey[0] = (
         SELECT attnum FROM pg_attribute
@@ -513,6 +520,7 @@ DECLARE
   can_fn         boolean := false;
   can_tbl        boolean := false;
   trg_count      int;
+  fn_intact      boolean;
 BEGIN
   SELECT p.proowner INTO fn_owner
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -631,10 +639,28 @@ BEGIN
                THEN (t.tgtype & 1) = 1 AND (t.tgtype & 8) = 8 AND (t.tgtype & 16) = 16
              ELSE (t.tgtype & 32) = 32
            END;
-    IF trg_count = 2 THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role and both append-only triggers are already present, enabled and correctly wired — leaving them alone.';
+
+    -- tgfoid alone is not proof the FUNCTION still implements the gate: `CREATE OR REPLACE
+    -- FUNCTION` preserves the same oid even when the body underneath is swapped for something
+    -- permissive, which is exactly the recovery-database scenario this branch exists for — an
+    -- oid match would accept a same-named, same-signature function that lets everything
+    -- through. Full byte-for-byte comparison against the literal CREATE OR REPLACE text above
+    -- would be exact but brittle (duplicated, drifts silently if one copy is edited without the
+    -- other); instead this checks that the source still contains the specific substrings the
+    -- gate's actual logic depends on — the role it checks, the privilege type, and that it
+    -- raises rather than silently permitting — which a body that dropped the gate cannot
+    -- satisfy by accident.
+    SELECT p.prosrc LIKE '%overhype_audit_maintenance%'
+       AND p.prosrc LIKE '%''usage''%'
+       AND p.prosrc LIKE '%RAISE EXCEPTION%'
+      INTO fn_intact
+      FROM pg_proc p
+     WHERE p.oid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure;
+
+    IF trg_count = 2 AND COALESCE(fn_intact, false) THEN
+      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role, both append-only triggers are already present, enabled and correctly wired, and the guard function''s source still implements the check — leaving them alone.';
     ELSE
-      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session cannot assume, and the append-only triggers are not both present, origin-enabled, and correctly wired to the guard function. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.';
+      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session cannot assume, and either the append-only triggers are not both present/origin-enabled/correctly wired, or the guard function they call no longer appears to implement the check. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.';
     END IF;
   END IF;
 END $outer$;
@@ -657,20 +683,58 @@ END $outer$;
 -- lib/db — and the phase 6 activation gate refuses production while the
 -- boundary is unenforced, which blocks the dangerous STATE rather than one
 -- path into it.
+-- >>> ncmec-0095 ownership hardening block (start)
 DO $$
 DECLARE
   app_role text := current_user;
+  can_own  boolean := false;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner')
-     AND pg_has_role(current_user, 'overhype_audit_owner', 'usage')
+  -- Same defect, same fix as the rerun guard above: `usage` answers only whether
+  -- `overhype_audit_owner`'s privileges are INHERITED, not whether this role can `SET ROLE`
+  -- to it — and `ALTER TABLE ... OWNER TO` requires the latter. A grant shaped INHERIT
+  -- FALSE, SET TRUE would report `usage = false` and wrongly skip a transfer this role can
+  -- actually perform; the reverse shape (INHERIT TRUE, SET FALSE) would report `usage = true`
+  -- and then fail on the ALTER TABLE itself. Tested by attempting the SET, not by asking a
+  -- catalog function that answers a different question.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner') THEN
+    IF to_regrole('overhype_audit_owner') = to_regrole(current_user) THEN
+      can_own := true;
+    ELSE
+      BEGIN
+        EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
+        can_own := true;
+      EXCEPTION WHEN OTHERS THEN
+        can_own := false;
+      END;
+      RESET ROLE;
+    END IF;
+  END IF;
+
+  IF can_own
      AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
                     AND pg_get_userbyid(c.relowner) <> 'overhype_audit_owner') THEN
+    -- The OWNER TO statements must run as the CURRENT owner (app_role, no role switch) —
+    -- Postgres's special-case rule for ALTER ... OWNER TO lets an owning role with only
+    -- SET-capability (no INHERIT) on the target reassign ownership directly, but the
+    -- executing role still has to actually own the object being altered. Only ONCE both
+    -- objects belong to overhype_audit_owner do the GRANTs below need to run AS it: if
+    -- app_role has SET but not INHERIT on overhype_audit_owner — the exact grant shape the
+    -- SET ROLE fix above exists to accept — its ambient privileges do not extend to an
+    -- object it just gave away, and an unguarded GRANT here fails with "permission denied
+    -- for table ncmec_safety_audit_log". Verified directly against this repository's
+    -- PostgreSQL 16 target while adding test coverage for this block: switching role BEFORE
+    -- the OWNER TO statements instead fails with "must be owner of table" — that ordering
+    -- is not interchangeable, both directions were confirmed to break it.
     EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" OWNER TO overhype_audit_owner';
     EXECUTE 'ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner';
+    IF to_regrole('overhype_audit_owner') <> to_regrole(current_user) THEN
+      EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
+    END IF;
     -- The application role keeps exactly what it needs to append and read.
     EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
     EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
+    RESET ROLE;
     RAISE NOTICE '0095: ncmec_safety_audit_log ownership transferred to overhype_audit_owner.';
   ELSIF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
@@ -682,9 +746,18 @@ BEGIN
     -- needs membership of the target role, and that membership is precisely what would let
     -- the application role SET ROLE back and disable the trigger. Someone with higher
     -- privilege has to do it and then step away.
-    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', app_role, app_role, app_role, app_role;
+    -- GRANT CREATE ON SCHEMA public is not optional either, and is easy to miss: verified
+    -- directly against this repository's PostgreSQL 16 target that `ALTER TABLE ... OWNER TO`
+    -- fails with "permission denied for schema public" without it, because Postgres requires
+    -- the NEW owner (not the executing role) to hold CREATE on the object's schema — and
+    -- PostgreSQL 15+ no longer grants that to every role by default the way pre-15 did.
+    -- Discovered by direct experiment while adding test coverage for this block, not by
+    -- reading the manual: the block's own transfer attempt below raised exactly this error
+    -- against a freshly `CREATE ROLE`'d owner with no other grants.
+    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; GRANT CREATE ON SCHEMA public TO overhype_audit_owner; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', app_role, app_role, app_role, app_role;
   END IF;
 END $$;
+-- <<< ncmec-0095 ownership hardening block (end)
 --> statement-breakpoint
 
 -- ─── 7. Config seeds ────────────────────────────────────────────────────────

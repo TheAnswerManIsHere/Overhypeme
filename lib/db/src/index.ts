@@ -131,14 +131,19 @@ export interface NcmecAuditBoundaryStatus {
   tableOwner: string;
   /** True when the maintenance role exists at all — the triggers fail closed without it. */
   maintenanceRoleExists: boolean;
-  /** True when the application role can `SET ROLE` to the maintenance role. */
+  /**
+   * True when the application role effectively holds the maintenance role's
+   * privileges right now — either by `SET ROLE` or because the grant
+   * `INHERIT`s it outright. Either shape lets an ordinary statement clear the
+   * trigger's own `usage` check.
+   */
   applicationCanBypassTrigger: boolean;
   /**
-   * True when the application role can `SET ROLE` to the table's owner, and
-   * could therefore run `ALTER TABLE … DISABLE TRIGGER` regardless of what
-   * the triggers say. Named `applicationOwnsTable` for the property it
-   * guards (ownership-equivalent access), not literal `pg_class.relowner`
-   * equality — `SET ROLE` to the owner is exactly as dangerous as being it.
+   * True when the application role effectively holds the table owner's
+   * privileges (by `SET ROLE` or `INHERIT`), and could therefore run
+   * `ALTER TABLE … DISABLE TRIGGER` regardless of what the triggers say.
+   * Named `applicationOwnsTable` for the property it guards
+   * (ownership-equivalent access), not literal `pg_class.relowner` equality.
    */
   applicationOwnsTable: boolean;
   /** Both append-only triggers present and enabled. */
@@ -185,6 +190,9 @@ export interface NcmecAuditBoundaryStatus {
  * whether it raised. A dedicated client is used (not `pool.query`, whose
  * BEGIN/ROLLBACK could interleave across pooled connections) so the
  * transaction is guaranteed to run start-to-finish on one connection.
+ *
+ * This is one HALF of "can bypass" — see `canEffectivelyAssumeRole` below for
+ * the other half this function alone was wrongly standing in for.
  */
 async function canAssumeRole(role: string): Promise<boolean> {
   // SET ROLE takes an identifier, not a bind parameter — quoted per Postgres'
@@ -206,6 +214,30 @@ async function canAssumeRole(role: string): Promise<boolean> {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Does this session effectively already have `role`'s privileges, one way or
+ * the other?
+ *
+ * `canAssumeRole` alone under-reports: a membership granted `INHERIT TRUE,
+ * SET FALSE` makes `role`'s privileges available to every ordinary statement
+ * RIGHT NOW, with no `SET ROLE` involved at all — and `SET ROLE` to that role
+ * is refused, so `canAssumeRole` alone would (wrongly) report `false` for a
+ * role the session already exercises passively. The two grant shapes are not
+ * exclusive — INHERIT and SET are independent flags — so the honest predicate
+ * is the union: inherited right now (`pg_has_role(..., 'usage')`, which
+ * *does* correctly answer this half) OR reachable via `SET ROLE`
+ * (`canAssumeRole`, which answers the other half `usage` gets wrong). Neither
+ * check alone is both correct and complete.
+ */
+async function canEffectivelyAssumeRole(role: string): Promise<boolean> {
+  const { rows } = await pool.query<{ has_usage: boolean }>(
+    "SELECT pg_has_role(current_user, $1, 'usage') AS has_usage",
+    [role],
+  );
+  if (rows[0]?.has_usage) return true;
+  return canAssumeRole(role);
 }
 
 export async function ncmecAuditBoundaryStatus(): Promise<
@@ -261,9 +293,9 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     tableOwner: row.table_owner,
     maintenanceRoleExists: row.maintenance_role_exists,
     applicationCanBypassTrigger: row.maintenance_role_exists
-      ? await canAssumeRole("overhype_audit_maintenance")
+      ? await canEffectivelyAssumeRole("overhype_audit_maintenance")
       : false,
-    applicationOwnsTable: await canAssumeRole(row.table_owner),
+    applicationOwnsTable: await canEffectivelyAssumeRole(row.table_owner),
     triggersEnabled: row.triggers_enabled,
   };
 

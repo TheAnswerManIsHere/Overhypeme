@@ -97,6 +97,14 @@ function auditGuardBlock(): string {
   return sliceBetween(GUARD_START, GUARD_END);
 }
 
+const OWNERSHIP_START = "-- >>> ncmec-0095 ownership hardening block (start)";
+const OWNERSHIP_END = "-- <<< ncmec-0095 ownership hardening block (end)";
+
+/** Just the DBA-provisioned-ownership-transfer DO block. */
+function ownershipHardeningBlock(): string {
+  return sliceBetween(OWNERSHIP_START, OWNERSHIP_END);
+}
+
 describe("migration 0095 — static contract", () => {
   it("is registered in the journal and exempted from snapshot checking", () => {
     const journal = JSON.parse(
@@ -607,6 +615,37 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       );
     });
 
+    it("refuses to continue when the guard function's own body no longer implements the check", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `CREATE OR REPLACE FUNCTION` preserves the function's oid, so a hardened recovery
+      // database where the body was swapped for something permissive BEFORE ownership moved
+      // to the restricted role would still satisfy a tgfoid match — the trigger genuinely
+      // calls "the function named ncmec_safety_audit_log_append_only", it just no longer does
+      // what that name promises. Verifying only wiring (trigger name/enabled/tgfoid/tgtype)
+      // cannot catch this; the function's own source has to be inspected too.
+      await withOwnershipTransferredToRestrictedRole(
+        async (owner, app) => {
+          await pool!.query(`
+            CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $body$
+            BEGIN
+              -- Permissive: lets every operation through unconditionally. Same signature,
+              -- same name, same trigger wiring — only the body changed.
+              IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+              RETURN NEW;
+            END; $body$ LANGUAGE plpgsql;
+          `);
+          await pool!.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+          await pool!.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${owner}`);
+          await pool!.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
+        },
+        async (app, appPassword) => {
+          const result = execSqlAsLoginRole(app, appPassword, auditGuardBlock());
+          assert.equal(result.ok, false, "expected the guard block to refuse a tampered function body");
+          assert.match(result.output, /refusing to leave the ledger unguarded/);
+        },
+      );
+    });
+
     it("refuses to continue when the ledger is unreachable AND its guards are missing", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // Verify-and-continue is only correct while the guards are actually there. With them
@@ -625,6 +664,55 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           assert.match(result.output, /refusing to leave the ledger unguarded/);
         },
       );
+    });
+
+    it("transfers ownership when the app role can SET ROLE to overhype_audit_owner but does not inherit it", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // pg_has_role(..., 'usage') answers whether overhype_audit_owner's privileges are
+      // INHERITED, not whether ALTER TABLE ... OWNER TO can succeed — verified directly
+      // against this repository's PostgreSQL 16 target: that statement requires the ability
+      // to SET ROLE to the new owner specifically ("must be able to SET ROLE ..."), and an
+      // INHERIT FALSE, SET TRUE grant reports usage=false while the ALTER TABLE still
+      // succeeds. The old `usage`-gated check would have wrongly skipped a transfer this
+      // role can actually perform.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_dba_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) {
+        await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+        // Required on PostgreSQL 15+, which no longer grants CREATE on the public schema to
+        // every role by default — without this, ALTER TABLE ... OWNER TO fails with
+        // "permission denied for schema public" (the NEW owner needs CREATE, not the
+        // executing role). Matches the corrected DBA instructions this test is verifying.
+        await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      }
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        await pool.query(`GRANT overhype_audit_owner TO ${app} WITH INHERIT FALSE, SET TRUE`);
+
+        const result = execSqlAsLoginRole(app, appPassword, ownershipHardeningBlock());
+        assert.ok(result.ok, `expected the ownership transfer to succeed; got: ${result.output}`);
+
+        const { rows } = await pool.query<{ owner: string }>(
+          `SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE relname = 'ncmec_safety_audit_log'`,
+        );
+        assert.equal(rows[0]?.owner, "overhype_audit_owner");
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
     });
 
     it("does not count a replica-only trigger as an enforced boundary", async (t) => {
@@ -861,6 +949,27 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       await client.query(`DROP INDEX "UQ_ncmec_reports_quarantine"`);
       await client.query(
         `CREATE INDEX "UQ_ncmec_reports_quarantine" ON ncmec_reports (quarantine_id)`,
+      );
+      await expectRaises(
+        client,
+        executableMigration(),
+        /already exists but is not the exact unique constraint/,
+      );
+    });
+  });
+
+  it("refuses to accept a same-named quarantine index left invalid by a failed build", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // A crashed or cancelled `CREATE UNIQUE INDEX CONCURRENTLY` can leave an index with the
+    // right uniqueness flag, key column and predicate — everything the prior test checks —
+    // while pg_index.indisvalid is false, meaning Postgres does not actually enforce it.
+    // indisunique alone would accept this and leave the ledger's correctness constraint
+    // silently absent.
+    await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+      await client.query(executableMigration());
+      await client.query(
+        `UPDATE pg_index SET indisvalid = false WHERE indexrelid = '"UQ_ncmec_reports_quarantine"'::regclass`,
       );
       await expectRaises(
         client,

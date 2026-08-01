@@ -268,11 +268,27 @@ describe("NcmecClient — response-code classification", () => {
     assert.match(result.status === "err" ? result.message : "", /omitted <reportId>/);
   });
 
-  it("treats a non-2xx with an unusable body as a retryable HTTP failure", async () => {
+  it("treats a non-2xx with an unusable body on /finish as a retryable HTTP failure", async () => {
+    // A gateway's error page in front of NCMEC is transient, and /finish carries its own
+    // reportId — a retry is a safe no-op here, unlike /submit below.
     const { instance } = client("<html><body>502 Bad Gateway</body></html>", { status: 502 });
-    const result = await instance.submitReport("<report/>");
+    const result = await instance.finishReport("4564654");
     assert.equal(result.status === "err" && result.kind, "http");
     assert.equal(result.status === "err" && result.retryable, true);
+  });
+
+  it("does NOT treat a non-2xx with an unusable body on /submit as retryable either", async () => {
+    // The same gateway 502 can equally follow an upstream accept: NCMEC's own verdict, if it
+    // rendered one at all, never reached this process either way. /submit's ambiguity gate
+    // has to catch both transport failure shapes ("network" AND "http"), not just one — a
+    // 502 here is exactly as unconfirmed as a dropped connection, and either can leave a
+    // report open with no id recovered to reconcile a retry against.
+    const { instance } = client("<html><body>502 Bad Gateway</body></html>", { status: 502 });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.equal(result.status === "err" && result.responseCode, null);
+    assert.match(result.status === "err" ? result.message : "", /not retrying automatically/);
   });
 });
 
@@ -365,6 +381,30 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
     assert.match(result.status === "err" ? result.message : "", /well-formed/);
+  });
+
+  it("rejects a /finish response carrying the wrong root instead of reading it as success", async () => {
+    // /finish is documented to answer with <reportDoneResponse> alone. A well-formed
+    // <reportResponse> with responseCode 0 and a reportId would otherwise look exactly like
+    // a successful completion — parseEnvelope() accepts either root, so the endpoint-specific
+    // contract has to be enforced by the caller that knows which one it asked for.
+    const { instance } = client(
+      "<reportResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportResponse>",
+    );
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /reportDoneResponse/);
+  });
+
+  it("rejects a /submit response carrying <reportDoneResponse> instead of the documented root", async () => {
+    const { instance } = client(
+      "<reportDoneResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportDoneResponse>",
+    );
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /reportResponse/);
   });
 });
 
