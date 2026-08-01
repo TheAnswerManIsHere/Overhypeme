@@ -1256,13 +1256,22 @@ export async function refreshLifetimePaymentSource(
   }
 }
 
-/** Refresh every Stripe-backed source a user holds, then recompute once. */
+/**
+ * Refresh every Stripe-backed source a user holds, then recompute once.
+ *
+ * Returns the ids of the sources it VERIFIED, not just a count. A successful
+ * verification can be a no-op — a lifetime purchase confirmed not refunded
+ * writes nothing — so "did this source's version move" cannot stand in for "was
+ * this source checked". Conflating them labelled a verified-clean source stale
+ * whenever some *other* source's version happened to move.
+ */
 export async function refreshAllSourcesForUser(
   stripe: Stripe,
   userId: string,
-): Promise<{ refreshed: number; failed: number }> {
+): Promise<{ refreshed: number; failed: number; verifiedSourceIds: Set<number> }> {
   const sources = await db
     .select({
+      id: membershipEntitlementsTable.id,
       sourceType: membershipEntitlementsTable.sourceType,
       providerRef: membershipEntitlementsTable.providerRef,
     })
@@ -1271,6 +1280,7 @@ export async function refreshAllSourcesForUser(
 
   let refreshed = 0;
   let failed = 0;
+  const verifiedSourceIds = new Set<number>();
 
   for (const source of sources) {
     if (!source.providerRef) continue;
@@ -1282,8 +1292,10 @@ export async function refreshAllSourcesForUser(
     try {
       if (source.sourceType === "stripe_subscription") {
         const outcome = await refreshSubscriptionSource(stripe, source.providerRef);
-        if (outcome.applied) refreshed += 1;
-        else failed += 1;
+        if (outcome.applied) {
+          refreshed += 1;
+          verifiedSourceIds.add(source.id);
+        } else failed += 1;
       } else if (source.sourceType === "stripe_lifetime_payment") {
         // Silently skipped until now, and `failed` stayed zero — so a lifetime
         // purchase refunded while its `charge.refunded` webhook was dropped left
@@ -1291,8 +1303,13 @@ export async function refreshAllSourcesForUser(
         // Precisely the stale-row case reinstatement's authoritative refresh
         // exists to prevent.
         const outcome = await refreshLifetimePaymentSource(stripe, source.providerRef);
-        if (outcome.verified) refreshed += 1;
-        else failed += 1;
+        if (outcome.verified) {
+          // Verified-and-unchanged is still verified. This is precisely the
+          // case that cannot be read off `source_state_as_of`: confirming a
+          // purchase was NOT refunded writes nothing.
+          refreshed += 1;
+          verifiedSourceIds.add(source.id);
+        } else failed += 1;
       } else {
         // An unhandled Stripe-backed source type is UNVERIFIED, not fine. A new
         // source type must fail closed here until it has a refresh path, rather
@@ -1315,7 +1332,7 @@ export async function refreshAllSourcesForUser(
     await recomputeMembership(tx, userId);
   });
 
-  return { refreshed, failed };
+  return { refreshed, failed, verifiedSourceIds };
 }
 
 /** Execute post-commit notifications. Best-effort by construction. */

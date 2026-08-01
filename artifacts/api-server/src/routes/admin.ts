@@ -85,11 +85,12 @@ function parseMembershipConfigValue(raw: string, dataType: string): number | nul
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
 }
-import { effectiveTierExpr } from "../lib/membershipState";
+import { effectiveTierExpr, qualifySource } from "../lib/membershipState";
 import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
 import { graceSweepHealth } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
+  loadSourceSnapshots,
   loadSourceStateVersions,
   hasQualifyingLifetimeSource,
   recomputeMembership,
@@ -166,19 +167,23 @@ function adminLabel(actor: { displayName?: string | null; email?: string | null 
  * has to happen under the same lock as the write that lands it, which is the
  * caller's transaction, not this function's.
  */
-async function refreshSourcesForReinstatement(userId: string): Promise<boolean> {
+async function refreshSourcesForReinstatement(
+  userId: string,
+): Promise<{ complete: boolean; verifiedSourceIds: Set<number> }> {
   try {
     const { getUncachableStripeClient } = await import("../lib/stripeClient");
     const stripe = await getUncachableStripeClient();
-    const { failed } = await refreshAllSourcesForUser(stripe, userId);
+    const { failed, verifiedSourceIds } = await refreshAllSourcesForUser(stripe, userId);
     if (failed > 0) {
       logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
-      return false;
+      return { complete: false, verifiedSourceIds };
     }
-    return true;
+    return { complete: true, verifiedSourceIds };
   } catch (err) {
     logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
-    return false;
+    // A total failure verified nothing — never an empty set standing in for
+    // "everything was fine".
+    return { complete: false, verifiedSourceIds: new Set() };
   }
 }
 
@@ -305,7 +310,9 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const versionsBeforeRefresh = reinstating
     ? await loadSourceStateVersions(db, id)
     : new Map<number, number>();
-  const refreshComplete = reinstating ? await refreshSourcesForReinstatement(id) : true;
+  const refresh = reinstating
+    ? await refreshSourcesForReinstatement(id)
+    : { complete: true, verifiedSourceIds: new Set<number>() };
 
   const [updated] = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -323,8 +330,9 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     // would simply overwrite whatever it had just decided.
     await recomputeMembership(tx, id);
 
-    if (!refreshComplete) {
-      // Fail closed — but only over sources that are ACTUALLY stale.
+    if (!refresh.complete) {
+      // Fail closed — but only over sources that are ACTUALLY unverified, and
+      // only to the extent that the tier actually rests on them.
       //
       // "My refresh failed" is not the same as "this data is unverified". The
       // common failure is `source_busy`, which means another writer held the
@@ -333,39 +341,63 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
       // paying user at `registered` with nothing scheduled to revisit them,
       // since the event that would have fixed it has already been consumed.
       //
-      // So the question is per-source and about freshness, not about who did
-      // the refreshing: was every source written since this reinstatement
-      // began? `sourceStateAsOf` moves on every authoritative apply, whoever
-      // performs it — so compare each source's version now against the version
-      // it carried before the refresh started.
+      // A source is TRUSTED if either is true:
       //
-      // Per-source, not a single sequence watermark. Sequences advance outside
-      // commit, so a writer can allocate its token before a `last_value` read
-      // and commit after it; comparing committed row values to committed row
-      // values is the only comparison that respects commit order. A source
-      // absent from the "before" map is new, therefore fresh; one that has since
-      // disappeared cannot be stale.
+      //   1. We verified it ourselves. A successful verification can write
+      //      nothing at all — confirming a lifetime purchase was not refunded
+      //      is a no-op — so verification has to be tracked separately rather
+      //      than inferred from the version. Inferring it labelled a
+      //      verified-clean source stale whenever some OTHER source's version
+      //      moved.
+      //   2. Its version moved, meaning somebody else applied it since we
+      //      began. Per-source, not a single sequence watermark: sequences
+      //      advance outside commit, so a writer can allocate its token before a
+      //      `last_value` read and commit after it. Comparing committed row
+      //      values to committed row values is the only comparison that
+      //      respects commit order. A source absent from the "before" map is
+      //      new, therefore fresh; one that has since disappeared cannot be
+      //      stale.
+      //
+      // `admin_grant` never appears here at all — it has no provider state to
+      // verify against, so it is authoritative by construction.
       const versionsNow = await loadSourceStateVersions(tx, id);
-      let anyStale = false;
+      const staleSourceIds = new Set<number>();
       for (const [sourceId, version] of versionsNow) {
+        if (refresh.verifiedSourceIds.has(sourceId)) continue;
         const before = versionsBeforeRefresh.get(sourceId);
-        if (before !== undefined && before === version) {
-          anyStale = true;
-          break;
-        }
+        if (before !== undefined && before === version) staleSourceIds.add(sourceId);
       }
 
-      if (anyStale) {
-        // The horizon goes with the tier, since `registered` carries none.
-        await tx
-          .update(usersTable)
-          .set({ membershipTier: "registered", membershipValidUntil: null })
-          .where(eq(usersTable.id, id));
+      if (staleSourceIds.size > 0) {
+        // Discard only what the stale sources were holding up. An aggregate
+        // downgrade throws away independently authoritative entitlements too: a
+        // comped member with a qualifying `admin_grant` would be dropped to
+        // `registered` by a transient Stripe outage on an unrelated
+        // subscription, with no provider event guaranteed to ever restore them.
+        const trusted = (await loadSourceSnapshots(tx, id)).filter(
+          (snapshot) => !staleSourceIds.has(snapshot.id),
+        );
+        const now = new Date();
+        const trustedQualifies = trusted.some((snapshot) => qualifySource(snapshot, now).qualifies);
+
+        if (!trustedQualifies) {
+          // The horizon goes with the tier, since `registered` carries none.
+          await tx
+            .update(usersTable)
+            .set({ membershipTier: "registered", membershipValidUntil: null })
+            .where(eq(usersTable.id, id));
+        } else {
+          logger.info(
+            { userId: id, staleSources: staleSourceIds.size },
+            "reinstatement refresh was incomplete, but an independently authoritative source still " +
+              "qualifies — keeping the derived tier rather than discarding it",
+          );
+        }
       } else {
         logger.info(
           { userId: id },
-          "reinstatement refresh reported incomplete, but every source was applied by another writer " +
-            "since it began — the derived tier stands",
+          "reinstatement refresh reported incomplete, but every source was either verified or applied " +
+            "by another writer since it began — the derived tier stands",
         );
       }
     }

@@ -103,7 +103,11 @@ export async function graceSweepHealth(now: number = Date.now()): Promise<GraceS
 }
 
 export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<void> {
-  const config = await loadMembershipConfig();
+  // The config read used to sit HERE, outside the try, and it is a database
+  // call: a transient DB failure escaped before `lastRunAt`, `lastError` and the
+  // failure counters could record anything, so the run that failed was invisible
+  // on the very panel that exists to report it — and the rejection escaped to
+  // the scheduler. It is now read only where it is used, inside the guard.
   lastRunAt = (opts.asOf ?? new Date()).getTime();
   try {
     const result = await sweepExpiredGrace(opts);
@@ -118,13 +122,26 @@ export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<voi
     lastError = err instanceof Error ? err.message.slice(0, 400) : String(err);
     consecutiveFailures += 1;
     const staleFor = graceSweepStaleSeconds((opts.asOf ?? new Date()).getTime());
-    if (staleFor >= config.grace_sweep_alert_after_seconds) {
+
+    // The threshold is itself a database read, and the most likely reason this
+    // catch is running at all is that the database is unreachable. Escalate
+    // rather than lose the report: with no threshold to compare against, the
+    // failure is logged at error level, because an unknowable severity is not
+    // the same as a low one.
+    let alertAfterSeconds: number | null = null;
+    try {
+      alertAfterSeconds = (await loadMembershipConfig()).grace_sweep_alert_after_seconds;
+    } catch (configErr) {
+      logger.warn({ err: configErr }, "could not read the grace sweep alert threshold while reporting a failure");
+    }
+
+    if (alertAfterSeconds === null || staleFor >= alertAfterSeconds) {
       // Reported, not escalated into an outage: access was already revoked on
       // the deadline by the read path. What is broken is the accuracy of the
       // stored value, and an operator needs to know that — bounded failure with
       // an alert beats an unbounded retry that expires nobody.
       logger.error(
-        { err, staleForSeconds: staleFor, threshold: config.grace_sweep_alert_after_seconds },
+        { err, staleForSeconds: staleFor, threshold: alertAfterSeconds },
         "grace sweep has been failing past its alert threshold — stored membership tiers are drifting " +
           "from what authorization enforces",
       );
@@ -154,9 +171,18 @@ export async function scheduleMembershipJobs(): Promise<void> {
       return;
     }
     sweepInFlight = true;
-    void runGraceSweepOnce().finally(() => {
-      sweepInFlight = false;
-    });
+    // An explicit catch at the scheduling boundary, not just a `finally`.
+    // `runGraceSweepOnce` guards its own body, but a detached promise with no
+    // rejection handler turns any escape into an unhandled rejection — which
+    // Node terminates the process for by default. A projection-convergence job
+    // must not be able to take the API down.
+    void runGraceSweepOnce()
+      .catch((err) => {
+        logger.error({ err }, "grace sweep tick failed outside its own error handling");
+      })
+      .finally(() => {
+        sweepInFlight = false;
+      });
   }, config.grace_sweep_interval_seconds * 1000).unref();
 
   logger.info(

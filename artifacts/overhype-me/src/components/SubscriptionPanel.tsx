@@ -79,8 +79,18 @@ const STALE_LOCAL_STATE_MESSAGE =
   "Your change was accepted by our payment provider, but our own records haven't caught up yet. " +
   "The membership details below may be out of date for a minute or two — they'll correct themselves automatically.";
 
-/** How long we keep re-checking after a stale response, in ms from the mutation. */
-const STALE_RECHECK_DELAYS_MS = [2000, 5000, 10000, 20000];
+/**
+ * How long we keep re-checking after a stale response, in ms from the mutation.
+ *
+ * The tail has to outlast the BACKGROUND work, not the caller's deadline. When
+ * the server abandons its wait at 10s the refresh keeps going — lease
+ * acquisition, then a bounded retrieval phase, then the apply — so a fixed set
+ * of rechecks ending at 20s could see nothing but the old projection and leave
+ * the banner up forever even though the state converged at 40s. These cover the
+ * server's own worst case with room to spare, and stop as soon as the mutation's
+ * settled predicate holds.
+ */
+const STALE_RECHECK_DELAYS_MS = [2000, 5000, 10000, 20000, 35000, 50000, 70000, 90000];
 
 interface ConfirmDialogProps {
   title: string;

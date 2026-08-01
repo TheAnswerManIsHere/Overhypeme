@@ -48,6 +48,86 @@ router.get("/stripe/plans", async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * The ONE subscription the panel describes AND its controls act on.
+ *
+ * Shared deliberately. When only the GET path used this selection, cancel,
+ * reactivate, switch-preview and switch-plan each independently took the first
+ * entry of `subscriptions.list({ status: "active" })` — so if newer
+ * subscription B was disputed or on a non-membership price while older A was
+ * the qualifying source, the panel described A and every button mutated B. A
+ * user could be told their subscription was cancelled while A kept billing.
+ *
+ * `qualifies` is returned rather than folded in, because the two consumers want
+ * different things from a non-qualifying result: the panel still renders the
+ * newest row so a fully-cancelled user sees their history instead of an empty
+ * card, while a mutation must refuse — cancelling an already-cancelled
+ * subscription is not a request anyone made.
+ */
+async function selectMembershipSubscription(userId: string): Promise<{
+  hasLifetime: boolean;
+  source: typeof membershipEntitlementsTable.$inferSelect | null;
+  qualifies: boolean;
+}> {
+  // ONE snapshot, and REPEATABLE READ is what makes that true. Qualification
+  // and the row that gets returned must come from the same read: a webhook
+  // cancelling or disputing B between the two statements leaves B in
+  // `qualifyingIds` from the first while the second returns its new
+  // non-qualifying state — selecting B over the older qualifying A and
+  // recreating exactly the mismatch this selection exists to prevent.
+  //
+  // A bare transaction does NOT prevent that. Under the pool's default READ
+  // COMMITTED isolation every statement takes a fresh snapshot, so grouping the
+  // two reads changes only their atomicity on write, which this read path has
+  // none of. The isolation level is the fix; the transaction alone was the
+  // appearance of one. Safe to raise because this is a pure read: a
+  // serialization failure has nothing to undo and no write to retry.
+  //
+  // "Does a lifetime row exist" is likewise the wrong question under a model
+  // that deliberately RETAINS refunded and dispute-revoked rows. Ask whether one
+  // currently QUALIFIES — `loadSourceSnapshots` resolves the dispute hold as a
+  // query, which is what makes qualification here mean the same thing it means
+  // in the derivation.
+  const { hasLifetime, subscriptionSnapshots, appSubRows } = await db.transaction(async (tx) => {
+    const snapshots = await loadSourceSnapshots(tx, userId);
+    const rows = await tx.select().from(membershipEntitlementsTable)
+      .where(and(
+        eq(membershipEntitlementsTable.userId, userId),
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+      ))
+      .orderBy(desc(membershipEntitlementsTable.createdAt));
+    return {
+      hasLifetime: snapshots.some(
+        (snapshot) =>
+          (snapshot.sourceType === "stripe_lifetime_payment" ||
+            snapshot.sourceType === "admin_grant") &&
+          qualifySource(snapshot, new Date()).qualifies,
+      ),
+      subscriptionSnapshots: snapshots.filter(
+        (snapshot) => snapshot.sourceType === "stripe_subscription",
+      ),
+      appSubRows: rows,
+    };
+  }, { isolationLevel: "repeatable read" });
+
+  // The newest source that still GRANTS access, not simply the newest row. The
+  // model supports more than one subscription source, and picking by recency
+  // alone returns a cancelled subscription B while access rests on an older
+  // active A.
+  const now = new Date();
+  const qualifyingIds = new Set(
+    subscriptionSnapshots
+      .filter((snapshot) => qualifySource(snapshot, now).qualifies)
+      .map((snapshot) => snapshot.id),
+  );
+  const qualifying = appSubRows.find((row) => qualifyingIds.has(row.id)) ?? null;
+  return {
+    hasLifetime,
+    source: qualifying ?? appSubRows[0] ?? null,
+    qualifies: qualifying !== null,
+  };
+}
+
 // GET /stripe/subscription — current user's subscription + membership state
 router.get("/stripe/subscription", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -56,66 +136,8 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // authMiddleware already loaded the canonical user row, so prefer
     // req.user.membershipTier over re-querying the DB here.
     const tier = req.user.membershipTier ?? "unregistered";
-    // "Does a lifetime row exist" is the wrong question under a model that
-    // deliberately RETAINS refunded and dispute-revoked rows: a refunded
-    // purchase still has a row, and a bare-existence read would report the user
-    // as a lifetime member forever. Ask whether one currently QUALIFIES.
-    // `loadSourceSnapshots` resolves the dispute hold as a QUERY, which is what
-    // makes qualification here mean the same thing it means everywhere else.
-    // Hardcoding `hasOpenDispute: false` (an earlier revision did) makes a held
-    // source look qualifying, so a disputed newer subscription B would be
-    // selected while access actually rests on older A.
-    //
-    // ONE snapshot, and REPEATABLE READ is what makes that true. Qualification
-    // and the row that gets returned must come from the same read: a webhook
-    // cancelling or disputing B between the two statements leaves B in
-    // `qualifyingIds` from the first while the second returns its new
-    // non-qualifying state — selecting B over the older qualifying A and
-    // recreating exactly the mismatch this selection exists to prevent.
-    //
-    // A bare transaction does NOT prevent that. Under the pool's default READ
-    // COMMITTED isolation every statement takes a fresh snapshot, so grouping
-    // the two reads changes only their atomicity on write, which this read path
-    // has none of. The isolation level is the fix; the transaction alone was
-    // the appearance of one.
-    //
-    // Safe to raise here because this is a pure read: a serialization failure
-    // has nothing to undo, and there is no write to retry.
-    const { hasLifetime, subscriptionSnapshots, appSubRows } = await db.transaction(async (tx) => {
-      const snapshots = await loadSourceSnapshots(tx, userId);
-      const rows = await tx.select().from(membershipEntitlementsTable)
-        .where(and(
-          eq(membershipEntitlementsTable.userId, userId),
-          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-        ))
-        .orderBy(desc(membershipEntitlementsTable.createdAt));
-      return {
-        hasLifetime: snapshots.some(
-          (snapshot) =>
-            (snapshot.sourceType === "stripe_lifetime_payment" ||
-              snapshot.sourceType === "admin_grant") &&
-            qualifySource(snapshot, new Date()).qualifies,
-        ),
-        subscriptionSnapshots: snapshots.filter(
-          (snapshot) => snapshot.sourceType === "stripe_subscription",
-        ),
-        appSubRows: rows,
-      };
-    }, { isolationLevel: "repeatable read" });
+    const { hasLifetime, source } = await selectMembershipSubscription(userId);
 
-    // The newest source that still GRANTS access, not simply the newest row. The
-    // model supports more than one subscription source, and picking by recency
-    // alone returns a cancelled subscription B while access actually rests on an
-    // older active A — so the panel would describe one and act on the other.
-    // Falls back to the newest row when none qualify, so a fully-cancelled user
-    // still sees their most recent subscription rather than an empty panel.
-    const nowForPanel = new Date();
-    const qualifyingIds = new Set(
-      subscriptionSnapshots
-        .filter((snapshot) => qualifySource(snapshot, nowForPanel).qualifies)
-        .map((snapshot) => snapshot.id),
-    );
-    const source = appSubRows.find((row) => qualifyingIds.has(row.id)) ?? appSubRows[0] ?? null;
     // The shape GET /stripe/subscription has always returned, rebuilt from the
     // entitlement source so the client contract is unchanged.
     const appSub = source
@@ -489,19 +511,35 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
   }
 });
 
-// Helper: get the user's active non-lifetime subscription from Stripe
+/**
+ * The Stripe subscription a mutation route may act on — the SAME one the panel
+ * is describing.
+ *
+ * Retrieved by id from the server-side selection rather than taken as the first
+ * entry of `subscriptions.list({ status: "active" })`. The list order is
+ * Stripe's, not ours, so it could hand back a subscription the panel is not
+ * showing; and `status: "active"` excludes a `past_due` subscription that still
+ * qualifies during its grace window, which left a member in dunning unable to
+ * cancel the thing they were being dunned for.
+ *
+ * Returns null when nothing currently qualifies, which the callers surface as
+ * "No active subscription found" — the panel's fallback to the newest
+ * non-qualifying row is for DISPLAY only and must not become a mutation target.
+ */
 async function getActiveStripeSub(userId: string) {
-  const user = await stripeStorage.getUserById(userId);
-  if (!user?.stripeCustomerId) return null;
+  const { source, qualifies } = await selectMembershipSubscription(userId);
+  if (!qualifies || !source?.providerRef) return null;
 
-  // Fetch active subscriptions from Stripe (not local DB)
   const stripe = await getUncachableStripeClient();
-  const subs = await stripe.subscriptions.list({
-    customer: user.stripeCustomerId,
-    status: "active",
-    limit: 5,
-  });
-  return subs.data[0] ?? null;
+  try {
+    return await stripe.subscriptions.retrieve(source.providerRef);
+  } catch (error) {
+    logger.warn(
+      { err: error, userId, subscriptionId: source.providerRef },
+      "the qualifying subscription source could not be retrieved from Stripe",
+    );
+    return null;
+  }
 }
 
 // POST /stripe/subscription/cancel — cancel subscription at period end
@@ -520,14 +558,10 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
     }
 
     const stripe = await getUncachableStripeClient();
-    const user = await stripeStorage.getUserById(userId);
-    if (!user?.stripeCustomerId) {
-      res.status(400).json({ error: "No active subscription found" });
-      return;
-    }
-
-    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
-    const sub = subs.data[0];
+    // The subscription the PANEL is describing, not whichever entry Stripe's
+    // list happens to return first — otherwise the button and the card can
+    // disagree about which subscription they mean.
+    const sub = await getActiveStripeSub(userId);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;
@@ -574,15 +608,10 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
     }
 
     const stripe = await getUncachableStripeClient();
-    const user = await stripeStorage.getUserById(userId);
-    if (!user?.stripeCustomerId) {
-      res.status(400).json({ error: "No active subscription found" });
-      return;
-    }
-
-    // Find subscriptions that are active or set to cancel at period end
-    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
-    const sub = subs.data[0];
+    // The subscription the PANEL is describing, not whichever entry Stripe's
+    // list happens to return first — otherwise the button and the card can
+    // disagree about which subscription they mean.
+    const sub = await getActiveStripeSub(userId);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;

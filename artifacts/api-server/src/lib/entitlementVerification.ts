@@ -202,6 +202,18 @@ async function bindUser(
   if (!userId && linkHintUserId) {
     if (await binding.linkCustomerToUser(linkHintUserId, customerId)) {
       userId = linkHintUserId;
+    } else {
+      // The link is conditional, so it fails for TWO different reasons and only
+      // one of them is permanent. Either the customer genuinely belongs to
+      // someone else, or a concurrent delivery of this same first purchase bound
+      // it between our read above and our write just now.
+      //
+      // Re-reading distinguishes them. Without it the losing delivery reported
+      // `user_unresolvable` — a permanent, non-retryable reason — and could
+      // claim the event as a settled no-op before the winner finished, after
+      // which the winner hit the duplicate claim and no entitlement was ever
+      // created. A paid purchase, gone, with Stripe told to stop retrying.
+      userId = await binding.findUserIdByCustomerId(customerId);
     }
   }
 

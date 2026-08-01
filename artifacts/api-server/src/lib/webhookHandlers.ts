@@ -324,8 +324,17 @@ async function prepareDispute(
     // covered by that trade: `notifyAdminsOfDispute` enqueues a durable
     // `async_jobs` row per admin, so a lost 200 on a fully processed event would
     // permanently double-write the email queue for work that already happened.
-    // The guard above is the same idempotency fact the claim uses, read before
-    // the claim rather than after it.
+    //
+    // The guard is an ADVISORY read, and deliberately not a claim. It suppresses
+    // the sequential redelivery above — the common case, where the first
+    // delivery committed long ago. It does NOT suppress two deliveries racing
+    // before either commits: both reads return false and both alert. That is the
+    // same duplicate-alert cost David already accepted for unprocessed events,
+    // reached by a narrower window, and making it atomic would mean claiming the
+    // event during PREPARE — which is exactly the ordering this handler was
+    // rewritten to remove, because a claim that outlives a failed prepare drops
+    // the event entirely. A duplicate chargeback warning is noise; a missing one
+    // is an undefended chargeback.
     //
     // Best-effort — an alert that fails must not take the entitlement write
     // down with it.
