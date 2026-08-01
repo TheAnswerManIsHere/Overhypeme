@@ -298,6 +298,19 @@ async function canAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<
  * would under-report a real, immediate escalation path the same way the
  * `usage`-only check under-reported `SET`-only grants.
  *
+ * That admin-option check has to traverse INHERITED admin option too, not just a direct
+ * grant to `current_user`. Verified directly against this repository's PostgreSQL 16
+ * target: a helper role holding `ADMIN TRUE, INHERIT FALSE, SET FALSE` on the target role,
+ * with `current_user` an ordinary `INHERIT TRUE` member of the helper role, can still run
+ * `GRANT <target> TO current_user WITH SET TRUE` and then `SET ROLE` successfully — the
+ * admin option itself propagates through the same inheritance chain as any other privilege,
+ * even though the helper role's OWN direct usage/inherit flags on the target are false. A
+ * direct `m.member = current_user` lookup misses this entirely: no row in `pg_auth_members`
+ * ever names `current_user` as the member on the target's own admin grant. The fix reuses
+ * `pg_has_role(..., 'usage')` — which already correctly computes "does current_user inherit
+ * this role's privileges, transitively" — against the GRANTEE of every admin-option grant on
+ * the target, rather than re-deriving that traversal by hand.
+ *
  * `targetPool` — see `canAssumeRole`'s doc comment for why this exists and
  * defaults to the module's own `pool`.
  */
@@ -307,8 +320,8 @@ export async function canEffectivelyAssumeRole(role: string, targetPool: pg.Pool
             EXISTS (
               SELECT 1 FROM pg_auth_members m
                WHERE pg_get_userbyid(m.roleid) = $1
-                 AND pg_get_userbyid(m.member) = current_user
                  AND m.admin_option
+                 AND pg_has_role(current_user, pg_get_userbyid(m.member), 'usage')
             ) AS has_admin`,
     [role],
   );

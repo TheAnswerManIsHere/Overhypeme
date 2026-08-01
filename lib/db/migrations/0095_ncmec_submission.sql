@@ -139,17 +139,47 @@ COMMENT ON COLUMN "quarantined_memes"."report_intent" IS
 -- (content_origin = 'generated'); persisting it too would be two
 -- representations of one fact that can disagree, and the report's
 -- <generativeAi> annotation would depend on which one the mapping read.
+-- Scoped by conrelid, not just conname: constraint names are only unique PER RELATION in
+-- Postgres, so a same-named CHECK constraint sitting in another schema (this repo's own
+-- isolated-test-schema tooling, or a same-named object left in `public`) would satisfy a
+-- name-only existence check and this migration would skip adding the constraint to the
+-- table it's actually creating — the same class of bug the FK-reconciliation blocks above
+-- fix for foreign keys. Verified when present, not just found: `pg_get_constraintdef`'s
+-- text is deterministic for a given expression on a given PostgreSQL version, captured
+-- directly against this repository's PostgreSQL 16 target rather than hand-composed —
+-- Postgres normalizes `IN (...)` to `= ANY (ARRAY[...])` with explicit casts, so a literal
+-- reproduction of the source text would never match.
 DO $$
+DECLARE
+  check_def CONSTANT text :=
+    'CHECK (((content_origin IS NULL) OR ((content_origin)::text = ANY ((ARRAY[''generated''::character varying, ''user_upload''::character varying, ''stock''::character varying, ''template''::character varying, ''identity''::character varying])::text[]))))';
+  con_oid oid;
+  con_ok boolean;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'quarantined_memes_content_origin_check'
-  ) THEN
+  SELECT c.oid, pg_get_constraintdef(c.oid) = check_def AND c.convalidated
+    INTO con_oid, con_ok
+    FROM pg_constraint c
+   WHERE c.conname = 'quarantined_memes_content_origin_check'
+     AND c.conrelid = to_regclass('quarantined_memes');
+  IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
+    ALTER TABLE "quarantined_memes" DROP CONSTRAINT "quarantined_memes_content_origin_check";
+    con_oid := NULL;
+  END IF;
+  IF con_oid IS NULL THEN
     ALTER TABLE "quarantined_memes" ADD CONSTRAINT "quarantined_memes_content_origin_check"
       CHECK ("content_origin" IS NULL OR "content_origin" IN ('generated','user_upload','stock','template','identity'));
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'ncmec_reports_content_origin_check'
-  ) THEN
+
+  SELECT c.oid, pg_get_constraintdef(c.oid) = check_def AND c.convalidated
+    INTO con_oid, con_ok
+    FROM pg_constraint c
+   WHERE c.conname = 'ncmec_reports_content_origin_check'
+     AND c.conrelid = to_regclass('ncmec_reports');
+  IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
+    ALTER TABLE "ncmec_reports" DROP CONSTRAINT "ncmec_reports_content_origin_check";
+    con_oid := NULL;
+  END IF;
+  IF con_oid IS NULL THEN
     ALTER TABLE "ncmec_reports" ADD CONSTRAINT "ncmec_reports_content_origin_check"
       CHECK ("content_origin" IS NULL OR "content_origin" IN ('generated','user_upload','stock','template','identity'));
   END IF;
@@ -756,12 +786,22 @@ END $outer$;
 -- >>> ncmec-0095 ownership hardening block (start)
 DO $$
 DECLARE
-  app_role    text := current_user;
-  can_own     boolean := false;
-  tbl_done    boolean;
-  fn_done     boolean;
-  grants_done boolean;
+  app_role      text := current_user;
+  can_own       boolean := false;
+  tbl_done      boolean;
+  fn_done       boolean;
+  grants_done   boolean;
+  -- Resolved once, used only in the printed DBA instructions below. Hardcoding "public"
+  -- there was wrong under this repo's own isolated-test-schema tooling, and would be wrong
+  -- for any real deployment whose search_path doesn't put public first: PostgreSQL requires
+  -- the NEW owner to hold CREATE on the SCHEMA THE TABLE ACTUALLY LIVES IN, not on public
+  -- specifically — a DBA following a hardcoded "public" instruction to the letter on such a
+  -- database would still hit "permission denied for schema <real schema>" on the transfer.
+  ledger_schema text;
 BEGIN
+  SELECT n.nspname INTO ledger_schema
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.oid = to_regclass('ncmec_safety_audit_log');
   -- Same defect, same fix as the rerun guard above: `usage` answers only whether
   -- `overhype_audit_owner`'s privileges are INHERITED, not whether this role can `SET ROLE`
   -- to it — and `ALTER TABLE ... OWNER TO` requires the latter. A grant shaped INHERIT
@@ -883,15 +923,21 @@ BEGIN
     -- needs membership of the target role, and that membership is precisely what would let
     -- the application role SET ROLE back and disable the trigger. Someone with higher
     -- privilege has to do it and then step away.
-    -- GRANT CREATE ON SCHEMA public is not optional either, and is easy to miss: verified
-    -- directly against this repository's PostgreSQL 16 target that `ALTER TABLE ... OWNER TO`
-    -- fails with "permission denied for schema public" without it, because Postgres requires
-    -- the NEW owner (not the executing role) to hold CREATE on the object's schema — and
-    -- PostgreSQL 15+ no longer grants that to every role by default the way pre-15 did.
-    -- Discovered by direct experiment while adding test coverage for this block, not by
-    -- reading the manual: the block's own transfer attempt below raised exactly this error
-    -- against a freshly `CREATE ROLE`'d owner with no other grants.
-    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; GRANT CREATE ON SCHEMA public TO overhype_audit_owner; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', app_role, app_role, app_role, app_role;
+    -- GRANT CREATE ON SCHEMA is not optional either, and is easy to miss: verified directly
+    -- against this repository's PostgreSQL 16 target that `ALTER TABLE ... OWNER TO` fails
+    -- with "permission denied for schema ..." without it, because Postgres requires the NEW
+    -- owner (not the executing role) to hold CREATE on the object's schema — and PostgreSQL
+    -- 15+ no longer grants that to every role by default the way pre-15 did. Discovered by
+    -- direct experiment while adding test coverage for this block, not by reading the
+    -- manual: the block's own transfer attempt below raised exactly this error against a
+    -- freshly `CREATE ROLE`'d owner with no other grants.
+    --
+    -- The schema named is `ledger_schema` (resolved above), never hardcoded "public": under
+    -- any search_path that doesn't put public first — including this repo's own
+    -- isolated-test-schema tooling, or a real deployment with a non-default search_path — a
+    -- DBA who followed a hardcoded "public" instruction to the letter would still hit
+    -- "permission denied for schema <real schema>" on the OWNER TO below.
+    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; GRANT CREATE ON SCHEMA % TO overhype_audit_owner; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', ledger_schema, app_role, app_role, app_role, app_role;
   END IF;
 END $$;
 -- <<< ncmec-0095 ownership hardening block (end)

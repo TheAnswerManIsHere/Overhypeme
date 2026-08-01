@@ -1298,6 +1298,55 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     });
   });
 
+  it("adds the content-origin CHECK to quarantined_memes even when a same-named constraint exists on an unrelated table", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // Constraint names are unique per TABLE in Postgres, not per schema — a same-named
+    // constraint sitting in another schema (this repo's own isolated-test-schema tooling,
+    // or a same-named object left in `public`) would satisfy a name-only existence check.
+    // A decoy table simulates the identical hazard within a single schema: same conname,
+    // different conrelid.
+    await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+      await client.query(`CREATE TABLE ncmec_check_reconcile_decoy (content_origin varchar(16))`);
+      await client.query(
+        `ALTER TABLE ncmec_check_reconcile_decoy ADD CONSTRAINT quarantined_memes_content_origin_check
+           CHECK (content_origin IS NULL OR content_origin IN ('generated','user_upload','stock','template','identity'))`,
+      );
+
+      await client.query(executableMigration());
+
+      const { rows } = await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_constraint
+          WHERE conname = 'quarantined_memes_content_origin_check'
+            AND conrelid = 'quarantined_memes'::regclass`,
+      );
+      assert.equal(rows[0]?.n, "1", "the real quarantined_memes table must get its own constraint despite the decoy");
+    });
+  });
+
+  it("recreates the content-origin CHECK when a same-named constraint on the correct table has drifted", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // A same-named constraint on the RIGHT table but with a drifted (narrower) expression —
+    // verifies the fix checks the definition, not just presence-by-name-and-table.
+    await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+      await client.query(executableMigration());
+      await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT ncmec_reports_content_origin_check`);
+      await client.query(
+        `ALTER TABLE ncmec_reports ADD CONSTRAINT ncmec_reports_content_origin_check
+           CHECK (content_origin IS NULL OR content_origin = 'generated')`,
+      );
+
+      await client.query(executableMigration());
+
+      // Would be rejected by the drifted (narrower) constraint, but is a legitimate value
+      // under the real one — proves the real constraint was recreated, not left alone.
+      await client.query(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, content_origin) VALUES ('arachnid', 'x', 'user_upload')`,
+      );
+    });
+  });
+
   it("links a report written by pre-0095 code during the rolling-deploy window", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
     // 0095 commits before the new code is serving everywhere, so an OLD instance keeps

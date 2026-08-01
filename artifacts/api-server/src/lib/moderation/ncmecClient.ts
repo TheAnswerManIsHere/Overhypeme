@@ -417,6 +417,15 @@ export class NcmecClient {
        * answer to this call, so it is rejected before any caller reads a field off it.
        */
       expectedRoot: ParsedEnvelope["root"];
+      /**
+       * Whether a wrong-root response is safe to retry. `/submit` is the one endpoint where
+       * it isn't: repeating it could open a SECOND report, the same reasoning that keeps its
+       * missing-`<reportId>` case terminal too. Every other endpoint already carries (or
+       * doesn't need) a `reportId`, so a wrong-root response there is exactly as unconfirmed
+       * as a dropped connection or a malformed body — retrying is a safe no-op, resolved
+       * through `5102 Report already finished` if it turns out the first attempt landed.
+       */
+      retryableIfWrongRoot: boolean;
     },
   ): Promise<ParsedEnvelope | NcmecCallErr> {
     if (!this.credentials) {
@@ -515,7 +524,7 @@ export class NcmecClient {
         status: "err",
         responseCode: envelope.responseCode,
         message: `ISPWS answered ${path} with <${envelope.root}>, not the documented <${init.expectedRoot}> — refusing to trust fields read off the wrong envelope`,
-        retryable: false,
+        retryable: init.retryableIfWrongRoot,
         kind: "malformed",
         credentialFailure: false,
       };
@@ -529,7 +538,12 @@ export class NcmecClient {
 
   /** Connectivity and credential check. Reports nothing about any individual report. */
   async checkStatus(): Promise<NcmecCall<NcmecStatusResult>> {
-    const result = await this.call("/status", { method: "GET", expectedRoot: "reportResponse" });
+    const result = await this.call("/status", {
+      method: "GET",
+      expectedRoot: "reportResponse",
+      // No report is tied to a connectivity check, so retrying is always safe.
+      retryableIfWrongRoot: true,
+    });
     if ("status" in result) return result;
     return { status: "ok", data: { responseCode: result.responseCode, description: result.description } };
   }
@@ -543,6 +557,10 @@ export class NcmecClient {
       // non-ASCII characters can be mistransmitted.
       contentType: "text/xml; charset=utf-8",
       expectedRoot: "reportResponse",
+      // /submit is the one endpoint with no reportId yet to reconcile a retry against — a
+      // wrong-root response here is exactly as unconfirmed as a dropped connection, so it
+      // must stay non-retryable for the same reason the ambiguity downgrade below exists.
+      retryableIfWrongRoot: false,
     });
     if ("status" in result) {
       // `call()`'s generic classification (retryable when nothing is known to be wrong) is
@@ -596,7 +614,13 @@ export class NcmecClient {
     // duplicating the whole evidence buffer to satisfy a variance rule.
     form.append("file", new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mimeType }), fileName);
     // No explicit content-type: FormData must set its own multipart boundary.
-    const result = await this.call("/upload", { method: "POST", body: form, expectedRoot: "reportResponse" });
+    const result = await this.call("/upload", {
+      method: "POST",
+      body: form,
+      expectedRoot: "reportResponse",
+      // Already carries this method's own reportId — a safe no-op to retry.
+      retryableIfWrongRoot: true,
+    });
     if ("status" in result) return result;
     const fileId = textOf(result.values["fileId"]);
     const hash = textOf(result.values["hash"]);
@@ -616,11 +640,21 @@ export class NcmecClient {
 
   /** Attach details and annotations to an already-uploaded file. */
   async submitFileInfo(reportId: string, fileDetailsXml: string): Promise<NcmecCall<NcmecSubmitResult>> {
+    // Caught before sending, not just on the way back: `reportId` and `fileDetailsXml` are
+    // two independent arguments that can drift if a caller builds the XML for one report but
+    // passes another's id. `buildFileDetailsXml()` always embeds <reportId>, so this is our
+    // own trusted output, not a hostile response — a plain match is enough, no parser needed.
+    const outboundReportId = /<reportId>([^<]*)<\/reportId>/.exec(fileDetailsXml)?.[1] ?? null;
+    if (outboundReportId !== reportId) {
+      return outboundReportIdMismatch("/fileinfo", reportId, outboundReportId);
+    }
     const result = await this.call("/fileinfo", {
       method: "POST",
       body: fileDetailsXml,
       contentType: "text/xml; charset=utf-8",
       expectedRoot: "reportResponse",
+      // Already carries this method's own reportId — a safe no-op to retry.
+      retryableIfWrongRoot: true,
     });
     if ("status" in result) return result;
     const returnedId = textOf(result.values["reportId"]);
@@ -643,7 +677,13 @@ export class NcmecClient {
   async finishReport(reportId: string): Promise<NcmecCall<NcmecFinishResult>> {
     const form = new FormData();
     form.append("id", reportId);
-    const result = await this.call("/finish", { method: "POST", body: form, expectedRoot: "reportDoneResponse" });
+    const result = await this.call("/finish", {
+      method: "POST",
+      body: form,
+      expectedRoot: "reportDoneResponse",
+      // Already carries this method's own reportId — a safe no-op to retry.
+      retryableIfWrongRoot: true,
+    });
     if ("status" in result) return result;
     const returnedId = textOf(result.values["reportId"]);
     if (!returnedId) {
@@ -670,7 +710,13 @@ export class NcmecClient {
   async retractReport(reportId: string): Promise<NcmecCall<NcmecStatusResult>> {
     const form = new FormData();
     form.append("id", reportId);
-    const result = await this.call("/retract", { method: "POST", body: form, expectedRoot: "reportResponse" });
+    const result = await this.call("/retract", {
+      method: "POST",
+      body: form,
+      expectedRoot: "reportResponse",
+      // Already carries this method's own reportId — a safe no-op to retry.
+      retryableIfWrongRoot: true,
+    });
     if ("status" in result) return result;
     // Verified when present, same as /upload: a well-formed success response for a
     // different report would otherwise report the retract-first guard's cancellation as
@@ -711,15 +757,37 @@ function missingElement(path: string, element: string, retryable = false): Ncmec
  * proxy-corrupted response for a DIFFERENT report, still well-formed and still responseCode
  * 0, would otherwise be read as confirmation for THIS report: `/finish` marking report A
  * complete off report B's acknowledgement, or `/retract` reporting success for the wrong
- * report while the intended one stays open. Not retryable — repeating the request cannot fix
- * a response that was never about this report to begin with, and this is exactly the state
- * the retract-first / duplicate-filing guards must not be lied to about.
+ * report while the intended one stays open.
+ *
+ * Retryable: every caller of this helper is a report-keyed endpoint that already carries this
+ * method's own `reportId`, so a retry is the same safe no-op the malformed-response fixes
+ * already rely on — completion of the report THIS call was for remains genuinely unconfirmed,
+ * and repeating it either succeeds cleanly or resolves through `5102 Report already finished`.
  */
 function mismatchedReportId(path: string, expected: string, actual: string): NcmecCallErr {
   return {
     status: "err",
     responseCode: NCMEC_RESPONSE_CODES.SUCCESS,
     message: `ISPWS ${path} echoed <reportId>${actual}</reportId>, not the ${expected} this call was for`,
+    retryable: true,
+    kind: "malformed",
+    credentialFailure: false,
+  };
+}
+
+/**
+ * The `reportId` embedded in an outbound document does not match the `reportId` this method
+ * was called with. Unlike `mismatchedReportId` (a remote response we don't control), this is
+ * a caller bug in a document THIS process built — retrying with the same mismatched arguments
+ * would fail identically every time, so it is never retryable. Caught before the document is
+ * sent: without this, ISPWS would attach the file metadata to whichever report the XML itself
+ * names, and the (retryable) response-side check would only notice after the fact.
+ */
+function outboundReportIdMismatch(path: string, expected: string, actual: string | null): NcmecCallErr {
+  return {
+    status: "err",
+    responseCode: null,
+    message: `the document passed to ${path} carries <reportId>${actual ?? ""}</reportId>, not the ${expected} this call was for — refusing to send it`,
     retryable: false,
     kind: "malformed",
     credentialFailure: false,

@@ -81,6 +81,31 @@ describe("canEffectivelyAssumeRole — from a genuinely restricted connection", 
       await sharedPool.query(`REVOKE "${targetRole}" FROM "${loginRole}"`);
     }
   });
+
+  it("reports true for INHERITED ADMIN OPTION — a helper role's admin option propagates through ordinary membership", async () => {
+    // Verified directly against this repository's PostgreSQL 16 target: loginRole here holds
+    // no direct relationship to targetRole at all — only an ordinary INHERIT TRUE membership
+    // in helperRole, which itself holds ADMIN TRUE, INHERIT FALSE, SET FALSE on targetRole.
+    // loginRole can still run `GRANT targetRole TO loginRole WITH SET TRUE` (self-granting,
+    // which admin option always permits) and then SET ROLE succeeds — the admin option
+    // propagates through the same inheritance chain as any other privilege. A direct
+    // `m.member = current_user` lookup on pg_auth_members would miss this: no row ever names
+    // loginRole as the member on targetRole's own admin grant.
+    const helperRole = `nab_helper_${runId}`;
+    await sharedPool.query(`CREATE ROLE "${helperRole}" NOLOGIN`);
+    await sharedPool.query(
+      `GRANT "${targetRole}" TO "${helperRole}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+    );
+    await sharedPool.query(`GRANT "${helperRole}" TO "${loginRole}" WITH INHERIT TRUE, SET FALSE`);
+    try {
+      assert.equal(await canEffectivelyAssumeRole(targetRole, loginPool), true);
+    } finally {
+      await sharedPool.query(`REVOKE "${helperRole}" FROM "${loginRole}"`);
+      await sharedPool.query(`REVOKE "${targetRole}" FROM "${helperRole}"`);
+      await sharedPool.query(`DROP OWNED BY "${helperRole}"`).catch(() => {});
+      await sharedPool.query(`DROP ROLE IF EXISTS "${helperRole}"`);
+    }
+  });
 });
 
 /**

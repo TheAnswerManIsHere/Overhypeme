@@ -119,7 +119,7 @@ describe("NcmecClient — successful calls", () => {
 
   it("parses a /fileinfo response", async () => {
     const { instance } = client(fixture("fileinfo-ok"));
-    const result = await instance.submitFileInfo("4564654", "<fileDetails/>");
+    const result = await instance.submitFileInfo("4564654", "<fileDetails><reportId>4564654</reportId></fileDetails>");
     assert.equal(result.status === "ok" && result.data.reportId, "4564654");
   });
 
@@ -462,27 +462,33 @@ describe("NcmecClient — parser hardening", () => {
     assert.match(result.status === "err" ? result.message : "", /well-formed/);
   });
 
-  it("rejects a /finish response carrying the wrong root instead of reading it as success", async () => {
+  it("rejects a /finish response carrying the wrong root, but treats it as retryable", async () => {
     // /finish is documented to answer with <reportDoneResponse> alone. A well-formed
     // <reportResponse> with responseCode 0 and a reportId would otherwise look exactly like
     // a successful completion — parseEnvelope() accepts either root, so the endpoint-specific
-    // contract has to be enforced by the caller that knows which one it asked for.
+    // contract has to be enforced by the caller that knows which one it asked for. Retryable:
+    // /finish already carries this call's own reportId, so completion of THIS report is
+    // unconfirmed but a retry is a safe no-op — the same reasoning as the malformed-body fix.
     const { instance } = client(
       "<reportResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportResponse>",
     );
     const result = await instance.finishReport("4564654");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
     assert.match(result.status === "err" ? result.message : "", /reportDoneResponse/);
   });
 
-  it("rejects a /submit response carrying <reportDoneResponse> instead of the documented root", async () => {
+  it("rejects a /submit response carrying <reportDoneResponse> instead of the documented root, and it stays terminal", async () => {
+    // /submit is the one endpoint with no reportId yet to reconcile a retry against — a
+    // wrong-root response here must stay non-retryable, unlike every other endpoint above.
     const { instance } = client(
       "<reportDoneResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportDoneResponse>",
     );
     const result = await instance.submitReport("<report/>");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, false);
     assert.match(result.status === "err" ? result.message : "", /reportResponse/);
   });
 });
@@ -490,28 +496,32 @@ describe("NcmecClient — parser hardening", () => {
 // ─── Report id correlation ──────────────────────────────────────────────────
 
 describe("NcmecClient — response reportId correlation", () => {
-  it("rejects /finish confirming a different report than the one asked for", async () => {
+  it("rejects /finish confirming a different report than the one asked for, but treats it as retryable", async () => {
     // The sharpest version of this bug: reading this uncritically would mark the WRONG
-    // report finished off another report's acknowledgement.
+    // report finished off another report's acknowledgement. Retryable: completion of THIS
+    // report remains genuinely unconfirmed, and a retry is a safe no-op — resolved through
+    // 5102 if it turns out the first attempt actually landed.
     const { instance } = client(
       '<?xml version="1.0"?><reportDoneResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportDoneResponse>',
     );
     const result = await instance.finishReport("4564654");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
     assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
   });
 
-  it("rejects /retract confirming a different report than the one asked for", async () => {
+  it("rejects /retract confirming a different report than the one asked for, but treats it as retryable", async () => {
     const { instance } = client(
       '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportResponse>',
     );
     const result = await instance.retractReport("4564654");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
   });
 
-  it("rejects /upload confirming a different report than the one asked for", async () => {
+  it("rejects /upload confirming a different report than the one asked for, but treats it as retryable", async () => {
     const { instance } = client(
       '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId>' +
         "<fileId>b0754af766b426f2928a02c651ed4b99</fileId><hash>fafa5efeaf3cbe3b23b2748d13e629a1</hash></reportResponse>",
@@ -519,6 +529,7 @@ describe("NcmecClient — response reportId correlation", () => {
     const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
   });
 
   it("accepts /retract with no echoed reportId at all — correlation is verified, not required", async () => {
@@ -527,16 +538,41 @@ describe("NcmecClient — response reportId correlation", () => {
     assert.equal(result.status, "ok");
   });
 
-  it("rejects /fileinfo confirming a different report than the one asked for", async () => {
+  it("rejects /fileinfo confirming a different report than the one asked for, but treats it as retryable", async () => {
     // /fileinfo has no fileId/hash of its own to sanity-check against, unlike /upload — the
     // echoed reportId is the only signal this response actually answers the right request.
     const { instance } = client(
       '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportResponse>',
     );
+    const result = await instance.submitFileInfo("4564654", "<fileDetails><reportId>4564654</reportId></fileDetails>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
+    assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
+  });
+
+  it("refuses to send /fileinfo when the outbound document's reportId doesn't match the call's own", async () => {
+    // Caught before the request goes out, unlike the response-side check above: without
+    // this, ISPWS would attach the file metadata to whichever report the XML itself names,
+    // and the response-side check would only notice after the fact.
+    const { instance, calls } = client(fixture("fileinfo-ok"));
+    const result = await instance.submitFileInfo(
+      "4564654",
+      "<fileDetails><reportId>9999999</reportId></fileDetails>",
+    );
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
+    assert.equal(calls.length, 0, "must never reach the network with mismatched arguments");
+  });
+
+  it("refuses to send /fileinfo when the outbound document carries no reportId at all", async () => {
+    const { instance, calls } = client(fixture("fileinfo-ok"));
     const result = await instance.submitFileInfo("4564654", "<fileDetails/>");
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
-    assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
+    assert.equal(calls.length, 0);
   });
 });
 
