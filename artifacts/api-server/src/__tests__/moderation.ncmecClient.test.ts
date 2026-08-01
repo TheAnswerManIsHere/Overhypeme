@@ -119,7 +119,7 @@ describe("NcmecClient — successful calls", () => {
 
   it("parses a /fileinfo response", async () => {
     const { instance } = client(fixture("fileinfo-ok"));
-    const result = await instance.submitFileInfo("<fileDetails/>");
+    const result = await instance.submitFileInfo("4564654", "<fileDetails/>");
     assert.equal(result.status === "ok" && result.data.reportId, "4564654");
   });
 
@@ -525,6 +525,34 @@ describe("NcmecClient — response reportId correlation", () => {
     const { instance } = client('<?xml version="1.0"?><reportResponse><responseCode>0</responseCode></reportResponse>');
     const result = await instance.retractReport("4564654");
     assert.equal(result.status, "ok");
+  });
+
+  it("rejects /fileinfo confirming a different report than the one asked for", async () => {
+    // /fileinfo has no fileId/hash of its own to sanity-check against, unlike /upload — the
+    // echoed reportId is the only signal this response actually answers the right request.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportResponse>',
+    );
+    const result = await instance.submitFileInfo("4564654", "<fileDetails/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
+  });
+});
+
+// ─── /finish: missing reportId is retryable ─────────────────────────────────
+
+describe("NcmecClient — /finish omitting reportId", () => {
+  it("treats a /finish success with no <reportId> as retryable, not a dead end", async () => {
+    // Unlike /submit (where a missing reportId means a possible SECOND report on retry),
+    // /finish already carries the caller's own reportId — retrying is the same safe no-op
+    // the malformed-2xx-body fix already relies on for this endpoint.
+    const { instance } = client('<?xml version="1.0"?><reportDoneResponse><responseCode>0</responseCode></reportDoneResponse>');
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, true);
+    assert.match(result.status === "err" ? result.message : "", /omitted <reportId>/);
   });
 });
 

@@ -813,6 +813,50 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
+    it("fails a hardened rerun when the application was never granted its table/sequence privileges", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The sharpest of the three end states this block can leave a database in: ownership
+      // of both objects has already moved to overhype_audit_owner AND the application's
+      // membership in it has already been revoked (hardening looks complete, and the
+      // security boundary genuinely is) — but the SELECT/INSERT/USAGE grants were never
+      // issued, so every audit-log write fails. Nothing else in this system detects a
+      // missing grant (ncmecAuditBoundaryStatus() doesn't check grants either), so this
+      // migration must refuse to be recorded as successful rather than let the deploy
+      // proceed silently broken.
+      const app = `ncmec_dba_app3_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) {
+        await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+      }
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`GRANT overhype_audit_owner TO ${app} WITH INHERIT FALSE, SET TRUE`);
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner`);
+        // Hardening complete, but no grants were ever issued — then membership is revoked,
+        // matching the real DBA sequence's final (non-optional) step.
+        await pool.query(`REVOKE overhype_audit_owner FROM ${app}`);
+
+        const result = execSqlAsLoginRole(app, appPassword, ownershipHardeningBlock());
+        assert.equal(result.ok, false, "expected the block to refuse a hardened-but-ungranted database");
+        assert.match(result.output, /was never granted SELECT\/INSERT/);
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
+    });
+
     it("does not count a replica-only trigger as an enforced boundary", async (t) => {
       if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
       // tgenabled 'R' means the trigger fires only under logical replication, so ordinary
@@ -825,18 +869,78 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
                      FROM pg_trigger t
                     WHERE t.tgrelid = 'ncmec_safety_audit_log'::regclass
                       AND t.tgname IN ('ncmec_safety_audit_log_no_mutate','ncmec_safety_audit_log_no_truncate')
-                      AND t.tgenabled IN ('O','A')) AS enforced`,
+                      AND t.tgenabled = 'A') AS enforced`,
         );
         assert.equal(rows[0]!.enforced, false, "a replica-only trigger must not read as enabled");
 
-        // And it really is bypassed: the same UPDATE that raises with the trigger in origin
-        // mode now goes through.
+        // And it really is bypassed: the same UPDATE that raises with the trigger in its
+        // normal ENABLE ALWAYS state now goes through.
         await client.query(
           `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','config_write')`,
         );
         const upd = await client.query(`UPDATE ncmec_safety_audit_log SET reason = 'silently rewritten'`);
         assert.ok(upd.rowCount && upd.rowCount > 0, "expected the replica-only trigger to be skipped");
       });
+    });
+
+    it("closes the session_replication_role bypass — ENABLE ALWAYS triggers fire in replica mode", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // GRANT SET ON PARAMETER session_replication_role is a real, grantable PostgreSQL 15+
+      // privilege, independent of table/function ownership — a role holding it can run
+      // SET session_replication_role = replica in its own session, under which an
+      // origin-only ('O') trigger simply does not fire. Verified directly against this
+      // repository's PostgreSQL 16 target before this fix: the UPDATE below went through
+      // uncaught with the default (pre-fix) trigger mode.
+      //
+      // Must run as a genuinely restricted role via SET ROLE, not this suite's own superuser
+      // connection directly — caught the hard way while writing this test: on the superuser
+      // connection the trigger DOES fire (tgenabled = 'A' either way), but the guard
+      // function's OWN body then passes it through anyway, because
+      // pg_has_role(<superuser>, 'overhype_audit_maintenance', 'usage') is unconditionally
+      // true regardless of any actual grant — the exact superuser-pool blind spot this whole
+      // file's makeAppRole() helper exists to avoid. SET ROLE here isolates what is actually
+      // under test: whether the TRIGGER fires under session_replication_role = replica, not
+      // whether the function's privilege check also happens to pass.
+      await inRolledBackTx(async (client) => {
+        const role = await makeAppRole(client);
+        await client.query(`GRANT SET ON PARAMETER session_replication_role TO ${role}`);
+        await client.query(
+          `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','config_write')`,
+        );
+        await expectRaises(
+          client,
+          `SET ROLE ${role}; SET session_replication_role = replica; UPDATE ncmec_safety_audit_log SET reason = 'bypass attempt'`,
+          /append-only/,
+        );
+      });
+    });
+
+    it("does not count an origin-only trigger as an enforced boundary", async (t) => {
+      if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
+      // Plain CREATE TRIGGER defaults to origin-only ('O'), not ALWAYS — the state a database
+      // hardened by a pre-fix version of this migration would still be in. Committed, not
+      // rolled back, for the same reason as the guard-function-tampering test:
+      // ncmecAuditBoundaryStatus() queries through the shared pool, which an uncommitted
+      // change on a dedicated client is invisible to.
+      await pool.query(`DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
+      await pool.query(`
+        CREATE TRIGGER ncmec_safety_audit_log_no_mutate
+          BEFORE UPDATE OR DELETE ON ncmec_safety_audit_log
+          FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only()
+      `);
+      try {
+        const status = await ncmecAuditBoundaryStatus!();
+        assert.equal(
+          status.triggersEnabled,
+          false,
+          "an origin-only trigger must not read as sufficient — session_replication_role=replica can skip it",
+        );
+        assert.equal(status.boundaryEnforced, false);
+      } finally {
+        // Restore the exact expected (ENABLE ALWAYS) trigger so every test that runs after
+        // this one still has a working append-only gate.
+        await pool.query(auditGuardBlock());
+      }
     });
 
     it("does not count a trigger recreated with an extra event as an enforced boundary", async (t) => {
@@ -1155,6 +1259,42 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         executableMigration(),
         /already exists but is not the exact unique constraint/,
       );
+    });
+  });
+
+  it("reconciles a quarantine_id FK left pointing at the wrong table by a pre-fix rerun", async (t) => {
+    if (!pool) return t.skip("DATABASE_URL not set");
+    // Simulates a database where an earlier, schema-hardcoded version of this migration
+    // already created "ncmec_reports_quarantine_id_fk" — a name-only existence check would
+    // see the constraint present and leave it alone, even though it points at the wrong
+    // (search-path-resolved) table under an isolated schema. A decoy table stands in for
+    // "the wrong table" here, since this environment has only one quarantined_memes to
+    // resolve to; NOT VALID skips the referential-integrity scan, which is irrelevant to
+    // what this test verifies (confrelid, not data).
+    await inRolledBackTx(async (client) => {
+      await rewindTo0094(client);
+      await client.query(executableMigration());
+
+      await client.query(`CREATE TABLE ncmec_fk_reconcile_decoy (id bigint PRIMARY KEY)`);
+      await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT ncmec_reports_quarantine_id_fk`);
+      await client.query(
+        `ALTER TABLE ncmec_reports ADD CONSTRAINT ncmec_reports_quarantine_id_fk
+           FOREIGN KEY (quarantine_id) REFERENCES ncmec_fk_reconcile_decoy(id)
+           ON DELETE SET NULL NOT VALID`,
+      );
+      const { rows: before } = await client.query<{ confrelid: string }>(
+        `SELECT confrelid::regclass::text AS confrelid FROM pg_constraint
+          WHERE conname = 'ncmec_reports_quarantine_id_fk'`,
+      );
+      assert.equal(before[0]?.confrelid, "ncmec_fk_reconcile_decoy", "test setup sanity check");
+
+      await client.query(executableMigration());
+
+      const { rows: after } = await client.query<{ confrelid: string }>(
+        `SELECT confrelid::regclass::text AS confrelid FROM pg_constraint
+          WHERE conname = 'ncmec_reports_quarantine_id_fk'`,
+      );
+      assert.equal(after[0]?.confrelid, "quarantined_memes", "the FK must be recreated against the correct table, not left alone");
     });
   });
 

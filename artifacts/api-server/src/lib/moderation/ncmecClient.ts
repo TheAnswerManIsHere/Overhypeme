@@ -615,7 +615,7 @@ export class NcmecClient {
   }
 
   /** Attach details and annotations to an already-uploaded file. */
-  async submitFileInfo(fileDetailsXml: string): Promise<NcmecCall<NcmecSubmitResult>> {
+  async submitFileInfo(reportId: string, fileDetailsXml: string): Promise<NcmecCall<NcmecSubmitResult>> {
     const result = await this.call("/fileinfo", {
       method: "POST",
       body: fileDetailsXml,
@@ -623,11 +623,17 @@ export class NcmecClient {
       expectedRoot: "reportResponse",
     });
     if ("status" in result) return result;
-    const reportId = textOf(result.values["reportId"]);
-    if (!reportId) {
+    const returnedId = textOf(result.values["reportId"]);
+    if (!returnedId) {
       return missingElement("/fileinfo", "reportId");
     }
-    return { status: "ok", data: { reportId } };
+    // Same correlation as /upload, /finish and /retract: a well-formed success response for
+    // a DIFFERENT report would otherwise attach file metadata as though it belonged to this
+    // one, with nothing else in the response to catch it.
+    if (returnedId !== reportId) {
+      return mismatchedReportId("/fileinfo", reportId, returnedId);
+    }
+    return { status: "ok", data: { reportId: returnedId } };
   }
 
   /**
@@ -641,7 +647,11 @@ export class NcmecClient {
     if ("status" in result) return result;
     const returnedId = textOf(result.values["reportId"]);
     if (!returnedId) {
-      return missingElement("/finish", "reportId");
+      // Retryable, unlike every other missingElement() call site: /finish already carries
+      // this method's own reportId, so repeating it is the same safe no-op the malformed-2xx-
+      // body fix already relies on for this endpoint — not a blind retry that could open a
+      // second report.
+      return missingElement("/finish", "reportId", true);
     }
     // This is the call that marks a filing complete — a response confirming the WRONG
     // report here is the sharpest version of this class of bug: it would mark report A
@@ -674,16 +684,21 @@ export class NcmecClient {
 }
 
 /**
- * A `responseCode` of 0 with the element we needed absent. Not retryable: NCMEC said the
- * call succeeded, so repeating it would open a second report rather than recover the id of
- * the first — which is precisely the duplicate this design exists to prevent.
+ * A `responseCode` of 0 with the element we needed absent. Not retryable BY DEFAULT: for
+ * `/submit`, `/upload`, and `/fileinfo`, NCMEC said the call succeeded, so repeating it would
+ * open a second report (or a second upload of unknown relationship to the first) rather than
+ * recover the field the response omitted. `/finish` is the one exception (`retryable: true`
+ * passed explicitly at its call site) — it already carries the caller's own `reportId`, so a
+ * retry is the same safe no-op every other malformed-response case on report-keyed endpoints
+ * already is: either it succeeds again, or NCMEC answers `5102 Report already finished`, which
+ * the duplicate-filing guard already knows how to read as "done".
  */
-function missingElement(path: string, element: string): NcmecCallErr {
+function missingElement(path: string, element: string, retryable = false): NcmecCallErr {
   return {
     status: "err",
     responseCode: NCMEC_RESPONSE_CODES.SUCCESS,
     message: `ISPWS ${path} reported success but omitted <${element}>`,
-    retryable: false,
+    retryable,
     kind: "malformed",
     credentialFailure: false,
   };

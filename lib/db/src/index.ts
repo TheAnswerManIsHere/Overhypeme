@@ -343,24 +343,27 @@ export async function ncmecAuditBoundaryStatus(
              WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
              AS maintenance_role_exists,
-           -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only.
-           -- A replica-only trigger does not fire for ordinary application
-           -- statements, so counting it as enabled would report an enforced
-           -- boundary over a ledger anyone with UPDATE could still rewrite.
-           -- The function and event bits are checked too, so a same-named trigger
-           -- wired to something else cannot stand in for the real one. tgtype is
-           -- an EXACT match, not "these bits are set": an extra event (e.g. an
-           -- INSERT added to no_mutate) would satisfy a subset check while
-           -- gating every ordinary audit-log append behind the maintenance
-           -- role too. 27 = ROW(1)+BEFORE(2)+DELETE(8)+UPDATE(16);
-           -- 34 = BEFORE(2)+TRUNCATE(32) — verified against this repository's
-           -- PostgreSQL 16 target.
+           -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only. Only 'A' is
+           -- accepted: a role holding GRANT SET ON PARAMETER session_replication_role (a
+           -- real, grantable PostgreSQL 15+ privilege, independent of table/function
+           -- ownership) can run SET session_replication_role = replica in its own session
+           -- and have an origin-only ('O') trigger simply not fire — verified directly
+           -- against this repository's PostgreSQL 16 target: an UPDATE went through uncaught.
+           -- ALWAYS-enabled triggers fire regardless of session_replication_role, so counting
+           -- an origin-only trigger as sufficient would report an enforced boundary over a
+           -- ledger that role could still rewrite. The function and event bits are checked
+           -- too, so a same-named trigger wired to something else cannot stand in for the
+           -- real one. tgtype is an EXACT match, not "these bits are set": an extra event
+           -- (e.g. an INSERT added to no_mutate) would satisfy a subset check while gating
+           -- every ordinary audit-log append behind the maintenance role too. 27 =
+           -- ROW(1)+BEFORE(2)+DELETE(8)+UPDATE(16); 34 = BEFORE(2)+TRUNCATE(32) — verified
+           -- against this repository's PostgreSQL 16 target.
            (SELECT count(*) = 2
               FROM pg_trigger t
              WHERE t.tgrelid = c.oid
                AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
                                 'ncmec_safety_audit_log_no_truncate')
-               AND t.tgenabled IN ('O', 'A')
+               AND t.tgenabled = 'A'
                AND t.tgfoid = to_regprocedure('ncmec_safety_audit_log_append_only()')
                AND t.tgtype = CASE t.tgname
                      WHEN 'ncmec_safety_audit_log_no_mutate' THEN 27

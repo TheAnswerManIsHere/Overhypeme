@@ -60,13 +60,28 @@ COMMENT ON COLUMN "ncmec_reports"."manual_report_id" IS
   'CyberTipline id an operator TYPED for a hand-filed report. Never read by the duplicate-filing guard — that reads report_id only.';
 --> statement-breakpoint
 
+-- Verified, not merely named: a rerun on a database where this constraint was already
+-- created by the pre-fix version of this migration (targeting "public".quarantined_memes
+-- explicitly) would otherwise find a same-named constraint on conrelid alone and leave it
+-- pointing at the wrong (schema-hardcoded) table under any search_path that doesn't put
+-- public first — exactly the drift the unqualified REFERENCES above exists to prevent.
 DO $$
+DECLARE
+  con_oid oid;
+  correct_relid boolean;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'ncmec_reports_quarantine_id_fk'
-       AND conrelid = '"ncmec_reports"'::regclass
-  ) THEN
+  SELECT c.oid, c.confrelid = to_regclass('quarantined_memes')
+    INTO con_oid, correct_relid
+    FROM pg_constraint c
+   WHERE c.conname = 'ncmec_reports_quarantine_id_fk'
+     AND c.conrelid = to_regclass('ncmec_reports');
+
+  IF con_oid IS NOT NULL AND NOT COALESCE(correct_relid, false) THEN
+    ALTER TABLE "ncmec_reports" DROP CONSTRAINT "ncmec_reports_quarantine_id_fk";
+    con_oid := NULL;
+  END IF;
+
+  IF con_oid IS NULL THEN
     ALTER TABLE "ncmec_reports"
       ADD CONSTRAINT "ncmec_reports_quarantine_id_fk"
       FOREIGN KEY ("quarantine_id") REFERENCES "quarantined_memes"("id")
@@ -432,13 +447,26 @@ CREATE TABLE IF NOT EXISTS "ncmec_safety_audit_log" (
 -- the account cannot touch the ledger at all. `report_id` does carry one,
 -- because a report row is the thing an entry is ABOUT and its absence is
 -- meaningful rather than lossy.
+-- Same reconciliation as the quarantine_id FK above: a rerun on a database where this
+-- constraint was already created by the pre-fix, schema-hardcoded version must not leave it
+-- pointing at the wrong table.
 DO $$
+DECLARE
+  con_oid oid;
+  correct_relid boolean;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'ncmec_safety_audit_log_report_id_fk'
-       AND conrelid = '"ncmec_safety_audit_log"'::regclass
-  ) THEN
+  SELECT c.oid, c.confrelid = to_regclass('ncmec_reports')
+    INTO con_oid, correct_relid
+    FROM pg_constraint c
+   WHERE c.conname = 'ncmec_safety_audit_log_report_id_fk'
+     AND c.conrelid = to_regclass('ncmec_safety_audit_log');
+
+  IF con_oid IS NOT NULL AND NOT COALESCE(correct_relid, false) THEN
+    ALTER TABLE "ncmec_safety_audit_log" DROP CONSTRAINT "ncmec_safety_audit_log_report_id_fk";
+    con_oid := NULL;
+  END IF;
+
+  IF con_oid IS NULL THEN
     ALTER TABLE "ncmec_safety_audit_log"
       ADD CONSTRAINT "ncmec_safety_audit_log_report_id_fk"
       FOREIGN KEY ("report_id") REFERENCES "ncmec_reports"("id")
@@ -637,6 +665,16 @@ BEGIN
     EXECUTE 'CREATE TRIGGER ncmec_safety_audit_log_no_mutate
                BEFORE UPDATE OR DELETE ON "ncmec_safety_audit_log"
                FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
+    -- ENABLE ALWAYS, not the default origin-only firing: verified directly against this
+    -- repository's PostgreSQL 16 target that a role holding `GRANT SET ON PARAMETER
+    -- session_replication_role` (a real, grantable PostgreSQL 15+ privilege, independent of
+    -- table/function ownership) can run `SET session_replication_role = replica` in its own
+    -- session and have an origin-enabled ('O') trigger simply not fire — UPDATE/DELETE/
+    -- TRUNCATE went through uncaught in that reproduction. ALWAYS-enabled triggers fire
+    -- regardless of session_replication_role, closing that path entirely. The one trade-off:
+    -- an ALWAYS trigger also fires during logical replication apply, which is not a concern
+    -- this database's setup exercises today, but is worth knowing if that ever changes.
+    EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" ENABLE ALWAYS TRIGGER ncmec_safety_audit_log_no_mutate';
     -- TRUNCATE is covered too, by a STATEMENT-level trigger sharing the same gate. A row
     -- trigger does not fire on TRUNCATE, so leaving it out would let the application role
     -- erase the entire ledger with one statement — on the table that is the sole control
@@ -645,6 +683,7 @@ BEGIN
     EXECUTE 'CREATE TRIGGER ncmec_safety_audit_log_no_truncate
                BEFORE TRUNCATE ON "ncmec_safety_audit_log"
                FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
+    EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" ENABLE ALWAYS TRIGGER ncmec_safety_audit_log_no_truncate';
     RESET ROLE;
   ELSE
     -- Verified with the SAME rigor as ncmecAuditBoundaryStatus() (lib/db/src/index.ts) —
@@ -656,7 +695,12 @@ BEGIN
       FROM pg_trigger t
      WHERE t.tgrelid = 'ncmec_safety_audit_log'::regclass
        AND t.tgname IN ('ncmec_safety_audit_log_no_mutate', 'ncmec_safety_audit_log_no_truncate')
-       AND t.tgenabled IN ('O', 'A')
+       -- 'A' (ALWAYS) only, not 'O' (origin) — a role holding GRANT SET ON PARAMETER
+       -- session_replication_role can disable an origin-only trigger for its own session by
+       -- SET session_replication_role = replica; ALWAYS is immune to that. A same-named
+       -- trigger left origin-only by an older hardened database (or a drifted recovery) is
+       -- exactly the state this branch must refuse to accept as sufficient.
+       AND t.tgenabled = 'A'
        AND t.tgfoid = to_regprocedure('ncmec_safety_audit_log_append_only()')
        -- tgtype bits: 1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
        -- EXACT equality, not "these bits are set": a recovered trigger recreated with an
@@ -818,6 +862,21 @@ BEGIN
     RESET ROLE;
     RAISE NOTICE '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %) — now complete.',
       tbl_done, fn_done, grants_done;
+  ELSIF tbl_done AND fn_done AND NOT grants_done THEN
+    -- Hardened but incomplete, and the sharpest of the three end states this block can leave
+    -- a database in: ownership of both objects has already moved to overhype_audit_owner AND
+    -- the application's membership in it has already been revoked (can_own is false) — so the
+    -- security boundary is genuinely complete, ncmecAuditBoundaryStatus().boundaryEnforced
+    -- would read true, and the activation gate would let production traffic through — but the
+    -- application was never granted SELECT/INSERT on the table or USAGE/SELECT on the
+    -- sequence, so every single audit-log write fails. Unlike the ownership-incomplete case
+    -- below (which the runtime boundary status already surfaces and the activation gate
+    -- already blocks on), nothing else in this system detects a missing grant — it is a
+    -- functional break, not a security one, so it would only surface as a production failure
+    -- the first time anything tries to write to the ledger. This migration cannot fix it
+    -- itself (that is precisely the access it no longer has), so it refuses to be recorded as
+    -- successful rather than let the deploy proceed silently broken.
+    RAISE EXCEPTION '0095: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, and the application role cannot assume it — hardening looks complete, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %;', app_role, app_role;
   ELSE
     -- The last clause of the instruction is the one that actually matters, and it is why
     -- the transfer cannot be completed from inside this migration: transferring ownership
