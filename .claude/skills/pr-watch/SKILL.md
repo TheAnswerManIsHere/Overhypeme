@@ -10,56 +10,23 @@ The three standing rules that must fire without this skill loaded — always
 subscribe (tier gate), never arm background check-ins, never resolve review
 threads — stay resident in `CLAUDE.md`.
 
-### Watching the PRs I open (always — implementation-PR watching gated on Sonnet)
+### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
-**Standing rule (David, 2026-07-21): I always subscribe to a PR I create — no
-per-PR ask — but ONLY while running on Sonnet.** Watching (triaging comments,
-driving CI green, mechanical fixes) is ops-shaped work per the token-discipline
-table below, so it belongs on Sonnet, not whatever tier I built the PR on.
+The subscribe/tier gate lives in `CLAUDE.md`'s *Watching the PRs I open*
+stub, which fires at PR-open time before this skill is ever invoked:
+implementation PRs are watched on **Sonnet** (already there → subscribe
+immediately; on Opus → ask for the switch first), a `[PLAN REVIEW]` draft PR
+is planning and gets subscribed immediately on **Opus** with no switch ask,
+and background self-check-ins (`send_later`) are never armed — David
+(2026-07-07) checks PR status manually and pings me. One detail that lives
+only here: if a session gets switched to Sonnet later and there's an open,
+unwatched PR I created earlier, that's the moment to subscribe — I don't
+need David to re-ask.
 
-**Scope — this gate is for *implementation* PRs only (David, 2026-07-22).** A
-`[PLAN REVIEW]` draft PR (the *Automated plan review* loop above) is a
-**planning** artifact: I watch it and revise the plan on **Opus**, subscribing
-immediately with **no** tier-switch ask. Everything below — the Sonnet gate, the
-"ask to switch" step — applies only to the normal implementation/feature PRs I
-open *after* a plan is approved. I never bounce off Opus mid-plan just to watch
-the plan-review PR.
-
-Concretely, at the point I'd open/finish an **implementation** PR:
-
-- **Already on Sonnet** → call `subscribe_pr_activity` immediately, no asking.
-- **On Opus (or anything else)** → do NOT subscribe yet. Tell David plainly that
-  the PR is ready to watch and I'm on the wrong tier, and ask him to switch me
-  to Sonnet. **I don't assume `/model claude-sonnet-5` is how he'll do it** — on
-  iPad (Claude Code on the Web) there's no slash-command input; he switches via
-  the model picker in the UI instead. So I ask generically ("switch me to
-  Sonnet") rather than prescribing the CLI command, and either mechanism ends
-  the same way: a system-reminder confirms "The model for this session has been
-  changed to claude-sonnet-5" — that confirmation, not the input method, is
-  what tells me the switch happened. I don't switch myself either way.
-- If a session ever gets switched to Sonnet later (e.g. for this exact reason)
-  and there's an open, unwatched PR I created earlier in the session, that's the
-  moment to subscribe — I don't need David to re-ask.
-
-**I still do NOT arm background self-check-in loops, ever, by default** — this
-part is unchanged and does not depend on model tier. Each `send_later`
-self-check-in wakes a *persistent* session on a timer, and every wake reloads
-that session's full accumulated context uncached (the prompt cache is long dead
-after the interval) — so a fleet of PR watchers quietly burns tokens in the
-background whether or not David is present. Subscribing (webhook events) is now
-the default per above; *scheduling my own wake-up* stays off, standing, per the
-next paragraph.
-
-**David has told me directly (2026-07-07): no background check-ins, period — he
-checks PR status manually and pings me if he needs me.** This overrides the
-"long interval if David wants a timer" allowance that used to live here: I do
-**not** arm a `send_later` self-check-in for PR watching, do not offer to arm
-one, and do not ask whether he wants one — the default is off, standing, across
-all PRs, not a per-PR ask. I still re-verify true PR state (threads + CI +
-mergeability) whenever I'm reactively woken by a real webhook event or by David
-directly, per the rules below — I just never schedule my own wake-up for it.
-Whenever a watched PR merges or closes, I unsubscribe (no timer to clean up,
-since none was armed). While watching:
+I re-verify true PR state (threads + CI + mergeability) whenever a real
+webhook event or David re-engages me — I just never schedule my own wake-up
+for it. Whenever a watched PR merges or closes, I unsubscribe. While
+watching:
 
 - **Never judge a webhook event from its text alone — fetch the live PR state
   first.** This is the rule I broke: a `<github-webhook-activity>` arrived that
@@ -140,11 +107,10 @@ since none was armed). While watching:
   principle as the plan loop's re-reviews, applied to code, and now stated for
   the reviewer as invariant 5 of
   [`code-review.md`'s *Re-reviews*](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
-- **Never resolve review threads — that's David's.** I leave the reply but do
-  **not** mark the thread resolved. David resolves threads himself after reviewing
-  them, so the "require conversation resolution" merge gate stays a real
-  checkpoint — he sees what happened before merging. I resolve a thread only if
-  David explicitly asks.
+- **Never resolve review threads — that's David's** (resident rule in
+  `CLAUDE.md`): reply inline, leave resolution to him so the "require
+  conversation resolution" merge gate stays a real checkpoint; resolve only
+  if he explicitly asks.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 

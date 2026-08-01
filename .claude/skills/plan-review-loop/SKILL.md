@@ -11,27 +11,20 @@ and the "plan approval is explicit only" rule stay resident in `CLAUDE.md`.
 
 ## The plan-review PR is the plan's delivery surface
 
-David works from the Claude Code on the Web iPad UI, where a plan rendered only in
-the plan/chat panel is awkward to capture, save, or forward. Until 2026-07-28 I
-covered that two ways: a markdown file handed over with `SendUserFile` (a hard
-precondition on `ExitPlanMode`), plus a private Artifact web page for cleaner
-reading.
-
-**Both are retired (David, 2026-07-28): the Codex plan-review loop replaced
-them.** The loop commits the plan to `docs/plans/PLAN_<SLUG>.md` on the
+The loop commits the plan to `docs/plans/PLAN_<SLUG>.md` on the
 `plan-review/<slug>` branch, so GitHub renders it as formatted markdown at a
-stable, forwardable URL — which covers the sharing need the file existed for *and*
-the reading comfort the Artifact existed for. David's words: he only ever needed
-the markdown for sharing.
-
-So, for a plan going through the loop: I do **not** call `SendUserFile`, and I do
-**not** publish an Artifact page — not on first presentation, not on any revision.
-The plan-review PR is what David reads, links to, and forwards. `ExitPlanMode` no
-longer has a delivery precondition.
+stable, forwardable URL — that PR page is what David reads, links to, and
+forwards (he works from the iPad web UI, where the plan/chat panel is awkward
+to capture or share). The two older delivery rituals — a markdown hand-off via
+`SendUserFile` (once a hard precondition on `ExitPlanMode`) and a private
+Artifact page — are **retired (David, 2026-07-28)**: he only ever needed the
+markdown for sharing, and the PR page covers both needs. So for a plan going
+through the loop I call neither — not on first presentation, not on any
+revision.
 
 **The one case that still needs a hand-off:** a plan that never enters the public
 PR channel — the security/confidentiality carve-out, or a genuinely broken loop
-(see *Automated plan review* below). With no PR to render it, there is nothing for
+(see the loop steps below). With no PR to render it, there is nothing for
 David to read, so **there** I write the markdown out and deliver it via
 `SendUserFile`. That is the exception, not the default; I say plainly that I'm on
 the fallback path when I use it.
@@ -42,10 +35,10 @@ Two things this does **not** change:
   precondition removes a step before the approval prompt, not the meaning of
   approval: the harness prompt is not David's approval, and neither is Codex
   convergence.
-- **UAT docs still get Artifact pages** — see *Every PR ships with a Replit test
-  plan + a UAT* below. That rule was written in the same breath as the plan rule
-  but is independent of it: a UAT is a click-through David works from in the app,
-  not a specification under review.
+- **UAT docs still get Artifact pages** — see the `pr-docs` skill. That rule
+  was written in the same breath as the plan rule but is independent of it: a
+  UAT is a click-through David works from in the app, not a specification
+  under review.
 
 Where the plan file lives: `docs/plans/` on a **never-merged** plan-review
 branch — `plan-review/<slug>` for the ordinary single-PR loop, and additionally
@@ -75,10 +68,7 @@ evidenced by the round running against a trigger that states the lens and names
 what to reconcile, not by a status label Codex cannot post. The full skeleton
 with status labels is real, but it belongs to the *other* consumer of this same
 contract — my own `overhype-plan-review` skill and ChatGPT's manual-upload path
-— which aren't diff-anchored and can post one complete document. (This is the
-narrow, correct thing to put in the shared docs — a *review contract Codex
-executes* — as distinct from mirroring my whole workflow ceremony there, which
-stays out per the sync rule.)
+— which aren't diff-anchored and can post one complete document.
 
 **Before opening anything — the disclosure check.** This repo is **public**, and
 a closed-unmerged PR stays in public history. So before I open a plan-review PR I
@@ -169,51 +159,33 @@ have a draft plan, and the disclosure check passes:
    and request the next round with a fresh explicit `@codex review` comment.
    Codex is the independent technical reviewer. **Every substantive finding
    must be fixed, rebutted with repository evidence, or escalated to David —
-   none may be silently ignored.** That's the real gate, and it's stronger than
-   "Codex has authority" (the wording this replaces), which read as though
-   Codex settled architecture or product direction: it doesn't, David does, and
-   a finding I can disprove from the repo is disposed of by showing that
-   evidence on the thread, not by deferring. Codex has **no** authority over
-   the branch/PR/devops ceremony this contract already governs (e.g. its
-   "delete the branch" advice — I can't, and don't need to).
-   Codex's GitHub review posts only diff-anchored inline findings — confirmed
-   against this repo's own PR history, its top-level review body is always
-   fixed connector boilerplate, never custom text. So it cannot itself post a
-   status label, a lens declaration, or a ledger; that synthesis is **mine**,
-   not something to wait for from Codex. **The trigger comment states the lens
-   and names what to reconcile — Codex reviews against that, it doesn't declare
-   its own framing afterward.** Every re-review comment (round 2+) names the
-   angle I want this round to attack from and lists the specific prior findings
-   to reconcile — asking Codex to re-check each one, not asking it to confirm
-   they're resolved; Still Open and Superseded are equally valid answers, and
-   the wording shouldn't pre-judge which. Codex confirmed directly on PR #254
-   that its connector
-   has no non-blocking/informational finding category and no freestanding
-   channel — only schema-validated defect findings — so **an empty result
-   against a named list is the accepted, confirmed ceiling of evidence this
-   transport can produce**, not a gap to keep re-engineering; a Reconciliation
-   finding only appears for an item that's genuinely **Still Open** (a live
-   defect) — Resolved and Superseded are both "no longer a problem" and both
-   get silence, even though they're conceptually different, because neither
-   is postable on a defect-only schema. Silence from Codex tells me only that
-   a named item isn't Still Open — it does **not** tell me whether it's
-   Resolved or Superseded, and collapsing both into "Resolved" in the ledger
-   would lose that distinction. **I classify Resolved vs. Superseded myself**
-   when updating the ledger: I know what my own fix did — a straight
-   correction is Resolved, a revision that changed the plan's shape enough to
-   make the original concern moot is Superseded — Codex's silence isn't
-   needed to tell them apart, only to confirm neither is still a live
-   objection. Three things I own each round: I **write that framing into the
-   trigger comment**, I **derive the round's status and update the findings
-   ledger** in the PR body by reading Codex's individual inline findings
-   (their category tags, any Still Open Reconciliation findings, plus my own
-   trigger text and fix history as the record of that round's lens, request,
-   and Resolved-vs-Superseded classification),
-   and I **clear the review's *Unable to verify* list** before requesting the
-   next round — the genuinely unobservable ones (external APIs, production
-   data, runtime timing) are mine to resolve, and a repo-observable one going
-   unanswered means Codex's round was incomplete and I say so on the thread
-   rather than absorbing it.
+   none may be silently ignored.** Codex does not settle architecture or
+   product direction (David does), a finding I can disprove from the repo is
+   disposed of by showing that evidence on the thread, and Codex has **no**
+   authority over the branch/PR/devops ceremony this contract already governs
+   (e.g. its "delete the branch" advice — I can't, and don't need to).
+   Codex's GitHub transport posts only schema-validated, diff-anchored defect
+   findings — no status labels, lens declarations, informational notes, or
+   freestanding write-ups (confirmed directly with Codex on PR #254). Three
+   consequences, all mine to own each round:
+   - **The trigger comment states the lens and names the prior findings to
+     reconcile** — asking Codex to re-check each one, not to confirm they're
+     resolved; Still Open and Superseded are equally valid answers, and the
+     wording shouldn't pre-judge which. **An empty result against a named
+     list is the accepted, confirmed ceiling of evidence this transport can
+     produce**, not a gap to keep re-engineering — a Reconciliation finding
+     appears only for an item that's genuinely Still Open.
+   - **I derive the round's status and update the findings ledger myself.**
+     Codex's silence on a named item tells me only that it isn't Still Open —
+     never whether it's Resolved or Superseded, both of which get silence on
+     a defect-only schema. I classify that distinction myself from my own fix
+     history: a straight correction is Resolved; a revision that made the
+     original concern moot is Superseded.
+   - **I clear the review's *Unable to verify* list** before requesting the
+     next round — the genuinely unobservable items (external APIs, production
+     data, runtime timing) are mine to resolve, and a repo-observable one
+     going unanswered means the round was incomplete, which I say on the
+     thread rather than absorb.
 5. **Target the trigger comment once a specific subsystem is the live risk
    (David, 2026-07-25).** A generic "@codex review" re-reads the whole plan
    with even attention every round. Once findings cluster on one section (a
@@ -221,9 +193,8 @@ have a draft plan, and the disclosure check passes:
    trigger comment — name the section and the failure-mode categories worth
    stress-testing (idempotency, concurrency, retry/crash-recovery semantics,
    execution-time races, whatever fits) — instead of a bare "this is round
-   N." Proven in the variant-independence plan (PR #252): once I started
-   directing Codex at the newest mechanism, each round's findings narrowed
-   to that mechanism's real remaining edges instead of re-scattering.
+   N." (Proven on PR #252: directed triggers narrowed each round's findings
+   to the named mechanism's real remaining edges.)
 6. **Consolidate, don't just accrete, once a subsystem's history gets long
    (David, 2026-07-25).** A subsection that's absorbed several rounds of
    "Correction (Codex round N): my previous claim was wrong" ends up
@@ -263,11 +234,9 @@ have a draft plan, and the disclosure check passes:
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
 9. **Soft cap at ~20 rounds — check in, don't silently stop or silently keep
-   going (David, 2026-07-25, superseding the old ~6-round break rule).**
+   going (David, 2026-07-25).**
    Genuinely substantive, narrowing findings can legitimately run past a
-   handful of rounds — a single plan-review PR reached round 23+ in practice
-   (PR #252) while still surfacing real bugs each round, because each round
-   was catching something the previous fix had actually gotten wrong. So I
+   handful of rounds (PR #252 stayed productive past round 23), so I
    don't treat "many rounds" alone as a signal to stop. At ~20 rounds
    (or sooner if the SAME category of finding keeps resurfacing without
    narrowing, or Codex and I flatly disagree on a point of substance), I
@@ -308,12 +277,12 @@ have a draft plan, and the disclosure check passes:
     implementation PR's **Approved-plan source** line cites, which the
     per-subsystem branches cannot supply.
 
-**Calibration (first ~3 real plans).** This is a pilot, not a proven
-replacement. For the first few plans I run the Codex loop *and* note where its
-review lands versus what the manual ChatGPT pass would have caught, and report
-that to David — so we replace ChatGPT on evidence, not on "same models, should be
-fine." If Codex's plan reviews prove too shallow, the transport (PR) still stands
-and we swap the reviewer, per David's call.
+**Reviewer efficacy is measured by the loop ledger**
+(`.agents/metrics/loop-ledger.md`): every loop's rounds, findings, and
+self-inflicted share get a permanent row, which is the evidence base for
+changing the reviewer or the ceremony. (This supersedes the original
+"first ~3 plans" calibration pilot — a dozen loops have run and the ledger
+measures them better than a one-time comparison would have.)
 
 Hard boundaries:
 

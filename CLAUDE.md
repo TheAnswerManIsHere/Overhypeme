@@ -64,15 +64,13 @@ forward.
 - **David never eyeballs commits or diffs — he verifies only the finished result
   in the app, via UAT.** So I never offer, suggest, or pause for him to "review
   the commits / the diff / the code," and I never gate progress on his code
-  inspection — that framing wastes his time and misreads how he works. I plan and
-  sequence the work **toward a runnable, UAT-able product state**, and my
-  checkpoints with him are about product intent, genuine decisions, or a
-  testable surface — never intermediate code milestones. Committing in verified
-  slices to keep the tree green is *my* engineering discipline (his safety net,
-  not his review queue); I keep him posted on progress at a high level and drive
-  to the point where he can actually test it. When I pause mid-build it must be
-  for a real reason (a broken-tree risk, a plan-breaking discovery, a product
-  decision) — not to invite a diff read.
+  inspection. I plan and sequence the work **toward a runnable, UAT-able
+  product state**; my checkpoints with him are product intent, genuine
+  decisions, or a testable surface — never intermediate code milestones.
+  Committing in verified slices is *my* engineering discipline (his safety
+  net, not his review queue). A mid-build pause needs a real reason (a
+  broken-tree risk, a plan-breaking discovery, a product decision) — never an
+  invitation to read a diff.
 - **"What do you think?" means planning mode, not building mode.** When David
   asks for my opinion or feedback on an idea ("what do you think", "thoughts?",
   "does this make sense?"), the deliverable is my assessment and a
@@ -87,10 +85,9 @@ forward.
   (David, 2026-07-24).** David reads everything in the chat window and the
   automated Codex plan-/code-review loops generate a lot of it, so my prose was
   burying the moments that actually need him. Going forward, on **all** work:
-  1. **Be sparse in the chat window.** Short status lines, no essays. State
-     what happened and what's next in as few words as carry the meaning; drop
-     the play-by-play. (This governs my *chat messages to David* — not Codex
-     thread replies or the plan/PR artifacts themselves.)
+  1. **Be sparse in the chat window.** Short status lines, no essays; drop
+     the play-by-play. (Governs my *chat messages to David* — not Codex
+     thread replies or plan/PR artifacts.)
   2. **Every moment I need David's input gets a visually distinct banner** so
      he can spot it while scrolling — a horizontal rule, then
      `🛑 **NEED YOU** — <one-line ask>`, then the decision, then a closing
@@ -111,9 +108,8 @@ forward.
 - **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
   watching a PR, events that turn out to be my own comments bouncing back still
   get the silent live-state check the watching rules require — but they produce
-  **zero chat output**. No "echo of my own reply — no action needed" lines:
-  David posted a screenshot of his chat window to show how those lines bury the
-  signal the sparse-chat rule exists to protect. Silence in chat does not mean
+  **zero chat output**. No "echo of my own reply — no action needed" lines —
+  they bury the signal the sparse-chat rule exists to protect. Silence in chat does not mean
   I skipped the verification; it means the verification found nothing worth his
   attention.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
@@ -122,24 +118,18 @@ forward.
   abbreviate to "P1/P2": that collides with Codex's review-finding *severity*
   badges (P1 = critical, P2 = medium), which are already in use in this repo, so
   "P2" would be ambiguous between "phase two" and "a medium-priority finding." I
-  also retire one-off scope names like "Head 1/Head 2." (Retroactively: the VSO
-  presence-based / required-Concept work is **Phase 1** (PR #234) and the
-  system-wide activation guard + ingestion→Stage-1 routing is **Phase 2**.)
+  also retire one-off scope names like "Head 1/Head 2."
 - **ChatGPT's review is advisory on product/design/correctness only — never on
-  branches, PRs, or devops in my environment.** ChatGPT reviews plans without
+  branches, PRs, or devops in my environment.** It reviews plans without
   access to my execution environment, so its suggestions about *how* to ship —
-  which branch to cut, whether to split/combine PRs, force-push, rebase
-  mechanics, any git/devops choreography — carry no authority. I own those
-  decisions through our contract (the designated working branch, the
-  squash-merge / never-force-push workflow, the PR ritual), and I follow the
-  contract without deferring to ChatGPT (or any external reviewer) on them. I
-  weigh ChatGPT on the *substance* of a plan — product intent, design fit,
-  correctness, source-of-truth risks — and ignore it on environment mechanics.
-  I don't surface an external reviewer's devops opinion to David as an open
-  question when the contract already answers it. The same split governs the
-  **automated Codex plan-review loop** (see *Automated plan review* below):
-  Codex's comments on a plan carry weight on substance and none on how I run
-  branches, PRs, or git.
+  which branch to cut, PR splitting, force-push/rebase mechanics, any
+  git/devops choreography — carry no authority: the contract in this file
+  governs those, and I don't surface an external reviewer's devops opinion to
+  David as an open question the contract already answers. I weigh external
+  reviewers on plan *substance* only — product intent, design fit,
+  correctness, source-of-truth risks. The same split governs the **automated
+  Codex plan-review loop** (see *Plan review runs through the Codex draft-PR
+  loop* below).
 
 ### Workflow tweaks (mechanical checks I've missed before)
 
@@ -162,25 +152,19 @@ contract. David picks the mode explicitly so there's no guessing:
   Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
 - **Bug-fixing mode drops the *planning* ceremony, not the verification** —
-  entered explicitly via the `/bugfix` skill. When David invokes `/bugfix` (or
-  asks me to "just fix" a bug), I switch to a diagnose-classify-fix-ship loop:
-  fresh branch off `origin/main`, **one bug per branch per PR**, opened as soon
-  as the fix is verified. **No plan file and no plan-review loop** — that's the
-  expensive part a fix rarely needs. Everything else scales to what diagnosis
-  reveals: a **Tier A** fix ships with a regression test, a blast-radius note,
-  and the bugfix oracle in the PR body; a **Tier B** fix (sensitive subsystem,
-  or a structurally risky fix shape) moves to Opus and adds a UAT doc **if the
-  fix has any product-visible behavior** — a Tier B fix with none (a pure
-  CI/build-tooling/codegen correction) ships a written verification note
-  instead, same as feature mode's ship-the-UI-surface exception;
-  **Tier C** means it isn't a bug fix and leaves the mode. Codex still reviews
-  every bugfix diff and I drive that to convergence. The shared contract is
-  [`working-modes.md`](docs/ai-context/working-modes.md); my enactment is
-  `.claude/skills/bugfix/SKILL.md`.
-
-  Note this is **not** "no ChatGPT review" — Codex *is* ChatGPT, and its
-  connector auto-reviews every non-draft PR on open. What bugfix mode skips is
-  **plan** review, not **code** review.
+  entered explicitly via the `/bugfix` skill (or "just fix this bug"):
+  diagnose-classify-fix-ship on a fresh branch off `origin/main`, **one bug
+  per branch per PR**, opened as soon as the fix is verified. **No plan file
+  and no plan-review loop.** Verification scales by diagnosed tier: **Tier A**
+  ships a regression test, a blast-radius note, and the bugfix oracle in the
+  PR body; **Tier B** (sensitive subsystem, or a structurally risky fix
+  shape) moves to Opus and adds a UAT doc if the fix has product-visible
+  behavior (a written verification note if not); **Tier C** means it isn't a
+  bug fix and leaves the mode. Codex still reviews every bugfix diff to
+  convergence — bugfix mode skips **plan** review, not **code** review (Codex
+  *is* ChatGPT; its connector auto-reviews every non-draft PR on open). The
+  shared contract is [`working-modes.md`](docs/ai-context/working-modes.md);
+  my enactment is `.claude/skills/bugfix/SKILL.md`.
 
 What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
 that's really a behavior change is feature work — see the working rules), verify
@@ -224,10 +208,9 @@ sessions, and `/compact` only preserves a lossy summary of it. So by
   next **fresh** chat — mine or Codex's — loads that context cheaply instead of
   paying to re-read an old transcript.
 
-This lets David keep short, disposable chats without losing area context, keeps
-the durable memory in versioned files (single source of truth), and avoids the
-worst-case token pattern of returning day after day to one giant compacted
-thread. `/compact` stays an in-session relief valve, not the memory itself.
+`/compact` stays an in-session relief valve, not the memory itself — the
+durable memory lives in versioned files (single source of truth), so David
+keeps short, disposable chats without losing area context.
 
 ### The `/document` ceremony is the explicit end-of-feature fold-in
 
@@ -249,25 +232,16 @@ is genuinely unclear.
 
 ### I proactively remind David to run `/document`
 
-David asked (2026-07-23) that I not rely on him remembering this ceremony
-himself. When I judge that a moment has produced durable learnings worth
-harvesting — per the shared contract's bar: a settled decision + rationale, a
-subsystem shape change, a gotcha that cost real time and generalizes, a new
-term of art, a retired mistake, or roadmap movement — I say so and suggest
-running `/document`, rather than waiting to be asked. That moment is most
-often right after:
-
-- A product-visible feature's PR merges and the build surfaced non-trivial
-  decisions or gotchas along the way.
-- A long working session on one area wraps — even without a merged PR, if
-  investigation or debugging surfaced real subsystem truth worth locking in.
-
-The reminder is a one-line nudge at a natural stopping point, not a gate on
-finishing the turn — David decides whether the moment actually warrants the
-full ceremony, targeted persistence instead, or nothing at all if the work
-produced nothing durable. I still never run `/document` myself without David
-triggering it; the trigger stays his, per the shared contract's trigger
-semantics above.
+David asked (2026-07-23) that I not rely on him remembering this ceremony.
+When a moment has produced durable learnings worth harvesting — per the
+shared contract's bar (a settled decision + rationale, a subsystem shape
+change, a generalizing gotcha that cost real time, a new term of art, a
+retired mistake, roadmap movement) — I suggest running `/document` rather
+than waiting to be asked; most often right after a product-visible PR merges
+with non-trivial decisions behind it, or a long area session wraps having
+surfaced real subsystem truth. The reminder is a one-line nudge at a natural
+stopping point, not a gate — David decides what the moment warrants, and the
+trigger stays his: I never run `/document` unprompted.
 
 ---
 
@@ -348,20 +322,17 @@ do not relitigate them mid-task:
 - **`git checkout -B <branch> <ref>` → WORKS** (moves the branch ref without a
   `--hard` reset; the guard allows it). This is my reset primitive.
 
-**The governing rule: NEVER rewrite history that is already pushed.** Because I
-can't force-push, can't delete the remote branch, and can't hard-reset, a
-rebased/amended already-pushed branch becomes **unpublishable** — plain push is
-(correctly) rejected as non-fast-forward and I have no way to reconcile it. A
-clean rebase wastes effort at best and strands the branch at worst. GitHub's
-squash-merge already 3-way-merges my branch against current `main` at merge time,
-so **rebasing "to sit on top of main" is unnecessary** and I stop doing it.
+**The governing rule: NEVER rewrite history that is already pushed.** With no
+force-push, no remote-branch delete, and no hard reset, a rebased/amended
+already-pushed branch becomes **unpublishable** (plain push correctly rejects
+it as non-fast-forward, and I have no way to reconcile). Rebasing "to sit on
+top of main" is also unnecessary — GitHub's squash-merge 3-way-merges against
+current `main` at merge time.
 
-**Before the FIRST push of a fresh branch** (nothing on the remote yet): it's
-fine to base it cleanly on main — `git fetch origin main` then
-`git checkout -B <branch> origin/main`, apply my work, push. (This is also how I
-**restart a branch after its PR squash-merged**: `git checkout -B <branch>
-origin/main` gives a fresh base with no merged history to fight — the sanctioned
-no-force reset.)
+**Before the FIRST push of a fresh branch**: base it cleanly on main —
+`git fetch origin main && git checkout -B <branch> origin/main`, apply work,
+push. (Also how I **restart a branch after its PR squash-merged** — a fresh
+base with no merged history to fight, the sanctioned no-force reset.)
 
 **For follow-up work on an ALREADY-pushed branch:**
 
@@ -387,60 +358,44 @@ a David checkpoint; I don't announce it beyond a line in the PR body.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
-1. **Do not rebase.** Follow the git-constraints procedure above by branch
-   state: a fresh, never-pushed branch is already based on current `main` from
-   its creation — nothing to do. An **already-pushed** branch stays as-is
-   (GitHub's squash-merge 3-way-merges it against `main` at merge time, so it
-   doesn't need to "sit on top of main" first); only merge current `main` in
-   if the work genuinely needs something newly landed there, and even then
-   **merge, never rebase**, per above.
+1. **Do not rebase.** A fresh, never-pushed branch is already based on current
+   `main`; an **already-pushed** branch stays as-is. Merge current `main` in
+   only if the work genuinely needs something newly landed there — **merge,
+   never rebase**, per above.
 2. Verify the branch has commits ahead of `origin/main`.
 3. Check `mcp__github__list_pull_requests` (head:
    `theanswermanishere:<branch>`, state: `open`) — is there already an
-   open PR?
-4. If yes, the existing PR picks up the new push. Mention the PR URL
-   in the closing message and stop.
-5. If no, open a new PR with `mcp__github__create_pull_request` — base
-   `main`, **except a stacked bugfix PR** (a dependent bug branched from
-   another open bugfix PR's head — see `working-modes.md`'s *Dependent
-   bugs* note), which bases against that parent branch instead; basing it
-   on `main` would put both bugs in one diff. Title + body describe the
-   change. Return the PR URL.
+   open PR? If yes, it picks up the new push; mention the PR URL and stop.
+4. If no, open one with `mcp__github__create_pull_request` — base `main`,
+   **except a stacked bugfix PR** (a dependent bug branched from another
+   open bugfix PR's head — see `working-modes.md`'s *Dependent bugs* note),
+   which bases against that parent branch so the diff carries one bug.
+   Title + body describe the change. Return the PR URL.
 
 This applies even when David didn't explicitly ask for a PR. The
-default is "ship for review." The only exceptions: pure exploration
-with no commits, David has explicitly said "don't open a PR for
-this," or the branch is a **plan-review channel branch**
-(`plan-review/<slug>`, whose PR is opened by the plan-review loop itself and
-is never merged, and `plan-review/<slug>-combined`, which deliberately has
-**no** PR — see close-out step 11). Those carry a plan, not a unit of work;
-opening a merge-shaped PR for the combined branch would contradict the loop's
-own "never merged" rule and add a review round its subsystems already
-completed.
+default is "ship for review." The only exceptions: pure exploration with no
+commits, David has explicitly said "don't open a PR for this," or a
+**plan-review channel branch** — `plan-review/<slug>` (its PR is opened by
+the loop itself and never merged) and `plan-review/<slug>-combined` (which
+deliberately has **no** PR; see the plan-review-loop skill's close-out).
+Those carry a plan, not a unit of work.
 
 **The PR body carries the approved plan as the reviewer's oracle
-(David, 2026-07-25).** The template's **Approved-plan oracle** section exists
-because Codex reviewing an implementation PR otherwise has no way to check
-the code against what David actually approved — only against itself, which
-can't catch a well-built PR that quietly narrowed or dropped part of the
-approved scope. So whenever this PR implements a **David-approved feature
-plan** (feature mode) I paste that plan's Product Intent / Must Not Change /
-Settled Decisions verbatim into this PR's oracle section before requesting
-the first review — from the `[PLAN REVIEW]` PR body for the normal automated
-loop, or straight from the final approved plan document when the plan went
-through the manual/private review path instead (the disclosure carve-out or a
-broken-loop fallback, per *Automated plan review* above — there's no
-`[PLAN REVIEW]` PR to copy from in that case, but the oracle still applies).
-**A bugfix PR fills the same section with the *bugfix oracle*, not "n/a — no
-plan"** — a fix has no plan, but reviewing it against nothing but itself can't
-catch the one failure that matters most on a fix: the symptom disappears while
-a neighbor breaks. **Tier A/B** fills fix tier, reported symptom verbatim,
-intended correct behavior, must not change, root cause, blast radius. **Tier
-C's trivial-schema-fix exception fills a different, dedicated block instead**
-(symptom, root cause, why it's trivial, David's go-ahead, the
-migration-ceremony checklist) — it has no *intended correct behavior*, *must
-not change*, or *blast radius* fields, and using the Tier A/B block for it is
-wrong. See
+(David, 2026-07-25).** Without it, Codex can only review an implementation PR
+against itself — which can't catch a well-built PR that quietly narrowed or
+dropped part of the approved scope. For a **David-approved feature plan** I
+paste its Product Intent / Must Not Change / Settled Decisions verbatim into
+the PR's oracle section before requesting the first review — from the
+`[PLAN REVIEW]` PR body, or from the final approved plan document when the
+plan went through the manual/private path (no `[PLAN REVIEW]` PR exists
+there, but the oracle still applies). **A bugfix PR fills the same section
+with the *bugfix oracle*, not "n/a — no plan"** — reviewing a fix against
+nothing but itself can't catch the failure that matters most: the symptom
+disappears while a neighbor breaks. **Tier A/B** fills fix tier, reported
+symptom verbatim, intended correct behavior, must not change, root cause,
+blast radius. **Tier C's trivial-schema-fix exception fills its own dedicated
+block** (symptom, root cause, why it's trivial, David's go-ahead, the
+migration-ceremony checklist) — using the Tier A/B block for it is wrong. See
 [`working-modes.md`](docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry)
 for both. Only a genuinely trivial change with no bug behind it gets "n/a — no
 plan."
@@ -509,12 +464,12 @@ invoked at all:
   change is what tells me it happened). A **`[PLAN REVIEW]` draft PR is
   planning, not ops**: I subscribe immediately and stay on **Opus**, with no
   tier-switch ask.
-- **Never judge a webhook event from its text alone.** Every event — even one
-  that looks like a duplicate or an echo of my own comment — means fetch live PR
-  state (`pull_request_read`: threads + CI + latest commits, one batched call)
-  and decide from that. Webhooks lag, drop CI successes, and arrive out of
-  order, so silence is never "all clear". Echoes of my own replies get the
-  silent live-state check and produce **zero chat output**.
+- **Never judge a webhook event from its text alone.** Every event — even an
+  apparent duplicate or echo of my own comment — means fetch live PR state
+  (`pull_request_read`: threads + CI + latest commits, one batched call) and
+  decide from that. Webhooks lag, drop CI successes, and arrive out of order,
+  so silence is never "all clear". Echoes of my own replies get the silent
+  live-state check and **zero chat output**.
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
@@ -541,13 +496,11 @@ enactment:
   for why and how). I compute it right away and fold it into whatever PR I
   open next, on any subject, as one ordinary commit.
 - **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
-  columns and never type them from memory** — or `--mcp-snapshot <file>` when
-  my environment has no direct `api.github.com` credential, which is this
-  container's own case (its `GITHUB_TOKEN` is proxy-scoped and 401s against
-  the real API; my working GitHub access here is the MCP tool integration).
-  My record on recalled numbers in this repo is poor — three figures produced
-  by inference during the work that created the ledger were all wrong; every
-  figure produced by counting a source held.
+  columns and never type them from memory** — or `--mcp-snapshot <file>` in
+  this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
+  real API (my working GitHub access here is the MCP integration). Recalled
+  numbers in this repo have been wrong three times out of three; counted
+  ones have all held.
 - **I classify the judgment columns myself and say so**, including when the
   causes are my own errors. Ambiguous causes go to self-inflicted.
 - **I dispatch the blind adjudication subagent** — this is a named exception to
@@ -558,13 +511,11 @@ enactment:
 ## Standing devops rituals (David, 2026-07-22)
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
-  `/maintenance` skill (`.claude/skills/maintenance/SKILL.md`) owns the
-  contract; the one piece worth restating here is the standing authorization
-  it grants — green minor/patch Dependabot bumps are the single category of PR
+  `/maintenance` skill owns the contract; the standing authorization worth
+  restating: green minor/patch Dependabot bumps are the single category of PR
   I squash-merge myself. David invokes it roughly weekly; I never schedule it
-  myself (the no-background-check-ins rule stands). David asked for a one-shot
-  ~4-week reminder (around 2026-08-19) to revisit whether he wants it
-  automated.
+  (no-background-check-ins stands). David asked for a one-shot ~4-week
+  reminder (around 2026-08-19) to revisit automating it.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed
@@ -588,20 +539,16 @@ window) and flagged that routine ops work — checking PR comments, watching
 CI, mechanical fixes — was running at premium-model cost with redundant tool
 calls. Two concrete, durable changes:
 
-- **Match model tier to task shape.** I cannot switch the active model myself
-  — David is the one who switches it, by typing `/model <name>` in the CLI **or**
-  using the model picker in the UI (his standing note: on iPad/Claude Code on
-  the Web there's no slash-command input, so the picker is how he does it
-  there) — so codifying this means I *reliably prompt* instead of leaving it to
-  habit or memory. I ask for the tier by name ("switch to Opus" / "switch to
-  Sonnet") rather than assuming he'll type the slash command, since I don't know
-  which surface he's on. Either way, a system-reminder confirming "The model for
-  this session has been changed to …" is what tells me the switch actually
-  happened — not the input method. David is not a software engineer and relies
-  on me + Codex's code review as his only two safety nets, so the deciding
-  question for any task is: **if this goes subtly wrong, will Codex's review or
-  David's product-testing catch it before it does damage?** Yes → Sonnet is
-  safe. No → Opus, because I'm the only guard.
+- **Match model tier to task shape.** Only David can switch the model — via
+  `/model` in the CLI or the model picker in the UI (on iPad there's no
+  slash-command input) — so I *reliably prompt* for switches, asking by tier
+  name ("switch to Opus") rather than prescribing an input method, and treat
+  the system-reminder "The model for this session has been changed to …" as
+  the only confirmation it happened. David is not a software engineer and
+  relies on me + Codex's review as his only two safety nets, so the deciding
+  question for any task is: **if this goes subtly wrong, will Codex's review
+  or David's product-testing catch it before it does damage?** Yes → Sonnet
+  is safe. No → Opus, because I'm the only guard.
   - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`)
     for triage and diagnosis. **But the tier classification can send it back up:**
     the moment I classify a fix as **Tier B** (a sensitive subsystem, or a
@@ -618,33 +565,27 @@ calls. Two concrete, durable changes:
     **not** `claude-opus-4-8`, which is the previous generation.
   - **Planning stays on Opus end-to-end — no switching back and forth (David,
     2026-07-22).** A planning cycle is *continuous* Opus: the pre-plan
-    conversation, the plan itself, **and the whole Codex plan-review loop**
-    (watching the `[PLAN REVIEW]` PR and revising until it converges, through to
-    David's approval). I do **not** ask to be switched to Sonnet at any point
-    during planning — including to watch the plan-review PR, which is planning,
-    not ops. David should never have to switch me *back* to Opus for the next
-    plan because I bounced to Sonnet mid-cycle.
+    conversation, the plan itself, and the whole Codex plan-review loop through
+    to David's approval. I do **not** ask for Sonnet at any point during
+    planning — watching the plan-review PR is planning, not ops — so David
+    never has to switch me *back* to Opus mid-cycle.
     - **`opusplan` does NOT cover this whole cycle — mind the gap (2026-07-24).**
-      `opusplan` upgrades to Opus for **plan-mode turns only**. Most of our
-      planning cycle happens *outside* plan mode: the pre-plan conversation is
-      ordinary conversation, and the **Codex plan-review loop can't run in plan
-      mode at all** (it commits the plan file, pushes a branch, and opens a draft
-      PR — all writes, which plan mode forbids). So under `opusplan` those
-      stretches run on **Sonnet** unless someone intervenes. That someone is me:
-      when a pre-plan conversation gets substantive, or the moment I open a
-      `[PLAN REVIEW]` PR, I say plainly that we're on Sonnet and ask David to put
-      me on Opus for the rest of the cycle. This is the one place the automation
-      makes my "stay vocal about the model in play" duty *more* important, not
-      less — a silent Sonnet plan review is exactly the failure this rule exists
-      to prevent.
+      It upgrades to Opus for **plan-mode turns only**, and most of the planning
+      cycle happens *outside* plan mode: the pre-plan conversation is ordinary
+      conversation, and the Codex plan-review loop commits/pushes/opens a draft
+      PR — all writes, which plan mode forbids. Those stretches run on
+      **Sonnet** unless I intervene: when a pre-plan conversation gets
+      substantive, or the moment I open a `[PLAN REVIEW]` PR, I say plainly
+      that we're on Sonnet and ask David to put me on Opus for the rest of the
+      cycle. A silent Sonnet plan review is exactly the failure this rule
+      exists to prevent.
   - **The only downshift to Sonnet is to *execute* an approved plan — and only
     when the execution is simple/low-risk (David, 2026-07-22).** Per the
-    *Implementing features* row below, simple builds run on Sonnet (Codex's diff
-    review is the net); high-risk subsystems (migrations, tokenizer/grammar,
-    visual pipeline, dev-infra, or a build that surfaces real complexity) stay on
-    Opus. So at plan approval I suggest Sonnet **only if** the execution ahead is
-    genuinely simple; otherwise I stay on Opus to build. Watching that
-    implementation PR afterward then follows the ops-shaped Sonnet gate above.
+    *Implementing features* row below: at plan approval I suggest Sonnet only
+    if the execution ahead is genuinely simple; high-risk subsystems
+    (migrations, tokenizer/grammar, visual pipeline, dev-infra, real
+    complexity) stay on Opus. Watching that implementation PR afterward
+    follows the ops-shaped Sonnet gate above.
   - **By task type** (the reference table, since the two boundaries above
     don't cover everything I do):
 
@@ -678,20 +619,16 @@ calls. Two concrete, durable changes:
     treating the session's *current* tier as correct and only flag a mismatch
     if the task shape clearly shifted mid-thread.
   - `.claude/settings.json` sets **`opusplan`** as the default model for new
-    sessions (it was pinned to `claude-sonnet-5` until 2026-07-24). Ops-shaped
-    turns — most of David's usage — still run on Sonnet; plan mode auto-upgrades
-    to Opus. Opus and Fable remain explicit upgrades for the tasks in the table
-    above, not defaults you have to remember to downgrade from.
+    sessions. Ops-shaped turns — most of David's usage — still run on Sonnet;
+    plan mode auto-upgrades to Opus. Opus and Fable remain explicit upgrades
+    for the tasks in the table above, not defaults you have to remember to
+    downgrade from.
 - **Batch PR re-verification into one call; don't reduce how often I check.**
-  The *"re-verify on each active turn"* rule under **Watching the PRs I
-  open** above stays exactly as-is — webhooks lag and drop events, so silence
-  still isn't "all clear." What changes is mechanics: pull threads + CI
-  status + latest commits via a **single** `pull_request_read` call instead
-  of chaining separate calls, and pass `minimal_output: true` when I don't
-  need full bodies/diffs. Same verification cadence, a fraction of the
-  tool-call cost. When a re-verify finds nothing new, I say so explicitly
-  ("re-checked — no new activity since last update") so the discipline stays
-  visible instead of assumed.
+  Same cadence as ever (webhooks lag and drop events — silence isn't "all
+  clear"), cheaper mechanics: pull threads + CI + latest commits via a
+  **single** `pull_request_read` call, with `minimal_output: true` when I
+  don't need full bodies. When a re-verify finds nothing new, I say so
+  ("re-checked — no new activity") so the discipline stays visible.
 - I also default to `list_*` over `search_*` for simple retrieval, and
   paginate in small batches (5-10 items), per the GitHub server's own
   guidance — not a cadence change, just cheaper calls for the same coverage.

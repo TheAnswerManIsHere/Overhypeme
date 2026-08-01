@@ -22,14 +22,15 @@ is stable enough to record so neither of us re-derives it:
   stays a real ask, and I keep prompting for it.
 - **`opusplan` is the one automatic session-model switch**, and it is
   mode-triggered, not task-triggered: Opus during plan mode, Sonnet for
-  execution. It is now our default (above). Its blind spots are the pre-plan
-  conversation and the Codex plan-review loop — see the gap note above.
+  execution. It is our session default per `.claude/settings.json`. Its blind
+  spots are the pre-plan conversation and the Codex plan-review loop — see the
+  "mind the gap" note in `CLAUDE.md`'s *Token / cost discipline* section.
 - **Everything else routes work to a stronger model without moving the
   session**: subagents pinned to a model, and the advisor tool. Both below.
 
 ### Effort is the second dial — and we had never used it
 
-The tier table above is entirely about *which model*. `effort` is a separate
+The tier table in `CLAUDE.md` is entirely about *which model*. `effort` is a separate
 control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
 5 alike: `low`, `medium`, `high`, `xhigh`, `max`, defaulting to `high`. David
 sets it with `/effort`; I can set it per-subagent via `effort` frontmatter, and
@@ -91,7 +92,7 @@ Two facts that decide how we use it today:
   is worth re-checking periodically; it is the single change that would most
   automate our escalation policy.
 - **What works now is `Sonnet main + Opus advisor`**, which automates the
-  *Debugging new features* row of the table above: Sonnet handles routine work
+  *Debugging new features* row of CLAUDE.md's tier table: Sonnet handles routine work
   and escalates the hard moments without a model switch. We have not adopted it
   as a default — it costs advisor-model tokens on top of the main model, and it
   is experimental — but it is the obvious thing to try the next time a debugging

@@ -23,7 +23,7 @@ For **every** feature-mode PR that has product-visible or testable behavior, I
 ship two docs in `docs/` named after the PR's number. Because the GitHub PR
 number doesn't exist until the PR is opened, the flow is **PR-first**:
 
-1. Open the PR with the code (per the squash-merge workflow above), giving
+1. Open the PR with the code (per CLAUDE.md's squash-merge workflow), giving
    the body a temporary placeholder note:
    > **Docs pending:** PR number acquired. I will add
    > `docs/PR<N>_<FEATURE>_TEST_RUN.md` and `docs/PR<N>_<FEATURE>_UAT.md` as
