@@ -97,6 +97,23 @@ function auditGuardBlock(): string {
   return sliceBetween(GUARD_START, GUARD_END);
 }
 
+/**
+ * The `fn_body` literal 0095 declares (a dollar-quoted string bounded by a repeated
+ * `$body_src$` tag) — extracted so its exact text can be compared against
+ * `NCMEC_AUDIT_LOG_GUARD_FN_BODY` in lib/db/src/index.ts, the copy `ncmecAuditBoundaryStatus()`
+ * compares against `pg_proc.prosrc`. The two are hand-kept identical rather than shared
+ * (a SQL migration and a TypeScript module can't literally import from each other); this is
+ * what makes drift between them a test failure instead of a silent, weaker runtime check.
+ */
+function guardFnBodyLiteral(): string {
+  const tag = "$body_src$";
+  const start = MIGRATION_SQL.indexOf(tag);
+  assert.ok(start >= 0, "fn_body's $body_src$ opening tag missing from 0095");
+  const end = MIGRATION_SQL.indexOf(tag, start + tag.length);
+  assert.ok(end > start, "fn_body's $body_src$ closing tag missing from 0095");
+  return MIGRATION_SQL.slice(start + tag.length, end);
+}
+
 const OWNERSHIP_START = "-- >>> ncmec-0095 ownership hardening block (start)";
 const OWNERSHIP_END = "-- <<< ncmec-0095 ownership hardening block (end)";
 
@@ -275,6 +292,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
   let ncmecAuditBoundaryStatus:
     | typeof import("@workspace/db")["ncmecAuditBoundaryStatus"]
     | null = null;
+  let NCMEC_AUDIT_LOG_GUARD_FN_BODY: string | null = null;
 
   before(async () => {
     // Only an ABSENT database is a reason to skip. Swallowing an import failure here would
@@ -286,6 +304,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     // `pg`'s Pool carries callback overloads the structural type above deliberately omits.
     pool = mod.pool as unknown as Pool;
     ncmecAuditBoundaryStatus = mod.ncmecAuditBoundaryStatus;
+    NCMEC_AUDIT_LOG_GUARD_FN_BODY = mod.NCMEC_AUDIT_LOG_GUARD_FN_BODY;
   });
 
   after(async () => {
@@ -715,6 +734,61 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
+    it("reconciles a partially completed ownership transfer instead of reading table ownership as proof of everything", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // Simulates a DBA sequence interrupted after `ALTER TABLE ... OWNER TO` but before the
+      // function transfer and the two GRANTs — the table alone was already owned by
+      // overhype_audit_owner. A rerun that treats "table owner matches" as proof hardening
+      // is complete would leave the function application-owned and the app role permanently
+      // short of its SELECT/INSERT grants forever, with no further rerun ever fixing it.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_dba_app2_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) {
+        await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+        await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      }
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        // Table transferred already; function still owned by app; no grants issued yet —
+        // the exact partial state the finding describes.
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        await pool.query(`GRANT overhype_audit_owner TO ${app} WITH INHERIT FALSE, SET TRUE`);
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner`);
+
+        const result = execSqlAsLoginRole(app, appPassword, ownershipHardeningBlock());
+        assert.ok(result.ok, `expected reconciliation to succeed; got: ${result.output}`);
+
+        const { rows: fnRows } = await pool.query<{ owner: string }>(
+          `SELECT pg_get_userbyid(proowner) AS owner FROM pg_proc
+            WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')`,
+        );
+        assert.equal(fnRows[0]?.owner, "overhype_audit_owner", "the function must be reconciled too, not just the table");
+
+        const { rows: grantRows } = await pool.query<{ has_select: boolean; has_insert: boolean }>(
+          `SELECT has_table_privilege($1, 'ncmec_safety_audit_log', 'SELECT') AS has_select,
+                  has_table_privilege($1, 'ncmec_safety_audit_log', 'INSERT') AS has_insert`,
+          [app],
+        );
+        assert.equal(grantRows[0]?.has_select, true, "the app role must end up with SELECT");
+        assert.equal(grantRows[0]?.has_insert, true, "the app role must end up with INSERT");
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
+    });
+
     it("does not count a replica-only trigger as an enforced boundary", async (t) => {
       if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
       // tgenabled 'R' means the trigger fires only under logical replication, so ordinary
@@ -741,10 +815,38 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       });
     });
 
+    it("does not count a trigger recreated with an extra event as an enforced boundary", async (t) => {
+      if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
+      // A recovered database that recreated no_mutate as BEFORE INSERT OR UPDATE OR DELETE
+      // (an extra INSERT event on top of the intended UPDATE/DELETE) would satisfy a
+      // subset check ("these bits are set") while gating every ORDINARY audit-log append
+      // behind the maintenance role too — silently breaking normal appends while a
+      // subset-only check keeps reporting the boundary correctly wired. Exact tgtype
+      // equality is what catches this. Committed, not rolled back, for the same reason as
+      // the guard-function-tampering test: ncmecAuditBoundaryStatus() queries through the
+      // shared pool, which an uncommitted change on a dedicated client is invisible to.
+      await pool.query(`DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON ncmec_safety_audit_log`);
+      await pool.query(`
+        CREATE TRIGGER ncmec_safety_audit_log_no_mutate
+          BEFORE INSERT OR UPDATE OR DELETE ON ncmec_safety_audit_log
+          FOR EACH ROW EXECUTE FUNCTION ncmec_safety_audit_log_append_only()
+      `);
+      try {
+        const status = await ncmecAuditBoundaryStatus!();
+        assert.equal(status.triggersEnabled, false, "an extra INSERT event must not read as wired correctly");
+        assert.equal(status.boundaryEnforced, false);
+      } finally {
+        // Restore the exact expected trigger so every test that runs after this one still
+        // has a working append-only gate.
+        await pool.query(auditGuardBlock());
+      }
+    });
+
     it("reports whether the privilege boundary is actually enforced", async (t) => {
       if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
       const status = await ncmecAuditBoundaryStatus();
       assert.equal(status.triggersEnabled, true, "both append-only triggers must be enabled");
+      assert.equal(status.guardFunctionIntact, true, "the guard function's source must match exactly, untampered");
       assert.equal(typeof status.tableOwner, "string");
       // `boundaryEnforced` is deliberately not asserted true: completing it is a
       // DBA step outside the migration (transfer ownership to
@@ -754,8 +856,46 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       // can refuse production while the ledger is still bypassable.
       assert.equal(
         status.boundaryEnforced,
-        status.triggersEnabled && !status.applicationOwnsTable && !status.applicationCanBypassTrigger,
+        status.triggersEnabled &&
+          status.guardFunctionIntact &&
+          !status.applicationOwnsTable &&
+          !status.applicationCanBypassTrigger,
       );
+    });
+
+    it("reports the guard function as tampered when its source no longer matches", async (t) => {
+      if (!pool || !ncmecAuditBoundaryStatus) return t.skip("DATABASE_URL not set");
+      // Committed, not rolled back: ncmecAuditBoundaryStatus() queries through the shared
+      // `pool`, which may hand back any connection — an uncommitted change made inside
+      // inRolledBackTx's own dedicated client is invisible to it under READ COMMITTED, and
+      // the test would silently observe the untampered function instead. Same permissive-
+      // replacement shape as the migration-guard test above: same name and signature,
+      // unconditional pass-through body. tgfoid still matches — only the source comparison
+      // can catch this.
+      await pool.query(`
+        CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$
+        BEGIN
+          IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+          RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+      `);
+      try {
+        const status = await ncmecAuditBoundaryStatus!();
+        assert.equal(status.guardFunctionIntact, false);
+        assert.equal(status.boundaryEnforced, false);
+      } finally {
+        // Restore the real guard function so every test that runs after this one still has
+        // a working append-only gate.
+        await pool.query(auditGuardBlock());
+      }
+    });
+
+    it("keeps NCMEC_AUDIT_LOG_GUARD_FN_BODY (lib/db) byte-identical to 0095's fn_body", (t) => {
+      if (!NCMEC_AUDIT_LOG_GUARD_FN_BODY) return t.skip("DATABASE_URL not set");
+      // The two copies exist only because a SQL migration and a TypeScript module cannot
+      // literally share source text. This is what makes an edit to one without the other a
+      // test failure instead of a silently weaker guard-function-integrity check on one side.
+      assert.equal(guardFnBodyLiteral(), NCMEC_AUDIT_LOG_GUARD_FN_BODY);
     });
   });
 

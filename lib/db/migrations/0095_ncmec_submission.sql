@@ -345,10 +345,18 @@ DECLARE
   ix_oid oid;
   is_correct boolean;
 BEGIN
-  SELECT c.oid INTO ix_oid
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE c.relname = 'UQ_ncmec_reports_quarantine' AND n.nspname = 'public';
+  -- `to_regclass` on an unqualified name resolves via search_path — exactly how the
+  -- CREATE UNIQUE INDEX below (also unqualified) places the object. Hardcoding
+  -- `nspname = 'public'` here would look in the wrong schema under any search_path that
+  -- doesn't put `public` first — including this repo's own isolated-test schema tooling
+  -- (`run-test.sh`, which prepends a disposable schema) — and could match an unrelated
+  -- same-named object left over in `public` instead of the one this migration actually
+  -- created or needs to create.
+  -- Double-quoted inside the string literal: the index was created with a quoted, mixed-case
+  -- identifier, and to_regclass folds an unquoted name to lowercase per normal SQL identifier
+  -- rules — 'UQ_ncmec_reports_quarantine' alone would look up 'uq_ncmec_reports_quarantine'
+  -- and never find it. Verified directly against this repository's PostgreSQL 16 target.
+  ix_oid := to_regclass('"UQ_ncmec_reports_quarantine"')::oid;
 
   IF ix_oid IS NOT NULL THEN
     -- indisvalid matters as much as indisunique: a CREATE UNIQUE INDEX CONCURRENTLY left
@@ -357,7 +365,7 @@ BEGIN
     -- enforce it. indrelid is checked too, so a same-named index that happens to exist on some
     -- OTHER table cannot be mistaken for this one.
     SELECT
-      i.indrelid = '"ncmec_reports"'::regclass
+      i.indrelid = 'ncmec_reports'::regclass
       AND i.indisunique
       AND i.indisvalid
       AND i.indnkeyatts = 1
@@ -369,6 +377,12 @@ BEGIN
       INTO is_correct
       FROM pg_index i
      WHERE i.indexrelid = ix_oid;
+    -- A same-named relation that is not an index at all (a table, view, etc. left behind by a
+    -- drifted recovery) makes this SELECT match zero rows in pg_index, which leaves
+    -- is_correct NULL rather than false — and `IF NOT NULL` is NULL, not TRUE, so an
+    -- unguarded check here would silently fall through without creating or enforcing
+    -- anything. Coalesced explicitly rather than relying on NULL being "handled".
+    is_correct := COALESCE(is_correct, false);
 
     IF NOT is_correct THEN
       RAISE EXCEPTION '0095: an index named "UQ_ncmec_reports_quarantine" already exists but is not the exact unique constraint this migration requires (unique on ncmec_reports(quarantine_id) WHERE quarantine_id IS NOT NULL). This is the constraint that keeps two concurrent orphan sweeps from filing two reports for one quarantine hit; refusing to silently accept a wrong or drifted index. Inspect it with: SELECT indexdef FROM pg_indexes WHERE indexname = ''UQ_ncmec_reports_quarantine''; — then drop it and rerun this migration.';
@@ -521,13 +535,35 @@ DECLARE
   can_tbl        boolean := false;
   trg_count      int;
   fn_intact      boolean;
+  -- The function body, held ONCE and referenced by both the CREATE OR REPLACE below and the
+  -- fallback verification further down. A prior version compared prosrc against a few
+  -- substrings the gate's logic depends on (the role name, 'usage', RAISE EXCEPTION) — but a
+  -- permissive replacement can keep all three present while making the original body
+  -- unreachable, e.g. by prepending an unconditional `RETURN NEW;` before it. Comparing the
+  -- FULL text closes that gap, and driving both the create and the verify from one variable
+  -- means there is only ever one copy to keep in sync — a hand-duplicated second copy would
+  -- drift the moment either one was edited without the other.
+  fn_body CONSTANT text := $body_src$
 BEGIN
-  SELECT p.proowner INTO fn_owner
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE p.proname = 'ncmec_safety_audit_log_append_only' AND n.nspname = 'public';
-  SELECT c.relowner INTO tbl_owner
-    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+     OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
+    RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
+      USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$body_src$;
+BEGIN
+  -- Unqualified `to_regprocedure`/`to_regclass` resolve via search_path — the same path the
+  -- (also unqualified) CREATE statements in this migration used to place these objects.
+  -- Hardcoding `nspname = 'public'` here would look in the wrong schema under any
+  -- search_path that doesn't put `public` first, including this repo's own isolated-test
+  -- schema tooling.
+  SELECT proowner INTO fn_owner
+    FROM pg_proc WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
+  SELECT relowner INTO tbl_owner
+    FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log');
 
   -- Can this role actually BECOME the owner via SET ROLE? `pg_has_role(..., 'usage')`
   -- is NOT this question — verified directly against this repository's PostgreSQL 16
@@ -569,35 +605,25 @@ BEGIN
     IF fn_owner IS NOT NULL AND fn_owner <> to_regrole(current_user) THEN
       EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(fn_owner));
     END IF;
-    EXECUTE $fn$
-      CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $body$
-      BEGIN
-        -- The EXISTS guard is not defensive noise: pg_has_role RAISES on a role that does
-        -- not exist, so without it a deployment that could not create the role would block
-        -- every operation with a confusing "role does not exist" error instead of this one.
-        -- Fails closed either way; this fails closed legibly.
-        --
-        -- 'usage' here is deliberate and correct, unlike the migration-guard use above:
-        -- this predicate decides whether an ordinary application statement should be let
-        -- through, and an ordinary statement runs with whatever the session's INHERITED
-        -- privileges already are — it never issues its own SET ROLE. A maintenance session
-        -- that reaches this point via SET ROLE has current_user *equal to* the maintenance
-        -- role, under which 'usage' is trivially true; a session that only *could* SET ROLE
-        -- but has not is correctly still blocked here, exactly as it should be until it
-        -- actually assumes the role.
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-           OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
-          RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
-            USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
-        END IF;
-        -- Maintenance is permitted: let the operation through. RETURN NULL here would
-        -- silently CANCEL it — in a BEFORE row trigger a NULL return cancels the operation
-        -- — which is the exact opposite of what the escape hatch is for: failing closed
-        -- while appearing to succeed.
-        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-        RETURN NEW;
-      END; $body$ LANGUAGE plpgsql;
-    $fn$;
+    -- The EXISTS guard inside fn_body is not defensive noise: pg_has_role RAISES on a role
+    -- that does not exist, so without it a deployment that could not create the role would
+    -- block every operation with a confusing "role does not exist" error instead of this
+    -- one. Fails closed either way; this fails closed legibly.
+    --
+    -- 'usage' inside fn_body is deliberate and correct, unlike the migration-guard's own use
+    -- above: this predicate decides whether an ordinary application statement should be let
+    -- through, and an ordinary statement runs with whatever the session's INHERITED
+    -- privileges already are — it never issues its own SET ROLE. A maintenance session that
+    -- reaches this point via SET ROLE has current_user *equal to* the maintenance role,
+    -- under which 'usage' is trivially true; a session that only *could* SET ROLE but has
+    -- not is correctly still blocked here, exactly as it should be until it actually assumes
+    -- the role. RETURN NULL on the DELETE path would silently CANCEL the operation — in a
+    -- BEFORE row trigger a NULL return cancels it — the exact opposite of what the escape
+    -- hatch is for: failing closed while appearing to succeed.
+    EXECUTE format(
+      'CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS %L LANGUAGE plpgsql',
+      fn_body
+    );
     RESET ROLE;
   END IF;
 
@@ -628,34 +654,34 @@ BEGIN
     -- the one case where the migration cannot fall back on creating the real thing itself.
     SELECT count(*) INTO trg_count
       FROM pg_trigger t
-     WHERE t.tgrelid = '"ncmec_safety_audit_log"'::regclass
+     WHERE t.tgrelid = 'ncmec_safety_audit_log'::regclass
        AND t.tgname IN ('ncmec_safety_audit_log_no_mutate', 'ncmec_safety_audit_log_no_truncate')
        AND t.tgenabled IN ('O', 'A')
-       AND t.tgfoid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure
+       AND t.tgfoid = to_regprocedure('ncmec_safety_audit_log_append_only()')
        -- tgtype bits: 1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
-       AND (t.tgtype & 2) = 2
-       AND CASE t.tgname
-             WHEN 'ncmec_safety_audit_log_no_mutate'
-               THEN (t.tgtype & 1) = 1 AND (t.tgtype & 8) = 8 AND (t.tgtype & 16) = 16
-             ELSE (t.tgtype & 32) = 32
+       -- EXACT equality, not "these bits are set": a recovered trigger recreated with an
+       -- EXTRA event (e.g. BEFORE INSERT OR UPDATE OR DELETE, adding INSERT to no_mutate)
+       -- would satisfy a subset check while gating every ordinary audit-log append behind
+       -- the maintenance role too — silently breaking normal appends while this check keeps
+       -- reporting the boundary correctly wired. 27 = ROW(1)+BEFORE(2)+DELETE(8)+UPDATE(16);
+       -- 34 = BEFORE(2)+TRUNCATE(32). Verified against this repository's PostgreSQL 16
+       -- target rather than computed by hand alone.
+       AND t.tgtype = CASE t.tgname
+             WHEN 'ncmec_safety_audit_log_no_mutate' THEN 27
+             ELSE 34
            END;
 
     -- tgfoid alone is not proof the FUNCTION still implements the gate: `CREATE OR REPLACE
     -- FUNCTION` preserves the same oid even when the body underneath is swapped for something
     -- permissive, which is exactly the recovery-database scenario this branch exists for — an
     -- oid match would accept a same-named, same-signature function that lets everything
-    -- through. Full byte-for-byte comparison against the literal CREATE OR REPLACE text above
-    -- would be exact but brittle (duplicated, drifts silently if one copy is edited without the
-    -- other); instead this checks that the source still contains the specific substrings the
-    -- gate's actual logic depends on — the role it checks, the privilege type, and that it
-    -- raises rather than silently permitting — which a body that dropped the gate cannot
-    -- satisfy by accident.
-    SELECT p.prosrc LIKE '%overhype_audit_maintenance%'
-       AND p.prosrc LIKE '%''usage''%'
-       AND p.prosrc LIKE '%RAISE EXCEPTION%'
-      INTO fn_intact
-      FROM pg_proc p
-     WHERE p.oid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure;
+    -- through. Compared against fn_body — the SAME text the create branch above uses — rather
+    -- than substring markers: a permissive replacement could keep every marker substring
+    -- present while making the original body unreachable (e.g. prepending an unconditional
+    -- `RETURN NEW;`), so only an exact match proves the deployed function is this one.
+    SELECT prosrc = fn_body INTO fn_intact
+      FROM pg_proc
+     WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
 
     IF trg_count = 2 AND COALESCE(fn_intact, false) THEN
       RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role, both append-only triggers are already present, enabled and correctly wired, and the guard function''s source still implements the check — leaving them alone.';
@@ -686,8 +712,11 @@ END $outer$;
 -- >>> ncmec-0095 ownership hardening block (start)
 DO $$
 DECLARE
-  app_role text := current_user;
-  can_own  boolean := false;
+  app_role    text := current_user;
+  can_own     boolean := false;
+  tbl_done    boolean;
+  fn_done     boolean;
+  grants_done boolean;
 BEGIN
   -- Same defect, same fix as the rerun guard above: `usage` answers only whether
   -- `overhype_audit_owner`'s privileges are INHERITED, not whether this role can `SET ROLE`
@@ -710,10 +739,33 @@ BEGIN
     END IF;
   END IF;
 
-  IF can_own
-     AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                  WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
-                    AND pg_get_userbyid(c.relowner) <> 'overhype_audit_owner') THEN
+  -- Each of the three things this block is responsible for — table ownership, function
+  -- ownership, and the two application grants — is checked INDEPENDENTLY, not inferred from
+  -- table ownership alone. A DBA sequence interrupted after `ALTER TABLE ... OWNER TO` but
+  -- before the function transfer and the GRANTs would otherwise read as "already done" on
+  -- the next rerun: the application permanently short of its SELECT/INSERT grants, the guard
+  -- function possibly still application-owned, and ncmecAuditBoundaryStatus() free to report
+  -- the boundary enforced on a database that was never actually finished hardening.
+  -- Unqualified `to_regclass`/`to_regprocedure` resolve via search_path, the same path this
+  -- migration's own (also unqualified) statements used to place these objects — hardcoding
+  -- `nspname = 'public'` here would look in the wrong schema under any search_path that
+  -- doesn't put `public` first.
+  SELECT pg_get_userbyid(relowner) = 'overhype_audit_owner' INTO tbl_done
+    FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log');
+  tbl_done := COALESCE(tbl_done, false);
+
+  SELECT pg_get_userbyid(proowner) = 'overhype_audit_owner' INTO fn_done
+    FROM pg_proc WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
+  fn_done := COALESCE(fn_done, false);
+
+  grants_done := has_table_privilege(app_role, 'ncmec_safety_audit_log', 'SELECT')
+             AND has_table_privilege(app_role, 'ncmec_safety_audit_log', 'INSERT')
+             AND has_sequence_privilege(app_role, 'ncmec_safety_audit_log_id_seq', 'USAGE')
+             AND has_sequence_privilege(app_role, 'ncmec_safety_audit_log_id_seq', 'SELECT');
+
+  IF tbl_done AND fn_done AND grants_done THEN
+    RAISE NOTICE '0095: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place.';
+  ELSIF can_own THEN
     -- The OWNER TO statements must run as the CURRENT owner (app_role, no role switch) —
     -- Postgres's special-case rule for ALTER ... OWNER TO lets an owning role with only
     -- SET-capability (no INHERIT) on the target reassign ownership directly, but the
@@ -726,20 +778,23 @@ BEGIN
     -- PostgreSQL 16 target while adding test coverage for this block: switching role BEFORE
     -- the OWNER TO statements instead fails with "must be owner of table" — that ordering
     -- is not interchangeable, both directions were confirmed to break it.
-    EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" OWNER TO overhype_audit_owner';
-    EXECUTE 'ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner';
+    IF NOT tbl_done THEN
+      EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" OWNER TO overhype_audit_owner';
+    END IF;
+    IF NOT fn_done THEN
+      EXECUTE 'ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner';
+    END IF;
     IF to_regrole('overhype_audit_owner') <> to_regrole(current_user) THEN
       EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
     END IF;
     -- The application role keeps exactly what it needs to append and read.
-    EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
-    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
+    IF NOT grants_done THEN
+      EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
+      EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
+    END IF;
     RESET ROLE;
-    RAISE NOTICE '0095: ncmec_safety_audit_log ownership transferred to overhype_audit_owner.';
-  ELSIF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                 WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
-                   AND pg_get_userbyid(c.relowner) = 'overhype_audit_owner') THEN
-    RAISE NOTICE '0095: ncmec_safety_audit_log is already owned by overhype_audit_owner.';
+    RAISE NOTICE '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %) — now complete.',
+      tbl_done, fn_done, grants_done;
   ELSE
     -- The last clause of the instruction is the one that actually matters, and it is why
     -- the transfer cannot be completed from inside this migration: transferring ownership

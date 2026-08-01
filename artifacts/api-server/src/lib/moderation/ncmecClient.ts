@@ -477,7 +477,23 @@ export class NcmecClient {
           credentialFailure: false,
         };
       }
-      throw err;
+      // Anything else here is the response stream itself erroring mid-read — most commonly
+      // a connection reset after headers arrived but before the body finished, which
+      // `reader.read()` surfaces as an ordinary (non-NcmecResponseError) rejection, not
+      // through readBoundedText's own error path. Rethrowing this would escape call()
+      // entirely as an unhandled rejection, bypassing every endpoint's error classification
+      // — including /submit's ambiguity downgrade, which specifically exists for exactly
+      // this shape of failure (headers arrived, body did not, so it is unknown whether
+      // NCMEC processed the request). Treated the same as the fetch-throw case above:
+      // retryable, no responseCode, kind "network".
+      return {
+        status: "err",
+        responseCode: null,
+        message: `ISPWS response stream failed: ${(err as Error).message}`,
+        retryable: true,
+        kind: "network",
+        credentialFailure: false,
+      };
     }
 
     if (envelope.root !== init.expectedRoot) {
@@ -579,6 +595,14 @@ export class NcmecClient {
     if (!fileId || !hash) {
       return missingElement("/upload", !fileId ? "fileId" : "hash");
     }
+    // Not required — ISPWS's documented /upload contract only promises fileId and hash — but
+    // verified when present: a well-formed response for a DIFFERENT report would otherwise
+    // hand back a real fileId that this method has no way to know belongs to someone else's
+    // filing.
+    const echoedReportId = textOf(result.values["reportId"]);
+    if (echoedReportId != null && echoedReportId !== reportId) {
+      return mismatchedReportId("/upload", reportId, echoedReportId);
+    }
     return { status: "ok", data: { fileId, hash } };
   }
 
@@ -611,6 +635,12 @@ export class NcmecClient {
     if (!returnedId) {
       return missingElement("/finish", "reportId");
     }
+    // This is the call that marks a filing complete — a response confirming the WRONG
+    // report here is the sharpest version of this class of bug: it would mark report A
+    // finished off report B's acknowledgement, leaving A never actually filed.
+    if (returnedId !== reportId) {
+      return mismatchedReportId("/finish", reportId, returnedId);
+    }
     const files = result.values["files"] as Record<string, unknown> | undefined;
     return {
       status: "ok",
@@ -624,6 +654,13 @@ export class NcmecClient {
     form.append("id", reportId);
     const result = await this.call("/retract", { method: "POST", body: form, expectedRoot: "reportResponse" });
     if ("status" in result) return result;
+    // Verified when present, same as /upload: a well-formed success response for a
+    // different report would otherwise report the retract-first guard's cancellation as
+    // having succeeded for the WRONG report, leaving the intended one still open.
+    const echoedReportId = textOf(result.values["reportId"]);
+    if (echoedReportId != null && echoedReportId !== reportId) {
+      return mismatchedReportId("/retract", reportId, echoedReportId);
+    }
     return { status: "ok", data: { responseCode: result.responseCode, description: result.description } };
   }
 }
@@ -638,6 +675,28 @@ function missingElement(path: string, element: string): NcmecCallErr {
     status: "err",
     responseCode: NCMEC_RESPONSE_CODES.SUCCESS,
     message: `ISPWS ${path} reported success but omitted <${element}>`,
+    retryable: false,
+    kind: "malformed",
+    credentialFailure: false,
+  };
+}
+
+/**
+ * A `<reportId>` echoed back that does not match the one this call sent. Every report-keyed
+ * endpoint after `/submit` carries the id both ways — as the multipart `id` field sent and
+ * as `<reportId>` in the response — and nothing before this correlated them. A misrouted or
+ * proxy-corrupted response for a DIFFERENT report, still well-formed and still responseCode
+ * 0, would otherwise be read as confirmation for THIS report: `/finish` marking report A
+ * complete off report B's acknowledgement, or `/retract` reporting success for the wrong
+ * report while the intended one stays open. Not retryable — repeating the request cannot fix
+ * a response that was never about this report to begin with, and this is exactly the state
+ * the retract-first / duplicate-filing guards must not be lied to about.
+ */
+function mismatchedReportId(path: string, expected: string, actual: string): NcmecCallErr {
+  return {
+    status: "err",
+    responseCode: NCMEC_RESPONSE_CODES.SUCCESS,
+    message: `ISPWS ${path} echoed <reportId>${actual}</reportId>, not the ${expected} this call was for`,
     retryable: false,
     kind: "malformed",
     credentialFailure: false,

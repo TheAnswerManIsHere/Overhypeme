@@ -148,7 +148,39 @@ export interface NcmecAuditBoundaryStatus {
   applicationOwnsTable: boolean;
   /** Both append-only triggers present and enabled. */
   triggersEnabled: boolean;
+  /**
+   * True when the guard function's own source still implements the check. `CREATE OR
+   * REPLACE FUNCTION` preserves the function's oid, so a hardened database whose guard
+   * function was replaced with a permissive body BEFORE ownership moved out of reach would
+   * still pass every trigger-wiring check (name, enabled, tgfoid, tgtype) — the trigger
+   * genuinely calls "the function named ncmec_safety_audit_log_append_only", it just no
+   * longer does what that name promises. `NCMEC_AUDIT_LOG_GUARD_FN_BODY` below is compared
+   * against `pg_proc.prosrc` for an exact match, mirroring the same check migration 0095
+   * makes on the same tampering (see `fn_body` there — a migration test asserts the two
+   * copies stay byte-identical, since this file cannot literally share the migration's
+   * PL/pgSQL source).
+   */
+  guardFunctionIntact: boolean;
 }
+
+/**
+ * The append-only guard function's exact body, copied from migration 0095's `fn_body`
+ * (`lib/db/migrations/0095_ncmec_submission.sql`). Kept identical there and here rather than
+ * computed once and shared, because a SQL migration file and a TypeScript module cannot
+ * literally import from each other — `migrations.0095.test.ts` asserts byte-for-byte equality
+ * between the two copies, so drift fails CI instead of silently weakening this check.
+ */
+export const NCMEC_AUDIT_LOG_GUARD_FN_BODY = `
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+     OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
+    RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
+      USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+`;
 
 /**
  * Report whether the append-only guarantee on `ncmec_safety_audit_log` is a
@@ -248,7 +280,9 @@ export async function ncmecAuditBoundaryStatus(): Promise<
     table_owner: string;
     maintenance_role_exists: boolean;
     triggers_enabled: boolean;
-  }>(`
+    guard_function_intact: boolean;
+  }>(
+    `
     SELECT current_user::text AS application_role,
            pg_get_userbyid(c.relowner) AS table_owner,
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
@@ -258,28 +292,42 @@ export async function ncmecAuditBoundaryStatus(): Promise<
            -- statements, so counting it as enabled would report an enforced
            -- boundary over a ledger anyone with UPDATE could still rewrite.
            -- The function and event bits are checked too, so a same-named trigger
-           -- wired to something else cannot stand in for the real one.
+           -- wired to something else cannot stand in for the real one. tgtype is
+           -- an EXACT match, not "these bits are set": an extra event (e.g. an
+           -- INSERT added to no_mutate) would satisfy a subset check while
+           -- gating every ordinary audit-log append behind the maintenance
+           -- role too. 27 = ROW(1)+BEFORE(2)+DELETE(8)+UPDATE(16);
+           -- 34 = BEFORE(2)+TRUNCATE(32) — verified against this repository's
+           -- PostgreSQL 16 target.
            (SELECT count(*) = 2
               FROM pg_trigger t
              WHERE t.tgrelid = c.oid
                AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
                                 'ncmec_safety_audit_log_no_truncate')
                AND t.tgenabled IN ('O', 'A')
-               AND t.tgfoid = 'public.ncmec_safety_audit_log_append_only()'::regprocedure
-               -- tgtype bits: 1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE,
-               -- 16 = UPDATE, 32 = TRUNCATE. Together the pair must cover UPDATE,
-               -- DELETE and TRUNCATE, all BEFORE.
-               AND (t.tgtype & 2) = 2
-               AND CASE t.tgname
-                     WHEN 'ncmec_safety_audit_log_no_mutate'
-                       THEN (t.tgtype & 1) = 1 AND (t.tgtype & 8) = 8 AND (t.tgtype & 16) = 16
-                     ELSE (t.tgtype & 32) = 32
+               AND t.tgfoid = to_regprocedure('ncmec_safety_audit_log_append_only()')
+               AND t.tgtype = CASE t.tgname
+                     WHEN 'ncmec_safety_audit_log_no_mutate' THEN 27
+                     ELSE 34
                    END)
-             AS triggers_enabled
+             AS triggers_enabled,
+           -- tgfoid matching is not proof the function still implements the gate:
+           -- CREATE OR REPLACE FUNCTION preserves the oid even when the body is
+           -- swapped for something permissive. Compared against the exact source
+           -- text (see NCMEC_AUDIT_LOG_GUARD_FN_BODY), not substring markers — a
+           -- permissive replacement could keep marker substrings present while
+           -- making the original body unreachable.
+           COALESCE(
+             (SELECT prosrc = $1
+                FROM pg_proc
+               WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')),
+             false
+           ) AS guard_function_intact
       FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE c.relname = 'ncmec_safety_audit_log' AND n.nspname = 'public'
-  `);
+     WHERE c.oid = to_regclass('ncmec_safety_audit_log')
+  `,
+    [NCMEC_AUDIT_LOG_GUARD_FN_BODY],
+  );
 
   const row = rows[0];
   if (!row) {
@@ -297,12 +345,14 @@ export async function ncmecAuditBoundaryStatus(): Promise<
       : false,
     applicationOwnsTable: await canEffectivelyAssumeRole(row.table_owner),
     triggersEnabled: row.triggers_enabled,
+    guardFunctionIntact: row.guard_function_intact,
   };
 
   return {
     ...status,
     boundaryEnforced:
       status.triggersEnabled &&
+      status.guardFunctionIntact &&
       !status.applicationOwnsTable &&
       !status.applicationCanBypassTrigger,
   };

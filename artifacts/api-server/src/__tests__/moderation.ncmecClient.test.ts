@@ -353,6 +353,45 @@ describe("NcmecClient — parser hardening", () => {
     );
   });
 
+  function streamThatErrorsMidRead(): ReadableStream<Uint8Array> {
+    // Headers arrive (the Response is constructed successfully), but reader.read() rejects
+    // partway through — a connection reset after the request reached something, distinct
+    // from readBoundedText's own NcmecResponseError path (oversized/no-body), and distinct
+    // from fetchImpl throwing outright (no response at all).
+    let sent = false;
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(new TextEncoder().encode("<reportResponse><responseCode>0"));
+          return;
+        }
+        controller.error(new Error("ECONNRESET mid-stream"));
+      },
+    });
+  }
+
+  it("converts a response-stream error into a retryable network failure", async () => {
+    const fetchImpl = (async () =>
+      new Response(streamThatErrorsMidRead(), { status: 200, headers: { "content-type": "text/xml" } })) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "network");
+    assert.equal(result.status === "err" && result.retryable, true);
+    assert.match(result.status === "err" ? result.message : "", /response stream failed/);
+  });
+
+  it("downgrades a response-stream error on /submit to ambiguous, same as a dropped connection", async () => {
+    const fetchImpl = (async () =>
+      new Response(streamThatErrorsMidRead(), { status: 200, headers: { "content-type": "text/xml" } })) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
   it("rejects a body that is well-formed XML but not an ISPWS envelope", async () => {
     const { instance } = client('<?xml version="1.0"?><somethingElse><responseCode>0</responseCode></somethingElse>');
     const result = await instance.submitReport("<report/>");
@@ -405,6 +444,47 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status, "err");
     assert.equal(result.status === "err" && result.kind, "malformed");
     assert.match(result.status === "err" ? result.message : "", /reportResponse/);
+  });
+});
+
+// ─── Report id correlation ──────────────────────────────────────────────────
+
+describe("NcmecClient — response reportId correlation", () => {
+  it("rejects /finish confirming a different report than the one asked for", async () => {
+    // The sharpest version of this bug: reading this uncritically would mark the WRONG
+    // report finished off another report's acknowledgement.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportDoneResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportDoneResponse>',
+    );
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.match(result.status === "err" ? result.message : "", /9999999.*4564654|4564654.*9999999/);
+  });
+
+  it("rejects /retract confirming a different report than the one asked for", async () => {
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportResponse>',
+    );
+    const result = await instance.retractReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("rejects /upload confirming a different report than the one asked for", async () => {
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId>' +
+        "<fileId>b0754af766b426f2928a02c651ed4b99</fileId><hash>fafa5efeaf3cbe3b23b2748d13e629a1</hash></reportResponse>",
+    );
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("accepts /retract with no echoed reportId at all — correlation is verified, not required", async () => {
+    const { instance } = client('<?xml version="1.0"?><reportResponse><responseCode>0</responseCode></reportResponse>');
+    const result = await instance.retractReport("4564654");
+    assert.equal(result.status, "ok");
   });
 });
 
