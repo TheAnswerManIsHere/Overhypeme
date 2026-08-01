@@ -95,11 +95,16 @@
   "Revisit if" note, which left raising `max` "explicitly out of scope" —
   that entry's other clause (a future queue needing its own lane) is
   unaffected and stands.
-- **Revisit if:** any lane's concurrency is raised past its default (no
-  aggregate cap ties the five lanes' concurrency settings together — see
-  the glossary's Lane entry), or the autoscale ceiling exceeds ~19 instances
-  at default lane settings — either widens real worst-case demand past what
-  20 currently covers.
+- **Revisit if:** the five lanes' *combined* concurrency (no aggregate cap
+  ties their individually-configurable settings together — see the
+  glossary's Lane entry) is raised enough to push per-instance worst-case
+  demand past 20 — the defaults sum to 10, so a single small increase (e.g.
+  `fast` 2→3, demand 11) merely narrows the margin and is advisory, not an
+  immediate resize trigger; only a combined increase past 20 actually
+  exceeds what the constant covers. Also revisit if the autoscale ceiling
+  exceeds ~19 instances at default lane settings — a different threshold,
+  since that one threatens the *global* 398-connection budget
+  (`max_instances × 20`) rather than any single instance's demand.
 
 ### 2026-07-29 · Codex "Exhaustive code review" ON, review trigger stays "On PR open" — and the switch is a dated boundary in the ledger
 - **Decision:** In the Codex connector's code-review settings, **Exhaustive

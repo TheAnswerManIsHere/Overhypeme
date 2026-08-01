@@ -191,11 +191,14 @@ deliberately excludes them and points here instead.
     there so a lost decrement self-corrects on the next tick instead of
     leaving a healthy lane looking permanently wedged.
   - Departed instances (an autoscale scale-down) are pruned on a purge
-    cadence — this bounds the table's growth as instances churn; it does
-    **not** gate liveness correctness, since `laneHealth`'s own live-cutoff
-    predicate (below) already excludes a departed instance's row before
-    aggregation regardless of whether the row has physically been deleted
-    yet.
+    cadence — this bounds the table's growth as instances churn, **and it
+    is liveness-critical, not merely retention**: the prune cutoff must
+    never be narrower than `laneHealth`'s own live-cutoff predicate (below),
+    because a row deleted before the query's cutoff would have excluded it
+    is indistinguishable from that row never having existed — the query can
+    only correctly evaluate a row that's still there when it runs. See the
+    widened-cutoff coupling below for why both are wired to the identical
+    formula.
 - **Per-lane "stalled" is `max(3× the lane's poll interval, 60s)`** of no
   `last_scheduled_at` movement — at every current lane's **default** interval
   (2s or 5s), the 60s floor is what actually governs, so a stall means
@@ -208,28 +211,29 @@ deliberately excludes them and points here instead.
   knobs feed the same liveness check and must stay coupled at every
   consumer, not just the primary read path**: the heartbeat TTL
   (`admin_config`) and each lane's own stale threshold. A TTL shorter than a
-  lane's threshold would, if left unwidened, prune the row before the
-  threshold check ever ran; the live-instance query cutoff is
-  `max(configured TTL, the widest stale threshold across all lanes)`, and
-  review caught that the periodic `pruneDepartedInstances()` delete sweep
-  (which runs on its own schedule, independent of any query) needed the
-  **identical** widened cutoff for the same reason — a narrower prune
-  cutoff could otherwise physically delete a row before the widened query's
-  own predicate would have excluded it, reporting a merely-slow lane as
-  stalled at the (narrower) TTL boundary instead. **Both consumers are now
-  wired to the same formula** (`asyncJobs.ts:936-938` computes
-  `widenedTtlMinutes = max(configuredTtlMinutes, widestStaleThresholdMs() /
-  60_000)` and passes it into `pruneDepartedInstances`, matching
-  `laneHealth`'s own `liveCutoff`) — since both cutoffs are always the same
-  timestamp at evaluation time, prune can never delete a row younger than
-  the cutoff the query uses to decide "live," so it never removes a row the
-  query would still count. With that coupling in place, this is a
-  retention/data-completeness fix (a stale-but-not-yet-departed instance's
-  row and diagnostics stay available for longer), not a fix to the
-  `stalled` verdict itself — the verdict was already computed correctly by
-  the query's own live-cutoff predicate; the risk this paragraph describes
-  is what the *unwidened* prune cutoff would have caused, not present
-  behavior.
+  lane's threshold would, if left unwidened, exclude the row from the
+  query before the per-lane threshold check ever ran; the live-instance
+  query cutoff is `max(configured TTL, the widest stale threshold across
+  all lanes)`. Review caught that the periodic `pruneDepartedInstances()`
+  delete sweep (which runs on its own schedule, independent of any query)
+  needed the **identical** widened cutoff, and this is **liveness-critical,
+  not optional retention**: if the row physically no longer exists when
+  the query runs, the query's own correctly-widened predicate has nothing
+  left to evaluate — a prematurely-deleted row and a wrongly-excluded row
+  produce the identical wrong outcome (`lastScheduledAt: null` →
+  `stalled: true`), so the query's predicate being logically correct in
+  isolation does not make the verdict correct unless the row it needs is
+  still there. **Both consumers are now wired to the same formula**
+  (`asyncJobs.ts:936-938` computes `widenedTtlMinutes =
+  max(configuredTtlMinutes, widestStaleThresholdMs() / 60_000)` and passes
+  it into `pruneDepartedInstances`, matching `laneHealth`'s own
+  `liveCutoff`) — since both cutoffs are always the same timestamp at
+  evaluation time, prune can never delete a row before the query's own
+  cutoff would already have excluded it, which is what keeps the `stalled`
+  verdict correct. Losing this coupling (e.g. a future change that
+  widens the query cutoff without widening prune's) would silently
+  reintroduce false stalls, not just shrink a retention window — treat the
+  two cutoffs as one invariant, not two independent tuning knobs.
 - **Three read surfaces**, all derived by query — no `async_jobs` or
   heartbeat state is written by a reader (the two admin-authenticated
   endpoints do write `rate_limit_counters` on every request, via the same

@@ -115,13 +115,14 @@ queue's items:
   every queue gets, not just email.
 - **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
   on total API-process death it's unreachable exactly like every other
-  endpoint, so that's not what makes it useful. What's unique is a
-  meaningful unhealthy response *while the process is still up*: it turns
-  unhealthy when a lane has gone quiet **fleet-wide**, a failure mode
-  nothing running *inside* the process can otherwise report about itself —
-  and it also fails closed (same unhealthy response) if checking lane health
-  itself errors out, rather than risking a false "all clear." A single
-  instance scaling down is normal, not an incident.
+  endpoint, so that's not what makes it useful. The aggregate endpoint above
+  already reports the same fleet-wide stall, as data in its JSON body behind
+  a 200. What's unique about the probe is turning that same verdict into
+  the **HTTP status code itself** — a meaningful unhealthy response *while
+  the process is still up*, so an external monitor can act on it without
+  parsing a body — and it also fails closed (same unhealthy response) if
+  checking lane health itself errors out, rather than risking a false "all
+  clear." A single instance scaling down is normal, not an incident.
 
 ## Why it works this way
 
@@ -203,8 +204,9 @@ elsewhere.
   the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
   (the Queue Health page).
 - [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
-  why the `abandoned_no_retry` classification persists at finalize instead
-  of re-deriving live.
+  why the **retry ceiling** (not the `abandoned_no_retry` classification
+  itself, which stays derived on every read) persists on the row at finalize
+  instead of being re-resolved live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).
