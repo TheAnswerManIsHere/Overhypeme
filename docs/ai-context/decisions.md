@@ -74,8 +74,10 @@
 
 ### 2026-07-30 · Async-jobs DB connection pool `max` raised to 20, explicit and derived — supersedes PR #216's deferral
 - **Decision:** The shared Postgres pool's `max` (`lib/db/src/index.ts`) is
-  now an explicit, derived value — `min(20, floor(398 / max_instances))` —
-  instead of pg's implicit default of 10.
+  now an explicit constant, `20`, instead of pg's implicit default of 10.
+  20 is the offline-computed result of `min(20, floor(398 / max_instances))`
+  at the observed fleet size — the code hardcodes the result, it does not
+  evaluate that formula against a live `max_instances` at runtime.
 - **Why:** PR #256's five-lane expansion (on top of PR #216's original
   fast/render/bulk split) raised the lanes' default combined concurrency to
   10 — exactly at the old implicit `max`, leaving zero spare connections for

@@ -208,20 +208,33 @@ deliberately excludes them and points here instead.
   knobs feed the same liveness check and must stay coupled at every
   consumer, not just the primary read path**: the heartbeat TTL
   (`admin_config`) and each lane's own stale threshold. A TTL shorter than a
-  lane's threshold would prune the row before the threshold check ever ran;
-  the live-instance query cutoff is `max(configured TTL, the widest stale
-  threshold across all lanes)` — and the periodic `pruneDepartedInstances()`
-  delete sweep (which runs on its own schedule, independent of any query)
-  needed the identical widened cutoff, since a narrower prune cutoff could
-  physically delete a row before the widened query's own predicate would
-  have excluded it. Missing that second consumer was a real gap caught by
-  review — it's a retention/data-completeness fix (a stale-but-not-yet-
-  departed instance's row and diagnostics stay available for longer), not a
-  fix to the `stalled` verdict itself, which the query's live-cutoff
-  predicate already computes correctly on its own regardless of when
-  physical deletion happens.
-- **Three read surfaces**, all derived by query — nothing new is written by
-  a reader:
+  lane's threshold would, if left unwidened, prune the row before the
+  threshold check ever ran; the live-instance query cutoff is
+  `max(configured TTL, the widest stale threshold across all lanes)`, and
+  review caught that the periodic `pruneDepartedInstances()` delete sweep
+  (which runs on its own schedule, independent of any query) needed the
+  **identical** widened cutoff for the same reason — a narrower prune
+  cutoff could otherwise physically delete a row before the widened query's
+  own predicate would have excluded it, reporting a merely-slow lane as
+  stalled at the (narrower) TTL boundary instead. **Both consumers are now
+  wired to the same formula** (`asyncJobs.ts:936-938` computes
+  `widenedTtlMinutes = max(configuredTtlMinutes, widestStaleThresholdMs() /
+  60_000)` and passes it into `pruneDepartedInstances`, matching
+  `laneHealth`'s own `liveCutoff`) — since both cutoffs are always the same
+  timestamp at evaluation time, prune can never delete a row younger than
+  the cutoff the query uses to decide "live," so it never removes a row the
+  query would still count. With that coupling in place, this is a
+  retention/data-completeness fix (a stale-but-not-yet-departed instance's
+  row and diagnostics stay available for longer), not a fix to the
+  `stalled` verdict itself — the verdict was already computed correctly by
+  the query's own live-cutoff predicate; the risk this paragraph describes
+  is what the *unwidened* prune cutoff would have caused, not present
+  behavior.
+- **Three read surfaces**, all derived by query — no `async_jobs` or
+  heartbeat state is written by a reader (the two admin-authenticated
+  endpoints do write `rate_limit_counters` on every request, via the same
+  `checkSharedRateLimit()` every rate-limited admin route uses — unrelated
+  to queue/lane state):
   - `GET /api/admin/queue-health` — aggregate altitude. Per queue: the four raw
     status tallies, two derived states (below), oldest-pending age, 24h
     throughput. Per lane: live instance count, heartbeat ages, in-flight
@@ -274,16 +287,23 @@ deliberately excludes them and points here instead.
     re-resolve of `admin_config`, and why a legacy `0`-sentinel row is
     deliberately classified conservatively (plain `failed`) rather than risk
     the same misclassification on data that can't be resolved safely.
-- **The connection pool's `max` is now explicit and derived**, not pg's
-  implicit default of 10 (`lib/db/src/index.ts`): production measured
-  `max_connections` 450, 7 superuser-reserved, ~13 in use on a live app
-  (direct connection, not pooled) →
-  `budget = 450 − 7 − 5 (migration/console/admin burst) − 40 (headroom) = 398`,
-  `max = min(20, floor(398 / max_instances))`. 20 doubles the five lanes'
-  **default** worst-case simultaneous demand (fast 2 + render 3 + bulk 3 +
-  pexels 1 + ai_meme_backfill 1 = 10) and holds for any autoscale ceiling up
-  to 19 instances at those defaults; `DB_POOL_MAX` overrides it for a larger
-  autoscale ceiling. Each lane's concurrency is independently
+- **The connection pool's `max` is now an explicit constant, 20**, not pg's
+  implicit default of 10 (`lib/db/src/index.ts`). 20 is **offline-derived,
+  not runtime-computed** — the code hardcodes `POOL_MAX_DEFAULT = 20` and
+  reads no `max_instances` value; nothing shrinks or grows it automatically
+  as the fleet scales. The comment above that constant records the
+  one-time arithmetic that produced it: production measured `max_connections`
+  450, 7 superuser-reserved, ~13 in use on a live app (direct connection, not
+  pooled) → `budget = 450 − 7 − 5 (migration/console/admin burst) − 40
+  (headroom) = 398`, `max = min(20, floor(398 / max_instances))` evaluated
+  by hand at the observed fleet size, not by the running process. 20 doubles
+  the five lanes' **default** worst-case simultaneous demand (fast 2 +
+  render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1 = 10) and holds for any
+  autoscale ceiling up to 19 instances at those defaults; past 19 instances
+  (or with `DB_POOL_MAX` unset and a larger fleet), the constant does **not**
+  adjust itself — an operator must manually re-run the `floor(398 / N)`
+  arithmetic for the new ceiling and set `DB_POOL_MAX` explicitly. Each
+  lane's concurrency is independently
   environment-configurable (`ASYNC_JOBS_FAST_MAX_CONCURRENCY`,
   `_RENDER_`, `_PEXELS_`, `_AI_MEME_BACKFILL_MAX_CONCURRENCY`, and the
   `bulk`-lane/legacy fallback `ASYNC_JOBS_MAX_CONCURRENCY`) with **no

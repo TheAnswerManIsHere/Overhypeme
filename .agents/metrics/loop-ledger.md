@@ -201,14 +201,21 @@ unresolved unknown the way the original hedge was.
 (#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289),
 declining slightly.** Two points is thinner evidence than the three-point
 reading this section previously reported, and shouldn't be overstated
-either way. Removing #285 also happens to sharpen the cohort split rather
-than blur it: pre-boundary is #270 `prose/contract`, #274 and #282
-`plan-review` (one prose, two plan); the confirmed post-boundary pair is
-#288 and #289, both `prose/contract` (zero plan-review). That is a cleaner
-cohort separation than the three-and-three reading had, but with only two
-confirmed post-boundary points it is even weaker evidence of a causal effect
-than the n=3 reading this section previously (incorrectly) relied on — not
-stronger just because the split is tidier. #285 itself is not discarded as
+either way. **The confirmed post-boundary pair shares a script cohort
+*label* but not a real shape, and that confound is not removed by
+excluding #285 — it's the same problem in a new place.** #288 and #289 are
+both classified `prose/contract` only because `classifyCohort` checks for
+any `.md` file before checking the PR's own fix-tier field, exactly the
+leakage this file already documents (see *The cohort rule leaks bugfix
+loops into prose/contract* below): row 12 describes #288 as a 21-file
+backend/frontend/migration/test **implementation** that happens to carry
+paired docs, while row 13 describes #289 as a **documentation-backfill**
+PR with no comparable code surface. So the n=2 post-boundary reading is
+**implementation-vs-docs confounded**, not a clean same-shape pair — #285
+was excluded for a real, different reason (the boundary straddle), and
+that exclusion neither creates nor removes this separate confound. With
+only two confirmed post-boundary points, already-thin evidence, that
+confound matters more, not less. #285 itself is not discarded as
 a data point: its 50.0% self-inflicted share still stands in the row 10 note
 and in the nine-row list above; it is excluded from this specific
 pre/post-boundary comparison only, because its own rounds don't sit
@@ -247,10 +254,11 @@ impression, now checked against six loops instead of four:**
   PR, #294, once it closes) the way #270 tested it for code.
 
 This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
-post-boundary (declining; #285 excluded as a boundary straddle, not a
-cohort confound), not a finding. It is recorded here so the next rows — on
-either side of the boundary — can confirm or kill it rather than
-re-deriving it.
+post-boundary (declining; #285 excluded as a boundary straddle — a
+separate issue from, and not fixed by, the implementation-vs-docs cohort
+confound the remaining pair still carries), not a finding. It is recorded
+here so the next rows — on either side of the boundary — can confirm or
+kill it rather than re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
