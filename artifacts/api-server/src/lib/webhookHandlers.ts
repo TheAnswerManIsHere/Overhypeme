@@ -509,6 +509,16 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         stripeSubscriptionId: subscriptionId,
       });
 
+      if (subscriptionId) {
+        // Authoritative about the source, exactly like `invoice.paid` and
+        // `invoice.payment_failed`. A renewal that needs SCA can already have
+        // moved the subscription to `past_due`, so if this is the only lifecycle
+        // event delivered, a history-only handler leaves the local source
+        // `active` with no grace deadline indefinitely — while holding an
+        // authoritative invoice event that says otherwise.
+        entitlement = await prepareSubscriptionRefresh(stripe, subscriptionId);
+      }
+
       if (!event.livemode) {
         logger.info({ userId: user.id, invoiceId: inv.id }, "invoice.payment_action_required: skipping SCA email — test-mode event");
         break;

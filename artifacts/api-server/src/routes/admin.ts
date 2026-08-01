@@ -52,6 +52,7 @@ import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConf
 import {
   isMembershipConfigKey,
   lockAndLoadMembershipConfig,
+  resolveMembershipConfig,
   validateMembershipConfigSet,
   type MembershipConfigKey,
 } from "../lib/membershipTiming";
@@ -64,6 +65,8 @@ import {
  */
 class RelationalConfigError extends Error {}
 import { effectiveTierExpr } from "../lib/membershipState";
+import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
+import { graceSweepHealth } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
   hasQualifyingLifetimeSource,
@@ -126,25 +129,35 @@ function adminLabel(actor: { displayName?: string | null; email?: string | null 
  * can reinstate again once Stripe is reachable, and the scheduled reconciliation
  * repairs the source regardless.
  */
-async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
-  let refreshComplete = false;
+/**
+ * Refresh every Stripe-backed source before a reinstatement decides anything.
+ *
+ * Returns whether the refresh was COMPLETE. `failed` counts per-source failures
+ * `refreshAllSourcesForUser` swallows internally, so the absence of a throw is
+ * not evidence that every source was seen — and reinstating on a stale local row
+ * is exactly how a cancelled subscription hands Legendary back.
+ *
+ * Deliberately returns no tier. An earlier revision derived one here, in its own
+ * transaction, and the caller copied it into a later `UPDATE` — so a refund or
+ * cancellation webhook recomputing in the gap was overwritten, restoring
+ * Legendary with a null horizon and granting access indefinitely. The derivation
+ * has to happen under the same lock as the write that lands it, which is the
+ * caller's transaction, not this function's.
+ */
+async function refreshSourcesForReinstatement(userId: string): Promise<boolean> {
   try {
     const { getUncachableStripeClient } = await import("../lib/stripeClient");
     const stripe = await getUncachableStripeClient();
-    // `failed` counts per-source failures the helper swallowed internally, so
-    // the absence of a throw is NOT evidence that every source was refreshed.
     const { failed } = await refreshAllSourcesForUser(stripe, userId);
-    refreshComplete = failed === 0;
-    if (!refreshComplete) {
+    if (failed > 0) {
       logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
+      return false;
     }
+    return true;
   } catch (err) {
     logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
+    return false;
   }
-
-  const result = await db.transaction((tx) => recomputeMembership(tx, userId));
-  if (!refreshComplete) return "registered";
-  return result?.tier === "legendary" ? "legendary" : "registered";
 }
 
 const router: IRouter = Router();
@@ -252,22 +265,49 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     return;
   }
 
+  let reinstating = false;
   if (updates.isActive === true && body["membershipTier"] === undefined) {
     const [currentUser] = await db
       .select({ isActive: usersTable.isActive })
       .from(usersTable)
       .where(eq(usersTable.id, id))
       .limit(1);
-    if (currentUser && currentUser.isActive === false) {
-      updates.membershipTier = await resolveUserTierOnReinstatement(id);
-    }
+    reinstating = currentUser?.isActive === false;
   }
 
-  const [updated] = await db
-    .update(usersTable)
-    .set(updates)
-    .where(eq(usersTable.id, id))
-    .returning();
+  // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
+  // only whether it was complete — never a tier.
+  const refreshComplete = reinstating ? await refreshSourcesForReinstatement(id) : true;
+
+  const [updated] = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, id))
+      .returning();
+
+    if (!row || !reinstating) return [row];
+
+    // Derived and written under the SAME lock, in the same transaction as the
+    // activation. `recomputeMembership` takes the user row `FOR UPDATE`, so a
+    // refund or cancellation webhook either lands before this and is counted, or
+    // waits behind it — where copying a previously-derived tier into this update
+    // would simply overwrite whatever it had just decided.
+    await recomputeMembership(tx, id);
+
+    if (!refreshComplete) {
+      // Fail closed, still under that lock: an unverified source set must not
+      // restore access. The horizon goes with the tier, since `registered`
+      // carries none.
+      await tx
+        .update(usersTable)
+        .set({ membershipTier: "registered", membershipValidUntil: null })
+        .where(eq(usersTable.id, id));
+    }
+
+    const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    return [fresh];
+  });
 
   if (!updated) {
     res.status(404).json({ error: "User not found" });
@@ -609,6 +649,32 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
 // Returns rows for events: refund, partial_refund, dispute_opened, dispute_won,
 // dispute_lost, dispute_closed.
 // Joined with the users table so the UI can display who was affected without a second round-trip.
+/**
+ * GET /admin/membership/grace-sweep — the sweep's status at BOTH altitudes.
+ *
+ * `health` is the aggregate: cadence, staleness, whether it is past its alert
+ * threshold, and the last error. `drifted` is the per-item disposition: the
+ * users whose stored tier currently disagrees with what the read path enforces,
+ * i.e. exactly what a sweep that partially converged and then failed left
+ * behind.
+ *
+ * Nothing here is an access bug. `effectiveTierExpr` demotes these users on
+ * every request already; what this reports is a projection lag, which is
+ * precisely why it needs a surface rather than an alarm.
+ */
+router.get("/admin/membership/grace-sweep", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const [health, drifted] = await Promise.all([
+      graceSweepHealth(),
+      driftedMembershipUsers(),
+    ]);
+    res.json({ health, drifted, driftedCount: drifted.length });
+  } catch (err) {
+    logger.error({ err }, "[admin] grace sweep status query failed");
+    res.status(503).json({ error: "Could not read grace sweep status" });
+  }
+});
+
 router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Response) => {
   const REFUND_DISPUTE_EVENTS = [
     "refund",
@@ -2453,12 +2519,13 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
    * Relational checks to run INSIDE the write transaction, against the locked
    * config set — never against a cached read taken before it.
    */
-  const relationalChecks: Array<{
-    value: number;
-    prefix: string;
-    /** Which column this write makes effective — see the transaction below. */
-    target: "value" | "debug";
-  }> = [];
+  /**
+   * The membership-config columns this ONE request changes, collected so the
+   * transaction below can build a single final state rather than checking each
+   * field against the pre-patch rows. `debug: null` means the override is being
+   * cleared, which is a change like any other.
+   */
+  const relationalChanges: Array<{ value: number | null; target: "value" | "debug" }> = [];
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2505,7 +2572,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
       // Deferred to the write transaction below, where the set it is checked
       // against is locked — see `lockAndLoadMembershipConfig`.
-      relationalChecks.push({ value: parsed, prefix: "", target: "value" });
+      relationalChanges.push({ value: parsed, target: "value" });
     }
 
     newValue = rawValue;
@@ -2568,7 +2635,10 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         res.status(400).json({ error: "Debug value must be a number" });
         return;
       }
-      relationalChecks.push({ value: parsed, prefix: "Debug value: ", target: "debug" });
+      // `rawDebug === null` is a CLEAR: the override goes away and the base
+      // value becomes effective again, which is why null is carried through
+      // rather than substituted here.
+      relationalChanges.push({ value: rawDebug !== null ? parsed : null, target: "debug" });
     }
     newDebugValue = rawDebug;
     // Clearing (either mechanism) always clears the label too — a null debug
@@ -2591,7 +2661,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   let updated: typeof adminConfigTable.$inferSelect | undefined;
 
-  if (relationalChecks.length === 0) {
+  if (relationalChanges.length === 0) {
     [updated] = await db
       .update(adminConfigTable)
       .set(patch)
@@ -2605,36 +2675,41 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     try {
       updated = await db.transaction(async (tx) => {
         const membershipKey = key as MembershipConfigKey;
-        const { base, debug } = await lockAndLoadMembershipConfig(tx);
+        const rows = await lockAndLoadMembershipConfig(tx);
 
-        // Validated under BOTH resolutions, not just the one in force. While
-        // debug mode is off its overrides are inert, so a debug value checked
-        // against the base set can sit there looking fine until the mode is
-        // flipped — and `debug_mode_active` is not a membership key, so its own
-        // PATCH runs no relational check and would activate the invalid pair in
-        // one step. Requiring every write to leave both sets coherent makes that
-        // flip incapable of producing an invalid state.
+        // ONE final state, validated under BOTH resolutions.
         //
-        // `debug[k] !== base[k]` is exactly "this key has an effective debug
-        // override": an override equal to the base value substitutes to the same
-        // number either way, so it does not matter which branch it takes.
-        for (const check of relationalChecks) {
-          const hasOverride = debug[membershipKey] !== base[membershipKey];
+        // Both halves of that matter. Checking each field of the patch against
+        // the ORIGINAL rows let a single request that changes `value` AND clears
+        // `debugValue` slip through: each check saw the other field unchanged,
+        // and the committed combination satisfied neither. So the whole patch is
+        // applied to the locked rows first, and the result is what gets checked.
+        //
+        // And both resolutions, not just the one in force: while debug mode is
+        // off its overrides are inert, so a debug value checked only against the
+        // base set sits there looking fine until the mode is flipped — and
+        // `debug_mode_active` is not a membership key, so its own PATCH runs no
+        // relational check and would activate the invalid pair in one step.
+        const nextRow = { ...rows[membershipKey] };
+        for (const change of relationalChanges) {
+          if (change.target === "debug") {
+            nextRow.debugValue = change.value;
+          } else if (change.value !== null) {
+            nextRow.value = change.value;
+          }
+        }
+        const nextRows = { ...rows, [membershipKey]: nextRow };
 
-          const nextBase =
-            check.target === "value" ? { ...base, [membershipKey]: check.value } : base;
-          const nextDebug =
-            check.target === "debug"
-              ? { ...debug, [membershipKey]: check.value }
-              : hasOverride
-                ? debug
-                : { ...debug, [membershipKey]: check.value };
-
-          const baseError = validateMembershipConfigSet(nextBase);
-          const debugError = validateMembershipConfigSet(nextDebug);
-          const error =
-            baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
-          if (error) throw new RelationalConfigError(`${check.prefix}${error}`);
+        const baseError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, false));
+        const debugError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, true));
+        const error = baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
+        if (error) {
+          // The prefix belongs to whichever half of the patch is debug-only, so
+          // an operator editing a debug override is told so.
+          const prefix = relationalChanges.some((c) => c.target === "value")
+            ? ""
+            : "Debug value: ";
+          throw new RelationalConfigError(`${prefix}${error}`);
         }
         const [row] = await tx
           .update(adminConfigTable)

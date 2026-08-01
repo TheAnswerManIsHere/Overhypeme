@@ -43,6 +43,7 @@ import {
   startRetrievalDeadline,
   type RetrievalDeadline,
 } from "./membershipTiming.js";
+import { checkoutLineItemsGrantMembership } from "./membershipPricing.js";
 import { notifyUserAccessRevoked } from "./userNotify.js";
 import type { VerifiedLifetimePurchase, VerifiedSubscription } from "./entitlementVerification.js";
 import type { EntitlementSourceType } from "@workspace/db/schema";
@@ -320,7 +321,30 @@ export async function hasOneTimeCheckoutOrigin(
     payment_intent: paymentIntentId,
     limit: PAGE_SIZE,
   });
-  return sessions.data.some((session) => session.mode === "payment");
+
+  const deps = makeVerificationDeps(stripe, deadline);
+
+  for (const session of sessions.data) {
+    if (session.mode !== "payment") continue;
+
+    // Mode alone is not enough. `prepareOneTimeCheckout` refuses a session whose
+    // line items are not membership products (`not_membership_product`), so a
+    // merch or credits checkout can never produce a lifetime source however many
+    // payment-mode sessions it has. Answering true for one would make its refund
+    // retry on every delivery, never claim, and finally vanish from the refunds
+    // surface when Stripe gives up — an audit row lost to a permanent
+    // "ordering ambiguity" that was never ambiguous.
+    const lineItems = await listAllPages<Stripe.LineItem>((params) =>
+      deps.retriever.listCheckoutLineItems(session.id, params),
+    );
+    // An incomplete list cannot support the NEGATIVE conclusion "this could
+    // never be a membership purchase", so it takes the retryable side.
+    if (!lineItems.complete) return true;
+
+    if (await checkoutLineItemsGrantMembership(lineItems.items, deps.retriever)) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -530,28 +554,31 @@ export async function prepareSubscriptionRefresh(
       if (grace.startedAt) {
         graceStartedAt = grace.startedAt;
       } else {
-        // Unresolvable is normally SAFE: no deadline is derived, the source
-        // keeps qualifying, and the case is reported. There is exactly one
-        // shape where it is not — an existing episode whose deadline has
-        // ALREADY passed.
+        // Unresolvable is SAFE only when there is no stored episode to inherit.
+        // Then no deadline is derived, the source keeps qualifying, and the case
+        // is reported — a guessed start can only be early, and early means
+        // revoking a paying customer.
         //
-        // Then the fallback is the stored anchor, and we cannot tell "the same
-        // episode, legitimately expired" from "a NEW episode we failed to
-        // anchor because the recovery webhook was missed". Applying picks the
-        // first reading and demotes a customer who is owed a fresh 14 days,
-        // permanently, because nothing revisits it. So the ambiguity is
-        // reported as retryable instead: a transient exhaustion resolves on
-        // Stripe's next delivery and the new episode gets its window, and a
-        // permanently unresolvable one ends up audited rather than silently
-        // deciding against the customer.
+        // With ANY stored episode, the fallback is that stored anchor, and we
+        // cannot tell "the same episode, still running" from "a NEW episode we
+        // failed to anchor because the recovery webhook was missed". Both
+        // readings hurt: inheriting an already-expired anchor demotes on the
+        // spot, and inheriting one with two days left gives the new episode two
+        // days instead of fourteen. Neither is repaired by anything.
+        //
+        // An earlier revision narrowed this to an already-expired deadline,
+        // which caught only the louder half. The ambiguity is the stored episode
+        // itself, so the condition is its existence — a transient exhaustion
+        // then resolves on Stripe's next delivery and the new episode gets its
+        // full window, and a permanently unresolvable one is audited rather than
+        // silently decided against the customer.
         const existing = await findSourceByProviderRef(db, "stripe_subscription", subscriptionId);
-        const storedDeadline = existing?.graceExpiresAt ?? null;
-        if (storedDeadline && storedDeadline.getTime() <= Date.now()) {
+        if (existing?.graceExpiresAt) {
           await releaseLease(lease);
           logger.warn(
-            { subscriptionId, reason: grace.reason, storedDeadline },
-            "past_due refresh could not resolve a fresh grace anchor and the stored episode has already " +
-              "expired — ambiguous between the same episode and a new one, so retrying rather than deciding",
+            { subscriptionId, reason: grace.reason, storedDeadline: existing.graceExpiresAt },
+            "past_due refresh could not resolve a fresh grace anchor while an episode is already " +
+              "stored — ambiguous between the same episode and a new one, so retrying rather than deciding",
           );
           return { kind: "noop", reason: "grace_anchor_ambiguous" };
         }
@@ -977,10 +1004,24 @@ async function applyDispute(
   // history and the admin dispute surface showing an open dispute Stripe had
   // already resolved. A user with a second qualifying source lost every dispute
   // outcome for the same reason.
+  // The financial identifiers travel with the row. The handler this replaced
+  // recorded amount, currency and the PaymentIntent id, and dropping them made
+  // the Refunds & Disputes surface render an em dash for every dispute amount
+  // and lose its payment link — a regression invisible from the database, since
+  // the columns are nullable and `prepared.dispute` carries the values all
+  // along.
+  const disputePaymentIntentId =
+    typeof prepared.dispute.payment_intent === "string"
+      ? prepared.dispute.payment_intent
+      : (prepared.dispute.payment_intent?.id ?? undefined);
+
   await tx.insert(membershipHistoryTable).values({
     userId: source.userId,
     event: transitionEvent,
+    amount: prepared.dispute.amount,
+    currency: prepared.dispute.currency,
     stripeDisputeId: prepared.dispute.id,
+    stripePaymentIntentId: disputePaymentIntentId,
   });
 
   const result = await recomputeMembership(tx, source.userId);
@@ -1021,6 +1062,61 @@ export async function refreshSubscriptionSource(
   } finally {
     await releasePrepared(prepared);
   }
+}
+
+/**
+ * Refresh after a route has already mutated Stripe, and REPORT whether it stuck.
+ *
+ * `refreshSubscriptionSource` resolves for a retryable no-op just as it does for
+ * a successful apply — `source_busy` when another writer holds the lease,
+ * `retrieval_failed`, `incomplete_enumeration`, `grace_anchor_ambiguous`. The
+ * three mutation routes discarded that result and answered 200 regardless, so a
+ * cancel whose refresh lost the lease race left the local source describing the
+ * pre-cancel state, and if the mutation's webhook was also missed it stayed that
+ * way. The Stripe side of the response is still correct — the user sees the real
+ * outcome — but the panel reads the local row on its next load.
+ *
+ * So: retry the retryable reasons a few times, and tell the caller if it never
+ * applied. Deliberately does NOT throw: the Stripe mutation succeeded, and
+ * failing the request would invite the user to retry an action that already
+ * happened.
+ */
+const LOCAL_REFRESH_RETRY_REASONS = new Set([
+  "source_busy",
+  "retrieval_failed",
+  "incomplete_enumeration",
+  "grace_anchor_ambiguous",
+]);
+
+export async function refreshSubscriptionSourceAfterMutation(
+  stripe: Stripe,
+  subscriptionId: string,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<{ applied: boolean; reason?: string }> {
+  const attempts = opts.attempts ?? 3;
+  const delayMs = opts.delayMs ?? 200;
+
+  let last: ApplyResult | null = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      last = await refreshSubscriptionSource(stripe, subscriptionId);
+    } catch (error) {
+      logger.warn({ err: error, subscriptionId, attempt }, "post-mutation refresh threw");
+      last = null;
+    }
+
+    if (last?.applied) return { applied: true };
+    if (last && !LOCAL_REFRESH_RETRY_REASONS.has(last.reason ?? "")) break;
+    if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  const reason = last?.reason ?? "refresh_threw";
+  logger.error(
+    { subscriptionId, reason, attempts },
+    "post-mutation refresh never applied — the Stripe mutation succeeded but the local entitlement " +
+      "source may be stale until its webhook arrives",
+  );
+  return { applied: false, reason };
 }
 
 /** Refresh every Stripe-backed source a user holds, then recompute once. */

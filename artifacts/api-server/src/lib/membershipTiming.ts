@@ -259,16 +259,42 @@ export async function loadMembershipConfig(): Promise<
  * `debug_mode_active` is locked too, so the mode cannot flip between this read
  * and the write it authorises.
  */
-export interface MembershipConfigResolutions {
-  /** The `value` column only — what applies with debug mode off. */
-  base: Record<MembershipConfigKey, number>;
-  /** `debug_value` where set, else `value` — what applies with debug mode on. */
-  debug: Record<MembershipConfigKey, number>;
+/**
+ * The stored COLUMNS, not a resolution of them.
+ *
+ * Returning resolved numbers was not enough. Override presence is not
+ * recoverable from them — an explicit `debug_value` that happens to equal
+ * `value` resolves identically either way — and a caller that infers presence by
+ * comparing the two mispredicts what a base write does: with an override pinning
+ * the debug resolution, changing `value` must NOT move it. Presence is a fact
+ * about the row, so the row is what this returns.
+ */
+export interface LockedMembershipConfigRow {
+  value: number;
+  /** null when there is no override at all — never conflated with one equal to `value`. */
+  debugValue: number | null;
+}
+
+export type LockedMembershipConfig = Record<MembershipConfigKey, LockedMembershipConfigRow>;
+
+/** `debug_value` where present, else `value`. The two resolutions the route must both satisfy. */
+export function resolveMembershipConfig(
+  rows: LockedMembershipConfig,
+  useDebug: boolean,
+): Record<MembershipConfigKey, number> {
+  const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
+  return Object.fromEntries(
+    keys.map((key) => {
+      const row = rows[key];
+      const effective = useDebug && row.debugValue !== null ? row.debugValue : row.value;
+      return [key, effective] as const;
+    }),
+  ) as Record<MembershipConfigKey, number>;
 }
 
 export async function lockAndLoadMembershipConfig(
   tx: { execute: (query: SQL) => Promise<{ rows: Array<Record<string, unknown>> }> },
-): Promise<MembershipConfigResolutions> {
+): Promise<LockedMembershipConfig> {
   const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
 
   const locked = await tx.execute(
@@ -280,20 +306,29 @@ export async function lockAndLoadMembershipConfig(
 
   const byKey = new Map(locked.rows.map((row) => [String(row.key), row]));
 
-  const resolve = (useDebug: boolean) =>
-    Object.fromEntries(
-      keys.map((key) => {
-        const row = byKey.get(key);
-        if (!row) return [key, MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
-        const debugValue = row.debug_value;
-        const effective =
-          useDebug && debugValue != null && debugValue !== "" ? debugValue : row.value;
-        const parsed = Number(effective);
-        return [key, Number.isFinite(parsed) ? parsed : MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
-      }),
-    ) as Record<MembershipConfigKey, number>;
+  const toNumber = (raw: unknown, fallback: number): number => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
 
-  return { base: resolve(false), debug: resolve(true) };
+  return Object.fromEntries(
+    keys.map((key) => {
+      const row = byKey.get(key);
+      const fallback = MEMBERSHIP_CONFIG_DEFAULTS[key];
+      if (!row) return [key, { value: fallback, debugValue: null }] as const;
+      const rawDebug = row.debug_value;
+      return [
+        key,
+        {
+          value: toNumber(row.value, fallback),
+          debugValue:
+            rawDebug == null || rawDebug === ""
+              ? null
+              : toNumber(rawDebug, toNumber(row.value, fallback)),
+        },
+      ] as const;
+    }),
+  ) as LockedMembershipConfig;
 }
 
 /**

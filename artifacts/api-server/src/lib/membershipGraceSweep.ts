@@ -23,9 +23,38 @@
 
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { and, eq, isNotNull, lt } from "drizzle-orm";
+import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
 
 import { recomputeMembership } from "./membershipSources.js";
+import { effectiveTierExpr } from "./membershipState.js";
+
+/**
+ * The users the sweep would converge right now — the PER-ITEM altitude.
+ *
+ * Computed live rather than snapshotted, which is both cheaper and more honest
+ * than a run log: it answers "who is stale *at this instant*", so a sweep that
+ * partially converged and then failed shows exactly what it did not reach,
+ * without a durable table to keep in step with reality.
+ *
+ * Being on this list is never an access bug — `effectiveTierExpr` already
+ * demotes these users on every request. It is a projection lag, which is what
+ * makes it reportable rather than urgent.
+ */
+export async function driftedMembershipUsers(
+  asOf?: Date,
+  limit = 50,
+): Promise<Array<{ id: string; email: string | null; storedTier: string; effectiveTier: string }>> {
+  return db
+    .select({
+      id: usersTable.id,
+      email: usersTable.email,
+      storedTier: usersTable.membershipTier,
+      effectiveTier: effectiveTierExpr(asOf),
+    })
+    .from(usersTable)
+    .where(and(eq(usersTable.isActive, true), sql`${usersTable.membershipTier} <> ${effectiveTierExpr(asOf)}`))
+    .limit(limit);
+}
 
 export async function sweepExpiredGrace(
   opts: { asOf?: Date; limit?: number } = {},

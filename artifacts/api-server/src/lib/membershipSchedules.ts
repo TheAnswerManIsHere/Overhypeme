@@ -26,21 +26,72 @@ import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
 
 let lastSuccessfulSweepAt = Date.now();
+let lastRunAt: number | null = null;
+let lastConverged: number | null = null;
+let lastError: string | null = null;
+let consecutiveFailures = 0;
 
 /** Exposed for the health surface and for tests that advance a fake clock. */
 export function graceSweepStaleSeconds(now: number = Date.now()): number {
   return Math.floor((now - lastSuccessfulSweepAt) / 1000);
 }
 
+export interface GraceSweepHealth {
+  intervalSeconds: number;
+  alertAfterSeconds: number;
+  staleSeconds: number;
+  /** True once the sweep has been failing longer than its alert threshold. */
+  alerting: boolean;
+  lastRunAt: string | null;
+  lastSuccessAt: string;
+  lastConvergedCount: number | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+/**
+ * The AGGREGATE altitude for the sweep.
+ *
+ * A background job that reports only through log lines is invisible from the
+ * product, which is what the two-altitude rule exists to prevent. This is the
+ * top half; `driftedMembershipUsers` is the per-item half.
+ *
+ * In-process state, deliberately: the sweep repairs a projection the read path
+ * already enforces, so its history is operational rather than a durable record
+ * anything depends on — and a restart resetting it is honest, because the sweep
+ * schedule resets with it.
+ */
+export async function graceSweepHealth(now: number = Date.now()): Promise<GraceSweepHealth> {
+  const config = await loadMembershipConfig();
+  const staleSeconds = graceSweepStaleSeconds(now);
+  return {
+    intervalSeconds: config.grace_sweep_interval_seconds,
+    alertAfterSeconds: config.grace_sweep_alert_after_seconds,
+    staleSeconds,
+    alerting: staleSeconds >= config.grace_sweep_alert_after_seconds,
+    lastRunAt: lastRunAt === null ? null : new Date(lastRunAt).toISOString(),
+    lastSuccessAt: new Date(lastSuccessfulSweepAt).toISOString(),
+    lastConvergedCount: lastConverged,
+    lastError,
+    consecutiveFailures,
+  };
+}
+
 export async function runGraceSweepOnce(opts: { asOf?: Date } = {}): Promise<void> {
   const config = await loadMembershipConfig();
+  lastRunAt = (opts.asOf ?? new Date()).getTime();
   try {
     const result = await sweepExpiredGrace(opts);
     lastSuccessfulSweepAt = (opts.asOf ?? new Date()).getTime();
+    lastConverged = result.converged;
+    lastError = null;
+    consecutiveFailures = 0;
     if (result.converged > 0) {
       logger.info(result, "grace sweep converged stored tiers");
     }
   } catch (err) {
+    lastError = err instanceof Error ? err.message.slice(0, 400) : String(err);
+    consecutiveFailures += 1;
     const staleFor = graceSweepStaleSeconds((opts.asOf ?? new Date()).getTime());
     if (staleFor >= config.grace_sweep_alert_after_seconds) {
       // Reported, not escalated into an outage: access was already revoked on

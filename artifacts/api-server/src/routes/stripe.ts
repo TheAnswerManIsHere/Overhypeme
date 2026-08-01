@@ -10,11 +10,12 @@ import {
   applyPrepared,
   prepareOneTimeCheckout,
   refreshSubscriptionSource,
+  refreshSubscriptionSourceAfterMutation,
   releasePrepared,
   runNotifications,
 } from "../lib/membershipRefresh";
 import { runBoundedApply } from "../lib/membershipLease";
-import { hasQualifyingLifetimeSource } from "../lib/membershipSources";
+import { hasQualifyingLifetimeSource, loadSourceSnapshots } from "../lib/membershipSources";
 import { getEffectiveMembership, qualifySource } from "../lib/membershipState";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
@@ -59,15 +60,27 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // deliberately RETAINS refunded and dispute-revoked rows: a refunded
     // purchase still has a row, and a bare-existence read would report the user
     // as a lifetime member forever. Ask whether one currently QUALIFIES.
-    const [hasLifetime, appSubRows] = await Promise.all([
+    // `loadSourceSnapshots` resolves the dispute hold as a QUERY, which is what
+    // makes qualification here mean the same thing it means everywhere else.
+    // Hardcoding `hasOpenDispute: false` (an earlier revision did) makes a held
+    // source look qualifying, so a disputed newer subscription B would be
+    // selected while access actually rests on older A — the same incoherent
+    // panel this selection exists to prevent, reached by a different route.
+    const [hasLifetime, allSources] = await Promise.all([
       hasQualifyingLifetimeSource(userId),
-      db.select().from(membershipEntitlementsTable)
-        .where(and(
-          eq(membershipEntitlementsTable.userId, userId),
-          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-        ))
-        .orderBy(desc(membershipEntitlementsTable.createdAt)),
+      loadSourceSnapshots(db, userId),
     ]);
+
+    const subscriptionSnapshots = allSources.filter(
+      (snapshot) => snapshot.sourceType === "stripe_subscription",
+    );
+
+    const appSubRows = await db.select().from(membershipEntitlementsTable)
+      .where(and(
+        eq(membershipEntitlementsTable.userId, userId),
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+      ))
+      .orderBy(desc(membershipEntitlementsTable.createdAt));
 
     // The newest source that still GRANTS access, not simply the newest row. The
     // model supports more than one subscription source, and picking by recency
@@ -76,24 +89,12 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // Falls back to the newest row when none qualify, so a fully-cancelled user
     // still sees their most recent subscription rather than an empty panel.
     const nowForPanel = new Date();
-    const source =
-      appSubRows.find((row) =>
-        qualifySource(
-          {
-            id: row.id,
-            sourceType: "stripe_subscription",
-            providerRef: row.providerRef,
-            isMembershipProduct: row.isMembershipProduct,
-            lifecycleStatus: row.lifecycleStatus,
-            graceExpiresAt: row.graceExpiresAt,
-            disputeLossRevokedAt: row.disputeLossRevokedAt,
-            hasOpenDispute: false,
-          },
-          nowForPanel,
-        ).qualifies,
-      ) ??
-      appSubRows[0] ??
-      null;
+    const qualifyingIds = new Set(
+      subscriptionSnapshots
+        .filter((snapshot) => qualifySource(snapshot, nowForPanel).qualifies)
+        .map((snapshot) => snapshot.id),
+    );
+    const source = appSubRows.find((row) => qualifyingIds.has(row.id)) ?? appSubRows[0] ?? null;
     // The shape GET /stripe/subscription has always returned, rebuilt from the
     // entitlement source so the client contract is unchanged.
     const appSub = source
@@ -520,9 +521,11 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
     // `canceled` and overwrite it with stale `active`. Going through the same
     // authoritative refresh the webhook uses removes the special case instead of
     // trying to order it.
-    await refreshSubscriptionSource(stripe, sub.id);
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,
@@ -573,9 +576,11 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
 
     // Re-retrieve rather than write what we believe we just set — see the cancel
     // route above for why a local write after a Stripe call cannot be ordered.
-    await refreshSubscriptionSource(stripe, sub.id);
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,
@@ -736,9 +741,11 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
     // most here: the plan switch is exactly the path that can move a
     // subscription OFF an allowlisted product, and only a refresh re-evaluates
     // `is_membership_product` against what the user is now subscribed to.
-    await refreshSubscriptionSource(stripe, sub.id);
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,

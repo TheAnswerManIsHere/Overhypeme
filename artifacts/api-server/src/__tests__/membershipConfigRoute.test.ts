@@ -164,6 +164,70 @@ describe("PATCH /admin/config/:key — membership relational invariants", () => 
       .send({ clearDebugValue: true });
   });
 
+  it("validates the WHOLE patch as one state when a request changes value and clears the override", async () => {
+    // Two fields of one request, each admissible against the PRE-patch rows and
+    // inadmissible together. Checking them separately — as an earlier revision
+    // did — accepted this and committed a debug resolution that violates
+    // `waiter < TTL`.
+    //
+    // Set up debug overrides of 120/85, both individually fine.
+    const ttlOverride = await request(app)
+      .patch("/api/admin/config/lease_ttl_seconds")
+      .send({ debugValue: "120" });
+    assert.equal(ttlOverride.status, 200, JSON.stringify(ttlOverride.body));
+
+    const waiterOverride = await request(app)
+      .patch("/api/admin/config/lease_waiter_timeout_seconds")
+      .send({ debugValue: "85" });
+    assert.equal(waiterOverride.status, 200, JSON.stringify(waiterOverride.body));
+
+    // Now: lower the base TTL to 83 AND clear its override in one request. The
+    // base check alone sees the debug TTL still at 120; the clear alone
+    // substitutes the OLD base of 90. Neither sees the committed result, 83/85.
+    const before = await storedValue("lease_ttl_seconds");
+    const combined = await request(app)
+      .patch("/api/admin/config/lease_ttl_seconds")
+      .send({ value: "83", clearDebugValue: true });
+
+    assert.equal(combined.status, 400, JSON.stringify(combined.body));
+    assert.match(String(combined.body.error ?? ""), /lease_waiter_timeout_seconds/);
+    assert.equal(await storedValue("lease_ttl_seconds"), before);
+
+    await request(app)
+      .patch("/api/admin/config/lease_waiter_timeout_seconds")
+      .send({ clearDebugValue: true });
+    await request(app)
+      .patch("/api/admin/config/lease_ttl_seconds")
+      .send({ clearDebugValue: true });
+  });
+
+  it("lets a base write stand when an explicit override pins the debug resolution", async () => {
+    // Override presence is a fact about the ROW. Inferring it by comparing the
+    // two resolved numbers — as an earlier revision did — misreads an explicit
+    // override that happens to equal the base value as "no override", and then
+    // predicts that a base change moves the debug resolution when it cannot.
+    // Here the debug interval is pinned at 3600, so raising the base to 20000
+    // leaves both resolutions valid and must be ACCEPTED.
+    const pin = await request(app)
+      .patch("/api/admin/config/grace_sweep_interval_seconds")
+      .send({ debugValue: "3600" });
+    assert.equal(pin.status, 200, JSON.stringify(pin.body));
+
+    const raise = await request(app)
+      .patch("/api/admin/config/grace_sweep_interval_seconds")
+      .send({ value: "20000" });
+    assert.equal(raise.status, 200, JSON.stringify(raise.body));
+    assert.equal(await storedValue("grace_sweep_interval_seconds"), "20000");
+
+    await setStored(
+      "grace_sweep_interval_seconds",
+      MEMBERSHIP_CONFIG_DEFAULTS.grace_sweep_interval_seconds,
+    );
+    await request(app)
+      .patch("/api/admin/config/grace_sweep_interval_seconds")
+      .send({ clearDebugValue: true });
+  });
+
   it("validates against the CURRENT stored set, not the seeded defaults", async () => {
     // Raise the lease first; a waiter that was inadmissible a moment ago becomes
     // admissible, which is only true if the check reads live state.

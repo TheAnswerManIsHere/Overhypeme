@@ -114,6 +114,132 @@ function formatAmount(amount: number | null, currency: string | null): string {
   return `${value.toFixed(2)} ${cur}`;
 }
 
+
+interface GraceSweepHealth {
+  intervalSeconds: number;
+  alertAfterSeconds: number;
+  staleSeconds: number;
+  alerting: boolean;
+  lastRunAt: string | null;
+  lastSuccessAt: string;
+  lastConvergedCount: number | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+interface DriftedUser {
+  id: string;
+  email: string | null;
+  storedTier: string;
+  effectiveTier: string;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
+/**
+ * The grace sweep's status at both altitudes.
+ *
+ * Aggregate on top, per-user drift underneath. Nothing here is an access bug —
+ * the read path enforces every deadline on every request — so this is worded as
+ * a projection lag, not an alarm, and only turns amber once the sweep has been
+ * failing past its own threshold.
+ */
+function GraceSweepStatus() {
+  const [health, setHealth] = useState<GraceSweepHealth | null>(null);
+  const [drifted, setDrifted] = useState<DriftedUser[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/membership/grace-sweep", { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as { health: GraceSweepHealth; drifted: DriftedUser[] };
+        if (cancelled) return;
+        setHealth(json.health);
+        setDrifted(json.drifted ?? []);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load sweep status");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-4 text-xs text-muted-foreground">
+        Membership sweep status unavailable: {error}
+      </div>
+    );
+  }
+  if (!health) return null;
+
+  return (
+    <div
+      className={`bg-card border rounded-lg p-4 space-y-2 ${
+        health.alerting ? "border-amber-500/50" : "border-border"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="text-xs font-semibold text-foreground">Membership grace sweep</span>
+        <span className={`text-xs ${health.alerting ? "text-amber-500" : "text-muted-foreground"}`}>
+          {health.alerting
+            ? `Failing for ${formatDuration(health.staleSeconds)} — stored tiers are drifting`
+            : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          every {formatDuration(health.intervalSeconds)}
+        </span>
+        {health.lastConvergedCount !== null && (
+          <span className="text-xs text-muted-foreground">
+            {health.lastConvergedCount} converged last run
+          </span>
+        )}
+        {health.consecutiveFailures > 0 && (
+          <span className="text-xs text-amber-500">
+            {health.consecutiveFailures} consecutive failure{health.consecutiveFailures === 1 ? "" : "s"}
+          </span>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {drifted.length === 0
+            ? "No users pending convergence"
+            : `${drifted.length} user${drifted.length === 1 ? "" : "s"} pending convergence`}
+        </span>
+      </div>
+
+      {health.lastError && (
+        <p className="text-xs text-amber-500">Last error: {health.lastError}</p>
+      )}
+
+      {drifted.length > 0 && (
+        <div className="pt-1 space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Their stored tier is stale; access is already enforced correctly on every request.
+          </p>
+          <ul className="text-xs text-muted-foreground space-y-0.5">
+            {drifted.slice(0, 10).map((u) => (
+              <li key={u.id}>
+                <span className="font-mono">{u.email ?? u.id}</span>{" "}
+                <span className="text-foreground">
+                  {u.storedTier} → {u.effectiveTier}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {drifted.length > 10 && (
+            <p className="text-xs text-muted-foreground">…and {drifted.length - 10} more.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminRefundsDisputes() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -183,6 +309,8 @@ export default function AdminRefundsDisputes() {
   return (
     <AdminLayout title="Refunds & Disputes">
       <div className="space-y-4">
+        <GraceSweepStatus />
+
         {/* Filters */}
         <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
