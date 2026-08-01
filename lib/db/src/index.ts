@@ -225,14 +225,25 @@ END;
  *
  * This is one HALF of "can bypass" — see `canEffectivelyAssumeRole` below for
  * the other half this function alone was wrongly standing in for.
+ *
+ * `targetPool` defaults to this module's own `pool`, but is accepted as a
+ * parameter so a test can pass a `Pool` connected as a genuinely restricted,
+ * non-superuser role. The module's own `pool` is a superuser in every
+ * environment this runs in (local sandbox, CI), and a superuser holds every
+ * role's privileges unconditionally regardless of any explicit grant — so a
+ * test that only ever exercises this function through the module's `pool`
+ * cannot distinguish a correct check from a broken one. Two real defects in
+ * this exact function (the `usage`-vs-`SET` gap, and the `ADMIN OPTION` gap
+ * `canEffectivelyAssumeRole` closes below) were found by review rather than
+ * by a test, for exactly this reason.
  */
-async function canAssumeRole(role: string): Promise<boolean> {
+async function canAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<boolean> {
   // SET ROLE takes an identifier, not a bind parameter — quoted per Postgres'
   // own rule (wrap in double quotes, double any embedded double quote), not
   // JSON escaping, which follows different rules. `role` is always sourced
   // from catalog data or a hardcoded constant here, never external input.
   const quotedRole = `"${role.replace(/"/g, '""')}"`;
-  const client = await pool.connect();
+  const client = await targetPool.connect();
   try {
     await client.query("BEGIN");
     try {
@@ -260,16 +271,36 @@ async function canAssumeRole(role: string): Promise<boolean> {
  * exclusive — INHERIT and SET are independent flags — so the honest predicate
  * is the union: inherited right now (`pg_has_role(..., 'usage')`, which
  * *does* correctly answer this half) OR reachable via `SET ROLE`
- * (`canAssumeRole`, which answers the other half `usage` gets wrong). Neither
- * check alone is both correct and complete.
+ * (`canAssumeRole`, which answers the other half `usage` gets wrong).
+ *
+ * A third path exists and is just as effective as the first two: `ADMIN
+ * OPTION` on the membership. Verified directly against this repository's
+ * PostgreSQL 16 target — a membership granted `ADMIN TRUE, INHERIT FALSE, SET
+ * FALSE` reports `usage = false` and refuses `SET ROLE` directly, exactly
+ * like a role with neither capability. But holding `ADMIN OPTION` means this
+ * session can run `GRANT role TO CURRENT_USER WITH SET TRUE` — modifying its
+ * *own* membership, which admin option always permits — and then `SET ROLE`
+ * immediately succeeds. So a role with only `ADMIN OPTION` can reach the
+ * role's privileges on demand, one extra statement away; not checking for it
+ * would under-report a real, immediate escalation path the same way the
+ * `usage`-only check under-reported `SET`-only grants.
+ *
+ * `targetPool` — see `canAssumeRole`'s doc comment for why this exists and
+ * defaults to the module's own `pool`.
  */
-async function canEffectivelyAssumeRole(role: string): Promise<boolean> {
-  const { rows } = await pool.query<{ has_usage: boolean }>(
-    "SELECT pg_has_role(current_user, $1, 'usage') AS has_usage",
+export async function canEffectivelyAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<boolean> {
+  const { rows } = await targetPool.query<{ has_usage: boolean; has_admin: boolean }>(
+    `SELECT pg_has_role(current_user, $1, 'usage') AS has_usage,
+            EXISTS (
+              SELECT 1 FROM pg_auth_members m
+               WHERE pg_get_userbyid(m.roleid) = $1
+                 AND pg_get_userbyid(m.member) = current_user
+                 AND m.admin_option
+            ) AS has_admin`,
     [role],
   );
-  if (rows[0]?.has_usage) return true;
-  return canAssumeRole(role);
+  if (rows[0]?.has_usage || rows[0]?.has_admin) return true;
+  return canAssumeRole(role, targetPool);
 }
 
 export async function ncmecAuditBoundaryStatus(): Promise<
