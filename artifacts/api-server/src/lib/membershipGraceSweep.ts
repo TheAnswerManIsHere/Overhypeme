@@ -49,27 +49,37 @@ export async function driftedMembershipUsers(
   total: number;
   truncated: boolean;
 }> {
-  const where = and(
-    eq(usersTable.isActive, true),
-    sql`${usersTable.membershipTier} <> ${effectiveTierExpr(asOf)}`,
-  );
-
-  const [countRow] = await db
-    .select({ total: sql<number>`count(*)::int` })
-    .from(usersTable)
-    .where(where);
-  const total = countRow?.total ?? 0;
-
-  const users = await db
+  // ONE statement for both altitudes.
+  //
+  // A separate `count(*)` and a separate limited `select` are two READ COMMITTED
+  // snapshots taken while the sweep is actively converging this very predicate.
+  // Between them users drop out (converged) or drop in (a deadline passed), so
+  // the pair can report a total SMALLER than the list it accompanies — even
+  // `driftedCount: 0` beside visible drifted users — and derive a truncation
+  // flag from a comparison of two different moments. `count(*) OVER ()` is
+  // evaluated over the same result set as the rows, before the limit is
+  // applied, so the aggregate and the sample cannot contradict each other.
+  const rows = await db
     .select({
       id: usersTable.id,
       email: usersTable.email,
       storedTier: usersTable.membershipTier,
       effectiveTier: effectiveTierExpr(asOf),
+      total: sql<number>`count(*) over ()`.mapWith(Number),
     })
     .from(usersTable)
-    .where(where)
+    .where(
+      and(
+        eq(usersTable.isActive, true),
+        sql`${usersTable.membershipTier} <> ${effectiveTierExpr(asOf)}`,
+      ),
+    )
     .limit(limit);
+
+  // No rows means no drift — the window function has nothing to report over an
+  // empty result, which is the one case the total must come from the row count.
+  const total = rows[0]?.total ?? 0;
+  const users = rows.map(({ total: _total, ...user }) => user);
 
   return { users, total, truncated: total > users.length };
 }

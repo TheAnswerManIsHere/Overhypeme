@@ -15,7 +15,7 @@ import { db } from "@workspace/db";
 import { membershipEntitlementsTable, membershipHistoryTable, usersTable } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
 
-import { sweepExpiredGrace } from "../lib/membershipGraceSweep.js";
+import { driftedMembershipUsers, sweepExpiredGrace } from "../lib/membershipGraceSweep.js";
 import { qualifyingPopulation } from "../lib/membershipState.js";
 
 import { recomputeMembership } from "../lib/membershipSources.js";
@@ -196,5 +196,58 @@ describe("qualifyingPopulation — the denominator", () => {
     const after = await qualifyingPopulation(NOW);
 
     assert.ok(after < before, "the lapsed user leaves the cohort as the clock passes their horizon");
+  });
+});
+
+describe("driftedMembershipUsers — the per-item altitude", () => {
+  /**
+   * The aggregate and the sample must come from ONE statement.
+   *
+   * A separate `count(*)` and a separate limited `select` are two snapshots of a
+   * predicate the sweep is actively converging, so they can disagree — reporting
+   * a total smaller than the list beside it, or a truncation flag derived from
+   * two different moments. `count(*) OVER ()` is evaluated over the same result
+   * set as the rows, before the limit.
+   */
+  it("reports the uncapped total alongside a capped sample", async () => {
+    // Three users whose STORED tier disagrees with what the read path enforces:
+    // legendary on the column, no qualifying source, so effective is registered.
+    for (const suffix of ["drift-a", "drift-b", "drift-c"]) {
+      await makeUser(suffix, { validUntil: at(-DAY) });
+    }
+
+    const capped = await driftedMembershipUsers(NOW, 2);
+
+    assert.equal(capped.users.length, 2, "the sample honours the limit");
+    assert.ok(capped.total >= 3, "the total counts past the limit, not up to it");
+    assert.ok(capped.total > capped.users.length, "a capped list is a capped list");
+    assert.equal(capped.truncated, true);
+
+    const uncapped = await driftedMembershipUsers(NOW, 100);
+    assert.equal(uncapped.total, capped.total, "the total does not depend on the limit");
+    assert.equal(uncapped.truncated, uncapped.total > uncapped.users.length);
+  });
+
+  /**
+   * The invariant the two-statement version could break: with the count and the
+   * list taken from different snapshots, the total could come back SMALLER than
+   * the sample it accompanies — including zero beside visible drifted users.
+   * (Deliberately an invariant rather than a fixed number: this reads every
+   * active user, so any other row in the shared test database is legitimately
+   * part of the answer.)
+   */
+  it("never reports a total smaller than the sample it accompanies", async () => {
+    for (const suffix of ["inv-a", "inv-b"]) {
+      await makeUser(suffix, { validUntil: at(-DAY) });
+    }
+
+    for (const limit of [1, 2, 50]) {
+      const result = await driftedMembershipUsers(NOW, limit);
+      assert.ok(
+        result.total >= result.users.length,
+        `total ${result.total} must not be below the ${result.users.length} rows returned at limit ${limit}`,
+      );
+      assert.equal(result.truncated, result.total > result.users.length);
+    }
   });
 });

@@ -123,8 +123,10 @@ interface GraceSweepHealth {
   lastRunAt: string | null;
   /** Null when no sweep has succeeded in this process — never a fabricated timestamp. */
   lastSuccessAt: string | null;
-  /** True until the first successful sweep; `staleSeconds` then counts from process start. */
+  /** No sweep has been attempted yet. */
   neverRun: boolean;
+  /** Attempted but never succeeded; `staleSeconds` counts from process start. */
+  neverSucceeded: boolean;
   lastConvergedCount: number | null;
   lastError: string | null;
   consecutiveFailures: number;
@@ -218,13 +220,14 @@ function GraceSweepStatus() {
         <span className={`text-xs ${health.alerting ? "text-amber-500" : "text-muted-foreground"}`}>
           {health.alerting
             ? `Failing for ${formatDuration(health.staleSeconds)} — stored tiers are drifting`
+            // Never claim a convergence that did not happen — and keep "has not
+            // run yet" distinct from "has run and never succeeded", which is a
+            // materially worse state and would otherwise read identically.
             : health.neverRun
-              // Never claim a convergence that did not happen. Before the first
-              // successful sweep there is no "last converged" moment to report,
-              // and saying "just now" was the exact lie this state exists to
-              // prevent.
               ? `Not yet run · waiting ${formatDuration(health.staleSeconds)} since start`
-              : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
+              : health.neverSucceeded
+                ? `Ran but never converged · ${formatDuration(health.staleSeconds)} since start`
+                : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
         </span>
         <span className="text-xs text-muted-foreground">
           every {formatDuration(health.intervalSeconds)}

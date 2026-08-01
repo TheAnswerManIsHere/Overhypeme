@@ -90,7 +90,7 @@ import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
 import { graceSweepHealth } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
-  currentSourceStateToken,
+  loadSourceStateVersions,
   hasQualifyingLifetimeSource,
   recomputeMembership,
   writeAdminGrant,
@@ -300,9 +300,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
   // only whether it was complete — never a tier.
   //
-  // The token is taken BEFORE the refresh so "applied since we began" is a
-  // question the version sequence can answer, whoever did the applying.
-  const refreshStartToken = reinstating ? await currentSourceStateToken() : 0;
+  // The per-source versions are read BEFORE the refresh so "applied since we
+  // began" is answerable against COMMITTED state, whoever did the applying.
+  const versionsBeforeRefresh = reinstating
+    ? await loadSourceStateVersions(db, id)
+    : new Map<number, number>();
   const refreshComplete = reinstating ? await refreshSourcesForReinstatement(id) : true;
 
   const [updated] = await db.transaction(async (tx) => {
@@ -334,21 +336,26 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
       // So the question is per-source and about freshness, not about who did
       // the refreshing: was every source written since this reinstatement
       // began? `sourceStateAsOf` moves on every authoritative apply, whoever
-      // performs it, so comparing against the token taken before the refresh
-      // answers it exactly.
-      const stale = await tx
-        .select({ id: membershipEntitlementsTable.id })
-        .from(membershipEntitlementsTable)
-        .where(
-          and(
-            eq(membershipEntitlementsTable.userId, id),
-            sql`${membershipEntitlementsTable.sourceType} <> 'admin_grant'`,
-            sql`${membershipEntitlementsTable.sourceStateAsOf} <= ${refreshStartToken}`,
-          ),
-        )
-        .limit(1);
+      // performs it — so compare each source's version now against the version
+      // it carried before the refresh started.
+      //
+      // Per-source, not a single sequence watermark. Sequences advance outside
+      // commit, so a writer can allocate its token before a `last_value` read
+      // and commit after it; comparing committed row values to committed row
+      // values is the only comparison that respects commit order. A source
+      // absent from the "before" map is new, therefore fresh; one that has since
+      // disappeared cannot be stale.
+      const versionsNow = await loadSourceStateVersions(tx, id);
+      let anyStale = false;
+      for (const [sourceId, version] of versionsNow) {
+        const before = versionsBeforeRefresh.get(sourceId);
+        if (before !== undefined && before === version) {
+          anyStale = true;
+          break;
+        }
+      }
 
-      if (stale.length > 0) {
+      if (anyStale) {
         // The horizon goes with the tier, since `registered` carries none.
         await tx
           .update(usersTable)

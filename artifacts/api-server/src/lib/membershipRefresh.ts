@@ -1087,6 +1087,44 @@ export async function refreshSubscriptionSource(
  */
 const POST_MUTATION_REFRESH_BUDGET_MS = 10_000;
 
+/** Sentinel for "the deadline fired first". Distinct from any `ApplyResult`. */
+const TIMED_OUT = Symbol("post-mutation refresh deadline") as unknown as ApplyResult;
+
+/**
+ * Await `work`, but give up after `ms` and let it finish on its own.
+ *
+ * Abandonment, not cancellation — there is no safe way to interrupt a refresh
+ * mid-apply, and no need to: it is fenced, idempotent and lease-held, so the
+ * worst case of letting it run is that it applies a moment after the caller
+ * stopped waiting. The rejection handler is what keeps an abandoned failure from
+ * surfacing as an unhandled rejection and taking the process down.
+ */
+async function withDeadline(
+  work: Promise<ApplyResult>,
+  ms: number,
+  context: Record<string, unknown>,
+): Promise<ApplyResult> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<ApplyResult>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  try {
+    const winner = await Promise.race([work, timeout]);
+    if (winner === TIMED_OUT) {
+      logger.warn(
+        { ...context, deadlineMs: ms },
+        "post-mutation refresh exceeded its deadline — abandoning the wait, the refresh continues",
+      );
+      void work.catch((error) => {
+        logger.warn({ err: error, ...context }, "abandoned post-mutation refresh later failed");
+      });
+    }
+    return winner;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const LOCAL_REFRESH_RETRY_REASONS = new Set([
   "source_busy",
   "retrieval_failed",
@@ -1113,6 +1151,7 @@ export async function refreshSubscriptionSourceAfterMutation(
   const budgetSpent = () => Date.now() - startedAt >= budgetMs;
 
   let last: ApplyResult | null = null;
+  let abandoned = false;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (attempt > 0 && budgetSpent()) {
       logger.warn(
@@ -1122,7 +1161,28 @@ export async function refreshSubscriptionSourceAfterMutation(
       break;
     }
     try {
-      last = await refreshSubscriptionSource(stripe, subscriptionId);
+      // Bounded WITHIN the attempt, not merely between attempts. A single
+      // attempt can wait out the lease-waiter timeout and then spend a whole
+      // retrieval-phase budget, so checking the clock only at the top of the
+      // loop still let the FIRST attempt hold this handler for about a minute —
+      // leaving the exact client-timeout-and-retry exposure the budget was
+      // added to remove.
+      //
+      // The refresh is abandoned, not cancelled: it is already fenced,
+      // idempotent and lease-held, so letting it finish in the background is
+      // harmless and strictly better than tearing down a transaction mid-apply.
+      // What the caller loses is only the ANSWER, which is precisely what
+      // `localStateStale` reports.
+      last = await withDeadline(
+        refreshSubscriptionSource(stripe, subscriptionId),
+        Math.max(0, budgetMs - (Date.now() - startedAt)),
+        { subscriptionId, attempt },
+      );
+      if (last === TIMED_OUT) {
+        abandoned = true;
+        last = null;
+        break;
+      }
     } catch (error) {
       logger.warn({ err: error, subscriptionId, attempt }, "post-mutation refresh threw");
       last = null;
@@ -1135,7 +1195,7 @@ export async function refreshSubscriptionSourceAfterMutation(
     }
   }
 
-  const reason = last?.reason ?? "refresh_threw";
+  const reason = abandoned ? "budget_exhausted" : (last?.reason ?? "refresh_threw");
   logger.error(
     { subscriptionId, reason, attempts },
     "post-mutation refresh never applied — the Stripe mutation succeeded but the local entitlement " +

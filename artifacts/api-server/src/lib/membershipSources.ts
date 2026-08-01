@@ -194,18 +194,41 @@ export interface LifetimeSourceState {
 }
 
 /**
- * The version sequence's CURRENT value, without consuming one.
+ * Each of a user's provider-backed sources and the version it currently carries.
  *
- * Lets a caller ask "was this source applied after that moment?" — the only
- * honest form of the freshness question, since any writer may have done the
- * applying. `lastval()` would be wrong: it is session-scoped and reports this
- * connection's last `nextval`, not the sequence's global position.
+ * The unit of "has this source been applied since X" — read the map before, read
+ * it again after, and a source whose version MOVED was applied by somebody in
+ * between, whoever that was.
+ *
+ * Comparing against the sequence's `last_value` instead was subtly wrong and is
+ * why this exists. Postgres sequences advance outside transaction commit, so a
+ * concurrent writer can consume `nextval` (making it visible to a `last_value`
+ * read) and commit its apply afterwards. Its committed `source_state_as_of`
+ * would then be equal to a watermark taken before that commit, and a
+ * `<= watermark` test would call the now-fresh source stale. Sequence allocation
+ * order is not commit order; comparing committed row values against committed
+ * row values is the only test that is.
+ *
+ * `admin_grant` is excluded: it has no provider state, so it is never stale in
+ * the sense this answers.
  */
-export async function currentSourceStateToken(tx: Db = db): Promise<number> {
-  const result = await tx.execute<{ token: string }>(
-    sql`SELECT last_value FROM membership_source_state_seq`,
-  );
-  return Number(result.rows[0]?.token ?? 0);
+export async function loadSourceStateVersions(
+  tx: Db,
+  userId: string,
+): Promise<Map<number, number>> {
+  const rows = await tx
+    .select({
+      id: membershipEntitlementsTable.id,
+      version: membershipEntitlementsTable.sourceStateAsOf,
+    })
+    .from(membershipEntitlementsTable)
+    .where(
+      and(
+        eq(membershipEntitlementsTable.userId, userId),
+        sql`${membershipEntitlementsTable.sourceType} <> 'admin_grant'`,
+      ),
+    );
+  return new Map(rows.map((row) => [row.id, row.version]));
 }
 
 async function nextSourceStateToken(tx: Db): Promise<number> {

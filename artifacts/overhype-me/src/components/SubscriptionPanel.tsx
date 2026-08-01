@@ -142,11 +142,18 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const [previewLoading, setPreviewLoading] = useState(false);
   const [targetAnnualPriceId, setTargetAnnualPriceId] = useState<string | null>(null);
 
-  const fetchSubData = useCallback(() => {
-    fetch("/api/stripe/subscription", { credentials: "include" })
-      .then(r => r.json())
-      .then((d: SubscriptionResponse) => setSubData(d))
-      .catch(() => setSubData(null));
+  // Returns what it fetched as well as storing it, so a recheck can ask whether
+  // the projection has caught up rather than only redrawing with it.
+  const fetchSubData = useCallback(async (): Promise<SubscriptionResponse | null> => {
+    try {
+      const resp = await fetch("/api/stripe/subscription", { credentials: "include" });
+      const data = (await resp.json()) as SubscriptionResponse;
+      setSubData(data);
+      return data;
+    } catch {
+      setSubData(null);
+      return null;
+    }
   }, []);
 
   const clearStaleTimers = useCallback(() => {
@@ -159,17 +166,36 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
    * row did not refresh. Say so, and keep re-checking — the webhook that fixes
    * it usually arrives within seconds, and the banner is the honest state until
    * it does rather than a spinner pretending the page is still loading.
+   *
+   * `settled` is what the corrected state looks like for THIS mutation. Without
+   * it the banner could only be cleared by another mutation or a remount, so a
+   * panel that had already caught up and was displaying the corrected
+   * subscription would keep insisting its records were behind — the same class
+   * of lie as the confident-but-wrong success it replaced, pointing the other
+   * way.
    */
-  const handleLocalStateStale = useCallback(() => {
-    setLocalStateWarning(STALE_LOCAL_STATE_MESSAGE);
-    clearStaleTimers();
-    staleTimersRef.current = STALE_RECHECK_DELAYS_MS.map((ms) => setTimeout(fetchSubData, ms));
-  }, [clearStaleTimers, fetchSubData]);
+  const handleLocalStateStale = useCallback(
+    (settled: (data: SubscriptionResponse) => boolean) => {
+      setLocalStateWarning(STALE_LOCAL_STATE_MESSAGE);
+      clearStaleTimers();
+      staleTimersRef.current = STALE_RECHECK_DELAYS_MS.map((ms) =>
+        setTimeout(() => {
+          void fetchSubData().then((data) => {
+            if (data && settled(data)) {
+              setLocalStateWarning(null);
+              clearStaleTimers();
+            }
+          });
+        }, ms),
+      );
+    },
+    [clearStaleTimers, fetchSubData],
+  );
 
   useEffect(() => clearStaleTimers, [clearStaleTimers]);
 
   useEffect(() => {
-    fetchSubData();
+    void fetchSubData();
     fetch("/api/stripe/payment-history", { credentials: "include" })
       .then(r => r.json())
       .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
@@ -183,7 +209,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     if (params.get("from_portal") === "1") {
       setLocation(currentPath, { replace: true });
       const delays = [2000, 4000, 7000, 12000];
-      const timers = delays.map((ms) => setTimeout(fetchSubData, ms));
+      const timers = delays.map((ms) => setTimeout(() => void fetchSubData(), ms));
       return () => timers.forEach(clearTimeout);
     }
     return;
@@ -193,7 +219,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   // When the parent confirms a checkout (e.g. Legendary for Life), refetch everything.
   useEffect(() => {
     if (!refetchTrigger) return;
-    fetchSubData();
+    void fetchSubData();
     fetch("/api/stripe/payment-history", { credentials: "include" })
       .then(r => r.json())
       .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
@@ -244,8 +270,11 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         setShowCancelDialog(false);
         setCancelSuccessMessage("Your subscription has been cancelled. You'll keep access until the end of the billing period.");
         // Background refetch to sync full server state
-        fetchSubData();
-        if (data.localStateStale) handleLocalStateStale();
+        void fetchSubData();
+        // Settled = the server also shows the subscription as cancelling.
+        if (data.localStateStale) {
+          handleLocalStateStale((d) => d.appSubscription?.cancelAtPeriodEnd === true);
+        }
       }
     } catch {
       setError("Network error");
@@ -280,8 +309,11 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         });
         setCancelSuccessMessage("Your subscription has been reactivated and will renew as normal.");
         // Background refetch to sync full server state
-        fetchSubData();
-        if (data.localStateStale) handleLocalStateStale();
+        void fetchSubData();
+        // Settled = the server also shows the cancellation withdrawn.
+        if (data.localStateStale) {
+          handleLocalStateStale((d) => d.appSubscription?.cancelAtPeriodEnd === false);
+        }
       }
     } catch {
       setError("Network error");
@@ -339,15 +371,16 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         setError(data.error);
       } else {
         setShowSwitchDialog(false);
-        fetchSubData();
+        void fetchSubData();
         if (data.localStateStale) {
           // Already schedules its own re-checks, on a longer tail than the
           // optimistic ones below — don't stack two sets of timers.
-          handleLocalStateStale();
+          // Settled = the server reports the annual plan we switched to.
+          handleLocalStateStale((d) => d.appSubscription?.plan === "annual");
         } else {
           // Delayed refetches to catch webhook-driven DB updates
           const delays = [2000, 5000, 10000];
-          delays.forEach((ms) => setTimeout(fetchSubData, ms));
+          delays.forEach((ms) => setTimeout(() => void fetchSubData(), ms));
         }
       }
     } catch {

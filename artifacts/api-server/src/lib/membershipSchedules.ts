@@ -58,8 +58,15 @@ export interface GraceSweepHealth {
   lastRunAt: string | null;
   /** Null when no sweep has succeeded in this process — never a fabricated timestamp. */
   lastSuccessAt: string | null;
-  /** True until the first successful sweep; `staleSeconds` then counts from process start. */
+  /**
+   * No sweep has been ATTEMPTED yet. Distinct from `neverSucceeded`: deriving
+   * "not yet run" from the success clock made a sweep that ran and failed report
+   * itself as never having run, contradicting the `lastError` and
+   * `consecutiveFailures` sitting beside it.
+   */
   neverRun: boolean;
+  /** Attempted but never succeeded in this process; `staleSeconds` counts from process start. */
+  neverSucceeded: boolean;
   lastConvergedCount: number | null;
   lastError: string | null;
   consecutiveFailures: number;
@@ -87,7 +94,8 @@ export async function graceSweepHealth(now: number = Date.now()): Promise<GraceS
     alerting: staleSeconds >= config.grace_sweep_alert_after_seconds,
     lastRunAt: lastRunAt === null ? null : new Date(lastRunAt).toISOString(),
     lastSuccessAt: lastSuccessfulSweepAt === null ? null : new Date(lastSuccessfulSweepAt).toISOString(),
-    neverRun: lastSuccessfulSweepAt === null,
+    neverRun: lastRunAt === null,
+    neverSucceeded: lastSuccessfulSweepAt === null,
     lastConvergedCount: lastConverged,
     lastError,
     consecutiveFailures,

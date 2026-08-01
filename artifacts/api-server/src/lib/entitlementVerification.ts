@@ -404,8 +404,15 @@ export async function verifyMembershipSubscription(
     }
   }
 
-  const periodEnd = (subscription as Stripe.Subscription & { current_period_end?: number })
-    .current_period_end;
+  // The period end lives on the SUBSCRIPTION ITEM in this API version, not on
+  // the subscription. Reading it off `subscription` through a widening cast
+  // compiled fine and silently produced `undefined` on every refresh, so every
+  // source stored `currentPeriodEnd: null` — the panel's renewal/cancellation
+  // date then depended entirely on the Stripe-sync fallback being present and
+  // current. Take it from the membership item, which is the item whose billing
+  // cycle the date is actually describing; fall back to the first item only so a
+  // non-membership subscription still reports something.
+  const periodEnd = membershipItem?.current_period_end ?? items.items[0]?.current_period_end;
 
   return {
     ok: true,

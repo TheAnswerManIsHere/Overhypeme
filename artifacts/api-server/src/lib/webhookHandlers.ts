@@ -166,6 +166,26 @@ const RETRYABLE_NOOP_REASONS = new Set([
   "grace_anchor_ambiguous",
 ]);
 
+/**
+ * The primary key of `stripe_processed_events` — the idempotency claim itself.
+ *
+ * Named rather than inferred because the whole point is to distinguish THIS
+ * constraint from every other unique index a webhook's processing can touch.
+ */
+const PROCESSED_EVENTS_PK = "stripe_processed_events_pkey";
+
+/**
+ * True only for a Postgres unique/PK violation on the NAMED constraint.
+ *
+ * `code === "23505"` alone is not enough: it says "some unique index was
+ * violated", and every table a handler writes to has its own.
+ */
+export function isConstraintViolation(err: unknown, constraint: string): boolean {
+  if (!(err instanceof Error)) return false;
+  const pg = err as unknown as { code?: string; constraint?: string };
+  return pg.code === "23505" && pg.constraint === constraint;
+}
+
 export interface PreparedDomainEvent {
   entitlement: Prepared;
   historyWrites: Array<{
@@ -1132,9 +1152,20 @@ export class WebhookHandlers {
       // Phase C — after the commit, and only if it committed.
       await runAfterCommit(readyToApply, notifications);
     } catch (err) {
-      const isUniqueViolation = err instanceof Error &&
-        ((err as unknown as { code?: string }).code === "23505" || err.message.toLowerCase().includes("unique"));
-      if (isUniqueViolation) {
+      // ONLY the claim's own unique violation means "already processed".
+      //
+      // This catch spans preparation, the whole domain transaction, auditing and
+      // post-commit work, so a broad 23505 test convicts the wrong error: two
+      // first-purchase events racing in `linkCustomerToUser` make the loser
+      // violate the unique Stripe-customer constraint during PREPARE, before any
+      // claim exists. Calling that a duplicate returns 200, so Stripe never
+      // redelivers and a real purchase is dropped — the exact failure the
+      // claim-inside-the-transaction design exists to prevent, reached through
+      // the error path instead. Matching on the constraint name is what makes
+      // "already claimed" mean it. The message-substring test is gone with it:
+      // "unique" appears in plenty of unrelated errors.
+      const isDuplicateClaim = isConstraintViolation(err, PROCESSED_EVENTS_PK);
+      if (isDuplicateClaim) {
         await this.audit(event.id, event.type, "ignored_duplicate");
         logger.info({ eventId: event.id, eventType: event.type }, "Webhook event already processed — skipping (idempotency)");
         return;

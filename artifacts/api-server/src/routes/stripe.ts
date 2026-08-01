@@ -66,12 +66,21 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // source look qualifying, so a disputed newer subscription B would be
     // selected while access actually rests on older A.
     //
-    // ONE snapshot. Qualification and the row that gets returned must come from
-    // the same read: under READ COMMITTED, a webhook cancelling or disputing B
-    // between two statements leaves B in `qualifyingIds` from the first while
-    // the second returns its new non-qualifying state — selecting B over the
-    // older qualifying A and recreating exactly the mismatch this selection
-    // exists to prevent.
+    // ONE snapshot, and REPEATABLE READ is what makes that true. Qualification
+    // and the row that gets returned must come from the same read: a webhook
+    // cancelling or disputing B between the two statements leaves B in
+    // `qualifyingIds` from the first while the second returns its new
+    // non-qualifying state — selecting B over the older qualifying A and
+    // recreating exactly the mismatch this selection exists to prevent.
+    //
+    // A bare transaction does NOT prevent that. Under the pool's default READ
+    // COMMITTED isolation every statement takes a fresh snapshot, so grouping
+    // the two reads changes only their atomicity on write, which this read path
+    // has none of. The isolation level is the fix; the transaction alone was
+    // the appearance of one.
+    //
+    // Safe to raise here because this is a pure read: a serialization failure
+    // has nothing to undo, and there is no write to retry.
     const { hasLifetime, subscriptionSnapshots, appSubRows } = await db.transaction(async (tx) => {
       const snapshots = await loadSourceSnapshots(tx, userId);
       const rows = await tx.select().from(membershipEntitlementsTable)
@@ -92,7 +101,7 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
         ),
         appSubRows: rows,
       };
-    });
+    }, { isolationLevel: "repeatable read" });
 
     // The newest source that still GRANTS access, not simply the newest row. The
     // model supports more than one subscription source, and picking by recency
