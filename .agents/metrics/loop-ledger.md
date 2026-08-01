@@ -177,17 +177,24 @@ shortly after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent
 is timestamped then, and he confirmed the change in the same breath) — no
 timezone was recorded alongside that timestamp. #270, #274, and #282 all ran
 their review rounds before 2026-07-29 entirely and are confirmed
-pre-boundary regardless of which timezone "6:56 PM" was in. **#288's review
-window (2026-07-30T02:03–03:20 UTC) and #289's (2026-07-30T02:17–03:10 UTC)
-both fall the following calendar day in UTC, late enough that they postdate
-6:56 PM Pacific on 2026-07-29 (the latest plausible U.S. timezone) and are
-confirmed post-boundary under any plausible reading.** **#285 is not**: its
-review window is 2026-07-29T22:39Z–2026-07-30T02:09Z, and this session's own
-surrounding commits (`TheAnswerManIsHere`'s commits from 2026-07-28 and
-2026-07-29 are consistently authored at `-06:00`, switching to `-04:00` only
-starting the daytime of 2026-07-30) are the best evidence this repo has for
-what "6:56 PM" actually meant in UTC — 00:56Z. That falls **inside** #285's
-review window, not before it, so #285 straddles the boundary: its earlier
+pre-boundary regardless of which timezone "6:56 PM" was in. For #288 and
+#289, "any plausible U.S. timezone" is **not** timezone-independent —
+Alaska (`-09:00`) puts the toggle at 02:56Z, inside both loops' windows,
+and Hawaii (`-10:00`) puts it at 04:56Z, after both loops ended entirely,
+so different plausible zones give different (and in Hawaii's case,
+opposite) answers. The only non-circular grounding is the same evidence
+used for #285 below: this session's own surrounding commits
+(`TheAnswerManIsHere`'s commits from 2026-07-28 and 2026-07-29 are
+consistently authored at `-06:00`, switching to `-04:00` only starting the
+daytime of 2026-07-30) are the best evidence this repo has for what "6:56
+PM" actually meant in UTC — 00:56Z. **Anchored to that same `-06:00`
+evidence, #288's review window (2026-07-30T02:03–03:20 UTC) and #289's
+(2026-07-30T02:17–03:10 UTC) both start well after 00:56Z, so both are
+confirmed post-boundary** — grounded in the repo's own commit evidence,
+not a "latest plausible timezone" argument that doesn't actually hold.
+**#285 is different**: its review window is
+2026-07-29T22:39Z–2026-07-30T02:09Z, and 00:56Z falls **inside** that
+window, not before it, so #285 straddles the boundary: its earlier
 rounds reviewed under the old settings, its later rounds did not. An earlier
 draft of this section hedged the #285 boundary call as "unverified" and was
 told to drop the hedge (Codex review on PR #290) — at that point nobody had

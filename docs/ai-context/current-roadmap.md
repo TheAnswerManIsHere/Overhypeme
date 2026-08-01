@@ -38,9 +38,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   scheduling a lane fleet-wide; a paginated
   per-item drill-down (all eleven queues, not just email) reads only
   `async_jobs`, not the heartbeat. One narrow, David-approved exception to
-  "no finalize changes": the `abandoned_no_retry` classification now
-  persists the resolved retry ceiling at the moment a row finalizes to
-  `failed`, instead of re-deriving it live (see
+  "no finalize changes": `processClaimedJob` now persists the resolved
+  retry ceiling at the moment a row finalizes to `failed` — the
+  `abandoned_no_retry` classification itself stays derived on every read,
+  never stored (see
   [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)).
   Also closed a real gap from the five-lane expansion (PR #256, which added
   the `pexels`/`ai_meme_backfill` lanes on top of PR #216's original

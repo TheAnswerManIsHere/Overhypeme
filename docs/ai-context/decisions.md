@@ -97,12 +97,15 @@
   unaffected and stands.
 - **Revisit if:** the five lanes' *combined* concurrency (no aggregate cap
   ties their individually-configurable settings together — see the
-  glossary's Lane entry) is raised enough to push per-instance worst-case
-  demand past 20 — the defaults sum to 10, so a single small increase (e.g.
-  `fast` 2→3, demand 11) merely narrows the margin and is advisory, not an
-  immediate resize trigger; only a combined increase past 20 actually
-  exceeds what the constant covers. Also revisit if the autoscale ceiling
-  exceeds ~19 instances at default lane settings — a different threshold,
+  glossary's Lane entry) is raised enough to **reach** 20 — the defaults
+  sum to 10, so a single small increase (e.g. `fast` 2→3, demand 11) merely
+  narrows the margin and is advisory, not an immediate resize trigger; but
+  combined demand hitting 20 exactly already consumes the whole pool with
+  zero spare for HTTP queries, claims, or heartbeat writes — the same
+  zero-headroom problem this decision fixed at the old 10/10 boundary, so
+  the trigger is reaching 20, not waiting to exceed it. Also revisit if the
+  autoscale ceiling exceeds ~19 instances at default lane settings — a
+  different threshold,
   since that one threatens the *global* 398-connection budget
   (`max_instances × 20`) rather than any single instance's demand.
 
