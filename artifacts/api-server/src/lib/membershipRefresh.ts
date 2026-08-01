@@ -282,20 +282,57 @@ async function firstPaymentIntentForInvoice(
 }
 
 /**
+ * Could this PaymentIntent still become a one-time membership source?
+ *
+ * The question `charge.refunded` has to answer before it may claim an event. A
+ * lifetime source is only ever created by `prepareOneTimeCheckout`, from a
+ * **payment-mode Checkout Session**, so the precise question is whether such a
+ * session exists for this PaymentIntent — not whether the charge happens to be
+ * invoice-backed.
+ *
+ * The invoice-linkage test that stood here was wrong, and wrong in the direction
+ * that matters. The pinned API supports `invoice_creation` on payment-mode
+ * sessions, so a one-time membership purchase CAN carry an invoice; treating
+ * invoice linkage as proof of subscription billing would let a refund that
+ * overtakes its own checkout event record audit-only and claim, after which the
+ * checkout event still creates an ACTIVE lifetime source. That is precisely the
+ * Legendary-forever ordering bug, reintroduced through a different door. Our own
+ * checkout does not set `invoice_creation` today, which makes the defect latent
+ * rather than live — but the verifier accepts any paid payment-mode session
+ * carrying a membership product, so the invariant held only by a parameter we
+ * happen to omit, which is the same shape of defect this whole model exists to
+ * remove.
+ *
+ * `subscription`-mode sessions are deliberately excluded: those become
+ * subscription sources, never lifetime ones.
+ *
+ * Throws rather than returning a verdict when the lookup fails — a failed read
+ * must not be flattened into "no session", which is the answer that permits a
+ * claim.
+ */
+export async function hasOneTimeCheckoutOrigin(
+  stripe: Stripe,
+  paymentIntentId: string,
+  deadline?: RetrievalDeadline,
+): Promise<boolean> {
+  deadline?.assertCanIssue("checkout.sessions.list");
+  const sessions = await stripe.checkout.sessions.list({
+    payment_intent: paymentIntentId,
+    limit: PAGE_SIZE,
+  });
+  return sessions.data.some((session) => session.mode === "payment");
+}
+
+/**
  * The invoice a PaymentIntent paid, or null when it paid no invoice at all.
  *
- * Two callers, both needing the same fact for different reasons:
+ * Used for the receipt link on a subscription refund's history row. `Charge`
+ * carries no `invoice` field in this API version — the cast that used to read
+ * one always produced `undefined` — so it has to be looked up rather than read
+ * off the event.
  *
- *   - a subscription refund's history row wants the invoice id for its receipt
- *     link. `Charge` carries no `invoice` field in this API version — the cast
- *     that used to read one always produced `undefined` — so it has to be looked
- *     up rather than read off the event.
- *   - `charge.refunded` and the dispute path need to know whether a charge is
- *     invoice-backed at all. **Invoice-backed is the authoritative negative
- *     proof that a charge is not a one-time membership purchase**, which is what
- *     lets those handlers stop inferring it from the local absence of an
- *     entitlement row — an inference that is false exactly when the refund
- *     overtakes the checkout event that would have created the row.
+ * NOT a classifier. See `hasOneTimeCheckoutOrigin` for why invoice linkage
+ * cannot decide whether a charge is a one-time membership purchase.
  *
  * A `null` return is only sound because it distinguishes "no invoice" from "the
  * lookup failed": a throw propagates rather than being flattened into null.
@@ -493,6 +530,32 @@ export async function prepareSubscriptionRefresh(
       if (grace.startedAt) {
         graceStartedAt = grace.startedAt;
       } else {
+        // Unresolvable is normally SAFE: no deadline is derived, the source
+        // keeps qualifying, and the case is reported. There is exactly one
+        // shape where it is not — an existing episode whose deadline has
+        // ALREADY passed.
+        //
+        // Then the fallback is the stored anchor, and we cannot tell "the same
+        // episode, legitimately expired" from "a NEW episode we failed to
+        // anchor because the recovery webhook was missed". Applying picks the
+        // first reading and demotes a customer who is owed a fresh 14 days,
+        // permanently, because nothing revisits it. So the ambiguity is
+        // reported as retryable instead: a transient exhaustion resolves on
+        // Stripe's next delivery and the new episode gets its window, and a
+        // permanently unresolvable one ends up audited rather than silently
+        // deciding against the customer.
+        const existing = await findSourceByProviderRef(db, "stripe_subscription", subscriptionId);
+        const storedDeadline = existing?.graceExpiresAt ?? null;
+        if (storedDeadline && storedDeadline.getTime() <= Date.now()) {
+          await releaseLease(lease);
+          logger.warn(
+            { subscriptionId, reason: grace.reason, storedDeadline },
+            "past_due refresh could not resolve a fresh grace anchor and the stored episode has already " +
+              "expired — ambiguous between the same episode and a new one, so retrying rather than deciding",
+          );
+          return { kind: "noop", reason: "grace_anchor_ambiguous" };
+        }
+
         graceUnresolvedReason = grace.reason;
         logger.warn(
           { subscriptionId, reason: grace.reason },
@@ -1065,7 +1128,17 @@ async function locateDisputedSource(
   return null;
 }
 
-function subscriptionIdForInvoice(invoice: Stripe.Invoice): string | null {
+/**
+ * The subscription an invoice belongs to.
+ *
+ * Exported because **every** invoice event needs it, not just the dispute walk.
+ * In this pinned API version `Invoice` has NO top-level `subscription` field —
+ * the source moved to `parent.subscription_details.subscription` — so a handler
+ * reading `invoice.subscription` gets `undefined` for every real event, silently
+ * and without a type error (the reads were all through `as unknown as` casts).
+ * The legacy branch below stays for fixtures and older payloads.
+ */
+export function subscriptionIdForInvoice(invoice: Stripe.Invoice): string | null {
   const shape = invoice as Stripe.Invoice & {
     parent?: { subscription_details?: { subscription?: string | { id: string } } };
     subscription?: string | { id: string };

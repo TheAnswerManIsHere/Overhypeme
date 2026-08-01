@@ -180,8 +180,15 @@ based on a stale local row.
   an event at all — the webhook endpoint is down for its whole retry window, say
   — nothing sweeps up afterwards and finds the discrepancy on its own. That
   user's tier stays whatever it was until the next event for the same
-  subscription or payment arrives, or until you correct it by hand through the
-  admin grant/revoke surface.
+  subscription or payment arrives.
+
+  **And there is no manual repair for the direction that costs money.** Admin
+  grant and revoke only create and revoke *admin grants*; neither can mark a
+  stale Stripe subscription cancelled, or a stale purchase refunded or
+  dispute-lost. So if the missing event was one that should have *removed*
+  access, the only fix is another Stripe event for that source — you cannot
+  correct it from the admin screen. (The reverse direction is fine: if someone
+  is wrongly *without* access, an admin grant restores it.)
 
   This is a **deliberate, accepted gap in this PR**, not an oversight: the
   Stripe-vs-local reconciliation job that closes it is a separate piece of work,

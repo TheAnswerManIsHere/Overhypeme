@@ -231,75 +231,84 @@ export async function loadMembershipConfig(): Promise<
 }
 
 /**
- * The same set, read under a row lock so a write can be validated against it
- * ATOMICALLY.
+ * BOTH resolutions of the membership settings, read under a row lock.
  *
- * `loadMembershipConfig` reads a process-level cache outside any transaction, so
- * two concurrent writes could each validate a safe intermediate state and commit
- * an unsafe pair: from a 90s lease and a 5s waiter, raising the waiter to 60
- * validates against 90 while lowering the lease to 30 validates against 5, and
- * the committed 30/60 violates the invariant neither write could see. A
- * relational check is only enforced if the state it read cannot move before the
- * write lands.
+ * Two problems, one read.
  *
- * So the caller takes this inside the transaction that performs the update, and
- * the row locks it acquires are held until that transaction commits. `ORDER BY
- * key` makes the lock order deterministic, so two writers queue rather than
- * deadlock.
+ * **Atomicity.** `loadMembershipConfig` reads a process-level cache outside any
+ * transaction, so two concurrent writes could each validate a safe intermediate
+ * state and commit an unsafe pair: from a 90s lease and a 5s waiter, raising the
+ * waiter to 60 validates against 90 while lowering the lease to 30 validates
+ * against 5, and the committed 30/60 violates an invariant neither write could
+ * see. A relational check is only enforced if the state it read cannot move
+ * before the write lands. So the caller takes this inside the transaction that
+ * performs the update, and the row locks are held until that transaction
+ * commits. `ORDER BY key` makes the lock order deterministic, so two writers
+ * queue rather than deadlock.
  *
- * `debug_mode_active` is read but NOT locked: debug mode selects which column is
- * effective, and the relational invariant is between the membership keys
- * themselves, which are the set that has to be serialised.
+ * **Debug mode is not a second chance to be incoherent.** Returning only the
+ * currently-effective resolution left a hole: while debug mode is OFF, every
+ * stored debug override is ignored, so each one validates against the BASE
+ * values and a pair that is invalid *together* can accumulate unnoticed —
+ * flipping `debug_mode_active` then activates it in one step, and that key is
+ * not a membership key so its own PATCH runs no relational check. Both
+ * resolutions are returned so a write can be required to leave the set coherent
+ * under either mode, which makes the flip incapable of producing an invalid
+ * state.
+ *
+ * `debug_mode_active` is locked too, so the mode cannot flip between this read
+ * and the write it authorises.
  */
+export interface MembershipConfigResolutions {
+  /** The `value` column only — what applies with debug mode off. */
+  base: Record<MembershipConfigKey, number>;
+  /** `debug_value` where set, else `value` — what applies with debug mode on. */
+  debug: Record<MembershipConfigKey, number>;
+}
+
 export async function lockAndLoadMembershipConfig(
   tx: { execute: (query: SQL) => Promise<{ rows: Array<Record<string, unknown>> }> },
-): Promise<Record<MembershipConfigKey, number>> {
+): Promise<MembershipConfigResolutions> {
   const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
-
-  const debug = await tx.execute(
-    sql`SELECT value FROM admin_config WHERE key = 'debug_mode_active' LIMIT 1`,
-  );
-  const debugActive = debug.rows[0]?.value === "true";
 
   const locked = await tx.execute(
     sql`SELECT key, value, debug_value FROM admin_config
-        WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+        WHERE key IN (${sql.join([...keys, "debug_mode_active"].map((key) => sql`${key}`), sql`, `)})
         ORDER BY key
         FOR UPDATE`,
   );
 
   const byKey = new Map(locked.rows.map((row) => [String(row.key), row]));
 
-  const entries = keys.map((key) => {
-    const row = byKey.get(key);
-    if (!row) return [key, MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
-    const debugValue = row.debug_value;
-    const effective =
-      debugActive && debugValue != null && debugValue !== "" ? debugValue : row.value;
-    const parsed = Number(effective);
-    return [key, Number.isFinite(parsed) ? parsed : MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
-  });
+  const resolve = (useDebug: boolean) =>
+    Object.fromEntries(
+      keys.map((key) => {
+        const row = byKey.get(key);
+        if (!row) return [key, MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
+        const debugValue = row.debug_value;
+        const effective =
+          useDebug && debugValue != null && debugValue !== "" ? debugValue : row.value;
+        const parsed = Number(effective);
+        return [key, Number.isFinite(parsed) ? parsed : MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
+      }),
+    ) as Record<MembershipConfigKey, number>;
 
-  return Object.fromEntries(entries) as Record<MembershipConfigKey, number>;
+  return { base: resolve(false), debug: resolve(true) };
 }
 
 /**
- * Validate a proposed write against the OTHER settings, not just its own range.
+ * Is a COMPLETE set of settings coherent?
  *
- * Enforced on write of **any** component of a relationship. Enforcing one side
- * only is not enforcing it: an operator could satisfy every individual range and
- * still leave the lease shorter than the retrieval budget, or the waiter longer
- * than the lease it waits for.
+ * The relational rules live here, over a whole set, rather than in a
+ * one-key-at-a-time check — because the thing that has to be true is a property
+ * of the set, and there is more than one prospective set to test on a single
+ * write (see `MembershipConfigResolutions`).
  *
- * Returns an error message, or null when the write is admissible.
+ * Returns an error message, or null when the set is admissible.
  */
-export function validateMembershipConfigWrite(
-  key: MembershipConfigKey,
-  proposed: number,
-  current: Record<MembershipConfigKey, number>,
+export function validateMembershipConfigSet(
+  next: Record<MembershipConfigKey, number>,
 ): string | null {
-  const next = { ...current, [key]: proposed };
-
   // The lease has to cover the WHOLE operation — the bounded retrieval PHASE
   // (every Stripe request the prepare makes, not one of them), plus every apply
   // attempt and its backoff — with margin.
@@ -325,4 +334,22 @@ export function validateMembershipConfigWrite(
   }
 
   return null;
+}
+
+/**
+ * Validate a proposed write against the OTHER settings, not just its own range.
+ *
+ * Enforced on write of **any** component of a relationship. Enforcing one side
+ * only is not enforcing it: an operator could satisfy every individual range and
+ * still leave the lease shorter than the retrieval budget, or the waiter longer
+ * than the lease it waits for.
+ *
+ * Returns an error message, or null when the write is admissible.
+ */
+export function validateMembershipConfigWrite(
+  key: MembershipConfigKey,
+  proposed: number,
+  current: Record<MembershipConfigKey, number>,
+): string | null {
+  return validateMembershipConfigSet({ ...current, [key]: proposed });
 }

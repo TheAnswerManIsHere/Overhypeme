@@ -129,6 +129,41 @@ describe("PATCH /admin/config/:key — membership relational invariants", () => 
     assert.match(String(res.body.error ?? ""), /^Debug value: /);
   });
 
+  it("rejects the debug override that would make the DEBUG set incoherent, though each is fine alone", async () => {
+    // The accumulation a currently-effective check cannot see, and the reason
+    // both resolutions are validated. Debug mode is OFF throughout, so every
+    // override here is inert and each one validates happily against the base
+    // set — and `debug_mode_active` is not a membership key, so flipping it
+    // later runs no relational check of its own. Without checking the
+    // prospective DEBUG resolution, the invalid pair would activate in one
+    // click.
+    //
+    // First override: a 20000s sweep interval. Against the base set its alert
+    // threshold is still 21600, so this is admissible and must be accepted —
+    // asserting that first is what makes the second assertion mean something.
+    const first = await request(app)
+      .patch("/api/admin/config/grace_sweep_interval_seconds")
+      .send({ debugValue: "20000" });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+
+    // Second override: a 10000s alert threshold. Against the BASE set its
+    // interval is 3600, so 10000 clears it easily. Against the DEBUG set the
+    // interval is now 20000 — the alert would fire before the sweep could have
+    // run again, which is the pair neither write can see on its own.
+    const before = await storedValue("grace_sweep_alert_after_seconds");
+    const second = await request(app)
+      .patch("/api/admin/config/grace_sweep_alert_after_seconds")
+      .send({ debugValue: "10000" });
+
+    assert.equal(second.status, 400, JSON.stringify(second.body));
+    assert.match(String(second.body.error ?? ""), /under debug mode/);
+    assert.equal(await storedValue("grace_sweep_alert_after_seconds"), before);
+
+    await request(app)
+      .patch("/api/admin/config/grace_sweep_interval_seconds")
+      .send({ clearDebugValue: true });
+  });
+
   it("validates against the CURRENT stored set, not the seeded defaults", async () => {
     // Raise the lease first; a waiter that was inadmissible a moment ago becomes
     // admissible, which is only true if the check reads live state.

@@ -13,10 +13,12 @@
  * It repaired SOURCE state that nothing else discovers — the answer to "what if
  * the event never arrives at all" — and its absence is a known, accepted gap:
  * a webhook Stripe never successfully delivers is not repaired automatically,
- * and needs a manual correction through the admin grant surface. That is a
- * strictly smaller guarantee than the model itself makes, not a defect in it:
- * every path that DOES receive its event is still authoritative, fenced and
- * idempotent.
+ * and — in the direction that costs money — cannot be repaired by hand either:
+ * the admin surface grants and revokes ADMIN GRANTS, so it can restore access
+ * wrongly lost but cannot mark a stale Stripe subscription cancelled or a stale
+ * purchase refunded. That is a strictly smaller guarantee than the model itself
+ * makes, not a defect in it: every path that DOES receive its event is still
+ * authoritative, fenced and idempotent.
  */
 
 import { loadMembershipConfig } from "./membershipTiming.js";

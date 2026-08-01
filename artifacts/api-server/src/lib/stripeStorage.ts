@@ -23,11 +23,30 @@ export class StripeStorage {
     await db.update(usersTable).set({ stripeCustomerId }).where(eq(usersTable.id, userId));
   }
 
-  async getSubscriptionForUser(userId: string) {
+  /**
+   * @param subscriptionId When given, return THIS subscription rather than
+   * whichever qualifying one is newest.
+   *
+   * The caller that renders the subscription panel supplies it. Without it, this
+   * method and the entitlement-source query beside it each pick independently —
+   * "newest qualifying by Stripe's created" here, "newest row" there — so a user
+   * whose newer subscription B was cancelled while older A stays active gets the
+   * price and period of A rendered next to the cancel/reactivate state of B, and
+   * the controls then mutate a subscription the page is not describing.
+   */
+  async getSubscriptionForUser(userId: string, subscriptionId?: string) {
     const user = await this.getUserById(userId);
     if (!user?.stripeCustomerId) return null;
 
-    const result = await db.execute(
+    const result = subscriptionId
+      ? await db.execute(
+          sql`SELECT s.* FROM stripe.subscriptions s
+              JOIN stripe.customers c ON c.id = s.customer
+              WHERE c.id = ${user.stripeCustomerId}
+              AND s.id = ${subscriptionId}
+              LIMIT 1`,
+        )
+      : await db.execute(
       sql`SELECT s.* FROM stripe.subscriptions s
           JOIN stripe.customers c ON c.id = s.customer
           WHERE c.id = ${user.stripeCustomerId}

@@ -15,7 +15,7 @@ import {
 } from "../lib/membershipRefresh";
 import { runBoundedApply } from "../lib/membershipLease";
 import { hasQualifyingLifetimeSource } from "../lib/membershipSources";
-import { getEffectiveMembership } from "../lib/membershipState";
+import { getEffectiveMembership, qualifySource } from "../lib/membershipState";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
@@ -66,11 +66,34 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
           eq(membershipEntitlementsTable.userId, userId),
           eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
         ))
-        .orderBy(desc(membershipEntitlementsTable.createdAt))
-        .limit(1),
+        .orderBy(desc(membershipEntitlementsTable.createdAt)),
     ]);
 
-    const source = appSubRows[0] ?? null;
+    // The newest source that still GRANTS access, not simply the newest row. The
+    // model supports more than one subscription source, and picking by recency
+    // alone returns a cancelled subscription B while access actually rests on an
+    // older active A — so the panel would describe one and act on the other.
+    // Falls back to the newest row when none qualify, so a fully-cancelled user
+    // still sees their most recent subscription rather than an empty panel.
+    const nowForPanel = new Date();
+    const source =
+      appSubRows.find((row) =>
+        qualifySource(
+          {
+            id: row.id,
+            sourceType: "stripe_subscription",
+            providerRef: row.providerRef,
+            isMembershipProduct: row.isMembershipProduct,
+            lifecycleStatus: row.lifecycleStatus,
+            graceExpiresAt: row.graceExpiresAt,
+            disputeLossRevokedAt: row.disputeLossRevokedAt,
+            hasOpenDispute: false,
+          },
+          nowForPanel,
+        ).qualifies,
+      ) ??
+      appSubRows[0] ??
+      null;
     // The shape GET /stripe/subscription has always returned, rebuilt from the
     // entitlement source so the client contract is unchanged.
     const appSub = source
@@ -88,8 +111,9 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
       : null;
 
     // Also fetch the live subscription from Stripe-synced data for renewal dates
+    // BY ID, so both halves of this response describe the same subscription.
     const stripeSub = appSub?.stripeSubscriptionId
-      ? await stripeStorage.getSubscriptionForUser(userId)
+      ? await stripeStorage.getSubscriptionForUser(userId, appSub.stripeSubscriptionId)
       : null;
 
     res.json({

@@ -52,7 +52,7 @@ import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConf
 import {
   isMembershipConfigKey,
   lockAndLoadMembershipConfig,
-  validateMembershipConfigWrite,
+  validateMembershipConfigSet,
   type MembershipConfigKey,
 } from "../lib/membershipTiming";
 
@@ -606,11 +606,16 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
 });
 
 // GET /admin/refunds-disputes — paginated list of refund/dispute events from membership_history
-// Returns rows for events: refund, dispute_opened, dispute_won, dispute_lost, dispute_closed.
+// Returns rows for events: refund, partial_refund, dispute_opened, dispute_won,
+// dispute_lost, dispute_closed.
 // Joined with the users table so the UI can display who was affected without a second round-trip.
 router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Response) => {
   const REFUND_DISPUTE_EVENTS = [
     "refund",
+    // A partial refund is a real refund event with its own durable history row
+    // (it deliberately leaves the entitlement active). Omitting it here hid it
+    // from the one surface dedicated to refunds while it sat in the database.
+    "partial_refund",
     "dispute_opened",
     "dispute_won",
     "dispute_lost",
@@ -2448,7 +2453,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
    * Relational checks to run INSIDE the write transaction, against the locked
    * config set — never against a cached read taken before it.
    */
-  const relationalChecks: Array<{ value: number; prefix: string }> = [];
+  const relationalChecks: Array<{
+    value: number;
+    prefix: string;
+    /** Which column this write makes effective — see the transaction below. */
+    target: "value" | "debug";
+  }> = [];
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2495,7 +2505,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
       // Deferred to the write transaction below, where the set it is checked
       // against is locked — see `lockAndLoadMembershipConfig`.
-      relationalChecks.push({ value: parsed, prefix: "" });
+      relationalChecks.push({ value: parsed, prefix: "", target: "value" });
     }
 
     newValue = rawValue;
@@ -2558,7 +2568,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         res.status(400).json({ error: "Debug value must be a number" });
         return;
       }
-      relationalChecks.push({ value: parsed, prefix: "Debug value: " });
+      relationalChecks.push({ value: parsed, prefix: "Debug value: ", target: "debug" });
     }
     newDebugValue = rawDebug;
     // Clearing (either mechanism) always clears the label too — a null debug
@@ -2594,13 +2604,36 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     // which would respond while the transaction was still open.
     try {
       updated = await db.transaction(async (tx) => {
-        const current = await lockAndLoadMembershipConfig(tx);
+        const membershipKey = key as MembershipConfigKey;
+        const { base, debug } = await lockAndLoadMembershipConfig(tx);
+
+        // Validated under BOTH resolutions, not just the one in force. While
+        // debug mode is off its overrides are inert, so a debug value checked
+        // against the base set can sit there looking fine until the mode is
+        // flipped — and `debug_mode_active` is not a membership key, so its own
+        // PATCH runs no relational check and would activate the invalid pair in
+        // one step. Requiring every write to leave both sets coherent makes that
+        // flip incapable of producing an invalid state.
+        //
+        // `debug[k] !== base[k]` is exactly "this key has an effective debug
+        // override": an override equal to the base value substitutes to the same
+        // number either way, so it does not matter which branch it takes.
         for (const check of relationalChecks) {
-          const error = validateMembershipConfigWrite(
-            key as MembershipConfigKey,
-            check.value,
-            current,
-          );
+          const hasOverride = debug[membershipKey] !== base[membershipKey];
+
+          const nextBase =
+            check.target === "value" ? { ...base, [membershipKey]: check.value } : base;
+          const nextDebug =
+            check.target === "debug"
+              ? { ...debug, [membershipKey]: check.value }
+              : hasOverride
+                ? debug
+                : { ...debug, [membershipKey]: check.value };
+
+          const baseError = validateMembershipConfigSet(nextBase);
+          const debugError = validateMembershipConfigSet(nextDebug);
+          const error =
+            baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
           if (error) throw new RelationalConfigError(`${check.prefix}${error}`);
         }
         const [row] = await tx

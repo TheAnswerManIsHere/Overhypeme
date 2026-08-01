@@ -17,7 +17,9 @@ its derivation, the write paths and read-path enforcement, plus the grace sweep.
 The Stripe-vs-local reconciliation job is **not** in it and lands separately. The
 practical consequence to hold while testing: a webhook Stripe never successfully
 delivers leaves local state stale until a later event for that same source
-arrives, with no background repair. That gap is known and accepted for this PR.
+arrives, with no background repair — and no manual one either in the direction
+that costs money, since admin grant/revoke acts on admin grants, not on Stripe
+sources. That gap is known and accepted for this PR.
 
 ---
 

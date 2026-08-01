@@ -546,11 +546,12 @@ export async function findSourceByProviderRef(
   tx: Db,
   sourceType: EntitlementSourceType,
   providerRef: string,
-): Promise<{ id: number; userId: string } | null> {
+): Promise<{ id: number; userId: string; graceExpiresAt: Date | null } | null> {
   const [row] = await tx
     .select({
       id: membershipEntitlementsTable.id,
       userId: membershipEntitlementsTable.userId,
+      graceExpiresAt: membershipEntitlementsTable.graceExpiresAt,
     })
     .from(membershipEntitlementsTable)
     .where(

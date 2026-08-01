@@ -17,6 +17,7 @@ import {
 
 type RefundDisputeEvent =
   | "refund"
+  | "partial_refund"
   | "dispute_opened"
   | "dispute_won"
   | "dispute_lost"
@@ -60,6 +61,7 @@ const RefundDisputeTable = ResponsiveTable<RefundDisputeRow>;
 const FILTER_OPTIONS: { value: "" | RefundDisputeEvent; label: string }[] = [
   { value: "", label: "All" },
   { value: "refund", label: "Refunds" },
+  { value: "partial_refund", label: "Partial refunds" },
   { value: "dispute_opened", label: "Disputes opened" },
   { value: "dispute_won", label: "Disputes won" },
   { value: "dispute_lost", label: "Disputes lost" },
@@ -70,6 +72,8 @@ function eventBadgeClass(event: string): string {
   switch (event) {
     case "refund":
       return "bg-blue-500/15 text-blue-500 dark:text-blue-400 border-blue-500/30";
+    case "partial_refund":
+      return "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30";
     case "dispute_opened":
       return "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30";
     case "dispute_lost":
@@ -87,6 +91,8 @@ function formatEvent(event: string): string {
   switch (event) {
     case "refund":
       return "Refund";
+    case "partial_refund":
+      return "Partial refund";
     case "dispute_opened":
       return "Dispute opened";
     case "dispute_won":
