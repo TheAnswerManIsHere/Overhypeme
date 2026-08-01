@@ -132,6 +132,33 @@ describe("canEffectivelyAssumeRole — from a genuinely restricted connection", 
       await sharedPool.query(`DROP ROLE IF EXISTS "${helperRole}"`);
     }
   });
+
+  it("is not fooled by a session-level search_path shadow of pg_has_role", async () => {
+    // Round 9 finding: this function's own runtime queries were left unqualified, unlike the
+    // trigger body fixed in round 8 — but `targetPool` is meant to be usable as a genuinely
+    // restricted connection representing the CHECKED role itself (per this describe block's
+    // whole premise), which means that role fully controls its own session's search_path. A
+    // role that genuinely has INHERIT usage of the target, but wants this check to
+    // under-report its own bypass capability, can create a schema it owns, shadow
+    // `pg_has_role` there to always return false, and put that schema ahead of an
+    // explicitly-named `pg_catalog` on its own search_path. Verified directly against this
+    // repository's PostgreSQL 16 target before the fix: the unqualified form read `false`
+    // where the real privilege (and `pg_catalog.pg_has_role`) both read `true`.
+    const shadowSchema = `nab_shadow_${runId}`;
+    await sharedPool.query(`GRANT "${targetRole}" TO "${loginRole}" WITH INHERIT TRUE, SET FALSE`);
+    await sharedPool.query(`CREATE SCHEMA "${shadowSchema}" AUTHORIZATION "${loginRole}"`);
+    try {
+      await loginPool.query(`SET search_path = "${shadowSchema}", pg_catalog`);
+      await loginPool.query(
+        `CREATE FUNCTION "${shadowSchema}".pg_has_role(name, text, text) RETURNS boolean AS $$ SELECT false $$ LANGUAGE sql`,
+      );
+      assert.equal(await canEffectivelyAssumeRole(targetRole, loginPool), true);
+    } finally {
+      await loginPool.query(`RESET search_path`).catch(() => {});
+      await sharedPool.query(`DROP SCHEMA IF EXISTS "${shadowSchema}" CASCADE`).catch(() => {});
+      await sharedPool.query(`REVOKE "${targetRole}" FROM "${loginRole}"`).catch(() => {});
+    }
+  });
 });
 
 /**
@@ -180,6 +207,7 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
     assert.equal(status.applicationOwnsTable, false);
     assert.equal(status.applicationOwnsFunction, false);
     assert.equal(status.applicationOwnsSchema, false);
+    assert.equal(status.applicationOwnsFunctionSchema, false);
     assert.equal(status.applicationCanBypassTrigger, false);
   });
 
@@ -194,6 +222,7 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
     assert.equal(status.applicationOwnsTable, true);
     assert.equal(status.applicationOwnsFunction, true);
     assert.equal(status.applicationOwnsSchema, true);
+    assert.equal(status.applicationOwnsFunctionSchema, true);
     if (status.maintenanceRoleExists) {
       assert.equal(status.applicationCanBypassTrigger, true);
     }

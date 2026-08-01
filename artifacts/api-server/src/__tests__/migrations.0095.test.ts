@@ -1085,6 +1085,31 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
+    it("reports the guard function as tampered when it is SECURITY DEFINER, even with byte-identical source", async (t) => {
+      if (!pool || !ncmecAuditBoundaryStatus || !NCMEC_AUDIT_LOG_GUARD_FN_BODY) return t.skip("DATABASE_URL not set");
+      // Round 9 finding: prosrc alone is not the whole function definition. Inside a
+      // SECURITY DEFINER function, current_user resolves to the FUNCTION OWNER for the
+      // duration of the call, not the actual caller — verified directly against this
+      // repository's PostgreSQL 16 target. A tampered copy with byte-identical source,
+      // marked SECURITY DEFINER and owned by a role that itself holds
+      // overhype_audit_maintenance, would pass the guard's own pg_has_role(current_user,
+      // 'overhype_audit_maintenance', 'usage') check for EVERY caller — the source text
+      // genuinely never changed, so a prosrc-only comparison cannot see this.
+      await pool.query(`
+        CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS $$${NCMEC_AUDIT_LOG_GUARD_FN_BODY}$$
+        LANGUAGE plpgsql SECURITY DEFINER;
+      `);
+      try {
+        const status = await ncmecAuditBoundaryStatus!();
+        assert.equal(status.guardFunctionIntact, false);
+        assert.equal(status.boundaryEnforced, false);
+      } finally {
+        // Restore the real guard function so every test that runs after this one still has
+        // a working append-only gate.
+        await pool.query(auditGuardBlock());
+      }
+    });
+
     it("keeps NCMEC_AUDIT_LOG_GUARD_FN_BODY (lib/db) byte-identical to 0095's fn_body", (t) => {
       if (!NCMEC_AUDIT_LOG_GUARD_FN_BODY) return t.skip("DATABASE_URL not set");
       // The two copies exist only because a SQL migration and a TypeScript module cannot

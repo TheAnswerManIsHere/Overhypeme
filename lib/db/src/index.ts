@@ -179,19 +179,39 @@ export interface NcmecAuditBoundaryStatus {
    * table-ownership-transfer boundary is bypassable by drop-and-recreate instead.
    */
   applicationOwnsSchema: boolean;
+  /** The role that owns the schema the guard FUNCTION lives in — checked independently of `schemaOwner`. */
+  functionSchemaOwner: string;
+  /**
+   * The function-schema counterpart to `applicationOwnsSchema`, resolved from
+   * `pg_proc.pronamespace` rather than assumed to equal the table's schema. Both land in the
+   * same schema today (both are created via unqualified statements resolving through the
+   * same `search_path`), but nothing pins that relationship — if a DBA (or a future
+   * migration) ever moved the guard function to a different schema than the table, a schema
+   * owner of THAT schema could `DROP FUNCTION ... CASCADE` (which drops both dependent
+   * triggers too) regardless of the function's own `proowner`, the same class of bypass
+   * `applicationOwnsSchema` exists to catch for the table.
+   */
+  applicationOwnsFunctionSchema: boolean;
   /** Both append-only triggers present and enabled. */
   triggersEnabled: boolean;
   /**
-   * True when the guard function's own source still implements the check. `CREATE OR
-   * REPLACE FUNCTION` preserves the function's oid, so a hardened database whose guard
-   * function was replaced with a permissive body BEFORE ownership moved out of reach would
-   * still pass every trigger-wiring check (name, enabled, tgfoid, tgtype) — the trigger
-   * genuinely calls "the function named ncmec_safety_audit_log_append_only", it just no
-   * longer does what that name promises. `NCMEC_AUDIT_LOG_GUARD_FN_BODY` below is compared
-   * against `pg_proc.prosrc` for an exact match, mirroring the same check migration 0095
-   * makes on the same tampering (see `fn_body` there — a migration test asserts the two
-   * copies stay byte-identical, since this file cannot literally share the migration's
-   * PL/pgSQL source).
+   * True when the guard function's own source still implements the check AND it is not
+   * `SECURITY DEFINER`. `CREATE OR REPLACE FUNCTION` preserves the function's oid, so a
+   * hardened database whose guard function was replaced with a permissive body BEFORE
+   * ownership moved out of reach would still pass every trigger-wiring check (name, enabled,
+   * tgfoid, tgtype) — the trigger genuinely calls "the function named
+   * ncmec_safety_audit_log_append_only", it just no longer does what that name promises.
+   * `NCMEC_AUDIT_LOG_GUARD_FN_BODY` below is compared against `pg_proc.prosrc` for an exact
+   * match, mirroring the same check migration 0095 makes on the same tampering (see `fn_body`
+   * there — a migration test asserts the two copies stay byte-identical, since this file
+   * cannot literally share the migration's PL/pgSQL source). Byte-identical source text is
+   * not sufficient on its own, though: inside a `SECURITY DEFINER` function, `current_user`
+   * resolves to the FUNCTION OWNER for the duration of the call, not the actual caller —
+   * verified directly against this repository's PostgreSQL 16 target. If a tampered,
+   * `SECURITY DEFINER`-marked copy of this exact body were owned by a role that itself held
+   * (or inherited) `overhype_audit_maintenance`, the guard's own `pg_has_role(current_user,
+   * 'overhype_audit_maintenance', 'usage')` check would pass for every caller regardless of
+   * their real privileges, while `prosrc` alone would still read as untampered.
    */
   guardFunctionIntact: boolean;
 }
@@ -358,6 +378,19 @@ async function canAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<
  *
  * `targetPool` — see `canAssumeRole`'s doc comment for why this exists and
  * defaults to the module's own `pool`.
+ *
+ * Every catalog reference below is schema-qualified as `pg_catalog.*`, not left to resolve
+ * via `search_path` — the same class of bug the guard function's `pg_catalog.pg_roles`/
+ * `pg_catalog.pg_has_role` qualification fixes, but here on the STATUS-READING side rather
+ * than the trigger. `targetPool` is meant to be usable as a genuinely restricted connection
+ * (see the doc comment above), which means the role being checked controls its own session's
+ * `search_path` — so an application that wanted `ncmecAuditBoundaryStatus()` to under-report
+ * its own bypass capability could shadow `pg_has_role` to always return `false`, hiding a
+ * real `INHERIT` membership from exactly the check meant to catch it. Verified directly
+ * against this repository's PostgreSQL 16 target: a role with genuine `INHERIT` usage of a
+ * target role, with a hostile `search_path` and a shadow `pg_has_role` returning `false`,
+ * made the unqualified query read `false` while `pg_catalog.pg_has_role` (and the real
+ * privilege) still read `true`.
  */
 export async function canEffectivelyAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<boolean> {
   return canEffectivelyAssumeRoleRecursive(role, targetPool, new Set());
@@ -372,7 +405,7 @@ async function canEffectivelyAssumeRoleRecursive(
   visited.add(role);
 
   const { rows } = await targetPool.query<{ has_usage: boolean }>(
-    `SELECT pg_has_role(current_user, $1, 'usage') AS has_usage`,
+    `SELECT pg_catalog.pg_has_role(current_user, $1, 'usage') AS has_usage`,
     [role],
   );
   if (rows[0]?.has_usage) return true;
@@ -380,9 +413,9 @@ async function canEffectivelyAssumeRoleRecursive(
   if (await canAssumeRole(role, targetPool)) return true;
 
   const { rows: adminRows } = await targetPool.query<{ grantee: string }>(
-    `SELECT pg_get_userbyid(m.member) AS grantee
-       FROM pg_auth_members m
-      WHERE pg_get_userbyid(m.roleid) = $1
+    `SELECT pg_catalog.pg_get_userbyid(m.member) AS grantee
+       FROM pg_catalog.pg_auth_members m
+      WHERE pg_catalog.pg_get_userbyid(m.roleid) = $1
         AND m.admin_option`,
     [role],
   );
@@ -397,9 +430,9 @@ async function canEffectivelyAssumeRoleRecursive(
  * `Pool` connected as a genuinely restricted, non-superuser role — see `canAssumeRole`'s doc
  * comment above for why this matters. Without it, every ownership/bypass field this function
  * reports (`applicationOwnsTable`, `applicationOwnsFunction`, `applicationOwnsSchema`,
- * `applicationCanBypassTrigger`) would read `true` unconditionally when tested through this
- * module's own pool, since `pg_has_role(<superuser>, <any role>, 'usage')` is true regardless
- * of any actual grant.
+ * `applicationOwnsFunctionSchema`, `applicationCanBypassTrigger`) would read `true`
+ * unconditionally when tested through this module's own pool, since `pg_has_role(<superuser>,
+ * <any role>, 'usage')` is true regardless of any actual grant.
  */
 export async function ncmecAuditBoundaryStatus(
   targetPool: pg.Pool = pool,
@@ -409,18 +442,31 @@ export async function ncmecAuditBoundaryStatus(
     table_owner: string;
     schema_owner: string;
     function_owner: string | null;
+    function_schema_owner: string | null;
     maintenance_role_exists: boolean;
     triggers_enabled: boolean;
     guard_function_intact: boolean;
   }>(
     `
     SELECT current_user::text AS application_role,
-           pg_get_userbyid(c.relowner) AS table_owner,
-           pg_get_userbyid(n.nspowner) AS schema_owner,
-           (SELECT pg_get_userbyid(proowner)
-              FROM pg_proc
-             WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
-           EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
+           pg_catalog.pg_get_userbyid(c.relowner) AS table_owner,
+           pg_catalog.pg_get_userbyid(n.nspowner) AS schema_owner,
+           (SELECT pg_catalog.pg_get_userbyid(p.proowner)
+              FROM pg_catalog.pg_proc p
+             WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
+           -- The function's OWN containing schema, resolved independently of the table's
+           -- (pg_proc.pronamespace, not assumed to equal c.relnamespace above). Both land in
+           -- the same schema today (both are created via unqualified statements resolving
+           -- through the same search_path), but nothing pins that relationship — a DBA who
+           -- later moved just the function to a different schema (ALTER FUNCTION ... SET
+           -- SCHEMA) would leave a schema owner of THAT schema free to DROP FUNCTION ... CASCADE
+           -- (which also drops both dependent triggers) regardless of the function's own
+           -- relowner, the same class of bypass the table's schemaOwner field exists to catch.
+           (SELECT pg_catalog.pg_get_userbyid(n2.nspowner)
+              FROM pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_namespace n2 ON n2.oid = p.pronamespace
+             WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_schema_owner,
+           EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_maintenance')
              AS maintenance_role_exists,
            -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only. Only 'A' is
            -- accepted: a role holding GRANT SET ON PARAMETER session_replication_role (a
@@ -438,7 +484,7 @@ export async function ncmecAuditBoundaryStatus(
            -- ROW(1)+BEFORE(2)+DELETE(8)+UPDATE(16); 34 = BEFORE(2)+TRUNCATE(32) — verified
            -- against this repository's PostgreSQL 16 target.
            (SELECT count(*) = 2
-              FROM pg_trigger t
+              FROM pg_catalog.pg_trigger t
              WHERE t.tgrelid = c.oid
                AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
                                 'ncmec_safety_audit_log_no_truncate')
@@ -454,15 +500,25 @@ export async function ncmecAuditBoundaryStatus(
            -- swapped for something permissive. Compared against the exact source
            -- text (see NCMEC_AUDIT_LOG_GUARD_FN_BODY), not substring markers — a
            -- permissive replacement could keep marker substrings present while
-           -- making the original body unreachable.
+           -- making the original body unreachable. prosecdef = false is checked
+           -- alongside prosrc, not instead of it: a SECURITY DEFINER function's body can be
+           -- byte-identical to the original while its behavior is not, because current_user
+           -- inside a SECURITY DEFINER function resolves to the FUNCTION OWNER for the
+           -- duration of the call, not the caller. Verified directly against this
+           -- repository's PostgreSQL 16 target: a SECURITY DEFINER function reported
+           -- current_user as its owner, not the role that invoked it. If that owner held (or
+           -- inherited) overhype_audit_maintenance, the guard's own pg_has_role(current_user,
+           -- 'overhype_audit_maintenance', 'usage') check would pass for EVERY caller
+           -- regardless of their real privileges — a prosrc-only comparison cannot see this,
+           -- since the source text genuinely never changed.
            COALESCE(
-             (SELECT prosrc = $1
-                FROM pg_proc
-               WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')),
+             (SELECT p.prosrc = $1 AND NOT p.prosecdef
+                FROM pg_catalog.pg_proc p
+               WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')),
              false
            ) AS guard_function_intact
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
      WHERE c.oid = to_regclass('ncmec_safety_audit_log')
   `,
     [NCMEC_AUDIT_LOG_GUARD_FN_BODY],
@@ -491,6 +547,13 @@ export async function ncmecAuditBoundaryStatus(
       row.function_owner != null ? await canEffectivelyAssumeRole(row.function_owner, targetPool) : true,
     schemaOwner: row.schema_owner,
     applicationOwnsSchema: await canEffectivelyAssumeRole(row.schema_owner, targetPool),
+    // Same fail-safe shape as functionOwner/applicationOwnsFunction: a missing function has
+    // no pronamespace to check, so this reads "owns it" rather than silently passing.
+    functionSchemaOwner: row.function_schema_owner ?? "",
+    applicationOwnsFunctionSchema:
+      row.function_schema_owner != null
+        ? await canEffectivelyAssumeRole(row.function_schema_owner, targetPool)
+        : true,
     triggersEnabled: row.triggers_enabled,
     guardFunctionIntact: row.guard_function_intact,
   };
@@ -503,6 +566,7 @@ export async function ncmecAuditBoundaryStatus(
       !status.applicationOwnsTable &&
       !status.applicationOwnsFunction &&
       !status.applicationOwnsSchema &&
+      !status.applicationOwnsFunctionSchema &&
       !status.applicationCanBypassTrigger,
   };
 }
