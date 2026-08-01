@@ -422,29 +422,31 @@ be trusted.
    check before scoping, not after building the snapshot.
 
    **A clean re-review can (but does not always) skip producing a review
-   object to count — this is a confirmed failure mode on at least one PR, not
-   a universal rule.** A completed review with zero findings sometimes DOES
-   post as a normal `pull_request_review` (row 3, #270's `rounds` is 16 not
-   15 specifically because one clean review event *was* captured that way —
-   read that row's own note before assuming the opposite). It has also been
-   directly confirmed **not** doing so once: on PR #286 a clean re-review
-   posted as a plain issue comment instead ("Codex Review: Didn't find any
-   major issues. Delightful!"), not a `pull_request_review`, so `get_reviews`
-   didn't see it. PR #288 is a second, **unconfirmed** candidate for the same
-   gap — its PR body narrates one more re-review pass than `get_reviews`
-   returns, consistent with a clean final round posting only as a 👍 reaction
-   on the trigger comment (per the connector's own boilerplate: "If Codex has
-   suggestions, it will comment; otherwise it will react with 👍") — but
-   nobody captured that reaction directly, so it's inferred from the
-   narration/count mismatch, not observed. **The actionable consequence is
-   narrower than "clean rounds never count":** when a PR body's own
-   round-by-round narration cites more re-review passes than `get_reviews`
-   returns, don't assume a pagination bug by default — check whether the
-   missing round was clean, since that specific gap is now confirmed to
-   occur on this connector at least once. It is not, however, license to wave
-   away every rounds/findings mismatch as "probably a clean reaction" without
-   checking — #288's own case is exactly that unverified inference, kept
-   explicitly hypothetical above. See
+   object to count — confirmed twice now, not a universal rule.** A
+   completed review with zero findings sometimes DOES post as a normal
+   `pull_request_review` (row 3, #270's `rounds` is 16 not 15 specifically
+   because one clean review event *was* captured that way — read that row's
+   own note before assuming the opposite). It has also been directly
+   confirmed **not** doing so, twice independently: on PR #286 a clean
+   re-review posted as a plain issue comment instead ("Codex Review: Didn't
+   find any major issues. Delightful!"), not a `pull_request_review`, so
+   `get_reviews` didn't see it — and on PR #288, checked directly against
+   its own `get_comments` history (2026-08-01, correcting three earlier
+   drafts of this note that called #288 unconfirmed on the strength of
+   Codex's own claim without anyone actually checking the PR): two plain
+   "Codex Review: Didn't find any major issues" comments exist
+   (`2026-07-30T02:05:58Z` and `2026-07-30T03:32:17Z`), the same
+   plain-issue-comment shape as #286's, not the 👍-reaction shape earlier
+   drafts speculated. **The actionable consequence is narrower than "clean
+   rounds never count":** when a PR body's own round-by-round narration
+   cites more re-review passes than `get_reviews` returns, don't assume a
+   pagination bug by default — check the PR's actual comment history for a
+   plain "Codex Review: Didn't find any major issues" comment, since that
+   specific gap is now confirmed to recur on this connector, not merely
+   suspected. It is not, however, license to wave away every
+   rounds/findings mismatch without checking — #288's own history shows why:
+   the gap was real, but nobody confirmed it until someone actually looked
+   at the comments instead of reasoning from absence of evidence. See
    [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
    *Rounds undercounted when a re-review is clean* note (row 11, #286) for
    the first sighting and its own concrete `rounds`/`review hrs` impact.

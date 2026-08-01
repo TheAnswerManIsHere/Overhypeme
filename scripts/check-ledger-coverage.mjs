@@ -207,12 +207,27 @@ function parseLedger(text) {
 
 // ── Check 2: a row's causal counts must sum to its own findings ──────────────
 
+/**
+ * A row with unmeasured findings, or wholly unclassified causes (a
+ * retrospective baseline, or a row deliberately deferred like row 6/#279 —
+ * every cell "—"), has nothing for this check to reconcile and is skipped.
+ * Exported so `main()` can report how many rows were actually checked
+ * without duplicating this predicate — confirmed on PR #292 (Codex round 5)
+ * that reporting `ledger.rows.length` in the success message overstates
+ * coverage: a table can hold rows this check silently skips and still print
+ * "N rows, causal counts reconcile," which is true of the checked subset
+ * only, not literally every row in the table.
+ */
+export function isArithmeticCheckable(row) {
+  if (row.findings === null) return false;
+  return Object.values(row.causes).some((v) => v !== null);
+}
+
 export function checkArithmetic({ rows }) {
   const problems = [];
   for (const row of rows) {
-    if (row.findings === null) continue; // unmeasured findings — nothing to reconcile against
+    if (!isArithmeticCheckable(row)) continue;
     const present = Object.values(row.causes).filter((v) => v !== null);
-    if (present.length === 0) continue; // wholly unclassified row (a retrospective baseline)
     const sum = present.reduce((a, b) => a + b, 0);
     if (sum !== row.findings) {
       const unmeasured = Object.entries(row.causes)
@@ -295,7 +310,12 @@ async function main() {
     console.error(arithmetic.join("\n\n"));
     process.exit(1);
   }
-  console.log(`✓ Ledger arithmetic: ${ledger.rows.length} row(s), causal counts reconcile with findings.`);
+  const checkedCount = ledger.rows.filter(isArithmeticCheckable).length;
+  const deferredCount = ledger.rows.length - checkedCount;
+  console.log(
+    `✓ Ledger arithmetic: ${checkedCount}/${ledger.rows.length} row(s) checked, causal counts reconcile with findings.` +
+      (deferredCount ? ` (${deferredCount} row(s) causally deferred — unmeasured findings or wholly unclassified — not checked here.)` : ""),
+  );
 
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   const prNumber = Number(process.env.PR_NUMBER ?? "");
