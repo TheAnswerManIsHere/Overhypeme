@@ -5,6 +5,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
+import { getSafeReturnTo } from "@/lib/safe-return-to";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -41,9 +42,7 @@ export default function Onboard() {
   const returnTo = (() => {
     if (typeof window === "undefined") return "/";
     const params = new URLSearchParams(window.location.search);
-    const r = params.get("returnTo") || "/";
-    if (!r.startsWith("/") || r.startsWith("//")) return "/";
-    return r;
+    return getSafeReturnTo(params.get("returnTo")) ?? "/";
   })();
 
   function finish() {

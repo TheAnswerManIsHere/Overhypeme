@@ -14,7 +14,8 @@
     "worker:dev": "pnpm --filter @workspace/og-router run dev",
     "check:docs": "node scripts/check-docs-accuracy.mjs",
     "check:codegen-drift": "bash scripts/check-codegen-drift.sh",
-    "check:ledger": "node scripts/check-ledger-coverage.mjs"
+    "check:ledger": "node scripts/check-ledger-coverage.mjs",
+    "check:return-to-parity": "pnpm --filter @workspace/api-server exec tsx ../../scripts/check-return-to-parity.mjs"
   },
   "private": true,
   "devDependencies": {

@@ -7,6 +7,7 @@ import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { isMobileDevice } from "@/lib/utils";
+import { getSafeReturnTo } from "@/lib/safe-return-to";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -37,8 +38,12 @@ function getAuthError(): string | null {
   return null;
 }
 
+// Sanitized at the source: `from` is attacker-controllable (it comes straight
+// off our own query string), and every consumer below either navigates to it or
+// hands it to the server as `returnTo`. A value that isn't a same-origin path
+// is treated exactly as if no `from` was supplied.
 function getFromParam(): string | null {
-  return new URLSearchParams(window.location.search).get("from") || null;
+  return getSafeReturnTo(new URLSearchParams(window.location.search).get("from"));
 }
 
 function getBackDestination(): { path: string; label: string } {
