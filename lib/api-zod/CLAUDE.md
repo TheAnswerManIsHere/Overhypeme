@@ -9,7 +9,7 @@
   silently wiped the next time anything runs
   `pnpm --filter @workspace/api-spec run codegen` (which `pretest` does),
   surfacing later as a broad, unrelated-looking wave of test failures (see
-  [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)'s
+  [`known-failure-patterns.md`](../../docs/ai-context/known-failure-patterns.md)'s
   "Manual `api-zod/src/index.ts` export silently reverted by codegen" — I've
   now hit this twice, most recently on PR #228). So: the moment I add a new
   file under `lib/api-zod/src/` or a new export to an existing one, I add the

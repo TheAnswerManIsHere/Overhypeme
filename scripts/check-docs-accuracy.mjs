@@ -37,6 +37,25 @@ const LIBRARY_EXTRA = ["AGENTS.md", ".agents/PLANS.md"];
 const LINK_ONLY_EXTRA = ["CLAUDE.md"];
 const LINK_ONLY_DIRS = [".claude/skills"];
 
+// Nested CLAUDE.md memory files (e.g. lib/api-zod/CLAUDE.md) load contextually
+// when working under their directory and carry relative links that must
+// resolve from that directory — the root CLAUDE.md entry above does not reach
+// them, which is how a broken link shipped in the first nested memory file.
+const NESTED_SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
+function findNestedClaudeMds(dir = "") {
+  const abs = join(ROOT, dir);
+  if (!existsSync(abs)) return [];
+  const out = [];
+  for (const entry of readdirSync(abs, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (!NESTED_SKIP_DIRS.has(entry.name)) out.push(...findNestedClaudeMds(join(dir, entry.name)));
+    } else if (entry.name === "CLAUDE.md" && dir !== "") {
+      out.push(join(dir, entry.name));
+    }
+  }
+  return out;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function walk(dir) {
   const abs = join(ROOT, dir);
@@ -98,6 +117,7 @@ const linkFiles = [
   ...libraryFiles,
   ...LINK_ONLY_EXTRA,
   ...LINK_ONLY_DIRS.flatMap(walk),
+  ...findNestedClaudeMds(),
 ].filter((f) => existsSync(join(ROOT, f)));
 
 const errors = [];
