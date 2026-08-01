@@ -298,6 +298,68 @@ export function owedRows({ allPrs, currentPr, ledger }) {
   return { owed, skippedNonLoop };
 }
 
+// ── Check 3: post-merge audit of main — a debt that was skippable and skipped ─
+
+/**
+ * Every closed loop that still has no row, split by whether the obligation has
+ * actually been missed yet.
+ *
+ * `owedRows` above only ever runs in a PR's own context, which leaves one real
+ * hole: a loop that closes while every open PR was already in flight is owed
+ * by NONE of them, because each opened before it closed. Its row waits for a
+ * PR that does not exist yet. Nothing is wrong at that moment — but nothing
+ * reports it either, so the debt is invisible until someone happens to open
+ * the next PR, and if that next PR merges without carrying the row, the miss
+ * is invisible again until the PR after that. That is exactly how #286's and
+ * #290's rows both went missing: not a broken guard, an unwatched interval.
+ *
+ * The distinction this draws is the workflow's own sequencing rule turned into
+ * a test. working-modes.md says a closed loop's row is folded into "whichever
+ * PR you open next", so:
+ *
+ *  - **pending** — no PR has opened-and-landed since this loop closed. The
+ *    obligation is live but has not come due. Reported, never failed.
+ *  - **overdue** — some other PR opened AFTER this loop closed and has since
+ *    merged. That PR *was* "the next one", it was the row's designated
+ *    carrier, and it reached `main` without it. The obligation came due and
+ *    was skipped, which is a real miss and fails the build on `main`.
+ *
+ * Requiring the carrier to have MERGED (not merely closed) matters: a
+ * `[PLAN REVIEW]` PR is closed unmerged by contract, so a row folded into one
+ * would never reach `main`. Treating such a PR as a missed carrier would
+ * report a debt nobody could ever have paid.
+ */
+export function auditLedgerDebt({ allPrs, ledger }) {
+  const overdue = [];
+  const pending = [];
+  let skippedNonLoop = 0;
+
+  const landed = allPrs
+    .filter((pr) => pr.merged_at)
+    .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at), merged: new Date(pr.merged_at) }));
+
+  for (const pr of allPrs) {
+    if (pr.number < FIRST_ENFORCED_PR) continue;
+    if (!pr.closed_at) continue;
+    if (NON_LOOP_AUTHORS.has(pr.user?.login)) {
+      skippedNonLoop++;
+      continue;
+    }
+    if (ledger.rows.some((r) => r.pr === pr.number)) continue;
+    if (ledger.exempt.has(pr.number)) continue;
+
+    const closedAt = new Date(pr.closed_at);
+    const carrier = landed
+      .filter((c) => c.number !== pr.number && c.opened > closedAt)
+      .sort((a, b) => a.opened - b.opened)[0];
+
+    if (carrier) overdue.push({ pr, carrier });
+    else pending.push(pr);
+  }
+
+  return { overdue, pending, skippedNonLoop };
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -320,6 +382,56 @@ async function main() {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   const prNumber = Number(process.env.PR_NUMBER ?? "");
   const haveInputs = Boolean(token) && Number.isFinite(prNumber) && prNumber > 0;
+  const auditMode = process.argv.includes("--audit");
+
+  // ── Audit mode: the post-merge half, run on push-to-main ─────────────────
+  //
+  // The PR-context check below can only ever ask "does THIS PR owe rows for
+  // loops that closed before it opened". Nothing asked the question in between
+  // PRs, which is where both of the ledger's real misses actually happened.
+  // See auditLedgerDebt for the pending-vs-overdue distinction.
+  if (auditMode) {
+    if (!token) {
+      throw new Error(
+        "Ledger debt audit cannot run: GITHUB_TOKEN is missing.\n" +
+          "  It is set by the 'Audit loop-ledger debt' step in .github/workflows/build.yml.\n" +
+          "  Failing loudly rather than skipping — same reason as the coverage half below.",
+      );
+    }
+    const allPrs = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls?state=all`, token);
+    const { overdue, pending, skippedNonLoop } = auditLedgerDebt({ allPrs, ledger });
+
+    if (skippedNonLoop > 0) {
+      console.log(`• ${skippedNonLoop} closed PR(s) excluded as non-loop authors (${[...NON_LOOP_AUTHORS].join(", ")}).`);
+    }
+    if (pending.length) {
+      // Not a failure. Printed every run so the debt is visible while it is
+      // still cheap to pay, instead of surfacing only once it has been missed.
+      console.log(`\n• ${pending.length} closed loop(s) owe a row but are not yet overdue — no PR has opened and`);
+      console.log(`  merged since they closed. Fold these into the next PR you open, on any subject:`);
+      for (const pr of pending) console.log(`    #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}`);
+    }
+    if (overdue.length) {
+      console.error(`\n✗ ${overdue.length} closed review loop(s) missed their row and are now overdue:\n`);
+      for (const { pr, carrier } of overdue) {
+        console.error(
+          `  #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}\n` +
+            `      → PR #${carrier.number} opened after it closed and has since merged without carrying the row.`,
+        );
+      }
+      console.error(
+        `\nEvery closed loop owes one row in .agents/metrics/loop-ledger.md, folded into the next PR on any` +
+          `\nsubject (working-modes.md → "The loop ledger"). To resolve, either:` +
+          `\n  • add the row: node scripts/loop-metrics.mjs --pr <number>  (or --mcp-snapshot <file>), then` +
+          `\n    add the judgment columns and a blind adjudication, or` +
+          `\n  • record a deliberate exemption with a reason in the ledger's "Deliberately not measured" table.` +
+          `\nAn exemption is a recorded decision NOT to measure a loop. It is never a pass.\n`,
+      );
+      process.exit(1);
+    }
+    console.log(`\n✓ Ledger debt audit: no closed loop has missed its row.`);
+    return;
+  }
 
   // A guard that can silently no-op is the failure this whole PR exists to
   // close: a green check that verified nothing looks exactly like a green
