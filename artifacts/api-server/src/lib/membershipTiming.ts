@@ -11,6 +11,8 @@
  * never reads.
  */
 
+import { sql, type SQL } from "drizzle-orm";
+
 import { getConfigFloat, getConfigInt } from "./adminConfig.js";
 
 // ---------------------------------------------------------------------------
@@ -225,6 +227,59 @@ export async function loadMembershipConfig(): Promise<
       return [key, value] as const;
     }),
   );
+  return Object.fromEntries(entries) as Record<MembershipConfigKey, number>;
+}
+
+/**
+ * The same set, read under a row lock so a write can be validated against it
+ * ATOMICALLY.
+ *
+ * `loadMembershipConfig` reads a process-level cache outside any transaction, so
+ * two concurrent writes could each validate a safe intermediate state and commit
+ * an unsafe pair: from a 90s lease and a 5s waiter, raising the waiter to 60
+ * validates against 90 while lowering the lease to 30 validates against 5, and
+ * the committed 30/60 violates the invariant neither write could see. A
+ * relational check is only enforced if the state it read cannot move before the
+ * write lands.
+ *
+ * So the caller takes this inside the transaction that performs the update, and
+ * the row locks it acquires are held until that transaction commits. `ORDER BY
+ * key` makes the lock order deterministic, so two writers queue rather than
+ * deadlock.
+ *
+ * `debug_mode_active` is read but NOT locked: debug mode selects which column is
+ * effective, and the relational invariant is between the membership keys
+ * themselves, which are the set that has to be serialised.
+ */
+export async function lockAndLoadMembershipConfig(
+  tx: { execute: (query: SQL) => Promise<{ rows: Array<Record<string, unknown>> }> },
+): Promise<Record<MembershipConfigKey, number>> {
+  const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
+
+  const debug = await tx.execute(
+    sql`SELECT value FROM admin_config WHERE key = 'debug_mode_active' LIMIT 1`,
+  );
+  const debugActive = debug.rows[0]?.value === "true";
+
+  const locked = await tx.execute(
+    sql`SELECT key, value, debug_value FROM admin_config
+        WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+        ORDER BY key
+        FOR UPDATE`,
+  );
+
+  const byKey = new Map(locked.rows.map((row) => [String(row.key), row]));
+
+  const entries = keys.map((key) => {
+    const row = byKey.get(key);
+    if (!row) return [key, MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
+    const debugValue = row.debug_value;
+    const effective =
+      debugActive && debugValue != null && debugValue !== "" ? debugValue : row.value;
+    const parsed = Number(effective);
+    return [key, Number.isFinite(parsed) ? parsed : MEMBERSHIP_CONFIG_DEFAULTS[key]] as const;
+  });
+
   return Object.fromEntries(entries) as Record<MembershipConfigKey, number>;
 }
 

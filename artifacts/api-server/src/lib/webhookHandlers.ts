@@ -135,19 +135,22 @@ async function findUserById(userId: string) {
  * retrying the SAME event will reach the SAME conclusion, so claiming those is
  * correct.
  *
- * `source_unknown` is in this set, and only the DISPUTE prepare can produce it.
- * It reads like a settled fact and is not: Stripe does not order deliveries, so
- * a `charge.dispute.created` can arrive before the `checkout.session.completed`
- * that creates the entitlement it attaches to. Claiming it would leave the
- * source with no dispute row, no access hold and no permanent loss revocation,
- * and nothing reconstructs that later — reconciliation walks subscription
- * sources, not disputes.
+ * `source_unknown` is in this set, and the DISPUTE and REFUND prepares can both
+ * produce it. It reads like a settled fact and is not: Stripe does not order
+ * deliveries, so a `charge.dispute.created` — or a `charge.refunded` — can arrive
+ * before the `checkout.session.completed` that creates the entitlement it
+ * attaches to. Claiming it would leave the source with no dispute row, no access
+ * hold and no permanent loss revocation (or, for a refund, an entitlement that
+ * the later checkout event then creates as ACTIVE), and nothing reconstructs
+ * that afterwards.
  *
  * The cost is that a dispute which never maps to one of our sources at all — a
  * merch charge, say — is retried until Stripe stops (a few days) and audited as
  * failed each time. That is the right side to err on: noisy logs for a
  * non-membership dispute, against silently keeping paid access for a customer
- * who charged back.
+ * who charged back. The admin alert does NOT ride on this: it is sent during
+ * prepare, before any of it, precisely so a retried dispute still warns an
+ * operator inside the evidence window.
  */
 const RETRYABLE_NOOP_REASONS = new Set([
   "source_busy",
@@ -255,20 +258,33 @@ async function prepareDispute(
   stripe: Stripe,
   dispute: { id: string; amount?: number; currency?: string; livemode?: boolean },
   kind: "created" | "updated" | "closed",
-  afterCommit: PreparedDomainEvent["afterCommit"],
 ): Promise<Prepared> {
   if (kind === "created") {
-    // Sent regardless of whether the source resolves: Stripe's response window
-    // is short and the operator needs to gather evidence now.
-    afterCommit.push(() =>
-      notifyAdminsOfDispute({
+    // Sent NOW, not deferred to afterCommit, and not tied to the entitlement
+    // write succeeding.
+    //
+    // `afterCommit` runs only if the claim transaction commits. A dispute whose
+    // entitlement source has not landed yet — or never will, because the charge
+    // was merch or credits — prepares as a retryable `source_unknown` and throws
+    // BEFORE the claim, so the deferred alert never ran at all. The operator lost
+    // the warning for exactly the disputes we understand least, during a
+    // response window Stripe measures in days.
+    //
+    // The accepted cost (David, 2026-07-30) is that Stripe's retries of an
+    // unprocessed event re-alert. That is the right side to err on: a repeated
+    // alert is noise, a missing one is an undefended chargeback. Best-effort —
+    // an alert that fails must not take the entitlement write down with it.
+    try {
+      await notifyAdminsOfDispute({
         kind: "created",
         disputeId: dispute.id,
         amount: dispute.amount ?? 0,
         currency: dispute.currency ?? "usd",
         livemode: dispute.livemode === true,
-      }),
-    );
+      });
+    } catch (error) {
+      logger.error({ err: error, disputeId: dispute.id }, "could not alert admins of a new dispute");
+    }
   }
   return prepareDisputeEvent(stripe, dispute.id);
 }
@@ -748,7 +764,6 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
         stripe,
         { ...dispute, livemode: dispute.livemode ?? event.livemode },
         event.type === "charge.dispute.created" ? "created" : "closed",
-        afterCommit,
       );
       break;
     }
@@ -769,7 +784,7 @@ async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<
       // Stripe sends `.updated` for status transitions, so `needs_response ->
       // under_review` reached no writer and stayed stale until reconciliation
       // happened to sweep it.
-      entitlement = await prepareDispute(stripe, dispute, "updated", afterCommit);
+      entitlement = await prepareDispute(stripe, dispute, "updated");
 
       const dueBy = dispute.evidence_details?.due_by ?? null;
       const isActionable = dispute.status === "needs_response" || dispute.status === "warning_needs_response";

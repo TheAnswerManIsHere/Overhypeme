@@ -51,9 +51,18 @@ import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
   isMembershipConfigKey,
-  loadMembershipConfig,
+  lockAndLoadMembershipConfig,
   validateMembershipConfigWrite,
+  type MembershipConfigKey,
 } from "../lib/membershipTiming";
+
+/**
+ * A relational-config rejection raised from inside the write transaction.
+ *
+ * Distinguished by type rather than by message so the catch cannot mistake a
+ * genuine database failure for a validation rejection and answer it with a 400.
+ */
+class RelationalConfigError extends Error {}
 import { effectiveTierExpr } from "../lib/membershipState";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
@@ -2435,6 +2444,11 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   let newValueLabel: string | null | undefined;
   let newDebugValue: string | null | undefined;
   let newDebugValueLabel: string | null | undefined;
+  /**
+   * Relational checks to run INSIDE the write transaction, against the locked
+   * config set — never against a cached read taken before it.
+   */
+  const relationalChecks: Array<{ value: number; prefix: string }> = [];
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2479,15 +2493,9 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         res.status(400).json({ error: "Value must be a number" });
         return;
       }
-      const relationalError = validateMembershipConfigWrite(
-        key,
-        parsed,
-        await loadMembershipConfig(),
-      );
-      if (relationalError) {
-        res.status(400).json({ error: relationalError });
-        return;
-      }
+      // Deferred to the write transaction below, where the set it is checked
+      // against is locked — see `lockAndLoadMembershipConfig`.
+      relationalChecks.push({ value: parsed, prefix: "" });
     }
 
     newValue = rawValue;
@@ -2550,15 +2558,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         res.status(400).json({ error: "Debug value must be a number" });
         return;
       }
-      const relationalError = validateMembershipConfigWrite(
-        key,
-        parsed,
-        await loadMembershipConfig(),
-      );
-      if (relationalError) {
-        res.status(400).json({ error: `Debug value: ${relationalError}` });
-        return;
-      }
+      relationalChecks.push({ value: parsed, prefix: "Debug value: " });
     }
     newDebugValue = rawDebug;
     // Clearing (either mechanism) always clears the label too — a null debug
@@ -2570,18 +2570,54 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
           : undefined);
   }
 
-  const [updated] = await db
-    .update(adminConfigTable)
-    .set({
-      ...(newValue !== undefined ? { value: newValue } : {}),
-      ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
-      ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
-      ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
-      updatedAt: new Date(),
-      updatedById: req.user?.id ?? null,
-    })
-    .where(eq(adminConfigTable.key, key))
-    .returning();
+  const patch = {
+    ...(newValue !== undefined ? { value: newValue } : {}),
+    ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
+    ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
+    ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
+    updatedAt: new Date(),
+    updatedById: req.user?.id ?? null,
+  };
+
+  let updated: typeof adminConfigTable.$inferSelect | undefined;
+
+  if (relationalChecks.length === 0) {
+    [updated] = await db
+      .update(adminConfigTable)
+      .set(patch)
+      .where(eq(adminConfigTable.key, key))
+      .returning();
+  } else {
+    // The relational check and the write it authorises share one transaction, so
+    // the set the check read cannot move before the write lands. Rejections
+    // travel out as a thrown message rather than a mid-transaction `res.json`,
+    // which would respond while the transaction was still open.
+    try {
+      updated = await db.transaction(async (tx) => {
+        const current = await lockAndLoadMembershipConfig(tx);
+        for (const check of relationalChecks) {
+          const error = validateMembershipConfigWrite(
+            key as MembershipConfigKey,
+            check.value,
+            current,
+          );
+          if (error) throw new RelationalConfigError(`${check.prefix}${error}`);
+        }
+        const [row] = await tx
+          .update(adminConfigTable)
+          .set(patch)
+          .where(eq(adminConfigTable.key, key))
+          .returning();
+        return row;
+      });
+    } catch (error) {
+      if (error instanceof RelationalConfigError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  }
 
   bustConfigCache();
 
