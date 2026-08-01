@@ -206,8 +206,25 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
         email: user.email ?? undefined,
         metadata: { userId: user.id },
       });
-      await stripeStorage.updateUserStripeCustomerId(user.id, customer.id);
-      customerId = customer.id;
+      // Bind CONDITIONALLY, and settle the race before any session exists.
+      //
+      // The unconditional setter is last-writer-wins: two racing first
+      // checkouts each created a customer and the user ended up pointing at
+      // only one of them. A paid session on the other belongs to nobody — its
+      // verification resolves no user, `user_unresolvable` is permanent, and the
+      // purchase is silently lost. So the loser adopts the winner's customer
+      // here, while the customer it created is still session-free and therefore
+      // harmless to abandon.
+      if (await stripeStorage.bindStripeCustomerIfUnset(user.id, customer.id)) {
+        customerId = customer.id;
+      } else {
+        const rebound = await stripeStorage.getUserById(user.id);
+        customerId = rebound?.stripeCustomerId ?? customer.id;
+        logger.info(
+          { userId: user.id, abandonedCustomerId: customer.id, customerId },
+          "another checkout bound this user's Stripe customer first — using theirs",
+        );
+      }
     }
 
     // Validate + resolve price — confirm it exists and is active in Stripe.
@@ -526,16 +543,65 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
  * "No active subscription found" — the panel's fallback to the newest
  * non-qualifying row is for DISPLAY only and must not become a mutation target.
  */
-async function getActiveStripeSub(userId: string) {
-  const { source, qualifies } = await selectMembershipSubscription(userId);
-  if (!qualifies || !source?.providerRef) return null;
+async function getActiveStripeSub(stripe: Stripe, userId: string) {
+  // The CALLER's client, not a fresh one. `stripe_live_mode` is operator-tunable
+  // at runtime, so a second `getUncachableStripeClient()` here could resolve to
+  // the other account mid-request: the target would be retrieved from one mode
+  // and mutated through the other. One client per request means one mode
+  // snapshot across selection, price validation, mutation and refresh.
+  const selected = await selectMembershipSubscription(userId);
+  if (!selected.qualifies || !selected.source?.providerRef) return null;
 
-  const stripe = await getUncachableStripeClient();
+  const live = await retrieveSubscription(stripe, userId, selected.source.providerRef);
+  if (!live) return null;
+
+  // Local state can be stale — a missed webhook leaves a subscription locally
+  // active that Stripe already cancelled — and Stripe refuses to update a
+  // cancelled subscription. Mutating it would fail while an OLDER subscription
+  // kept billing, with the panel still offering controls that cannot work.
+  //
+  // So reconcile before acting: apply the retrieved state authoritatively, then
+  // re-select ONCE. One retry, not a loop — if the second selection is also
+  // stale, something is actively racing us and refusing beats spinning.
+  if (!MUTABLE_SUBSCRIPTION_STATUSES.has(live.status)) {
+    logger.info(
+      { userId, subscriptionId: live.id, status: live.status },
+      "the selected subscription is no longer mutable at Stripe — refreshing the local source and reselecting",
+    );
+    await refreshSubscriptionSourceAfterMutation(stripe, live.id);
+
+    const reselected = await selectMembershipSubscription(userId);
+    if (
+      !reselected.qualifies ||
+      !reselected.source?.providerRef ||
+      reselected.source.providerRef === live.id
+    ) {
+      return null;
+    }
+
+    const fresh = await retrieveSubscription(stripe, userId, reselected.source.providerRef);
+    return fresh && MUTABLE_SUBSCRIPTION_STATUSES.has(fresh.status) ? fresh : null;
+  }
+
+  return live;
+}
+
+/** Statuses Stripe will still accept an update on. */
+const MUTABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "incomplete",
+  "paused",
+]);
+
+async function retrieveSubscription(stripe: Stripe, userId: string, subscriptionId: string) {
   try {
-    return await stripe.subscriptions.retrieve(source.providerRef);
+    return await stripe.subscriptions.retrieve(subscriptionId);
   } catch (error) {
     logger.warn(
-      { err: error, userId, subscriptionId: source.providerRef },
+      { err: error, userId, subscriptionId },
       "the qualifying subscription source could not be retrieved from Stripe",
     );
     return null;
@@ -561,7 +627,7 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
     // The subscription the PANEL is describing, not whichever entry Stripe's
     // list happens to return first — otherwise the button and the card can
     // disagree about which subscription they mean.
-    const sub = await getActiveStripeSub(userId);
+    const sub = await getActiveStripeSub(stripe, userId);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;
@@ -611,7 +677,7 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
     // The subscription the PANEL is describing, not whichever entry Stripe's
     // list happens to return first — otherwise the button and the card can
     // disagree about which subscription they mean.
-    const sub = await getActiveStripeSub(userId);
+    const sub = await getActiveStripeSub(stripe, userId);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;
@@ -674,7 +740,7 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
       return;
     }
 
-    const sub = await getActiveStripeSub(req.user.id);
+    const sub = await getActiveStripeSub(stripe, req.user.id);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;
@@ -758,7 +824,7 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
       return;
     }
 
-    const sub = await getActiveStripeSub(req.user.id);
+    const sub = await getActiveStripeSub(stripe, req.user.id);
     if (!sub) {
       res.status(400).json({ error: "No active subscription found" });
       return;

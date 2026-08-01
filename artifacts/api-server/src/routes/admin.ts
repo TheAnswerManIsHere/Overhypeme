@@ -85,7 +85,7 @@ function parseMembershipConfigValue(raw: string, dataType: string): number | nul
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
 }
-import { effectiveTierExpr, qualifySource } from "../lib/membershipState";
+import { deriveEffectiveMembership, effectiveTierExpr } from "../lib/membershipState";
 import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
 import { graceSweepHealth } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
@@ -369,30 +369,43 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
       }
 
       if (staleSourceIds.size > 0) {
-        // Discard only what the stale sources were holding up. An aggregate
-        // downgrade throws away independently authoritative entitlements too: a
-        // comped member with a qualifying `admin_grant` would be dropped to
-        // `registered` by a transient Stripe outage on an unrelated
-        // subscription, with no provider event guaranteed to ever restore them.
+        // Re-derive over the TRUSTED sources and persist that whole result —
+        // tier and horizon together.
+        //
+        // Two things go wrong if this is a boolean check that merely preserves
+        // what `recomputeMembership` wrote. An aggregate downgrade throws away
+        // independently authoritative entitlements: a comped member with a
+        // qualifying `admin_grant` would be dropped to `registered` by a
+        // transient Stripe outage on an unrelated subscription, with no provider
+        // event guaranteed to ever restore them. And preserving the all-sources
+        // result keeps the all-sources HORIZON — so a verified `past_due` source
+        // whose grace ends soon, sitting beside an unverified source that still
+        // looks indefinitely active locally, yields a null horizon and grants
+        // Legendary from the stale source forever, with the sweep recomputing
+        // the same wrong answer every hour.
+        //
+        // Deriving from `trusted` answers both: the tier reflects only sources
+        // we can stand behind, and the horizon is the one those sources
+        // actually support.
         const trusted = (await loadSourceSnapshots(tx, id)).filter(
           (snapshot) => !staleSourceIds.has(snapshot.id),
         );
-        const now = new Date();
-        const trustedQualifies = trusted.some((snapshot) => qualifySource(snapshot, now).qualifies);
+        const derived = deriveEffectiveMembership(trusted, new Date());
 
-        if (!trustedQualifies) {
-          // The horizon goes with the tier, since `registered` carries none.
-          await tx
-            .update(usersTable)
-            .set({ membershipTier: "registered", membershipValidUntil: null })
-            .where(eq(usersTable.id, id));
-        } else {
-          logger.info(
-            { userId: id, staleSources: staleSourceIds.size },
-            "reinstatement refresh was incomplete, but an independently authoritative source still " +
-              "qualifies — keeping the derived tier rather than discarding it",
-          );
-        }
+        await tx
+          .update(usersTable)
+          .set({ membershipTier: derived.tier, membershipValidUntil: derived.validUntil })
+          .where(eq(usersTable.id, id));
+
+        logger.info(
+          {
+            userId: id,
+            staleSources: staleSourceIds.size,
+            trustedTier: derived.tier,
+            trustedValidUntil: derived.validUntil,
+          },
+          "reinstatement refresh was incomplete — membership re-derived over the sources it could trust",
+        );
       } else {
         logger.info(
           { userId: id },

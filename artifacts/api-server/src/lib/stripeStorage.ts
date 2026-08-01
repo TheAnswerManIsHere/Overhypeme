@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, isNull } from "drizzle-orm";
 import { effectiveTierForRow, effectiveTierPredicate } from "./membershipState";
 
 // Membership history events that indicate the user lost Legendary access
@@ -21,6 +21,27 @@ export class StripeStorage {
 
   async updateUserStripeCustomerId(userId: string, stripeCustomerId: string) {
     await db.update(usersTable).set({ stripeCustomerId }).where(eq(usersTable.id, userId));
+  }
+
+  /**
+   * Bind a Stripe customer to a user ONLY if the user has none yet, reporting
+   * whether this call is the one that bound it.
+   *
+   * The unconditional setter above is last-writer-wins, which is how two racing
+   * first checkouts could each create a customer and leave the user pointing at
+   * only one of them. A paid session on the OTHER customer then belongs to
+   * nobody: verification cannot resolve a user from it, the reason is permanent,
+   * and the purchase is lost. This lets the loser find out that it lost — before
+   * any checkout session exists on the customer it created — and adopt the
+   * winner's customer instead.
+   */
+  async bindStripeCustomerIfUnset(userId: string, stripeCustomerId: string): Promise<boolean> {
+    const bound = await db
+      .update(usersTable)
+      .set({ stripeCustomerId })
+      .where(and(eq(usersTable.id, userId), isNull(usersTable.stripeCustomerId)))
+      .returning({ id: usersTable.id });
+    return bound.length > 0;
   }
 
   /**
