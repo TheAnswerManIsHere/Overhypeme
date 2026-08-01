@@ -700,3 +700,42 @@ exactly where the numerator lives. Both defects were confirmed by
 independent review before the sampling design was replaced entirely with
 full-population adjudication. See
 [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).
+
+## Fixing the flagged site and leaving its siblings
+
+**Symptom:** a reviewer names one place a fact is wrong or duplicated. You fix
+exactly that place, push, and the next review round names the next copy. Repeat
+for as many rounds as the fact has homes. Each round looks like progress and
+the finding count never falls.
+
+**Why it happens:** review comments are anchored to a *line*, so they arrive
+scoped to one site even when the defect is repo-wide. Fixing what was pointed
+at feels complete and is locally verifiable — the flagged line is now correct —
+so nothing prompts the wider search. Worse, correcting one copy can *create* a
+contradiction, because the other copies now disagree with a document that was
+previously consistent with them.
+
+**Avoid:** treat a finding as naming a **fact**, not a line. Before pushing the
+fix, grep the whole repo for every other site asserting that fact — including
+docs the PR does not otherwise touch — and fix or explicitly qualify each one.
+Verify against the *fact*, not the string you happened to delete: a paraphrase
+forks exactly as well as a quotation, so a grep for the removed wording can
+pass while the claim survives three lines away in different words.
+
+**Overhype:** PR #291 (the async-lane de-fork) ran six review rounds and this
+pattern accounted for a finding in five of them. The clearest instance: a claim
+equating async-jobs handler concurrency with database pool occupancy was
+corrected in `architecture-map.md` in round 4, which left `background-work.md`
+and `deferred-work.md` asserting the disproved version — so the repo
+contradicted itself in three places *because* one site had been fixed, and
+`decisions.md` turned out to be a fourth. In another instance the round-1 fix
+deleted the offending sentences and left paraphrases of the same two facts
+inside the very sentence that linked to the spec; the author's own verification
+grepped for the deleted strings, passed, and missed it.
+
+**The lexical half of this is now a CI guard** —
+`scripts/check-manual-tuning-language.mjs` fails the build on values and their
+prose stand-ins in `docs/manual/`, which is what most of those rounds were
+actually about. The guard is deliberately narrow and **cannot** detect a fact
+with two homes, a paraphrased spec section, or a false claim. Those remain the
+human half, and this entry is the reminder that they exist.

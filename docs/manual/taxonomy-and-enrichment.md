@@ -156,11 +156,12 @@ side effect of an unrelated config change.
 - **No automatic promotion, ever.** Nothing in this area — single-fact or
   bulk — promotes a refreshed fact on its own. A human approves the Visual
   Concept, then the Test Renders, exactly as for a first-time submission.
-- **A bulk send-back run is capped at 50 facts per click.** On a corpus with
+- **A bulk send-back run is deliberately limited per click.** On a corpus with
   a larger backlog (common right after a "Mark major update" bump, which
   can make most of the corpus stale at once), an admin clicks the button more
   than once over time. This is deliberate — it keeps the moderation queue
-  from being flooded in one action.
+  from being flooded in one action. The limit itself is in
+  [`taxonomy-and-enrichment.md`](../ai-context/taxonomy-and-enrichment.md).
 - **A fact whose last 3 send-back attempts all failed drops out of bulk
   runs.** This stops a persistently-broken fact from silently eating a bulk
   run's capacity forever, and stops an admin from being able to declare a
