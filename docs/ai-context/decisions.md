@@ -80,14 +80,23 @@
   evaluate that formula against a live `max_instances` at runtime.
 - **Why:** PR #256's five-lane expansion (on top of PR #216's original
   fast/render/bulk split) raised the lanes' default combined concurrency to
-  10 — exactly at the old implicit `max`, leaving zero spare connections for
-  anything else running concurrently (migrations, the admin console, one-off
-  scripts). Rather than wait for the pool-acquisition-wait or rate-limit
-  symptom the #216 entry named as the trigger to revisit, PR #288 measured
-  actual `max_connections` headroom (450 total, 7 superuser-reserved, ~13 in
-  use outside the pool) and derived a `max` that doubles the lanes' default
-  worst-case demand with margin — closing the gap proactively rather than
-  reactively. See [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)
+  10 — exactly at the old implicit `max`, leaving zero spare **within this
+  same process's own pool** for anything else this process itself runs
+  concurrently (admin HTTP queries, the Queue Health reads, non-lane
+  background work) — a different boundary from `lib/db/src/index.ts`'s
+  separately-reserved 5 connections for migrations/console/one-off scripts,
+  which are their own processes on the *global* `max_connections` budget,
+  not consumers of this pool. Rather than wait for the pool-acquisition-wait
+  or rate-limit symptom the #216 entry named as the trigger to revisit,
+  PR #288 measured actual `max_connections` headroom (450 total, 7
+  superuser-reserved, ~13 in use outside the pool) and derived a `max` that
+  doubles the lanes' default worst-case demand with margin — closing the
+  gap proactively rather than reactively. Raising this pool's `max` does
+  consume more of that same global budget, narrowing the margin left for
+  everything else on it (including the separately-reserved migrations/
+  console/script connections) — it is not creating headroom for those
+  consumers, only for this process's own non-lane queries. See
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)
   for the full arithmetic.
 - **Reference:** PR #288 (`lib/db/src/index.ts`).
 - **Supersedes:** the pool-`max` clause of [2026-07 · Split the async-jobs
