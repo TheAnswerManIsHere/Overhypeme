@@ -159,6 +159,26 @@ export interface NcmecAuditBoundaryStatus {
    * way past this call.
    */
   applicationOwnsFunction: boolean;
+  /** The role that owns the schema the ledger table lives in. */
+  schemaOwner: string;
+  /**
+   * True when the application role effectively holds the ledger's SCHEMA owner's privileges
+   * (by `SET ROLE` or `INHERIT`), and could therefore `DROP TABLE` the ledger outright —
+   * regardless of who owns the table itself. Schema ownership in PostgreSQL grants the
+   * schema owner DROP rights on every object inside it, independent of that object's own
+   * `relowner`. On PostgreSQL 15+ this matters even when no one explicitly granted anything:
+   * `public`'s owner is the `pg_database_owner` pseudo-role, which automatically includes the
+   * database's actual owner (`pg_database.datdba`) as an implicit member — so a role that
+   * owns the DATABASE effectively owns `public` with no personal grant on the table, the
+   * schema, or anything else. Verified directly against this repository's PostgreSQL 16
+   * target: a role holding ONLY schema ownership (not table ownership) successfully DROPped
+   * a table owned by a different, unrelated role inside that schema.
+   * `applicationOwnsTable` alone cannot catch this — transferring the ledger TABLE's
+   * ownership away from the application does nothing to close this path if the application
+   * (or a role it can become) still effectively owns the containing SCHEMA; the whole
+   * table-ownership-transfer boundary is bypassable by drop-and-recreate instead.
+   */
+  applicationOwnsSchema: boolean;
   /** Both append-only triggers present and enabled. */
   triggersEnabled: boolean;
   /**
@@ -182,11 +202,25 @@ export interface NcmecAuditBoundaryStatus {
  * computed once and shared, because a SQL migration file and a TypeScript module cannot
  * literally import from each other — `migrations.0095.test.ts` asserts byte-for-byte equality
  * between the two copies, so drift fails CI instead of silently weakening this check.
+ *
+ * `pg_roles`/`pg_has_role` are schema-qualified as `pg_catalog.pg_roles`/
+ * `pg_catalog.pg_has_role`, not left to resolve via `search_path`. This function has no
+ * `SECURITY DEFINER` and no `SET search_path` of its own, so it runs under whatever
+ * `search_path` the CALLING session set — and a role with `CREATE` on any schema it can
+ * already reach (e.g. `public`, via its own object creation) can set
+ * `search_path = myschema, pg_catalog` (naming `pg_catalog` explicitly, which defeats
+ * Postgres's implicit-first search of it) and create `myschema.pg_roles` /
+ * `myschema.pg_has_role` shadow objects that an unqualified reference here would resolve to
+ * instead of the real system catalog. Verified directly against this repository's
+ * PostgreSQL 16 target: with the unqualified form, an `UPDATE` on the ledger through a
+ * shadowed session succeeded outright — the guard's own privilege check evaluated the fake
+ * function instead of the real one. Explicit `pg_catalog.` qualification always resolves
+ * within that namespace regardless of `search_path`, closing this off entirely.
  */
 export const NCMEC_AUDIT_LOG_GUARD_FN_BODY = `
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-     OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_maintenance')
+     OR NOT pg_catalog.pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
     RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
       USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
   END IF;
@@ -306,36 +340,66 @@ async function canAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<
  * admin option itself propagates through the same inheritance chain as any other privilege,
  * even though the helper role's OWN direct usage/inherit flags on the target are false. A
  * direct `m.member = current_user` lookup misses this entirely: no row in `pg_auth_members`
- * ever names `current_user` as the member on the target's own admin grant. The fix reuses
- * `pg_has_role(..., 'usage')` — which already correctly computes "does current_user inherit
- * this role's privileges, transitively" — against the GRANTEE of every admin-option grant on
- * the target, rather than re-deriving that traversal by hand.
+ * ever names `current_user` as the member on the target's own admin grant.
+ *
+ * A bare `pg_has_role(..., 'usage')` against the grantee is still not enough, though: it
+ * only catches an INHERIT-reachable grantee, not one reachable only via `SET ROLE` (or only
+ * via a further, nested admin option). Verified directly against this repository's
+ * PostgreSQL 16 target: a helper role holding `ADMIN TRUE, INHERIT FALSE, SET FALSE` on the
+ * target role, with `current_user` a member of the helper role via `INHERIT FALSE, SET
+ * TRUE` — `usage` on the helper reports false, so the original check missed this case
+ * entirely, yet `current_user` can still `SET ROLE` to the helper, self-grant `SET TRUE` on
+ * the target as the helper, and `SET ROLE` to the target — a real, immediate escalation path
+ * this function must report. So each admin-option grantee is checked with a full recursive
+ * call to this same function (covering ordinary usage, `SET ROLE`, and further nested admin
+ * option), not a one-shot `pg_has_role`. `visited` guards against a cycle in the admin-option
+ * grant graph (e.g. two roles each holding admin option on the other) turning this into an
+ * infinite recursion.
  *
  * `targetPool` — see `canAssumeRole`'s doc comment for why this exists and
  * defaults to the module's own `pool`.
  */
 export async function canEffectivelyAssumeRole(role: string, targetPool: pg.Pool = pool): Promise<boolean> {
-  const { rows } = await targetPool.query<{ has_usage: boolean; has_admin: boolean }>(
-    `SELECT pg_has_role(current_user, $1, 'usage') AS has_usage,
-            EXISTS (
-              SELECT 1 FROM pg_auth_members m
-               WHERE pg_get_userbyid(m.roleid) = $1
-                 AND m.admin_option
-                 AND pg_has_role(current_user, pg_get_userbyid(m.member), 'usage')
-            ) AS has_admin`,
+  return canEffectivelyAssumeRoleRecursive(role, targetPool, new Set());
+}
+
+async function canEffectivelyAssumeRoleRecursive(
+  role: string,
+  targetPool: pg.Pool,
+  visited: Set<string>,
+): Promise<boolean> {
+  if (visited.has(role)) return false;
+  visited.add(role);
+
+  const { rows } = await targetPool.query<{ has_usage: boolean }>(
+    `SELECT pg_has_role(current_user, $1, 'usage') AS has_usage`,
     [role],
   );
-  if (rows[0]?.has_usage || rows[0]?.has_admin) return true;
-  return canAssumeRole(role, targetPool);
+  if (rows[0]?.has_usage) return true;
+
+  if (await canAssumeRole(role, targetPool)) return true;
+
+  const { rows: adminRows } = await targetPool.query<{ grantee: string }>(
+    `SELECT pg_get_userbyid(m.member) AS grantee
+       FROM pg_auth_members m
+      WHERE pg_get_userbyid(m.roleid) = $1
+        AND m.admin_option`,
+    [role],
+  );
+  for (const { grantee } of adminRows) {
+    if (await canEffectivelyAssumeRoleRecursive(grantee, targetPool, visited)) return true;
+  }
+  return false;
 }
 
 /**
  * `targetPool` defaults to this module's own `pool`, but is accepted so a test can pass a
  * `Pool` connected as a genuinely restricted, non-superuser role — see `canAssumeRole`'s doc
  * comment above for why this matters. Without it, every ownership/bypass field this function
- * reports (`applicationOwnsTable`, `applicationOwnsFunction`, `applicationCanBypassTrigger`)
- * would read `true` unconditionally when tested through this module's own pool, since
- * `pg_has_role(<superuser>, <any role>, 'usage')` is true regardless of any actual grant.
+ * reports (`applicationOwnsTable`, `applicationOwnsFunction`, `applicationOwnsSchema`,
+ * `applicationCanBypassTrigger`) would read `true` unconditionally when tested through this
+ * module's own pool, since `pg_has_role(<superuser>, <any role>, 'usage')` is true regardless
+ * of any actual grant.
  */
 export async function ncmecAuditBoundaryStatus(
   targetPool: pg.Pool = pool,
@@ -343,6 +407,7 @@ export async function ncmecAuditBoundaryStatus(
   const { rows } = await targetPool.query<{
     application_role: string;
     table_owner: string;
+    schema_owner: string;
     function_owner: string | null;
     maintenance_role_exists: boolean;
     triggers_enabled: boolean;
@@ -351,6 +416,7 @@ export async function ncmecAuditBoundaryStatus(
     `
     SELECT current_user::text AS application_role,
            pg_get_userbyid(c.relowner) AS table_owner,
+           pg_get_userbyid(n.nspowner) AS schema_owner,
            (SELECT pg_get_userbyid(proowner)
               FROM pg_proc
              WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
@@ -396,6 +462,7 @@ export async function ncmecAuditBoundaryStatus(
              false
            ) AS guard_function_intact
       FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE c.oid = to_regclass('ncmec_safety_audit_log')
   `,
     [NCMEC_AUDIT_LOG_GUARD_FN_BODY],
@@ -422,6 +489,8 @@ export async function ncmecAuditBoundaryStatus(
     functionOwner: row.function_owner ?? "",
     applicationOwnsFunction:
       row.function_owner != null ? await canEffectivelyAssumeRole(row.function_owner, targetPool) : true,
+    schemaOwner: row.schema_owner,
+    applicationOwnsSchema: await canEffectivelyAssumeRole(row.schema_owner, targetPool),
     triggersEnabled: row.triggers_enabled,
     guardFunctionIntact: row.guard_function_intact,
   };
@@ -433,6 +502,7 @@ export async function ncmecAuditBoundaryStatus(
       status.guardFunctionIntact &&
       !status.applicationOwnsTable &&
       !status.applicationOwnsFunction &&
+      !status.applicationOwnsSchema &&
       !status.applicationCanBypassTrigger,
   };
 }

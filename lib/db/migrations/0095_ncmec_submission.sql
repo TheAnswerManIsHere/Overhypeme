@@ -601,10 +601,19 @@ DECLARE
   -- FULL text closes that gap, and driving both the create and the verify from one variable
   -- means there is only ever one copy to keep in sync — a hand-duplicated second copy would
   -- drift the moment either one was edited without the other.
+  --
+  -- pg_roles/pg_has_role below are schema-qualified as pg_catalog.pg_roles/
+  -- pg_catalog.pg_has_role, kept byte-identical to lib/db/src/index.ts's
+  -- NCMEC_AUDIT_LOG_GUARD_FN_BODY (see that constant's doc comment for why: this function has
+  -- no SECURITY DEFINER and no SET search_path, so an unqualified reference resolves via
+  -- whatever search_path the CALLING session set — and a role with CREATE on any schema it can
+  -- reach can shadow pg_roles/pg_has_role with its own objects to defeat this exact check.
+  -- Verified directly against this repository's PostgreSQL 16 target: the unqualified form let
+  -- an UPDATE through a shadowed session succeed outright).
   fn_body CONSTANT text := $body_src$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-     OR NOT pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_maintenance')
+     OR NOT pg_catalog.pg_has_role(current_user, 'overhype_audit_maintenance', 'usage') THEN
     RAISE EXCEPTION 'ncmec_safety_audit_log is append-only (%)', TG_OP
       USING HINT = 'An effective grant of overhype_audit_maintenance is required to modify this ledger.';
   END IF;
@@ -916,7 +925,18 @@ BEGIN
     -- the first time anything tries to write to the ledger. This migration cannot fix it
     -- itself (that is precisely the access it no longer has), so it refuses to be recorded as
     -- successful rather than let the deploy proceed silently broken.
-    RAISE EXCEPTION '0095: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, and the application role cannot assume it — hardening looks complete, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %;', app_role, app_role;
+    -- The printed recovery commands are schema-qualified (via ledger_schema, resolved above)
+    -- and identifier-quoted (via format()'s %I), not bare names — same reasoning as the
+    -- RAISE WARNING below: a DBA who ran these literally under a search_path that doesn't put
+    -- the ledger's actual schema first would hit "relation does not exist" on a schema
+    -- unqualified enough to matter, and app_role could in principle need quoting too.
+    RAISE EXCEPTION '%', format(
+      '0095: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, and the application role cannot assume it — hardening looks complete, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: '
+      'GRANT SELECT, INSERT ON %I.%I TO %I; '
+      'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I;',
+      ledger_schema, 'ncmec_safety_audit_log', app_role,
+      ledger_schema, 'ncmec_safety_audit_log_id_seq', app_role
+    );
   ELSE
     -- The last clause of the instruction is the one that actually matters, and it is why
     -- the transfer cannot be completed from inside this migration: transferring ownership
@@ -937,7 +957,32 @@ BEGIN
     -- isolated-test-schema tooling, or a real deployment with a non-default search_path — a
     -- DBA who followed a hardcoded "public" instruction to the letter would still hit
     -- "permission denied for schema <real schema>" on the OWNER TO below.
-    RAISE WARNING '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: CREATE ROLE overhype_audit_owner NOLOGIN; GRANT CREATE ON SCHEMA % TO overhype_audit_owner; ALTER TABLE ncmec_safety_audit_log OWNER TO overhype_audit_owner; ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; GRANT SELECT, INSERT ON ncmec_safety_audit_log TO %; GRANT USAGE, SELECT ON SEQUENCE ncmec_safety_audit_log_id_seq TO %; REVOKE overhype_audit_maintenance FROM %; REVOKE overhype_audit_owner FROM %; -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.', ledger_schema, app_role, app_role, app_role, app_role;
+    --
+    -- Every object reference below is schema-qualified (via ledger_schema) and
+    -- identifier-quoted (via format()'s %I), not just the GRANT CREATE ON SCHEMA line — a
+    -- DBA running these commands under a search_path that doesn't put ledger_schema first
+    -- would otherwise hit "relation does not exist" on the unqualified ALTER TABLE/FUNCTION
+    -- and GRANT statements too, exactly the same class of failure the GRANT CREATE ON SCHEMA
+    -- qualification above already exists to avoid.
+    RAISE WARNING '%', format(
+      '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: '
+      'CREATE ROLE overhype_audit_owner NOLOGIN; '
+      'GRANT CREATE ON SCHEMA %I TO overhype_audit_owner; '
+      'ALTER TABLE %I.%I OWNER TO overhype_audit_owner; '
+      'ALTER FUNCTION %I.ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; '
+      'GRANT SELECT, INSERT ON %I.%I TO %I; '
+      'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I; '
+      'REVOKE overhype_audit_maintenance FROM %I; '
+      'REVOKE overhype_audit_owner FROM %I; '
+      '-- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.',
+      ledger_schema,
+      ledger_schema, 'ncmec_safety_audit_log',
+      ledger_schema,
+      ledger_schema, 'ncmec_safety_audit_log', app_role,
+      ledger_schema, 'ncmec_safety_audit_log_id_seq', app_role,
+      app_role,
+      app_role
+    );
   END IF;
 END $$;
 -- <<< ncmec-0095 ownership hardening block (end)

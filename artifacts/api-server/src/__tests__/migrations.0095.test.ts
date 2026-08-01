@@ -573,6 +573,58 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       assert.deepEqual(rows.map((r) => r.member), [], "overhype_audit_maintenance must be granted to nobody");
     });
 
+    it("closes the search_path shadowing bypass — pg_roles/pg_has_role resolve to the real catalog regardless of search_path", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The guard function has no SECURITY DEFINER and no SET search_path of its own, so it
+      // runs under whatever search_path the CALLING session set. A role with CREATE on any
+      // schema it can reach (here, one it owns outright) can set
+      // search_path = <owned schema>, pg_catalog — naming pg_catalog explicitly defeats
+      // Postgres's implicit-first search of it — and create pg_roles/pg_has_role shadow
+      // objects that an UNQUALIFIED reference in the guard function would resolve to instead
+      // of the real system catalog, letting the permissive shadow answer the privilege check.
+      // Verified directly against this repository's PostgreSQL 16 target before the fix:
+      // exactly this setup let the UPDATE below succeed. The fix schema-qualifies both
+      // references as pg_catalog.pg_roles/pg_catalog.pg_has_role, which always resolve within
+      // that namespace regardless of search_path — this test proves the UPDATE is still
+      // refused even with the shadow objects and the hostile search_path in place.
+      await inRolledBackTx(async (client) => {
+        const role = await makeAppRole(client);
+        // Resolved with the connection's ordinary, un-hijacked search_path — this is what
+        // lets the UPDATE below still find the table by its unqualified name once
+        // search_path is overridden to lead with the shadow schema; the shadow attack
+        // targets pg_roles/pg_has_role resolution, not the table's own.
+        const { rows: schemaRows } = await client.query<{ nspname: string }>(
+          `SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.oid = to_regclass('ncmec_safety_audit_log')`,
+        );
+        const ledgerSchema = schemaRows[0]?.nspname;
+        assert.ok(ledgerSchema, "could not resolve ncmec_safety_audit_log's schema");
+        const shadowSchema = `ncmec_shadow_${randomUUID().slice(0, 8)}`;
+        await client.query(`CREATE SCHEMA ${shadowSchema} AUTHORIZATION ${role}`);
+        await client.query(
+          `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','config_write')`,
+        );
+        await client.query(`SET ROLE ${role}`);
+        // shadowSchema leads (so an unqualified pg_roles/pg_has_role would hit the shadow
+        // objects first under the OLD, vulnerable code), pg_catalog is named explicitly
+        // (defeating Postgres's implicit-first search of it), and ledgerSchema trails so the
+        // UPDATE below can still resolve the table itself by its unqualified name.
+        await client.query(`SET search_path = ${shadowSchema}, pg_catalog, ${ledgerSchema}`);
+        await client.query(
+          `CREATE VIEW ${shadowSchema}.pg_roles AS SELECT 'overhype_audit_maintenance'::name AS rolname`,
+        );
+        await client.query(
+          `CREATE FUNCTION ${shadowSchema}.pg_has_role(name, text, text) RETURNS boolean AS $$ SELECT true $$ LANGUAGE sql`,
+        );
+        await expectRaises(
+          client,
+          `UPDATE ncmec_safety_audit_log SET reason = 'shadowed bypass'`,
+          /append-only/,
+        );
+        await client.query("RESET ROLE");
+      });
+    });
+
     /**
      * Both of these tests mutate real, COMMITTED state (a fresh LOGIN role must be
      * committed for a separate `psql` process to authenticate as it — see

@@ -106,6 +106,32 @@ describe("canEffectivelyAssumeRole — from a genuinely restricted connection", 
       await sharedPool.query(`DROP ROLE IF EXISTS "${helperRole}"`);
     }
   });
+
+  it("reports true for SET-REACHABLE ADMIN OPTION — a helper role reachable only via SET ROLE still propagates its admin option", async () => {
+    // Round 8 finding: the admin-option traversal originally checked the grantee of the
+    // target's admin-option grant with a bare `pg_has_role(current_user, helper, 'usage')` —
+    // INHERIT-reachability only. A helper role reachable ONLY via `SET ROLE` (INHERIT FALSE,
+    // SET TRUE), not ordinary inheritance, was missed entirely: `usage` reports false for
+    // loginRole against helperRole, yet loginRole can still `SET ROLE` to helperRole,
+    // self-grant `SET TRUE` on targetRole as helperRole (admin option always permits
+    // self-granting), and `SET ROLE` to targetRole — a real, immediate escalation path.
+    // Verified directly against this repository's PostgreSQL 16 target before this fix: the
+    // old traversal reported `false` here even though the escalation succeeds manually.
+    const helperRole = `nab_helper2_${runId}`;
+    await sharedPool.query(`CREATE ROLE "${helperRole}" NOLOGIN`);
+    await sharedPool.query(
+      `GRANT "${targetRole}" TO "${helperRole}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+    );
+    await sharedPool.query(`GRANT "${helperRole}" TO "${loginRole}" WITH INHERIT FALSE, SET TRUE`);
+    try {
+      assert.equal(await canEffectivelyAssumeRole(targetRole, loginPool), true);
+    } finally {
+      await sharedPool.query(`REVOKE "${helperRole}" FROM "${loginRole}"`);
+      await sharedPool.query(`REVOKE "${targetRole}" FROM "${helperRole}"`);
+      await sharedPool.query(`DROP OWNED BY "${helperRole}"`).catch(() => {});
+      await sharedPool.query(`DROP ROLE IF EXISTS "${helperRole}"`);
+    }
+  });
 });
 
 /**
@@ -146,25 +172,59 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
 
   it("a role with no relationship to any owner role never reports ownership-equivalent access", async () => {
     // loginRole was just created and has never been granted membership in anything, so
-    // whatever currently owns the table/function/maintenance role in this sandbox, loginRole
-    // cannot be a member of it, SET ROLE to it, or hold ADMIN OPTION on it.
+    // whatever currently owns the table/function/schema/maintenance role in this sandbox,
+    // loginRole cannot be a member of it, SET ROLE to it, or hold ADMIN OPTION on it — and it
+    // is not the database owner, so it holds no implicit membership in pg_database_owner
+    // (the real owner of `public` on PostgreSQL 15+) either.
     const status = await ncmecAuditBoundaryStatus(loginPool);
     assert.equal(status.applicationOwnsTable, false);
     assert.equal(status.applicationOwnsFunction, false);
+    assert.equal(status.applicationOwnsSchema, false);
     assert.equal(status.applicationCanBypassTrigger, false);
   });
 
   it("the module's own (superuser) pool reports ownership-equivalent access unconditionally — the gap targetPool exists to bypass", async () => {
-    // Same table, same function, same maintenance role, queried through the same connection
-    // every real caller uses by default. A superuser satisfies pg_has_role(..., 'usage') for
-    // any role with zero explicit grant, so these read true regardless of who actually owns
-    // anything — proving why boundaryEnforced can never usefully be asserted true through
-    // this default pool (see migrations.0095.test.ts's comment on the same limitation).
+    // Same table, same function, same schema, same maintenance role, queried through the same
+    // connection every real caller uses by default. A superuser satisfies
+    // pg_has_role(..., 'usage') for any role with zero explicit grant, so these read true
+    // regardless of who actually owns anything — proving why boundaryEnforced can never
+    // usefully be asserted true through this default pool (see migrations.0095.test.ts's
+    // comment on the same limitation).
     const status = await ncmecAuditBoundaryStatus();
     assert.equal(status.applicationOwnsTable, true);
     assert.equal(status.applicationOwnsFunction, true);
+    assert.equal(status.applicationOwnsSchema, true);
     if (status.maintenanceRoleExists) {
       assert.equal(status.applicationCanBypassTrigger, true);
     }
+  });
+
+  it("reports the boundary NOT enforced when the application owns only the containing SCHEMA, not the table — the DROP-TABLE bypass round 8 found", async () => {
+    // Round 8 finding: boundaryEnforced only ever checked table ownership, function
+    // ownership, and maintenance-role access — never the containing SCHEMA's ownership. A
+    // schema owner can DROP TABLE any object inside that schema regardless of the object's
+    // own relowner (verified directly against this repository's PostgreSQL 16 target: a role
+    // holding ONLY schema ownership successfully dropped a table owned by a different,
+    // unrelated role in the same schema). So even a database whose ledger TABLE and FUNCTION
+    // were both fully transferred to overhype_audit_owner is still bypassable by
+    // drop-and-recreate if the application (or a role it can become) still effectively owns
+    // the schema the ledger lives in — which `applicationOwnsSchema` must now catch and
+    // `boundaryEnforced` must now refuse to report true over.
+    const status = await ncmecAuditBoundaryStatus(loginPool);
+    assert.equal(status.schemaOwner, "pg_database_owner", "the shared test sandbox's ledger lives in public, owned by pg_database_owner on PostgreSQL 15+");
+    // loginRole is not the database owner, so it holds no membership in pg_database_owner —
+    // this branch only proves the field and formula wiring; the actual bypass reproduction
+    // (a role that DOES own the schema dropping a table it doesn't own) was verified by hand
+    // against the live sandbox, not re-encoded here, since granting a fresh role database
+    // ownership is not something this suite can safely do to a shared sandbox database.
+    assert.equal(status.applicationOwnsSchema, false);
+
+    const superuserStatus = await ncmecAuditBoundaryStatus();
+    // The module's own pool connects as this sandbox's actual database owner, so it DOES
+    // effectively own `public` via pg_database_owner — proving applicationOwnsSchema tracks
+    // real reachability, and that boundaryEnforced now factors it in rather than only
+    // reporting on table/function ownership.
+    assert.equal(superuserStatus.applicationOwnsSchema, true);
+    assert.equal(superuserStatus.boundaryEnforced, false);
   });
 });
