@@ -64,23 +64,35 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // makes qualification here mean the same thing it means everywhere else.
     // Hardcoding `hasOpenDispute: false` (an earlier revision did) makes a held
     // source look qualifying, so a disputed newer subscription B would be
-    // selected while access actually rests on older A — the same incoherent
-    // panel this selection exists to prevent, reached by a different route.
-    const [hasLifetime, allSources] = await Promise.all([
-      hasQualifyingLifetimeSource(userId),
-      loadSourceSnapshots(db, userId),
-    ]);
-
-    const subscriptionSnapshots = allSources.filter(
-      (snapshot) => snapshot.sourceType === "stripe_subscription",
-    );
-
-    const appSubRows = await db.select().from(membershipEntitlementsTable)
-      .where(and(
-        eq(membershipEntitlementsTable.userId, userId),
-        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-      ))
-      .orderBy(desc(membershipEntitlementsTable.createdAt));
+    // selected while access actually rests on older A.
+    //
+    // ONE snapshot. Qualification and the row that gets returned must come from
+    // the same read: under READ COMMITTED, a webhook cancelling or disputing B
+    // between two statements leaves B in `qualifyingIds` from the first while
+    // the second returns its new non-qualifying state — selecting B over the
+    // older qualifying A and recreating exactly the mismatch this selection
+    // exists to prevent.
+    const { hasLifetime, subscriptionSnapshots, appSubRows } = await db.transaction(async (tx) => {
+      const snapshots = await loadSourceSnapshots(tx, userId);
+      const rows = await tx.select().from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, userId),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt));
+      return {
+        hasLifetime: snapshots.some(
+          (snapshot) =>
+            (snapshot.sourceType === "stripe_lifetime_payment" ||
+              snapshot.sourceType === "admin_grant") &&
+            qualifySource(snapshot, new Date()).qualifies,
+        ),
+        subscriptionSnapshots: snapshots.filter(
+          (snapshot) => snapshot.sourceType === "stripe_subscription",
+        ),
+        appSubRows: rows,
+      };
+    });
 
     // The newest source that still GRANTS access, not simply the newest row. The
     // model supports more than one subscription source, and picking by recency

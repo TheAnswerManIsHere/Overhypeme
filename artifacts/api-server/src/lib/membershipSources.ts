@@ -193,6 +193,21 @@ export interface LifetimeSourceState {
   currency: string | null;
 }
 
+/**
+ * The version sequence's CURRENT value, without consuming one.
+ *
+ * Lets a caller ask "was this source applied after that moment?" — the only
+ * honest form of the freshness question, since any writer may have done the
+ * applying. `lastval()` would be wrong: it is session-scoped and reports this
+ * connection's last `nextval`, not the sequence's global position.
+ */
+export async function currentSourceStateToken(tx: Db = db): Promise<number> {
+  const result = await tx.execute<{ token: string }>(
+    sql`SELECT last_value FROM membership_source_state_seq`,
+  );
+  return Number(result.rows[0]?.token ?? 0);
+}
+
 async function nextSourceStateToken(tx: Db): Promise<number> {
   const result = await tx.execute<{ token: string }>(
     sql`SELECT nextval('membership_source_state_seq') AS token`,

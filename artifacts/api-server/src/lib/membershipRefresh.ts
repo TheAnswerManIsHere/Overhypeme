@@ -1081,6 +1081,12 @@ export async function refreshSubscriptionSource(
  * failing the request would invite the user to retry an action that already
  * happened.
  */
+/**
+ * The whole post-mutation refresh, end to end. Sized so a mutation route stays
+ * within an ordinary HTTP timeout even when every attempt waits out a lease.
+ */
+const POST_MUTATION_REFRESH_BUDGET_MS = 10_000;
+
 const LOCAL_REFRESH_RETRY_REASONS = new Set([
   "source_busy",
   "retrieval_failed",
@@ -1091,13 +1097,30 @@ const LOCAL_REFRESH_RETRY_REASONS = new Set([
 export async function refreshSubscriptionSourceAfterMutation(
   stripe: Stripe,
   subscriptionId: string,
-  opts: { attempts?: number; delayMs?: number } = {},
+  opts: { attempts?: number; delayMs?: number; budgetMs?: number } = {},
 ): Promise<{ applied: boolean; reason?: string }> {
   const attempts = opts.attempts ?? 3;
   const delayMs = opts.delayMs ?? 200;
+  // ONE wall-clock budget across every attempt, not a fresh one per attempt.
+  //
+  // Each attempt can independently wait the full lease-waiter timeout and then
+  // spend a whole retrieval-phase budget, so three attempts at the supported
+  // maxima would hold this request for minutes — an HTTP handler for a mutation
+  // Stripe has ALREADY accepted, which is the worst place to be slow: the client
+  // may time out and retry an operation that already happened.
+  const budgetMs = opts.budgetMs ?? POST_MUTATION_REFRESH_BUDGET_MS;
+  const startedAt = Date.now();
+  const budgetSpent = () => Date.now() - startedAt >= budgetMs;
 
   let last: ApplyResult | null = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0 && budgetSpent()) {
+      logger.warn(
+        { subscriptionId, attempt, budgetMs },
+        "post-mutation refresh budget spent — not starting another attempt",
+      );
+      break;
+    }
     try {
       last = await refreshSubscriptionSource(stripe, subscriptionId);
     } catch (error) {
@@ -1107,7 +1130,9 @@ export async function refreshSubscriptionSourceAfterMutation(
 
     if (last?.applied) return { applied: true };
     if (last && !LOCAL_REFRESH_RETRY_REASONS.has(last.reason ?? "")) break;
-    if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (attempt < attempts - 1 && !budgetSpent()) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
 
   const reason = last?.reason ?? "refresh_threw";
@@ -1117,6 +1142,58 @@ export async function refreshSubscriptionSourceAfterMutation(
       "source may be stale until its webhook arrives",
   );
   return { applied: false, reason };
+}
+
+/**
+ * Bring a lifetime source's refund state up to date from Stripe.
+ *
+ * The counterpart to `refreshSubscriptionSource` for the other paid source type.
+ * A lifetime purchase's local row is frozen at creation apart from one
+ * transition — `active` → `refunded` — so this asks Stripe the only question
+ * that can have changed: has the payment been refunded in full?
+ *
+ * `verified: false` means the answer could not be established, never that the
+ * purchase is fine. Callers that fail closed depend on that distinction.
+ */
+export async function refreshLifetimePaymentSource(
+  stripe: Stripe,
+  paymentIntentId: string,
+): Promise<{ verified: boolean; refunded: boolean }> {
+  const charges = await listAllCharges(stripe, paymentIntentId);
+  if (!charges.complete) {
+    // A negative conclusion ("not refunded") over an incomplete list is exactly
+    // the unsound one.
+    logger.warn(
+      { paymentIntentId, reason: charges.reason },
+      "could not read every charge for a lifetime source — treating as unverified",
+    );
+    return { verified: false, refunded: false };
+  }
+
+  const fullyRefunded = charges.items.some(
+    (charge) => charge.refunded === true || charge.amount_refunded >= charge.amount,
+  );
+
+  if (!fullyRefunded) return { verified: true, refunded: false };
+
+  const lease = await claimLease("stripe_lifetime_payment", paymentIntentId);
+  if (!lease) return { verified: false, refunded: true };
+
+  try {
+    await runBoundedApply(async (tx) => {
+      const source = await findSourceByProviderRef(tx, "stripe_lifetime_payment", paymentIntentId);
+      if (!source) return;
+      await assertFenceHeld(tx, lease);
+      await lockUser(tx, source.userId);
+      await markLifetimeRefunded(tx, paymentIntentId);
+      await recomputeMembership(tx, source.userId);
+    });
+    return { verified: true, refunded: true };
+  } finally {
+    await releaseLease(lease).catch((error) => {
+      logger.warn({ err: error, paymentIntentId }, "failed to release lifetime lease");
+    });
+  }
 }
 
 /** Refresh every Stripe-backed source a user holds, then recompute once. */
@@ -1136,11 +1213,36 @@ export async function refreshAllSourcesForUser(
   let failed = 0;
 
   for (const source of sources) {
-    if (source.sourceType !== "stripe_subscription" || !source.providerRef) continue;
+    if (!source.providerRef) continue;
+
+    // `admin_grant` has no provider state to retrieve — it IS the authority — so
+    // skipping it is correct and does not make the refresh incomplete.
+    if (source.sourceType === "admin_grant") continue;
+
     try {
-      const outcome = await refreshSubscriptionSource(stripe, source.providerRef);
-      if (outcome.applied) refreshed += 1;
-      else failed += 1;
+      if (source.sourceType === "stripe_subscription") {
+        const outcome = await refreshSubscriptionSource(stripe, source.providerRef);
+        if (outcome.applied) refreshed += 1;
+        else failed += 1;
+      } else if (source.sourceType === "stripe_lifetime_payment") {
+        // Silently skipped until now, and `failed` stayed zero — so a lifetime
+        // purchase refunded while its `charge.refunded` webhook was dropped left
+        // an `active` local row that reinstatement then restored Legendary from.
+        // Precisely the stale-row case reinstatement's authoritative refresh
+        // exists to prevent.
+        const outcome = await refreshLifetimePaymentSource(stripe, source.providerRef);
+        if (outcome.verified) refreshed += 1;
+        else failed += 1;
+      } else {
+        // An unhandled Stripe-backed source type is UNVERIFIED, not fine. A new
+        // source type must fail closed here until it has a refresh path, rather
+        // than inheriting a silent pass.
+        failed += 1;
+        logger.warn(
+          { userId, sourceType: source.sourceType },
+          "source type has no authoritative refresh — counted as unverified",
+        );
+      }
     } catch (error) {
       failed += 1;
       logger.warn({ err: error, userId, providerRef: source.providerRef }, "source refresh failed");

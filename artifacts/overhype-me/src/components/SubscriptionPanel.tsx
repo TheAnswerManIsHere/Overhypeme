@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
@@ -64,6 +64,24 @@ interface ProrationPreview {
 }
 
 
+/**
+ * What the three subscription-mutation routes return when the Stripe call
+ * succeeded but our own entitlement row could not be refreshed from it.
+ *
+ * The change IS live at Stripe — that half of the response is authoritative.
+ * What is unknown is our local projection, which stays whatever it was until
+ * the webhook lands. Treating that response as an ordinary success (the
+ * previous behavior) showed the user a confidently wrong membership state with
+ * nothing on screen to suggest otherwise, which is the failure the two-altitude
+ * status rule exists to prevent.
+ */
+const STALE_LOCAL_STATE_MESSAGE =
+  "Your change was accepted by our payment provider, but our own records haven't caught up yet. " +
+  "The membership details below may be out of date for a minute or two — they'll correct themselves automatically.";
+
+/** How long we keep re-checking after a stale response, in ms from the mutation. */
+const STALE_RECHECK_DELAYS_MS = [2000, 5000, 10000, 20000];
+
 interface ConfirmDialogProps {
   title: string;
   children: React.ReactNode;
@@ -106,6 +124,8 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const [plans, setPlans] = useState<PlanProduct[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localStateWarning, setLocalStateWarning] = useState<string | null>(null);
+  const staleTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -128,6 +148,25 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       .then((d: SubscriptionResponse) => setSubData(d))
       .catch(() => setSubData(null));
   }, []);
+
+  const clearStaleTimers = useCallback(() => {
+    staleTimersRef.current.forEach(clearTimeout);
+    staleTimersRef.current = [];
+  }, []);
+
+  /**
+   * A mutation route told us its Stripe call landed but our local entitlement
+   * row did not refresh. Say so, and keep re-checking — the webhook that fixes
+   * it usually arrives within seconds, and the banner is the honest state until
+   * it does rather than a spinner pretending the page is still loading.
+   */
+  const handleLocalStateStale = useCallback(() => {
+    setLocalStateWarning(STALE_LOCAL_STATE_MESSAGE);
+    clearStaleTimers();
+    staleTimersRef.current = STALE_RECHECK_DELAYS_MS.map((ms) => setTimeout(fetchSubData, ms));
+  }, [clearStaleTimers, fetchSubData]);
+
+  useEffect(() => clearStaleTimers, [clearStaleTimers]);
 
   useEffect(() => {
     fetchSubData();
@@ -182,12 +221,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   async function handleCancel() {
     setCancelLoading(true);
     setError(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/cancel", {
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
       if (data.error) {
         setError(data.error);
       } else {
@@ -205,6 +245,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         setCancelSuccessMessage("Your subscription has been cancelled. You'll keep access until the end of the billing period.");
         // Background refetch to sync full server state
         fetchSubData();
+        if (data.localStateStale) handleLocalStateStale();
       }
     } catch {
       setError("Network error");
@@ -217,12 +258,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     setReactivateLoading(true);
     setError(null);
     setCancelSuccessMessage(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/reactivate", {
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
       if (data.error) {
         setError(data.error);
       } else {
@@ -239,6 +281,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         setCancelSuccessMessage("Your subscription has been reactivated and will renew as normal.");
         // Background refetch to sync full server state
         fetchSubData();
+        if (data.localStateStale) handleLocalStateStale();
       }
     } catch {
       setError("Network error");
@@ -283,6 +326,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     if (!targetAnnualPriceId) return;
     setSwitchLoading(true);
     setError(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/switch-plan", {
         method: "POST",
@@ -290,15 +334,21 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPriceId: targetAnnualPriceId }),
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
       if (data.error) {
         setError(data.error);
       } else {
         setShowSwitchDialog(false);
         fetchSubData();
-        // Delayed refetches to catch webhook-driven DB updates
-        const delays = [2000, 5000, 10000];
-        delays.forEach((ms) => setTimeout(fetchSubData, ms));
+        if (data.localStateStale) {
+          // Already schedules its own re-checks, on a longer tail than the
+          // optimistic ones below — don't stack two sets of timers.
+          handleLocalStateStale();
+        } else {
+          // Delayed refetches to catch webhook-driven DB updates
+          const delays = [2000, 5000, 10000];
+          delays.forEach((ms) => setTimeout(fetchSubData, ms));
+        }
       }
     } catch {
       setError("Network error");
@@ -362,6 +412,22 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         <Star className="w-5 h-5 text-primary" />
         <h2 className="font-display text-xl uppercase tracking-wide text-foreground">Membership</h2>
       </div>
+
+      {/*
+        Rendered above both branches, not inside the Legendary one: a plan
+        switch is exactly the mutation that can move a user OFF membership, so
+        a warning scoped to the Legendary block would vanish in the one case
+        where the stale state is most confusing.
+      */}
+      {localStateWarning && (
+        <div
+          role="status"
+          className="flex items-start gap-2 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-sm p-3 mb-4"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{localStateWarning}</span>
+        </div>
+      )}
 
       {subData === undefined && (
         <div className="animate-pulse h-20 bg-secondary rounded-sm" />

@@ -64,11 +64,33 @@ import {
  * genuine database failure for a validation rejection and answer it with a 400.
  */
 class RelationalConfigError extends Error {}
+
+/**
+ * Parse a config value EXACTLY as the runtime resolver will.
+ *
+ * `adminConfig`'s `getConfigInt` uses `parseInt`, which stops at the first
+ * non-digit: "1e5" is 1 at runtime but 100000 to `Number`. Validating with one
+ * and running with the other lets an operator store a value the validator
+ * approved and the system then violates. Non-canonical strings are refused
+ * outright rather than silently reinterpreted — round-tripping the parsed number
+ * back to a string is what makes "canonical" checkable.
+ */
+function parseMembershipConfigValue(raw: string, dataType: string): number | null {
+  const trimmed = raw.trim();
+  if (dataType === "integer") {
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isNaN(parsed)) return null;
+    return String(parsed) === trimmed ? parsed : null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 import { effectiveTierExpr } from "../lib/membershipState";
 import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
 import { graceSweepHealth } from "../lib/membershipSchedules";
 import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
+  currentSourceStateToken,
   hasQualifyingLifetimeSource,
   recomputeMembership,
   writeAdminGrant,
@@ -277,6 +299,10 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
 
   // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
   // only whether it was complete — never a tier.
+  //
+  // The token is taken BEFORE the refresh so "applied since we began" is a
+  // question the version sequence can answer, whoever did the applying.
+  const refreshStartToken = reinstating ? await currentSourceStateToken() : 0;
   const refreshComplete = reinstating ? await refreshSourcesForReinstatement(id) : true;
 
   const [updated] = await db.transaction(async (tx) => {
@@ -296,13 +322,45 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     await recomputeMembership(tx, id);
 
     if (!refreshComplete) {
-      // Fail closed, still under that lock: an unverified source set must not
-      // restore access. The horizon goes with the tier, since `registered`
-      // carries none.
-      await tx
-        .update(usersTable)
-        .set({ membershipTier: "registered", membershipValidUntil: null })
-        .where(eq(usersTable.id, id));
+      // Fail closed — but only over sources that are ACTUALLY stale.
+      //
+      // "My refresh failed" is not the same as "this data is unverified". The
+      // common failure is `source_busy`, which means another writer held the
+      // lease — and that writer's own authoritative apply may well have landed
+      // while we waited. Overwriting the derived tier on that basis strands a
+      // paying user at `registered` with nothing scheduled to revisit them,
+      // since the event that would have fixed it has already been consumed.
+      //
+      // So the question is per-source and about freshness, not about who did
+      // the refreshing: was every source written since this reinstatement
+      // began? `sourceStateAsOf` moves on every authoritative apply, whoever
+      // performs it, so comparing against the token taken before the refresh
+      // answers it exactly.
+      const stale = await tx
+        .select({ id: membershipEntitlementsTable.id })
+        .from(membershipEntitlementsTable)
+        .where(
+          and(
+            eq(membershipEntitlementsTable.userId, id),
+            sql`${membershipEntitlementsTable.sourceType} <> 'admin_grant'`,
+            sql`${membershipEntitlementsTable.sourceStateAsOf} <= ${refreshStartToken}`,
+          ),
+        )
+        .limit(1);
+
+      if (stale.length > 0) {
+        // The horizon goes with the tier, since `registered` carries none.
+        await tx
+          .update(usersTable)
+          .set({ membershipTier: "registered", membershipValidUntil: null })
+          .where(eq(usersTable.id, id));
+      } else {
+        logger.info(
+          { userId: id },
+          "reinstatement refresh reported incomplete, but every source was applied by another writer " +
+            "since it began — the derived tier stands",
+        );
+      }
     }
 
     const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
@@ -668,7 +726,15 @@ router.get("/admin/membership/grace-sweep", requireAdmin, async (_req: Request, 
       graceSweepHealth(),
       driftedMembershipUsers(),
     ]);
-    res.json({ health, drifted, driftedCount: drifted.length });
+    // `driftedCount` is the UNCAPPED total, not the length of the sample. A cap
+    // reported as the total is a silent truncation, and this surface exists to
+    // tell an operator the real backlog.
+    res.json({
+      health,
+      drifted: drifted.users,
+      driftedCount: drifted.total,
+      driftedTruncated: drifted.truncated,
+    });
   } catch (err) {
     logger.error({ err }, "[admin] grace sweep status query failed");
     res.status(503).json({ error: "Could not read grace sweep status" });
@@ -2565,8 +2631,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     // while the SET is broken, and a relational invariant enforced on one side
     // only is not enforced — so this runs on a write to ANY component.
     if (isMembershipConfigKey(key)) {
-      const parsed = Number(rawValue);
-      if (Number.isNaN(parsed)) {
+      // Parsed the way RUNTIME parses it, not the way JavaScript would like to.
+      // `getConfigInt` uses `parseInt`, so "1e5" resolves to 1 at runtime while
+      // `Number` reads it as 100000 — the validator would approve a relationship
+      // the running system then violates, from a value stored verbatim.
+      const parsed = parseMembershipConfigValue(rawValue, existing.dataType);
+      if (parsed === null) {
         res.status(400).json({ error: "Value must be a number" });
         return;
       }
@@ -2630,8 +2700,11 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     // setting a bad debug value can. So the check always runs, using whichever
     // value this key's write actually makes effective.
     if (isMembershipConfigKey(key)) {
-      const parsed = rawDebug !== null ? Number(rawDebug) : Number(existing.value);
-      if (Number.isNaN(parsed)) {
+      const parsed = parseMembershipConfigValue(
+        rawDebug !== null ? rawDebug : existing.value,
+        existing.dataType,
+      );
+      if (parsed === null) {
         res.status(400).json({ error: "Debug value must be a number" });
         return;
       }

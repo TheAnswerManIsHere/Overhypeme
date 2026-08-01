@@ -25,15 +25,28 @@ import { loadMembershipConfig } from "./membershipTiming.js";
 import { sweepExpiredGrace } from "./membershipGraceSweep.js";
 import { logger } from "./logger.js";
 
-let lastSuccessfulSweepAt = Date.now();
+/**
+ * Null until a sweep has actually succeeded.
+ *
+ * Seeding this with the process start time invented a success that never
+ * happened: the panel read "Healthy · last converged just now" while no sweep
+ * had run, and — worse — every restart reset the alert clock, so redeploys could
+ * mask a sweep that never succeeds indefinitely. Staleness is therefore measured
+ * from process start only for the purpose of the alert threshold, and reported
+ * as an explicit never-run state.
+ */
+let lastSuccessfulSweepAt: number | null = null;
+const processStartedAt = Date.now();
 let lastRunAt: number | null = null;
+/** One sweep at a time. See `scheduleMembershipJobs`. */
+let sweepInFlight = false;
 let lastConverged: number | null = null;
 let lastError: string | null = null;
 let consecutiveFailures = 0;
 
 /** Exposed for the health surface and for tests that advance a fake clock. */
 export function graceSweepStaleSeconds(now: number = Date.now()): number {
-  return Math.floor((now - lastSuccessfulSweepAt) / 1000);
+  return Math.floor((now - (lastSuccessfulSweepAt ?? processStartedAt)) / 1000);
 }
 
 export interface GraceSweepHealth {
@@ -43,7 +56,10 @@ export interface GraceSweepHealth {
   /** True once the sweep has been failing longer than its alert threshold. */
   alerting: boolean;
   lastRunAt: string | null;
-  lastSuccessAt: string;
+  /** Null when no sweep has succeeded in this process — never a fabricated timestamp. */
+  lastSuccessAt: string | null;
+  /** True until the first successful sweep; `staleSeconds` then counts from process start. */
+  neverRun: boolean;
   lastConvergedCount: number | null;
   lastError: string | null;
   consecutiveFailures: number;
@@ -70,7 +86,8 @@ export async function graceSweepHealth(now: number = Date.now()): Promise<GraceS
     staleSeconds,
     alerting: staleSeconds >= config.grace_sweep_alert_after_seconds,
     lastRunAt: lastRunAt === null ? null : new Date(lastRunAt).toISOString(),
-    lastSuccessAt: new Date(lastSuccessfulSweepAt).toISOString(),
+    lastSuccessAt: lastSuccessfulSweepAt === null ? null : new Date(lastSuccessfulSweepAt).toISOString(),
+    neverRun: lastSuccessfulSweepAt === null,
     lastConvergedCount: lastConverged,
     lastError,
     consecutiveFailures,
@@ -118,7 +135,20 @@ export async function scheduleMembershipJobs(): Promise<void> {
   const config = await loadMembershipConfig();
 
   setInterval(() => {
-    void runGraceSweepOnce();
+    // One at a time. The interval is operator-tunable down to a second while a
+    // run performs up to 500 sequential recompute transactions, so a slow sweep
+    // would otherwise have the next tick start on top of it — concurrent
+    // recomputes of the same users, unbounded accumulating work, and racing
+    // writes to the shared health counters. A skipped tick is harmless: the
+    // sweep converges a projection the read path already enforces.
+    if (sweepInFlight) {
+      logger.warn("grace sweep tick skipped — the previous run is still in flight");
+      return;
+    }
+    sweepInFlight = true;
+    void runGraceSweepOnce().finally(() => {
+      sweepInFlight = false;
+    });
   }, config.grace_sweep_interval_seconds * 1000).unref();
 
   logger.info(

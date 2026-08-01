@@ -43,8 +43,24 @@ import { effectiveTierExpr } from "./membershipState.js";
 export async function driftedMembershipUsers(
   asOf?: Date,
   limit = 50,
-): Promise<Array<{ id: string; email: string | null; storedTier: string; effectiveTier: string }>> {
-  return db
+): Promise<{
+  users: Array<{ id: string; email: string | null; storedTier: string; effectiveTier: string }>;
+  /** The UNCAPPED total. A capped list reported as the total is a silent truncation. */
+  total: number;
+  truncated: boolean;
+}> {
+  const where = and(
+    eq(usersTable.isActive, true),
+    sql`${usersTable.membershipTier} <> ${effectiveTierExpr(asOf)}`,
+  );
+
+  const [countRow] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(usersTable)
+    .where(where);
+  const total = countRow?.total ?? 0;
+
+  const users = await db
     .select({
       id: usersTable.id,
       email: usersTable.email,
@@ -52,8 +68,10 @@ export async function driftedMembershipUsers(
       effectiveTier: effectiveTierExpr(asOf),
     })
     .from(usersTable)
-    .where(and(eq(usersTable.isActive, true), sql`${usersTable.membershipTier} <> ${effectiveTierExpr(asOf)}`))
+    .where(where)
     .limit(limit);
+
+  return { users, total, truncated: total > users.length };
 }
 
 export async function sweepExpiredGrace(

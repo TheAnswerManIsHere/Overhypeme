@@ -121,7 +121,10 @@ interface GraceSweepHealth {
   staleSeconds: number;
   alerting: boolean;
   lastRunAt: string | null;
-  lastSuccessAt: string;
+  /** Null when no sweep has succeeded in this process — never a fabricated timestamp. */
+  lastSuccessAt: string | null;
+  /** True until the first successful sweep; `staleSeconds` then counts from process start. */
+  neverRun: boolean;
   lastConvergedCount: number | null;
   lastError: string | null;
   consecutiveFailures: number;
@@ -133,6 +136,9 @@ interface DriftedUser {
   storedTier: string;
   effectiveTier: string;
 }
+
+/** Refresh cadence for the sweep panel. Fast enough to watch, cheap enough to leave open. */
+const GRACE_SWEEP_POLL_MS = 30_000;
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -151,23 +157,45 @@ function formatDuration(seconds: number): string {
 function GraceSweepStatus() {
   const [health, setHealth] = useState<GraceSweepHealth | null>(null);
   const [drifted, setDrifted] = useState<DriftedUser[]>([]);
+  const [driftedCount, setDriftedCount] = useState(0);
+  const [driftedTruncated, setDriftedTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+
+    async function load() {
       try {
         const res = await fetch("/api/admin/membership/grace-sweep", { credentials: "include" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as { health: GraceSweepHealth; drifted: DriftedUser[] };
+        const json = (await res.json()) as {
+          health: GraceSweepHealth;
+          drifted: DriftedUser[];
+          driftedCount: number;
+          driftedTruncated: boolean;
+        };
         if (cancelled) return;
         setHealth(json.health);
         setDrifted(json.drifted ?? []);
+        setDriftedCount(json.driftedCount ?? json.drifted?.length ?? 0);
+        setDriftedTruncated(json.driftedTruncated ?? false);
+        setError(null);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Could not load sweep status");
       }
-    })();
-    return () => { cancelled = true; };
+    }
+
+    // Every value on this panel — staleness, failure count, alert state, the
+    // pending-user list — moves on its own as the sweep runs and as users cross
+    // their grace deadlines. A one-shot fetch froze all of it at page load, so
+    // an operator watching the panel would see "Healthy" indefinitely while the
+    // sweep failed behind it. Poll instead: the endpoint is two cheap reads.
+    void load();
+    const timer = setInterval(() => void load(), GRACE_SWEEP_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   if (error) {
@@ -190,7 +218,13 @@ function GraceSweepStatus() {
         <span className={`text-xs ${health.alerting ? "text-amber-500" : "text-muted-foreground"}`}>
           {health.alerting
             ? `Failing for ${formatDuration(health.staleSeconds)} — stored tiers are drifting`
-            : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
+            : health.neverRun
+              // Never claim a convergence that did not happen. Before the first
+              // successful sweep there is no "last converged" moment to report,
+              // and saying "just now" was the exact lie this state exists to
+              // prevent.
+              ? `Not yet run · waiting ${formatDuration(health.staleSeconds)} since start`
+              : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
         </span>
         <span className="text-xs text-muted-foreground">
           every {formatDuration(health.intervalSeconds)}
@@ -206,9 +240,10 @@ function GraceSweepStatus() {
           </span>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {drifted.length === 0
+          {/* The UNCAPPED total — the list below is a sample of it. */}
+          {driftedCount === 0
             ? "No users pending convergence"
-            : `${drifted.length} user${drifted.length === 1 ? "" : "s"} pending convergence`}
+            : `${driftedCount} user${driftedCount === 1 ? "" : "s"} pending convergence`}
         </span>
       </div>
 
@@ -231,8 +266,11 @@ function GraceSweepStatus() {
               </li>
             ))}
           </ul>
-          {drifted.length > 10 && (
-            <p className="text-xs text-muted-foreground">…and {drifted.length - 10} more.</p>
+          {driftedCount > Math.min(drifted.length, 10) && (
+            <p className="text-xs text-muted-foreground">
+              …and {driftedCount - Math.min(drifted.length, 10)} more
+              {driftedTruncated ? " (the server returned a capped sample)" : ""}.
+            </p>
           )}
         </div>
       )}
