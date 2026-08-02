@@ -53,18 +53,30 @@ information. Two independent confirmations is enough to stop treating this as
 a one-off and start treating a fresh alert on an already-protected route as
 the expected, not the surprising, outcome.
 
-**A third, related variant confirmed on PR #287:** the alert fired on
-`GET /admin/membership/grace-sweep`, a brand-new route with **no rate-limit
-call of any kind** — not even the "protected but unrecognized" shape above.
-This route's real control is `requireAdmin` alone, which is this file's
-actual established convention: of the ~50 other `requireAdmin`-only routes
-already on `main` in `admin.ts`, none call `checkSharedRateLimit` either, and
-none are flagged (they're baseline code, not in the diff). So the alert fires
-purely because the route is *new*, not because it is *less* protected than
-its siblings — adding a redundant rate limit here alone, while the other 50
-stay bare, would be inconsistent scanner-appeasement rather than closing a
-real gap. Same disposition as the other two: flagged for David, not
-self-dismissed.
+**A third variant on PR #287 — initially misclassified as a false positive,
+corrected by Codex review.** The alert fired on `GET /admin/membership/
+grace-sweep`, a brand-new route with **no rate-limit call of any kind** — not
+even the "protected but unrecognized" shape the two confirmed cases above
+have. The first pass here reasoned by consistency: ~50 other `requireAdmin`-
+only routes in `admin.ts` also skip `checkSharedRateLimit` and aren't
+flagged, so this looked like the same "new code, old pattern" noise. **That
+reasoning is wrong, and Codex caught it on review:** `requireAdmin` bounds
+*who* can call a route, not *how often* — sibling routes going unflagged
+only explains why *this* route's alert is new, it says nothing about
+whether unbounded repeat calls are actually cheap. This route's own earlier
+review round had already flagged `driftedMembershipUsers()` as an unbounded
+scan over active users, which made the abuse/cost surface concrete rather
+than theoretical. **Disposition: fixed, not dismissed** — added
+`checkSharedRateLimit` matching the `admin.queue-health` sibling's shape.
+
+**The corrected rule this establishes:** the two confirmed-false-positive
+cases above share one property this one didn't have — an existing, real
+control CodeQL merely fails to recognize. A route with **no** control at
+all is never eligible for this false-positive class on consistency grounds
+alone; matching an unprotected sibling is not evidence of safety, since the
+siblings may just share the same latent gap. Route it to a real cost/abuse
+assessment (or just add the control, if it's cheap and matches an
+established pattern) instead.
 
 **Rule:** when a new CodeQL alert of either kind appears on a route/file that
 already uses `checkSharedRateLimit` or sits behind the global CSRF middleware,
