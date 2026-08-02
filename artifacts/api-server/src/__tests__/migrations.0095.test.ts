@@ -41,6 +41,7 @@ import {
   NCMEC_SUBMISSION_STATUSES,
   NCMEC_FINAL_STATUSES,
   NCMEC_NONFINAL_STATUSES,
+  NCMEC_AUDIT_ACTIONS,
 } from "@workspace/db/schema";
 
 import {
@@ -157,6 +158,22 @@ describe("migration 0095 — static contract", () => {
       inSql,
       [...NCMEC_SUBMISSION_STATUSES].sort(),
       "the SQL CHECK and NCMEC_SUBMISSION_STATUSES have drifted",
+    );
+  });
+
+  it("ncmec_safety_audit_log's action CHECK is in lockstep with NCMEC_AUDIT_ACTIONS", () => {
+    const match = MIGRATION_SQL.match(
+      /ADD CONSTRAINT "ncmec_safety_audit_log_action_check"\s*\n\s*CHECK \("action" IN \(([^)]*)\)\)/,
+    );
+    assert.ok(match?.[1], "could not find the action CHECK in 0095");
+    const inSql = match[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^'|'$/g, ""))
+      .sort();
+    assert.deepEqual(
+      inSql,
+      [...NCMEC_AUDIT_ACTIONS].sort(),
+      "the SQL CHECK and NCMEC_AUDIT_ACTIONS have drifted",
     );
   });
 
@@ -505,6 +522,22 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       );
       return role;
     }
+
+    it("refuses an action value outside the closed vocabulary", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      await inRolledBackTx(async (client) => {
+        // The persistent test DB was migrated once at session start, before this CHECK
+        // constraint existed in the migration file — re-applying the (idempotent) migration
+        // here picks it up within this rolled-back transaction, the same pattern other
+        // constraint tests in this file already use.
+        await client.query(executableMigration());
+        await expectRaises(
+          client,
+          `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t','not_a_real_action')`,
+          /ncmec_safety_audit_log_action_check/,
+        );
+      });
+    });
 
     it("refuses UPDATE, DELETE and TRUNCATE from a non-member role", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");

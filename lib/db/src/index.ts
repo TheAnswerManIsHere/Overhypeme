@@ -433,6 +433,21 @@ async function canEffectivelyAssumeRoleRecursive(
  * `applicationOwnsFunctionSchema`, `applicationCanBypassTrigger`) would read `true`
  * unconditionally when tested through this module's own pool, since `pg_has_role(<superuser>,
  * <any role>, 'usage')` is true regardless of any actual grant.
+ *
+ * `to_regclass`/`to_regprocedure` below are ALSO called as `pg_catalog.to_regclass`/
+ * `pg_catalog.to_regprocedure`, not bare — this is a different fix from qualifying
+ * `pg_has_role`/`pg_roles`/etc. above, and was originally (wrongly) left out on the theory
+ * that these functions exist specifically to resolve an unqualified NAME via `search_path`,
+ * so qualifying them would change that resolution. It doesn't: qualifying the FUNCTION CALL
+ * only pins down which function runs, not how it resolves its string argument — the argument
+ * still resolves via the session's current `search_path`, unaffected. What qualifying the
+ * call actually prevents is the checked role creating its own same-named, same-signature
+ * `to_regclass`/`to_regprocedure` function in a schema ahead of `pg_catalog`, which shadows
+ * the REAL function entirely and can return an ATTACKER-CHOSEN object regardless of the
+ * argument passed in. Verified directly against this repository's PostgreSQL 16 target: an
+ * unqualified `to_regclass('ncmec_safety_audit_log')` call resolved to a decoy table via a
+ * shadow function that ignored its argument and always returned the same (attacker-planted)
+ * object, while `pg_catalog.to_regclass(...)` correctly resolved via the real function.
  */
 export async function ncmecAuditBoundaryStatus(
   targetPool: pg.Pool = pool,
@@ -453,7 +468,7 @@ export async function ncmecAuditBoundaryStatus(
            pg_catalog.pg_get_userbyid(n.nspowner) AS schema_owner,
            (SELECT pg_catalog.pg_get_userbyid(p.proowner)
               FROM pg_catalog.pg_proc p
-             WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
+             WHERE p.oid = pg_catalog.to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_owner,
            -- The function's OWN containing schema, resolved independently of the table's
            -- (pg_proc.pronamespace, not assumed to equal c.relnamespace above). Both land in
            -- the same schema today (both are created via unqualified statements resolving
@@ -465,7 +480,7 @@ export async function ncmecAuditBoundaryStatus(
            (SELECT pg_catalog.pg_get_userbyid(n2.nspowner)
               FROM pg_catalog.pg_proc p
               JOIN pg_catalog.pg_namespace n2 ON n2.oid = p.pronamespace
-             WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_schema_owner,
+             WHERE p.oid = pg_catalog.to_regprocedure('ncmec_safety_audit_log_append_only()')) AS function_schema_owner,
            EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_maintenance')
              AS maintenance_role_exists,
            -- tgenabled: 'O' origin, 'A' always, 'D' disabled, 'R' REPLICA-only. Only 'A' is
@@ -489,7 +504,7 @@ export async function ncmecAuditBoundaryStatus(
                AND t.tgname IN ('ncmec_safety_audit_log_no_mutate',
                                 'ncmec_safety_audit_log_no_truncate')
                AND t.tgenabled = 'A'
-               AND t.tgfoid = to_regprocedure('ncmec_safety_audit_log_append_only()')
+               AND t.tgfoid = pg_catalog.to_regprocedure('ncmec_safety_audit_log_append_only()')
                AND t.tgtype = CASE t.tgname
                      WHEN 'ncmec_safety_audit_log_no_mutate' THEN 27
                      ELSE 34
@@ -514,12 +529,12 @@ export async function ncmecAuditBoundaryStatus(
            COALESCE(
              (SELECT p.prosrc = $1 AND NOT p.prosecdef
                 FROM pg_catalog.pg_proc p
-               WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()')),
+               WHERE p.oid = pg_catalog.to_regprocedure('ncmec_safety_audit_log_append_only()')),
              false
            ) AS guard_function_intact
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE c.oid = to_regclass('ncmec_safety_audit_log')
+     WHERE c.oid = pg_catalog.to_regclass('ncmec_safety_audit_log')
   `,
     [NCMEC_AUDIT_LOG_GUARD_FN_BODY],
   );

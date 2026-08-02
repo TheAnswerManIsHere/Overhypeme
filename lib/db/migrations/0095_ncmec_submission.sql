@@ -469,6 +469,19 @@ CREATE TABLE IF NOT EXISTS "ncmec_safety_audit_log" (
 );
 --> statement-breakpoint
 
+-- The action vocabulary is closed for the same reason submission_status and content_origin
+-- are: this ledger is database-enforced append-only, so a malformed or unknown value written
+-- by a future route, migration, or raw SQL statement can never be corrected through ordinary
+-- application access afterward, and no consumer of the ledger could reliably classify it.
+-- Keep in lockstep with NCMEC_AUDIT_ACTIONS in lib/db/src/schema/moderation.ts.
+-- migrations.0095.test.ts asserts the two agree, so the lockstep is enforced rather than
+-- remembered.
+ALTER TABLE "ncmec_safety_audit_log" DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check";
+--> statement-breakpoint
+ALTER TABLE "ncmec_safety_audit_log" ADD CONSTRAINT "ncmec_safety_audit_log_action_check"
+  CHECK ("action" IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write'));
+--> statement-breakpoint
+
 -- `actor_user_id` carries NO foreign key, deliberately. A FK would make the
 -- ledger's contents depend on the users table: an ON DELETE SET NULL would
 -- erase the machine-readable half of the attribution when an account is
@@ -799,6 +812,59 @@ END $outer$;
 -- boundary is unenforced, which blocks the dangerous STATE rather than one
 -- path into it.
 -- >>> ncmec-0095 ownership hardening block (start)
+--
+-- Mirrors lib/db/src/index.ts's canEffectivelyAssumeRole (usage, SET ROLE, or admin option —
+-- including a further, nested admin option — checked recursively through admin-option
+-- grantees), but this migration cannot literally share that TypeScript code, so this is a
+-- PL/pgSQL reimplementation. Scoped to pg_temp deliberately: it exists only to answer "can
+-- THIS migration-running session effectively become role X" for the DBA-facing status
+-- messages below, not as a persistent part of the schema, so it lives in the session-local,
+-- auto-dropped pg_temp schema rather than becoming a permanent database object. Every
+-- catalog reference inside is pg_catalog-qualified for the same reason the runtime version
+-- is: a session that controls its own search_path could otherwise shadow pg_has_role to
+-- misreport its own effective access (see lib/db/src/index.ts's canEffectivelyAssumeRole
+-- doc comment). Used below in place of the earlier SET-ROLE-attempt-only checks, which
+-- missed INHERIT-only and ADMIN-only grant shapes the same way canAssumeRole alone did
+-- before canEffectivelyAssumeRole existed.
+CREATE OR REPLACE FUNCTION pg_temp.ncmec_can_effectively_assume(
+  role_name text,
+  visited text[] DEFAULT ARRAY[]::text[]
+) RETURNS boolean AS $can_assume$
+DECLARE
+  has_usage boolean;
+  can_set   boolean := false;
+  grantee   text;
+BEGIN
+  IF role_name = ANY(visited) THEN RETURN false; END IF;
+  visited := visited || role_name;
+
+  SELECT pg_catalog.pg_has_role(current_user, role_name, 'usage') INTO has_usage;
+  IF has_usage THEN RETURN true; END IF;
+
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', role_name);
+    can_set := true;
+  EXCEPTION WHEN OTHERS THEN
+    can_set := false;
+  END;
+  RESET ROLE;
+  IF can_set THEN RETURN true; END IF;
+
+  FOR grantee IN
+    SELECT pg_catalog.pg_get_userbyid(m.member)
+      FROM pg_catalog.pg_auth_members m
+     WHERE pg_catalog.pg_get_userbyid(m.roleid) = role_name
+       AND m.admin_option
+  LOOP
+    IF pg_temp.ncmec_can_effectively_assume(grantee, visited) THEN
+      RETURN true;
+    END IF;
+  END LOOP;
+
+  RETURN false;
+END;
+$can_assume$ LANGUAGE plpgsql;
+--> statement-breakpoint
 DO $$
 DECLARE
   app_role          text := current_user;
@@ -833,48 +899,55 @@ DECLARE
   -- detection and DBA guidance, not automatic remediation.
   schema_owner_role text;
   can_own_schema    boolean := false;
+  -- The guard FUNCTION's own containing schema, checked independently of ledger_schema —
+  -- mirrors lib/db/src/index.ts's functionSchemaOwner/applicationOwnsFunctionSchema. Both
+  -- land in the same schema today (both are created via unqualified statements resolving
+  -- through the same search_path), but nothing pins that relationship: a DBA who later moved
+  -- just the function to a different schema (ALTER FUNCTION ... SET SCHEMA) would leave a
+  -- schema owner of THAT schema free to DROP FUNCTION ... CASCADE (dropping both dependent
+  -- triggers too) regardless of the function's own proowner — the runtime status already
+  -- catches this independently, so this migration's own guidance must not fall out of sync
+  -- with it.
+  function_schema            text;
+  function_schema_owner_role text;
+  can_own_function_schema    boolean := false;
   recovery_cmds     text;
   recovery_template text;
+  -- Accumulates whatever remains open (owner-role revocation, schema ownership, function-
+  -- schema ownership) for the branches that need to describe a PARTIAL bypass rather than
+  -- either full success or the single "still fully application-owned" case the final ELSE
+  -- branch already covers.
+  boundary_note     text;
 BEGIN
   SELECT n.nspname INTO ledger_schema
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE c.oid = to_regclass('ncmec_safety_audit_log');
-  -- Same defect, same fix as the rerun guard above: `usage` answers only whether
-  -- `overhype_audit_owner`'s privileges are INHERITED, not whether this role can `SET ROLE`
-  -- to it — and `ALTER TABLE ... OWNER TO` requires the latter. A grant shaped INHERIT
-  -- FALSE, SET TRUE would report `usage = false` and wrongly skip a transfer this role can
-  -- actually perform; the reverse shape (INHERIT TRUE, SET FALSE) would report `usage = true`
-  -- and then fail on the ALTER TABLE itself. Tested by attempting the SET, not by asking a
-  -- catalog function that answers a different question.
-  owner_role_exists := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner');
+  SELECT n2.nspname INTO function_schema
+    FROM pg_proc p JOIN pg_namespace n2 ON n2.oid = p.pronamespace
+   WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
+
+  -- Same defect, same fix as the rerun guard above used to have: `usage` alone answers only
+  -- whether a role's privileges are INHERITED, not whether this role can effectively become
+  -- it — and completing the transfer, or recognizing that it's already unassumable, requires
+  -- the fuller usage/SET-ROLE/admin-option union pg_temp.ncmec_can_effectively_assume
+  -- implements above. Round 10 finding: the previous SET-ROLE-attempt-only version here
+  -- missed INHERIT-only and ADMIN-only grant shapes, the same class of gap
+  -- canEffectivelyAssumeRole was written to close on the runtime side.
+  owner_role_exists := EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_owner');
   IF owner_role_exists THEN
-    IF to_regrole('overhype_audit_owner') = to_regrole(current_user) THEN
-      can_own := true;
-    ELSE
-      BEGIN
-        EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
-        can_own := true;
-      EXCEPTION WHEN OTHERS THEN
-        can_own := false;
-      END;
-      RESET ROLE;
-    END IF;
+    can_own := pg_temp.ncmec_can_effectively_assume('overhype_audit_owner');
   END IF;
 
   SELECT pg_get_userbyid(n.nspowner) INTO schema_owner_role
     FROM pg_namespace n WHERE n.nspname = ledger_schema;
   IF schema_owner_role IS NOT NULL THEN
-    IF to_regrole(schema_owner_role) = to_regrole(current_user) THEN
-      can_own_schema := true;
-    ELSE
-      BEGIN
-        EXECUTE format('SET LOCAL ROLE %I', schema_owner_role);
-        can_own_schema := true;
-      EXCEPTION WHEN OTHERS THEN
-        can_own_schema := false;
-      END;
-      RESET ROLE;
-    END IF;
+    can_own_schema := pg_temp.ncmec_can_effectively_assume(schema_owner_role);
+  END IF;
+
+  SELECT pg_get_userbyid(n2.nspowner) INTO function_schema_owner_role
+    FROM pg_namespace n2 WHERE n2.nspname = function_schema;
+  IF function_schema_owner_role IS NOT NULL THEN
+    can_own_function_schema := pg_temp.ncmec_can_effectively_assume(function_schema_owner_role);
   END IF;
 
   -- Each of the three things this block is responsible for — table ownership, function
@@ -923,16 +996,34 @@ BEGIN
     AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log_id_seq'))) a
              WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'SELECT');
 
-  IF tbl_done AND fn_done AND grants_done AND NOT can_own_schema THEN
-    RAISE NOTICE '0095: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place, and the containing schema is not assumable by the application either.';
-  ELSIF tbl_done AND fn_done AND grants_done AND can_own_schema THEN
+  IF tbl_done AND fn_done AND grants_done
+     AND NOT can_own_schema AND NOT can_own_function_schema AND NOT can_own THEN
+    RAISE NOTICE '0095: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place, and neither the containing schema, the guard function''s own schema, nor overhype_audit_owner itself is assumable by the application.';
+  ELSIF tbl_done AND fn_done AND grants_done THEN
     -- Table ownership, function ownership, and the application's grants are all correctly
-    -- done — but the ledger's containing SCHEMA is still assumable by the application, which
-    -- can therefore DROP TABLE/DROP FUNCTION the ledger and its guard regardless of who owns
-    -- them individually. ncmecAuditBoundaryStatus().boundaryEnforced correctly stays false in
-    -- this state; this migration must not claim hardening complete over it.
-    RAISE WARNING '0095: ncmec_safety_audit_log, its guard function, and the application''s grants are all correctly hardened, but the CONTAINING SCHEMA (%) is owned by % — a role the application can still become — so it can DROP TABLE/DROP FUNCTION the ledger and its guard regardless of their individual ownership. This migration cannot reconcile schema ownership the way it reconciles table/function ownership (there is no per-schema equivalent of transferring ownership for the database''s default schema, short of changing the DATABASE''s own owner or moving the ledger). To close this, either move ncmec_safety_audit_log and its guard function into a dedicated schema not owned by a role the application can become (granting the application only the privileges it needs there), or otherwise ensure the application cannot assume %.',
-      ledger_schema, schema_owner_role, schema_owner_role;
+    -- done — but at least one of three things is still true: the application can become
+    -- overhype_audit_owner itself (the final REVOKE was never run), the ledger's containing
+    -- schema is still assumable, or the guard function's own containing schema (if it
+    -- differs from the ledger's) is still assumable. Any one of these lets the application
+    -- disable the triggers or drop-and-recreate the ledger/guard regardless of who owns them
+    -- individually; ncmecAuditBoundaryStatus().boundaryEnforced correctly stays false in
+    -- this state, and this migration must not claim hardening complete over it.
+    boundary_note := '';
+    IF can_own THEN
+      boundary_note := boundary_note
+        || ' The application can still become overhype_audit_owner itself — the final REVOKE overhype_audit_owner FROM the application role (as a role with ADMIN OPTION on it) has not been run.';
+    END IF;
+    IF can_own_schema THEN
+      boundary_note := boundary_note
+        || ' The containing schema (' || quote_ident(ledger_schema) || ') is owned by ' || quote_ident(schema_owner_role)
+        || ', a role the application can also become — this migration cannot reconcile schema ownership automatically (see this block''s other branches for what closing it requires).';
+    END IF;
+    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
+      boundary_note := boundary_note
+        || ' The guard function''s own containing schema (' || quote_ident(function_schema) || ') is owned by ' || quote_ident(function_schema_owner_role)
+        || ', a role the application can also become — the same reconciliation gap applies to it independently of the table''s schema.';
+    END IF;
+    RAISE WARNING '0095: ncmec_safety_audit_log, its guard function, and the application''s grants are all correctly hardened, but the application can still bypass the append-only guarantee through a role it can become.%', boundary_note;
   ELSIF can_own THEN
     -- The OWNER TO statements must run as the CURRENT owner (app_role, no role switch) —
     -- Postgres's special-case rule for ALTER ... OWNER TO lets an owning role with only
@@ -962,17 +1053,25 @@ BEGIN
     EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
     EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
     RESET ROLE;
+    -- can_own is guaranteed true here — it's this branch's own entry condition — so the
+    -- transfer just performed is NEVER the final state on its own: the application can still
+    -- become overhype_audit_owner until a DBA runs the REVOKE. Round 10 finding: this used
+    -- to unconditionally claim "now complete" the moment tbl_done/fn_done/grants_done were
+    -- all true, which was never actually true in this branch specifically.
+    boundary_note :=
+      ' The application can still become overhype_audit_owner itself — a DBA must run REVOKE overhype_audit_owner FROM the application role (as a role with ADMIN OPTION on it) to finish.';
     IF can_own_schema THEN
-      -- Table/function ownership and the application's grants are now reconciled, but the
-      -- ledger's containing schema remains assumable by the application — same gap as the
-      -- fast-path branch above, just reached by way of actually doing the transfer work
-      -- rather than finding it already done.
-      RAISE WARNING '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %), but the containing schema (%) is still owned by % — a role the application can also become — so it can DROP TABLE/DROP FUNCTION the ledger and its guard regardless of their individual ownership. This migration cannot reconcile schema ownership automatically; see the schema-ownership guidance in this block''s other branches for what closing it requires.',
-        tbl_done, fn_done, grants_done, ledger_schema, schema_owner_role;
-    ELSE
-      RAISE NOTICE '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %) — now complete.',
-        tbl_done, fn_done, grants_done;
+      boundary_note := boundary_note
+        || ' The containing schema (' || quote_ident(ledger_schema) || ') is owned by ' || quote_ident(schema_owner_role)
+        || ', a role the application can also become — see this block''s other branches for what closing that requires.';
     END IF;
+    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
+      boundary_note := boundary_note
+        || ' The guard function''s own containing schema (' || quote_ident(function_schema) || ') is owned by ' || quote_ident(function_schema_owner_role)
+        || ', a role the application can also become.';
+    END IF;
+    RAISE WARNING '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %), but the boundary is not yet complete.%',
+      tbl_done, fn_done, grants_done, boundary_note;
   ELSIF tbl_done AND fn_done AND NOT grants_done THEN
     -- Hardened but incomplete, and the sharpest of the three end states this block can leave
     -- a database in: ownership of both objects has already moved to overhype_audit_owner AND
@@ -1037,6 +1136,10 @@ BEGIN
     -- CREATE ROLE IF NOT EXISTS form (unlike CREATE TABLE, verified directly against this
     -- repository's PostgreSQL 16 target), so this is constructed conditionally rather than
     -- made idempotent syntactically.
+    -- ALTER FUNCTION targets function_schema, not ledger_schema — round 10 finding: the
+    -- guard function's own containing schema is resolved and checked independently of the
+    -- table's (see the DECLARE section above), and this printed command must target the
+    -- schema the function ACTUALLY lives in, not assume it matches the table's.
     IF owner_role_exists THEN
       recovery_template :=
         '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: '
@@ -1064,7 +1167,7 @@ BEGIN
       recovery_template,
       ledger_schema,
       ledger_schema, 'ncmec_safety_audit_log',
-      ledger_schema,
+      function_schema,
       ledger_schema, 'ncmec_safety_audit_log', app_role,
       ledger_schema, 'ncmec_safety_audit_log_id_seq', app_role,
       app_role,
@@ -1077,14 +1180,20 @@ BEGIN
     -- format() call, builds the schema-ownership note: nesting format() calls would let a
     -- literal '%' inside a resolved role/schema name corrupt the OUTER format() call's own
     -- directive parsing, however unlikely that is to occur in practice.
-    RAISE WARNING '%', recovery_cmds
-      || ' -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.'
-      || CASE WHEN can_own_schema THEN
-           ' Once that is done, the containing schema (' || quote_ident(ledger_schema)
-           || ') is STILL owned by ' || quote_ident(schema_owner_role)
-           || ', a role the application can also become — closing the table/function bypass alone leaves a DROP TABLE/DROP FUNCTION bypass open via the schema; see this migration''s ownership-hardening comments for what closing it requires.'
-         ELSE ''
-         END;
+    boundary_note := ' -- the two REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and either membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.';
+    IF can_own_schema THEN
+      boundary_note := boundary_note
+        || ' Once that is done, the containing schema (' || quote_ident(ledger_schema)
+        || ') is STILL owned by ' || quote_ident(schema_owner_role)
+        || ', a role the application can also become — closing the table/function bypass alone leaves a DROP TABLE/DROP FUNCTION bypass open via the schema; see this migration''s ownership-hardening comments for what closing it requires.';
+    END IF;
+    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
+      boundary_note := boundary_note
+        || ' The guard function''s own containing schema (' || quote_ident(function_schema)
+        || ') is STILL owned by ' || quote_ident(function_schema_owner_role)
+        || ', a role the application can also become — the same reconciliation gap applies to it independently of the table''s schema.';
+    END IF;
+    RAISE WARNING '%', recovery_cmds || boundary_note;
   END IF;
 END $$;
 -- <<< ncmec-0095 ownership hardening block (end)

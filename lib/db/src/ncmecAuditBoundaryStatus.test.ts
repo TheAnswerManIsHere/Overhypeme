@@ -256,4 +256,48 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
     assert.equal(superuserStatus.applicationOwnsSchema, true);
     assert.equal(superuserStatus.boundaryEnforced, false);
   });
+
+  it("is not fooled by a session-level search_path shadow of to_regclass/to_regprocedure themselves", async () => {
+    // Round 10 finding: pg_has_role/pg_roles/etc. were qualified in round 9, but
+    // to_regclass/to_regprocedure were deliberately left bare on the theory that they exist
+    // specifically to resolve an unqualified NAME via search_path, so qualifying them would
+    // change that resolution — wrong: qualifying the FUNCTION CALL only pins down which
+    // function runs, not how it resolves its string argument (that still goes through
+    // search_path exactly as before). What was actually left open is that the checked role
+    // can create its OWN same-named, same-signature to_regclass/to_regprocedure function in
+    // a schema ahead of pg_catalog, which shadows the real function entirely and returns an
+    // ATTACKER-CHOSEN object regardless of the argument. Verified directly against this
+    // repository's PostgreSQL 16 target before the fix: an unqualified
+    // to_regclass('ncmec_safety_audit_log') call resolved to a decoy table via exactly this
+    // shadow, ignoring its argument entirely.
+    const shadowSchema = `nabs_shadow2_${runId}`;
+    const decoySchema = `nabs_decoy_${runId}`;
+    await sharedPool.query(`CREATE SCHEMA "${shadowSchema}" AUTHORIZATION "${loginRole}"`);
+    await sharedPool.query(`CREATE SCHEMA "${decoySchema}" AUTHORIZATION "${loginRole}"`);
+    try {
+      await loginPool.query(`CREATE TABLE "${decoySchema}".decoy_ledger (id int)`);
+      await loginPool.query(
+        `CREATE FUNCTION "${decoySchema}".decoy_guard() RETURNS trigger AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql`,
+      );
+      // shadowSchema leads, pg_catalog is named explicitly, and public trails so the REAL
+      // functions (once correctly qualified) can still resolve the real ledger by its
+      // unqualified name — same technique as the migrations.0095.test.ts search_path test.
+      await loginPool.query(`SET search_path = "${shadowSchema}", pg_catalog, public`);
+      await loginPool.query(
+        `CREATE FUNCTION "${shadowSchema}".to_regclass(text) RETURNS regclass AS $$ SELECT '${decoySchema}.decoy_ledger'::regclass $$ LANGUAGE sql`,
+      );
+      await loginPool.query(
+        `CREATE FUNCTION "${shadowSchema}".to_regprocedure(text) RETURNS regprocedure AS $$ SELECT '${decoySchema}.decoy_guard()'::regprocedure $$ LANGUAGE sql`,
+      );
+      const status = await ncmecAuditBoundaryStatus(loginPool);
+      // If either shadow had taken effect, tableOwner/functionOwner would resolve to
+      // loginRole (the decoy objects' owner) instead of the real ledger's actual owner.
+      assert.notEqual(status.tableOwner, loginRole);
+      assert.notEqual(status.functionOwner, loginRole);
+    } finally {
+      await loginPool.query(`RESET search_path`).catch(() => {});
+      await sharedPool.query(`DROP SCHEMA IF EXISTS "${shadowSchema}" CASCADE`).catch(() => {});
+      await sharedPool.query(`DROP SCHEMA IF EXISTS "${decoySchema}" CASCADE`).catch(() => {});
+    }
+  });
 });
