@@ -187,18 +187,16 @@ elsewhere.
 
 ## Boundaries & known limitations
 
-- **No priority *within* a lane.** Jobs in the same lane still run FIFO
-  (oldest due first); the lane split only isolates *between* lanes, not within
-  one. A very large batch in the `bulk` lane still drains progressively, not
-  instantly.
+- **No priority *within* a lane.** The lane split only isolates *between*
+  lanes, not within one — a very large batch in the `bulk` lane still drains
+  progressively, not instantly. (The exact claim ordering is in
+  [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).)
 - **The lanes and ordinary site traffic share one database connection pool.**
-  For a while the pool was small enough that a fully busy queue could in
-  principle crowd out ordinary page requests; it has since been given
-  deliberate headroom, sized against what the database actually allows. Two
-  things are still worth knowing: a job holds a connection while it is doing
-  database work but not while it waits on an outside service, so the number of
-  jobs running is not the same measure as the number of connections in use —
-  and nobody has measured the real contention under load. The sizing and the reasoning are in
+  A job holds a connection while it is doing database work but not while it
+  waits on an outside service, so the number of jobs running is not the same
+  measure as the number of connections in use — and nobody has measured the
+  real contention under load. The current sizing and the reasoning behind it
+  are in
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but on a deliberate delay.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
