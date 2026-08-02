@@ -715,8 +715,8 @@
   network-restricted; **model tier** — the whole plan-review loop is *planning*
   and stays on Opus, the only downshift to Sonnet being execution of a *simple*
   approved plan.
-- **Reference:** PR #226. Operational contract: `CLAUDE.md` → *Automated plan
-  review: the Codex draft-PR loop*; reviewer contract:
+- **Reference:** PR #226. Operational contract: the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`); reviewer contract:
   [`plan-review-contract.md`](./plan-review-contract.md).
 - **Revisit if:** the calibration pilot (first ~3 real plans — Codex's review vs.
   what the manual ChatGPT pass would have caught) shows Codex's plan reviews are
