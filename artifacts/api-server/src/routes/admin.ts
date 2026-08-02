@@ -773,9 +773,20 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
  * Nothing here is an access bug. `effectiveTierExpr` demotes these users on
  * every request already; what this reports is a projection lag, which is
  * precisely why it needs a surface rather than an alarm.
+ *
+ * Rate-limited like its `queue-health` sibling above: `requireAdmin` bounds
+ * *who* can call this, not how often — an authenticated or compromised admin
+ * session could otherwise re-run `driftedMembershipUsers()`'s full active-user
+ * scan on every request. Same family/shape as `admin.queue-health`.
  */
-router.get("/admin/membership/grace-sweep", requireAdmin, async (_req: Request, res: Response) => {
+router.get("/admin/membership/grace-sweep", requireAdmin, async (req: Request, res: Response) => {
   try {
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.membership.grace-sweep", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
     const [health, drifted] = await Promise.all([
       graceSweepHealth(),
       driftedMembershipUsers(),
