@@ -136,9 +136,11 @@ forward.
 - **`lib/api-zod` exports: verify against codegen immediately, not later.**
   Codegen owns `lib/api-zod/src/index.ts` and silently wipes hand-added
   exports. The full gotcha and the exact procedure live in
+  [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)'s
+  "Manual `api-zod/src/index.ts` export silently reverted by codegen" —
   [`lib/api-zod/CLAUDE.md`](lib/api-zod/CLAUDE.md), which loads automatically
-  whenever I work under that directory. `pnpm run check:codegen-drift` is the
-  CI guard.
+  whenever I work under that directory, points there rather than restating
+  it. `pnpm run check:codegen-drift` is the CI guard.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -593,7 +595,7 @@ calls. Two concrete, durable changes:
     |------|-------|-----|
     | Planning new features | **Opus, always** | A plan can match stated intent and still be architecturally wrong — David's product-testing only checks what got built, never the road not taken. |
     | Implementing features | **Sonnet default**, Opus for high-risk subsystems | Codex reviews the diff, so the net holds for most code. Escalate for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
-    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. The **advisor tool** (below) automates this escalation without a model switch. |
+    | Debugging new features | **Sonnet start**, escalate to Opus if it thrashes | Most bugs are shallow. 2+ rounds without convergence is the signal to switch — grinding on the cheap tier costs more than one clean Opus pass. The **advisor tool** (see the `model-routing` skill) automates this escalation without a model switch. |
     | **Ambiguous, root-cause, or bigger-than-one-sitting work** (an outage whose cause we can't name, a subsystem-wide architecture call, a debugging thread that already beat Opus) | **Fable 5**, via subagent | Fable's edge is investigating before acting and holding a long thread without losing it. It costs 2× Opus 5, so it's a deliberate escalation for work that has *already* resisted a cheaper tier — never a default. |
     | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
     | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
