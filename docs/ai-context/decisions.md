@@ -703,9 +703,11 @@
 - **Doc-routing principle applied:** the *review contract Codex executes* is
   **shared** ([`plan-review-contract.md`](./plan-review-contract.md), routed
   from [`AGENTS.md`](../../AGENTS.md)); the *workflow ceremony Claude drives* stays
-  **Claude-specific** (`CLAUDE.md`). Instructions live where the agent that runs
-  them reads — a narrower, correct split than mirroring one agent's whole
-  workflow into the shared docs.
+  **Claude-specific** — detailed in the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`), with only the guardrails that
+  must fire without the skill loaded resident in `CLAUDE.md`. Instructions
+  live where the agent that runs them reads — a narrower, correct split than
+  mirroring one agent's whole workflow into the shared docs.
 - **Guardrails (each a deliberate why):** a **public-repo disclosure check**
   keeps security-sensitive/confidential plans off the public PR channel (a
   closed-unmerged PR is still public history — see
