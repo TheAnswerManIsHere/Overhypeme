@@ -1,6 +1,6 @@
 ---
 name: plan-review-loop
-description: Run the automated Codex plan-review loop on a draft PR, and deliver the converged plan to David for approval. Use in feature-building mode once the pre-plan conversation has settled intent and a draft plan exists — it owns opening the [PLAN REVIEW] draft PR, the per-round trigger/ledger/lens ceremony, convergence, and close-out. Also covers how a plan is delivered (the PR page, not SendUserFile or an Artifact). NOT for bugfix mode, which skips plan review entirely.
+description: Use in feature-building mode once the pre-plan conversation has settled intent and a draft plan exists, or whenever a plan needs to be delivered to David for approval. NOT for bugfix mode, which skips plan review entirely.
 ---
 
 # The Codex plan-review loop (and how a plan is delivered)

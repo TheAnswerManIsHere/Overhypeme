@@ -1,6 +1,6 @@
 ---
 name: pr-watch
-description: Watch a PR I opened — triage Codex/bot review comments, drive CI to green, re-request review after each fix round, and know when to escalate to David. Use after opening or being re-engaged on any PR (implementation or [PLAN REVIEW]), and whenever a github-webhook-activity event arrives for a watched PR. Covers the subscribe rules, the never-judge-from-the-event-text rule, inline-reply discipline, and the never-resolve-threads boundary.
+description: Use after opening or being re-engaged on any PR (implementation or [PLAN REVIEW]), and whenever a github-webhook-activity event arrives for a watched PR.
 ---
 
 # Watching the PRs I open

@@ -123,13 +123,14 @@ failure. Its **mechanical** columns are fully derived and sound on their own.
 ### What the ledger's adjudicated rows now show
 
 **Ten rows carry a real adjudicated self-inflicted-share percentage** —
-every adjudicated row except #284, which is adjudicated but has none to
-report (its one finding is `invalid`, so the denominator is zero; see its own
-row note). Naming all ten, not a subset, matters: #270 64.7%, #274 68.4%,
-#276 0%, #282 72.1%, #283 0%, #285 50.0%, #286 0%, #289 33.3%, #288 40.0%,
-#290 55.0%. (#292, row 16, is adjudicated but **unmeasured** — the >20%
-adjudication gate fired for the first time; it is excluded from every trend
-below, counted neither way.)
+every adjudicated row **with a computable share**, which excludes two: #284
+(adjudicated but has none to report — its one finding is `invalid`, so the
+denominator is zero; see its own row note) and #292 (adjudicated but
+**unmeasured** — the >20% adjudication gate fired for the first time, so the
+share is disclosed in the row rather than recorded; see row 16). Naming all
+ten, not a subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282 72.1%,
+#283 0%, #285 50.0%, #286 0%, #289 33.3%, #288 40.0%, #290 55.0%. Both
+exceptions are excluded from every trend below, counted neither way.
 
 **The three 0% rows are not evidence the workflow is clean — they are a
 structural floor, not a measurement.** The precise criterion is **rounds that

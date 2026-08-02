@@ -1,6 +1,6 @@
 ---
 name: model-routing
-description: Reference for how models and effort are actually selected in this repo — what can and cannot change the session model (only David; opusplan is the one automatic switch), the effort dial (low..max) as a second control, reaching Fable 5 via subagent routing without a session switch, and the advisor tool. Use when deciding or explaining a model/effort escalation beyond the tier table in CLAUDE.md, or when David asks whether a switch can be automated.
+description: Use when deciding or explaining a model/effort escalation beyond the tier table in CLAUDE.md, or when David asks whether a switch can be automated.
 ---
 
 # Model and effort routing — the reference detail

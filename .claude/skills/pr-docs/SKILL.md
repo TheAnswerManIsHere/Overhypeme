@@ -1,6 +1,6 @@
 ---
 name: pr-docs
-description: Write the paired docs/PR<N>_<FEATURE>_TEST_RUN.md (Replit checklist) and docs/PR<N>_<FEATURE>_UAT.md (David's in-app click-through) for a feature-mode PR, publish the UAT as an Artifact page, and link both from the PR body. Use right after opening a feature-mode PR with product-visible behavior, before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier.
+description: Use right after opening a feature-mode PR with product-visible behavior, before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier.
 ---
 
 # Every PR ships with a Replit test plan + a UAT

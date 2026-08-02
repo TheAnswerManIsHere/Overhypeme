@@ -41,14 +41,20 @@ const LINK_ONLY_DIRS = [".claude/skills"];
 // when working under their directory and carry relative links that must
 // resolve from that directory — the root CLAUDE.md entry above does not reach
 // them, which is how a broken link shipped in the first nested memory file.
-const NESTED_SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
+const NESTED_SKIP_BASENAMES = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
+// Full relative paths (not basenames) so this only matches the specific
+// ephemeral root, not any directory that happens to be named "worktrees".
+const NESTED_SKIP_PATHS = new Set([".claude/worktrees"]); // per-session ephemeral, see .gitignore
 function findNestedClaudeMds(dir = "") {
   const abs = join(ROOT, dir);
   if (!existsSync(abs)) return [];
   const out = [];
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
+    const rel = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!NESTED_SKIP_DIRS.has(entry.name)) out.push(...findNestedClaudeMds(join(dir, entry.name)));
+      if (!NESTED_SKIP_BASENAMES.has(entry.name) && !NESTED_SKIP_PATHS.has(rel)) {
+        out.push(...findNestedClaudeMds(rel));
+      }
     } else if (entry.name === "CLAUDE.md" && dir !== "") {
       out.push(join(dir, entry.name));
     }
