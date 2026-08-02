@@ -12,10 +12,11 @@
 // found another phrase that failed the rule while the author fixed the previous
 // one: "polls every 2 seconds", "five lanes", "serialized", "about half an
 // hour", "not promptly", "not quickly", "off by default", "arrives a little
-// after". Every one of those is mechanically detectable. The repo's own standing
-// rule (CLAUDE.md, "recurring failure patterns become CI guards") says that at
-// that point the answer is a deterministic check, not a seventh promise to be
-// more careful.
+// after". Every one of those is mechanically detectable. The repo's shared,
+// cross-agent standing rule (docs/ai-context/decisions.md, "Recurring failure
+// patterns become CI guards, not just doc updates") says that at that point
+// the answer is a deterministic check, not a seventh promise to be more
+// careful.
 //
 // **What this CANNOT do, stated so nobody mistakes a green check for
 // compliance:** it is a lexical guard, not a semantic one. It cannot detect that
@@ -30,6 +31,12 @@
 // `<!-- tuning-ok:start -->` / `<!-- tuning-ok:end -->` block, is skipped. The
 // charter itself needs this — its own over/under table quotes the forbidden
 // phrasings on purpose. Every use is a deliberate, visible decision.
+//
+// Fenced code blocks are NOT auto-exempt — a config sample formatted as code
+// is still configuration, and blanking every fence would let a tuning value
+// acquire a second home merely by being wrapped in ```. A chapter that
+// genuinely needs to quote one uses the same explicit tuning-ok escape hatch
+// as prose.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
@@ -58,12 +65,22 @@ const RULES = [
   },
   {
     id: "counted-component",
-    // "five lanes", "three queues", "2 workers" — a count of a component.
-    // "one" is deliberately EXCLUDED: "the one queue whose failures reach a
-    // real person" is an idiom meaning *the singular*, not a count, and
-    // flagging it trains readers to ignore this guard.
-    re: /\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:independent\s+)?(?:scheduling\s+)?(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?)\b/gi,
+    // "five lanes", "three queues", "2 workers", "last 3 send-back attempts"
+    // — a count of a component, allowing up to two modifier words (bare or
+    // hyphenated, e.g. "independent scheduling", "send-back") between the
+    // number and the noun. "one" is deliberately EXCLUDED: "the one queue
+    // whose failures reach a real person" is an idiom meaning *the
+    // singular*, not a count, and flagging it trains readers to ignore this
+    // guard.
+    re: /\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:[a-z]+(?:-[a-z]+)?\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?)\b/gi,
     why: "a count of components is a value; say that they exist, not how many",
+  },
+  {
+    id: "batch-cap",
+    // "up to 50 at a time", "up to 50 eligible" — a batch ceiling stated as a
+    // number, even with no noun from the counted-component list attached.
+    re: /\bup to \d+\b|\b\d+\s+at a time\b/gi,
+    why: "a batch ceiling is a tuning constant; say it's bounded, not by how much",
   },
   {
     id: "magnitude-standin",
@@ -92,32 +109,23 @@ const IGNORE_LINE = "<!-- tuning-ok -->";
 const IGNORE_START = "<!-- tuning-ok:start -->";
 const IGNORE_END = "<!-- tuning-ok:end -->";
 
-/** Strip fenced code blocks — a chapter may legitimately show a config sample. */
-function maskCodeFences(lines) {
-  let inFence = false;
-  return lines.map((line) => {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
-      return "";
-    }
-    return inFence ? "" : line;
-  });
-}
-
 export function scanText(text) {
   const raw = text.split("\n");
-  const lines = maskCodeFences(raw);
   const findings = [];
   let suppressed = false;
+  let suppressedFrom = null;
 
-  lines.forEach((line, i) => {
-    const original = raw[i];
-    if (original.includes(IGNORE_START)) suppressed = true;
-    if (original.includes(IGNORE_END)) {
+  raw.forEach((line, i) => {
+    if (line.includes(IGNORE_START)) {
+      suppressed = true;
+      suppressedFrom = i + 1;
+    }
+    if (line.includes(IGNORE_END)) {
       suppressed = false;
+      suppressedFrom = null;
       return;
     }
-    if (suppressed || original.includes(IGNORE_LINE)) return;
+    if (suppressed || line.includes(IGNORE_LINE)) return;
 
     for (const rule of RULES) {
       rule.re.lastIndex = 0;
@@ -127,6 +135,19 @@ export function scanText(text) {
       }
     }
   });
+
+  // A `tuning-ok:start` with no matching `:end` suppresses every remaining
+  // line — a typo or merge conflict must not silently disable the guard for
+  // the rest of the file, so an unmatched marker is itself reported.
+  if (suppressed) {
+    findings.push({
+      line: suppressedFrom,
+      rule: "unterminated-ignore-block",
+      why: `${IGNORE_START} has no matching ${IGNORE_END} — add the end marker or the rest of the file is left unscanned`,
+      match: IGNORE_START,
+    });
+  }
+
   return findings;
 }
 

@@ -45,8 +45,9 @@ jobs:
       # PR spent three review rounds on the boundary, then took three MORE
       # because each round surfaced another phrase that failed it while the
       # previous one was being fixed. Every one of those was lexically
-      # detectable, so per CLAUDE.md ("recurring failure patterns become CI
-      # guards") this is a check rather than a seventh promise to be careful.
+      # detectable, so per docs/ai-context/decisions.md ("Recurring failure
+      # patterns become CI guards, not just doc updates") this is a check
+      # rather than a seventh promise to be careful.
       # LEXICAL ONLY — it cannot see duplicated facts or false claims.
       - name: Check manual tuning language
         run: node scripts/check-manual-tuning-language.mjs

@@ -71,8 +71,9 @@ safe to click twice.
 
 A fact's classification doesn't have to be right forever — an admin can send
 any live fact **back into moderation** for a fresh pass, one at a time from
-the Facts page or the Taxonomy Health list, or **in bulk** (up to 50 at a
-time) from the Stale-for-reprocess card. Sending a fact back:
+the Facts page or the Taxonomy Health list, or **in bulk**, bounded per click
+(see "A bulk send-back run is deliberately limited per click," below), from
+the Stale-for-reprocess card. Sending a fact back:
 
 - Keeps it fully live the whole time — the public feed and every reader-facing
   surface keep showing its current content, unaffected, until the refresh is
@@ -162,16 +163,16 @@ side effect of an unrelated config change.
   than once over time. This is deliberate — it keeps the moderation queue
   from being flooded in one action. The limit itself is in
   [`taxonomy-and-enrichment.md`](../ai-context/taxonomy-and-enrichment.md).
-- **A fact whose last 3 send-back attempts all failed drops out of bulk
-  runs.** This stops a persistently-broken fact from silently eating a bulk
-  run's capacity forever, and stops an admin from being able to declare a
+- **A fact whose recent send-back attempts have repeatedly failed drops out
+  of bulk runs.** This stops a persistently-broken fact from silently eating
+  a bulk run's capacity forever, and stops an admin from being able to declare a
   bulk migration "complete" while that fact sits invisibly excluded — its
   failure streak (`repeatedFailureCount`) shows on the Taxonomy Health row
   list and the bulk-action response. The only way to clear the streak is to
   target that fact directly (single-fact or `scope: selected`), which is also
   the only path that resets the count.
 - **The exact number of eligible facts isn't known before you click "send."**
-  The confirm dialog says "up to 50 eligible" rather than an exact count,
+  The confirm dialog states an upper bound rather than an exact count,
   because computing the exact number requires the same server-side work as
   actually running the batch. The real numbers show up immediately after.
 - **A sent-back fact stays flagged stale until its refresh is actually
