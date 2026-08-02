@@ -31,7 +31,7 @@ import {
 
 const MIGRATION = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../lib/db/migrations/0094_membership_entitlements.sql",
+  "../../../../lib/db/migrations/0095_membership_entitlements.sql",
 );
 
 const KEYS = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];

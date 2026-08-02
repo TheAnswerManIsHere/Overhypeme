@@ -4,7 +4,7 @@
 -- table, the two ordering sequences and the read-path expiry column, and seeds
 -- every admin_config key the model introduces. It drops nothing — the legacy
 -- `subscriptions` / `lifetime_entitlements` tables are dropped in
--- 0095_drop_legacy_membership_tables.sql, which runs in the same startup pass
+-- 0096_drop_legacy_membership_tables.sql, which runs in the same startup pass
 -- once every writer has been moved onto this schema. Splitting the two keeps
 -- each commit in the PR bootable; the deploy still applies both back-to-back
 -- before the port binds (runMigrations() in the api-server entry).
