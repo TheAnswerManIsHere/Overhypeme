@@ -58,13 +58,33 @@ jobs:
       # (a just-merged loop's row belongs to the NEXT PR, not to itself) and
       # only the offline arithmetic check runs.
       - name: Check loop-ledger coverage
+        if: github.event_name == 'pull_request'
         run: node scripts/check-ledger-coverage.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
+      # The post-merge half. The step above can only ask "does THIS PR owe rows
+      # for loops that closed before it opened" — nobody asks between PRs, and
+      # that interval is where both of the ledger's real misses (#286, #290)
+      # actually happened. This fails `main` the moment a row's designated
+      # carrier PR merges without it, instead of waiting for whenever someone
+      # next opens a PR. Pending-but-not-yet-due rows are printed, not failed.
+      - name: Audit loop-ledger debt
+        if: github.event_name == 'push'
+        run: node scripts/check-ledger-coverage.mjs --audit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The client and server each keep their own copy of the redirect-target
+      # validator (no shared workspace boundary between them) — PR #292 found
+      # the same normalization defect in both at once. This is the mechanical
+      # guard against a future fix landing on only one copy.
+      - name: Check return-to validator parity
+        run: pnpm run check:return-to-parity
 
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots

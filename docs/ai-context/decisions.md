@@ -13,6 +13,111 @@
 
 ---
 
+### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
+- **Decision:** When an `async_jobs` row transitions to `failed` (either
+  exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`
+  now persists the **resolved** effective `maxAttempts` onto the row itself,
+  instead of leaving the historical `0` sentinel ("follow whatever the
+  queue's live config says") in place. A row still `pending`/mid-retry keeps
+  the sentinel untouched — only a `failed` transition writes the resolved
+  value. This is a narrow, deliberate exception to Phase 1's own stated
+  scope ("instrument before changing the machine — no claim/finalize
+  changes"), approved by David after being presented as a genuine fork
+  (touch finalize minimally / accept the classification gap / silently drop
+  the distinction for sentinel rows) rather than decided unilaterally.
+- **Why:** The Queue Health surface (below) classifies a `failed` row as
+  `abandoned_no_retry` — distinct from plain `failed` (either retries
+  genuinely exhausted, or a legacy `0`-sentinel row too old to classify
+  safely; see below) — via either of two branches: `effectiveMax <= 1` (no
+  retry budget at all, regardless of *why* the one attempt failed) or
+  `attempts < effectiveMax` (the row failed before its ceiling was reached,
+  only reachable via a deterministic `terminalFailure()`). Both branches
+  compare against the row's effective retry ceiling. For the common case —
+  a row enqueued without a per-row override — that ceiling lived only in
+  `admin_config`, which is mutable and cache-busted. Re-resolving it **live** at read time meant a
+  historical row that legitimately exhausted retries under an *old, lower*
+  ceiling could be silently reclassified as `abandoned_no_retry` — "the
+  worker won't retry this," not "retries were exhausted" — the moment an
+  admin later raised that queue's ceiling — an
+  internally plausible but wrong answer, and worse, one that degrades
+  *after* the fact with no code change to explain it. Persisting the
+  resolved value at the one moment it's actually known (finalization) makes
+  an already-computed, already-terminal fact durable instead of
+  re-derivable-and-therefore-re-answerable-differently-later — the same
+  general lesson as [freezing a value at the point it's fixed instead of
+  re-resolving it live later](./known-failure-patterns.md#un-frozen-input-re-resolved-live-after-its-freeze-point),
+  applied at a later pipeline stage (finalization, not enqueue). The automatic worker never re-claims or
+  re-processes a `failed` row, so persisting one more field on it cannot
+  affect any future *automatic* retry decision — the one exception is the
+  admin's manual `/admin/email-queue/:id/retry` route, which deliberately
+  resets a row back to `pending` **and** resets `maxAttempts` to the sentinel
+  (round 5 of PR #288's review), restoring live-config semantics for a job an
+  admin is knowingly reopening; see the manual-retry test coverage in
+  `asyncJobs.test.ts`. Migration 0094 does not backfill existing rows, so a
+  pre-deploy `failed` row keeps the `0` sentinel until something touches it —
+  forever if it's never retried, or until the manual-retry exception above
+  reopens it and it fails again, at which point finalization persists a
+  resolved ceiling like any other row. Until then, the classification logic
+  treats a `0`-sentinel row conservatively (plain `failed`, never the
+  derived `abandoned_no_retry` state) rather than risking the same
+  misclassification on data it cannot resolve safely.
+- **Reference:** PR #288 (`artifacts/api-server/src/lib/asyncJobs.ts`'s
+  `processClaimedJob`, `artifacts/api-server/src/lib/queueHealth.ts`'s
+  `deriveDisplayStatus`). See
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) for
+  the surface this feeds.
+- **Revisit if:** a future phase adds a backfill for legacy `0`-sentinel
+  rows (making the conservative `failed`-only treatment for them
+  unnecessary), or the `abandoned_no_retry` distinction needs to move
+  earlier in the pipeline (e.g. onto the job payload at enqueue time)
+  instead of living on the finalize write.
+
+### 2026-07-30 · Async-jobs DB connection pool `max` raised to 20, explicit and derived — supersedes PR #216's deferral
+- **Decision:** The shared Postgres pool's `max` (`lib/db/src/index.ts`) is
+  now an explicit constant, `20`, instead of pg's implicit default of 10.
+  20 is the offline-computed result of `min(20, floor(398 / max_instances))`
+  at the observed fleet size — the code hardcodes the result, it does not
+  evaluate that formula against a live `max_instances` at runtime.
+- **Why:** PR #256's five-lane expansion (on top of PR #216's original
+  fast/render/bulk split) raised the lanes' default combined concurrency to
+  10 — exactly at the old implicit `max`, leaving zero spare **within this
+  same process's own pool** for anything else this process itself runs
+  concurrently (admin HTTP queries, the Queue Health reads, non-lane
+  background work) — a different boundary from `lib/db/src/index.ts`'s
+  separately-reserved 5 connections for migrations/console/one-off scripts,
+  which are their own processes on the *global* `max_connections` budget,
+  not consumers of this pool. Rather than wait for the pool-acquisition-wait
+  or rate-limit symptom the #216 entry named as the trigger to revisit,
+  PR #288 measured actual `max_connections` headroom (450 total, 7
+  superuser-reserved, ~13 in use outside the pool) and derived a `max` that
+  doubles the lanes' default worst-case demand with margin — closing the
+  gap proactively rather than reactively. Raising this pool's `max` does
+  consume more of that same global budget, narrowing the margin left for
+  everything else on it (including the separately-reserved migrations/
+  console/script connections) — it is not creating headroom for those
+  consumers, only for this process's own non-lane queries. See
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)
+  for the full arithmetic.
+- **Reference:** PR #288 (`lib/db/src/index.ts`).
+- **Supersedes:** the pool-`max` clause of [2026-07 · Split the async-jobs
+  worker into fast/render/bulk lanes](#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)'s
+  "Revisit if" note, which left raising `max` "explicitly out of scope" —
+  that entry's other clause (a future queue needing its own lane) is
+  unaffected and stands.
+- **Revisit if:** the five lanes' *combined* concurrency (no aggregate cap
+  ties their individually-configurable settings together — see the
+  glossary's Lane entry) is raised enough to **reach** 20 — the defaults
+  sum to 10, so a single small increase (e.g. `fast` 2→3, demand 11) merely
+  narrows the margin and is advisory, not an immediate resize trigger; but
+  combined demand hitting 20 exactly already consumes the whole pool with
+  zero spare for HTTP queries, claims, or heartbeat writes — the same
+  zero-headroom problem this decision fixed at the old 10/10 boundary, so
+  the trigger is reaching 20, not waiting to exceed it. Also revisit if the
+  autoscale ceiling exceeds ~19 instances at default lane settings — a
+  different threshold,
+  since that one threatens the *global* 398-connection budget
+  (`max_instances × 20`) rather than any single instance's demand.
+
 ### 2026-07-29 · Codex "Exhaustive code review" ON, review trigger stays "On PR open" — and the switch is a dated boundary in the ledger
 - **Decision:** In the Codex connector's code-review settings, **Exhaustive
   code review is enabled** ("keep looking for additional findings until it
@@ -930,7 +1035,9 @@
   appear under simultaneous fast+render+bulk+HTTP load — the three lanes' combined
   handler concurrency (2+3+3=8) was deliberately kept under the DB pool's
   default `max` of 10, but raising that `max` was explicitly left out of scope
-  and may become necessary. Also revisit if a future queue needs its own
+  and may become necessary. *(Superseded 2026-07-30 on the pool-`max` point:
+  see [PR #288's entry](#2026-07-30--async-jobs-db-connection-pool-max-raised-to-20-explicit-and-derived--supersedes-pr-216s-deferral) — `max` is now 20, explicit and derived. This
+  entry's other clause stands.)* Also revisit if a future queue needs its own
   distinct lane rather than defaulting into `bulk`.
   **Premise qualified 2026-07-30 (PR #291):** the handler-concurrency-vs-pool-`max`
   comparison this bullet rests on is not apples-to-apples — a handler holds a

@@ -240,47 +240,6 @@ re-gather it when the work is scheduled.
     actual bump is mechanical and self-verifying via this repo's own CI —
     but it still needs its own approved PR, the same as any other major bump.
 
-## Infra & operational tuning
-
-- **Async-jobs DB connection pool `max`.**
-  - **What.** The fast/render/bulk lane split (PR #216, 2026-07) deliberately
-    left the `pg.Pool` default `max` of 10 unraised. The
-    `pexels`/`ai_meme_backfill` lanes added by variant independence
-    (PR #256, 2026-07-25) bring the lanes' combined **handler** concurrency to
-    exactly 10 (fast 2 + render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1),
-    numerically equal to the pool default.
-  - **Correction (2026-07-30, PR #291).** This entry previously read that
-    equality as "**zero** spare connections under simultaneous full-lane
-    load." That does not follow, and the claim is withdrawn.
-    `maxConcurrency` bounds concurrent **handler promises, not checked-out
-    clients**: `asyncJobsTick` commits and releases the claim transaction
-    *before* `mapWithConcurrency` invokes any handler, a handler awaiting an
-    external provider holds no connection at all, and each outcome opens only
-    a short finalize transaction. Pool occupancy is therefore bursty at
-    claim/finalize boundaries, not pinned at the handler count. See
-    [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
-  - **RESOLVED 2026-07-30 by PR #288** (async-queue hardening Phase 1).
-    `lib/db/src/index.ts` now sets `max` explicitly — `POOL_MAX_DEFAULT = 20`,
-    overridable by `DB_POOL_MAX` — derived from measured production capacity
-    (`max_connections` 450 less superuser, migration and non-worker
-    allowances) rather than picked, and deliberately double the lanes'
-    worst-case 10. Kept here rather than deleted because the Correction above
-    is the record of a claim two documents asserted for weeks.
-  - **What is still open**, and is not this item: the residual contention
-    question. Handler count was never a proxy for connection count — handlers
-    hold a connection for their own DB work but not while awaiting a provider
-    — so neither the old ceiling's severity nor the new one's headroom has
-    been *measured* under load.
-  - **Revisit trigger — pool-acquisition wait time only.** Provider
-    rate-limit errors are **not** evidence for this item and were wrongly
-    listed as such: a provider call runs after the claim transaction is
-    released, so a 429 indicates external-call concurrency or missing
-    provider pacing, not a Postgres acquisition bottleneck. Raising
-    `Pool.max` cannot cure it and would let *more* calls reach the provider.
-    Route provider throttling to lane-concurrency / rate-limit tuning
-    instead. See
-    [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
-
 ## Code-level tech debt
 
 - **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**

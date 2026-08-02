@@ -158,8 +158,12 @@ that's the one place this PR could plausibly bite.
 - **No alerts anywhere yet.** No email, no webhook, no banner when something
   fails. That's Phase 2. This PR only makes state *visible* if you go looking.
 - **The page won't tell you the app is completely down** — if the server is dead,
-  the page can't load either. That's what `/api/health/queues` is for: an
-  external monitor pointed at it. Wiring that monitor up is a separate step.
+  the page can't load either, and `/api/health/queues` dies with it exactly
+  like any other route. What actually detects total death is an *external*
+  monitor polling that URL and seeing the request fail to connect — the
+  route's job while the server is alive is a different one (503 when every
+  worker's stopped scheduling a lane). Wiring that external monitor up is a
+  separate step.
 - **"Skipped" and "no more retries" counts may both be zero.** That means nothing
   has skipped or failed-without-further-retry recently, not that the feature is missing.
 - **`in flight` is usually 0.** Jobs are fast; you'd have to catch one mid-run.
