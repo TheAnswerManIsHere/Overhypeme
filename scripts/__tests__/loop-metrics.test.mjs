@@ -650,9 +650,10 @@ function realSnapshot(overrides = {}) {
 }
 
 test("fromMcp refuses a snapshot with no completeness attestation at all", () => {
-  // A loop with 18 rounds and 40 findings (our worst case, and exactly the
-  // shape this adapter is for) will paginate at least one collection. Deriving
-  // from an unmarked partial snapshot silently undercounts precisely there.
+  // PR #279's loop — 32 rounds, 166 findings, our worst case, and exactly the
+  // shape this adapter is for — will paginate at least one collection.
+  // Deriving from an unmarked partial snapshot silently undercounts precisely
+  // there.
   const { complete: _drop, ...noAttestation } = realSnapshot();
   assert.throws(() => fromMcp(noAttestation), /complete\.reviews/);
 });
