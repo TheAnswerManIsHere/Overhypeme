@@ -87,11 +87,11 @@ and a round target would score both backwards.
 
 **`rounds` and `review hrs` are understated for row 11 (#286), and the mechanism is now understood well enough to name.** After the round-1 fix (`6b04de2`), an explicit `@codex review` trigger drew a genuine second review from Codex against the fix commit — confirmed by its own "Reviewed commit: `6b04de28e6`" line — that found nothing further. That clean result posted as a **plain issue comment** ("Codex Review: Didn't find any major issues. Delightful!"), not as a formal `pull_request_review` submission. `countRounds` and `reviewInterval` only scan the `reviews` collection, so this real reviewer engagement is invisible to both: `rounds` reports 1 where the true reviewer-engagement count is 2, and `review hrs` reports 0.1 (PR-open → the round-1 review) where the true interval runs to the round-2 comment, roughly 2.8 hours.
 
-This is a **different** gap than the trigger-counting pitfall `countRounds`'s own docstring already documents and rejects (counting `@codex review` comments instead of formal reviews would miss the automatic on-open review — which is exactly why `countRounds` counts formal review records instead, not a live bias in the approach it actually takes). This is new, and lives in the approach `countRounds` *does* take: a re-review that finds **zero** new findings appears to route through the plain-comment reply path rather than the formal review-submission path on this repo's Codex transport — at least in this one observed instance. Not yet promoted to a documented, repo-wide bias in `loop-metrics.mjs`'s own comments (one observation is a data point, not a confirmed pattern, and no prior row is known to be short a round from it) — flagged here so the next clean-re-review loop is checked for the same gap rather than trusted at face value, and promoted properly once it recurs.
+This gap is **different** from the trigger-counting pitfall `countRounds`'s own docstring already documents and rejects (counting `@codex review` comments instead of formal reviews would miss the automatic on-open review — which is exactly why `countRounds` counts formal review records instead, not a live bias in the approach it actually takes). It lives in the approach `countRounds` *does* take: a re-review that finds **zero** new findings appears to route through the plain-comment reply path rather than the formal review-submission path on this repo's Codex transport.
 
 `findings` and the causal classification are unaffected: `countFindings` reads root comments directly and a review with zero findings contributes zero root comments either way.
 
-**Row 13 (#288) has the identical gap, confirmed — a second occurrence, not a hypothetical one.** Checked directly against the PR's plain-comment history: a clean "Codex Review: Didn't find any major issues" landed at `2026-07-30T02:05:58Z` (reviewing `5800debd7d`, between what this row counted as round 1 and round 2) and a second at `2026-07-30T03:32:17Z` (reviewing `62d9e8ab5f`, after the last formal review this row's snapshot captured). Row 13's `rounds: 5` and `review hrs: 1.6` both undercount the true reviewer engagement — by at least one round each, and the true `review hrs` extends past `03:20:10Z` to `03:32:17Z`. Not re-derived here (that means rebuilding the row's snapshot with plain comments folded in, a task in its own right, not a footnote); recorded so this counts as the second instance the paragraph above says would justify promoting the gap to a documented, repo-wide bias in `loop-metrics.mjs` rather than leaving it a one-off observation.
+**Row 13 (#288) has the identical gap, confirmed — a second occurrence.** Checked directly against the PR's plain-comment history: a clean "Codex Review: Didn't find any major issues" landed at `2026-07-30T02:05:58Z` (reviewing `5800debd7d`, between what this row counted as round 1 and round 2) and a second at `2026-07-30T03:32:17Z` (reviewing `62d9e8ab5f`, after the last formal review this row's snapshot captured). Row 13's `rounds: 5` and `review hrs: 1.6` both undercount the true reviewer engagement — by at least one round each, and the true `review hrs` extends past `03:20:10Z` to `03:32:17Z`. Not re-derived here (that means rebuilding the row's snapshot with plain comments folded in, a task in its own right, not a footnote).
 
 **Rows 15 (#290) and 16 (#292) are the third and fourth confirmed occurrences** — one and two plain-comment clean re-reviews respectively, each verified directly against the PR's issue-comment history and noted with true figures in their rows. Four loops across three sessions is a confirmed repo-wide bias of this Codex transport, not an observation: every clean re-review on this repo has posted as a plain comment, never as a formal review. The script-side fix (folding reviewer-authored plain-comment reviews into `countRounds`/`reviewInterval`) is owed and remains undesigned — until it lands, any row whose loop ended on a clean re-review understates `rounds` by at least one, and backfillers must check the issue comments, not just the reviews collection.
 
@@ -202,11 +202,15 @@ directly here, only each against its own history.
 
 **Two structural observations, now checked against seven loops:**
 
-- **Round 1 is where new ground lives — holds in all seven.** #282: 11/11;
-  #274: 5/5; #285: 7/7; #289: 6/6; #288: 5/5; #290: 4/4 — every round-1
-  finding in every
-  loop this ledger has classified, pre- or post-boundary, is new ground. This
-  is now the least surprising, most-replicated pattern in the file.
+- **Round 1 is where new ground lives — holds in all six with a round-1
+  figure.** #282: 11/11; #274: 5/5; #285: 7/7; #289: 6/6; #288: 5/5;
+  #290: 4/4 — every round-1 finding in every loop this ledger has broken
+  down by round is new ground. **#270 remains excluded from this specific
+  claim, not silently folded in** — it predates the ledger's finding-bearing-
+  round tracking fine enough to isolate round 1 specifically (row 3 gives a
+  16-round total, not a round-by-round breakdown), so it can neither confirm
+  nor deny the pattern. This is now the least surprising, most-replicated
+  pattern among the loops it can be checked on.
 - **Wrong fix dominates propagation in four of the seven loops.**
   #274 (7 vs 6), #282 (38 vs 24), #285 (12 vs 6), and #288 (5 vs 3) all show
   it. **#270, #289, and #290 do not.** #270's reversal (18 propagation vs 4
@@ -234,8 +238,8 @@ confirm or kill it rather than re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
-Three of this file's rows (#276, #283 — and #284 only narrowly escaping)
-are bugfix-mode loops by intent. Two of them are cohorted `prose/contract`,
+Four of this file's rows (#276, #283, #292 — and #284 only narrowly escaping)
+are bugfix-mode loops by intent. Three of them are cohorted `prose/contract`,
 because `classifyCohort` checks for any `.md` file **before** it checks the
 PR body's `**Fix tier:**` field, and a bugfix PR routinely carries a doc — a
 UAT, a deferred-work entry. The rule is doing exactly what it was written to

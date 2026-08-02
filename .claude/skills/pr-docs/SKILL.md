@@ -1,6 +1,6 @@
 ---
 name: pr-docs
-description: Use right after opening a feature-mode PR with product-visible behavior, before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier.
+description: Use right after opening a feature-mode PR with product-visible or testable behavior, before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier.
 ---
 
 # Every PR ships with a Replit test plan + a UAT
