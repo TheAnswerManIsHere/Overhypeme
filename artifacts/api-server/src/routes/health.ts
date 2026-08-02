@@ -49,10 +49,14 @@ router.get("/health", async (_req, res) => {
 /**
  * Unauthenticated worker-liveness probe for an external monitor.
  *
- * **This is the only design in the plan that survives total process death** — an
- * in-process watchdog cannot detect its own absence, so the alerting built in
- * later phases has a blind spot that only something outside the process can
- * close. Point any uptime monitor here.
+ * This route dies with the process like any other — it does not itself
+ * survive anything. What makes it the right thing to point a monitor at is
+ * that an in-process watchdog can never detect its own absence, so only an
+ * *external* caller polling this endpoint can turn total process death into
+ * a signal (a connection failure), closing the blind spot the alerting built
+ * in later phases would otherwise have. While the process IS up, it also
+ * adds a meaningful non-200 no other endpoint has: 503 when every worker has
+ * stopped scheduling a lane fleet-wide. Point any uptime monitor here.
  *
  * **Mounted under `/api`** (`app.ts`: `app.use("/api", router)`), so the real
  * path is `/api/health/queues`, not the bare route path below — a monitor

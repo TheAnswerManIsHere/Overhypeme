@@ -46,6 +46,13 @@ same file. Same class of false positive as the rate-limiting one, though not
 independently confirmed by clearing it (David dismisses these manually; the
 agent has no tool access to GitHub's code-scanning-alert dismissal API).
 
+**Confirmed a second time on PR #288:** the same alert re-fired identically on
+two new `/admin/queue-health*` routes after `checkSharedRateLimit` was applied
+to them, on the next push containing the fix — same shape as PR #256, no new
+information. Two independent confirmations is enough to stop treating this as
+a one-off and start treating a fresh alert on an already-protected route as
+the expected, not the surprising, outcome.
+
 **Rule:** when a new CodeQL alert of either kind appears on a route/file that
 already uses `checkSharedRateLimit` or sits behind the global CSRF middleware,
 **investigate before "fixing"** — confirm the real control is present (check
