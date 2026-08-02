@@ -399,14 +399,22 @@ be trusted.
    is a tool-calling integration — see the adapter and its shape notes in
    `scripts/loop-metrics.mjs`. Either path is mechanical; neither is typing the
    numbers from memory. **The snapshot must page each of `get_reviews`,
-   `get_files`, and `get_review_comments` to completion yourself before
-   calling the script** — it cannot page through the MCP tool on its own — and
-   must set `complete: {reviews: true, files: true, reviewThreads: true}` only
-   once every page is concatenated in. The script refuses an unmarked or
-   partial snapshot rather than deriving a plausible-looking undercount, which
-   a large loop — PR #279's 32 rounds (our worst case by round count) or
-   PR #280's 180 findings (our worst case by finding count, on 18 rounds) —
-   would otherwise produce silently.
+   `get_files`, `get_review_comments`, and `get_comments` to completion
+   yourself before calling the script** — it cannot page through the MCP tool
+   on its own — and must set
+   `complete: {reviews: true, files: true, reviewThreads: true, issueComments: true}`
+   only once every page is concatenated in. `get_comments` (issue comments, not
+   review comments) is what a clean reviewer pass can post through instead of a
+   formal review — see *Rounds undercounted when a re-review is clean* in the
+   ledger itself — so omitting it understates `rounds` and `review hrs` on
+   exactly the loops where a pass found nothing. The script still derives
+   without it (for snapshots captured before this was added), but the row it
+   returns carries a `warnings` entry saying so; do not paste those numbers in
+   as though they were complete. The script refuses an unmarked or partial
+   snapshot rather than deriving a plausible-looking undercount, which a large
+   loop — PR #279's 32 rounds (our worst case by round count) or PR #280's 180
+   findings (our worst case by finding count, on 18 rounds) — would otherwise
+   produce silently.
 
    **Before committing to backfill or blind-adjudicate a historical loop,
    check its size cheaply first.** A plain `get_reviews`/`get_review_comments`
