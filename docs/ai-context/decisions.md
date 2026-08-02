@@ -1047,10 +1047,10 @@
   implied here overstates the real contention, which has never been measured. **Superseded in part the same day:** PR #288 raised
   the ceiling explicitly (`POOL_MAX_DEFAULT = 20`, derived from measured
   production capacity), so the `max` this bullet treats as fixed at 10 no
-  longer holds either. The reasoning above is left as the record of what was
+  longer holds either — that item is resolved and no longer tracked in
+  `deferred-work.md`. The reasoning above is left as the record of what was
   decided at the time; see
-  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues) and
-  [`deferred-work.md`](../engineering/deferred-work.md#infra--operational-tuning).
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 
 ---
 
