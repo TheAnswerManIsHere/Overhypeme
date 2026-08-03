@@ -100,7 +100,11 @@ So the Store owns a dedicated `pg.Pool`: same `DATABASE_URL`, `max: 4`,
 handler mirroring `lib/db/src/index.ts:90-95` (round-12 finding — without it an
 `ECONNRESET` on an idle client of *this* pool is an uncaught exception that
 crashes the process; the shared pool has had that handler all along and the
-dedicated one inherited nothing).
+dedicated one inherited nothing). It also carries the shared pool's
+`idleTimeoutMillis: 60_000` and `maxLifetimeSeconds: 3600`, which are tuned for
+the same Neon auto-suspend behavior — the general shape of the round-12 miss was
+specifying the pool by the two properties I was thinking about and silently
+defaulting everything else, not just the absent `error` listener.
 
 ### Failure policy: contention fails closed, outage fails open
 
