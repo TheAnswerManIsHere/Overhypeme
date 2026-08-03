@@ -251,7 +251,7 @@ that exclusion neither creates nor removes this separate confound. With
 only two confirmed post-boundary points, already-thin evidence, that
 confound matters more, not less. #285 itself is not discarded as
 a data point: its 50.0% self-inflicted share still stands in the row 10 note
-and in the nine-row list above; it is excluded from this specific
+and in the ten-row list above; it is excluded from this specific
 pre/post-boundary comparison only, because its own rounds don't sit
 cleanly on one side of the line being compared. (#292's alternate n=3
 reading — #285 50.0%, #289 33.3%, #288 40.0%, all treated as cleanly
@@ -286,9 +286,12 @@ impression, now checked against six loops instead of four:**
   shape difference is a real replication, not a restatement of the
   plan-review case — the pattern may be about self-inflicted findings in
   general rather than something specific to editing one document, though
-  n=1 outside the plan-review shape isn't enough to claim that broadly. It
-  is not yet tested on a genuinely large *pure-docs-harvest* loop (like this
-  PR, #294, once it closes) the way #270 tested it for code.
+  n=1 outside the plan-review shape isn't enough to claim that broadly. #294
+  was the candidate to test this on a genuinely large *pure-docs-harvest*
+  loop the way #270 tested it for code, but its own author-vs-adjudicator
+  disagreement landed above the 20% gate (row 20), so its breakdown is
+  `unmeasured` and it cannot answer this question — the pure-docs-harvest
+  case remains untested, not disconfirmed.
 
 This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
 post-boundary (declining; #285 excluded as a boundary straddle — a
