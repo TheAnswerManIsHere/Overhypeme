@@ -45,6 +45,23 @@ export class StripeStorage {
   }
 
   /**
+   * Clear a user's Stripe customer, but ONLY if it is still the id we found to
+   * be dead. Compare-and-swap, so a good id bound by a concurrent request in the
+   * meantime survives.
+   *
+   * Needed because `bindStripeCustomerIfUnset` only fires on a NULL column: a
+   * known-stale id left stored blocks the rebind permanently.
+   */
+  async clearStripeCustomerIfMatches(userId: string, staleCustomerId: string): Promise<boolean> {
+    const cleared = await db
+      .update(usersTable)
+      .set({ stripeCustomerId: null })
+      .where(and(eq(usersTable.id, userId), eq(usersTable.stripeCustomerId, staleCustomerId)))
+      .returning({ id: usersTable.id });
+    return cleared.length > 0;
+  }
+
+  /**
    * @param subscriptionId When given, return THIS subscription rather than
    * whichever qualifying one is newest.
    *

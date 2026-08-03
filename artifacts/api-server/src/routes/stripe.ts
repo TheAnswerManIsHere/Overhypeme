@@ -16,7 +16,11 @@ import {
 } from "../lib/membershipRefresh";
 import { runBoundedApply } from "../lib/membershipLease";
 import { hasQualifyingLifetimeSource, loadSourceSnapshots } from "../lib/membershipSources";
-import { getEffectiveMembership, qualifySource } from "../lib/membershipState";
+import {
+  QUALIFIABLE_SUBSCRIPTION_STATUSES,
+  getEffectiveMembership,
+  qualifySource,
+} from "../lib/membershipState";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
@@ -190,15 +194,32 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       // Verify the saved customer still exists in Stripe. It may have been
       // deleted, or the Stripe account / API keys may have been rotated since
       // the ID was stored. If it's gone, fall through to create a fresh one.
+      let stale = false;
       try {
         const existing = await stripe.customers.retrieve(customerId);
-        if ((existing as { deleted?: boolean }).deleted) customerId = undefined;
+        if ((existing as { deleted?: boolean }).deleted) stale = true;
       } catch (e) {
         if ((e as { code?: string }).code === "resource_missing") {
-          customerId = undefined;
+          stale = true;
         } else {
           throw e;
         }
+      }
+      if (stale) {
+        // CLEAR THE COLUMN, not just the local variable.
+        //
+        // The conditional bind below only fires on a NULL column, so leaving a
+        // known-dead id stored meant the bind necessarily lost, the adopt-the-
+        // winner re-read handed back that same dead id, and session creation
+        // failed — turning a path that used to recover on its own into a hard
+        // error. Compare-and-swap on the exact stale value so this cannot stomp
+        // a good id another request bound in the meantime.
+        await stripeStorage.clearStripeCustomerIfMatches(user.id, customerId);
+        logger.info(
+          { userId: user.id, staleCustomerId: customerId },
+          "the saved Stripe customer is gone from this account — clearing it and creating a fresh one",
+        );
+        customerId = undefined;
       }
     }
     if (!customerId) {
@@ -529,6 +550,21 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
 });
 
 /**
+ * What a mutation route is allowed to act on.
+ *
+ * `target_changed` is a first-class outcome, not an error dressed up as one.
+ * When the displayed subscription turns out to be stale, this helper repairs the
+ * local source — and the correct target afterwards may be a DIFFERENT
+ * subscription. Silently mutating that one would mean a single click aimed at B
+ * cancels A, which the user never saw and never asked for. So the route stops
+ * and tells the client to refetch.
+ */
+type MutationTarget =
+  | { kind: "subscription"; subscription: Stripe.Subscription }
+  | { kind: "none" }
+  | { kind: "target_changed" };
+
+/**
  * The Stripe subscription a mutation route may act on — the SAME one the panel
  * is describing.
  *
@@ -539,62 +575,65 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
  * qualifies during its grace window, which left a member in dunning unable to
  * cancel the thing they were being dunned for.
  *
- * Returns null when nothing currently qualifies, which the callers surface as
- * "No active subscription found" — the panel's fallback to the newest
- * non-qualifying row is for DISPLAY only and must not become a mutation target.
+ * The panel's fallback to the newest non-qualifying row is for DISPLAY only and
+ * must never become a mutation target.
  */
-async function getActiveStripeSub(stripe: Stripe, userId: string) {
+async function getMutationTarget(stripe: Stripe, userId: string): Promise<MutationTarget> {
   // The CALLER's client, not a fresh one. `stripe_live_mode` is operator-tunable
   // at runtime, so a second `getUncachableStripeClient()` here could resolve to
   // the other account mid-request: the target would be retrieved from one mode
   // and mutated through the other. One client per request means one mode
   // snapshot across selection, price validation, mutation and refresh.
   const selected = await selectMembershipSubscription(userId);
-  if (!selected.qualifies || !selected.source?.providerRef) return null;
+  if (!selected.qualifies || !selected.source?.providerRef) return { kind: "none" };
 
   const live = await retrieveSubscription(stripe, userId, selected.source.providerRef);
-  if (!live) return null;
+  if (!live) return { kind: "none" };
 
-  // Local state can be stale — a missed webhook leaves a subscription locally
-  // active that Stripe already cancelled — and Stripe refuses to update a
-  // cancelled subscription. Mutating it would fail while an OLDER subscription
-  // kept billing, with the panel still offering controls that cannot work.
+  // The question is whether the LIVE subscription still qualifies — not whether
+  // Stripe would technically accept an update on it.
   //
-  // So reconcile before acting: apply the retrieved state authoritatively, then
-  // re-select ONCE. One retry, not a loop — if the second selection is also
-  // stale, something is actively racing us and refusing beats spinning.
-  if (!MUTABLE_SUBSCRIPTION_STATUSES.has(live.status)) {
-    logger.info(
-      { userId, subscriptionId: live.id, status: live.status },
-      "the selected subscription is no longer mutable at Stripe — refreshing the local source and reselecting",
-    );
-    await refreshSubscriptionSourceAfterMutation(stripe, live.id);
+  // Those differ, and the difference is a money bug: `unpaid` and `paused` are
+  // both mutable and both non-qualifying, so a locally-stale row that Stripe had
+  // moved to one of them passed a mutability check and became the target while
+  // an OLDER, actually-qualifying subscription kept billing. Asking the
+  // qualification question means this gate and the derivation agree by
+  // construction.
+  if (QUALIFIABLE_SUBSCRIPTION_STATUSES.has(live.status)) return { kind: "subscription", subscription: live };
 
-    const reselected = await selectMembershipSubscription(userId);
-    if (
-      !reselected.qualifies ||
-      !reselected.source?.providerRef ||
-      reselected.source.providerRef === live.id
-    ) {
-      return null;
-    }
+  // Local state was stale. Repair it authoritatively, then reselect ONCE — one
+  // retry, not a loop: if the second selection is also stale, something is
+  // actively racing us and refusing beats spinning.
+  logger.info(
+    { userId, subscriptionId: live.id, status: live.status },
+    "the selected subscription no longer qualifies at Stripe — refreshing the local source and reselecting",
+  );
+  await refreshSubscriptionSourceAfterMutation(stripe, live.id);
 
-    const fresh = await retrieveSubscription(stripe, userId, reselected.source.providerRef);
-    return fresh && MUTABLE_SUBSCRIPTION_STATUSES.has(fresh.status) ? fresh : null;
-  }
+  const reselected = await selectMembershipSubscription(userId);
+  if (!reselected.qualifies || !reselected.source?.providerRef) return { kind: "none" };
 
-  return live;
+  // A DIFFERENT subscription is now the right target — but it is not the one the
+  // user was looking at when they clicked, so acting on it would be acting
+  // without consent. The local source has been repaired, so the client's refetch
+  // will show the truth and a second click means what it says.
+  if (reselected.source.providerRef !== live.id) return { kind: "target_changed" };
+
+  const fresh = await retrieveSubscription(stripe, userId, reselected.source.providerRef);
+  return fresh && QUALIFIABLE_SUBSCRIPTION_STATUSES.has(fresh.status)
+    ? { kind: "subscription", subscription: fresh }
+    : { kind: "none" };
 }
 
-/** Statuses Stripe will still accept an update on. */
-const MUTABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
-  "active",
-  "trialing",
-  "past_due",
-  "unpaid",
-  "incomplete",
-  "paused",
-]);
+/** The 409 a route answers when its target moved out from under the click. */
+function respondTargetChanged(res: Response): void {
+  res.status(409).json({
+    error:
+      "Your subscription details have changed since this page loaded. " +
+      "Refresh and try again — nothing was modified.",
+    targetChanged: true,
+  });
+}
 
 async function retrieveSubscription(stripe: Stripe, userId: string, subscriptionId: string) {
   try {
@@ -627,11 +666,16 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
     // The subscription the PANEL is describing, not whichever entry Stripe's
     // list happens to return first — otherwise the button and the card can
     // disagree about which subscription they mean.
-    const sub = await getActiveStripeSub(stripe, userId);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, userId);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: true });
 
@@ -677,11 +721,16 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
     // The subscription the PANEL is describing, not whichever entry Stripe's
     // list happens to return first — otherwise the button and the card can
     // disagree about which subscription they mean.
-    const sub = await getActiveStripeSub(stripe, userId);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, userId);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     if (!sub.cancel_at_period_end) {
       res.status(400).json({ error: "Subscription is not set to cancel" });
@@ -740,11 +789,16 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
       return;
     }
 
-    const sub = await getActiveStripeSub(stripe, req.user.id);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, req.user.id);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     const currentItem = sub.items.data[0];
     if (!currentItem) {
@@ -824,11 +878,16 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
       return;
     }
 
-    const sub = await getActiveStripeSub(stripe, req.user.id);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, req.user.id);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     const currentItem = sub.items.data[0];
     if (!currentItem) {

@@ -392,9 +392,22 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
         );
         const derived = deriveEffectiveMembership(trusted, new Date());
 
+        // `unregistered` is an AUTH state, not an entitlement one, and the
+        // derivation must never promote out of it — `recomputeMembership`
+        // enforces exactly that, and writing `derived.tier` here bypassed it.
+        // Its no-source answer is `registered`, so an unregistered account being
+        // reinstated with any stale source would have been silently granted
+        // registration capabilities by the fail-closed path.
+        const [locked] = await tx
+          .select({ tier: usersTable.membershipTier })
+          .from(usersTable)
+          .where(eq(usersTable.id, id))
+          .limit(1);
+        const nextTier = locked?.tier === "unregistered" ? "unregistered" : derived.tier;
+
         await tx
           .update(usersTable)
-          .set({ membershipTier: derived.tier, membershipValidUntil: derived.validUntil })
+          .set({ membershipTier: nextTier, membershipValidUntil: derived.validUntil })
           .where(eq(usersTable.id, id));
 
         logger.info(

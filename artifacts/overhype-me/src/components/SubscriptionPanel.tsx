@@ -263,9 +263,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         // Optimistically flip cancelAtPeriodEnd so the button hides immediately
         // without waiting for the Stripe webhook to update the sync table.
@@ -303,9 +307,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         // Optimistically flip cancelAtPeriodEnd back to false so the reactivate
         // button disappears immediately without waiting for the Stripe webhook.
@@ -376,9 +384,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPriceId: targetAnnualPriceId }),
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         setShowSwitchDialog(false);
         void fetchSubData();

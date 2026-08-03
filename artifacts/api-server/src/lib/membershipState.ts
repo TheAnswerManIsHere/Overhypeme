@@ -58,6 +58,26 @@ const OUTRIGHT_QUALIFYING_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set([
 /** The one subscription status that qualifies conditionally, on the grace deadline. */
 const GRACE_BOUND_SUBSCRIPTION_STATUS = "past_due";
 
+/**
+ * Every status under which a subscription can qualify at all — outright or
+ * inside its grace window.
+ *
+ * Exported so a caller holding a LIVE Stripe object (rather than a stored
+ * snapshot) asks the same question `qualifySource` asks. The route that picks a
+ * mutation target used a hand-written "statuses Stripe will accept an update
+ * on" set instead, which is a wider set: `unpaid` and `paused` are mutable but
+ * do not qualify, so a locally-stale subscription that had moved to one of them
+ * was accepted as the target while an older subscription kept billing.
+ *
+ * A status outside this set never qualifies. A status inside it may still fail
+ * on the grace deadline, which only `qualifySource` can decide — so this is a
+ * necessary condition, not a sufficient one.
+ */
+export const QUALIFIABLE_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set([
+  ...OUTRIGHT_QUALIFYING_SUBSCRIPTION_STATUSES,
+  GRACE_BOUND_SUBSCRIPTION_STATUS,
+]);
+
 /** Why a source did not qualify. Reported, and used to explain a tier in admin surfaces. */
 export type DisqualificationReason =
   | "not_membership_product"
