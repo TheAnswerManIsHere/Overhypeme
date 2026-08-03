@@ -95,8 +95,17 @@ requests joins `pg-pool`'s `_pendingQueue` and never reaches the error path — 
 unbounded backlog of open requests, and a materially broader failure mode than the
 narrow limiter has.
 
-So the Store owns a dedicated `pg.Pool`: same `DATABASE_URL`, `max: 4`,
-`connectionTimeoutMillis: 2_000`, plus its own `pool.on("error", …)` idle-client
+So the Store owns a dedicated `pg.Pool`. **It is specified as "the shared pool's
+configuration, plus `max: 4` and `connectionTimeoutMillis: 2_000`" — not as a
+fresh options object.** That phrasing is load-bearing: rounds 12 and 13 produced
+three separate findings (`error` handler, `idleTimeoutMillis`/`maxLifetimeSeconds`,
+`allowExitOnIdle`) that were all the same mistake — enumerating the properties I
+happened to be thinking about and silently inheriting `pg`'s defaults for the
+rest, while a fully-configured pool sat in the file I kept citing. Deriving from
+the existing configuration makes the *default* correct and the deviations
+explicit.
+
+Concretely that means same `DATABASE_URL`, its own `pool.on("error", …)` idle-client
 handler mirroring `lib/db/src/index.ts:90-95` (round-12 finding — without it an
 `ECONNRESET` on an idle client of *this* pool is an uncaught exception that
 crashes the process; the shared pool has had that handler all along and the
