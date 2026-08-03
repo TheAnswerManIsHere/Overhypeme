@@ -85,7 +85,7 @@ and a round target would score both backwards.
 | 17 | [#300](https://github.com/TheAnswerManIsHere/Overhypeme/pull/300) | prose/contract | 6 | 811 | 641 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a — clean loop | — | — | none | n/a — clean loop | Closed unmerged — superseded by #301 (author's own issue comment: "Redone in 301."). Zero Codex activity of any kind: no formal reviews, no review-comment threads. Only PR comments are the Dependency Review bot and the author's own closing note. Nothing to classify or adjudicate. |
 | 18 | [#295](https://github.com/TheAnswerManIsHere/Overhypeme/pull/295) | prose/contract | 2 | 27 | 13 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a — clean loop | — | — | none | n/a — clean loop | Merged. Two-file doc correction to the CodeQL rate-limiting memory note. Zero Codex review activity — no formal reviews, no review-comment threads, only the Dependency Review bot comment. |
 | 19 | [#297](https://github.com/TheAnswerManIsHere/Overhypeme/pull/297) | prose/contract | 6 | 794 | 58 | 2 | 3 | 3 | 0 | 0 | 0 | 0 | **0.0%** | 0.3 | — | none | ✓ **0.0%** (0/3, full population) | Merged. Fixes two defects in the loop-ledger measurement tooling itself, found by David asking "where do we stand on review efficacy" and checking the script's counts against PRs' own hand-narrated round counts: `rounds` undercounting whenever a clean re-review posts as a plain issue comment instead of a formal review (fixed by counting **announcements** — the one thing the connector emits exactly once per completed pass, whether that's a review body or an issue comment — instead of raw review records, which also fixed a related overcount when one pass emits two review records), and `check-ledger-coverage.mjs`'s post-merge audit only ever asking "does *this* PR owe rows," never "does the interval *between* PRs owe rows" — the gap where both of the ledger's real misses (#286, #290) actually happened. Round 1 (3/3) is entirely new ground against the original diff — no round 2 findings; round 2 was itself a clean pass that posted as a plain issue comment ("Reviewed commit: a08de79ebd"), now correctly counted as a round thanks to this same PR's own fix. Blind adjudication agreed on all 3 (0% disagreement). `pre-open preflight` unmeasured (`—`). |
-| 20 | [#294](https://github.com/TheAnswerManIsHere/Overhypeme/pull/294) | prose/contract | 13 | 613 | 142 | 13 | 56 | 16 | 15 | 25 | 0 | 0 | *unmeasured* (>20% disagreement) | 31.4 | — | none | ✗ **unmeasured** (32.1% disagreement, 18/56) | Merged. `/document` harvest for PR #288 (async-queue hardening Phase 1), plus three more owed ledger rows (`check-ledger-coverage.mjs` pulled in #289/#290/#280 as rows 13–15 once this PR became "next"), plus a round-1 Codex doc-accuracy review fully addressed across the harvest content. **Full classification, not a deferral** — an earlier version of this row deferred causal classification citing scale, matching rows 6/#279 and 14/#280; Codex correctly rejected that on review (those two are David-authorized exceptions for 166/180-finding loops, and "built from a subagent summary" was a self-inflicted process gap, not a scale-driven one). Round boundaries were re-derived authoritatively from the raw MCP snapshot already on disk — each finding's `created_at` bucketed against each formal review's `submitted_at` — which corrected several mis-bucketed items from the original subagent summary (13 rounds of 9/5/8/5/4/3/1/6/2/4/4/3/2, not the summary's earlier guess). **Independent blind adjudication disagreed on 18 of 56 findings (32.1%) — the largest disagreement rate in this ledger, over the 20% gate — so the self-inflicted share is `unmeasured`, per this file's own rule.** The two readings: author (this row's recorded columns) 16 new/15 propagation/25 wrong-fix, 71.4% self-inflicted; blind adjudicator 34 new/3 propagation/19 wrong-fix, 39.3% self-inflicted — both zero invalid, zero re-raised. Nearly every disagreement (at least 16 of 18) is the same new-ground/propagation boundary call row 15/#290's note already names as the hardest retroactive judgment this rubric asks for: whether a finding in a heavily-recurring file (architecture-map.md, loop-ledger.md, decisions.md — each edited by 5+ of this loop's 13 rounds) is fresh content an earlier round's fix happened not to reach, or a defect that fix specifically introduced. The author's reading leaned self-inflicted on file-recurrence alone (per the rubric's ambiguous-default rule); the adjudicator required an explicit causal statement in the finding's own text before calling something self-inflicted, defaulting to new ground otherwise — two defensible, opposite applications of the same default rule. One finding-level saga worth naming on its own: round 8 (item 36) rebutted a claim with a specific code citation ("I'm not changing this text — it accurately describes the current, already-fixed behavior"), round 10 (item 44) partially conceded the wording while defending the substance, and round 11 (item 48) fully reversed course ("You were right and I was wrong on the substance, not just the wording — I owe a correction, not another rebuttal"); both readings independently landed on `wrong_fix` for all three, since the reversal shows round 8's rebuttal was itself never a valid resolution. `pre-open preflight` unmeasured (`—`). |
+| 20 | [#294](https://github.com/TheAnswerManIsHere/Overhypeme/pull/294) | prose/contract | 13 | 613 | 142 | 13 | 56 | 16 | 15 | 25 | 0 | 0 | **71.4%** | 31.4 | — | none | ✓ **12.5%** (7/56, full population) | Merged. `/document` harvest for PR #288 (async-queue hardening Phase 1), plus three more owed ledger rows (`check-ledger-coverage.mjs` pulled in #289/#290/#280 as rows 13–15 once this PR became "next"), plus a round-1 Codex doc-accuracy review fully addressed across the harvest content. **Full classification, arrived at over three attempts — each correction caught by Codex review, not self-caught.** First version deferred causal classification citing scale, matching rows 6/#279 and 14/#280; Codex correctly rejected that (those two are David-authorized exceptions for 166/180-finding loops, and "built from a subagent summary" was a self-inflicted process gap here, not a scale-driven one). Round boundaries were then re-derived authoritatively from the raw MCP snapshot already on disk — each finding's `created_at` bucketed against each formal review's `submitted_at` — correcting several mis-bucketed items from the original subagent summary (13 rounds of 9/5/8/5/4/3/1/6/2/4/4/3/2). The second version's blind adjudication came back at 39.3% against this row's 71.4% — a disagreement this row's own text originally reported as 18/56 (32.1%), which Codex separately caught as an arithmetic error (the true item-by-item count was 19/56, 33.9%) — either way, over the gate. But the disagreement itself turned out to have a root cause: the adjudicator's methodology had inverted the rubric's own ambiguous-default rule, requiring an explicit causal statement before calling a finding self-inflicted and defaulting to new ground on silence — backwards from `working-modes.md`'s "if a finding could plausibly be new ground or self-inflicted, classify it as self-inflicted." Re-run with the default corrected (silence resolves TO self-inflicted, not away from it, whenever a finding's file was touched by any earlier round's fix in the loop), the adjudicator landed at new=16/propagation=17/wrong=23, **71.4% self-inflicted — identical to the author's share**, with only 7 of 56 findings (12.5%) disagreeing, safely under the gate. One finding-level saga worth naming on its own, agreed by both readings: round 8 (item 36) rebutted a claim with a specific code citation ("I'm not changing this text — it accurately describes the current, already-fixed behavior"), round 10 (item 44) partially conceded the wording while defending the substance, and round 11 (item 48) fully reversed course ("You were right and I was wrong on the substance, not just the wording — I owe a correction, not another rebuttal") — both readings land `wrong_fix` on all three, since the reversal shows round 8's rebuttal was itself never a valid resolution. `pre-open preflight` unmeasured (`—`). |
 
 ### Rounds undercounted when a re-review is clean
 
@@ -126,17 +126,19 @@ failure. Its **mechanical** columns are fully derived and sound on their own.
 
 ### What the ledger's adjudicated rows now show
 
-**Ten rows carry a real adjudicated self-inflicted-share percentage** —
+**Eleven rows carry a real adjudicated self-inflicted-share percentage** —
 every adjudicated row except #284 (adjudicated but with nothing to report:
 its one finding is `invalid`, so the denominator is zero; see its own row
 note), #290 (adjudicated on both sides, but the two readings disagreed by
 25% — above the 20% gate — so its figure is `unmeasured` and excluded here,
-per its own row note), #292 (same reasoning: 21.1% disagreement, also
-over the gate, also `unmeasured`; see row 16's note), and #294 (same
-reasoning again: 32.1% disagreement, the largest of the four, also
-`unmeasured`; see row 20's note). Naming all ten, not a
+per its own row note), and #292 (same reasoning: 21.1% disagreement, also
+over the gate, also `unmeasured`; see row 16's note). #294 very nearly
+joined that excluded group too — its first adjudication attempt disagreed
+by 33.9%, but that adjudication had a confirmed methodology defect (see
+row 20's note); corrected and re-run, it converged to 12.5% disagreement
+and a clean measured figure. Naming all eleven, not a
 subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285
-50.0%, #286 0%, #288 35.0%, #289 33.3%, #297 0.0%. (A concurrent PR — #292 —
+50.0%, #286 0%, #288 35.0%, #289 33.3%, #297 0.0%, #294 71.4%. (A concurrent PR — #292 —
 independently derived #288 at 40.0% instead of 35.0%; row 12's own note
 discloses both readings rather than picking one silently. #292's #289 figure
 agrees exactly at 33.3%.)
@@ -259,39 +261,36 @@ post-boundary — is disclosed in row 12's own note rather than adopted; its
 #288 figure also differs from this row's 35.0%, per that same note.)
 
 **Two structural observations, both from counted data rather than
-impression, now checked against six loops instead of four:**
+impression, now checked against seven loops instead of four:**
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
-  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6. Five of six
-  qualifying loops replicate this exactly (the sixth, #270, ran before this
-  ledger tracked per-round breakdowns finely enough to confirm or deny it) —
-  this pattern is not an artifact of the pre-boundary reviewer, the
-  plan-review cohort, or any single loop's shape.
-- **Wrong fix dominates propagation in four of the six loops, not all six.**
-  #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs 6), and
-  #288 (4 vs 3) all show it. **#270 and #289 do not.** #270's reversal (18
-  propagation vs 4 wrong-fix) is already explained in row 3: this ledger's
-  own bootstrapping loop, with propagation findings concentrated in
-  subsystems built *mid-loop* (the MCP adapter, the rubric itself) rather
-  than "fixed one site, left another." #289's reversal is narrower (2
-  propagation vs 1 wrong-fix, on only 3 self-inflicted findings total) and
-  is better read as too small a sample to show the pattern than as a genuine
-  counter-example — a single finding moving categories would flip it back.
-  The dominance pattern holds reliably for plan-review loops (#274/#282) and
-  now replicates in #288 — a 21-file, code-plus-docs *implementation* PR
-  (backend, frontend, migration, tests, paired docs; cohorted
-  `prose/contract` only because the diff carries docs alongside code, not
-  because it's a single-document edit), which is a genuinely different loop
-  shape than a plan review. That #288 shows the same dominance despite the
-  shape difference is a real replication, not a restatement of the
-  plan-review case — the pattern may be about self-inflicted findings in
-  general rather than something specific to editing one document, though
-  n=1 outside the plan-review shape isn't enough to claim that broadly. #294
-  was the candidate to test this on a genuinely large *pure-docs-harvest*
-  loop the way #270 tested it for code, but its own author-vs-adjudicator
-  disagreement landed above the 20% gate (row 20), so its breakdown is
-  `unmeasured` and it cannot answer this question — the pure-docs-harvest
-  case remains untested, not disconfirmed.
+  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6; in #294,
+  9/9. Six of seven qualifying loops replicate this exactly (the seventh,
+  #270, ran before this ledger tracked per-round breakdowns finely enough to
+  confirm or deny it) — this pattern is not an artifact of the pre-boundary
+  reviewer, the plan-review cohort, or any single loop's shape.
+- **Wrong fix dominates propagation in five of the seven loops, not all
+  seven.** #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs
+  6), #288 (4 vs 3), and #294 (25 vs 15) all show it. **#270 and #289 do
+  not.** #270's reversal (18 propagation vs 4 wrong-fix) is already
+  explained in row 3: this ledger's own bootstrapping loop, with propagation
+  findings concentrated in subsystems built *mid-loop* (the MCP adapter, the
+  rubric itself) rather than "fixed one site, left another." #289's reversal
+  is narrower (2 propagation vs 1 wrong-fix, on only 3 self-inflicted
+  findings total) and is better read as too small a sample to show the
+  pattern than as a genuine counter-example — a single finding moving
+  categories would flip it back. The dominance pattern holds reliably for
+  plan-review loops (#274/#282) and replicates in #288 — a 21-file,
+  code-plus-docs *implementation* PR (backend, frontend, migration, tests,
+  paired docs; cohorted `prose/contract` only because the diff carries docs
+  alongside code, not because it's a single-document edit), a genuinely
+  different loop shape than a plan review. **#294 is the pure-docs-harvest
+  test this note previously said was still outstanding, and it now answers
+  the open question directly: the dominance pattern holds there too** (25
+  wrong-fix vs 15 propagation, on a 13-round, 56-finding loop touching eight
+  separate documentation files with no code at all) — real evidence the
+  pattern is about self-inflicted review findings in general, not something
+  specific to code or to editing a single document.
 
 This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
 post-boundary (declining; #285 excluded as a boundary straddle — a
