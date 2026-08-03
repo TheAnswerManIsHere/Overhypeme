@@ -37,6 +37,14 @@
 // acquire a second home merely by being wrapped in ```. A chapter that
 // genuinely needs to quote one uses the same explicit tuning-ok escape hatch
 // as prose.
+//
+// Scanning tolerates two concrete evasions found in round 2 of PR #298's own
+// review: inline emphasis/code markup splitting a value from its unit
+// (`up to **50** eligible`), and this corpus's own ~80-column hard-wrap
+// splitting a phrase across two physical lines (`3 send-back\nattempts`).
+// Markdown emphasis/code markers are stripped before matching, and every
+// line is scanned jointly with the line after it — see `scanText` for how a
+// match is still attributed to exactly one line.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
@@ -83,6 +91,27 @@ const RULES = [
     why: "a batch ceiling is a tuning constant; say it's bounded, not by how much",
   },
   {
+    id: "elliptical-cap",
+    // "one fact or fifty" — restates a cap already given elsewhere as a
+    // spelled-out alternative to "one", instead of a bare count with a noun
+    // attached (which counted-component already catches). PR #298 round 2:
+    // this exact phrase survived because neither "fifty" (outside
+    // counted-component's two..ten word list) nor the missing noun (the verb
+    // is elided — "fifty" stands for "fifty facts") were covered.
+    re: /\bone\s+[a-z]+\s+or\s+(?:two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|\d+)\b/gi,
+    why: "restating a cap as \"one X or N\" is still the value; say it's bounded, not by how much",
+  },
+  {
+    id: "config-kv",
+    // "intervalMs: 2000", "maxConcurrency: 3" — a code/config key-value pair
+    // is configuration regardless of surrounding prose. Checked against the
+    // real corpus: no chapter today uses a bare "Word: <number>" construction
+    // for anything else, so this doesn't need the counted-component-style
+    // noun whitelist.
+    re: /\b[a-zA-Z][a-zA-Z0-9]*\s*:\s*\d+\b/g,
+    why: "a key:value pair is configuration; describe the behavior it controls, not its value",
+  },
+  {
     id: "magnitude-standin",
     // Qualitative words that encode a magnitude.
     //
@@ -109,8 +138,24 @@ const IGNORE_LINE = "<!-- tuning-ok -->";
 const IGNORE_START = "<!-- tuning-ok:start -->";
 const IGNORE_END = "<!-- tuning-ok:end -->";
 
+/**
+ * Strip markdown emphasis/code markers so `**50**` and `` `50` `` read the
+ * same as bare `50`. Deliberately narrow — only the double-asterisk/
+ * double-underscore bold forms and single-backtick code spans, the only
+ * markers this corpus actually uses for emphasis. Single-asterisk/underscore
+ * italics are left alone: this corpus doesn't use them, and `*`/`_` are also
+ * bullet/identifier characters, too ambiguous to strip without evidence.
+ */
+function stripEmphasis(line) {
+  return line
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/`([^`]+?)`/g, "$1");
+}
+
 export function scanText(text) {
   const raw = text.split("\n");
+  const stripped = raw.map(stripEmphasis);
   const findings = [];
   let suppressed = false;
   let suppressedFrom = null;
@@ -127,10 +172,25 @@ export function scanText(text) {
     }
     if (suppressed || line.includes(IGNORE_LINE)) return;
 
+    // This corpus hard-wraps prose across physical lines, so a tuning phrase
+    // can legitimately split at a line break ("3 send-back\nattempts").
+    // Scan this line jointly with the next (blank next line = no join, since
+    // a blank line is a real paragraph break) — but only count a match that
+    // STARTS within this line's own text. That attributes every match to
+    // exactly one line (never double-reported once here and once as the
+    // next line's own pass) and can't pull a suppressed next line's content
+    // into this one, since a match wholly inside the joined portion is left
+    // for that line's own, suppression-aware pass.
+    const current = stripped[i];
+    const nextRaw = i + 1 < raw.length ? raw[i + 1] : "";
+    const next = nextRaw ? stripped[i + 1] : "";
+    const window = next ? `${current} ${next}` : current;
+
     for (const rule of RULES) {
       rule.re.lastIndex = 0;
       let m;
-      while ((m = rule.re.exec(line)) !== null) {
+      while ((m = rule.re.exec(window)) !== null) {
+        if (m.index >= current.length) continue;
         findings.push({ line: i + 1, rule: rule.id, why: rule.why, match: m[0].trim() });
       }
     }

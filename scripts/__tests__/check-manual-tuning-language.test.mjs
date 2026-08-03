@@ -40,6 +40,14 @@ test("catches a batch ceiling stated as a bare number, no counted-component noun
   assert.deepEqual(ids('the dialog says "up to 50 eligible" rather than an exact count'), ["batch-cap"]);
 });
 
+test('catches "one X or N" as a restated cap, spelled-out numbers included', () => {
+  // Regression: PR #298 round 2 — "one fact or fifty" survived because
+  // "fifty" is outside counted-component's two..ten word list and there's no
+  // noun directly attached (it's elided: "fifty" stands for "fifty facts").
+  assert.ok(scanText("this holds whether it's one fact or fifty").length > 0);
+  assert.ok(scanText("send back one row or twenty").length > 0);
+});
+
 test("catches magnitude stand-ins that encode a value", () => {
   assert.deepEqual(ids("Both are serialized."), ["magnitude-standin"]);
   assert.deepEqual(ids("It polls frequently."), ["magnitude-standin"]);
@@ -86,6 +94,18 @@ test("fenced code blocks are NOT auto-exempt — a config sample is still config
   // the explicit tuning-ok escape hatch exempts it, fenced or not.
   const text = ["```js", "{ intervalMs: 2000, maxConcurrency: 3 } // 5 seconds", "```", "clean prose"].join("\n");
   assert.ok(scanText(text).length > 0, "a fenced tuning value must still be caught");
+});
+
+test("a config-only fenced sample is caught without relying on an incidental duration", () => {
+  // Regression: PR #298 round 2 — the test above passed only because its
+  // fixture appended "// 5 seconds", which tripped the duration rule instead
+  // of actually detecting either config value. This fixture has no duration.
+  const text = ["```js", "{ intervalMs: 2000, maxConcurrency: 3 }", "```"].join("\n");
+  assert.deepEqual(ids(text), ["config-kv", "config-kv"]);
+});
+
+test("catches an identifier:number config pair outside a fence too", () => {
+  assert.deepEqual(ids("set maxConcurrency: 3 in the job config"), ["config-kv"]);
 });
 
 test("a deliberately quoted fenced example is exempt via tuning-ok, same as prose", () => {
@@ -143,4 +163,33 @@ test("the real historical violations are all caught", () => {
 
 test("matched text is returned so a reader can find it without re-grepping", () => {
   assert.deepEqual(matches("polls every 2 seconds"), ["2 seconds"]);
+});
+
+test("bold/code markup around a value does not hide it from the rules", () => {
+  // Regression: PR #298 round 2 — scanText("up to **50** eligible") returned
+  // no findings, because the raw asterisks broke the batch-cap regex.
+  assert.ok(scanText("up to **50** eligible").length > 0, "missed a bolded value");
+  assert.ok(scanText("up to `50` eligible").length > 0, "missed a code-quoted value");
+});
+
+test("a phrase split across a hard-wrapped line break is still caught", () => {
+  // Regression: PR #298 round 2 — scanText("3 send-back\nattempts") returned
+  // no findings, because each physical line was scanned in isolation and
+  // this corpus hard-wraps prose at its own line width.
+  const text = ["a fact whose last 3 send-back", "attempts all failed drops out"].join("\n");
+  const found = scanText(text);
+  assert.ok(found.length > 0, "missed a phrase split by a line wrap");
+  assert.equal(found[0].line, 1, "attributes the match to the line where it starts");
+});
+
+test("a line-wrap match is reported exactly once, not on both lines of the window", () => {
+  const text = ["a fact whose last 3 send-back", "attempts all failed, and this line is clean"].join("\n");
+  assert.equal(scanText(text).length, 1);
+});
+
+test("a blank line breaks the join — unrelated paragraphs don't combine into a false match", () => {
+  // If "five" (end of one paragraph) joined across the blank line with "lanes
+  // of traffic" (start of the next), that would falsely read as a count.
+  const text = ["there were five", "", "lanes of traffic backed up"].join("\n");
+  assert.deepEqual(scanText(text), []);
 });

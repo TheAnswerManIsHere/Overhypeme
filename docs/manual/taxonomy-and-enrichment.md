@@ -84,9 +84,9 @@ the Stale-for-reprocess card. Sending a fact back:
 - Puts the fact through the **same two human gates** every submission clears
   — Visual Concept, then Test Renders — before the refreshed version can go
   live. **Sending a fact back only starts that cycle; it never finishes it on
-  its own.** This holds whether it's one fact or fifty: bulk send-back is
-  strictly a faster way to *queue* refreshes, never a way to skip the humans
-  reviewing them.
+  its own.** This holds no matter how many facts are queued at once: bulk
+  send-back is strictly a faster way to *queue* refreshes, never a way to
+  skip the humans reviewing them.
 - Works the same whether or not the fact has active variants. Root facts with
   active variants used to be blocked from bulk send-back, on the assumption
   that refreshing a root could invalidate its variants' classification —
