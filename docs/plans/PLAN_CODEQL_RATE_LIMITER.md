@@ -45,9 +45,12 @@ Verified against the packaged source, not docs or memory:
   limit of N allows N and blocks the (N+1)-th.
 - `config.skip` is evaluated **before** `store.increment` — exempt paths genuinely
   never touch the Store.
-- `passOnStoreError: true` allows the request through if the Store throws; its
-  `catch` wraps **only** `store.increment`, so nothing else in the middleware may
-  reject.
+- The `try`/`catch` wraps **only** `store.increment` (`dist/index.cjs:896-910`),
+  so nothing else in the middleware may reject. With `passOnStoreError: true` a
+  Store throw calls `next()` — the request is admitted uncounted. With
+  `passOnStoreError: false` it re-throws inside `handleAsyncErrors`, i.e.
+  `next(error)`. This plan uses `false`; §2 explains why the choice cannot be
+  made here at all.
 - `ipKeyGenerator(ip, ipv6Subnet = 56)` normalizes IPv6 to a `/56` with an
   IPv4-mapped carve-out (the CVE-2026-30827 bug class).
 - v8 supports Express 5 (this repo runs `express@5.2.1`).
@@ -81,13 +84,6 @@ true and the salt is missing or short. Repo-wide fix; protects
 
 **Window comes from `init(options)`**, called once at setup.
 
-**Store errors propagate.** `passOnStoreError: true` is what turns a throw into
-"let the request through"; the one `try`/`catch` is telemetry-only and **rethrows**
-(swallowing it silently breaks `passOnStoreError`). That telemetry increments a
-process-local `storeErrorThisInstance` counter and logs **at most one line per
-second per process** — under a database outage every request reaches this path, so
-an unthrottled log turns an outage into an unbounded log stream (round-10 finding).
-
 **Acquisition is bounded by a small dedicated pool (round-11 finding, P1).**
 The Store does **not** use the shared `db` client. My §6 argument — "the existing
 limiter already makes this exact call" — was true about the *call* and wrong about
@@ -95,26 +91,102 @@ the *scope*: `checkSharedRateLimit` guards specific routes, whereas this
 middleware runs on **every** `/api/*` request before routing, including requests
 to nonexistent paths. The shared pool sets no `connectionTimeoutMillis`
 (`lib/db/src/index.ts:72-88`), so during a database stall every one of those
-requests joins `pg-pool`'s `_pendingQueue` and never reaches `passOnStoreError` —
-an unbounded backlog of open requests, and a materially broader failure mode than
-the narrow limiter has.
+requests joins `pg-pool`'s `_pendingQueue` and never reaches the error path — an
+unbounded backlog of open requests, and a materially broader failure mode than the
+narrow limiter has.
 
-Fixed with a dedicated `pg.Pool` in `globalRateLimitStore.ts`, same
-`DATABASE_URL`, `max: 4`, `connectionTimeoutMillis: 2_000`. Acquisition is then
-bounded by construction: a stalled database rejects in ≤2s, `passOnStoreError`
-fails the request open, and nothing queues indefinitely. Four extra connections
-sit comfortably inside the derived budget documented at `lib/db/src/index.ts:56-67`.
-This is **not** the round-9 concurrency gate — that gate failed a request open
-when *application-level* permits were exhausted, which let an attacker bypass the
-limiter by holding permits. Here the only thing that fails a request open is the
-database itself being unreachable.
+So the Store owns a dedicated `pg.Pool`: same `DATABASE_URL`, `max: 4`,
+`connectionTimeoutMillis: 2_000`, plus its own `pool.on("error", …)` idle-client
+handler mirroring `lib/db/src/index.ts:90-95` (round-12 finding — without it an
+`ECONNRESET` on an idle client of *this* pool is an uncaught exception that
+crashes the process; the shared pool has had that handler all along and the
+dedicated one inherited nothing).
+
+### Failure policy: contention fails closed, outage fails open
+
+Round 11 claimed "the only thing that fails a request open is the database itself
+being unreachable." **That was false, and it is the fourth time bounding this
+Store's DB access has produced a bypass.** `pg-pool` applies
+`connectionTimeoutMillis` whenever `_isFull()` (`pg-pool@3.13.0/index.js:199-225`)
+— *not* only when the database is unreachable. Four concurrent slow upserts
+saturate a `max: 4` pool, every further acquisition rejects after 2s,
+`passOnStoreError` admits those requests uncounted, and the attacker who caused
+the saturation is the one who benefits. Pool size is not a security boundary.
+
+The fix is to stop treating every Store failure as the same event. The Store
+tracks `lastSuccessAt` — the wall-clock time of its most recent successful query —
+and branches on it:
+
+```ts
+const DB_HEALTHY_WINDOW_MS = 10_000;
+
+class GlobalRateLimitStore implements Store {
+  private lastSuccessAt = 0;
+
+  async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
+    try {
+      const result = await this.upsert(key);
+      this.lastSuccessAt = Date.now();
+      return result;
+    } catch (err) {
+      this.noteStoreError(err);              // counter + ≤1 log line/sec/process
+      if (Date.now() - this.lastSuccessAt < DB_HEALTHY_WINDOW_MS) {
+        // The database answered us seconds ago, so this is local contention,
+        // not an outage. Shed the request instead of admitting it uncounted —
+        // admitting it IS the bypass.
+        throw new RateLimiterUnavailableError();
+      }
+      // Nothing has succeeded inside the healthy window: treat this as a real
+      // database outage and fail open, so a DB incident does not also take the
+      // whole API down.
+      return { totalHits: 1, resetTime: new Date(Date.now() + this.windowMs) };
+    }
+  }
+}
+```
+
+Both branches are decided **inside the Store**, so `passOnStoreError` is set to
+**`false`** and the package's own catch is never the thing making the policy
+call. Verified against the packaged source (`dist/index.cjs:896-910`): with
+`passOnStoreError: false` a Store throw becomes `throw error` inside
+`handleAsyncErrors`, i.e. `next(error)`. A four-argument error middleware
+mounted immediately after the limiter turns `RateLimiterUnavailableError` into a
+`503` with `Retry-After` and re-`next(err)`s anything else. Because Express
+propagates errors *forward* from where they are thrown, an error handler at that
+position sees limiter errors and not router errors.
+
+Why this is not the round-9 concurrency gate wearing a new hat: that gate failed
+requests **open** when application-level permits ran out, which is precisely what
+made holding permits a bypass. This one fails those same requests **closed**. The
+attacker who saturates the pool gets 503s, not free passage, and the 503 path
+costs one rejected `pool.connect()` — no query, no row, no write.
+
+**Cold start.** `lastSuccessAt` is 0 before the first success, so an attacker who
+saturates the pool from the very first request could otherwise hold the Store in
+the fail-open branch forever. Startup runs one `SELECT 1` on the dedicated pool
+before the server accepts traffic and seeds `lastSuccessAt` on success. If that
+probe fails, the database is genuinely down at boot and fail-open is the right
+state to start in.
 
 **The residual, stated rather than engineered around:** when the database is
-genuinely down, this limiter stops limiting. That is what `passOnStoreError`
-means, it is the correct choice for a backstop (failing closed would take the site
-down on a blip), and the existing narrow limiters have the identical property. The
-round-11 finding was about unbounded *queueing*, which the dedicated pool fixes;
-it is not a claim that fail-open is avoidable.
+genuinely down for longer than `DB_HEALTHY_WINDOW_MS`, this limiter stops
+limiting. That is deliberate — failing closed across a real outage would convert
+a database blip into a total site outage — and the existing narrow limiters have
+the identical property. What round 12 established is that *contention* must not
+share that treatment; it no longer does.
+
+**Error telemetry** increments a process-local `storeErrorThisInstance` counter
+and logs **at most one line per second per process**, on both branches. Under an
+outage every request reaches this path, so an unthrottled log turns an outage
+into an unbounded log stream (round-10 finding).
+
+**Write amplification, and what bounds it.** This middleware turns every
+non-exempt `/api/*` request into one DB write, including requests it goes on to
+reject — the package increments before it compares (`dist/index.cjs:896`, `:992`).
+That is inherent to the shape CodeQL requires, and the bound is the dedicated
+pool: at most 4 concurrent writes per instance, with everything past that shed as
+503 rather than queued or admitted. A flood therefore costs a bounded, small
+write rate and a large number of cheap rejections.
 
 **Row lifetime.** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`)
 is a single unbounded `DELETE` of every expired row — wiring it as-is would not
@@ -139,22 +211,36 @@ import { ipFromRequest } from "./lib/transientRenderLog";
 //
 // THE DEFAULT IS DERIVED FROM THIS REPO'S REAL POLLING WORKLOAD, not from a
 // page-load estimate (round-11 finding, P1 — the estimate was wrong by ~20×).
-// `GodModeLoadingTakeover.tsx:80` polls `/api/memes/video-jobs/:id` every
-// **500 ms** while a video generates — 120 req/min for ONE active job. At a
-// 600/min ceiling, five concurrent jobs behind one NAT exhaust it. The
-// consequence is not a slow page: the poller throws on a non-OK response and
-// `MAX_CONSECUTIVE_ERRORS = 5` (`:127`) then marks the job **failed** with
-// "Couldn't reach the server" — so crossing the ceiling kills in-flight video
-// generations for everyone behind that IP within 2.5 seconds.
+// There are TWO 500 ms pollers, not one (round-12 finding — I derived 6,000
+// from the first and never looked for a second):
+//   • GodModeLoadingTakeover.tsx:80,166 → /api/memes/video-jobs/:id
+//   • PulidLoadingTakeover.tsx:27,93    → /api/memes/pulid-jobs/:id
+// Each is 120 req/min for ONE active job.
 //
-// Derivation: budget 50 concurrent polling jobs per IP (a large office/school
-// NAT, well past any plausible real case) at 120 req/min each = 6,000/min,
-// which also leaves headroom for ordinary browsing on the same address. That
-// is ~100 req/s sustained from a single IP — still a meaningful ceiling
-// against gross scraping, which is all this backstop is for. The narrow
-// limiters (30/min general, 5/min fact-submit) remain the real protection.
+// Crossing the ceiling is not a slow page. The video poller throws on a
+// non-OK response and MAX_CONSECUTIVE_ERRORS = 5 (:127) marks the job
+// **failed** — 2.5 seconds of 429s kills in-flight generations for everyone
+// behind that IP. The Pulid poller has no such counter: its catch only feeds
+// a visual fallback and it keeps polling (`:87-94`), so a blocked tab retries
+// at 2 req/s indefinitely, and every retry is counted (the package increments
+// before it compares). It does not lock the IP out — the fixed window still
+// resets — but an open tab permanently consumes 120 req/min of the budget.
+//
+// Derivation, with the arithmetic shown because round 11's version had none:
+//   50 concurrent polling jobs behind one IP × 120 req/min  = 6,000
+//   ordinary browsing by those same 50 users, ~60 req/min each = 3,000
+//   → 9,000, ×1.33 margin                                   ≈ 12,000/min
+// Round 11 stopped at 6,000, which is *exactly* the polling term and leaves
+// literally zero headroom for the page loads those 50 users are also making.
+//
+// 12,000/min is 200 req/s sustained from one address. That is a coarse ceiling,
+// and deliberately so: the harm is asymmetric. Too low destroys real users'
+// in-flight jobs within seconds; too high only makes a gross-abuse backstop
+// coarser, while the narrow limiters (30/min general, 5/min fact-submit) go on
+// doing the actual per-feature protection. GLOBAL_RATE_MAX exists for the case
+// where operational data says otherwise.
 const GLOBAL_RATE_WINDOW_MS = parsePositiveInt(process.env.GLOBAL_RATE_WINDOW_MS, 60_000);
-const GLOBAL_RATE_MAX = parsePositiveInt(process.env.GLOBAL_RATE_MAX, 6_000);
+const GLOBAL_RATE_MAX = parsePositiveInt(process.env.GLOBAL_RATE_MAX, 12_000);
 
 // Express's default routing is neither strict nor case-sensitive (verified:
 // express@5.2.1, with no `strict routing` or `case sensitive routing` override
@@ -188,12 +274,25 @@ const SAFE_READ_METHODS = ["GET", "HEAD"] as const;
 //     work. Varying slugs or query params misses caches and drives all of it
 //     unmetered. That predicate exists for the CSRF-cookie decision, where it is
 //     correct; reusing it here imported a resource-exhaustion hole. The global
-//     limiter no longer consults it at all — at 6,000/min a real crawler is
+//     limiter no longer consults it at all — at 12,000/min a real crawler is
 //     nowhere near the ceiling.
 const EARLY_EXEMPT_ROUTES: ReadonlyArray<{ methods: readonly string[]; path: string }> = [
   { methods: SAFE_READ_METHODS, path: "/api/healthz" },  // liveness — see mount note
   { methods: ["POST"], path: "/api/stripe/webhook" },     // own signature gate
 ];
+// On the webhook exemption specifically (round-12 finding, P1 — raised as
+// "forged requests drive unmetered DB reads"). Checked, and the DB half does
+// not hold: WebhookHandlers.processWebhook (webhookHandlers.ts:1106) calls
+// getStripeSync() at :1120 before signature verification at :1122, and that
+// resolves isLiveMode() → getConfigStringRaw → adminConfig's 60-second TTL
+// cache (adminConfig.ts:22,33-39). A forged flood produces at most one
+// admin_config read per minute per process, not one per request; the StripeSync
+// instance is likewise built once and memoized (stripeClient.ts:102-105).
+// What a forged request DOES cost is a ≤100 kB raw body (body-parser's default,
+// unoverridden at app.ts:148) and one HMAC verification — CPU, bounded, no DB.
+// So the exemption stays, and this is what would invalidate that: removing the
+// config cache, raising the raw-body limit, or any DB work moving ahead of the
+// signature check.
 
 function isExemptRequest(req: Request): boolean {
   const path = normalizeRoutePath(req.originalUrl.split("?")[0]);
@@ -207,7 +306,7 @@ const globalLimiter = rateLimit({
   limit: GLOBAL_RATE_MAX,          // a constant — not an async DB read
   store: new GlobalRateLimitStore(),
   keyGenerator: (req) => ipKeyGenerator(ipFromRequest(req)),
-  passOnStoreError: true,
+  passOnStoreError: false,         // policy lives in the Store — see §2
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => isExemptRequest(req),
@@ -234,9 +333,19 @@ app.head("/api/healthz", healthzHandler);
 // Mounted immediately after the app-level cors() call (app.ts:180) — early
 // enough that a rejected request never pays for body parsing, CSRF, or
 // authMiddleware's DB session lookup, but late enough that its 429 carries
-// correct CORS headers. Preflight never reaches here: with the default
-// preflightContinue:false, app.use(cors(...)) answers OPTIONS itself.
+// correct CORS headers.
+//
+// PREFLIGHT: an ACCEPTED origin's OPTIONS never reaches here — with the default
+// preflightContinue:false, cors() answers it and ends the response. A REJECTED
+// origin's preflight DOES reach here (round-12 finding; confirmed in
+// cors@2.8.6 lib/index.js:222-228, where the origin callback returning false
+// takes the `if (err2 || !origin) { next(err2) }` branch and falls through
+// rather than answering). Those requests are metered like any other
+// unauthenticated traffic, which is the intended behavior: exempting OPTIONS
+// would hand an attacker a one-word bypass. The DB cost of metering them is
+// bounded by §2's write-amplification note.
 app.use("/api", globalLimiter);
+app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailableError
 ```
 
 **Mount-shape notes:**
@@ -263,8 +372,22 @@ app.use("/api", globalLimiter);
 - `artifacts/api-server/package.json` + regenerated root `pnpm-lock.yaml` — add
   `express-rate-limit`.
 - `artifacts/api-server/src/lib/globalRateLimitStore.ts` — new: the `Store`, its
-  dedicated bounded `pg.Pool` (`max: 4`, `connectionTimeoutMillis: 2_000`), the
-  process-local `storeErrorThisInstance` counter, and the throttled error log.
+  dedicated bounded `pg.Pool` (`max: 4`, `connectionTimeoutMillis: 2_000`, idle
+  `error` handler), the `lastSuccessAt` health signal and its startup probe,
+  `RateLimiterUnavailableError`, the process-local `storeErrorThisInstance`
+  counter, and the throttled error log.
+- `lib/db/src/index.ts` — **the pool-budget derivation must be updated, not just
+  consumed** (round-12 finding). The comment at `:45-67` derives
+  `max = min(20, floor(398 / max_instances))` and concludes 20 is "safe for any
+  autoscale ceiling up to 19 instances" — a figure computed *for* 20 connections
+  per instance. This plan adds 4 more, so the real per-instance total is 24 and
+  the safe ceiling is `floor(398 / 24) = 16`, not 19. The shared pool's `max`
+  stays 20 (lowering it would break the "double the five lanes' worst case of 10"
+  property the comment derives); what changes is the recorded ceiling, the
+  arithmetic behind it, and a note that the limiter's 4 are part of the total.
+  `DB_POOL_MAX` remains the escape hatch above 16 instances. Leaving the comment
+  stale would be worse than the connection count itself — it is the only written
+  record of this budget.
 - `artifacts/api-server/src/lib/sharedRateLimiter.ts` — `purgeExpiredRateLimitCounters()`
   gains a `limit` parameter and returns the deleted-row count, so the new job can
   loop in bounded batches (round-11 finding: as written it is one unbounded
@@ -288,7 +411,7 @@ app.use("/api", globalLimiter);
 - `.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md` — record the
   resolution: the global middleware is what clears the alerts, and why.
 
-**No migration. No `admin_config` row. No changes to `lib/db/src/index.ts`.**
+**No migration. No `admin_config` row.**
 
 ## 5. Verification
 
@@ -312,15 +435,27 @@ app.use("/api", globalLimiter);
    **an OG/meme asset flood with randomized slugs, and `/api/memes/ai-user/image`,
    are metered** (the exemption they used to get is gone); trusted-IP resolution
    order proven against actual bucket sharing; `ipKeyGenerator` IPv6/IPv4-mapped
-   handling; `passOnStoreError` via a forced Store error; a sustained blocked burst
-   produces bounded log volume; CORS headers present on the 429 and preflight never
-   reaches the Store.
+   handling; a sustained blocked burst produces bounded log volume; CORS headers
+   present on the 429; an **accepted**-origin preflight never reaches the Store and
+   a **rejected**-origin preflight *is* metered (both asserted by Store hit count).
 3b. **The polling case, because it is what the ceiling is derived from:** a
-   simulated shared IP running N concurrent video-job pollers at the real 500 ms
-   cadence stays under the ceiling at the documented capacity and never trips
-   `MAX_CONSECUTIVE_ERRORS`. Plus a **bounded-acquisition** case: with the
-   dedicated pool saturated, requests fail open within the 2s connect timeout and
-   the open-request count stays bounded rather than queueing.
+   simulated shared IP running N concurrent pollers at the real 500 ms cadence —
+   **both** `/api/memes/video-jobs/:id` and `/api/memes/pulid-jobs/:id`, since the
+   ceiling now accounts for two — stays under the ceiling at the documented
+   capacity and never trips `MAX_CONSECUTIVE_ERRORS`.
+3c. **The failure-policy matrix, which is the round-12 P1 and the fourth attempt
+   at this boundary — so it gets asserted counts, not just latencies:**
+   - *Healthy contention.* Saturate the dedicated pool while the database is up.
+     Assert every shed request returns **503** and that the number of requests
+     **admitted past the ceiling is zero** — the specific bypass rounds 9, 11 and
+     12 each produced in a different shape. Assert open-request count stays
+     bounded (no `_pendingQueue` growth) and the 503 path issues no query.
+   - *Genuine outage.* Stop the database, wait past `DB_HEALTHY_WINDOW_MS`, assert
+     requests are admitted (fail open) and the log stays ≤1 line/sec/process.
+   - *Recovery.* Bring it back; assert enforcement resumes on the first success.
+   - *Cold start.* Saturate the pool before any successful query and assert the
+     startup `SELECT 1` has already seeded `lastSuccessAt`, so the fail-open
+     branch is not reachable while the database is up.
 4. **Purger tests:** active vs. expired boundary; bounded-batch deletion of a large
    synthetic backlog; a thrown error on one run doesn't block the next.
 5. **Boot-time salt guard matrix — both positive branches, not just one**
@@ -331,14 +466,14 @@ app.use("/api", globalLimiter);
    and a too-short salt; does not throw with a valid salt, or in test/CI and local
    development.
 6. **Full existing suite + E2E Smoke** — no new failures, and specifically no 429s
-   from this limiter. CI runs ~170 test files against one local server from one IP,
-   so this is the empirical check that 6,000/min clears real CI volume. If it doesn't,
-   raise the default rather than special-casing `NODE_ENV`.
+   and no 503s from this limiter. CI runs ~170 test files against one local server
+   from one IP, so this is the empirical check that 12,000/min clears real CI
+   volume. If it doesn't, raise the default rather than special-casing `NODE_ENV`.
 7. **Local CodeQL re-scan** of the final code confirms `js/missing-rate-limiting`
    drops 213 → 0.
 8. **Load check:** 500 concurrent requests over 200 distinct keys and over 1 shared
-   key, 30s each. Pass: p95 added latency ≤ 15ms, sustained pool usage ≤ 16 of 20
-   connections, 0% Store-attributable error rate.
+   key, 30s each. Pass: p95 added latency ≤ 15ms, shared-pool usage ≤ 16 of 20
+   connections, dedicated-pool usage ≤ 4, 0% requests admitted past the ceiling.
 9. **Manual:** exceed the ceiling from one IP, confirm the 429 body/headers/CORS;
    confirm the narrow limiters still fire independently; confirm exempt routes are
    unaffected.
@@ -369,9 +504,12 @@ these were considered rather than overlooked.
   ceiling would have marked their in-flight jobs failed within 2.5 seconds
   (`MAX_CONSECUTIVE_ERRORS = 5`). The conclusion (drop the discriminator) still
   holds, but it now rests on a ceiling **derived from that measured workload**
-  (§3: 6,000/min ≈ 50 concurrent polling jobs) rather than on a guess. Recorded
-  rather than quietly amended, because the original number is what justified the
-  removal at the time.
+  rather than on a guess. Recorded rather than quietly amended, because the
+  original number is what justified the removal at the time. Round 12 then found
+  the derivation itself incomplete — a *second* 500 ms poller
+  (`PulidLoadingTakeover.tsx`) and a 6,000 figure that was exactly the polling
+  term with zero browsing headroom — which is why §3 now shows the arithmetic and
+  lands at 12,000/min.
 - **The dry-run rollout flag.** Directly conflicted with `AGENTS.md:133-134`
   ("Pre-launch: features ship on-by-default, no rollout flags"). Removing it
   resolves the conflict rather than seeking an exception.
@@ -379,7 +517,7 @@ these were considered rather than overlooked.
   single-flighted cache, the debug-overlay bypass, the PATCH validation fixes, and
   the seed migration. All existed to make the ceiling live-tunable. An env var
   matches what the existing narrow limiters already do; changing it needs a deploy,
-  which is acceptable for a backstop set ~100× above real usage. This also removes
+  which is acceptable for a backstop set well above real usage. This also removes
   the round-10 P1 where a rejecting config read became a JSON 500 and failed
   requests *closed* during a database outage — there is no longer a config read on
   the request path at all.
@@ -400,17 +538,26 @@ these were considered rather than overlooked.
   guards specific routes, while this one runs on every `/api/*` request before
   routing, including nonexistent paths. With no `connectionTimeoutMillis` on the
   shared pool, a database stall would queue all of them unboundedly and never
-  reach `passOnStoreError`. §2 now gives the Store a dedicated `max: 4`,
+  reach the error path. §2 now gives the Store a dedicated `max: 4`,
   `connectionTimeoutMillis: 2_000` pool, which bounds acquisition by construction
-  without an application-level permit scheme — the distinction that matters is
-  that only *the database being unreachable* fails a request open, never
-  application-level contention, which is what made the round-9 gate bypassable.
+  without an application-level permit scheme.
 
-  **The residual that genuinely remains:** when the database is down, this limiter
-  stops limiting. That is what `passOnStoreError` means, it is the right choice for
-  a backstop, and the existing narrow limiters share it exactly. Round 11's finding
-  was about unbounded queueing — now fixed — not a claim that fail-open is
-  avoidable.
+  **Correction (round-12, P1): the *distinction* I drew to justify that was wrong
+  too, and this is the fourth consecutive attempt at the same boundary.** I wrote
+  that "only the database being unreachable fails a request open, never
+  application-level contention." `pg-pool` applies `connectionTimeoutMillis`
+  whenever the pool is full (`index.js:199-225`), so saturating four connections
+  produced exactly the round-9 bypass again in a different costume. The pattern
+  across rounds 8→12 is that every version of this fix tried to make failures
+  *rarer*; none of them changed what happens *when* one occurs. §2's failure
+  policy does: contention fails **closed** (503, load shed), outage fails **open**,
+  and the two are told apart by a `lastSuccessAt` signal rather than by pool
+  sizing. Pool size is not a security boundary and this plan no longer treats it
+  as one.
+
+  **The residual that genuinely remains:** when the database is down for longer
+  than the healthy window, this limiter stops limiting. That is the right choice
+  for a backstop, and the existing narrow limiters share it exactly.
 - **The purger's advisory lock.** Added to stop autoscale instances running
   redundant hourly deletes; rounds 8-10 then spent three findings on session
   lifetime, release ownership, and lock reentrancy. `DELETE WHERE expires_at <
@@ -425,5 +572,5 @@ limiter mounts at `/api`. `current-roadmap.md:280-288` records this as a pending
 decision, so this plan flags it rather than settling it silently — but the sharp
 edge is gone: with a code-constant ceiling there is no admin endpoint whose
 throttling could lock an operator out of fixing the throttle. Admin routes behind
-6,000/min per IP is unremarkable, so **the recommendation is to leave them covered**
+12,000/min per IP is unremarkable, so **the recommendation is to leave them covered**
 and close the roadmap item.
