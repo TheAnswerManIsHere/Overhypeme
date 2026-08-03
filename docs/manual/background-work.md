@@ -124,6 +124,42 @@ behave differently, and the distinction matters:
 - A row **already in the queue** is left pending and retried later rather than
   being consumed and failed, so genuinely queued work survives.
 
+### Worker liveness and the Queue Health surface
+
+Every lane's worker publishes a **heartbeat** — a small row saying "instance
+X is still ticking lane Y, N jobs in flight" — because the queue table alone
+can't tell you a worker has died: a `pending` row looks identical whether a
+worker is about to claim it or every worker crashed an hour ago. Admin →
+**Queue Health** is the fleet-wide view built on those heartbeats, and it's a
+**third** reference implementation of the two-altitude contract above — this
+time at the level of "is the whole background-work system alive," not one
+queue's items:
+
+- **Aggregate altitude** (`GET /api/admin/queue-health`) — every queue's raw
+  status tallies plus two derived states, each from a different signal:
+  `skipped` (a successful `done` row whose handler result says mid-run its
+  work no longer applied — nothing to do with attempts or the ceiling) and
+  `abandoned_no_retry` (derived from comparing a `failed` row's attempts
+  against its retry ceiling: the worker deliberately won't retry this one, a
+  different story from "retried five times and gave up"). Per lane: how many
+  instances have a heartbeat row recent enough to
+  still count as live (not necessarily still actively ticking this exact
+  second — a heartbeat can be silent past its own stale threshold but still
+  inside the wider retention window), and whether the whole fleet has gone
+  quiet on it.
+- **Per-item altitude** (`GET /api/admin/queue-health/jobs`) — the same drill-down
+  every queue gets, not just email.
+- **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
+  on total API-process death it's unreachable exactly like every other
+  endpoint, so that's not what makes it useful. The aggregate endpoint above
+  already reports the same fleet-wide stall, as data in its JSON body behind
+  a 200. What's unique about the probe is turning that same verdict into
+  the **HTTP status code itself** — a meaningful unhealthy response *while
+  the process is still up*, so an external monitor can act on it without
+  parsing a body — and it also fails closed (same unhealthy response) if
+  checking lane health itself errors out, rather than risking a false "all
+  clear." A single instance scaling down is normal, not an incident.
+
 ## Why it works this way
 
 The lane split (2026-07, PR #216) replaced a single shared worker that
@@ -151,18 +187,16 @@ elsewhere.
 
 ## Boundaries & known limitations
 
-- **No priority *within* a lane.** Jobs in the same lane still run FIFO
-  (oldest due first); the lane split only isolates *between* lanes, not within
-  one. A very large batch in the `bulk` lane still drains progressively, not
-  instantly.
+- **No priority *within* a lane.** The lane split only isolates *between*
+  lanes, not within one — a very large batch in the `bulk` lane still drains
+  progressively, not instantly. (The exact claim ordering is in
+  [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).)
 - **The lanes and ordinary site traffic share one database connection pool.**
-  For a while the pool was small enough that a fully busy queue could in
-  principle crowd out ordinary page requests; it has since been given
-  deliberate headroom, sized against what the database actually allows. Two
-  things are still worth knowing: a job holds a connection while it is doing
-  database work but not while it waits on an outside service, so the number of
-  jobs running is not the same measure as the number of connections in use —
-  and nobody has measured the real contention under load. The sizing and the reasoning are in
+  A job holds a connection while it is doing database work but not while it
+  waits on an outside service, so the number of jobs running is not the same
+  measure as the number of connections in use — and nobody has measured the
+  real contention under load. The current sizing and the reasoning behind it
+  are in
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 - **A crashed job is recovered, but on a deliberate delay.** Work is never silently
   lost — a job whose process died mid-run is put back in the queue rather than
@@ -205,7 +239,17 @@ elsewhere.
   and `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts` (the `pexels` /
   `ai_meme_backfill` queue handlers),
   `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
-  (the Bulk Media Backfill panel's polling hook).
+  (the Bulk Media Backfill panel's polling hook),
+  `lib/db/src/schema/workerLaneHeartbeats.ts` and
+  `artifacts/api-server/src/lib/workerHeartbeats.ts` (the heartbeat table +
+  writer), `artifacts/api-server/src/lib/queueHealth.ts` and
+  `artifacts/api-server/src/routes/health.ts` (the Queue Health queries +
+  the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
+  (the Queue Health page).
+- [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
+  why the **retry ceiling** (not the `abandoned_no_retry` classification
+  itself, which stays derived on every read) persists on the row at finalize
+  instead of being re-resolved live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).

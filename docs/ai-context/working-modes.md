@@ -399,13 +399,22 @@ be trusted.
    is a tool-calling integration — see the adapter and its shape notes in
    `scripts/loop-metrics.mjs`. Either path is mechanical; neither is typing the
    numbers from memory. **The snapshot must page each of `get_reviews`,
-   `get_files`, and `get_review_comments` to completion yourself before
-   calling the script** — it cannot page through the MCP tool on its own — and
-   must set `complete: {reviews: true, files: true, reviewThreads: true}` only
-   once every page is concatenated in. The script refuses an unmarked or
-   partial snapshot rather than deriving a plausible-looking undercount, which
-   a large loop (32 rounds, 166 findings — PR #279's, our worst case so far)
-   would otherwise produce silently.
+   `get_files`, `get_review_comments`, and `get_comments` to completion
+   yourself before calling the script** — it cannot page through the MCP tool
+   on its own — and must set
+   `complete: {reviews: true, files: true, reviewThreads: true, issueComments: true}`
+   only once every page is concatenated in. `get_comments` (issue comments, not
+   review comments) is what a clean reviewer pass can post through instead of a
+   formal review — see *Rounds undercounted when a re-review is clean* in the
+   ledger itself — so omitting it understates `rounds` and `review hrs` on
+   exactly the loops where a pass found nothing. The script still derives
+   without it (for snapshots captured before this was added), but the row it
+   returns carries a `warnings` entry saying so; do not paste those numbers in
+   as though they were complete. The script refuses an unmarked or partial
+   snapshot rather than deriving a plausible-looking undercount, which a large
+   loop — PR #279's 32 rounds (our worst case by round count) or PR #280's 180
+   findings (our worst case by finding count, on 18 rounds) — would otherwise
+   produce silently.
 
    **Before committing to backfill or blind-adjudicate a historical loop,
    check its size cheaply first.** A plain `get_reviews`/`get_review_comments`
@@ -419,6 +428,36 @@ be trusted.
    [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
    row 6 note). A loop's size has no reason to resemble the last one measured;
    check before scoping, not after building the snapshot.
+
+   **A clean re-review can (but does not always) skip producing a review
+   object to count — confirmed twice now, not a universal rule.** A
+   completed review with zero findings sometimes DOES post as a normal
+   `pull_request_review` (row 3, #270's `rounds` is 16 not 15 specifically
+   because one clean review event *was* captured that way — read that row's
+   own note before assuming the opposite). It has also been directly
+   confirmed **not** doing so, twice independently: on PR #286 a clean
+   re-review posted as a plain issue comment instead ("Codex Review: Didn't
+   find any major issues. Delightful!"), not a `pull_request_review`, so
+   `get_reviews` didn't see it — and on PR #288, checked directly against
+   its own `get_comments` history (2026-08-01, correcting three earlier
+   drafts of this note that called #288 unconfirmed on the strength of
+   Codex's own claim without anyone actually checking the PR): two plain
+   "Codex Review: Didn't find any major issues" comments exist
+   (`2026-07-30T02:05:58Z` and `2026-07-30T03:32:17Z`), the same
+   plain-issue-comment shape as #286's, not the 👍-reaction shape earlier
+   drafts speculated. **The actionable consequence is narrower than "clean
+   rounds never count":** when a PR body's own round-by-round narration
+   cites more re-review passes than `get_reviews` returns, don't assume a
+   pagination bug by default — check the PR's actual comment history for a
+   plain "Codex Review: Didn't find any major issues" comment, since that
+   specific gap is now confirmed to recur on this connector, not merely
+   suspected. It is not, however, license to wave away every
+   rounds/findings mismatch without checking — #288's own history shows why:
+   the gap was real, but nobody confirmed it until someone actually looked
+   at the comments instead of reasoning from absence of evidence. See
+   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
+   *Rounds undercounted when a re-review is clean* note (row 11, #286) for
+   the first sighting and its own concrete `rounds`/`review hrs` impact.
 2. Add the judgment columns yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised / invalid), pre-open preflight
    minutes, breakers fired. **Ambiguous causes default to self-inflicted**,

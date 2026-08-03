@@ -12,14 +12,25 @@ CodeQL's default query suite includes `js/missing-rate-limiting` and
 provides the same protection. This repo's actual controls are hand-rolled:
 
 - **Rate limiting:** `checkSharedRateLimit` (`artifacts/api-server/src/lib/sharedRateLimiter.ts`),
-  a DB-backed window counter, called as the first statement inside a route
-  handler — not registered as Express middleware.
+  a DB-backed window counter. Some routes call it directly as the first
+  statement in the handler; others go through `createRateLimiter`
+  (`artifacts/api-server/src/lib/rateLimit.ts`), which wraps it as real
+  Express middleware registered in the router chain (e.g. `ai.ts`'s
+  `requireRateLimit`). Both shapes exist in this repo — the distinction
+  doesn't matter to CodeQL either way (see below).
 - **CSRF:** a double-submit `csrf_token` cookie + `x-csrf-token` header check,
   registered as global `app.use()` middleware in `app.ts` (see
   [`security-model.md`](../../docs/ai-context/security-model.md)).
 
-Neither shape matches what CodeQL's query is looking for, so it flags routes
-protected by either as vulnerable.
+CodeQL's `js/missing-rate-limiting` model doesn't key off "is this Express
+middleware" — it keys off recognizing the *import* as one of a hardcoded list
+of known packages (`express-rate-limit`, `express-brute`, `express-limiter`,
+`rate-limiter-flexible`, `@fastify/rate-limit`). Confirmed empirically: a
+route registered as genuine middleware via `createRateLimiter` still gets
+flagged, because the underlying call is `checkSharedRateLimit`, not one of
+those five packages. So neither shape — inline call or real middleware —
+matches what CodeQL's query is looking for, and it flags routes protected by
+either as vulnerable.
 
 **Confirmed on PR #256:** adding `checkSharedRateLimit` to
 `/admin/taxonomy-health/job-status` (matching the exact established pattern
@@ -34,6 +45,13 @@ diff — and the CSRF protection sits a few lines below the flagged line in the
 same file. Same class of false positive as the rate-limiting one, though not
 independently confirmed by clearing it (David dismisses these manually; the
 agent has no tool access to GitHub's code-scanning-alert dismissal API).
+
+**Confirmed a second time on PR #288:** the same alert re-fired identically on
+two new `/admin/queue-health*` routes after `checkSharedRateLimit` was applied
+to them, on the next push containing the fix — same shape as PR #256, no new
+information. Two independent confirmations is enough to stop treating this as
+a one-off and start treating a fresh alert on an already-protected route as
+the expected, not the surprising, outcome.
 
 **Rule:** when a new CodeQL alert of either kind appears on a route/file that
 already uses `checkSharedRateLimit` or sits behind the global CSRF middleware,
