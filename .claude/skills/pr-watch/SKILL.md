@@ -25,8 +25,14 @@ need David to re-ask.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event or David re-engages me — I just never schedule my own wake-up
-for it. Whenever a watched PR merges or closes, I unsubscribe. While
-watching:
+for it. Whenever a watched PR merges or closes, I unsubscribe.
+
+**The break-after-~2-rounds and skip-review-if-docs-only rules below are
+for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
+`plan-review-loop`'s own cadence instead — minimum 3 rounds even on a clean
+early pass, no ~2-round break (its soft cap is ~20 rounds), and every
+revision re-triggered regardless of whether the diff is docs-only, since
+the diff *is* the plan. While watching an implementation PR:
 
 - **Never judge a webhook event from its text alone — fetch the live PR state
   first.** This is the rule I broke: a `<github-webhook-activity>` arrived that

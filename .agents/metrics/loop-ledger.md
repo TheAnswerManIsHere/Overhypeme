@@ -92,7 +92,7 @@ After row 11/#286's round-1 fix (`6b04de2`), an explicit `@codex review` trigger
 
 **Row 12/#288 is the second confirmed instance, not a candidate.** Checked directly against PR #288's own `get_comments` history: a clean "Codex Review: Didn't find any major issues. :+1:" landed at `2026-07-30T02:05:58Z` (reviewing `5800debd7d`, between this row's counted round 1 and round 2) and a second, "Codex Review: Didn't find any major issues. Swish!", at `2026-07-30T03:32:17Z` (reviewing `62d9e8ab5f`, after the last formal review this row's snapshot captured) — both genuine `chatgpt-codex-connector[bot]`-authored plain issue comments, zero findings, same shape as row 11's. Row 12's `rounds: 5` and `review hrs: 1.6` both undercount the true reviewer engagement by at least these two rounds; the true `review hrs` extends past the snapshot's last captured review to at least `03:32:17Z`. Not re-derived here (rebuilding the row's mechanical columns with plain comments folded in is a real task, not a footnote edit) — recorded as confirmed so a future re-derivation has the exact timestamps rather than needing to re-search for them.
 
-Two confirmed instances is enough to promote this from "one observation" to a documented, repo-wide caveat, recorded in [`working-modes.md`](../../docs/ai-context/working-modes.md#the-loop-ledger) in this same PR — with #288 corrected there too, from the unconfirmed/hypothetical framing three earlier rounds of this PR's own review settled on, to the confirmed second instance it actually is. **This PR already touches `loop-metrics.mjs` once** (round 3's comment-only fix distinguishing #279/#280 as worst-case by round vs. finding count), which retires "whenever that file is next touched for another reason" as a real deferral point for teaching `countRounds`/`reviewInterval` to recognize this shape — that touch happened and didn't fold it in. Doing so is a genuine code change (parsing comment bodies, not just review objects, plus test coverage for the new detection), out of scope for this docs-only PR; it remains an open, unscheduled gap.
+Two confirmed instances is enough to promote this from "one observation" to a documented, repo-wide caveat, recorded in [`working-modes.md`](../../docs/ai-context/working-modes.md#the-loop-ledger) in this same PR — with #288 corrected there too, from the unconfirmed/hypothetical framing three earlier rounds of this PR's own review settled on, to the confirmed second instance it actually is. **This PR already touches `loop-metrics.mjs` once** (round 3's comment-only fix distinguishing #279/#280 as worst-case by round vs. finding count), which retires "whenever that file is next touched for another reason" as a real deferral point for teaching `countRounds`/`reviewInterval` to recognize this shape — that touch happened and didn't fold it in. Doing so is a genuine code change (parsing comment bodies, not just review objects, plus test coverage for the new detection), out of scope for this docs-only PR; it remained an open, unscheduled gap when this passage was written. **It has since been closed** — a later change to `loop-metrics.mjs` taught it to fold plain-comment clean reviews into `rounds`/`review hrs`, and row 17 (#294) is the first row confirmed to benefit: its own final round (a plain-comment clean pass) was counted correctly rather than lost.
 
 `findings` and the causal classification are unaffected: `countFindings` reads root comments directly and a review with zero findings contributes zero root comments either way.
 
@@ -123,18 +123,20 @@ failure. Its **mechanical** columns are fully derived and sound on their own.
 
 ### What the ledger's adjudicated rows now show
 
-**Nine rows carry a real adjudicated self-inflicted-share percentage** —
+**Ten rows carry a real adjudicated self-inflicted-share percentage** —
 every adjudicated row except #284 (adjudicated but with nothing to report:
 its one finding is `invalid`, so the denominator is zero; see its own row
 note), #290 (adjudicated on both sides, but the two readings disagreed by
 25% — above the 20% gate — so its figure is `unmeasured` and excluded here,
 per its own row note), and #292 (same reasoning: 21.1% disagreement, also
-over the gate, also `unmeasured`; see row 16's note). Naming all nine, not a
+over the gate, also `unmeasured`; see row 16's note). Naming all ten, not a
 subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285
-50.0%, #286 0%, #288 35.0%, #289 33.3%. (A concurrent PR — #292 — independently
+50.0%, #286 0%, #288 35.0%, #289 33.3%, #294 67.9%. (A concurrent PR — #292 — independently
 derived #288 at 40.0% instead of 35.0%; row 12's own note discloses both
 readings rather than picking one silently. #292's #289 figure agrees exactly
-at 33.3%.)
+at 33.3%. #294's own row discloses a second reading too — 62.5%, from an
+independent blind adjudicator — reconciled there as a small, identified
+disagreement rather than a gate-tripping one.)
 
 **The three 0% rows are not evidence the workflow is clean — they are a
 structural floor, not a measurement.** The precise criterion is **rounds that
@@ -223,27 +225,34 @@ section's straddle finding is the product of that later, more thoroughly
 checked analysis, not an equally-valid alternative reading.
 
 **The pre-boundary trend (n=3) stands as originally measured: 64.7% → 68.4%
-→ 72.1%, not falling.** **The confirmed post-boundary population is n=2
-(#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289),
-declining slightly.** Two points is thinner evidence than the three-point
-reading this section previously reported, and shouldn't be overstated
-either way. **The confirmed post-boundary pair shares a script cohort
-*label* but not a real shape, and that confound is not removed by
-excluding #285 — it's the same problem in a new place.** #288 and #289 are
+→ 72.1%, not falling.** **The confirmed post-boundary population is n=3
+(#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289) → 67.9%
+(#294), not monotonic.** #294's review window (2026-07-30T21:23 to
+2026-08-01T04:41) falls well inside the post-boundary side, unambiguously —
+more than a full day after the 6:56 PM 2026-07-29 toggle, with no
+timezone-plausibility argument needed the way one was for #285. Three
+points is still thin evidence, and #294's 67.9% is the highest of the three
+by a wide margin — worth flagging rather than smoothing over, though n=3
+isn't enough to call it a trend reversing. **The confirmed post-boundary set still carries the implementation-vs-docs
+confound this section has flagged since #288/#289, though #294 partially
+resolves rather than deepens it.** #288 and #289 are
 both classified `prose/contract` only because `classifyCohort` checks for
 any `.md` file before checking the PR's own fix-tier field, exactly the
 leakage this file already documents (see *The cohort rule leaks bugfix
 loops into prose/contract* below): row 12 describes #288 as a 21-file
 backend/frontend/migration/test **implementation** that happens to carry
 paired docs, while row 13 describes #289 as a **documentation-backfill**
-PR with no comparable code surface. So the n=2 post-boundary reading is
-**implementation-vs-docs confounded**, not a clean same-shape pair — #285
-was excluded for a real, different reason (the boundary straddle), and
-that exclusion neither creates nor removes this separate confound. With
-only two confirmed post-boundary points, already-thin evidence, that
-confound matters more, not less. #285 itself is not discarded as
+PR with no comparable code surface. **#294 is cohorted `prose/contract`
+honestly, not by leakage** — it is a genuine pure-docs harvest with zero
+code files (row 17's own file list is entirely `.md`), so it gives the
+post-boundary set its first real docs-vs-docs comparison point against
+#289 rather than compounding the implementation/docs mix. The confound
+therefore narrows to #288 alone standing apart from #289/#294's shared
+pure-docs shape, not three loops each confounded differently. With
+three confirmed post-boundary points, still thin evidence, that
+remaining #288-vs-the-rest split matters more, not less. #285 itself is not discarded as
 a data point: its 50.0% self-inflicted share still stands in the row 10 note
-and in the nine-row list above; it is excluded from this specific
+and in the ten-row list above; it is excluded from this specific
 pre/post-boundary comparison only, because its own rounds don't sit
 cleanly on one side of the line being compared. (#292's alternate n=3
 reading — #285 50.0%, #289 33.3%, #288 40.0%, all treated as cleanly
@@ -251,47 +260,57 @@ post-boundary — is disclosed in row 12's own note rather than adopted; its
 #288 figure also differs from this row's 35.0%, per that same note.)
 
 **Two structural observations, both from counted data rather than
-impression, now checked against six loops instead of four:**
+impression, now checked against seven loops instead of four:**
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
-  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6. Five of six
-  qualifying loops replicate this exactly (the sixth, #270, ran before this
-  ledger tracked per-round breakdowns finely enough to confirm or deny it) —
-  this pattern is not an artifact of the pre-boundary reviewer, the
-  plan-review cohort, or any single loop's shape.
-- **Wrong fix dominates propagation in four of the six loops, not all six.**
-  #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs 6), and
-  #288 (4 vs 3) all show it. **#270 and #289 do not.** #270's reversal (18
-  propagation vs 4 wrong-fix) is already explained in row 3: this ledger's
-  own bootstrapping loop, with propagation findings concentrated in
-  subsystems built *mid-loop* (the MCP adapter, the rubric itself) rather
-  than "fixed one site, left another." #289's reversal is narrower (2
-  propagation vs 1 wrong-fix, on only 3 self-inflicted findings total) and
-  is better read as too small a sample to show the pattern than as a genuine
-  counter-example — a single finding moving categories would flip it back.
-  The dominance pattern holds reliably for plan-review loops (#274/#282) and
-  now replicates in #288 — a 21-file, code-plus-docs *implementation* PR
-  (backend, frontend, migration, tests, paired docs; cohorted
-  `prose/contract` only because the diff carries docs alongside code, not
-  because it's a single-document edit), which is a genuinely different loop
-  shape than a plan review. That #288 shows the same dominance despite the
-  shape difference is a real replication, not a restatement of the
-  plan-review case — the pattern may be about self-inflicted findings in
-  general rather than something specific to editing one document, though
-  n=1 outside the plan-review shape isn't enough to claim that broadly. It
-  is not yet tested on a genuinely large *pure-docs-harvest* loop (like this
-  PR, #294, once it closes) the way #270 tested it for code.
+  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6; in #294,
+  9/9. Six of seven qualifying loops replicate this exactly (the seventh,
+  #270, ran before this ledger tracked per-round breakdowns finely enough to
+  confirm or deny it) — this pattern is not an artifact of the pre-boundary
+  reviewer, the plan-review cohort, or any single loop's shape.
+- **Wrong fix dominates propagation in four of the seven loops, not all
+  seven.** #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs
+  6), and #288 (4 vs 3) all show it. **#270, #289, and #294 do not.** #270's
+  reversal (18 propagation vs 4 wrong-fix) is already explained in row 3:
+  this ledger's own bootstrapping loop, with propagation findings
+  concentrated in subsystems built *mid-loop* (the MCP adapter, the rubric
+  itself) rather than "fixed one site, left another." #289's reversal is
+  narrower (2 propagation vs 1 wrong-fix, on only 3 self-inflicted findings
+  total) and is better read as too small a sample to show the pattern than
+  as a genuine counter-example — a single finding moving categories would
+  flip it back. **#294's reversal is the largest in the ledger (22
+  propagation vs 16 wrong-fix, on 38 self-inflicted findings — not a small
+  sample) and shares #270's exact mechanism**: row 17's own note traces most
+  of that propagation to findings critiquing content #294's own earlier
+  commits added mid-loop (its backfilled rows 12–15 and the analysis prose
+  around them), the same "genuinely new material, not a stale fix" shape as
+  #270's MCP adapter and rubric. This answers the question this section
+  previously posed as open: the dominance pattern does **not** hold on a
+  genuinely large *pure-docs-harvest* loop the way it holds for
+  plan-review loops and #288's implementation shape — both #270 and #294
+  are cases where the loop's own earlier work created substantial fresh
+  surface for later rounds to find new defects in, and that appears to be
+  the actual driver of the reversal, not "docs vs. code" or "plan review vs.
+  implementation" as such. The dominance pattern holds reliably for
+  plan-review loops (#274/#282) and for #288 — a 21-file, code-plus-docs
+  *implementation* PR (backend, frontend, migration, tests, paired docs;
+  cohorted `prose/contract` only because the diff carries docs alongside
+  code, not because it's a single-document edit), which is a genuinely
+  different loop shape than a plan review. That #288 shows the same
+  dominance despite the shape difference is a real replication, not a
+  restatement of the plan-review case.
 
-This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
-post-boundary (declining; #285 excluded as a boundary straddle — a
-separate issue from, and not fixed by, the implementation-vs-docs cohort
-confound the remaining pair still carries), not a finding. It is recorded
-here so the next rows — on either side of the boundary — can confirm or
-kill it rather than re-deriving it.
+This is a hypothesis at n=3 pre-boundary (not falling) and n=3 confirmed
+post-boundary (not monotonic — #294's 67.9% breaks the declining read #288→#289
+suggested; #285 excluded as a boundary straddle — a separate issue from,
+and narrowed rather than deepened by, the #288-vs-#289/#294 implementation-vs-docs
+cohort split), not a finding. It is recorded here so the next rows — on
+either side of the boundary — can confirm or kill it rather than
+re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
-Four of this file's sixteen rows (#276, #283, #292 — and #284 only narrowly escaping)
+Four of this file's seventeen rows (#276, #283, #292 — and #284 only narrowly escaping)
 are bugfix-mode loops by intent. Three of them are cohorted `prose/contract`,
 because `classifyCohort` checks for any `.md` file **before** it checks the
 PR body's `**Fix tier:**` field, and a bugfix PR routinely carries a doc — a
