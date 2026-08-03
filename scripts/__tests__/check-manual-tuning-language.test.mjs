@@ -35,6 +35,15 @@ test("catches a teen-number count, and a taxonomy noun like mechanisms/archetype
   assert.ok(scanText("classified into one of twelve archetypes").length > 0, "missed a teen count of archetypes");
 });
 
+test("catches a retry count phrased as \"N times\", and a hyphenated compound-adjective count", () => {
+  // Regression: PR #298 round 5 — a full-corpus sweep found "retried five
+  // times and gave up" (no noun from the list, just "times") and "a simpler
+  // 2-lane split ... in favor of 3" (hyphen-attached, not space-separated)
+  // both survived.
+  assert.ok(scanText("retried five times and gave up").length > 0, "missed an \"N times\" retry count");
+  assert.ok(scanText("a simpler 2-lane split was considered").length > 0, "missed a hyphenated compound count");
+});
+
 test('"one queue" is NOT flagged — it is an idiom, not a count', () => {
   // Regression: an earlier revision flagged "the one queue whose failures reach
   // a real person's inbox", which is *the singular*, not a quantity. Training

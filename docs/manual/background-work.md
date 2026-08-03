@@ -141,7 +141,7 @@ queue's items:
   work no longer applied — nothing to do with attempts or the ceiling) and
   `abandoned_no_retry` (derived from comparing a `failed` row's attempts
   against its retry ceiling: the worker deliberately won't retry this one, a
-  different story from "retried five times and gave up"). Per lane: how many
+  different story from having retried repeatedly and given up). Per lane: how many
   instances have a heartbeat row recent enough to
   still count as live (not necessarily still actively ticking this exact
   second — a heartbeat can be silent past its own stale threshold but still
@@ -172,12 +172,12 @@ because the *previous* worker tick hadn't finished processing a batch that
 happened to include something slow. A moderator's test render had the same
 problem in reverse: it could wait behind an unrelated bulk backfill batch.
 
-A simpler 2-lane split (fast vs. everything else) was considered and rejected
-in favor of 3, specifically so a render a moderator is actively watching never
-has to wait on background batch work either — those are different enough in
-who's watching and how urgent they are to deserve separate isolation. The full
-decision, including the exact lane assignments and the concurrency-default
-reasoning, is in
+A simpler two-way split (fast vs. everything else) was considered and
+rejected in favor of a third, separate lane, specifically so a render a
+moderator is actively watching never has to wait on background batch work
+either — those are different enough in who's watching and how urgent they
+are to deserve separate isolation. The full decision, including the exact
+lane assignments and the concurrency-default reasoning, is in
 [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes);
 the general pattern (shared dispatcher + shared guard → head-of-line blocking)
 is written up as a reusable lesson in

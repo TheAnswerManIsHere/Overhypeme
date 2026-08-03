@@ -99,12 +99,18 @@ const RULES = [
   {
     id: "counted-component",
     // "five lanes", "three queues", "2 workers", "last 3 send-back attempts",
-    // "fifty retries", "eleven joke mechanisms" — a count of a component,
-    // allowing up to two modifier words (bare or hyphenated, e.g.
-    // "independent scheduling", "send-back") between the number and the
-    // noun.
+    // "fifty retries", "eleven joke mechanisms", "2-lane split" — a count of
+    // a component, allowing up to two modifier words (bare or hyphenated,
+    // e.g. "independent scheduling", "send-back") between the number and
+    // the noun, and either a space OR a hyphen right after the number so a
+    // compound-adjective form ("2-lane") is caught the same as the spaced
+    // form ("2 lanes"). "retried N times" is a separate, modifier-free
+    // alternative: folding bare "times" into the noun list above let it
+    // combine with the generic modifier wildcard and double-match
+    // batch-cap's "at a time" idiom ("50 at a time" read as NUMBER + "at"
+    // + "a" + noun "time") — kept apart so the two rules don't overlap.
     re: new RegExp(
-      `\\b${NUMBER}\\s+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?|mechanisms?|archetypes?)\\b`,
+      `\\b${NUMBER}[\\s-]+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?|mechanisms?|archetypes?)\\b|\\b${NUMBER}\\s+times\\b`,
       "gi",
     ),
     why: "a count of components is a value; say that they exist, not how many",
