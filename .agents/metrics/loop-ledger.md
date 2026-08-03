@@ -174,17 +174,18 @@ than one finding-bearing round** — where propagation and wrong-fix are
 structurally possible — which is #270 (16 rounds, 15 finding-bearing — row 3
 notes one review event with zero findings), #274 (4 rounds, findings in
 every one), #282 (9 rounds, findings in every one), #285 (5 rounds, findings
-in every one), #288 (5 rounds, findings in every one), and #289 (2 rounds,
-findings in every one). #286 does not qualify despite its true two-round
-engagement, because only round 1 produced findings. **#290 would qualify by
-round shape (7 rounds, 6 finding-bearing) but is excluded because its figure
-is `unmeasured`, not because it's a single-round loop** — the two exclusion
-reasons are different and shouldn't be conflated.
+in every one), #288 (5 rounds, findings in every one), #289 (2 rounds,
+findings in every one), and #294 (13 rounds, findings in every one). #286
+does not qualify despite its true two-round engagement, because only round
+1 produced findings. **#290 and #292 would qualify by round shape but are
+excluded because their figures are `unmeasured`, not because they're
+single-round loops** — the two exclusion reasons are different and
+shouldn't be conflated.
 
-**Of these six, three are confirmed pre-boundary, two are confirmed
+**Of these seven, three are confirmed pre-boundary, three are confirmed
 post-boundary, and one (#285) straddles the boundary — this is not a clean
-three/three split, and treating it as one would repeat the exact error
-corrected here previously.** David enabled Codex "Exhaustive code review"
+split, and treating it as one would repeat the exact error corrected here
+previously.** David enabled Codex "Exhaustive code review"
 shortly after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent
 is timestamped then, and he confirmed the change in the same breath) — no
 timezone was recorded alongside that timestamp. #270, #274, and #282 all ran
@@ -204,6 +205,10 @@ evidence, #288's review window (2026-07-30T02:03–03:20 UTC) and #289's
 (2026-07-30T02:17–03:10 UTC) both start well after 00:56Z, so both are
 confirmed post-boundary** — grounded in the repo's own commit evidence,
 not a "latest plausible timezone" argument that doesn't actually hold.
+**#294 needs none of this grounding**: its review window
+(2026-07-30T21:23Z–2026-08-01T04:41Z) starts nearly 21 hours after even the
+`-04:00`-shifted commits begin on 2026-07-30, so it is unambiguously
+post-boundary under any timezone reading, not just the `-06:00` one.
 **#285 is different**: its review window is
 2026-07-29T22:39Z–2026-07-30T02:09Z, and 00:56Z falls **inside** that
 window, not before it, so #285 straddles the boundary: its earlier
