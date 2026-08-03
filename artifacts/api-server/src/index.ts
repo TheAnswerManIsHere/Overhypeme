@@ -122,44 +122,16 @@ async function initStripe() {
   }
 }
 
-// Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
-// should be upgraded. This catches webhook gaps (e.g. the webhook handler crashed mid-flight).
-async function reconcileMembershipTiers() {
-  try {
-    const { db } = await import("@workspace/db");
-    const { usersTable, subscriptionsTable } = await import("@workspace/db/schema");
-    const { eq, and, ne } = await import("drizzle-orm");
-
-    const mismatched = await db
-      .select({
-        userId: usersTable.id,
-        email: usersTable.email,
-        currentTier: usersTable.membershipTier,
-        subStatus: subscriptionsTable.status,
-      })
-      .from(usersTable)
-      .innerJoin(subscriptionsTable, eq(usersTable.id, subscriptionsTable.userId))
-      .where(and(
-        eq(subscriptionsTable.status, "active"),
-        ne(usersTable.membershipTier, "legendary"),
-      ));
-
-    if (mismatched.length === 0) return;
-
-    for (const row of mismatched) {
-      await db.update(usersTable)
-        .set({ membershipTier: "legendary" })
-        .where(eq(usersTable.id, row.userId));
-      logger.info(
-        { userId: row.userId, email: row.email, previousTier: row.currentTier },
-        "Reconciled membership tier → legendary (active subscription found)",
-      );
-    }
-    logger.info({ count: mismatched.length }, "Membership tier reconciliation complete");
-  } catch (err) {
-    logger.error({ err }, "Membership tier reconciliation failed");
-  }
-}
+// The boot-time tier reconciler is gone.
+//
+// It scanned for "an active subscription row but tier != legendary" and set the
+// tier directly — a seventh writer of the field this model derives, and one that
+// could only ever UPGRADE. It had no notion of the allowlist, of a lost dispute,
+// of a refunded purchase or of an expired grace window, so under the new model it
+// would have re-granted access the derivation had just correctly withdrawn.
+//
+// Its actual job — catching webhook gaps — is what reconciliation does, on a
+// cadence, against authoritative Stripe state rather than against local rows.
 
 // ── fal.ai Pricing Cache ────────────────────────────────────────────────────
 //
@@ -396,7 +368,12 @@ void logLastStripeEvent();
 
 // Non-blocking background tasks — failures are logged but never crash the server.
 initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
-reconcileMembershipTiers().catch((err: unknown) => logger.error({ err }, "Membership reconciliation error"));
+// Grace convergence + authoritative reconciliation. The first is cosmetic if it
+// dies (the read path already enforces the deadline); the second is this model's
+// answer to "regardless of whether the event arrives at all".
+import("./lib/membershipSchedules")
+  .then((m) => m.scheduleMembershipJobs())
+  .catch((err: unknown) => logger.error({ err }, "Membership job scheduling failed"));
 backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
 backfillEmbeddings()
   .then(({ processed, failed }) => {

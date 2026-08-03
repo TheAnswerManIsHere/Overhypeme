@@ -17,6 +17,7 @@ import {
 
 type RefundDisputeEvent =
   | "refund"
+  | "partial_refund"
   | "dispute_opened"
   | "dispute_won"
   | "dispute_lost"
@@ -60,6 +61,7 @@ const RefundDisputeTable = ResponsiveTable<RefundDisputeRow>;
 const FILTER_OPTIONS: { value: "" | RefundDisputeEvent; label: string }[] = [
   { value: "", label: "All" },
   { value: "refund", label: "Refunds" },
+  { value: "partial_refund", label: "Partial refunds" },
   { value: "dispute_opened", label: "Disputes opened" },
   { value: "dispute_won", label: "Disputes won" },
   { value: "dispute_lost", label: "Disputes lost" },
@@ -70,6 +72,8 @@ function eventBadgeClass(event: string): string {
   switch (event) {
     case "refund":
       return "bg-blue-500/15 text-blue-500 dark:text-blue-400 border-blue-500/30";
+    case "partial_refund":
+      return "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30";
     case "dispute_opened":
       return "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30";
     case "dispute_lost":
@@ -87,6 +91,8 @@ function formatEvent(event: string): string {
   switch (event) {
     case "refund":
       return "Refund";
+    case "partial_refund":
+      return "Partial refund";
     case "dispute_opened":
       return "Dispute opened";
     case "dispute_won":
@@ -106,6 +112,173 @@ function formatAmount(amount: number | null, currency: string | null): string {
   // Stripe stores most currencies as the smallest unit (cents). Display with 2 decimals.
   const value = amount / 100;
   return `${value.toFixed(2)} ${cur}`;
+}
+
+
+interface GraceSweepHealth {
+  intervalSeconds: number;
+  alertAfterSeconds: number;
+  staleSeconds: number;
+  alerting: boolean;
+  lastRunAt: string | null;
+  /** Null when no sweep has succeeded in this process — never a fabricated timestamp. */
+  lastSuccessAt: string | null;
+  /** No sweep has been attempted yet. */
+  neverRun: boolean;
+  /** Attempted but never succeeded; `staleSeconds` counts from process start. */
+  neverSucceeded: boolean;
+  lastConvergedCount: number | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+interface DriftedUser {
+  id: string;
+  email: string | null;
+  storedTier: string;
+  effectiveTier: string;
+}
+
+/** Refresh cadence for the sweep panel. Fast enough to watch, cheap enough to leave open. */
+const GRACE_SWEEP_POLL_MS = 30_000;
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
+/**
+ * The grace sweep's status at both altitudes.
+ *
+ * Aggregate on top, per-user drift underneath. Nothing here is an access bug —
+ * the read path enforces every deadline on every request — so this is worded as
+ * a projection lag, not an alarm, and only turns amber once the sweep has been
+ * failing past its own threshold.
+ */
+function GraceSweepStatus() {
+  const [health, setHealth] = useState<GraceSweepHealth | null>(null);
+  const [drifted, setDrifted] = useState<DriftedUser[]>([]);
+  const [driftedCount, setDriftedCount] = useState(0);
+  const [driftedTruncated, setDriftedTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const res = await fetch("/api/admin/membership/grace-sweep", { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as {
+          health: GraceSweepHealth;
+          drifted: DriftedUser[];
+          driftedCount: number;
+          driftedTruncated: boolean;
+        };
+        if (cancelled) return;
+        setHealth(json.health);
+        setDrifted(json.drifted ?? []);
+        setDriftedCount(json.driftedCount ?? json.drifted?.length ?? 0);
+        setDriftedTruncated(json.driftedTruncated ?? false);
+        setError(null);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load sweep status");
+      }
+    }
+
+    // Every value on this panel — staleness, failure count, alert state, the
+    // pending-user list — moves on its own as the sweep runs and as users cross
+    // their grace deadlines. A one-shot fetch froze all of it at page load, so
+    // an operator watching the panel would see "Healthy" indefinitely while the
+    // sweep failed behind it. Poll instead: the endpoint is two cheap reads.
+    void load();
+    const timer = setInterval(() => void load(), GRACE_SWEEP_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  if (error) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-4 text-xs text-muted-foreground">
+        Membership sweep status unavailable: {error}
+      </div>
+    );
+  }
+  if (!health) return null;
+
+  return (
+    <div
+      className={`bg-card border rounded-lg p-4 space-y-2 ${
+        health.alerting ? "border-amber-500/50" : "border-border"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="text-xs font-semibold text-foreground">Membership grace sweep</span>
+        <span className={`text-xs ${health.alerting ? "text-amber-500" : "text-muted-foreground"}`}>
+          {health.alerting
+            ? `Failing for ${formatDuration(health.staleSeconds)} — stored tiers are drifting`
+            // Never claim a convergence that did not happen — and keep "has not
+            // run yet" distinct from "has run and never succeeded", which is a
+            // materially worse state and would otherwise read identically.
+            : health.neverRun
+              ? `Not yet run · waiting ${formatDuration(health.staleSeconds)} since start`
+              : health.neverSucceeded
+                ? `Ran but never converged · ${formatDuration(health.staleSeconds)} since start`
+                : `Healthy · last converged ${formatDuration(health.staleSeconds)} ago`}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          every {formatDuration(health.intervalSeconds)}
+        </span>
+        {health.lastConvergedCount !== null && (
+          <span className="text-xs text-muted-foreground">
+            {health.lastConvergedCount} converged last run
+          </span>
+        )}
+        {health.consecutiveFailures > 0 && (
+          <span className="text-xs text-amber-500">
+            {health.consecutiveFailures} consecutive failure{health.consecutiveFailures === 1 ? "" : "s"}
+          </span>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {/* The UNCAPPED total — the list below is a sample of it. */}
+          {driftedCount === 0
+            ? "No users pending convergence"
+            : `${driftedCount} user${driftedCount === 1 ? "" : "s"} pending convergence`}
+        </span>
+      </div>
+
+      {health.lastError && (
+        <p className="text-xs text-amber-500">Last error: {health.lastError}</p>
+      )}
+
+      {drifted.length > 0 && (
+        <div className="pt-1 space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Their stored tier is stale; access is already enforced correctly on every request.
+          </p>
+          <ul className="text-xs text-muted-foreground space-y-0.5">
+            {drifted.slice(0, 10).map((u) => (
+              <li key={u.id}>
+                <span className="font-mono">{u.email ?? u.id}</span>{" "}
+                <span className="text-foreground">
+                  {u.storedTier} → {u.effectiveTier}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {driftedCount > Math.min(drifted.length, 10) && (
+            <p className="text-xs text-muted-foreground">
+              …and {driftedCount - Math.min(drifted.length, 10)} more
+              {driftedTruncated ? " (the server returned a capped sample)" : ""}.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AdminRefundsDisputes() {
@@ -177,6 +350,8 @@ export default function AdminRefundsDisputes() {
   return (
     <AdminLayout title="Refunds & Disputes">
       <div className="space-y-4">
+        <GraceSweepStatus />
+
         {/* Filters */}
         <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">

@@ -1,0 +1,45 @@
+-- Entitlement model, part 2 of 2: RETIRE THE LEGACY SOURCE TABLES.
+--
+-- Runs immediately after 0094 in the same startup pass, once every writer has
+-- been moved onto `membership_entitlements`. Splitting the two keeps each commit
+-- in the PR bootable; the deploy applies both back-to-back before the port binds.
+--
+-- This is a plain CREATE-AND-DROP, not a backfill. The membership tables hold no
+-- real data (David, 2026-07-28), so there is nothing to preserve: the next Stripe
+-- event for any source writes that source's row from authoritative provider
+-- state.
+--
+-- ## What happens during the rollout, stated plainly
+--
+-- `.replit` sets deploymentTarget = "autoscale", so old and new instances overlap.
+-- Old instances still serving WILL error when they query these tables, for as
+-- long as the rollout takes. Pre-launch that costs nothing, and the alternative —
+-- a compatibility layer to protect a few seconds of requests from users who do
+-- not exist — is migration paranoia, not runtime correctness. Two of the
+-- mechanisms considered were also unbuildable, recorded here so nobody
+-- re-proposes them:
+--
+--   * a PostgreSQL view CANNOT serve `INSERT … ON CONFLICT (col) DO UPDATE` —
+--     the statement fails at planning, before any INSTEAD OF trigger runs
+--     (verified on 16.13), and that is exactly the shape both legacy upsert
+--     sites used;
+--   * no signal available to us proves an old instance has stopped serving. A
+--     quiet period is satisfied trivially by an idle instance.
+--
+-- ## Recovery is roll-forward only
+--
+-- `migrate.ts` skips any journal entry whose hash is already recorded, so
+-- redeploying the previous build does NOT restore these tables: the old build
+-- would see the original creation migration as applied and then query relations
+-- that no longer exist. Restoring them would require authoring a NEW migration.
+-- That script is deliberately not part of this change — writing and testing a
+-- restore path for tables that contain nothing is the same over-engineering the
+-- rest of this decision rejected. The mitigation lives BEFORE the migration:
+-- exercise it against a copy of the live database, run the full suite against the
+-- new schema, and fix forward if the new build fails.
+
+-- Idempotent by construction rather than by relying on the runner's error-code
+-- rescue: `migrate.ts` does treat 42P01 (undefined table) as pre-applied, but
+-- depending on error-code recovery for an EXPECTED condition is fragile.
+DROP TABLE IF EXISTS "subscriptions";
+DROP TABLE IF EXISTS "lifetime_entitlements";

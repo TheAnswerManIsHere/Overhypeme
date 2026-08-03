@@ -45,7 +45,7 @@ recurs elsewhere in this integration.
 | `routes/stripe.ts` (14 endpoints) | 658 | **~2 endpoints.** `/stripe/plans` and `/stripe/checkout` only |
 | `artifacts/api-server/src/lib/webhookHandlers.ts` | 1,197 | **No.** Largest single payments file, entirely unexamined |
 | `artifacts/api-server/src/lib/stripeSyncRunner.ts` | 558 | Mostly — lock, status, `cleanStaleAccountData` |
-| `artifacts/api-server/src/lib/membershipGrant.ts` | 355 | **No.** Signatures only |
+| `membershipGrant.ts` *(retired — replaced by `artifacts/api-server/src/lib/entitlementVerification.ts`)* | 355 | **No.** Signatures only |
 | `artifacts/api-server/src/lib/stripeStorage.ts` | 172 | `listProductsWithPrices` only |
 | `artifacts/api-server/src/lib/stripeClient.ts` | 114 | Yes |
 | `artifacts/api-server/src/lib/membershipPricing.ts` | 106 | Yes — the allowlist |
@@ -304,7 +304,7 @@ Small things that cost time to establish.
 Recommended shape, based on what worked and what didn't last time:
 
 1. **Read the money path before touching anything.** `webhookHandlers.ts`,
-   `membershipGrant.ts`, and the confirm endpoint, in that order. That's
+   `membershipGrant.ts` (since retired), and the confirm endpoint, in that order. That's
    ~1,600 lines and it is where the risk is.
 2. **Audit first, plan second.** Last session's mistake was planning a fix
    before the surface was understood; the plan then tripled across four review

@@ -39,8 +39,7 @@ import {
   activityFeedTable,
   affiliateClicksTable,
   pendingReviewsTable,
-  subscriptionsTable,
-  lifetimeEntitlementsTable,
+  membershipEntitlementsTable,
   membershipHistoryTable,
   externalLinksTable,
   stripeCheckoutRequestLedgerTable,
@@ -98,17 +97,14 @@ export async function purgeTestData(): Promise<PurgeResult> {
       ),
   );
 
-  await del("subscriptions", () =>
-    db.delete(subscriptionsTable).where(like(subscriptionsTable.userId, TEST_LIKE)),
-  );
-
-  await del("lifetime_entitlements", () =>
+  // One table now, and one delete. `entitlement_source_disputes` cascades off it.
+  await del("membership_entitlements", () =>
     db
-      .delete(lifetimeEntitlementsTable)
+      .delete(membershipEntitlementsTable)
       .where(
         or(
-          like(lifetimeEntitlementsTable.userId, TEST_LIKE),
-          like(lifetimeEntitlementsTable.grantedByAdminId, TEST_LIKE),
+          like(membershipEntitlementsTable.userId, TEST_LIKE),
+          like(membershipEntitlementsTable.grantedByAdminId, TEST_LIKE),
         ),
       ),
   );

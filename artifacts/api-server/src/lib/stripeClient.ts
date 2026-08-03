@@ -1,4 +1,8 @@
 import Stripe from "stripe";
+import {
+  STRIPE_MAX_NETWORK_RETRIES,
+  STRIPE_REQUEST_TIMEOUT_MS,
+} from "./membershipTiming.js";
 
 export async function isLiveMode(): Promise<boolean> {
   try {
@@ -69,7 +73,21 @@ async function getCredentials(liveMode?: boolean) {
 
 export async function getUncachableStripeClient() {
   const { secretKey } = await getCredentials();
-  return new Stripe(secretKey, { apiVersion: "2025-08-27.basil" as Stripe.LatestApiVersion });
+  return new Stripe(secretKey, {
+    apiVersion: "2025-08-27.basil" as Stripe.LatestApiVersion,
+    // The SDK defaults are DEFAULT_TIMEOUT = 80000 with maxNetworkRetries = 2,
+    // and this call passed neither — so one degraded retrieval could legitimately
+    // run 80 seconds, and with retries nearer four minutes, against a 60-second
+    // entitlement lease. A retrieval returning after expiry has its apply
+    // discarded by the fence, correctly, and if latency stays elevated every
+    // subsequent pass does the same thing: "repaired on the next pass" never
+    // happens and the source is stuck for as long as Stripe is slow.
+    //
+    // Bounding the request is the fix, not lengthening the lease — see
+    // membershipTiming.ts, which derives the lease floor from these two numbers.
+    timeout: STRIPE_REQUEST_TIMEOUT_MS,
+    maxNetworkRetries: STRIPE_MAX_NETWORK_RETRIES,
+  });
 }
 
 export async function getStripePublishableKey() {

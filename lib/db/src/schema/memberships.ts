@@ -1,41 +1,14 @@
 import { pgTable, varchar, timestamp, integer, boolean, text, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
-// App-level subscriptions table — tracks Stripe subscription lifecycle for each user
-export const subscriptionsTable = pgTable("subscriptions", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: varchar("user_id").notNull().references(() => usersTable.id),
-  stripeSubscriptionId: varchar("stripe_subscription_id").notNull().unique(),
-  stripeCustomerId: varchar("stripe_customer_id").notNull(),
-  plan: varchar("plan").notNull(),
-  status: varchar("status").notNull(),
-  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
-  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
-
-export type Subscription = typeof subscriptionsTable.$inferSelect;
-export type InsertSubscription = typeof subscriptionsTable.$inferInsert;
-
-// Lifetime entitlements table — durable record of one-time lifetime purchases
-export const lifetimeEntitlementsTable = pgTable("lifetime_entitlements", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: varchar("user_id").notNull().references(() => usersTable.id),
-  stripePaymentIntentId: varchar("stripe_payment_intent_id").notNull().unique(),
-  stripeCustomerId: varchar("stripe_customer_id").notNull(),
-  amount: integer("amount"),
-  currency: varchar("currency").default("usd"),
-  // 'active' (default) or 'refunded' — set to 'refunded' when a charge.refunded event
-  // is received for this payment intent. Kept for audit trail; never deleted.
-  status: varchar("status").notNull().default("active"),
-  // Set for admin-granted lifetime memberships; null for self-purchased ones.
-  grantedByAdminId: varchar("granted_by_admin_id").references(() => usersTable.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type LifetimeEntitlement = typeof lifetimeEntitlementsTable.$inferSelect;
-export type InsertLifetimeEntitlement = typeof lifetimeEntitlementsTable.$inferInsert;
+// `subscriptions` and `lifetime_entitlements` are retired (migration 0095).
+//
+// They were not trivially unionable — one required a subscription id and carried
+// lifecycle fields, the other required a payment-intent id and carried
+// amount/currency — and keeping both meant every writer of the derived
+// membership tier had to consult both, plus remember which one an admin comp had
+// been written into. `membership_entitlements` (membershipEntitlements.ts) is the
+// one source table, with an explicit source discriminator.
 
 export const membershipHistoryTable = pgTable("membership_history", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
