@@ -1,7 +1,18 @@
 name: Build
 
 on:
+  # `edited` is explicit, not just the GitHub default (opened/synchronize/
+  # reopened): retitling a PR to `[LEDGER] …` after its last push must
+  # re-run the ledger-coverage step's structural gate against the new
+  # title, or a stale green check from before the retitle would stay
+  # attached to the commit. check-ledger-coverage.mjs's
+  # confirmedLedgerPrNumbers is the primary defense (it re-validates any
+  # [LEDGER]-titled PR's live files rather than trusting title alone), but
+  # re-triggering here means the PR's own check reflects reality
+  # immediately instead of only the next PR's or the push-to-main audit's
+  # re-check.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
   push:

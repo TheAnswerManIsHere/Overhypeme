@@ -10,7 +10,9 @@ import {
   owedRows,
   auditLedgerDebt,
   isLedgerPr,
+  isConfirmedLedgerPr,
   ledgerPrStrayFiles,
+  confirmedLedgerPrNumbers,
 } from "../check-ledger-coverage.mjs";
 
 const PULL = (n) => `[#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n})`;
@@ -200,9 +202,30 @@ test("a merged [LEDGER] PR that opened after a loop closed and skipped its row m
       { number: 294, created_at: "2026-07-30T21:14:59Z", closed_at: "2026-07-31T00:00:00Z", merged_at: "2026-07-31T00:00:00Z", title: "[LEDGER] rows", user: { login: "me" } },
     ],
     ledger: emptyLedger,
+    confirmedLedgerPrs: new Set([294]),
   });
   assert.deepEqual(pending, []);
   assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger, o.carrier.number]), [[290, "carrier", 294]]);
+});
+
+test("a [LEDGER]-titled PR not in confirmedLedgerPrs is NOT treated as a carrier", () => {
+  // Fixed on PR #304 (Codex round 1, P1): a PR retitled to [LEDGER] after its
+  // last push gets no new CI run (this repo's Build workflow doesn't trigger
+  // on a title-only edit), so trusting a live title check for OTHER PRs would
+  // let an unvalidated retitle borrow the carrier/exclusion status. Passing
+  // an empty confirmedLedgerPrs — as if the file fetch found stray files, or
+  // was never run — must leave the debt merely pending, not silently exempt
+  // or falsely carried.
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      { number: 294, created_at: "2026-07-30T21:14:59Z", closed_at: "2026-07-31T00:00:00Z", merged_at: "2026-07-31T00:00:00Z", title: "[LEDGER] rows", user: { login: "me" } },
+    ],
+    ledger: emptyLedger,
+    // confirmedLedgerPrs omitted — defaults to empty, i.e. nothing confirmed.
+  });
+  assert.deepEqual(overdue, []);
+  assert.deepEqual(pending.map((p) => p.number).sort(), [290, 294]);
 });
 
 test("a regular merged PR is not a carrier — one merge since close leaves the row pending", () => {
@@ -248,6 +271,7 @@ test("an open [LEDGER] PR defers the backstop but not the carrier trigger", () =
   const deferred = auditLedgerDebt({
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), openLedger],
     ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+    confirmedLedgerPrs: new Set([301]),
   });
   assert.deepEqual(deferred.overdue, []);
   assert.deepEqual(deferred.pending.map((p) => p.number), [290]);
@@ -256,8 +280,27 @@ test("an open [LEDGER] PR defers the backstop but not the carrier trigger", () =
   const notDeferred = auditLedgerDebt({
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), missedCarrier, openLedger],
     ledger: emptyLedger,
+    confirmedLedgerPrs: new Set([293, 301]),
   });
   assert.deepEqual(notDeferred.overdue.map((o) => [o.pr.number, o.trigger]), [[290, "carrier"]]);
+});
+
+test("an open [LEDGER] PR that opened BEFORE a loop closed does not defer that loop's backstop", () => {
+  // Fixed on PR #304 (Codex round 1, P2): the deferral used to be one
+  // repo-wide boolean ("is any [LEDGER] PR open"), so a stale ledger PR
+  // opened before a newer loop closed could mask that newer loop's backstop
+  // forever, even though it structurally cannot carry a row for a loop that
+  // didn't exist yet when it opened. The fix evaluates deferral per loop,
+  // using the same opened-after-closed cutoff as the carrier match.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const staleOpenLedger = { number: 280, created_at: "2026-07-20T00:00:00Z", closed_at: null, merged_at: null, title: "[LEDGER] old rows", user: { login: "me" } };
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), staleOpenLedger],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+    confirmedLedgerPrs: new Set([280]),
+  });
+  assert.deepEqual(pending, []);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
 });
 
 test("a closed [LEDGER] PR owes no row of its own, and the skip is counted", () => {
@@ -267,12 +310,18 @@ test("a closed [LEDGER] PR owes no row of its own, and the skip is counted", () 
   // what the ledger even owes.
   const ledgerPr = { number: 296, created_at: "2026-07-31T00:00:00Z", closed_at: "2026-07-31T01:00:00Z", merged_at: "2026-07-31T01:00:00Z", title: "[LEDGER] rows for #290", user: { login: "me" } };
 
-  const audit = auditLedgerDebt({ allPrs: [ledgerPr], ledger: emptyLedger });
+  const confirmed = new Set([296]);
+  const audit = auditLedgerDebt({ allPrs: [ledgerPr], ledger: emptyLedger, confirmedLedgerPrs: confirmed });
   assert.deepEqual(audit.overdue, []);
   assert.deepEqual(audit.pending, []);
   assert.equal(audit.skippedLedger, 1);
 
-  const coverage = owedRows({ allPrs: [CURRENT, ledgerPr], currentPr: { ...CURRENT, created_at: "2026-08-02T00:00:00Z" }, ledger: emptyLedger });
+  const coverage = owedRows({
+    allPrs: [CURRENT, ledgerPr],
+    currentPr: { ...CURRENT, created_at: "2026-08-02T00:00:00Z" },
+    ledger: emptyLedger,
+    confirmedLedgerPrs: confirmed,
+  });
   assert.deepEqual(coverage.owed, []);
   assert.equal(coverage.skippedLedger, 1);
 });
@@ -287,6 +336,7 @@ test("a [LEDGER] PR opened BEFORE the loop closed is not its carrier", () => {
       { number: 289, created_at: "2026-07-30T20:00:00Z", closed_at: "2026-07-30T22:00:00Z", merged_at: "2026-07-30T22:00:00Z", title: "[LEDGER] earlier rows", user: { login: "me" } },
     ],
     ledger: emptyLedger,
+    confirmedLedgerPrs: new Set([289]),
   });
   assert.deepEqual(overdue, []);
   assert.deepEqual(pending.map((p) => p.number), [290]);
@@ -307,6 +357,45 @@ test("isLedgerPr matches the title prefix exactly", () => {
   assert.equal(isLedgerPr({ title: "docs: mention [LEDGER] PRs" }), false);
   assert.equal(isLedgerPr({ title: "[PLAN REVIEW] x" }), false);
   assert.equal(isLedgerPr({}), false);
+});
+
+test("isConfirmedLedgerPr checks Set membership, not title", () => {
+  const confirmed = new Set([294]);
+  assert.equal(isConfirmedLedgerPr({ number: 294, title: "anything" }, confirmed), true);
+  assert.equal(isConfirmedLedgerPr({ number: 295, title: "[LEDGER] x" }, confirmed), false);
+});
+
+test("confirmedLedgerPrNumbers only fetches files for [LEDGER]-titled candidates, and confirms only clean diffs", async () => {
+  // The fetch is the actual defense against the title-retitle gap fixed on
+  // PR #304: a candidate is confirmed only if its LIVE file list (fetched
+  // fresh, not cached from whatever CI last saw) touches nothing but the
+  // ledger file. A PR that never matched the title prefix is never fetched
+  // at all — cost scales with [LEDGER] candidates, not total PR count.
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    const filesByPr = {
+      294: [{ filename: ".agents/metrics/loop-ledger.md" }],
+      295: [{ filename: ".agents/metrics/loop-ledger.md" }, { filename: "src/index.ts" }],
+    };
+    const match = /\/pulls\/(\d+)\/files/.exec(url);
+    const files = match ? (filesByPr[match[1]] ?? []) : [];
+    return { ok: true, json: async () => files, headers: { get: () => null } };
+  };
+  try {
+    const allPrs = [
+      { number: 294, title: "[LEDGER] rows" }, // clean diff — confirmed
+      { number: 295, title: "[LEDGER] rows plus extra" }, // stray file — not confirmed
+      { number: 296, title: "docs: unrelated" }, // not a candidate — never fetched
+    ];
+    const confirmed = await confirmedLedgerPrNumbers(allPrs, "fake-token");
+    assert.deepEqual([...confirmed].sort(), [294]);
+    assert.equal(requested.length, 2, "only the two [LEDGER]-titled candidates should be fetched");
+    assert.ok(requested.every((u) => /\/pulls\/29[45]\/files/.test(u)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("a carrier that closed unmerged does not make a row overdue", () => {

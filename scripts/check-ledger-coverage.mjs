@@ -104,6 +104,43 @@ export function ledgerPrStrayFiles(files) {
   return files.map((f) => f.filename).filter((name) => name !== LEDGER_ONLY_PATH);
 }
 
+/**
+ * The trust boundary `owedRows`/`auditLedgerDebt` use for OTHER PRs in the
+ * `allPrs` list, as opposed to `isLedgerPr`'s plain title check.
+ *
+ * Confirmed on PR #304 (Codex round 1, P1): a PR retitled to `[LEDGER] …`
+ * after its last push is never re-validated, because this repo's Build
+ * workflow triggers on `opened`/`synchronize`/`reopened` but not `edited` —
+ * a title-only edit gets no new check run at all. Trusting `isLedgerPr(pr)`
+ * directly for a PR that ISN'T the one currently being checked (which always
+ * gets a live structural check against its own current diff — see main()'s
+ * [LEDGER]-gate path) would let a retitled, structurally-invalid PR merge
+ * and then be silently exempted from ever owing a row, or wrongly counted as
+ * a valid carrier for someone else's debt — the exact "structurally
+ * enforced, not honor-system" guarantee this file exists to give.
+ *
+ * `confirmedLedgerPrNumbers` below builds the actual trust set once per run,
+ * fetching each `[LEDGER]`-titled candidate's live file list. This predicate
+ * is the pure half — kept separate so tests can exercise the gating logic
+ * with a hand-built Set instead of mocking file fetches.
+ */
+export const isConfirmedLedgerPr = (pr, confirmedLedgerPrs) => confirmedLedgerPrs.has(pr.number);
+
+/**
+ * Resolve which `[LEDGER]`-titled candidates in `allPrs` actually satisfy the
+ * structural constraint right now, by fetching each one's live file list.
+ * Only candidates are fetched (title match is cheap and filters first), so
+ * cost scales with how many `[LEDGER]` PRs exist, not with total PR count.
+ */
+export async function confirmedLedgerPrNumbers(allPrs, token) {
+  const confirmed = new Set();
+  for (const pr of allPrs.filter(isLedgerPr)) {
+    const files = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${pr.number}/files`, token);
+    if (ledgerPrStrayFiles(files).length === 0) confirmed.add(pr.number);
+  }
+  return confirmed;
+}
+
 // ── Ledger parsing ───────────────────────────────────────────────────────────
 
 /**
@@ -334,9 +371,13 @@ async function gh(path, token) {
  *
  * Closed `[LEDGER]` PRs never appear in the owed list themselves — the
  * policy exclusion that terminates the ledger's self-reference. Counted and
- * reported, like the Dependabot skip, never silent.
+ * reported, like the Dependabot skip, never silent. Gated by
+ * `confirmedLedgerPrs`, not a live `isLedgerPr(pr)` title check, so a PR
+ * retitled to `[LEDGER] …` after its last push (and never re-validated —
+ * this repo's Build workflow doesn't trigger on `edited`) can't borrow the
+ * exclusion without its diff actually having been confirmed ledger-only.
  */
-export function owedRows({ allPrs, currentPr, ledger }) {
+export function owedRows({ allPrs, currentPr, ledger, confirmedLedgerPrs = new Set() }) {
   const openedAt = new Date(currentPr.created_at);
   const owed = [];
   let skippedNonLoop = 0;
@@ -351,7 +392,7 @@ export function owedRows({ allPrs, currentPr, ledger }) {
       skippedNonLoop++;
       continue;
     }
-    if (isLedgerPr(pr)) {
+    if (isConfirmedLedgerPr(pr, confirmedLedgerPrs)) {
       skippedLedger++;
       continue;
     }
@@ -406,13 +447,27 @@ export function owedRows({ allPrs, currentPr, ledger }) {
  * runs on.
  *
  * Closed `[LEDGER]` PRs are also skipped as loops owing rows — the same
- * policy exclusion `owedRows` applies, counted and reported the same way.
+ * policy exclusion `owedRows` applies, counted and reported the same way,
+ * gated by the same `confirmedLedgerPrs` trust boundary (see its doc comment
+ * above `owedRows` — a title-only check here is exactly as exploitable as it
+ * is there, since `--audit` reads live PR titles at merge time, not whatever
+ * title CI last actually validated a diff against).
+ *
+ * The backstop's "defer while a [LEDGER] PR is open" clause is evaluated
+ * PER LOOP, not as one repo-wide boolean (fixed on PR #304, Codex round 1,
+ * P2): an open ledger PR can only defer a loop's debt if it could actually
+ * carry that row, which — same cutoff as the carrier match above — requires
+ * it to have opened AFTER the loop closed. An older open ledger PR sitting
+ * idle must not indefinitely mask the backstop for a newer loop it structurally
+ * cannot cover.
  */
-export function auditLedgerDebt({ allPrs, ledger }) {
+export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set() }) {
   const overdue = [];
   const pending = [];
   let skippedNonLoop = 0;
   let skippedLedger = 0;
+
+  const isLedger = (pr) => isConfirmedLedgerPr(pr, confirmedLedgerPrs);
 
   const landed = allPrs
     .filter((pr) => pr.merged_at && (pr.base?.ref ?? "main") === "main")
@@ -420,9 +475,11 @@ export function auditLedgerDebt({ allPrs, ledger }) {
       number: pr.number,
       opened: new Date(pr.created_at),
       merged: new Date(pr.merged_at),
-      ledger: isLedgerPr(pr),
+      ledger: isLedger(pr),
     }));
-  const ledgerPrIsOpen = allPrs.some((pr) => !pr.closed_at && isLedgerPr(pr));
+  const openLedgerPrs = allPrs
+    .filter((pr) => !pr.closed_at && isLedger(pr))
+    .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at) }));
 
   for (const pr of allPrs) {
     if (pr.number < FIRST_ENFORCED_PR) continue;
@@ -431,7 +488,7 @@ export function auditLedgerDebt({ allPrs, ledger }) {
       skippedNonLoop++;
       continue;
     }
-    if (isLedgerPr(pr)) {
+    if (isLedger(pr)) {
       skippedLedger++;
       continue;
     }
@@ -448,7 +505,8 @@ export function auditLedgerDebt({ allPrs, ledger }) {
     }
 
     const mergedSince = landed.filter((c) => c.number !== pr.number && c.merged > closedAt).length;
-    if (mergedSince >= OVERDUE_BACKSTOP_MERGES && !ledgerPrIsOpen) {
+    const deferredByOpenCarrier = openLedgerPrs.some((c) => c.number !== pr.number && c.opened > closedAt);
+    if (mergedSince >= OVERDUE_BACKSTOP_MERGES && !deferredByOpenCarrier) {
       overdue.push({ pr, trigger: "backstop", mergedSince });
       continue;
     }
@@ -498,7 +556,8 @@ async function main() {
       );
     }
     const allPrs = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls?state=all`, token);
-    const { overdue, pending, skippedNonLoop, skippedLedger } = auditLedgerDebt({ allPrs, ledger });
+    const confirmedLedgerPrs = await confirmedLedgerPrNumbers(allPrs, token);
+    const { overdue, pending, skippedNonLoop, skippedLedger } = auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs });
 
     if (skippedNonLoop > 0) {
       console.log(`• ${skippedNonLoop} closed PR(s) excluded as non-loop authors (${[...NON_LOOP_AUTHORS].join(", ")}).`);
@@ -564,7 +623,13 @@ async function main() {
   const currentPr = allPrs.find((p) => p.number === prNumber);
   if (!currentPr) throw new Error(`PR #${prNumber} not found in the repository's pull request list.`);
 
-  const { owed, skippedNonLoop, skippedLedger } = owedRows({ allPrs, currentPr, ledger });
+  // Excludes currentPr itself — if it's a [LEDGER] PR, its own structural
+  // validity is checked live below against its current diff, not this set.
+  const confirmedLedgerPrs = await confirmedLedgerPrNumbers(
+    allPrs.filter((pr) => pr.number !== currentPr.number),
+    token,
+  );
+  const { owed, skippedNonLoop, skippedLedger } = owedRows({ allPrs, currentPr, ledger, confirmedLedgerPrs });
 
   if (skippedNonLoop > 0) {
     // Never silent: a skip nobody can see reads as coverage that was never checked.
