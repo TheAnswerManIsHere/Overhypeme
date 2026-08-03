@@ -108,8 +108,18 @@ const OVERDUE_BACKSTOP_MERGES = 2;
  * the ledger file" case this function exists to catch. A rename is flagged
  * unless its source was already the ledger path (i.e., not a real rename at
  * all by content).
+ *
+ * An empty file list is rejected too (fixed on PR #304, Codex round 2, P2):
+ * without this, a PR whose diff was emptied back to its base (every change
+ * reverted) and then retitled `[LEDGER]` would pass this check vacuously —
+ * zero files means zero stray files — permanently excusing a real reviewed
+ * loop from ever owing its row despite never touching the ledger at all. A
+ * `[LEDGER]` PR must touch exactly the ledger file, not nothing.
  */
 export function ledgerPrStrayFiles(files) {
+  if (files.length === 0) {
+    return ["(no files changed — a [LEDGER] PR must touch the ledger file)"];
+  }
   const stray = [];
   for (const f of files) {
     if (f.filename !== LEDGER_ONLY_PATH) {
@@ -188,6 +198,21 @@ function prNumbersInLedger(ledger) {
 }
 
 /**
+ * PR numbers whose row is either not arithmetic-checkable (a baseline or
+ * wholly-deferred row — see `isArithmeticCheckable`) or checkable and correct,
+ * plus every exempted PR number. Used to decide whether an open `[LEDGER]`
+ * PR's head content actually, deliverably carries a given loop's row (fixed
+ * on PR #304, Codex round 2, P2) — a row with broken arithmetic can never
+ * pass this file's own hard gate, so a PR that only carries it that way can
+ * never merge as-is and must not be trusted to defer that loop's backstop
+ * indefinitely while it sits open and red.
+ */
+function deliverableRowNumbers(ledger) {
+  const ok = ledger.rows.filter((row) => !isArithmeticCheckable(row) || rowCauseSum(row) === row.findings).map((r) => r.pr);
+  return new Set([...ok, ...ledger.exempt.keys()]);
+}
+
+/**
  * PR numbers with a row or exemption in `before` that are missing from BOTH
  * in `after` — a permanence violation (fixed on PR #304, Codex round 2, P2).
  *
@@ -213,14 +238,26 @@ export function removedRows(before, after) {
  * opened-after-closed timing check alone let a stalled or incomplete open
  * ledger PR defer every timing-eligible loop's backstop indefinitely, even
  * loops its own current head doesn't contain a row for at all.
+ *
+ * Two further constraints, both fixed on PR #304 (Codex round 2, second
+ * pass, both P2):
+ *  - A row that fails the arithmetic hard gate can never actually merge as
+ *    written, so it must not count as "carried" — see `deliverableRowNumbers`.
+ *  - Only a PR targeting `main` can ever deliver anything to `main`. This
+ *    repo stacks dependent bugfix PRs on other open PRs' heads
+ *    (working-modes.md's *Dependent bugs* note), and a `[LEDGER]` PR is no
+ *    exception — one based on a non-`main` branch cannot pay `main`'s debt no
+ *    matter how clean its own diff is, matching the `base.ref === "main"`
+ *    filter `auditLedgerDebt` already applies to landed carriers.
  */
 export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
   const carries = new Map();
   for (const pr of allPrs) {
     if (pr.closed_at) continue;
+    if ((pr.base?.ref ?? "main") !== "main") continue;
     if (!confirmedLedgerPrs.has(pr.number)) continue;
     const text = await fetchFileAtRef(LEDGER_ONLY_PATH, pr.head.sha, token);
-    carries.set(pr.number, text ? prNumbersInLedger(parseLedger(text)) : new Set());
+    carries.set(pr.number, text ? deliverableRowNumbers(parseLedger(text)) : new Set());
   }
   return carries;
 }
@@ -395,12 +432,18 @@ export function isArithmeticCheckable(row) {
   return Object.values(row.causes).some((v) => v !== null);
 }
 
+/** A row's present causal counts, summed. Shared by `checkArithmetic` and `deliverableRowNumbers`. */
+function rowCauseSum(row) {
+  return Object.values(row.causes)
+    .filter((v) => v !== null)
+    .reduce((a, b) => a + b, 0);
+}
+
 export function checkArithmetic({ rows }) {
   const problems = [];
   for (const row of rows) {
     if (!isArithmeticCheckable(row)) continue;
-    const present = Object.values(row.causes).filter((v) => v !== null);
-    const sum = present.reduce((a, b) => a + b, 0);
+    const sum = rowCauseSum(row);
     if (sum !== row.findings) {
       const unmeasured = Object.entries(row.causes)
         .filter(([, v]) => v === null)
@@ -563,7 +606,9 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
       merged: new Date(pr.merged_at),
       ledger: isLedger(pr),
     }));
-  const openLedgerPrs = allPrs.filter((pr) => !pr.closed_at && isLedger(pr)).map((pr) => ({ number: pr.number }));
+  const openLedgerPrs = allPrs
+    .filter((pr) => !pr.closed_at && isLedger(pr) && (pr.base?.ref ?? "main") === "main")
+    .map((pr) => ({ number: pr.number }));
 
   for (const pr of allPrs) {
     if (pr.number < FIRST_ENFORCED_PR) continue;

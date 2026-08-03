@@ -402,6 +402,15 @@ test("ledgerPrStrayFiles flags a rename INTO the ledger path from elsewhere", ()
   );
 });
 
+test("ledgerPrStrayFiles rejects an empty file list", () => {
+  // Fixed on PR #304 (Codex round 2, second pass, P2): a PR whose diff was
+  // reverted to empty and then retitled [LEDGER] must not pass this check
+  // vacuously (zero files, zero stray files) — that would permanently excuse
+  // a real reviewed loop from ever owing a row despite never touching the
+  // ledger at all.
+  assert.equal(ledgerPrStrayFiles([]).length, 1);
+});
+
 test("isLedgerPr matches the title prefix exactly", () => {
   assert.equal(isLedgerPr({ title: "[LEDGER] rows for #290, #292" }), true);
   assert.equal(isLedgerPr({ title: "docs: mention [LEDGER] PRs" }), false);
@@ -496,6 +505,77 @@ test("openLedgerPrCarries fetches head content only for open confirmed candidate
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("openLedgerPrCarries excludes a row that fails its own arithmetic check", async () => {
+  // Fixed on PR #304 (Codex round 2, second pass, P2): a row with findings=2
+  // but causal counts summing to 1 parses successfully and would previously
+  // have entered the carried set, even though it can never pass this file's
+  // own hard gate — a [LEDGER] PR carrying only that broken row can never
+  // merge as-is, so it must not defer the loop's backstop indefinitely just
+  // because the row is technically present.
+  const originalFetch = globalThis.fetch;
+  const brokenRowMd =
+    `# Loop ledger\n\n## Rows\n\n| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |\n` +
+    `|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n` +
+    `| 1 | ${PULL(290)} | bugfix | 1 | 1 | 0 | 1 | 2 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |\n`;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ content: Buffer.from(brokenRowMd, "utf8").toString("base64"), encoding: "base64" }),
+  });
+  try {
+    const carries = await openLedgerPrCarries([{ number: 301, closed_at: null, head: { sha: "abc" } }], new Set([301]), "fake-token");
+    assert.deepEqual([...carries.get(301)], []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("openLedgerPrCarries skips an open [LEDGER] PR based on a non-main branch", async () => {
+  // Fixed on PR #304 (Codex round 2, second pass, P2): a stacked [LEDGER] PR
+  // targeting another PR's branch, not main (working-modes.md's *Dependent
+  // bugs* note), cannot deliver its row to main no matter how clean its own
+  // diff is — matching the base.ref === "main" filter auditLedgerDebt already
+  // applies to landed carriers. Not fetched at all, since it can never carry
+  // anything deliverable.
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    return { ok: true, json: async () => ({ content: "", encoding: "base64" }) };
+  };
+  try {
+    const allPrs = [{ number: 301, closed_at: null, head: { sha: "abc" }, base: { ref: "claude/some-parent" } }];
+    const carries = await openLedgerPrCarries(allPrs, new Set([301]), "fake-token");
+    assert.equal(carries.size, 0);
+    assert.equal(requested.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("auditLedgerDebt does not defer for an open [LEDGER] PR based on a non-main branch, even if its content claims to carry the row", () => {
+  // Defense in depth alongside the openLedgerPrCarries-level fix above: even
+  // if a stacked ledger PR's head content already has the row, it still
+  // cannot deliver it to main by merging into a non-main base.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const stackedOpenLedger = {
+    number: 301,
+    created_at: "2026-07-31T03:00:00Z",
+    closed_at: null,
+    merged_at: null,
+    base: { ref: "claude/some-parent" },
+    title: "[LEDGER] rows for #290",
+    user: { login: "me" },
+  };
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), stackedOpenLedger],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+    confirmedLedgerPrs: new Set([301]),
+    openLedgerPrCarries: new Map([[301, new Set([290])]]),
+  });
+  assert.deepEqual(pending, []);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
 });
 
 test("a carrier that closed unmerged does not make a row overdue", () => {
