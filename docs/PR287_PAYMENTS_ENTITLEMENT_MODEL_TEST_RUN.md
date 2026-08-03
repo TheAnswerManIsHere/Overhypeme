@@ -129,8 +129,8 @@ These depend on the merged state of `main`, which the branch could not see.
 `lib/db/scripts/check-migration-snapshots.ts` rather than diagnosing a gate
 failure:
 
-- `0094_membership_entitlements`
-- `0095_drop_legacy_membership_tables`
+- `0095_membership_entitlements`
+- `0096_drop_legacy_membership_tables`
 
 ## 4. Behaviour against live config and data
 

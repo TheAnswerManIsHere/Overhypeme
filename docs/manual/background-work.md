@@ -88,6 +88,42 @@ retries with increasing backoff and is marked `failed` only after exhausting
 its attempt budget; a crash mid-run leaves a row safely reclaimable rather
 than stuck forever.
 
+### Worker liveness and the Queue Health surface
+
+Every lane's worker publishes a **heartbeat** — a small row saying "instance
+X is still ticking lane Y, N jobs in flight" — because the queue table alone
+can't tell you a worker has died: a `pending` row looks identical whether a
+worker is about to claim it or every worker crashed an hour ago. Admin →
+**Queue Health** is the fleet-wide view built on those heartbeats, and it's a
+**third** reference implementation of the two-altitude contract above — this
+time at the level of "is the whole background-work system alive," not one
+queue's items:
+
+- **Aggregate altitude** (`GET /api/admin/queue-health`) — every queue's raw
+  status tallies plus two derived states, each from a different signal:
+  `skipped` (a successful `done` row whose handler result says mid-run its
+  work no longer applied — nothing to do with attempts or the ceiling) and
+  `abandoned_no_retry` (derived from comparing a `failed` row's attempts
+  against its retry ceiling: the worker deliberately won't retry this one, a
+  different story from "retried five times and gave up"). Per lane: how many
+  instances have a heartbeat row recent enough to
+  still count as live (not necessarily still actively ticking this exact
+  second — a heartbeat can be silent past its own stale threshold but still
+  inside the wider retention window), and whether the whole fleet has gone
+  quiet on it.
+- **Per-item altitude** (`GET /api/admin/queue-health/jobs`) — the same drill-down
+  every queue gets, not just email.
+- **A public liveness probe** (`GET /api/health/queues`, unauthenticated) —
+  on total API-process death it's unreachable exactly like every other
+  endpoint, so that's not what makes it useful. The aggregate endpoint above
+  already reports the same fleet-wide stall, as data in its JSON body behind
+  a 200. What's unique about the probe is turning that same verdict into
+  the **HTTP status code itself** — a meaningful unhealthy response *while
+  the process is still up*, so an external monitor can act on it without
+  parsing a body — and it also fails closed (same unhealthy response) if
+  checking lane health itself errors out, rather than risking a false "all
+  clear." A single instance scaling down is normal, not an incident.
+
 ## Why it works this way
 
 The lane split (2026-07, PR #216) replaced a single shared worker that
@@ -120,15 +156,19 @@ elsewhere.
   one. A very large batch in the `bulk` lane still drains progressively, not
   instantly.
 - **All five lanes share one database connection pool.** Their combined
-  worst-case concurrent handler count (fast 2 + render 3 + bulk 3 + pexels 1 +
-  ai_meme_backfill 1 = 10) now exactly matches the pool's default limit (10) —
-  the `pexels`/`ai_meme_backfill` lanes added for variant independence (PR
-  #256) used up what used to be a small margin. That leaves **no** default
-  spare connection for admin + reader traffic outside these lanes when all
-  five are simultaneously busy, not just thin headroom. Raising the pool's
-  connection limit was deliberately left as follow-up work, not done
-  proactively — see
-  [`current-roadmap.md`](../ai-context/current-roadmap.md).
+  worst-case concurrent handler count is 10 at **default** settings (fast 2 +
+  render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1) — this used to exactly
+  match pg's implicit default pool limit (also 10), leaving no spare
+  connection for admin/reader traffic when all five lanes were simultaneously
+  busy at those defaults. Each lane's concurrency is independently
+  environment-configurable with no aggregate cap, so raising any of them past
+  its default moves the real worst case above 10. **Resolved in PR #288**:
+  the pool's `max` is now explicit and derived from measured production
+  headroom (20, doubling the lanes' **default** worst case) instead of the
+  implicit default. `DB_POOL_MAX` needs reconsidering whenever lane
+  concurrency is raised, not only when the autoscale ceiling is — see
+  [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues)
+  for the arithmetic.
 - **Retention is not an audit log.** Old `done`/`failed` rows are purged after
   a configurable number of days per queue; `async_jobs` is operational state,
   not permanent history.
@@ -156,7 +196,17 @@ elsewhere.
   and `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts` (the `pexels` /
   `ai_meme_backfill` queue handlers),
   `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
-  (the Bulk Media Backfill panel's polling hook).
+  (the Bulk Media Backfill panel's polling hook),
+  `lib/db/src/schema/workerLaneHeartbeats.ts` and
+  `artifacts/api-server/src/lib/workerHeartbeats.ts` (the heartbeat table +
+  writer), `artifacts/api-server/src/lib/queueHealth.ts` and
+  `artifacts/api-server/src/routes/health.ts` (the Queue Health queries +
+  the public probe), `artifacts/overhype-me/src/pages/admin/queueHealth.tsx`
+  (the Queue Health page).
+- [`decisions.md`](../ai-context/decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live) —
+  why the **retry ceiling** (not the `abandoned_no_retry` classification
+  itself, which stays derived on every read) persists on the row at finalize
+  instead of being re-resolved live.
 
 **Next:** this is the last chapter — back to the
 [contents](./README.md#contents).

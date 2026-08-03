@@ -66,6 +66,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The client and server each keep their own copy of the redirect-target
+      # validator (no shared workspace boundary between them) — PR #292 found
+      # the same normalization defect in both at once. This is the mechanical
+      # guard against a future fix landing on only one copy.
+      - name: Check return-to validator parity
+        run: pnpm run check:return-to-parity
+
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots
 

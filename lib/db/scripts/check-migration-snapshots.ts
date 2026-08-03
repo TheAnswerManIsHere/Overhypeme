@@ -313,6 +313,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
   "0093_facts_ai_meme_backfill_status",
 
+  // Phase 1 of the async-queue hardening plan: the worker_lane_heartbeats
+  // table + its last_scheduled_at index + one seeded admin_config row
+  // (instance_heartbeat_ttl_minutes). Hand-authored idempotent DDL, following
+  // 0093's shape; purely additive, no existing row read or rewritten.
+  // Source of truth: lib/db/src/schema/workerLaneHeartbeats.ts.
+  "0094_worker_lane_heartbeats",
+
   // Entitlement model part 1: creates membership_entitlements,
   // entitlement_source_disputes, membership_leases, the two ordering sequences
   // and users.membership_valid_until, plus the admin_config seeds. Hand-authored
@@ -320,14 +327,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // snapshot, and the file carries triggers and partial/conditional constraints
   // Drizzle's snapshot format cannot represent anyway. Source of truth:
   // lib/db/src/schema/membershipEntitlements.ts + auth.ts.
-  "0094_membership_entitlements",
+  "0095_membership_entitlements",
 
   // Entitlement model part 2: drops the legacy `subscriptions` and
   // `lifetime_entitlements` tables once every writer has moved onto
   // membership_entitlements. Two DROP statements — no schema delta drizzle-kit
   // can express against a snapshot chain it cannot regenerate. Source of truth:
   // lib/db/src/schema/memberships.ts (both tables removed).
-  "0095_drop_legacy_membership_tables",
+  "0096_drop_legacy_membership_tables",
 ]);
 
 interface JournalEntry {

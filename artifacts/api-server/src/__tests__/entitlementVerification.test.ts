@@ -143,7 +143,13 @@ function membershipWorld(): FakeWorld {
       } as Partial<Stripe.Subscription>,
     },
     subscriptionItems: {
-      sub_ok: [{ id: "si_1", price: price("price_sub", "prod_member", "month") } as unknown as Stripe.SubscriptionItem],
+      sub_ok: [
+        {
+          id: "si_1",
+          price: price("price_sub", "prod_member", "month"),
+          current_period_end: 1_800_000_000,
+        } as unknown as Stripe.SubscriptionItem,
+      ],
     },
     products: { prod_member: MEMBERSHIP_PRODUCT, prod_merch: MERCH_PRODUCT },
     customers: { cus_1: "user-1" },

@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseLedger, tableUnderHeading, countCell, checkArithmetic, owedRows } from "../check-ledger-coverage.mjs";
+import {
+  parseLedger,
+  tableUnderHeading,
+  countCell,
+  checkArithmetic,
+  isArithmeticCheckable,
+  owedRows,
+} from "../check-ledger-coverage.mjs";
 
 const PULL = (n) => `[#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n})`;
 
@@ -47,6 +54,23 @@ test("an unmeasured causal column is tolerated, but the present ones must still 
 
   const broken = parseLedger(ledgerDoc([row(268, { findings: 40, causes: [16, 19, 4, 0, "—"] })]));
   assert.equal(checkArithmetic(broken).length, 1);
+});
+
+test("a wholly unclassified row (all causal cells blank) is not arithmetic-checkable", () => {
+  // Confirmed on PR #292 (Codex round 5): checkArithmetic silently skips a
+  // row whose causes are all "—" (a size-based deferral, e.g. row 6/#279),
+  // but main()'s old success message reported ledger.rows.length regardless
+  // — overclaiming that every row in the table had been reconciled.
+  // isArithmeticCheckable is what main() uses to report the checked/total
+  // split honestly instead.
+  const deferred = parseLedger(
+    ledgerDoc([row(279, { findings: 166, causes: ["—", "—", "—", "—", "—"] })]),
+  );
+  assert.equal(isArithmeticCheckable(deferred.rows[0]), false);
+  assert.deepEqual(checkArithmetic(deferred), []);
+
+  const classified = parseLedger(ledgerDoc([row(283, { findings: 4, causes: [2, 1, 1, 0, 0] })]));
+  assert.equal(isArithmeticCheckable(classified.rows[0]), true);
 });
 
 test("countCell distinguishes an unmeasured cell from zero", () => {
