@@ -60,11 +60,14 @@ const MANUAL_DIR = join(ROOT, "docs/manual");
 // every numeric rule so a fix to the vocabulary doesn't have to be repeated
 // per rule (PR #298 round 3: round 2 added tens words to `elliptical-cap`
 // only, so "up to fifty eligible" and "polls every five seconds" still
-// passed). "one" is deliberately EXCLUDED everywhere: "the one queue whose
-// failures reach a real person" is an idiom meaning *the singular*, not a
-// count, and flagging it trains readers to ignore this guard.
+// passed). Round 4 added the teens after "which of eleven joke mechanisms"
+// survived — the vocabulary jumped straight from "ten" to "twenty" and
+// missed eleven..nineteen entirely. "one" is deliberately EXCLUDED
+// everywhere: "the one queue whose failures reach a real person" is an
+// idiom meaning *the singular*, not a count, and flagging it trains readers
+// to ignore this guard.
 const NUMBER_WORD =
-  "two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred";
+  "two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred";
 const NUMBER = `(?:\\d+|${NUMBER_WORD})`;
 
 /**
@@ -96,11 +99,12 @@ const RULES = [
   {
     id: "counted-component",
     // "five lanes", "three queues", "2 workers", "last 3 send-back attempts",
-    // "fifty retries" — a count of a component, allowing up to two modifier
-    // words (bare or hyphenated, e.g. "independent scheduling", "send-back")
-    // between the number and the noun.
+    // "fifty retries", "eleven joke mechanisms" — a count of a component,
+    // allowing up to two modifier words (bare or hyphenated, e.g.
+    // "independent scheduling", "send-back") between the number and the
+    // noun.
     re: new RegExp(
-      `\\b${NUMBER}\\s+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?)\\b`,
+      `\\b${NUMBER}\\s+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?|mechanisms?|archetypes?)\\b`,
       "gi",
     ),
     why: "a count of components is a value; say that they exist, not how many",

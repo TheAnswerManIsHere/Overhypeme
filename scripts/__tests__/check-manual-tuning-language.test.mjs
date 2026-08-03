@@ -26,6 +26,15 @@ test("catches a counted component through a hyphenated modifier", () => {
   assert.ok(scanText("a fact whose last 3 send-back attempts all failed").length > 0);
 });
 
+test("catches a teen-number count, and a taxonomy noun like mechanisms/archetypes", () => {
+  // Regression: PR #298 round 4 — "which of eleven joke mechanisms it uses"
+  // went uncaught on two counts: the number vocabulary jumped straight from
+  // "ten" to "twenty" (no eleven..nineteen), and "mechanisms" wasn't in the
+  // counted-component noun list.
+  assert.ok(scanText("which of eleven joke mechanisms it uses").length > 0, "missed teens + mechanisms");
+  assert.ok(scanText("classified into one of twelve archetypes").length > 0, "missed a teen count of archetypes");
+});
+
 test('"one queue" is NOT flagged — it is an idiom, not a count', () => {
   // Regression: an earlier revision flagged "the one queue whose failures reach
   // a real person's inbox", which is *the singular*, not a quantity. Training

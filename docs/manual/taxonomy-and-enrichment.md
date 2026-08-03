@@ -12,7 +12,7 @@
 
 Every fact carries **enrichment** — structured metadata describing *how the
 joke works*, not what picture to draw for it. That includes its primary
-archetype (which of eleven joke mechanisms it uses), a subtype, tone
+archetype (which joke mechanism it uses, from a fixed list), a subtype, tone
 modifiers, how strong the "overhype" fit is, adult-suitability, cultural
 references, named entities, suggested hashtags, and the AI's confidence in
 its own read. It's produced once at moderation time and can be **refreshed**
