@@ -106,91 +106,139 @@ the same Neon auto-suspend behavior — the general shape of the round-12 miss w
 specifying the pool by the two properties I was thinking about and silently
 defaulting everything else, not just the absent `error` listener.
 
+**And the same shape again in round 13, one property further down:**
+`allowExitOnIdle` defaults to `false` (`pg-pool@3.13.0/index.js:92`), and only
+when it is `true` does the pool `unref()` idle clients and their timers
+(`index.js:417-424`). The shared pool sets it under the Node test runner
+precisely so suites don't hang for `idleTimeoutMillis` after finishing
+(`lib/db/src/index.ts:79-87`) — and this plan adds three new real-DB suites
+against a pool that had neither that setting nor a close path. So the dedicated
+pool reuses the same `isNodeTestRunner` detection, **and** the Store exposes a
+`close()` that ends the pool, called where ownership ends (test teardown, and
+the server's shutdown path alongside the existing purger cleanup). §5 asserts
+the test process exits promptly after a Store query rather than after 60s.
+
 ### Failure policy: contention fails closed, outage fails open
 
+**Two rounds of history, because the shape of the mistake is the useful part.**
 Round 11 claimed "the only thing that fails a request open is the database itself
-being unreachable." **That was false, and it is the fourth time bounding this
-Store's DB access has produced a bypass.** `pg-pool` applies
-`connectionTimeoutMillis` whenever `_isFull()` (`pg-pool@3.13.0/index.js:199-225`)
-— *not* only when the database is unreachable. Four concurrent slow upserts
-saturate a `max: 4` pool, every further acquisition rejects after 2s,
-`passOnStoreError` admits those requests uncounted, and the attacker who caused
-the saturation is the one who benefits. Pool size is not a security boundary.
+being unreachable." Round 12 disproved it: `pg-pool` applies
+`connectionTimeoutMillis` whenever `_isFull()`
+(`pg-pool@3.13.0/index.js:199-225`), not only when the database is unreachable,
+so four concurrent slow upserts saturated the pool and every further request was
+admitted uncounted. Round 12's fix branched on a `lastSuccessAt` timestamp —
+recent success meant contention, no recent success meant outage. Round 13
+disproved *that* on two counts: `pg-pool` **queues** excess callers in
+`_pendingQueue` for the full 2s rather than shedding them (verified at
+`index.js:216-231`), so nothing was actually being shed; and an idle instance is
+indistinguishable from an unhealthy one under a traffic-derived signal, so the
+first contention after 10 quiet seconds would fail open.
 
-The fix is to stop treating every Store failure as the same event. The Store
-tracks `lastSuccessAt` — the wall-clock time of its most recent successful query —
-and branches on it:
+Rounds 8 through 12 all had the same defect underneath: they inferred
+*contention* from a **symptom** — a timeout, a stale timestamp — instead of
+knowing it directly. The fix is to stop inferring.
+
+**Contention is a fact the Store already has.** It owns the pool, so it can count
+its own in-flight calls and refuse the (N+1)-th *before* `pool.connect()` is ever
+reached:
 
 ```ts
-const DB_HEALTHY_WINDOW_MS = 10_000;
+const MAX_IN_FLIGHT = 4;      // == the dedicated pool's `max`
 
 class GlobalRateLimitStore implements Store {
-  private lastSuccessAt = 0;
+  private inFlight = 0;
 
   async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
+    if (this.inFlight >= MAX_IN_FLIGHT) {
+      // Contention, known rather than inferred. Nothing has been queued and no
+      // connection attempted — this returns in microseconds.
+      throw new RateLimiterUnavailableError();
+    }
+    this.inFlight++;
     try {
-      const result = await this.upsert(key);
-      this.lastSuccessAt = Date.now();
-      return result;
+      return await this.upsert(key);
     } catch (err) {
-      this.noteStoreError(err);              // counter + ≤1 log line/sec/process
-      if (Date.now() - this.lastSuccessAt < DB_HEALTHY_WINDOW_MS) {
-        // The database answered us seconds ago, so this is local contention,
-        // not an outage. Shed the request instead of admitting it uncounted —
-        // admitting it IS the bypass.
-        throw new RateLimiterUnavailableError();
-      }
-      // Nothing has succeeded inside the healthy window: treat this as a real
-      // database outage and fail open, so a DB incident does not also take the
-      // whole API down.
+      this.noteStoreError(err);   // counter + ≤1 log line/sec/process
+      // We were admitted, so the pool was not full: this is the database
+      // failing, not local load. Fail open — a DB incident must not also take
+      // the whole API down.
       return { totalHits: 1, resetTime: new Date(Date.now() + this.windowMs) };
+    } finally {
+      this.inFlight--;
     }
   }
 }
 ```
 
-Both branches are decided **inside the Store**, so `passOnStoreError` is set to
-**`false`** and the package's own catch is never the thing making the policy
-call. Verified against the packaged source (`dist/index.cjs:896-910`): with
-`passOnStoreError: false` a Store throw becomes `throw error` inside
-`handleAsyncErrors`, i.e. `next(error)`. A four-argument error middleware
+Node's single-threaded event loop makes the check-then-increment pair atomic —
+there is no `await` between them, so no interleaving is possible.
+
+**What this buys, beyond fixing the two round-13 findings.** Because
+`MAX_IN_FLIGHT` equals the pool's `max`, the pool can never be oversubscribed, so
+`_pendingQueue` stays empty and `connectionTimeoutMillis` becomes a backstop that
+should never fire. The two states are now *disjoint by construction* rather than
+told apart by a heuristic: contention is "the counter is at its bound," and
+everything reaching the `catch` genuinely got a connection and genuinely failed.
+That deletes `lastSuccessAt`, `DB_HEALTHY_WINDOW_MS`, the startup probe, and the
+idle-versus-unhealthy ambiguity along with them — three findings resolved by
+removing machinery rather than adding more.
+
+**Why this is not the round-9 concurrency gate wearing a new hat.** It has the
+same shape and the opposite behavior, which is the entire point. Round 9's gate
+failed requests **open** when its permits ran out, so holding permits *was* the
+bypass. This one fails them **closed**: an attacker who saturates the Store gets
+503s, and the 503 path costs no connection, no query, no row, no write. A gate is
+only a bypass if exhausting it is rewarded.
+
+**The residual, stated rather than engineered around:** when the database is
+genuinely failing, this limiter stops limiting. That is deliberate — failing
+closed across a real outage would convert a database blip into a total site
+outage — and the existing narrow limiters have the identical property.
+
+**How the two outcomes leave the Store.** `passOnStoreError` is **`false`** so
+the package's own catch never makes the policy call; the fail-open branch returns
+normally and the fail-closed branch throws. Verified against the packaged source
+(`dist/index.cjs:896-910`): with `false`, a Store throw becomes `throw error`
+inside `handleAsyncErrors`, i.e. `next(error)`. A four-argument error middleware
 mounted immediately after the limiter turns `RateLimiterUnavailableError` into a
 `503` with `Retry-After` and re-`next(err)`s anything else. Because Express
 propagates errors *forward* from where they are thrown, an error handler at that
 position sees limiter errors and not router errors.
 
-Why this is not the round-9 concurrency gate wearing a new hat: that gate failed
-requests **open** when application-level permits ran out, which is precisely what
-made holding permits a bypass. This one fails those same requests **closed**. The
-attacker who saturates the pool gets 503s, not free passage, and the 503 path
-costs one rejected `pool.connect()` — no query, no row, no write.
-
-**Cold start.** `lastSuccessAt` is 0 before the first success, so an attacker who
-saturates the pool from the very first request could otherwise hold the Store in
-the fail-open branch forever. Startup runs one `SELECT 1` on the dedicated pool
-before the server accepts traffic and seeds `lastSuccessAt` on success. If that
-probe fails, the database is genuinely down at boot and fail-open is the right
-state to start in.
-
-**The residual, stated rather than engineered around:** when the database is
-genuinely down for longer than `DB_HEALTHY_WINDOW_MS`, this limiter stops
-limiting. That is deliberate — failing closed across a real outage would convert
-a database blip into a total site outage — and the existing narrow limiters have
-the identical property. What round 12 established is that *contention* must not
-share that treatment; it no longer does.
-
 **Error telemetry** increments a process-local `storeErrorThisInstance` counter
-and logs **at most one line per second per process**, on both branches. Under an
-outage every request reaches this path, so an unthrottled log turns an outage
-into an unbounded log stream (round-10 finding).
+and logs **at most one line per second per process**. Under an outage every
+request reaches this path, so an unthrottled log turns an outage into an
+unbounded log stream (round-10 finding).
 
 **Write amplification, and what bounds it.** This middleware turns every
 non-exempt `/api/*` request into one DB write, including requests it goes on to
 reject — the package increments before it compares (`dist/index.cjs:896`, `:992`).
-That is inherent to the shape CodeQL requires, and the bound is the dedicated
-pool: at most 4 concurrent writes per instance, with everything past that shed as
-503 rather than queued or admitted. A flood therefore costs a bounded, small
-write rate and a large number of cheap rejections.
+That is inherent to the shape CodeQL requires. The bound is `MAX_IN_FLIGHT`: at
+most 4 writes in flight per instance, with excess rejected immediately rather
+than queued. A flood costs a small fixed write rate and a large number of cheap
+rejections.
+
+### Shedding must not destroy in-flight work (round-13 finding, P1)
+
+The 503 above, and the ordinary 429, both reach clients that were not the cause.
+`GodModeLoadingTakeover.tsx:129-166` increments one consecutive-error counter on
+**any** non-OK poll response and, at `MAX_CONSECUTIVE_ERRORS = 5`, puts a
+still-running video job into terminal `failed`. So five shed polls — 2.5 seconds
+at the real cadence — make a real user abandon a job the backend is completing.
+
+That is a pre-existing client defect this plan would weaponize, so this plan
+fixes it: **both pollers treat `429` and `503` as retryable** and do not count
+them toward terminal failure, honoring `Retry-After` where present. Concretely,
+`GodModeLoadingTakeover.tsx` and `PulidLoadingTakeover.tsx` distinguish
+"server asked us to slow down" from "the request failed," backing off on the
+former and leaving the job in its running state.
+
+This matters beyond the 503: a genuine over-limit **429 already** kills in-flight
+jobs today under any ceiling, which is part of why §3's derivation had to treat
+the ceiling as a cliff. With retryability in place, crossing the ceiling degrades
+throughput instead of destroying work. §3 keeps its derived 12,000 anyway — the
+derivation is about not throttling legitimate users at all, and is sound on its
+own terms — but the failure past it is no longer a cliff.
 
 **Row lifetime.** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`)
 is a single unbounded `DELETE` of every expired row — wiring it as-is would not
@@ -284,19 +332,30 @@ const EARLY_EXEMPT_ROUTES: ReadonlyArray<{ methods: readonly string[]; path: str
   { methods: SAFE_READ_METHODS, path: "/api/healthz" },  // liveness — see mount note
   { methods: ["POST"], path: "/api/stripe/webhook" },     // own signature gate
 ];
-// On the webhook exemption specifically (round-12 finding, P1 — raised as
-// "forged requests drive unmetered DB reads"). Checked, and the DB half does
-// not hold: WebhookHandlers.processWebhook (webhookHandlers.ts:1106) calls
-// getStripeSync() at :1120 before signature verification at :1122, and that
-// resolves isLiveMode() → getConfigStringRaw → adminConfig's 60-second TTL
-// cache (adminConfig.ts:22,33-39). A forged flood produces at most one
-// admin_config read per minute per process, not one per request; the StripeSync
-// instance is likewise built once and memoized (stripeClient.ts:102-105).
-// What a forged request DOES cost is a ≤100 kB raw body (body-parser's default,
-// unoverridden at app.ts:148) and one HMAC verification — CPU, bounded, no DB.
-// So the exemption stays, and this is what would invalidate that: removing the
-// config cache, raising the raw-body limit, or any DB work moving ahead of the
-// signature check.
+// On the webhook exemption specifically. WebhookHandlers.processWebhook
+// (webhookHandlers.ts:1106) calls getStripeSync() at :1120 BEFORE signature
+// verification at :1122, so unauthenticated callers reach isLiveMode() →
+// getConfigStringRaw → adminConfig.
+//
+// My round-12 answer was that adminConfig's 60s TTL cache (adminConfig.ts:22)
+// bounds this to one read per minute per process. Round 13 showed that is
+// wrong, and the reason is worth keeping: `loadAll()` (adminConfig.ts:32-39)
+// checks `_cache`, awaits the query, and only THEN assigns `_cache` — there is
+// no in-flight promise. With an empty or just-expired cache, N concurrent
+// callers all miss and all issue the query. A TTL cache bounds the STEADY
+// STATE, not the stampede, and I read the steady-state bound as if it were a
+// concurrency bound. getStripeSync (stripeClient.ts:102-107) has the same gap
+// and is worse: concurrent misses each run buildStripeSync(), which constructs
+// another StripeSync — and another pg pool (stripeClient.ts:96, `max: 2`).
+//
+// So the exemption is kept but its precondition is now MADE TRUE rather than
+// asserted: both paths are single-flighted (§4), so a concurrent forged burst
+// at cold start or TTL expiry collapses to one query and one construction.
+// With that in place a forged request costs a ≤100 kB raw body (body-parser's
+// default, unoverridden at app.ts:148) and one HMAC verification — CPU,
+// bounded, no per-request DB. What would invalidate it: removing either
+// single-flight, raising the raw-body limit, or new DB work moving ahead of
+// the signature check.
 
 function isExemptRequest(req: Request): boolean {
   const path = normalizeRoutePath(req.originalUrl.split("?")[0]);
@@ -375,30 +434,52 @@ app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailable
 
 - `artifacts/api-server/package.json` + regenerated root `pnpm-lock.yaml` — add
   `express-rate-limit`.
-- `artifacts/api-server/src/lib/globalRateLimitStore.ts` — new: the `Store`, its
-  dedicated bounded `pg.Pool` (`max: 4`, `connectionTimeoutMillis: 2_000`, idle
-  `error` handler), the `lastSuccessAt` health signal and its startup probe,
-  `RateLimiterUnavailableError`, the process-local `storeErrorThisInstance`
-  counter, and the throttled error log.
+- `artifacts/api-server/src/lib/globalRateLimitStore.ts` — new: the `Store`; its
+  dedicated `pg.Pool` (`max: 4`, `connectionTimeoutMillis: 2_000`, idle `error`
+  handler, `idleTimeoutMillis`/`maxLifetimeSeconds`, test-runner
+  `allowExitOnIdle`); the `MAX_IN_FLIGHT` admission bound and
+  `RateLimiterUnavailableError`; a `close()` shutdown path; the process-local
+  `storeErrorThisInstance` counter and throttled error log.
+- `artifacts/api-server/src/lib/adminConfig.ts` — **single-flight `loadAll()`**
+  (round-13 finding, P1). It currently checks `_cache`, awaits the query, then
+  assigns — so concurrent callers on an empty or just-expired cache all query.
+  Hold the in-flight promise and have concurrent misses await it. This is in
+  scope because the Stripe-webhook exemption's bound depends on it; it also
+  benefits every other config reader.
+- `artifacts/api-server/src/lib/stripeClient.ts` — **single-flight
+  `getStripeSync()`** for the same reason, and worse consequence: concurrent
+  misses each run `buildStripeSync()`, constructing another `StripeSync` **and
+  another pg pool** (`:96`, `max: 2`) — which the connection budget above does
+  not account for more than once.
+- `artifacts/overhype-me/src/components/meme-builder/wizard/step2-video/GodModeLoadingTakeover.tsx`
+  and `.../step2-image/PulidLoadingTakeover.tsx` — **treat `429`/`503` as
+  retryable** rather than counting them toward terminal failure (round-13
+  finding, P1). Without this, five shed polls mark a still-running job `failed`.
 - `lib/db/src/index.ts` — **the pool-budget derivation must be updated, not just
   consumed** (round-12 finding). The comment at `:45-67` derives
   `max = min(20, floor(398 / max_instances))` and concludes 20 is "safe for any
   autoscale ceiling up to 19 instances" — a figure computed *for* 20 connections
-  per instance. This plan adds 4 more, so the real per-instance total is 24 and
-  the safe ceiling is `floor(398 / 24) = 16`, not 19. The shared pool's `max`
-  stays 20 (lowering it would break the "double the five lanes' worst case of 10"
-  property the comment derives); what changes is the recorded ceiling, the
-  arithmetic behind it, and a note that the limiter's 4 are part of the total.
-  `DB_POOL_MAX` remains the escape hatch above 16 instances. Leaving the comment
-  stale would be worse than the connection count itself — it is the only written
-  record of this budget.
+  per instance. The corrected derivation counts **every** pool in the process,
+  not only the ones this plan introduces — round 13's finding, and it is right:
+  I first recorded 16 by adding the limiter's 4 to the shared 20 and setting the
+  Stripe pool aside as someone else's pre-existing omission. Postgres does not
+  care whose omission it is, and `16 × 26 = 416` still exceeds the budget.
 
-  **Noted, not folded in:** there is a third per-instance pool the original
-  derivation never counted — `stripeClient.ts:96` builds `StripeSync` with
-  `poolConfig: { …, max: 2 }`, memoized per process. Counting it honestly gives
-  26/instance and `floor(398 / 26) = 15`. The plan records 16 for the two pools
-  it is responsible for and flags the Stripe 2 as a pre-existing omission, so it
-  is visible without this change absorbing someone else's arithmetic.
+  ```
+    20  shared pool        (lib/db/src/index.ts)
+     4  limiter pool       (this plan)
+     2  StripeSync pool    (stripeClient.ts:96)
+    ──
+    26  per instance  →  floor(398 / 26) = 15 instances   (15 × 26 = 390 ✓)
+  ```
+
+  The comment is rewritten to enumerate all three and record **15**, so the next
+  person to add a pool updates a total instead of rediscovering one. The shared
+  pool's `max` stays 20 — lowering it would break the "double the five lanes'
+  worst case of 10" property the comment derives, and that property is
+  load-bearing where the ceiling figure is not. `DB_POOL_MAX` remains the escape
+  hatch above 15 instances. Leaving the comment stale would be worse than the
+  connections it undercounts: it is the only written record of this budget.
 - `artifacts/api-server/src/lib/sharedRateLimiter.ts` — `purgeExpiredRateLimitCounters()`
   gains a `limit` parameter and returns the deleted-row count, so the new job can
   loop in bounded batches (round-11 finding: as written it is one unbounded
@@ -450,33 +531,45 @@ app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailable
    present on the 429; preflight behavior asserted by Store hit count across all
    three origin cases — **allowed** (answered by `cors()`, never reaches the Store),
    **absent**, and **rejected** (falls through and *is* metered).
-3a. **The webhook exemption's bound, asserted rather than argued** (round-12 P1):
-   an invalid-signature burst against `/api/stripe/webhook` performs bounded
-   database work — at most one `admin_config` read per cache TTL, not one per
-   request — and an over-limit raw body is rejected by body-parser before reaching
-   the handler. This is the test that would fail if the config cache were ever
-   removed or DB work moved ahead of the signature check.
+3a. **The webhook exemption's bound, asserted rather than argued** — and the
+   burst must be **concurrent**, against both an **empty** and a **just-expired**
+   cache (round-13 finding: a serial burst passes on a TTL cache alone, which is
+   why my round-12 rebuttal survived a round it shouldn't have). Assert an
+   invalid-signature burst issues **one** `admin_config` query and constructs
+   **one** `StripeSync`, and that an over-limit raw body is rejected by
+   body-parser before the handler.
 3d. **Dedicated-pool lifecycle:** emitting an idle-client `error` on the Store's
    pool does not crash the process and the pool recovers on the next request
-   (round-12 finding; mirrors the shared pool's handler at `lib/db/src/index.ts:90-95`).
+   (round-12 finding; mirrors `lib/db/src/index.ts:90-95`). And the round-13
+   half: **a test process that has run a Store query exits promptly** rather
+   than hanging for `idleTimeoutMillis`, via test-runner `allowExitOnIdle` plus
+   an explicit `close()`.
 3b. **The polling case, because it is what the ceiling is derived from:** a
    simulated shared IP running N concurrent pollers at the real 500 ms cadence —
    **both** `/api/memes/video-jobs/:id` and `/api/memes/pulid-jobs/:id`, since the
    ceiling now accounts for two — stays under the ceiling at the documented
    capacity and never trips `MAX_CONSECUTIVE_ERRORS`.
-3c. **The failure-policy matrix, which is the round-12 P1 and the fourth attempt
-   at this boundary — so it gets asserted counts, not just latencies:**
-   - *Healthy contention.* Saturate the dedicated pool while the database is up.
-     Assert every shed request returns **503** and that the number of requests
-     **admitted past the ceiling is zero** — the specific bypass rounds 9, 11 and
-     12 each produced in a different shape. Assert open-request count stays
-     bounded (no `_pendingQueue` growth) and the 503 path issues no query.
-   - *Genuine outage.* Stop the database, wait past `DB_HEALTHY_WINDOW_MS`, assert
-     requests are admitted (fail open) and the log stays ≤1 line/sec/process.
-   - *Recovery.* Bring it back; assert enforcement resumes on the first success.
-   - *Cold start.* Saturate the pool before any successful query and assert the
-     startup `SELECT 1` has already seeded `lastSuccessAt`, so the fail-open
-     branch is not reachable while the database is up.
+3c. **The failure-policy matrix. This boundary has produced a defect in rounds 9,
+   11, 12 and 13, so it gets asserted counts and peak measurements, not
+   latencies:**
+   - *Healthy contention.* Drive concurrency well past `MAX_IN_FLIGHT` (the 500
+     -concurrent load case below is the same scenario at scale). Assert every
+     shed request returns **503**; that requests **admitted past the ceiling
+     number zero** — the bypass rounds 9, 11 and 12 each produced in a different
+     shape; that the **peak** `_pendingQueue` depth and peak open-request count
+     stay at their bounds rather than growing with offered load (the round-13
+     finding: `pg-pool` queues rather than sheds, so "bounded" has to be
+     measured, not asserted); and that the 503 path issues no query.
+   - *Genuine outage.* Stop the database, assert requests are admitted (fail
+     open) and the log stays ≤1 line/sec/process.
+   - *Recovery.* Bring it back; assert enforcement resumes immediately.
+   - *Idle, then contention.* Leave the instance idle well past any staleness
+     interval, then drive contention: assert **503**, not fail-open. This is the
+     round-13 case that killed the `lastSuccessAt` design, and it must keep
+     failing if a traffic-derived health signal is ever reintroduced.
+   - *Shed responses do not destroy work.* Five consecutive 503s (and separately
+     five 429s) to a running video-job poller leave the job running and recover
+     on the sixth — the pre-existing client defect this plan fixes.
 4. **Purger tests:** active vs. expired boundary; bounded-batch deletion of a large
    synthetic backlog; a thrown error on one run doesn't block the next.
 5. **Boot-time salt guard matrix — both positive branches, not just one**
@@ -493,8 +586,11 @@ app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailable
 7. **Local CodeQL re-scan** of the final code confirms `js/missing-rate-limiting`
    drops 213 → 0.
 8. **Load check:** 500 concurrent requests over 200 distinct keys and over 1 shared
-   key, 30s each. Pass: p95 added latency ≤ 15ms, shared-pool usage ≤ 16 of 20
-   connections, dedicated-pool usage ≤ 4, 0% requests admitted past the ceiling.
+   key, 30s each. Pass: p95 added latency ≤ 15ms; shared-pool usage ≤ 16 of 20
+   connections; dedicated-pool usage ≤ 4 **and peak `_pendingQueue` depth ≈ 0**
+   (the admission bound should mean the pool is never oversubscribed, so this is
+   the measurement that catches the round-13 queueing defect if it returns); 0%
+   requests admitted past the ceiling.
 9. **Manual:** exceed the ceiling from one IP, confirm the 429 body/headers/CORS;
    confirm the narrow limiters still fire independently; confirm exempt routes are
    unaffected.
@@ -563,22 +659,29 @@ these were considered rather than overlooked.
   `connectionTimeoutMillis: 2_000` pool, which bounds acquisition by construction
   without an application-level permit scheme.
 
-  **Correction (round-12, P1): the *distinction* I drew to justify that was wrong
-  too, and this is the fourth consecutive attempt at the same boundary.** I wrote
-  that "only the database being unreachable fails a request open, never
-  application-level contention." `pg-pool` applies `connectionTimeoutMillis`
-  whenever the pool is full (`index.js:199-225`), so saturating four connections
-  produced exactly the round-9 bypass again in a different costume. The pattern
-  across rounds 8→12 is that every version of this fix tried to make failures
-  *rarer*; none of them changed what happens *when* one occurs. §2's failure
-  policy does: contention fails **closed** (503, load shed), outage fails **open**,
-  and the two are told apart by a `lastSuccessAt` signal rather than by pool
-  sizing. Pool size is not a security boundary and this plan no longer treats it
-  as one.
+  **That boundary then took three more rounds, and the arc is worth keeping in
+  one piece rather than as a stack of corrections.** Round 12 showed a full pool
+  rejects on `connectionTimeoutMillis` regardless of database health
+  (`pg-pool/index.js:199-225`), so the dedicated pool reproduced the round-9
+  bypass in a different costume. Round 13 showed that the `lastSuccessAt`
+  timestamp meant to tell contention from outage could not do it either — an
+  idle instance looks identical to an unhealthy one — and that `pg-pool`
+  *queues* excess callers for the full timeout (`index.js:216-231`) rather than
+  shedding them, so the design's central claim was false in both directions at
+  once.
 
-  **The residual that genuinely remains:** when the database is down for longer
-  than the healthy window, this limiter stops limiting. That is the right choice
-  for a backstop, and the existing narrow limiters share it exactly.
+  Every one of those attempts inferred contention from a **symptom**: a timeout,
+  a permit count, a stale clock. §2 stops inferring — the Store counts its own
+  in-flight calls and refuses the (N+1)-th before touching the pool, so
+  contention is a fact it holds rather than a diagnosis it makes. That single
+  change subsumes `runBounded`, the round-9 gate, the round-11 pool timeout, and
+  the round-12 health signal, and it is safe where the round-9 gate was not for
+  one reason: **exhausting it is punished (503), not rewarded (admitted
+  uncounted).** A gate is only a bypass if running it out gets you through.
+
+  **The residual that genuinely remains:** when the database itself fails, this
+  limiter stops limiting. That is the right choice for a backstop, and the
+  existing narrow limiters share it exactly.
 - **The purger's advisory lock.** Added to stop autoscale instances running
   redundant hourly deletes; rounds 8-10 then spent three findings on session
   lifetime, release ownership, and lock reentrancy. `DELETE WHERE expires_at <
