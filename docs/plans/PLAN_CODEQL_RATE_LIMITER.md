@@ -388,6 +388,13 @@ app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailable
   `DB_POOL_MAX` remains the escape hatch above 16 instances. Leaving the comment
   stale would be worse than the connection count itself — it is the only written
   record of this budget.
+
+  **Noted, not folded in:** there is a third per-instance pool the original
+  derivation never counted — `stripeClient.ts:96` builds `StripeSync` with
+  `poolConfig: { …, max: 2 }`, memoized per process. Counting it honestly gives
+  26/instance and `floor(398 / 26) = 15`. The plan records 16 for the two pools
+  it is responsible for and flags the Stripe 2 as a pre-existing omission, so it
+  is visible without this change absorbing someone else's arithmetic.
 - `artifacts/api-server/src/lib/sharedRateLimiter.ts` — `purgeExpiredRateLimitCounters()`
   gains a `limit` parameter and returns the deleted-row count, so the new job can
   loop in bounded batches (round-11 finding: as written it is one unbounded
