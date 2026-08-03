@@ -329,6 +329,15 @@ export const ncmecSafetyAuditLogTable = pgTable("ncmec_safety_audit_log", {
 }, (t) => [
   index("IDX_ncmec_audit_report_created").on(t.reportId, t.createdAt.desc()),
   index("IDX_ncmec_audit_created").on(t.createdAt.desc()),
+  // Declared here, not only in 0095, for the same reason the two ncmec_reports checks are:
+  // `drizzle-kit push --force` reconciles the live database against THIS definition, so a
+  // constraint that exists only in the migration is a data-loss statement a forced push will
+  // auto-approve — dropped, and never recreated once 0095's hash is already recorded.
+  // Keep the value list in lockstep with NCMEC_AUDIT_ACTIONS above and with 0095.
+  check(
+    "ncmec_safety_audit_log_action_check",
+    sql`${t.action} IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write')`,
+  ),
 ]);
 
 export type NcmecSafetyAuditEntry = typeof ncmecSafetyAuditLogTable.$inferSelect;

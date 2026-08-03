@@ -419,6 +419,60 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status === "err" && result.retryable, true);
   });
 
+  // /upload is the second endpoint (after /submit) whose unconfirmed responses are NOT safe to
+  // retry, and it is the exception to the "carries a reportId, so a retry is a no-op" rule the
+  // /finish and /retract cases above rely on. Carrying the report id is what makes those two
+  // idempotent — ISPWS resolves the repeat against the same keyed report. /upload's request
+  // carries the id AND the file bytes but no upload idempotency key, so ISPWS cannot recognize
+  // a repeat: a second POST attaches a SECOND copy of the evidence to a live report. That is
+  // the same reasoning missingElement() already applied to /upload's success-with-missing-field
+  // case, which had left the strictly less-confirmed cases below classified the other way.
+
+  it("downgrades a malformed 2xx body on /upload to ambiguous — no idempotency key to retry against", async () => {
+    const { instance } = client(
+      "<reportResponse><responseCode>0</responseCode><fileId>abc</wrong></reportResponse>",
+    );
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.match(result.status === "err" ? result.message : "", /retracting report 4564654/);
+  });
+
+  it("downgrades a dropped connection on /upload to ambiguous", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
+  it("downgrades a response-stream error on /upload to ambiguous", async () => {
+    const fetchImpl = (async () =>
+      new Response(streamThatErrorsMidRead(), { status: 200, headers: { "content-type": "text/xml" } })) as unknown as typeof fetch;
+    const instance = new NcmecClient({ fetchImpl, credentials: CREDENTIALS });
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
+  it("refuses to retry an /upload answered with the wrong root", async () => {
+    // Not routed through the ambiguity downgrade — a wrong-root response carries a real
+    // responseCode, so it fails the `responseCode === null` condition — which is exactly why
+    // retryableIfWrongRoot has to be false for this endpoint independently.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportDoneResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportDoneResponse>',
+    );
+    const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
   it("treats a malformed 2xx body on /retract as retryable, same as /finish", async () => {
     const { instance } = client(
       "<reportResponse><responseCode>0</responseCode></reportResponse><reportResponse><responseCode>0</responseCode></reportResponse>",

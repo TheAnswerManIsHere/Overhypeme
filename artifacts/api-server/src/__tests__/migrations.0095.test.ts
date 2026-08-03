@@ -34,7 +34,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 
 import {
   CONTENT_ORIGINS,
@@ -121,6 +121,14 @@ const OWNERSHIP_END = "-- <<< ncmec-0095 ownership hardening block (end)";
 /** Just the DBA-provisioned-ownership-transfer DO block. */
 function ownershipHardeningBlock(): string {
   return sliceBetween(OWNERSHIP_START, OWNERSHIP_END);
+}
+
+const ACTION_CHECK_START = "-- >>> ncmec-0095 action check block (start)";
+const ACTION_CHECK_END = "-- <<< ncmec-0095 action check block (end)";
+
+/** Just the inspect-then-reconcile block for the audit log's action vocabulary. */
+function actionCheckBlock(): string {
+  return sliceBetween(ACTION_CHECK_START, ACTION_CHECK_END);
 }
 
 describe("migration 0095 — static contract", () => {
@@ -259,6 +267,11 @@ describe("migration 0095 — static contract", () => {
       "ncmec_reports_submission_status_check",
       "ncmec_reports_content_origin_check",
       "quarantined_memes_content_origin_check",
+      // The audit log's closed action vocabulary. Its stakes are the same as
+      // UQ_ncmec_reports_quarantine's rather than an index's: the ledger is database-enforced
+      // append-only, so a row written with an unknown action after a forced push silently
+      // dropped this constraint could never be corrected through ordinary application access.
+      "ncmec_safety_audit_log_action_check",
     ];
     for (const name of declared) {
       assert.match(MIGRATION_SQL, new RegExp(`"${name}"`), `${name} is not created by 0095`);
@@ -281,8 +294,14 @@ describe("migration 0095 — static contract", () => {
     // BEFORE row triggers cancel the operation on a NULL return, so the
     // maintenance path must return OLD/NEW or the escape hatch silently
     // swallows the correction it exists to permit.
-    assert.match(MIGRATION_SQL, /IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;/);
-    assert.doesNotMatch(MIGRATION_SQL, /THEN RETURN NULL/);
+    //
+    // Scoped to the guard function's own body, not the whole migration. The property under
+    // test belongs exclusively to a BEFORE ROW trigger function — it says nothing about
+    // ordinary PL/pgSQL elsewhere in the file, where returning NULL is just a return value.
+    // As a whole-file grep this also failed against `pg_temp.ncmec_assume_path`, which
+    // returns NULL to mean "no path to this role exists" and is not a trigger at all.
+    assert.match(guardFnBodyLiteral(), /IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;/);
+    assert.doesNotMatch(guardFnBodyLiteral(), /THEN RETURN NULL/);
     // A row trigger does not fire on TRUNCATE.
     assert.match(MIGRATION_SQL, /BEFORE TRUNCATE ON "ncmec_safety_audit_log"\s*\n\s*FOR EACH STATEMENT/);
   });
@@ -391,6 +410,32 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       return { ok: false, output: `${String(e.stdout ?? "")}${String(e.stderr ?? "")}` };
     }
   }
+
+    /**
+     * psql with the server's diagnostic stream folded in. `execSqlAsLoginRole` returns stdout
+     * alone on a successful run, which is empty for a block whose entire output is
+     * `RAISE WARNING`/`RAISE NOTICE` — those go to stderr. Any assertion about the DBA guidance
+     * a SUCCESSFUL run printed has to read both streams; the failure-path assertions elsewhere
+     * in this file already see stderr because the catch branch concatenates it.
+     *
+     * `login` null runs as the pool's own role.
+     */
+    function execSqlCapturingDiagnostics(
+      login: string | null,
+      password: string | null,
+      sql: string,
+    ): { ok: boolean; output: string } {
+      assert.ok(pool, "pool unavailable");
+      const dbUrl = new URL(process.env.DATABASE_URL!);
+      if (login) {
+        dbUrl.username = login;
+        dbUrl.password = password!;
+      }
+      const r = spawnSync("psql", [dbUrl.toString(), "-v", "ON_ERROR_STOP=1", "-c", sql], {
+        encoding: "utf-8",
+      });
+      return { ok: r.status === 0, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+    }
 
   it("adds every ncmec_reports column the later phases write", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
@@ -839,6 +884,257 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
         }
       }
+    });
+
+    it("preserves the role it was invoked under across its SET-ROLE probes", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // RESET ROLE returns to `session_user`, NOT to whichever role was current when the probe
+      // started — verified directly against this repository's PostgreSQL 16 target. The block
+      // probes `SET ROLE` against the ledger's schema owner on every run, so under the old
+      // RESET ROLE the very first probe silently switched the session to session_user, and
+      // every ownership, schema and grant check afterwards answered for the wrong role. A DBA
+      // replaying the migration as the application role (`SET ROLE <app>; \i 0095.sql`) is the
+      // realistic way in.
+      assert.ok(pool, "pool unavailable");
+      const mid = `ncmec_mid_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_probe_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE ROLE ${mid} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      await pool.query(`GRANT ${mid} TO ${app} WITH INHERIT TRUE, SET TRUE`);
+      try {
+        const result = execSqlCapturingDiagnostics(
+          app,
+          appPassword,
+          `SET ROLE ${mid}; ${ownershipHardeningBlock()} ; SELECT current_user AS role_after;`,
+        );
+        assert.ok(result.ok, `expected the block to run cleanly; got: ${result.output}`);
+        assert.match(
+          result.output,
+          new RegExp(mid),
+          "the block must leave the session as the role it was entered under",
+        );
+        assert.doesNotMatch(
+          result.output,
+          new RegExp(`role_after[\\s-]*\\n\\s*${app}`),
+          "RESET ROLE dropped the session back to session_user",
+        );
+      } finally {
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${mid}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        await pool.query(`DROP ROLE IF EXISTS ${mid}`);
+      }
+    });
+
+    it("does not abort when the app can only INHERIT overhype_audit_owner and cannot SET ROLE to it", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The transfer branch runs `ALTER TABLE ... OWNER TO` and `SET LOCAL ROLE`, both of which
+      // require SET access — verified directly against this repository's PostgreSQL 16 target
+      // that an `INHERIT TRUE, SET FALSE` grant reports pg_has_role(...,'usage') = true while
+      // both statements fail with "must be able to SET ROLE". Gating that branch on the broad
+      // effective-access check therefore aborted the whole migration on exactly the grant shape
+      // that check was widened to detect. It must fall through to the DBA guidance instead.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_inh_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) {
+        await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+      }
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        await pool.query(`GRANT overhype_audit_owner TO ${app} WITH INHERIT TRUE, SET FALSE`);
+
+        const result = execSqlCapturingDiagnostics(app, appPassword, ownershipHardeningBlock());
+        assert.ok(result.ok, `the block must not abort on an INHERIT-only grant; got: ${result.output}`);
+        assert.match(result.output, /ALTER TABLE .* OWNER TO overhype_audit_owner/);
+        // And it must not have silently claimed the transfer happened.
+        const { rows } = await pool.query<{ owner: string }>(
+          `SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE relname = 'ncmec_safety_audit_log'`,
+        );
+        assert.equal(rows[0]?.owner, app, "ownership must be left for the DBA, not half-moved");
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
+    });
+
+    it("names the indirect grant to revoke when the path to overhype_audit_owner runs through ADMIN OPTION", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The application holds no direct membership in overhype_audit_owner — it holds `helper`,
+      // which carries ADMIN OPTION and can therefore grant itself membership at will. The old
+      // instruction, `REVOKE overhype_audit_owner FROM <app>`, removes a membership that was
+      // never there: it succeeds, changes nothing, and the next rerun prints the same text
+      // again. A DBA following it literally can loop forever with the bypass wide open.
+      assert.ok(pool, "pool unavailable");
+      const helper = `ncmec_helper_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_adm_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) {
+        await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+      }
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      await pool.query(`CREATE ROLE ${helper} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        // helper can administer overhype_audit_owner; app can become helper; app holds
+        // overhype_audit_owner neither directly nor by inheritance.
+        await pool.query(`GRANT overhype_audit_owner TO ${helper} WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`);
+        await pool.query(`GRANT ${helper} TO ${app} WITH INHERIT TRUE, SET TRUE`);
+
+        const result = execSqlCapturingDiagnostics(app, appPassword, ownershipHardeningBlock());
+        assert.ok(result.ok, `the block must not abort; got: ${result.output}`);
+        assert.match(
+          result.output,
+          new RegExp(`REVOKE ${helper} FROM ${app}`),
+          "the recovery text must name the link the application actually holds",
+        );
+        assert.match(result.output, /does NOT hold overhype_audit_owner directly/);
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`);
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${helper}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        await pool.query(`DROP ROLE IF EXISTS ${helper}`);
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
+    });
+
+    it("prints a second GRANT CREATE when the guard function lives in its own schema", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // PostgreSQL requires the NEW owner to hold CREATE on the schema containing the object
+      // being reassigned. The ALTER FUNCTION line already targets the function's own schema, so
+      // granting CREATE only on the table's schema leaves a DBA who follows these instructions
+      // in order failing at the function transfer, having already completed the table's.
+      //
+      // Run as a dedicated non-superuser that owns both objects, which is what puts the block
+      // in its DBA-guidance branch: a superuser is an implicit member of every role, so it
+      // would take the transfer branch instead and print no guidance at all. The moved schema
+      // is added to search_path because the block resolves the function through
+      // to_regprocedure() — a function moved somewhere unreachable is a different scenario
+      // from one moved to another schema the deployment actually uses.
+      assert.ok(pool, "pool unavailable");
+      const fnSchema = `ncmec_fn_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_fns_app_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE SCHEMA ${fnSchema}`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`GRANT USAGE, CREATE ON SCHEMA ${fnSchema} TO ${app}`);
+        await pool.query(`GRANT CREATE ON SCHEMA public TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() SET SCHEMA ${fnSchema}`);
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ${fnSchema}.ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+
+        const { output: result } = execSqlCapturingDiagnostics(
+          app,
+          appPassword,
+          `SET search_path TO public, ${fnSchema}; ${ownershipHardeningBlock()}`,
+        );
+        assert.match(
+          result,
+          new RegExp(`GRANT CREATE ON SCHEMA ${fnSchema} TO overhype_audit_owner`),
+          `the function's own schema needs its own GRANT CREATE; got: ${result}`,
+        );
+        assert.match(
+          result,
+          new RegExp(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`),
+          "and the table's schema still needs its own",
+        );
+        assert.match(
+          result,
+          new RegExp(`ALTER FUNCTION ${fnSchema}\\.ncmec_safety_audit_log_append_only`),
+          "and the ALTER FUNCTION must target that same schema",
+        );
+      } finally {
+        await pool
+          .query(`ALTER FUNCTION ${fnSchema}.ncmec_safety_audit_log_append_only() SET SCHEMA public`)
+          .catch(() => {});
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`).catch(() => {});
+        await pool
+          .query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`)
+          .catch(() => {});
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        await pool.query(`DROP SCHEMA IF EXISTS ${fnSchema} CASCADE`);
+        await pool.query(auditGuardBlock());
+      }
+    });
+
+    it("replays the action CHECK against a hardened ledger it no longer owns", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The hash-based migrator replays 0095 whenever migration tracking is lost or the file's
+      // hash changes — including after a DBA has transferred the ledger. An unconditional
+      // `ALTER TABLE ... DROP CONSTRAINT` there fails with "must be owner of table" and aborts
+      // the migration before the ownership block, which is built to survive exactly this state,
+      // ever runs. An already-correct constraint must be accepted untouched.
+      await withOwnershipTransferredToRestrictedRole(
+        async (owner, app) => {
+          await pool!.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+          await pool!.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
+        },
+        async (app, appPassword) => {
+          const result = execSqlCapturingDiagnostics(app, appPassword, actionCheckBlock());
+          assert.ok(result.ok, `expected the action CHECK block to replay cleanly; got: ${result.output}`);
+          assert.match(result.output, /already present and correct/);
+        },
+      );
+    });
+
+    it("refuses, with owner-run commands, when the action CHECK has drifted on a ledger it cannot alter", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The other half of the previous test: accepting an already-correct constraint must not
+      // become silently accepting a WRONG one. This ledger is database-enforced append-only, so
+      // a row admitted under a drifted vocabulary could never be corrected afterwards.
+      await withOwnershipTransferredToRestrictedRole(
+        async (owner, app) => {
+          await pool!.query(
+            `ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_action_check`,
+          );
+          await pool!.query(
+            `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_action_check CHECK ("action" IN ('retry'))`,
+          );
+          await pool!.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${owner}`);
+          await pool!.query(`GRANT SELECT, INSERT ON ncmec_safety_audit_log TO ${app}`);
+        },
+        async (app, appPassword) => {
+          const result = execSqlAsLoginRole(app, appPassword, actionCheckBlock());
+          assert.equal(result.ok, false, "a drifted constraint it cannot repair must be fatal");
+          assert.match(result.output, /has drifted \(found: retry\)/);
+          assert.match(result.output, /A DBA must run, as the table's owner/);
+        },
+      );
+      // Ownership is back with the pool's role by now, so the block can repair its own damage —
+      // which also exercises the repair path the test above deliberately never reaches.
+      await pool.query(actionCheckBlock());
+      const { rows } = await pool.query<{ def: string }>(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+          WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+      );
+      assert.match(rows[0]!.def, /config_write/, "the full vocabulary must be restored");
     });
 
     it("reconciles a partially completed ownership transfer instead of reading table ownership as proof of everything", async (t) => {

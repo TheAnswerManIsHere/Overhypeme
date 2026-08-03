@@ -418,12 +418,21 @@ export class NcmecClient {
        */
       expectedRoot: ParsedEnvelope["root"];
       /**
-       * Whether a wrong-root response is safe to retry. `/submit` is the one endpoint where
-       * it isn't: repeating it could open a SECOND report, the same reasoning that keeps its
-       * missing-`<reportId>` case terminal too. Every other endpoint already carries (or
-       * doesn't need) a `reportId`, so a wrong-root response there is exactly as unconfirmed
-       * as a dropped connection or a malformed body — retrying is a safe no-op, resolved
-       * through `5102 Report already finished` if it turns out the first attempt landed.
+       * Whether a wrong-root response is safe to retry. Two endpoints say no, for two
+       * different reasons:
+       *
+       * - `/submit` — repeating it could open a SECOND report, the same reasoning that keeps
+       *   its missing-`<reportId>` case terminal too.
+       * - `/upload` — its request carries no idempotency key, only the report id and the
+       *   bytes, so a repeat appends a SECOND copy of the evidence rather than replacing the
+       *   first. Recovering means retracting and rebuilding the whole report, not repeating
+       *   the upload.
+       *
+       * The remaining endpoints (`/status`, `/fileinfo`, `/finish`, `/retract`) either carry
+       * a `reportId` that makes the request idempotent or are tied to no report at all, so a
+       * wrong-root response there is exactly as unconfirmed as a dropped connection or a
+       * malformed body — retrying is a safe no-op, resolved through `5102 Report already
+       * finished` if it turns out the first attempt landed.
        */
       retryableIfWrongRoot: boolean;
     },
@@ -618,10 +627,49 @@ export class NcmecClient {
       method: "POST",
       body: form,
       expectedRoot: "reportResponse",
-      // Already carries this method's own reportId — a safe no-op to retry.
-      retryableIfWrongRoot: true,
+      // `false`, unlike every other report-keyed endpoint. Carrying a reportId is what makes a
+      // retry a no-op for /fileinfo, /finish and /retract — each of those either overwrites the
+      // same keyed slot or is resolved by `5102 Report already finished`. /upload is different:
+      // the multipart request carries only the report id and the file bytes, with NO upload
+      // idempotency key, so ISPWS has no way to recognize a repeat of an upload it already
+      // accepted. A second POST appends a SECOND copy of the evidence to the report rather
+      // than replacing the first — which is exactly why this file's own `missingElement()`
+      // contract already calls a repeated upload "a second upload of unknown relationship to
+      // the first" and refuses to retry it. Marking a wrong-root response retryable here
+      // contradicted that contract for a strictly less-confirmed response than the one it
+      // covers.
+      retryableIfWrongRoot: false,
     });
-    if ("status" in result) return result;
+    if ("status" in result) {
+      // The same ambiguity downgrade `/submit` performs, for the same reason and with a
+      // different remedy. `call()`'s generic classification treats "nothing is known to be
+      // wrong" as retryable, which is right wherever a retry is a no-op — and, per the
+      // `retryableIfWrongRoot` note above, /upload is not such an endpoint.
+      //
+      // The condition matches /submit's: no responseCode was ever obtained (so NCMEC's own
+      // verdict, if it rendered one, never reached here) AND `call()` judged it retryable.
+      // That covers all three unconfirmed shapes — a transport failure before any response
+      // (`kind: "network"`), a non-2xx whose body could not be read (`kind: "http"`), and a
+      // 2xx whose body was truncated or malformed mid-flight (`kind: "malformed"`). In every
+      // one of them the upload may already have landed, and repeating it would duplicate the
+      // evidence inside a live report.
+      //
+      // Unlike /submit — where the remedy is manual review, because no reportId was ever
+      // recovered — this failure IS mechanically recoverable: the caller holds the reportId,
+      // so retracting the report and rebuilding it from /submit replaces the whole thing
+      // rather than appending to it. That is a decision for the caller's retract-first guard
+      // to make explicitly, which is precisely what returning "ambiguous" forces; returning
+      // "retryable" instead hid the choice behind a blind repeat of the upload alone.
+      if (result.responseCode === null && result.retryable) {
+        return {
+          ...result,
+          retryable: false,
+          kind: "ambiguous",
+          message: `${result.message} — not retrying the upload alone: ISPWS may have already accepted this file, and /upload carries no idempotency key, so a repeat would attach a second copy. Recover by retracting report ${reportId} and resubmitting it from /submit.`,
+        };
+      }
+      return result;
+    }
     const fileId = textOf(result.values["fileId"]);
     const hash = textOf(result.values["hash"]);
     if (!fileId || !hash) {
