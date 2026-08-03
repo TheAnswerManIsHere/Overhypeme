@@ -1123,7 +1123,12 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         async (app, appPassword) => {
           const result = execSqlAsLoginRole(app, appPassword, actionCheckBlock());
           assert.equal(result.ok, false, "a drifted constraint it cannot repair must be fatal");
-          assert.match(result.output, /has drifted \(found: retry\)/);
+          // The message reports the constraint's actual rendered definition, which is what a
+          // DBA needs in order to see HOW it drifted — not just which literals it mentions.
+          assert.match(result.output, /has drifted \(found: CHECK .*'retry'/);
+          // Identifiers must survive intact: RAISE understands only bare `%`, so building this
+          // message with RAISE's own directives emitted `publicI` and mangled every command.
+          assert.doesNotMatch(result.output, /publicI|_logI/);
           assert.match(result.output, /A DBA must run, as the table's owner/);
         },
       );
@@ -1135,6 +1140,160 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           WHERE conname = 'ncmec_safety_audit_log_action_check'`,
       );
       assert.match(rows[0]!.def, /config_write/, "the full vocabulary must be restored");
+    });
+
+    it("rejects an action CHECK with the right literals but different semantics", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `CHECK (action IN (...) OR true)` mentions exactly the expected vocabulary and
+      // references exactly the expected column while enforcing nothing at all. The previous
+      // literal-set comparison accepted it as correct and returned without touching it —
+      // announcing a boundary it had just declined to verify. `NOT IN` is the same trap
+      // inverted. Comparing against a server-rendered reference catches both.
+      assert.ok(pool, "pool unavailable");
+      await pool.query(`ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_action_check`);
+      await pool.query(
+        `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_action_check
+           CHECK ("action" IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write') OR true)`,
+      );
+      try {
+        const { output } = execSqlCapturingDiagnostics(null, null, actionCheckBlock());
+        assert.doesNotMatch(
+          output,
+          /already present and correct/,
+          "a constraint that enforces nothing must never be accepted as correct",
+        );
+        // Owned by this role, so the block repairs rather than raising.
+        const { rows } = await pool.query<{ def: string }>(
+          `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+            WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+        );
+        assert.doesNotMatch(rows[0]!.def, /OR true/, "the drifted predicate must have been replaced");
+        assert.match(rows[0]!.def, /config_write/);
+      } finally {
+        await pool.query(actionCheckBlock());
+      }
+    });
+
+    it("preserves the invoking role across the audit-guard block's probes too", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The round-11 fix covered the ownership-hardening helper but left four RESET ROLE calls
+      // in the earlier audit-guard block. That block runs FIRST, so under a DBA replaying with
+      // `SET ROLE <app>` it re-pointed the session before the ownership block ever ran — which
+      // then reported on, and granted to, the DBA's own login role.
+      assert.ok(pool, "pool unavailable");
+      const mid = `ncmec_gmid_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_gapp_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE ROLE ${mid} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      await pool.query(`GRANT ${mid} TO ${app} WITH INHERIT TRUE, SET TRUE`);
+      try {
+        const result = execSqlCapturingDiagnostics(
+          app,
+          appPassword,
+          `SET ROLE ${mid}; ${auditGuardBlock()} ; SELECT current_user AS role_after;`,
+        );
+        assert.ok(result.ok, `expected the guard block to run cleanly; got: ${result.output}`);
+        assert.match(result.output, new RegExp(mid), "the block must not leak the invoking role");
+      } finally {
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${mid}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+        await pool.query(`DROP ROLE IF EXISTS ${mid}`);
+        await pool.query(auditGuardBlock());
+      }
+    });
+
+    it("names a real direct grant when the owner role is reached transitively", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The application is a member of `mid`, which is a member of `helper`, which holds ADMIN
+      // OPTION on overhype_audit_owner. `pg_has_role(app, owner, 'usage')` is TRANSITIVE, so
+      // the previous version returned ARRAY['overhype_audit_owner'] and emitted
+      // `REVOKE overhype_audit_owner FROM <app>` — a grant that does not exist. The revocable
+      // edge is `mid`, the only thing the application actually holds directly.
+      assert.ok(pool, "pool unavailable");
+      const helper = `ncmec_thelp_${randomUUID().slice(0, 8)}`;
+      const mid = `ncmec_tmid_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_tapp_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      if (!ownerRoleExisted) await pool.query(`CREATE ROLE overhype_audit_owner NOLOGIN`);
+      await pool.query(`GRANT CREATE ON SCHEMA public TO overhype_audit_owner`);
+      await pool.query(`CREATE ROLE ${helper} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${mid} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        await pool.query(`GRANT overhype_audit_owner TO ${helper} WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`);
+        await pool.query(`GRANT ${helper} TO ${mid} WITH INHERIT TRUE, SET TRUE`);
+        await pool.query(`GRANT ${mid} TO ${app} WITH INHERIT TRUE, SET TRUE`);
+
+        const { output } = execSqlCapturingDiagnostics(app, appPassword, ownershipHardeningBlock());
+        assert.match(
+          output,
+          new RegExp(`REVOKE ${mid} FROM ${app}`),
+          `must name the application's own direct grant; got: ${output}`,
+        );
+        assert.doesNotMatch(
+          output,
+          new RegExp(`REVOKE overhype_audit_owner FROM ${app}`),
+          "must not name a membership the application does not hold",
+        );
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(auditGuardBlock());
+        for (const r of [app, mid, helper]) {
+          await pool.query(`DROP OWNED BY ${r}`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS ${r}`);
+        }
+        if (!ownerRoleExisted) {
+          await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`);
+        }
+      }
+    });
+
+    it("reports maintenance-role reachability as a live bypass, not just owner reachability", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The append-only triggers admit any caller with an effective grant of
+      // overhype_audit_maintenance, so reaching that role bypasses the ledger regardless of who
+      // owns the table — and the maintenance block revokes only a DIRECT membership.
+      // ncmecAuditBoundaryStatus() already reports this as applicationCanBypassTrigger; the
+      // migration's own completion claims did not consider it at all, so the two implementations
+      // of one question could disagree with the migration on the optimistic side.
+      assert.ok(pool, "pool unavailable");
+      const mid = `ncmec_mmid_${randomUUID().slice(0, 8)}`;
+      const app = `ncmec_mapp_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE ROLE ${mid} NOLOGIN`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${app}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${app}`);
+        // Reached indirectly, which is exactly what the direct-membership revoke misses.
+        await pool.query(`GRANT overhype_audit_maintenance TO ${mid} WITH INHERIT TRUE, SET TRUE`);
+        await pool.query(`GRANT ${mid} TO ${app} WITH INHERIT TRUE, SET TRUE`);
+
+        const { output } = execSqlCapturingDiagnostics(app, appPassword, ownershipHardeningBlock());
+        assert.match(
+          output,
+          /assume overhype_audit_maintenance/,
+          `the maintenance bypass must be reported; got: ${output}`,
+        );
+        assert.match(output, new RegExp(`REVOKE ${mid} FROM ${app}`));
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(auditGuardBlock());
+        for (const r of [app, mid]) {
+          await pool.query(`DROP OWNED BY ${r}`).catch(() => {});
+          await pool.query(`DROP ROLE IF EXISTS ${r}`);
+        }
+      }
     });
 
     it("reconciles a partially completed ownership transfer instead of reading table ownership as proof of everything", async (t) => {

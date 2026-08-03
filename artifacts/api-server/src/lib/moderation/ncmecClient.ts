@@ -679,9 +679,23 @@ export class NcmecClient {
     // verified when present: a well-formed response for a DIFFERENT report would otherwise
     // hand back a real fileId that this method has no way to know belongs to someone else's
     // filing.
+    //
+    // Non-retryable here, unlike every other endpoint's use of `mismatchedReportId()`. A
+    // mismatched acknowledgement is exactly as unconfirmed as an unreadable one: ISPWS answered
+    // about some other report, so what it did with THESE bytes is unknown, and they may well
+    // have been accepted. Retrying is the one thing that cannot be safe, because /upload
+    // carries no idempotency key — the same reasoning that made the transport, malformed-body
+    // and wrong-root cases ambiguous just above. Leaving this single path retryable would have
+    // preserved the duplicate-evidence hazard through the narrowest remaining gap.
     const echoedReportId = textOf(result.values["reportId"]);
     if (echoedReportId != null && echoedReportId !== reportId) {
-      return mismatchedReportId("/upload", reportId, echoedReportId);
+      const mismatch = mismatchedReportId("/upload", reportId, echoedReportId);
+      return {
+        ...mismatch,
+        retryable: false,
+        kind: "ambiguous",
+        message: `${mismatch.message} — not retrying the upload alone: /upload carries no idempotency key, so this file may already have been accepted and a repeat would attach a second copy. Recover by retracting report ${reportId} and resubmitting it from /submit.`,
+      };
     }
     return { status: "ok", data: { fileId, hash } };
   }

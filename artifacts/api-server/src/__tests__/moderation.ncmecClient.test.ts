@@ -575,15 +575,24 @@ describe("NcmecClient — response reportId correlation", () => {
     assert.equal(result.status === "err" && result.retryable, true);
   });
 
-  it("rejects /upload confirming a different report than the one asked for, but treats it as retryable", async () => {
+  it("rejects /upload confirming a different report than the one asked for, and refuses to retry it", async () => {
+    // Deliberately NOT retryable, unlike the same mismatch on /fileinfo, /finish and /retract.
+    // ISPWS answered about a different report, so what it did with these bytes is unknown and
+    // they may already have been accepted — and /upload carries no idempotency key, so a
+    // repeat attaches a second copy of the evidence to a live report. Same reasoning as the
+    // transport/malformed/wrong-root cases; this was the last retryable path into it.
     const { instance } = client(
       '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId>' +
         "<fileId>b0754af766b426f2928a02c651ed4b99</fileId><hash>fafa5efeaf3cbe3b23b2748d13e629a1</hash></reportResponse>",
     );
     const result = await instance.uploadFile("4564654", new Uint8Array([1, 2, 3]), "image/jpeg");
     assert.equal(result.status, "err");
-    assert.equal(result.status === "err" && result.kind, "malformed");
-    assert.equal(result.status === "err" && result.retryable, true);
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+    assert.match(result.status === "err" ? result.message : "", /retracting report 4564654/);
+    // The correlation detail itself must survive the downgrade — it is what tells an operator
+    // which report actually answered.
+    assert.match(result.status === "err" ? result.message : "", /9999999/);
   });
 
   it("accepts /retract with no echoed reportId at all — correlation is verified, not required", async () => {
