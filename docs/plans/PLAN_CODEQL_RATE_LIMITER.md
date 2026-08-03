@@ -436,8 +436,18 @@ app.use("/api", globalRateLimitErrorHandler);   // 503 on RateLimiterUnavailable
    are metered** (the exemption they used to get is gone); trusted-IP resolution
    order proven against actual bucket sharing; `ipKeyGenerator` IPv6/IPv4-mapped
    handling; a sustained blocked burst produces bounded log volume; CORS headers
-   present on the 429; an **accepted**-origin preflight never reaches the Store and
-   a **rejected**-origin preflight *is* metered (both asserted by Store hit count).
+   present on the 429; preflight behavior asserted by Store hit count across all
+   three origin cases — **allowed** (answered by `cors()`, never reaches the Store),
+   **absent**, and **rejected** (falls through and *is* metered).
+3a. **The webhook exemption's bound, asserted rather than argued** (round-12 P1):
+   an invalid-signature burst against `/api/stripe/webhook` performs bounded
+   database work — at most one `admin_config` read per cache TTL, not one per
+   request — and an over-limit raw body is rejected by body-parser before reaching
+   the handler. This is the test that would fail if the config cache were ever
+   removed or DB work moved ahead of the signature check.
+3d. **Dedicated-pool lifecycle:** emitting an idle-client `error` on the Store's
+   pool does not crash the process and the pool recovers on the next request
+   (round-12 finding; mirrors the shared pool's handler at `lib/db/src/index.ts:90-95`).
 3b. **The polling case, because it is what the ceiling is derived from:** a
    simulated shared IP running N concurrent pollers at the real 500 ms cadence —
    **both** `/api/memes/video-jobs/:id` and `/api/memes/pulid-jobs/:id`, since the
