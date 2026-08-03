@@ -145,6 +145,83 @@ deliberately excludes them and points here instead.
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (`fal_video` is defined but marked a **future** queue — the video pipeline does
   not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
+- **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
+  `render`, `bulk`, `pexels`, `ai_meme_backfill` 5s each
+  (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
+  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` / `_PEXELS_` /
+  `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
+  them — the old `intervalMs` argument is gone.
+- **Lane is orthogonal to retry and dedupe; ordering is per-lane, not
+  global.** `{ lane }` selects *scheduling* only — retries and dedupe behave
+  identically in every lane. **Claim ordering is the exception to state
+  carefully:** the claim query's `ORDER BY nextAttemptAt, id` is unchanged by
+  lane, but it runs *inside a queue-filtered query* driven by that lane's own
+  runner and timer, so it orders rows **within** a lane only. There is no
+  global FIFO across lanes — a newer `fast` row is routinely claimed ahead of
+  an older `bulk` one, which is the entire point of the split. Retry budget is
+  an **enqueue-time** option on the queue, which is
+  why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
+  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
+  The reason is that a retry could not help, not that it would cost twice:
+  the handler opens with a **replay guard** keyed on `facts.aiMemeBackfillStatus`,
+  and a failing attempt stamps that column `"failed"` before returning — so a
+  second attempt exits at the `existing === "failed"` branch **without calling
+  `generate` at all**. Extra attempts would burn the budget and delay
+  abandonment while doing nothing. The guard refuses rather than resumes
+  because there is nothing to resume from: `generateAiMemeBackgrounds` uploads
+  each slot's image as it goes but writes `facts.aiMemeImages` **once, after
+  the whole slot loop** (`aiMemePipeline.ts`), so a late-slot failure leaves
+  the fact with no record of the earlier successes even though their paid
+  OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
+  means `onAbandon` fires on the very first failure.
+- **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
+  `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
+  `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1 — worst
+  case **10** concurrent handlers. `lib/db/src/index.ts` now sets the pool
+  `max` explicitly to **20** (`POOL_MAX_DEFAULT`, overridable by
+  `DB_POOL_MAX`), derived from measured production capacity rather than
+  picked — deliberately double the lanes' worst case. **It was unset until
+  the async-queue hardening work (PR #288)**, which meant pg's default of 10
+  against a worst-case demand of exactly 10.
+  Even so, do not read handler count as connection count in either
+  direction: `maxConcurrency` bounds concurrent *handler promises*, not
+  checked-out clients. `asyncJobsTick` **commits and releases the claim
+  transaction before** `mapWithConcurrency` invokes any handler, and each
+  outcome opens only a short finalize transaction. **But occupancy is not
+  confined to those two boundaries** — handlers do their own DB work while
+  running (`factSendBackHandler` → `sendFactBackToReview` holds a transaction
+  across several reads and writes; the enrichment and image handlers query
+  too), so a handler *can* occupy a connection during its promise. What it
+  reliably does **not** do is hold one while awaiting an external provider,
+  which for the provider-bound lanes is most of a job's wall-clock. Occupancy
+  is therefore workload-dependent and bursty rather than pinned at the handler
+  count — which is why the old 10-vs-10 framing overstated the problem even
+  before the ceiling was raised. Every lane bound is env-overridable
+  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so a raised lane still adds
+  claim/finalize contention; the headroom cost of that has never been
+  measured and this doc does not assert one.
+- **Stranded-row recovery is delayed by design (PR #283).** Claim commits
+  `processing` *before* the handler runs, so a crash — **or a rejection in the
+  finalize transaction after the handler returned** — leaves the row committed
+  as `processing`. `recoverStuckProcessing` requeues such rows to `pending`,
+  but **only** those whose `updatedAt` (stamped at claim) is older than
+  `RECOVER_STUCK_CUTOFF_MIN = 30` minutes, swept every `RECOVER_INTERVAL_MS`
+  (60s) by the **`bulk` runner only** (table-wide, so one owner is correct)
+  plus one sweep at boot. 30 minutes is a **floor, not a bound**: the age
+  comparison is strict, the sweep runs at most once a minute, and maintenance
+  happens only *after* the `bulk` lane's own tick finishes (overlapping timer
+  callbacks return early on the re-entrancy guard), so a long-running bulk
+  handler pushes recovery further out. That cost is deliberate: this
+  deployment is
+  `deploymentTarget = "autoscale"` with the worker started in **every**
+  instance, so too aggressive a cutoff reclaims a *different live instance's*
+  in-flight row and both runs execute — for `email`, a duplicate send to a
+  real person. The cutoff is load-bearing only because finalize matches on row
+  id with **no fencing token**; the real fix (lease tokens + fenced finalize)
+  is Phase 3a in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+  The boot path passes the cutoff explicitly so it can never silently use a
+  shorter one.
 - Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll
@@ -161,6 +238,163 @@ deliberately excludes them and points here instead.
   first-attempt terminal isn't). The image-prompt handler is the first
   consumer — see
   [`visual-pipeline.md`](./visual-pipeline.md#terminal-vs-retryable-render-failures).
+
+### Worker liveness heartbeats + the Queue Health surface (Phase 1, PR #288)
+
+- **`worker_lane_heartbeats`** (`lib/db/src/schema/workerLaneHeartbeats.ts`),
+  keyed `(instance_id, lane)` — `instance_id` is a process-start
+  `randomUUID()`, **not** a deployment identifier, so every autoscaled
+  instance gets its own row per lane instead of the fleet collapsing onto one
+  row (which would let a wedged worker hide behind a healthy peer).
+  `worker_protocol_version` is a capability marker (`1` today) for a future
+  Phase 3 lease-fence check, not a release identifier. The write moments are
+  each load-bearing:
+  - `last_scheduled_at` stamps on **every** timer fire, including the
+    re-entrancy early-return, so a lane whose timer fires while its previous
+    tick is still running reads as healthy-but-slow, not dead. The write is
+    `GREATEST(stored, incoming)`, not an unconditional overwrite — two racing
+    ticks under pool contention can commit out of order, and an unconditional
+    write would let the *older* one's timestamp land last and move the
+    column backward past the stale threshold.
+  - `in_flight_count` publishes as soon as the claim transaction commits,
+    **before** any handler is awaited — a completion-only write would leave a
+    wedged tick's count at zero and the (Phase 2) wedged-lane condition could
+    never fire in the one case it exists for. It then **decrements per-job**,
+    right after each claimed job settles (not only once at the end of the
+    whole batch) — so during a tick where jobs finish at different times, the
+    count reflects the remaining long tail rather than the original claimed
+    batch size.
+  - `last_tick_completed_at` stamps only on completion, clearing the count
+    there so a lost decrement self-corrects on the next tick instead of
+    leaving a healthy lane looking permanently wedged.
+  - Departed instances (an autoscale scale-down) are pruned on a purge
+    cadence — this bounds the table's growth as instances churn, **and it
+    is liveness-critical, not merely retention**: the prune cutoff must
+    never be narrower than `laneHealth`'s own live-cutoff predicate (below),
+    because a row deleted before the query's cutoff would have excluded it
+    is indistinguishable from that row never having existed — the query can
+    only correctly evaluate a row that's still there when it runs. See the
+    widened-cutoff coupling below for why both are wired to the identical
+    formula.
+- **Per-lane "stalled" is `max(3× the lane's poll interval, 60s)`** of no
+  `last_scheduled_at` movement — at every current lane's **default** interval
+  (2s or 5s), the 60s floor is what actually governs, so a stall means
+  roughly 12–30 missed ticks, not three; the "three missed intervals" framing
+  only holds once a lane's interval is at least ~20s. Every lane's interval
+  is independently environment-configurable (`ASYNC_JOBS_*_INTERVAL_MS`),
+  with no aggregate constraint tying it to the 60s floor, so an operator
+  raising an interval past ~20s genuinely shifts which term governs — this
+  isn't just a default-vs-hypothetical distinction. **Two independently-configurable
+  knobs feed the same liveness check and must stay coupled at every
+  consumer, not just the primary read path**: the heartbeat TTL
+  (`admin_config`) and each lane's own stale threshold. A TTL shorter than a
+  lane's threshold would, if left unwidened, exclude the row from the
+  query before the per-lane threshold check ever ran; the live-instance
+  query cutoff is `max(configured TTL, the widest stale threshold across
+  all lanes)`. Review caught that the periodic `pruneDepartedInstances()`
+  delete sweep (which runs on its own schedule, independent of any query)
+  needed the **identical** widened cutoff, and this is **liveness-critical,
+  not optional retention**: if the row physically no longer exists when
+  the query runs, the query's own correctly-widened predicate has nothing
+  left to evaluate — a prematurely-deleted row and a wrongly-excluded row
+  produce the identical wrong outcome (`lastScheduledAt: null` →
+  `stalled: true`), so the query's predicate being logically correct in
+  isolation does not make the verdict correct unless the row it needs is
+  still there. **Both consumers are now wired to the same formula**
+  (`asyncJobs.ts:936-938` computes `widenedTtlMinutes =
+  max(configuredTtlMinutes, widestStaleThresholdMs() / 60_000)` and passes
+  it into `pruneDepartedInstances`, matching `laneHealth`'s own
+  `liveCutoff`) — since both cutoffs are always the same timestamp at
+  evaluation time, prune can never delete a row before the query's own
+  cutoff would already have excluded it, which is what keeps the `stalled`
+  verdict correct. Losing this coupling (e.g. a future change that
+  widens the query cutoff without widening prune's) would silently
+  reintroduce false stalls, not just shrink a retention window — treat the
+  two cutoffs as one invariant, not two independent tuning knobs.
+- **Three read surfaces**, all derived by query — no `async_jobs` or
+  heartbeat state is written by a reader (the two admin-authenticated
+  endpoints do write `rate_limit_counters` on every request, via the same
+  `checkSharedRateLimit()` every rate-limited admin route uses — unrelated
+  to queue/lane state):
+  - `GET /api/admin/queue-health` — aggregate altitude. Per queue: the four raw
+    status tallies, two derived states (below), oldest-pending age, 24h
+    throughput. Per lane: live instance count, heartbeat ages, in-flight
+    count, fleet-wide stalled verdict. The two related queries run inside one
+    `repeatable read` transaction so a job finalizing mid-read can't produce
+    an internally impossible snapshot (e.g. `failed: 0` alongside
+    `abandonedNoRetry: 1`).
+  - `GET /api/admin/queue-health/jobs` — per-item altitude, paginated, capped
+    at 100.
+  - `GET /api/health/queues` — **unauthenticated** liveness probe (mounted
+    under `/api`, not bare `/health/queues` — the app mounts routes there via
+    `app.use("/api", router)` in `app.ts`). On total API-process death this
+    route is as unreachable as any other (`/api/health`, `/api/healthz`) — an
+    external monitor just sees the same connection failure either way, so
+    that isn't what's distinctive about it. The aggregate endpoint above
+    already reports the same fleet-wide `stalled` verdict per lane — as JSON
+    data, always behind a 200 (`/admin/queue-health` never sets a non-200
+    status for a stalled lane, only for a request-level failure). What the
+    probe uniquely adds is turning that verdict into the **HTTP status code
+    itself**: a meaningful non-200 while the **process itself is alive**, so
+    a monitor doesn't have to parse a body to detect the problem — it returns
+    503 when every worker has stopped scheduling a lane fleet-wide, **and**
+    fails closed with the same 503 shape if evaluating lane health itself
+    throws (e.g. the DB query fails) — a genuinely unhealthy-looking response
+    rather than the looks-fine-while-broken shape this endpoint exists to
+    prevent. Returns only `{ok, ts, laneCount, stalledLaneCount}` — no queue
+    names, payloads, or error text, on either path — and a routine
+    autoscale scale-down (one instance quietly going away) never trips it,
+    since only a fleet-wide stall or an evaluation failure does.
+- **Two derived display states**, because raw `async_jobs.status` collapses
+  distinctions the async-UI contract ([`async-ui-status.md`](./async-ui-status.md))
+  requires as first-class:
+  - `skipped` — a handler-level skip finishes as `done` with
+    `result.skipped`; the reason is sanitized against the existing
+    `TAXONOMY_HEALTH_SKIP_REASON_VALUES` enum rather than echoing arbitrary
+    handler text to an admin surface.
+  - `abandoned_no_retry` — a row is `failed` with **either** `attempts <
+    effectiveMax` (only reachable via `terminalFailure()`, since the
+    exhaustion path can only mark a row `failed` once `attempts >=
+    effectiveMax`) **or** `effectiveMax <= 1` (a single-attempt queue has no
+    retry budget regardless of *why* the one attempt failed — via
+    `terminalFailure()`, or via the ordinary exhaustion path on attempt 1,
+    which is not necessarily deterministic: `fact_ai_meme_backfill` enqueues
+    at `maxAttempts: 1` but its handler returns the ordinary retryable
+    `{ ok: false, error }` shape on a transient paid-API failure, not
+    `terminalFailure()`) — i.e. "the worker won't retry this," a different
+    operator story from "retries exhausted." See
+    [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
+    for why this reads the row's own **persisted** `maxAttempts`, not a live
+    re-resolve of `admin_config`, and why a legacy `0`-sentinel row is
+    deliberately classified conservatively (plain `failed`) rather than risk
+    the same misclassification on data that can't be resolved safely.
+- **The connection pool's `max` is now an explicit constant, 20**, not pg's
+  implicit default of 10 (`lib/db/src/index.ts`). 20 is **offline-derived,
+  not runtime-computed** — the code hardcodes `POOL_MAX_DEFAULT = 20` and
+  reads no `max_instances` value; nothing shrinks or grows it automatically
+  as the fleet scales. The comment above that constant records the
+  one-time arithmetic that produced it: production measured `max_connections`
+  450, 7 superuser-reserved, ~13 in use on a live app (direct connection, not
+  pooled) → `budget = 450 − 7 − 5 (migration/console/admin burst) − 40
+  (headroom) = 398`, `max = min(20, floor(398 / max_instances))` evaluated
+  by hand at the observed fleet size, not by the running process. 20 doubles
+  the five lanes' **default** worst-case simultaneous demand (fast 2 +
+  render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1 = 10) and holds for any
+  autoscale ceiling up to 19 instances at those defaults; past 19 instances
+  (or with `DB_POOL_MAX` unset and a larger fleet), the constant does **not**
+  adjust itself — an operator must manually re-run the `floor(398 / N)`
+  arithmetic for the new ceiling and set `DB_POOL_MAX` explicitly. Each
+  lane's concurrency is independently
+  environment-configurable (`ASYNC_JOBS_FAST_MAX_CONCURRENCY`,
+  `_RENDER_`, `_PEXELS_`, `_AI_MEME_BACKFILL_MAX_CONCURRENCY`, and the
+  `bulk`-lane/legacy fallback `ASYNC_JOBS_MAX_CONCURRENCY`) with **no
+  aggregate cap** tying them together — raising any of these past its
+  default moves the real worst-case demand above 10, so `DB_POOL_MAX` needs
+  reconsidering whenever lane concurrency changes, not only when the
+  autoscale ceiling does. This closes the "no default spare connection" gap
+  the five-lane expansion (PR #256, adding `pexels`/`ai_meme_backfill` on top
+  of PR #216's original fast/render/bulk split) had left as follow-up work,
+  at default concurrency settings.
 
 ## Storage / CDN
 

@@ -35,13 +35,38 @@ const REPO_NAME = "Overhypeme";
 /** Logins whose reviews count as a review round. */
 const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-connector"]);
 
+/**
+ * The connector's own machine-ish declaration that a review pass completed,
+ * and against which commit: a literal "**Reviewed commit:** `<sha>`" line.
+ *
+ * This is the only marker that appears on EVERY completed pass regardless of
+ * how the pass was delivered — verified against this repo's PRs #286, #288 and
+ * #290 rather than assumed. It carries an abbreviated sha (10 hex chars in
+ * practice), while a review object's own `commit_id` is the full 40, so
+ * comparisons between the two are prefix-based (`sameCommit` below).
+ *
+ * Deliberately NOT keyed on the pass's prose ("Didn't find any major issues.
+ * Delightful!" / "…Swish!" / "…:+1:" — three different suffixes across three
+ * PRs). Sentiment wording drifts; the structured marker is what the connector
+ * emits consistently.
+ */
+const REVIEWED_COMMIT_MARKER = /\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i;
+
+/** Whether two commit references name the same commit, one possibly abbreviated. */
+function sameCommit(a, b) {
+  if (!a || !b) return false;
+  const x = String(a).toLowerCase();
+  const y = String(b).toLowerCase();
+  return x.startsWith(y) || y.startsWith(x);
+}
+
 // ---------------------------------------------------------------------------
 // Pure derivation — no I/O. This is the part that is tested.
 // ---------------------------------------------------------------------------
 
 /**
- * A *round* is a completed review event by the reviewer, NOT an "@codex review"
- * comment.
+ * A *round* is one completed reviewer PASS — not an "@codex review" comment,
+ * and not a raw `pull_request_review` record either.
  *
  * The connector auto-reviews every non-draft PR on open and only needs an
  * explicit trigger for later fix rounds, so counting trigger comments
@@ -49,18 +74,125 @@ const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-
  * non-uniformly, since draft plan-review PRs get no auto-review and would
  * count correctly. Comparing those two cohorts is the entire point of the
  * ledger, so a bias present in one and absent in the other is disqualifying.
+ * That is why this never counted triggers.
+ *
+ * Counting raw review records instead — what this function did until
+ * 2026-08-01 — turned out to be wrong in BOTH directions at once, which is
+ * why the ledger's own rows disagreed with their PRs' hand-written round
+ * narrations:
+ *
+ *  - **Undercount.** A pass that finds nothing does not always submit a
+ *    `pull_request_review` at all. On #286 and #288 the clean pass posted as a
+ *    plain *issue* comment ("Codex Review: Didn't find any major issues…")
+ *    carrying a `**Reviewed commit:**` line — invisible to a function that
+ *    only reads the `reviews` collection. #288 lost two rounds this way.
+ *  - **Overcount.** A single pass can emit TWO review records — one *bodiless*
+ *    record carrying the inline findings, one summary record carrying the
+ *    "💡 Codex Review" announcement. #290's round 3 did exactly that (records
+ *    4815015613 and 4815024115, both on `c81d316fe6`), inflating its round
+ *    count by one.
+ *
+ * Both are corrected by counting *announcements*, which is the one thing the
+ * connector emits exactly once per completed pass: a `**Reviewed commit:**`
+ * line, in a review body when the pass found something and in an issue comment
+ * when it didn't. A bodiless review record is an inline-comment carrier, not a
+ * pass, and is attached to the announcement it belongs to.
+ *
+ * Grouping by the reviewed *commit* instead would be wrong, and #292 is the
+ * counter-example: its records 4823525411 and 4823605230 are both full
+ * announcements against `66c2780bd0` twelve minutes apart, separated by author
+ * replies and no push — two genuine re-review passes over one commit, which
+ * commit-grouping would have silently merged into one.
+ *
+ * Checked against every PR whose rounds a human independently narrated in its
+ * own body: #286 (2), #288 (7), #290 (7). This agrees with all three; counting
+ * raw records agreed with none of them. #292 is cited above for its structural
+ * counter-example only — its two same-commit announcements — not for a round
+ * total, which was not independently narrated there.
  */
-export function countRounds(reviews) {
-  // Deduplicated by review id: a duplicated review record (a bad fixture, or
-  // two concatenated MCP/REST pages that overlap) is one review event, not
-  // two — counting the raw array would overcount rounds and, via
-  // findingsByRound below, produce two round-entries that each claim the
-  // same findings, disagreeing with countFindings' own deduplicated total.
-  const ids = new Set();
-  for (const r of reviews) {
-    if (REVIEWER_LOGINS.has(r.user?.login)) ids.add(r.id);
+export function reviewerPasses(reviews, issueComments = []) {
+  // Deduplicated by review id first: a duplicated review record (a bad
+  // fixture, or two concatenated MCP/REST pages that overlap) is one record,
+  // not two.
+  const seenIds = new Set();
+  const formal = reviews
+    .filter((r) => REVIEWER_LOGINS.has(r.user?.login))
+    .filter((r) => (seenIds.has(r.id) ? false : seenIds.add(r.id)))
+    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+
+  const isAnnouncement = (r) => REVIEWED_COMMIT_MARKER.test(r.body ?? "");
+  // Fixtures captured before review bodies were retained carry no body at all.
+  // With no announcement to key on there is nothing to improve, so those fall
+  // back to one-pass-per-record — the pre-2026-08-01 behaviour — rather than
+  // collapsing every record into nothing.
+  const announced = formal.filter(isAnnouncement);
+  const base = announced.length ? announced : formal;
+  const carriers = announced.length ? formal.filter((r) => !isAnnouncement(r)) : [];
+
+  const passes = base.map((r) => ({
+    commit: r.commit_id ?? null,
+    at: r.submitted_at,
+    reviewIds: [r.id],
+    records: 1,
+    source: "review",
+  }));
+
+  for (const carrier of carriers) {
+    // A carrier's inline findings belong to the announcement that closes the
+    // same pass, which is submitted at or after it. Same-commit wins when more
+    // than one announcement qualifies (#292 shows a commit can be announced
+    // twice); otherwise the earliest following announcement. A carrier with
+    // nothing after it stands alone rather than having its findings orphaned —
+    // an unattributable root comment would trip derive()'s reconciliation.
+    const following = passes.filter((p) => new Date(p.at) >= new Date(carrier.submitted_at));
+    const target = following.find((p) => sameCommit(p.commit, carrier.commit_id)) ?? following[0];
+    if (target) {
+      target.reviewIds.push(carrier.id);
+      target.records += 1;
+    } else {
+      passes.push({
+        commit: carrier.commit_id ?? null,
+        at: carrier.submitted_at,
+        reviewIds: [carrier.id],
+        records: 1,
+        source: "review",
+      });
+    }
   }
-  return ids.size;
+
+  // Deduplicated by id first, same reasoning as `formal` above: a bad fixture
+  // or two overlapping concatenated `get_comments` pages can repeat a comment
+  // record. Root comments and formal reviews already guard against this input
+  // shape; a repeated clean-pass announcement would otherwise silently
+  // fabricate a second round with zero findings — invisible to derive()'s
+  // reconciliation check, since a zero-finding round can't disagree with
+  // anything.
+  const seenCommentIds = new Set();
+  for (const comment of issueComments) {
+    if (!REVIEWER_LOGINS.has(comment.user?.login)) continue;
+    if (seenCommentIds.has(comment.id)) continue;
+    seenCommentIds.add(comment.id);
+    const marker = REVIEWED_COMMIT_MARKER.exec(comment.body ?? "");
+    if (!marker) continue;
+    // Not deduplicated against the formal announcements: the two shapes are
+    // mutually exclusive on this transport (a pass posts a review body when it
+    // found something, an issue comment when it didn't — checked across #286,
+    // #288, #290 and #292), and #292 proves a repeated commit can be a second
+    // real pass rather than a restatement of the first.
+    passes.push({
+      commit: marker[1].toLowerCase(),
+      at: comment.created_at,
+      reviewIds: [],
+      records: 0,
+      source: "comment",
+    });
+  }
+
+  return passes.sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+export function countRounds(reviews, issueComments = []) {
+  return reviewerPasses(reviews, issueComments).length;
 }
 
 /**
@@ -94,32 +226,36 @@ export function countFindings(comments) {
 }
 
 /**
- * Findings grouped by round, keyed by the review event they belong to.
+ * Findings grouped by round, one entry per reviewer PASS (see
+ * `reviewerPasses`) rather than per raw review record — so a pass split across
+ * two records reports its findings once, under one round, instead of as two
+ * rounds that between them claim the same findings.
  *
- * Both inputs are deduplicated by id first — matching countRounds' and
- * countFindings' own semantics — because a duplicated review record (or a
- * duplicated root comment, from a bad fixture or an overlapping concatenated
- * page) would otherwise produce a round whose findings count disagrees with
- * the deduplicated totals those two functions report, tripping derive()'s
- * reconciliation check for what is actually a duplicate-input problem, not a
- * genuine correlation failure.
+ * Root comments are deduplicated by id first, matching `countFindings`' own
+ * semantics: a duplicated root comment (a bad fixture, or an overlapping
+ * concatenated page) would otherwise make a round's count disagree with the
+ * deduplicated total, tripping derive()'s reconciliation check for what is
+ * actually a duplicate-input problem rather than a genuine correlation
+ * failure.
+ *
+ * A clean pass contributes an entry with `findings: 0`. That is the point of
+ * recording it: the ledger's "rounds that surfaced findings" analysis needs to
+ * tell a loop that ran a fourth round and found nothing from a loop that
+ * simply stopped at three.
  */
-export function findingsByRound(reviews, comments) {
-  const seenReviewIds = new Set();
-  const reviewerReviews = reviews
-    .filter((r) => REVIEWER_LOGINS.has(r.user?.login))
-    .filter((r) => (seenReviewIds.has(r.id) ? false : seenReviewIds.add(r.id)))
-    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+export function findingsByRound(reviews, comments, issueComments = []) {
+  const passes = reviewerPasses(reviews, issueComments);
 
   const seenRootIds = new Set();
   const uniqueRoots = comments
     .filter((c) => REVIEWER_LOGINS.has(c.user?.login) && !c.in_reply_to_id)
     .filter((c) => (seenRootIds.has(c.id) ? false : seenRootIds.add(c.id)));
 
-  return reviewerReviews.map((review, i) => ({
+  return passes.map((pass, i) => ({
     round: i + 1,
-    submitted_at: review.submitted_at,
-    findings: uniqueRoots.filter((c) => c.pull_request_review_id === review.id).length,
+    submitted_at: pass.at,
+    source: pass.source,
+    findings: uniqueRoots.filter((c) => pass.reviewIds.includes(c.pull_request_review_id)).length,
   }));
 }
 
@@ -132,13 +268,22 @@ export function findingsByRound(reviews, comments) {
  * recorded separately in the ledger's judgment column and is *not* added here;
  * whoever wants total cost adds the pre-open portion only, and the ledger says
  * so per row rather than presenting a conflated number as derived.
+ *
+ * "Final reviewer event" spans BOTH delivery shapes, for the same reason
+ * `reviewerPasses` counts both: on #286 the loop's last reviewer engagement
+ * was a clean issue-comment pass ~2.8h after open, and reading only the
+ * `reviews` collection reported 0.1h — understating the review window by a
+ * factor of twenty-eight.
  */
-export function reviewInterval(pr, reviews) {
-  const reviewerReviews = reviews.filter((r) => REVIEWER_LOGINS.has(r.user?.login));
-  if (reviewerReviews.length === 0) return null;
-  const last = reviewerReviews
-    .map((r) => new Date(r.submitted_at))
-    .reduce((a, b) => (a > b ? a : b));
+export function reviewInterval(pr, reviews, issueComments = []) {
+  const stamps = [
+    ...reviews.filter((r) => REVIEWER_LOGINS.has(r.user?.login)).map((r) => new Date(r.submitted_at)),
+    ...issueComments
+      .filter((c) => REVIEWER_LOGINS.has(c.user?.login) && REVIEWED_COMMIT_MARKER.test(c.body ?? ""))
+      .map((c) => new Date(c.created_at)),
+  ];
+  if (stamps.length === 0) return null;
+  const last = stamps.reduce((a, b) => (a > b ? a : b));
   const opened = new Date(pr.created_at);
   return {
     opened_at: pr.created_at,
@@ -361,11 +506,32 @@ export function adjudicationSample(findings) {
   return { size: findings, note: "full population — no sampling; see working-modes.md" };
 }
 
-/** Assemble the mechanical columns. Judgment columns are left null by design. */
-export function derive({ pr, reviews, comments, files }) {
-  const rounds = countRounds(reviews);
+/**
+ * Assemble the mechanical columns. Judgment columns are left null by design.
+ *
+ * `issueComments` is optional only so that fixtures captured before
+ * 2026-08-01 still derive. It is not optional in meaning: without it, a clean
+ * reviewer pass that posted as an issue comment is invisible and `rounds` /
+ * `review hrs` are understated (see `reviewerPasses`). An input that omits it
+ * therefore gets a `warnings` entry in the output rather than a clean-looking
+ * row — the ledger's own standard that a number which cannot be trusted must
+ * not be presented as though it can.
+ */
+export function derive({ pr, reviews, comments, files, issueComments }) {
+  const warnings = [];
+  if (issueComments === undefined) {
+    warnings.push(
+      "issueComments was not supplied, so clean reviewer passes delivered as issue comments could not be " +
+        "detected: `rounds` and `review_interval` may both be understated. Re-derive with the issue-comment " +
+        "collection (REST /issues/<n>/comments, or MCP pull_request_read method:\"get_comments\") before " +
+        "recording this row.",
+    );
+  }
+  const issues = issueComments ?? [];
+
+  const rounds = countRounds(reviews, issues);
   const findings = countFindings(comments);
-  const per_round = findingsByRound(reviews, comments);
+  const per_round = findingsByRound(reviews, comments, issues);
 
   // Every reviewer-authored root comment must land in exactly one round.
   // `flattenMcpThreads` can produce a root whose `pull_request_review_id` is
@@ -383,6 +549,16 @@ export function derive({ pr, reviews, comments, files }) {
     );
   }
 
+  const merged = reviewerPasses(reviews, issues).filter((p) => p.records > 1);
+  if (merged.length) {
+    // Never silent: an attribution decision nobody can see reads as a raw count.
+    warnings.push(
+      `${merged.length} reviewer pass(es) absorbed a bodiless inline-comment review record alongside their ` +
+        `announcement (${merged.map((p) => `${p.commit?.slice(0, 10)}×${p.records}`).join(", ")}). Counted as ` +
+        `one round each, per reviewerPasses' announcement rule.`,
+    );
+  }
+
   return {
     pr: pr.number,
     title: pr.title,
@@ -391,8 +567,9 @@ export function derive({ pr, reviews, comments, files }) {
     rounds,
     findings,
     per_round,
-    review_interval: reviewInterval(pr, reviews),
+    review_interval: reviewInterval(pr, reviews, issues),
     adjudication_sample: adjudicationSample(findings),
+    warnings,
     state: pr.merged_at ? "merged" : pr.closed_at ? "closed" : "open",
     // Judgment columns — appended by hand at loop close, never guessed here.
     judgment: {
@@ -496,22 +673,36 @@ export function flattenMcpThreads(reviewThreads, reviews) {
  * do that instead, and must say so explicitly: this throws unless
  * `snapshot.complete` marks all three paginated collections `true`.
  *
- * This is not a formality. A loop with 32 review rounds and 166 findings —
- * PR #279's, our worst case to date, and exactly the shape this adapter
- * exists to measure — will paginate on at least one of `get_reviews`,
+ * This is not a formality. A loop with 32 review rounds (PR #279, our worst
+ * case by round count) or 180 findings (PR #280, our worst case by finding
+ * count, on 18 rounds) — exactly the shape this adapter exists to measure —
+ * will paginate on at least one of `get_reviews`,
  * `get_review_comments`, or `get_files`. Deriving a row from an unmarked
  * partial snapshot produces a number that looks measured and undercounts
  * rounds, findings, or artifact size on precisely the loops that matter most.
  */
+const MCP_METHOD_FOR = {
+  reviews: "get_reviews",
+  files: "get_files",
+  reviewThreads: "get_review_comments",
+  issueComments: "get_comments",
+};
+
 export function assertMcpSnapshotComplete(snapshot) {
   const complete = snapshot.complete ?? {};
-  for (const key of ["reviews", "files", "reviewThreads"]) {
+  // `issueComments` is checked only when supplied. Requiring it outright would
+  // invalidate every snapshot captured before it was needed, and `derive()`
+  // already warns loudly when it is absent — but a snapshot that DOES carry it
+  // must attest to it like any other paginated collection, or a truncated
+  // first page would silently drop the clean passes it was added to find.
+  const required = ["reviews", "files", "reviewThreads"];
+  if (snapshot.issueComments !== undefined) required.push("issueComments");
+  for (const key of required) {
     if (complete[key] !== true) {
       throw new Error(
         `MCP snapshot incomplete: complete.${key} must be explicitly true. ` +
-          `Page through pull_request_read (method:"${
-            key === "reviewThreads" ? "get_review_comments" : key === "reviews" ? "get_reviews" : "get_files"
-          }") until it reports no further pages, concatenate every page, then set complete.${key} = true.`,
+          `Page through pull_request_read (method:"${MCP_METHOD_FOR[key]}") until it reports no further ` +
+          `pages, concatenate every page, then set complete.${key} = true.`,
       );
     }
   }
@@ -557,6 +748,31 @@ export function assertMcpSnapshotShape(snapshot) {
       );
     }
   }
+  if (snapshot.issueComments !== undefined && !Array.isArray(snapshot.issueComments)) {
+    throw new Error(
+      `MCP snapshot malformed: "issueComments" must be an array when present (got ` +
+        `${typeof snapshot.issueComments}). Omit the key entirely to derive without clean-pass detection — ` +
+        `derive() then warns that rounds may be understated, rather than reporting a confident wrong number.`,
+    );
+  }
+  (snapshot.issueComments ?? []).forEach((c, i) => {
+    // body/user.login/created_at are what reviewerPasses/reviewInterval read —
+    // missing either silently hides a real clean pass or sorts it to the
+    // epoch. id is required for the same reason reviews require a stable id
+    // (see hasStableId below): reviewerPasses dedupes issue comments by id,
+    // and an id-less comment would either collide with every other id-less
+    // comment (silently dropping distinct passes) or, if left unvalidated,
+    // could be repeated across concatenated pages and fabricate a phantom
+    // zero-finding round that findings reconciliation cannot catch.
+    const hasStableCommentId = typeof c.id === "number" || typeof c.id === "string";
+    if (!hasStableCommentId || typeof c.body !== "string" || typeof c.user?.login !== "string" || !c.created_at) {
+      throw new Error(
+        `MCP snapshot malformed: issueComments[${i}] must have a stable id (number or string), a string body, ` +
+          `a string user.login, and a created_at (got id=${JSON.stringify(c.id)}, body=${typeof c.body}, ` +
+          `user.login=${JSON.stringify(c.user?.login)}, created_at=${JSON.stringify(c.created_at)}).`,
+      );
+    }
+  });
   snapshot.files.forEach((f, i) => {
     if (typeof f.filename !== "string" || typeof f.additions !== "number" || typeof f.deletions !== "number") {
       throw new Error(
@@ -623,7 +839,12 @@ export function assertMcpSnapshotShape(snapshot) {
  *     reviews: <all pages of method:"get_reviews", concatenated>,
  *     files: <all pages of method:"get_files", concatenated>,
  *     reviewThreads: <all pages of method:"get_review_comments">.review_threads, concatenated>,
- *     complete: { reviews: true, files: true, reviewThreads: true } }
+ *     issueComments: <all pages of method:"get_comments", concatenated>,
+ *     complete: { reviews: true, files: true, reviewThreads: true, issueComments: true } }
+ *
+ * `issueComments` may be omitted for backward compatibility with snapshots
+ * captured before clean-pass detection existed, but a row derived without it
+ * carries a `warnings` entry saying its `rounds` may be short. Supply it.
  *
  * `pr`, `reviews`, and `files` pass through unchanged — verified against
  * PR #270's live output to carry the same field names `derive()` expects
@@ -633,8 +854,17 @@ export function assertMcpSnapshotShape(snapshot) {
 export function fromMcp(snapshot) {
   assertMcpSnapshotShape(snapshot);
   assertMcpSnapshotComplete(snapshot);
-  const { pr, reviews, files, reviewThreads } = snapshot;
-  return { pr, reviews, files, comments: flattenMcpThreads(reviewThreads, reviews) };
+  const { pr, reviews, files, reviewThreads, issueComments } = snapshot;
+  return {
+    pr,
+    reviews,
+    files,
+    comments: flattenMcpThreads(reviewThreads, reviews),
+    // Passed through undefined-preserving: `derive()` distinguishes "supplied
+    // and empty" (a loop with no clean pass) from "not supplied at all" (a
+    // snapshot that cannot answer the question), and warns only on the latter.
+    issueComments,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -680,13 +910,19 @@ export async function gh(path, { token, fetchImpl = fetch } = {}) {
 
 async function fetchPR(number) {
   const base = `/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${number}`;
-  const [prArr, reviews, comments, files] = await Promise.all([
+  // Issue comments live on the ISSUE resource, not the pull resource — a PR's
+  // `/pulls/<n>/comments` is review comments only. The clean-pass
+  // announcements `reviewerPasses` needs are issue comments, so they need
+  // their own call; omitting it is what made `rounds` undercount.
+  const issues = `/repos/${REPO_OWNER}/${REPO_NAME}/issues/${number}`;
+  const [prArr, reviews, comments, files, issueComments] = await Promise.all([
     gh(base),
     gh(`${base}/reviews`),
     gh(`${base}/comments`),
     gh(`${base}/files`),
+    gh(`${issues}/comments`),
   ]);
-  return { pr: prArr[0], reviews, comments, files };
+  return { pr: prArr[0], reviews, comments, files, issueComments };
 }
 
 // ---------------------------------------------------------------------------
