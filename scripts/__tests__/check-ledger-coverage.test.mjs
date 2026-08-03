@@ -9,6 +9,8 @@ import {
   isArithmeticCheckable,
   owedRows,
   auditLedgerDebt,
+  isLedgerPr,
+  ledgerPrStrayFiles,
 } from "../check-ledger-coverage.mjs";
 
 const PULL = (n) => `[#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n})`;
@@ -186,20 +188,125 @@ test("a loop with no PR opened since it closed is pending, not overdue", () => {
   assert.deepEqual(pending.map((p) => p.number), [290]);
 });
 
-test("a loop is overdue once a PR opened after it closed and then merged without the row", () => {
-  // #290's actual shape. That later PR WAS the designated carrier, it reached
-  // main, and it did not carry the row — the obligation came due and was
-  // skipped. This is the failure the audit exists to catch.
+test("a merged [LEDGER] PR that opened after a loop closed and skipped its row makes it overdue", () => {
+  // The designated carrier under the 2026-08-02 rule is the next [LEDGER]
+  // PR, not whatever PR happened to open next. One that opened after the
+  // loop closed, merged to main, and did not carry the row missed the
+  // obligation it exists for — and its own hard gate should have caught it,
+  // so this firing also means a guard hole worth failing loudly on.
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      { number: 294, created_at: "2026-07-30T21:14:59Z", closed_at: "2026-07-31T00:00:00Z", merged_at: "2026-07-31T00:00:00Z", title: "[LEDGER] rows", user: { login: "me" } },
+    ],
+    ledger: emptyLedger,
+  });
+  assert.deepEqual(pending, []);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger, o.carrier.number]), [[290, "carrier", 294]]);
+});
+
+test("a regular merged PR is not a carrier — one merge since close leaves the row pending", () => {
+  // The core of the rule change: under the old semantics this exact shape
+  // (#294 merging after #290 closed, rowless) was overdue. A regular PR no
+  // longer carries anyone's row, and one merge is under the backstop
+  // threshold, so the debt stays pending — reported, not failed.
   const { overdue, pending } = auditLedgerDebt({
     allPrs: [
       closedLoop(290, "2026-07-30T21:09:48Z"),
       { number: 294, created_at: "2026-07-30T21:14:59Z", closed_at: "2026-07-31T00:00:00Z", merged_at: "2026-07-31T00:00:00Z", title: "next", user: { login: "me" } },
     ],
-    // #294 carries its own row here, so the only debt under test is #290's.
     ledger: { rows: [{ pr: 294 }], exempt: new Map() },
   });
+  assert.deepEqual(overdue, []);
+  assert.deepEqual(pending.map((p) => p.number), [290]);
+});
+
+test("the backstop trips after two merges since close with no [LEDGER] PR open", () => {
+  // Without this, a debt whose carrier never shows up would stay politely
+  // "pending" forever — the [LEDGER] rule would have no forcing function at
+  // all once regular PRs stopped failing for it.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      later(294, "2026-07-31T00:00:00Z"),
+      later(296, "2026-07-31T02:00:00Z"),
+    ],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+  });
   assert.deepEqual(pending, []);
-  assert.deepEqual(overdue.map((o) => [o.pr.number, o.carrier.number]), [[290, 294]]);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger, o.mergedSince]), [[290, "backstop", 2]]);
+});
+
+test("an open [LEDGER] PR defers the backstop but not the carrier trigger", () => {
+  // An open ledger PR means the debt is visibly being paid — failing main
+  // then would be noise. But a carrier that already merged without the row
+  // is a miss that already happened; an open successor doesn't unmiss it.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const openLedger = { number: 301, created_at: "2026-07-31T03:00:00Z", closed_at: null, merged_at: null, title: "[LEDGER] rows for #290", user: { login: "me" } };
+
+  const deferred = auditLedgerDebt({
+    allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), openLedger],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+  });
+  assert.deepEqual(deferred.overdue, []);
+  assert.deepEqual(deferred.pending.map((p) => p.number), [290]);
+
+  const missedCarrier = { number: 293, created_at: "2026-07-30T22:00:00Z", closed_at: "2026-07-30T23:00:00Z", merged_at: "2026-07-30T23:00:00Z", title: "[LEDGER] incomplete", user: { login: "me" } };
+  const notDeferred = auditLedgerDebt({
+    allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), missedCarrier, openLedger],
+    ledger: emptyLedger,
+  });
+  assert.deepEqual(notDeferred.overdue.map((o) => [o.pr.number, o.trigger]), [[290, "carrier"]]);
+});
+
+test("a closed [LEDGER] PR owes no row of its own, and the skip is counted", () => {
+  // The policy exclusion that terminates the ledger's self-reference — same
+  // shape as the Dependabot exclusion, and reported the same way so it is
+  // never silent. Checked on both halves of the guard, which must agree on
+  // what the ledger even owes.
+  const ledgerPr = { number: 296, created_at: "2026-07-31T00:00:00Z", closed_at: "2026-07-31T01:00:00Z", merged_at: "2026-07-31T01:00:00Z", title: "[LEDGER] rows for #290", user: { login: "me" } };
+
+  const audit = auditLedgerDebt({ allPrs: [ledgerPr], ledger: emptyLedger });
+  assert.deepEqual(audit.overdue, []);
+  assert.deepEqual(audit.pending, []);
+  assert.equal(audit.skippedLedger, 1);
+
+  const coverage = owedRows({ allPrs: [CURRENT, ledgerPr], currentPr: { ...CURRENT, created_at: "2026-08-02T00:00:00Z" }, ledger: emptyLedger });
+  assert.deepEqual(coverage.owed, []);
+  assert.equal(coverage.skippedLedger, 1);
+});
+
+test("a [LEDGER] PR opened BEFORE the loop closed is not its carrier", () => {
+  // Sequencing mirrors owedRows: a ledger PR carries rows for loops closed
+  // before it opened. One already in flight when the loop closed could not
+  // have owed this row, so its merge is not a miss.
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      { number: 289, created_at: "2026-07-30T20:00:00Z", closed_at: "2026-07-30T22:00:00Z", merged_at: "2026-07-30T22:00:00Z", title: "[LEDGER] earlier rows", user: { login: "me" } },
+    ],
+    ledger: emptyLedger,
+  });
+  assert.deepEqual(overdue, []);
+  assert.deepEqual(pending.map((p) => p.number), [290]);
+});
+
+test("ledgerPrStrayFiles flags everything except the ledger file", () => {
+  // The structural gate that makes the [LEDGER] title load-bearing: without
+  // it, any work could ride in under the prefix and inherit the exclusion.
+  assert.deepEqual(ledgerPrStrayFiles([{ filename: ".agents/metrics/loop-ledger.md" }]), []);
+  assert.deepEqual(
+    ledgerPrStrayFiles([{ filename: ".agents/metrics/loop-ledger.md" }, { filename: "src/index.ts" }]),
+    ["src/index.ts"],
+  );
+});
+
+test("isLedgerPr matches the title prefix exactly", () => {
+  assert.equal(isLedgerPr({ title: "[LEDGER] rows for #290, #292" }), true);
+  assert.equal(isLedgerPr({ title: "docs: mention [LEDGER] PRs" }), false);
+  assert.equal(isLedgerPr({ title: "[PLAN REVIEW] x" }), false);
+  assert.equal(isLedgerPr({}), false);
 });
 
 test("a carrier that closed unmerged does not make a row overdue", () => {
@@ -278,11 +385,10 @@ test("a PR merged into a stacked parent branch is not a landed carrier", () => {
   assert.deepEqual(pending.map((p) => p.number).sort(), [290, 295]);
 });
 
-test("a merged carrier does not count itself as its own missed carrier", () => {
-  // A merged PR is both a closed loop owing a row AND a landed PR. Without
-  // the self-exclusion it would report itself overdue the instant it merged,
-  // which contradicts "a row is never its own dedicated PR" and would make
-  // main permanently red after every single merge.
+test("a merged PR does not count itself toward its own backstop", () => {
+  // A merged PR is both a closed loop owing a row AND a landed merge. Without
+  // the self-exclusion, every merged loop would inch its own debt toward the
+  // backstop just by existing.
   const { overdue, pending } = auditLedgerDebt({
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z")],
     ledger: emptyLedger,

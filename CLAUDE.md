@@ -993,11 +993,22 @@ binds Codex too, so it is not restated here. What is mine is only the
 enactment:
 
 - **When a PR I own merges or closes, its row is owed** before I consider the
-  work finished — but I do **not** open a dedicated PR to append it (that
-  would collide with "Always open a PR when work is done" and never
-  terminate; see `working-modes.md`'s *"a row is never its own dedicated PR"*
-  for why and how). I compute it right away and fold it into whatever PR I
-  open next, on any subject, as one ordinary commit.
+  work finished — and it ships via a **dedicated `[LEDGER]`-titled PR whose
+  only change is `.agents/metrics/loop-ledger.md`**, batching every row
+  currently owed (David, 2026-08-02, replacing the old fold-into-next-PR
+  rule; the shared contract is `working-modes.md`'s *"A row ships in a
+  dedicated `[LEDGER]` PR"*). A `[LEDGER]` PR owes no row of its own — the
+  policy exclusion that terminates the recursion — and CI enforces both its
+  file constraint and its carry-everything-owed gate, so the exemption can't
+  be borrowed or half-done. Codex still reviews it; I drive that review to
+  resolution like any other before merging.
+- **David granted standing authorization (2026-08-02) for me to squash-merge
+  a green `[LEDGER]` PR myself** — CI green, Codex review resolved, both
+  ledger gates passed. Same shape as the Dependabot authorization under
+  `/maintenance`; the structural file-constraint gate is what makes it safe.
+  On a regular PR, pending rows are a printed CI warning only, never a red
+  check — the debt is paid through the next `[LEDGER]` PR, not by whatever
+  PR happens to be in flight.
 - **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
   columns and never type them from memory** — or `--mcp-snapshot <file>` when
   my environment has no direct `api.github.com` credential, which is this
@@ -1018,8 +1029,9 @@ enactment:
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
   `/maintenance` skill (`.claude/skills/maintenance/SKILL.md`) owns the
   contract; the one piece worth restating here is the standing authorization
-  it grants — green minor/patch Dependabot bumps are the single category of PR
-  I squash-merge myself. David invokes it roughly weekly; I never schedule it
+  it grants — green minor/patch Dependabot bumps are one of the two categories
+  of PR I squash-merge myself (the other: green `[LEDGER]` PRs, per the
+  loop-ledger section above). David invokes it roughly weekly; I never schedule it
   myself (the no-background-check-ins rule stands). David asked for a one-shot
   ~4-week reminder (around 2026-08-19) to revisit whether he wants it
   automated.

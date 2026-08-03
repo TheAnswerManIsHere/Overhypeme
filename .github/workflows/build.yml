@@ -64,12 +64,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
-      # The post-merge half. The step above can only ask "does THIS PR owe rows
-      # for loops that closed before it opened" — nobody asks between PRs, and
-      # that interval is where both of the ledger's real misses (#286, #290)
-      # actually happened. This fails `main` the moment a row's designated
-      # carrier PR merges without it, instead of waiting for whenever someone
-      # next opens a PR. Pending-but-not-yet-due rows are printed, not failed.
+      # The post-merge half. The step above can only see the current PR's
+      # context — nobody asks between PRs, and that interval is where both of
+      # the ledger's real misses (#286, #290) actually happened. Rows ship via
+      # dedicated [LEDGER] PRs (working-modes.md), so this fails `main` when a
+      # merged [LEDGER] carrier skipped a row it owed, or when the no-carrier
+      # backstop trips (2+ merges since a loop closed, row still missing, no
+      # [LEDGER] PR open). Pending-but-not-yet-due rows are printed, not failed.
       - name: Audit loop-ledger debt
         if: github.event_name == 'push'
         run: node scripts/check-ledger-coverage.mjs --audit

@@ -13,15 +13,25 @@
 // CLAUDE.md applied to our own ceremony: a rule broken twice becomes a check
 // that makes breaking it impossible, rather than a better memory note.
 //
-// TWO CHECKS:
+// THE CHECKS (behavior split by PR kind since 2026-08-02 — rows ship via
+// dedicated [LEDGER] PRs, not folded into whatever PR opens next):
 //   1. COVERAGE (needs the GitHub API + PR context) — every loop that closed
 //      before this PR opened has either a row or a recorded exemption.
-//   2. ARITHMETIC (offline, always runs) — each row's causal counts sum to its
-//      own findings total, per working-modes.md's "the five category counts
-//      must sum exactly to findings".
+//      On a [LEDGER] PR this is a HARD GATE (carrying those rows is the PR's
+//      purpose); on a regular PR it prints a WARNING and stays green.
+//   2. STRUCTURAL ([LEDGER] PRs only) — the diff touches nothing besides
+//      .agents/metrics/loop-ledger.md, so the [LEDGER] exclusion can't be
+//      borrowed by substantive work. Hard gate.
+//   3. ARITHMETIC (offline, always runs, always a hard gate) — each row's
+//      causal counts sum to its own findings total, per working-modes.md's
+//      "the five category counts must sum exactly to findings".
+//   4. AUDIT (--audit, on push to main) — reports pending debt every run;
+//      fails on overdue debt (a merged [LEDGER] carrier skipped a row, or
+//      the no-carrier backstop tripped). See auditLedgerDebt.
 //
-// Run locally:  node scripts/check-ledger-coverage.mjs   (check 2 only)
-// In CI:        same, with GITHUB_TOKEN + PR_NUMBER set (both checks)
+// Run locally:  node scripts/check-ledger-coverage.mjs   (check 3 only)
+// In CI:        same, with GITHUB_TOKEN + PR_NUMBER set (checks 1-3), and
+//               --audit with GITHUB_TOKEN on push-to-main (checks 3-4)
 
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -52,6 +62,47 @@ const FIRST_ENFORCED_PR = 270;
  * this way is always reported.
  */
 const NON_LOOP_AUTHORS = new Set(["dependabot[bot]", "dependabot"]);
+
+/**
+ * The dedicated ledger-append PR type (David, 2026-08-02, replacing the old
+ * "a row is never its own dedicated PR" fold-into-next-PR rule — see
+ * working-modes.md → "A row ships in a dedicated [LEDGER] PR").
+ *
+ * A PR whose title starts with `[LEDGER]` carries ledger rows and nothing
+ * else. It is excluded from owing a row itself — that exclusion is what
+ * terminates the recursion the old rule was built around (a ledger PR's own
+ * close owing another row, forever) — and like the Dependabot exclusion it is
+ * counted and reported on every run, never silent.
+ *
+ * The title prefix follows the `[PLAN REVIEW]` precedent: machine-checkable
+ * from data every check here already fetches, and visible at a glance in any
+ * PR list. It is NOT honor-system: `ledgerPrStrayFiles` below fails any
+ * `[LEDGER]`-titled PR whose diff strays outside the ledger file, so the
+ * exclusion cannot be borrowed by substantive work riding in under the
+ * prefix.
+ */
+const LEDGER_PR_TITLE = /^\[LEDGER\]/;
+export const isLedgerPr = (pr) => LEDGER_PR_TITLE.test(pr?.title ?? "");
+
+/** The one file a [LEDGER] PR is allowed to change. */
+const LEDGER_ONLY_PATH = ".agents/metrics/loop-ledger.md";
+
+/**
+ * Overdue backstop: with no [LEDGER] PR open, this many merges to `main`
+ * after a loop closes turns its missing row from pending (reported) into
+ * overdue (fails the audit). Keeps silence from lasting forever without
+ * coupling any individual PR to ledger state.
+ */
+const OVERDUE_BACKSTOP_MERGES = 2;
+
+/**
+ * Files a [LEDGER] PR touches beyond the ledger file itself — the structural
+ * check that makes the title prefix load-bearing instead of honor-system.
+ * Returns the stray filenames; empty means the PR is what its title claims.
+ */
+export function ledgerPrStrayFiles(files) {
+  return files.map((f) => f.filename).filter((name) => name !== LEDGER_ONLY_PATH);
+}
 
 // ── Ledger parsing ───────────────────────────────────────────────────────────
 
@@ -269,18 +320,27 @@ async function gh(path, token) {
 }
 
 /**
- * Which loops owe a row on this PR.
+ * Which loops still owe a row, as of this PR's opening.
  *
- * The rule is working-modes.md's own sequencing, applied literally: a closed
- * loop's row is folded into "whichever PR you open next", so by the time THIS
- * PR was opened, every loop that had already closed owes a row here. A loop
- * that closed *after* this PR opened does not — its row belongs to the next
- * PR, not retroactively to one already in flight.
+ * The cutoff is working-modes.md's own sequencing: a `[LEDGER]` PR carries a
+ * row for every loop closed before it opened, and a loop that closed *after*
+ * it opened belongs to the next one — demanding it here would be
+ * unsatisfiable. What this list MEANS depends on the current PR's kind, and
+ * that decision lives in main(), not here: on a `[LEDGER]` PR a non-empty
+ * list is a hard failure (carrying these rows is the PR's entire purpose);
+ * on a regular PR it is a printed warning only (David, 2026-08-02 — a
+ * regular PR is no longer anyone's designated carrier, and failing it for
+ * ledger state would hold unrelated work hostage).
+ *
+ * Closed `[LEDGER]` PRs never appear in the owed list themselves — the
+ * policy exclusion that terminates the ledger's self-reference. Counted and
+ * reported, like the Dependabot skip, never silent.
  */
 export function owedRows({ allPrs, currentPr, ledger }) {
   const openedAt = new Date(currentPr.created_at);
   const owed = [];
   let skippedNonLoop = 0;
+  let skippedLedger = 0;
 
   for (const pr of allPrs) {
     if (pr.number === currentPr.number) continue;
@@ -291,11 +351,15 @@ export function owedRows({ allPrs, currentPr, ledger }) {
       skippedNonLoop++;
       continue;
     }
+    if (isLedgerPr(pr)) {
+      skippedLedger++;
+      continue;
+    }
     if (ledger.rows.some((r) => r.pr === pr.number)) continue;
     if (ledger.exempt.has(pr.number)) continue;
     owed.push(pr);
   }
-  return { owed, skippedNonLoop };
+  return { owed, skippedNonLoop, skippedLedger };
 }
 
 // ── Check 3: post-merge audit of main — a debt that was skippable and skipped ─
@@ -313,40 +377,52 @@ export function owedRows({ allPrs, currentPr, ledger }) {
  * is invisible again until the PR after that. That is exactly how #286's and
  * #290's rows both went missing: not a broken guard, an unwatched interval.
  *
- * The distinction this draws is the workflow's own sequencing rule turned into
- * a test. working-modes.md says a closed loop's row is folded into "whichever
- * PR you open next", so:
+ * The distinction this draws is working-modes.md's `[LEDGER]`-PR sequencing
+ * (David, 2026-08-02) turned into a test. The designated carrier of a
+ * closed loop's row is the next `[LEDGER]` PR — not, as under the old rule,
+ * whichever PR happened to open next — so:
  *
- *  - **pending** — no PR has opened-and-landed since this loop closed. The
- *    obligation is live but has not come due. Reported, never failed.
- *  - **overdue** — some other PR opened AFTER this loop closed and has since
- *    merged. That PR *was* "the next one", it was the row's designated
- *    carrier, and it reached `main` without it. The obligation came due and
- *    was skipped, which is a real miss and fails the build on `main`.
+ *  - **pending** — the row is missing but nothing has missed it yet.
+ *    Reported on every run, never failed, so the debt is visible while it is
+ *    still cheap to pay.
+ *  - **overdue, carrier trigger** — a `[LEDGER]` PR opened after this loop
+ *    closed and has since merged to `main` without carrying its row. That PR
+ *    was the designated carrier and skipped it; its own hard gate should
+ *    have caught this, so reaching here also means a guard hole. Fails.
+ *  - **overdue, backstop trigger** — no carrier ever showed up: two-plus PRs
+ *    of any kind have merged to `main` since the loop closed, the row is
+ *    still missing, and no `[LEDGER]` PR is open. Without this, a debt with
+ *    no carrier would stay politely "pending" forever. An OPEN `[LEDGER]` PR
+ *    defers this trigger — the debt is visibly being paid — but never the
+ *    carrier trigger, which marks a miss that already happened.
  *
- * Requiring the carrier to have MERGED (not merely closed) matters: a
- * `[PLAN REVIEW]` PR is closed unmerged by contract, so a row folded into one
- * would never reach `main`. Treating such a PR as a missed carrier would
- * report a debt nobody could ever have paid.
+ * Requiring a carrier to have MERGED (not merely closed) matters: a
+ * `[PLAN REVIEW]` PR is closed unmerged by contract, and a closed-unmerged
+ * `[LEDGER]` PR delivered nothing. Requiring its BASE to be `main` matters
+ * one level down: this repo stacks dependent bugfix PRs on other PRs' heads
+ * (working-modes.md's *Dependent bugs* note), and GitHub stamps `merged_at`
+ * on a stack merge exactly like a merge into `main` — counting one as landed
+ * would report a debt against a PR that never reached the branch this audit
+ * runs on.
  *
- * Requiring the carrier's BASE to be `main` matters for the same reason, one
- * level down: this repo stacks a dependent bugfix PR on another open bugfix
- * PR's head rather than on `main` (working-modes.md's *Dependent bugs* note),
- * and GitHub stamps `merged_at` on that stack merge exactly like a merge into
- * `main` — nothing in the field itself says which branch received it. A
- * stacked PR's commits reach `main` only later, when its PARENT merges into
- * `main` in turn. Counting the stacked merge itself as a landed carrier would
- * report a loop's row as overdue against a PR that never actually reached the
- * branch this audit runs against.
+ * Closed `[LEDGER]` PRs are also skipped as loops owing rows — the same
+ * policy exclusion `owedRows` applies, counted and reported the same way.
  */
 export function auditLedgerDebt({ allPrs, ledger }) {
   const overdue = [];
   const pending = [];
   let skippedNonLoop = 0;
+  let skippedLedger = 0;
 
   const landed = allPrs
     .filter((pr) => pr.merged_at && (pr.base?.ref ?? "main") === "main")
-    .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at), merged: new Date(pr.merged_at) }));
+    .map((pr) => ({
+      number: pr.number,
+      opened: new Date(pr.created_at),
+      merged: new Date(pr.merged_at),
+      ledger: isLedgerPr(pr),
+    }));
+  const ledgerPrIsOpen = allPrs.some((pr) => !pr.closed_at && isLedgerPr(pr));
 
   for (const pr of allPrs) {
     if (pr.number < FIRST_ENFORCED_PR) continue;
@@ -355,19 +431,32 @@ export function auditLedgerDebt({ allPrs, ledger }) {
       skippedNonLoop++;
       continue;
     }
+    if (isLedgerPr(pr)) {
+      skippedLedger++;
+      continue;
+    }
     if (ledger.rows.some((r) => r.pr === pr.number)) continue;
     if (ledger.exempt.has(pr.number)) continue;
 
     const closedAt = new Date(pr.closed_at);
     const carrier = landed
-      .filter((c) => c.number !== pr.number && c.opened > closedAt)
+      .filter((c) => c.ledger && c.number !== pr.number && c.opened > closedAt)
       .sort((a, b) => a.opened - b.opened)[0];
+    if (carrier) {
+      overdue.push({ pr, trigger: "carrier", carrier });
+      continue;
+    }
 
-    if (carrier) overdue.push({ pr, carrier });
-    else pending.push(pr);
+    const mergedSince = landed.filter((c) => c.number !== pr.number && c.merged > closedAt).length;
+    if (mergedSince >= OVERDUE_BACKSTOP_MERGES && !ledgerPrIsOpen) {
+      overdue.push({ pr, trigger: "backstop", mergedSince });
+      continue;
+    }
+
+    pending.push(pr);
   }
 
-  return { overdue, pending, skippedNonLoop };
+  return { overdue, pending, skippedNonLoop, skippedLedger };
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -409,30 +498,34 @@ async function main() {
       );
     }
     const allPrs = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls?state=all`, token);
-    const { overdue, pending, skippedNonLoop } = auditLedgerDebt({ allPrs, ledger });
+    const { overdue, pending, skippedNonLoop, skippedLedger } = auditLedgerDebt({ allPrs, ledger });
 
     if (skippedNonLoop > 0) {
       console.log(`• ${skippedNonLoop} closed PR(s) excluded as non-loop authors (${[...NON_LOOP_AUTHORS].join(", ")}).`);
     }
+    if (skippedLedger > 0) {
+      console.log(`• ${skippedLedger} closed [LEDGER] PR(s) excluded by policy — a ledger append owes no row of its own.`);
+    }
     if (pending.length) {
       // Not a failure. Printed every run so the debt is visible while it is
       // still cheap to pay, instead of surfacing only once it has been missed.
-      console.log(`\n• ${pending.length} closed loop(s) owe a row but are not yet overdue — no PR has opened and`);
-      console.log(`  merged since they closed. Fold these into the next PR you open, on any subject:`);
+      console.log(`\n• ${pending.length} closed loop(s) owe a row but are not yet overdue.`);
+      console.log(`  Open a [LEDGER] PR carrying these rows (working-modes.md → "The loop ledger"):`);
       for (const pr of pending) console.log(`    #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}`);
     }
     if (overdue.length) {
       console.error(`\n✗ ${overdue.length} closed review loop(s) missed their row and are now overdue:\n`);
-      for (const { pr, carrier } of overdue) {
-        console.error(
-          `  #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}\n` +
-            `      → PR #${carrier.number} opened after it closed and has since merged without carrying the row.`,
-        );
+      for (const item of overdue) {
+        const cause =
+          item.trigger === "carrier"
+            ? `[LEDGER] PR #${item.carrier.number} opened after it closed and merged without carrying the row.`
+            : `${item.mergedSince} PR(s) have merged since it closed, the row is still missing, and no [LEDGER] PR is open.`;
+        console.error(`  #${item.pr.number}  closed ${item.pr.closed_at.slice(0, 10)}  ${item.pr.title}\n      → ${cause}`);
       }
       console.error(
-        `\nEvery closed loop owes one row in .agents/metrics/loop-ledger.md, folded into the next PR on any` +
-          `\nsubject (working-modes.md → "The loop ledger"). To resolve, either:` +
-          `\n  • add the row: node scripts/loop-metrics.mjs --pr <number>  (or --mcp-snapshot <file>), then` +
+        `\nEvery closed loop owes one row in .agents/metrics/loop-ledger.md, shipped via a dedicated` +
+          `\n[LEDGER]-titled PR touching only that file (working-modes.md → "The loop ledger"). To resolve, either:` +
+          `\n  • open a [LEDGER] PR: node scripts/loop-metrics.mjs --pr <number>  (or --mcp-snapshot <file>),` +
           `\n    add the judgment columns and a blind adjudication, or` +
           `\n  • record a deliberate exemption with a reason in the ledger's "Deliberately not measured" table.` +
           `\nAn exemption is a recorded decision NOT to measure a loop. It is never a pass.\n`,
@@ -471,27 +564,69 @@ async function main() {
   const currentPr = allPrs.find((p) => p.number === prNumber);
   if (!currentPr) throw new Error(`PR #${prNumber} not found in the repository's pull request list.`);
 
-  const { owed, skippedNonLoop } = owedRows({ allPrs, currentPr, ledger });
+  const { owed, skippedNonLoop, skippedLedger } = owedRows({ allPrs, currentPr, ledger });
 
   if (skippedNonLoop > 0) {
     // Never silent: a skip nobody can see reads as coverage that was never checked.
     console.log(`• ${skippedNonLoop} closed PR(s) excluded as non-loop authors (${[...NON_LOOP_AUTHORS].join(", ")}).`);
   }
+  if (skippedLedger > 0) {
+    console.log(`• ${skippedLedger} closed [LEDGER] PR(s) excluded by policy — a ledger append owes no row of its own.`);
+  }
 
-  if (owed.length) {
-    console.error(`\n✗ ${owed.length} closed review loop(s) have no ledger row and no recorded exemption:\n`);
-    for (const pr of owed) {
-      console.error(`  #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}`);
+  if (isLedgerPr(currentPr)) {
+    // ── [LEDGER] PR: both halves are hard gates ────────────────────────────
+    //
+    // The structural gate is what makes the title prefix load-bearing: the
+    // row exclusion above cannot be borrowed by substantive work, because a
+    // diff that strays outside the ledger file fails here.
+    const files = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${prNumber}/files`, token);
+    const stray = ledgerPrStrayFiles(files);
+    if (stray.length) {
+      console.error(
+        `\n✗ This PR is titled [LEDGER] but changes ${stray.length} file(s) other than ${LEDGER_ONLY_PATH}:\n` +
+          stray.map((f) => `  ${f}`).join("\n") +
+          `\n\nA [LEDGER] PR carries ledger rows and nothing else — that constraint is what makes its` +
+          `\nexclusion from the ledger obligation safe. Move the other changes to a normal PR.\n`,
+      );
+      process.exit(1);
     }
-    console.error(
-      `\nEvery closed loop owes one row in .agents/metrics/loop-ledger.md, folded into the next PR on any` +
-        `\nsubject (working-modes.md → "The loop ledger"). To resolve, either:` +
-        `\n  • add the row: node scripts/loop-metrics.mjs --pr <number>  (or --mcp-snapshot <file>), then` +
-        `\n    add the judgment columns and a blind adjudication, or` +
-        `\n  • record a deliberate exemption with a reason in the ledger's "Deliberately not measured" table.` +
-        `\nAn exemption is a recorded decision NOT to measure a loop. It is never a pass.\n`,
+    console.log(`✓ [LEDGER] structural check: the diff touches only ${LEDGER_ONLY_PATH}.`);
+
+    if (owed.length) {
+      console.error(`\n✗ This [LEDGER] PR is missing ${owed.length} row(s) it exists to carry:\n`);
+      for (const pr of owed) {
+        console.error(`  #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}`);
+      }
+      console.error(
+        `\nA [LEDGER] PR carries a row (or a "Deliberately not measured" entry) for EVERY loop closed` +
+          `\nbefore it opened — that is its entire purpose, so unlike a regular PR this is a hard failure.` +
+          `\nDerive each row with node scripts/loop-metrics.mjs --pr <number> (or --mcp-snapshot <file>),` +
+          `\nadd the judgment columns and a blind adjudication, and push them to this PR.\n`,
+      );
+      process.exit(1);
+    }
+    console.log(`✓ Ledger coverage: every loop closed before [LEDGER] PR #${prNumber} opened has a row or a recorded exemption.`);
+    return;
+  }
+
+  // ── Regular PR: pending rows warn, never fail (David, 2026-08-02) ────────
+  //
+  // A regular PR is no longer anyone's designated carrier — rows ship via
+  // dedicated [LEDGER] PRs — so failing unrelated work for ledger state would
+  // recreate the coupling that rule change removed. The debt still prints so
+  // it is never invisible; enforcement lives in the [LEDGER] PR's own hard
+  // gate and the push-to-main audit's overdue triggers.
+  if (owed.length) {
+    console.log(`\n• Warning: ${owed.length} closed review loop(s) have no ledger row and no recorded exemption:`);
+    for (const pr of owed) {
+      console.log(`    #${pr.number}  closed ${pr.closed_at.slice(0, 10)}  ${pr.title}`);
+    }
+    console.log(
+      `  Not this PR's problem to carry — open a [LEDGER] PR with these rows (working-modes.md →` +
+        `\n  "The loop ledger"). This is a warning only; the build stays green.`,
     );
-    process.exit(1);
+    return;
   }
 
   console.log(`✓ Ledger coverage: every loop closed before PR #${prNumber} opened has a row or a recorded exemption.`);
