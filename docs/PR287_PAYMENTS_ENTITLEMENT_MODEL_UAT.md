@@ -1,7 +1,8 @@
 # PR #287 — Membership is derived, not assigned — UAT
 
 Your in-app acceptance test, David. This is the payments remediation we spent 32
-review rounds on, built.
+plan-review rounds designing and a further 11 code-review rounds hardening —
+101 review findings, all fixed or explicitly recorded as a known gap below.
 
 **What actually changed, in one sentence.** Legendary used to be a value that
 fifteen different bits of code wrote by hand — each with its own idea of when to
@@ -138,6 +139,65 @@ Spot-check the places that read membership. They should be unremarkable.
 | Daily upload limits | Legendary gets the higher limit |
 | Fact-of-the-day email list | Goes to Legendary members |
 
+## 8. The subscription panel admits when it isn't sure
+
+This is new, and it is the one place the product now says something it never
+said before. Cancel, Reactivate and Switch to Annual all go to Stripe first and
+*then* update our own records. When Stripe accepts the change but our records
+can't be brought up to date in the moment, the panel says so instead of showing
+you a confident answer it can't stand behind.
+
+**How to see it:** you mostly won't, and that's correct — it needs our own
+refresh to fail while Stripe's call succeeds. If you do hit it:
+
+| What you should see | What you should NOT see |
+|---|---|
+| An **amber notice** above the membership card: your change was accepted by the payment provider, but our records haven't caught up | A red error — the change *did* go through |
+| The success message as well (for cancel/reactivate) — because the cancellation is real | The panel silently showing stale details with no warning |
+| The notice **disappearing on its own** within a minute or two, once our records catch up | The notice stuck there after the details are visibly correct |
+
+If you ever see that amber notice still sitting there after the card clearly
+shows the new state, that's a bug — tell me.
+
+## 9. Buttons can't act on a subscription you weren't shown
+
+Also new, and it exists because of a genuinely nasty case: if you have more than
+one subscription and the one on screen has since been cancelled at Stripe's end,
+the old code would have acted on a *different* subscription than the one the page
+was describing — cancelling the wrong thing while the other kept billing.
+
+**How to see it:** hard to stage deliberately, and you shouldn't go out of your
+way. If it happens you'll get a plain refusal rather than a wrong action:
+
+> Your subscription details have changed since this page loaded. Refresh and try
+> again — nothing was modified.
+
+**The important half is the last three words.** Nothing was changed. The panel
+refreshes itself, and clicking again then does exactly what it says. If you ever
+see that message and something *did* change, that's a serious bug.
+
+**One related change you might notice:** a member whose payment is failing (in
+the 14-day grace window) can now cancel their subscription. Previously they
+couldn't — the person actively being chased for payment was the one person
+unable to stop it.
+
+## 10. Admin → Refunds & Disputes: the sweep panel
+
+There's a new status strip at the top of that page, reporting the background job
+that keeps stored membership tiers in step with what's actually enforced.
+
+| What to check | Expected |
+|---|---|
+| The strip is there and not alarming | Grey text, "Healthy · last converged N ago" |
+| Right after a deploy | "Not yet run · waiting Nm since start" — honest, not a fake "healthy" |
+| It updates while you watch | Refreshes itself every 30 seconds; you should never need to reload |
+| Pending-convergence count | "No users pending convergence" normally; a number if some are lagging |
+| If it ever turns amber | It's telling you stored tiers are drifting. **Access is still correct** — this is a label problem, not an access problem. Tell me and keep going. |
+
+Also on that page: refunds now distinguish **partial refunds** from full ones.
+A partial refund appears in the list with its own label and **does not** remove
+the member's access — only a full refund does. Worth a look if you have one.
+
 ## Regression smoke
 
 | Check | Expected |
@@ -194,6 +254,16 @@ based on a stale local row.
   Stripe-vs-local reconciliation job that closes it is a separate piece of work,
   deferred so this one could ship. Worth knowing while you test, because it is
   the one scenario where the app can be confidently wrong.
+
+- **Memberships don't record which Stripe mode they came from.** If you make a
+  test-mode membership and then switch the app to live mode, that test purchase
+  keeps granting Legendary — nothing notices it belongs to the other account,
+  and a live-mode refresh can't repair it because the test object isn't there to
+  look up. Only reachable by you toggling live mode with test entitlements
+  around; no customer can trigger it, and no live purchase is affected. Fixing it
+  properly means a new column and a migration, so it is **escalated rather than
+  patched in at the end of this PR** — the second known gap, alongside
+  reconciliation above.
 
 ## If something's wrong
 
