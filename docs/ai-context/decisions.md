@@ -1039,6 +1039,18 @@
   see [PR #288's entry](#2026-07-30--async-jobs-db-connection-pool-max-raised-to-20-explicit-and-derived--supersedes-pr-216s-deferral) — `max` is now 20, explicit and derived. This
   entry's other clause stands.)* Also revisit if a future queue needs its own
   distinct lane rather than defaulting into `bulk`.
+  **Premise qualified 2026-07-30 (PR #291):** the handler-concurrency-vs-pool-`max`
+  comparison this bullet rests on is not apples-to-apples — a handler holds a
+  connection for the claim and finalize transactions and for whatever DB work
+  it does itself, but **not** while awaiting an external provider, which for
+  the provider-bound lanes is most of a job's wall-clock — so the headroom
+  implied here overstates the real contention, which has never been measured. **Superseded in part the same day:** PR #288 raised
+  the ceiling explicitly (`POOL_MAX_DEFAULT = 20`, derived from measured
+  production capacity), so the `max` this bullet treats as fixed at 10 no
+  longer holds either — that item is resolved and no longer tracked in
+  `deferred-work.md`. The reasoning above is left as the record of what was
+  decided at the time; see
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 
 ---
 
