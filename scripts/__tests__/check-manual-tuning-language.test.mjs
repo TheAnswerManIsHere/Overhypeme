@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanText } from "../check-manual-tuning-language.mjs";
+import { scanText, markdownFiles } from "../check-manual-tuning-language.mjs";
 
 const ids = (text) => scanText(text).map((f) => f.rule);
 const matches = (text) => scanText(text).map((f) => f.match);
@@ -192,4 +192,91 @@ test("a blank line breaks the join — unrelated paragraphs don't combine into a
   // of traffic" (start of the next), that would falsely read as a count.
   const text = ["there were five", "", "lanes of traffic backed up"].join("\n");
   assert.deepEqual(scanText(text), []);
+});
+
+test("the escape hatch still applies when a hard-wrapped phrase finishes on an ignored line", () => {
+  // Regression: PR #298 round 3 — scanText("last 3 send-back\nattempts <!--
+  // tuning-ok -->") reported counted-component, because the window still
+  // joined with a next line that was itself suppressed. A phrase that starts
+  // clean and finishes on a deliberately-ignored continuation must not be
+  // flagged — the escape hatch has to survive the line-wrap join.
+  const text = ["last 3 send-back", "attempts <!-- tuning-ok -->"].join("\n");
+  assert.deepEqual(scanText(text), []);
+});
+
+test("a suppressed next line's content cannot leak into an earlier line via the join", () => {
+  const text = ["a fact whose last 3 send-back", "<!-- tuning-ok -->attempts, quoted deliberately"].join("\n");
+  assert.deepEqual(scanText(text), []);
+});
+
+test("spelled-out numbers are caught by every numeric rule, not just elliptical-cap", () => {
+  // Regression: PR #298 round 3 — round 2's tens-word support was added only
+  // to elliptical-cap, so "up to fifty eligible", "polls every five seconds",
+  // and "last fifty retries" all still passed.
+  assert.ok(scanText("send back up to fifty eligible facts").length > 0, "missed batch-cap: fifty");
+  assert.ok(scanText("polls every five seconds").length > 0, "missed duration: five seconds");
+  assert.ok(scanText("a fact whose last fifty retries failed").length > 0, "missed counted-component: fifty retries");
+});
+
+test('"hundreds" is not a duration — attached "s" only fires on digits, not spelled numbers', () => {
+  // Regression: PR #298 round 3's own fix — extending duration's number
+  // vocabulary to spelled-out words re-used the "attached s" shorthand
+  // (`60s`), which then also matched "hundred" + "s" = the ordinary English
+  // word "hundreds" ("hundreds of facts"), not a duration.
+  assert.deepEqual(scanText("this affects hundreds of facts across the corpus"), []);
+});
+
+test("normalizes italics and markdown links too, not just bold/code", () => {
+  // Regression: PR #298 round 3 — scanText("up to *50* eligible"),
+  // scanText("polls every _2_ seconds"), and scanText("up to [50](../spec.md)
+  // eligible") all returned no findings; the claim that this corpus doesn't
+  // use single-asterisk italics or links was wrong (moderation.md and
+  // README.md both do).
+  assert.ok(scanText("up to *50* eligible").length > 0, "missed an italicized value");
+  assert.ok(scanText("polls every _2_ seconds").length > 0, "missed an underscore-italicized value");
+  assert.ok(scanText("up to [50](../spec.md) eligible").length > 0, "missed a value inside link text");
+});
+
+test("italics stripping does not corrupt a snake_case identifier", () => {
+  // max_concurrency_limit has two underscores, which a naive strip could
+  // misread as an italics pair around "concurrency_limit".
+  assert.deepEqual(matches("set max_concurrency_limit: 3 in the job config"), ["max_concurrency_limit: 3"]);
+});
+
+test("catches a snake_case config key, not just camelCase", () => {
+  // Regression: PR #298 round 3 — "max_concurrency: 3" went uncaught because
+  // config-kv's identifier class excluded underscores.
+  assert.deepEqual(ids("{ max_concurrency: 3 }"), ["config-kv"]);
+});
+
+test("a stray tuning-ok:end with no matching start is flagged, not silently honored", () => {
+  // Regression: PR #298 round 3 — scanText("polls every 2 seconds <!--
+  // tuning-ok:end -->") returned no findings at all: the unmatched end
+  // marker silently exempted the whole line instead of being rejected.
+  assert.deepEqual(ids("polls every 2 seconds <!-- tuning-ok:end -->"), ["malformed-ignore-marker", "duration"]);
+});
+
+test("a properly matched tuning-ok:end is not flagged as malformed", () => {
+  const text = ["<!-- tuning-ok:start -->", "five lanes", "<!-- tuning-ok:end -->"].join("\n");
+  assert.deepEqual(scanText(text), []);
+});
+
+test("scans manual chapters in nested subdirectories, not just the top level", async () => {
+  // Regression: PR #298 round 3 — markdownFiles only listed files directly
+  // in docs/manual/, so a chapter added under a subdirectory (e.g.
+  // docs/manual/admin/) was never scanned at all.
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const dir = await mkdtemp(path.join(tmpdir(), "manual-tuning-guard-test-"));
+  try {
+    await mkdir(path.join(dir, "admin"));
+    await writeFile(path.join(dir, "top-level.md"), "clean\n");
+    await writeFile(path.join(dir, "admin", "queues.md"), "clean\n");
+    const files = markdownFiles(dir);
+    assert.ok(files.includes(path.join(dir, "top-level.md")), "top-level chapter not discovered");
+    assert.ok(files.includes(path.join(dir, "admin", "queues.md")), "nested chapter not discovered");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
