@@ -13,6 +13,8 @@ import {
   isConfirmedLedgerPr,
   ledgerPrStrayFiles,
   confirmedLedgerPrNumbers,
+  removedRows,
+  openLedgerPrCarries,
 } from "../check-ledger-coverage.mjs";
 
 const PULL = (n) => `[#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n})`;
@@ -272,6 +274,10 @@ test("an open [LEDGER] PR defers the backstop but not the carrier trigger", () =
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), openLedger],
     ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
     confirmedLedgerPrs: new Set([301]),
+    // #301's own head actually carries #290's row — the deferral is earned,
+    // not just plausible by timing (round 2 hardened this: see the next test
+    // for what happens when it doesn't).
+    openLedgerPrCarries: new Map([[301, new Set([290])]]),
   });
   assert.deepEqual(deferred.overdue, []);
   assert.deepEqual(deferred.pending.map((p) => p.number), [290]);
@@ -281,23 +287,43 @@ test("an open [LEDGER] PR defers the backstop but not the carrier trigger", () =
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), missedCarrier, openLedger],
     ledger: emptyLedger,
     confirmedLedgerPrs: new Set([293, 301]),
+    openLedgerPrCarries: new Map([[301, new Set([290])]]),
   });
   assert.deepEqual(notDeferred.overdue.map((o) => [o.pr.number, o.trigger]), [[290, "carrier"]]);
 });
 
-test("an open [LEDGER] PR that opened BEFORE a loop closed does not defer that loop's backstop", () => {
-  // Fixed on PR #304 (Codex round 1, P2): the deferral used to be one
-  // repo-wide boolean ("is any [LEDGER] PR open"), so a stale ledger PR
-  // opened before a newer loop closed could mask that newer loop's backstop
-  // forever, even though it structurally cannot carry a row for a loop that
-  // didn't exist yet when it opened. The fix evaluates deferral per loop,
-  // using the same opened-after-closed cutoff as the carrier match.
+test("an open [LEDGER] PR whose head does NOT carry the row does not defer the backstop", () => {
+  // Fixed on PR #304 (Codex round 2, P2): timing alone ("opened after the
+  // loop closed") isn't enough — a stalled or incomplete [LEDGER] PR that
+  // simply hasn't gotten around to #290's row yet must not indefinitely
+  // defer #290's backstop just by sitting open with the right timestamp.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const openLedger = { number: 301, created_at: "2026-07-31T03:00:00Z", closed_at: null, merged_at: null, title: "[LEDGER] rows for #292 only" };
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), openLedger],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+    confirmedLedgerPrs: new Set([301]),
+    // #301's head carries #292's row, not #290's — verified content, and it
+    // doesn't happen to include the loop under test.
+    openLedgerPrCarries: new Map([[301, new Set([292])]]),
+  });
+  assert.deepEqual(pending, []);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
+});
+
+test("an open [LEDGER] PR that predates a loop's closure does not defer that loop's backstop", () => {
+  // Originally fixed on PR #304 round 1 as a timing check (deferral used to
+  // be one repo-wide boolean); superseded by round 2's content-based fix
+  // above, which subsumes it — a stale ledger PR cut before the loop existed
+  // has no way to carry its row, so it's correctly absent from
+  // openLedgerPrCarries by construction, with no timing check needed at all.
   const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
   const staleOpenLedger = { number: 280, created_at: "2026-07-20T00:00:00Z", closed_at: null, merged_at: null, title: "[LEDGER] old rows", user: { login: "me" } };
   const { overdue, pending } = auditLedgerDebt({
     allPrs: [closedLoop(290, "2026-07-30T21:09:48Z"), later(294, "2026-07-31T00:00:00Z"), later(296, "2026-07-31T02:00:00Z"), staleOpenLedger],
     ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
     confirmedLedgerPrs: new Set([280]),
+    openLedgerPrCarries: new Map([[280, new Set([275])]]), // whatever it actually carries, not #290
   });
   assert.deepEqual(pending, []);
   assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
@@ -352,6 +378,30 @@ test("ledgerPrStrayFiles flags everything except the ledger file", () => {
   );
 });
 
+test("ledgerPrStrayFiles flags a rename INTO the ledger path from elsewhere", () => {
+  // Fixed on PR #304 (Codex round 2, P2): GitHub's `filename` is always the
+  // destination path, so a file renamed FROM some other path TO the ledger
+  // path would pass a naive filename-only check even though it also deletes
+  // whatever content lived at the source — exactly the "changes something
+  // besides the ledger file" case this function exists to catch.
+  assert.deepEqual(
+    ledgerPrStrayFiles([{ filename: ".agents/metrics/loop-ledger.md", previous_filename: "docs/old-notes.md", status: "renamed" }]),
+    ["docs/old-notes.md (renamed into the ledger path)"],
+  );
+  // A rename where the source already WAS the ledger path (e.g. a case-only
+  // rename, or metadata noise) is not a real content change and stays clean.
+  assert.deepEqual(
+    ledgerPrStrayFiles([{ filename: ".agents/metrics/loop-ledger.md", previous_filename: ".agents/metrics/loop-ledger.md" }]),
+    [],
+  );
+  // The reverse direction (ledger file renamed AWAY) is already caught by
+  // the plain filename mismatch — no special-casing needed.
+  assert.deepEqual(
+    ledgerPrStrayFiles([{ filename: "docs/moved.md", previous_filename: ".agents/metrics/loop-ledger.md" }]),
+    ["docs/moved.md"],
+  );
+});
+
 test("isLedgerPr matches the title prefix exactly", () => {
   assert.equal(isLedgerPr({ title: "[LEDGER] rows for #290, #292" }), true);
   assert.equal(isLedgerPr({ title: "docs: mention [LEDGER] PRs" }), false);
@@ -393,6 +443,56 @@ test("confirmedLedgerPrNumbers only fetches files for [LEDGER]-titled candidates
     assert.deepEqual([...confirmed].sort(), [294]);
     assert.equal(requested.length, 2, "only the two [LEDGER]-titled candidates should be fetched");
     assert.ok(requested.every((u) => /\/pulls\/29[45]\/files/.test(u)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("removedRows flags a PR number present before but missing from both rows and exemptions after", () => {
+  // Fixed on PR #304 (Codex round 2, P1): a row is added once and never
+  // removed. This is the direct before/after comparison that catches a
+  // botched merge-conflict resolution silently dropping one, independent of
+  // whether the diff is otherwise structurally clean or arithmetically sound.
+  const before = { rows: [{ pr: 288 }, { pr: 289 }], exempt: new Map([[272, "docs-only"]]) };
+  const afterClean = { rows: [{ pr: 288 }, { pr: 289 }, { pr: 292 }], exempt: new Map([[272, "docs-only"]]) };
+  assert.deepEqual(removedRows(before, afterClean), []);
+
+  const afterDropped = { rows: [{ pr: 288 }], exempt: new Map([[272, "docs-only"]]) };
+  assert.deepEqual(removedRows(before, afterDropped), [289]);
+
+  // Moving a PR from a row to an exemption (or vice versa) is not a removal
+  // — the ledger still accounts for it, just differently.
+  const afterMovedToExempt = { rows: [{ pr: 288 }], exempt: new Map([[272, "docs-only"], [289, "reclassified"]]) };
+  assert.deepEqual(removedRows(before, afterMovedToExempt), []);
+});
+
+test("openLedgerPrCarries fetches head content only for open confirmed candidates", async () => {
+  // The content check that makes backstop deferral honest rather than
+  // timing-based guesswork (Codex round 2, P2): only OPEN PRs already in
+  // confirmedLedgerPrs are worth fetching — a closed one owes no future
+  // deferral, and an unconfirmed one shouldn't be trusted to defer anything.
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  const ledgerMd = (rows) =>
+    `# Loop ledger\n\n## Rows\n\n| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n${rows
+      .map((n) => `| 1 | [#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n}) | bugfix | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |`)
+      .join("\n")}\n`;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    const body = ledgerMd([290]);
+    return { ok: true, json: async () => ({ content: Buffer.from(body, "utf8").toString("base64"), encoding: "base64" }) };
+  };
+  try {
+    const allPrs = [
+      { number: 301, closed_at: null, head: { sha: "abc123" } }, // open + confirmed — fetched
+      { number: 302, closed_at: "2026-08-01T00:00:00Z", head: { sha: "def456" } }, // closed — not fetched
+      { number: 303, closed_at: null, head: { sha: "ghi789" } }, // open but NOT confirmed — not fetched
+    ];
+    const carries = await openLedgerPrCarries(allPrs, new Set([301, 302]), "fake-token");
+    assert.deepEqual([...carries.keys()], [301]);
+    assert.deepEqual([...carries.get(301)], [290]);
+    assert.equal(requested.length, 1);
+    assert.ok(requested[0].includes("abc123"));
   } finally {
     globalThis.fetch = originalFetch;
   }

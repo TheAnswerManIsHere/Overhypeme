@@ -99,9 +99,28 @@ const OVERDUE_BACKSTOP_MERGES = 2;
  * Files a [LEDGER] PR touches beyond the ledger file itself — the structural
  * check that makes the title prefix load-bearing instead of honor-system.
  * Returns the stray filenames; empty means the PR is what its title claims.
+ *
+ * Handles renames explicitly (fixed on PR #304, Codex round 2, P2): GitHub's
+ * `filename` is always the destination path, so a file renamed FROM some
+ * other path INTO `.agents/metrics/loop-ledger.md` would pass a check that
+ * only compares `filename` — even though it also deletes whatever content
+ * lived at the source path, which is exactly the "changes something besides
+ * the ledger file" case this function exists to catch. A rename is flagged
+ * unless its source was already the ledger path (i.e., not a real rename at
+ * all by content).
  */
 export function ledgerPrStrayFiles(files) {
-  return files.map((f) => f.filename).filter((name) => name !== LEDGER_ONLY_PATH);
+  const stray = [];
+  for (const f of files) {
+    if (f.filename !== LEDGER_ONLY_PATH) {
+      stray.push(f.filename);
+      continue;
+    }
+    if (f.previous_filename && f.previous_filename !== LEDGER_ONLY_PATH) {
+      stray.push(`${f.previous_filename} (renamed into the ledger path)`);
+    }
+  }
+  return stray;
 }
 
 /**
@@ -139,6 +158,71 @@ export async function confirmedLedgerPrNumbers(allPrs, token) {
     if (ledgerPrStrayFiles(files).length === 0) confirmed.add(pr.number);
   }
   return confirmed;
+}
+
+/**
+ * Raw content of one file at a specific ref. A single-object GitHub endpoint
+ * (`contents`), not the paginated-array shape `gh()` is built for — kept
+ * separate rather than overloading `gh()` to branch on response shape.
+ * Returns null if the file doesn't exist at that ref (e.g. the ledger was
+ * added after the ref's commit).
+ */
+async function fetchFileAtRef(path, ref, token) {
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "check-ledger-coverage",
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} fetching ${path}@${ref}`);
+  const data = await res.json();
+  return Buffer.from(data.content, data.encoding ?? "base64").toString("utf8");
+}
+
+/** Every PR number carrying a row or an exemption entry in a parsed ledger. */
+function prNumbersInLedger(ledger) {
+  return new Set([...ledger.rows.map((r) => r.pr), ...ledger.exempt.keys()]);
+}
+
+/**
+ * PR numbers with a row or exemption in `before` that are missing from BOTH
+ * in `after` — a permanence violation (fixed on PR #304, Codex round 2, P2).
+ *
+ * The ledger's own contract is that a row, once added, is never removed. The
+ * `[LEDGER]` structural gate (diff touches only the ledger file) doesn't by
+ * itself guarantee that: a botched merge-conflict resolution — exactly the
+ * scenario three separate ledger PRs have already hit (#285/#286, #290/#294,
+ * #292/#295) — could silently drop a row nobody meant to touch, and neither
+ * the structural check nor the arithmetic check would notice, since a
+ * shorter table with internally-consistent rows still passes both.
+ */
+export function removedRows(before, after) {
+  const afterNums = prNumbersInLedger(after);
+  return [...prNumbersInLedger(before)].filter((n) => !afterNums.has(n));
+}
+
+/**
+ * For each OPEN, structurally-confirmed `[LEDGER]` PR, which loop PR numbers
+ * its CURRENT head content actually carries — fetched live, not inferred.
+ *
+ * Needed because "some [LEDGER] PR is open" doesn't mean it carries any
+ * particular loop's row (fixed on PR #304, Codex round 2, P2): the
+ * opened-after-closed timing check alone let a stalled or incomplete open
+ * ledger PR defer every timing-eligible loop's backstop indefinitely, even
+ * loops its own current head doesn't contain a row for at all.
+ */
+export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
+  const carries = new Map();
+  for (const pr of allPrs) {
+    if (pr.closed_at) continue;
+    if (!confirmedLedgerPrs.has(pr.number)) continue;
+    const text = await fetchFileAtRef(LEDGER_ONLY_PATH, pr.head.sha, token);
+    carries.set(pr.number, text ? prNumbersInLedger(parseLedger(text)) : new Set());
+  }
+  return carries;
 }
 
 // ── Ledger parsing ───────────────────────────────────────────────────────────
@@ -454,14 +538,16 @@ export function owedRows({ allPrs, currentPr, ledger, confirmedLedgerPrs = new S
  * title CI last actually validated a diff against).
  *
  * The backstop's "defer while a [LEDGER] PR is open" clause is evaluated
- * PER LOOP, not as one repo-wide boolean (fixed on PR #304, Codex round 1,
- * P2): an open ledger PR can only defer a loop's debt if it could actually
- * carry that row, which — same cutoff as the carrier match above — requires
- * it to have opened AFTER the loop closed. An older open ledger PR sitting
- * idle must not indefinitely mask the backstop for a newer loop it structurally
- * cannot cover.
+ * PER LOOP against VERIFIED CONTENT, not one repo-wide "is anything open"
+ * boolean and not opening-time ordering alone (fixed on PR #304, both
+ * Codex round 1 P2 and round 2 P2, same clause hardened twice): an open
+ * ledger PR can only defer a loop's debt if its OWN CURRENT HEAD actually
+ * carries a row or exemption for that specific loop, per `openLedgerPrCarries`
+ * — timing order alone doesn't establish that (a `[LEDGER]` PR opened after
+ * several loops closed could still be missing one of them, stalled, and open
+ * indefinitely, deferring a backstop it was never actually going to pay).
  */
-export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set() }) {
+export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set(), openLedgerPrCarries = new Map() }) {
   const overdue = [];
   const pending = [];
   let skippedNonLoop = 0;
@@ -477,9 +563,7 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
       merged: new Date(pr.merged_at),
       ledger: isLedger(pr),
     }));
-  const openLedgerPrs = allPrs
-    .filter((pr) => !pr.closed_at && isLedger(pr))
-    .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at) }));
+  const openLedgerPrs = allPrs.filter((pr) => !pr.closed_at && isLedger(pr)).map((pr) => ({ number: pr.number }));
 
   for (const pr of allPrs) {
     if (pr.number < FIRST_ENFORCED_PR) continue;
@@ -505,7 +589,9 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
     }
 
     const mergedSince = landed.filter((c) => c.number !== pr.number && c.merged > closedAt).length;
-    const deferredByOpenCarrier = openLedgerPrs.some((c) => c.number !== pr.number && c.opened > closedAt);
+    const deferredByOpenCarrier = openLedgerPrs.some(
+      (c) => c.number !== pr.number && (openLedgerPrCarries.get(c.number) ?? new Set()).has(pr.number),
+    );
     if (mergedSince >= OVERDUE_BACKSTOP_MERGES && !deferredByOpenCarrier) {
       overdue.push({ pr, trigger: "backstop", mergedSince });
       continue;
@@ -557,7 +643,13 @@ async function main() {
     }
     const allPrs = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls?state=all`, token);
     const confirmedLedgerPrs = await confirmedLedgerPrNumbers(allPrs, token);
-    const { overdue, pending, skippedNonLoop, skippedLedger } = auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs });
+    const openLedgerPrCarriesMap = await openLedgerPrCarries(allPrs, confirmedLedgerPrs, token);
+    const { overdue, pending, skippedNonLoop, skippedLedger } = auditLedgerDebt({
+      allPrs,
+      ledger,
+      confirmedLedgerPrs,
+      openLedgerPrCarries: openLedgerPrCarriesMap,
+    });
 
     if (skippedNonLoop > 0) {
       console.log(`• ${skippedNonLoop} closed PR(s) excluded as non-loop authors (${[...NON_LOOP_AUTHORS].join(", ")}).`);
@@ -639,13 +731,17 @@ async function main() {
     console.log(`• ${skippedLedger} closed [LEDGER] PR(s) excluded by policy — a ledger append owes no row of its own.`);
   }
 
+  // Fetched once, used by both branches below: the [LEDGER] gate needs it for
+  // the structural check, and a regular PR needs it to confirm it ISN'T
+  // touching the ledger file at all (Codex round 2, P2 — see that branch).
+  const files = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${prNumber}/files`, token);
+
   if (isLedgerPr(currentPr)) {
-    // ── [LEDGER] PR: both halves are hard gates ────────────────────────────
+    // ── [LEDGER] PR: hard gates ─────────────────────────────────────────────
     //
     // The structural gate is what makes the title prefix load-bearing: the
     // row exclusion above cannot be borrowed by substantive work, because a
     // diff that strays outside the ledger file fails here.
-    const files = await gh(`/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${prNumber}/files`, token);
     const stray = ledgerPrStrayFiles(files);
     if (stray.length) {
       console.error(
@@ -657,6 +753,29 @@ async function main() {
       process.exit(1);
     }
     console.log(`✓ [LEDGER] structural check: the diff touches only ${LEDGER_ONLY_PATH}.`);
+
+    // A row, once added, is never removed (Codex round 2, P1) — the diff
+    // touching only the ledger file doesn't by itself rule out a botched
+    // merge-conflict resolution silently dropping one, and neither the
+    // structural check above nor the arithmetic check below would notice a
+    // shorter-but-internally-consistent table. Compared against live `main`,
+    // not this PR's (possibly stale) base — a concurrent [LEDGER] PR may have
+    // landed a row on `main` after this one's base was cut.
+    const mainText = await fetchFileAtRef(LEDGER_ONLY_PATH, "main", token);
+    const mainLedger = mainText ? parseLedger(mainText) : { rows: [], exempt: new Map() };
+    const removed = removedRows(mainLedger, ledger);
+    if (removed.length) {
+      console.error(
+        `\n✗ This PR's ledger no longer has a row or exemption for ${removed.length} PR(s) that ` +
+          `\`main\`'s copy carries:\n` +
+          removed.map((n) => `  #${n}`).join("\n") +
+          `\n\nA row is added once and never removed. If this is a stale base rather than a real removal,` +
+          `\nmerge current main into this branch and re-resolve the conflict — never drop a row to make it` +
+          `\nresolve cleanly.\n`,
+      );
+      process.exit(1);
+    }
+    console.log(`✓ [LEDGER] permanence check: no row or exemption present on main is missing here.`);
 
     if (owed.length) {
       console.error(`\n✗ This [LEDGER] PR is missing ${owed.length} row(s) it exists to carry:\n`);
@@ -673,6 +792,22 @@ async function main() {
     }
     console.log(`✓ Ledger coverage: every loop closed before [LEDGER] PR #${prNumber} opened has a row or a recorded exemption.`);
     return;
+  }
+
+  // A regular PR must never touch the ledger file at all (Codex round 2, P2)
+  // — that is precisely the fold-rows-into-unrelated-PRs behavior this whole
+  // redesign exists to end. Without this, a PR could carry a ledger row
+  // exactly like the old rule, stay green (missing rows are only a warning
+  // below, and arithmetic can still pass on a fully-formed row), and nobody
+  // would ever see that the new contract was quietly bypassed.
+  if (files.some((f) => f.filename === LEDGER_ONLY_PATH)) {
+    console.error(
+      `\n✗ This is a regular PR (not titled [LEDGER]) but its diff changes ${LEDGER_ONLY_PATH}.\n\n` +
+        `Ledger rows ship only via a dedicated [LEDGER]-titled PR touching that file and nothing else` +
+        `\n(working-modes.md → "The loop ledger"). Move this change to its own [LEDGER] PR, or drop it` +
+        `\nfrom this diff if it landed here by accident.\n`,
+    );
+    process.exit(1);
   }
 
   // ── Regular PR: pending rows warn, never fail (David, 2026-08-02) ────────

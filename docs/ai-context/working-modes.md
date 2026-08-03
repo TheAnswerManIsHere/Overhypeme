@@ -605,17 +605,32 @@ split by PR kind (David, 2026-08-02):
   failing it for ledger state would hold unrelated work hostage — the exact
   mess the dedicated-PR rule exists to end. The offline arithmetic check
   (each row's five causal counts sum to its findings) still **fails** on
-  every PR — that is data corruption, not pending debt.
-- **On a `[LEDGER]` PR**, both halves are hard gates: it must carry every
-  row owed at the time it opened (that is what it exists for), and its diff
-  must touch only the ledger file.
+  every PR — that is data corruption, not pending debt. **A regular PR
+  touching the ledger file at all is a hard failure** (fixed on PR #304,
+  Codex round 2) — without this, a PR could still carry a row exactly like
+  the old rule and stay green, since missing rows are only a warning and a
+  well-formed row still passes arithmetic; nothing else would ever flag that
+  the new contract was quietly bypassed.
+- **On a `[LEDGER]` PR**, three checks are hard gates: its diff must touch
+  only the ledger file (a renamed-in file from elsewhere counts as touching
+  something else, per PR #304 round 2 — `filename` is always the
+  destination path, so a rename *into* the ledger path would pass a
+  filename-only check while still deleting whatever lived at the source);
+  no row or exemption present on live `main` may be missing from its own
+  copy (added PR #304 round 2 — the structural and arithmetic checks alone
+  don't catch a botched merge-conflict resolution silently dropping a row,
+  and a row is added once and never removed); and it must carry every row
+  owed at the time it opened.
 - **On push to `main`**, the audit reports pending debt on every run and
   fails only when debt goes **overdue**: a `[LEDGER]` PR opened after the
   loop closed and merged without carrying its row (the designated carrier
   skipped it), or two-plus PRs of any kind have merged since the loop closed
-  with the row still missing and no `[LEDGER]` PR open. An open `[LEDGER]`
-  PR defers the second trigger — the debt is visibly being paid — but never
-  the first.
+  with the row still missing and no `[LEDGER]` PR open **whose own current
+  head actually carries that row** (verified by content, not inferred from
+  timing alone — fixed on PR #304 round 2, since a stalled or incomplete
+  `[LEDGER]` PR sitting open doesn't by itself mean it's paying any
+  particular loop's debt). A verified-carrying open `[LEDGER]` PR defers the
+  second trigger — the debt is visibly being paid — but never the first.
 
 The guard exists because the obligation met its first fast build run and
 lost: by 2026-07-29 the ledger held 2 rows against 13 closed loops, with
