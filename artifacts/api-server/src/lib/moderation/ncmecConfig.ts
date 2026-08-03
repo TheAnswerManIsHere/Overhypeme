@@ -48,15 +48,31 @@ export function isNcmecReservedConfigKey(key: string): boolean {
  * Keys 0095 seeds that are deliberately NOT reserved.
  *
  * `ncmec_safety_alert_email` cannot cause a filing, and reserving it would make
- * a routine operational edit need a bespoke endpoint. It is guarded somewhere
- * stronger instead: activation is refused unless a recipient resolves, and the
- * generic route refuses a write that would empty or invalidate it while
- * production is live.
+ * a routine operational edit need a bespoke endpoint. The two retry keys are
+ * ordinary editable integers whose *combination* sets the retry horizon, so no
+ * per-key bound can express the constraint; they carry min/max in the seed.
  *
- * The two retry keys are ordinary editable integers whose *combination* sets
- * the retry horizon, so no per-key bound can express the constraint. They carry
- * min/max in the seed, and the guarded write path validates the resulting
- * schedule.
+ * **Their real protections do not exist yet, and this comment used to describe
+ * them as though they did.** The generic route validates data type and min/max
+ * and nothing else, so today an admin can write any nonempty string to
+ * `ncmec_safety_alert_email` or move either retry key independently of the
+ * other. The three checks that make these keys safe to leave unreserved —
+ * refusing a write that would empty or invalidate the alert recipient while
+ * production is live, and validating the *resulting* retry schedule rather than
+ * each key alone — belong to the guarded write path (`POST /admin/safety/config`)
+ * and land with it in phase 6, alongside the activation gate that is the other
+ * half of the same guarantee.
+ *
+ * That deferral is safe rather than merely scheduled, and the reason is
+ * structural: every one of those invariants is conditioned on production filing
+ * being live, and `ncmec_submission_enabled` is reserved above and seeded
+ * `false`. Until phase 6 ships the only writer that could turn it on, the
+ * precondition is unreachable, so there is no window in which an unvalidated
+ * write to these three keys can affect a filing.
+ *
+ * Phase 6 must not treat the reserved list as the whole of its config story:
+ * these three keys need the cross-key and live-state checks above at the same
+ * moment the master switch becomes writable. Tracked as a known gap on the PR.
  */
 export const NCMEC_UNRESERVED_CONFIG_KEYS = [
   "ncmec_safety_alert_email",
