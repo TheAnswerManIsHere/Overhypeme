@@ -1441,7 +1441,20 @@ BEGIN
     recovery_cmds :=
       '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: ';
     IF NOT owner_role_exists THEN
-      recovery_cmds := recovery_cmds || 'CREATE ROLE overhype_audit_owner NOLOGIN; ';
+      -- The self-grant is not redundant with the CREATE, and omitting it made this whole
+      -- sequence fail for exactly the audience it is written for. Verified directly against
+      -- this repository's PostgreSQL 16 target: when a non-superuser CREATEROLE role creates
+      -- another, the automatic membership it receives is `admin_option = t, inherit_option = f,
+      -- set_option = f` — ADMIN OPTION but NOT SET. `ALTER TABLE ... OWNER TO` requires the
+      -- executor to be able to SET ROLE to the new owner, so the very next line failed with
+      -- "must be able to SET ROLE" for any DBA who was not a superuser. Confirmed in both
+      -- directions: the transfer fails before this GRANT and succeeds after it. The ADMIN
+      -- OPTION the creator already holds is what makes the role able to issue this grant to
+      -- itself. The REVOKE at the end of the sequence removes it again, so the SET access
+      -- exists only for the span of the transfer.
+      recovery_cmds := recovery_cmds
+        || 'CREATE ROLE overhype_audit_owner NOLOGIN; '
+        || 'GRANT overhype_audit_owner TO CURRENT_USER WITH SET TRUE; ';
     END IF;
     recovery_cmds := recovery_cmds || format('GRANT CREATE ON SCHEMA %I TO overhype_audit_owner; ', ledger_schema);
     -- A SECOND GRANT CREATE, on the guard function's own schema, whenever it differs from the

@@ -1296,6 +1296,64 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
+    it("gives the owner-role creator SET access in the role-absent recovery sequence", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // Verified directly against this repository's PostgreSQL 16 target: a non-superuser
+      // CREATEROLE role that creates another receives `admin_option = t, inherit_option = f,
+      // set_option = f`. ALTER TABLE ... OWNER TO requires SET, so without a self-grant the
+      // printed sequence failed on its own second command for every non-superuser DBA — the
+      // audience it exists for. This test runs the block as such a role, with the owner role
+      // genuinely absent, and then executes the printed commands to prove they work.
+      assert.ok(pool, "pool unavailable");
+      const dba = `ncmec_dba_${randomUUID().slice(0, 8)}`;
+      const dbaPassword = randomUUID();
+      const ownerRoleExisted = (
+        await pool.query(`SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_owner'`)
+      ).rowCount! > 0;
+      assert.equal(ownerRoleExisted, false, "this test requires overhype_audit_owner to be absent");
+      await pool.query(`CREATE ROLE ${dba} LOGIN PASSWORD '${dbaPassword}' CREATEROLE`);
+      try {
+        // WITH GRANT OPTION because the printed sequence's first real command re-grants CREATE
+        // to the new owner role; a real DBA holds that authority over the deployment's schema,
+        // and without it here the test fails on the harness rather than on the property.
+        await pool.query(`GRANT CREATE ON SCHEMA public TO ${dba} WITH GRANT OPTION`);
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO ${dba}`);
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO ${dba}`);
+
+        const { output } = execSqlCapturingDiagnostics(dba, dbaPassword, ownershipHardeningBlock());
+        assert.match(output, /CREATE ROLE overhype_audit_owner NOLOGIN;/);
+        assert.match(
+          output,
+          /GRANT overhype_audit_owner TO CURRENT_USER WITH SET TRUE;/,
+          `the creator must self-grant SET before the transfer; got: ${output}`,
+        );
+        // Now actually run the sequence the block printed, as the DBA it was written for.
+        const cmds = output.slice(output.indexOf("CREATE ROLE overhype_audit_owner"));
+        // The ordering matters as much as the presence: the self-grant has to precede the
+        // ALTER that needs it. Measured inside the command list, not the whole message, which
+        // also contains prose mentioning ALTER TABLE.
+        assert.ok(
+          cmds.indexOf("WITH SET TRUE") < cmds.indexOf("ALTER TABLE"),
+          "the SET grant must come before the ownership transfer",
+        );
+        const upToRevoke = cmds.slice(0, cmds.indexOf("REVOKE overhype_audit_maintenance"));
+        const applied = execSqlCapturingDiagnostics(dba, dbaPassword, upToRevoke);
+        assert.ok(applied.ok, `the printed recovery sequence must actually run; got: ${applied.output}`);
+        const { rows } = await pool.query<{ owner: string }>(
+          `SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE relname = 'ncmec_safety_audit_log'`,
+        );
+        assert.equal(rows[0]?.owner, "overhype_audit_owner", "the transfer must have succeeded");
+      } finally {
+        await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`).catch(() => {});
+        await pool.query(auditGuardBlock());
+        await pool.query(`DROP OWNED BY ${dba}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${dba}`);
+        await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`).catch(() => {});
+      }
+    });
+
     it("reconciles a partially completed ownership transfer instead of reading table ownership as proof of everything", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // Simulates a DBA sequence interrupted after `ALTER TABLE ... OWNER TO` but before the
