@@ -52,7 +52,7 @@ appear under more than one at once:
   validation. Fixed with **Re-enrich** (a real model call).
 - **Needs admin review** — low confidence, a questionable content fit, a
   cultural reference or named entity flagged for human judgment.
-- **Projection mismatch** — the four "promoted" columns (archetype, subtype,
+- **Projection mismatch** — the "promoted" columns (archetype, subtype,
   fit, suitability) drifted from what's actually stored in the enrichment
   JSON. Fixed with **Repair projections** — instant, no model call, safe to
   run repeatedly.

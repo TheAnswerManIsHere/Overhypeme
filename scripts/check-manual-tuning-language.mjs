@@ -70,6 +70,21 @@ const NUMBER_WORD =
   "two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred";
 const NUMBER = `(?:\\d+|${NUMBER_WORD})`;
 
+// Round 6: "in favor of a third, separate lane" restated round 5's "in favor
+// of 3" evasion as an ordinal instead of a cardinal — same count, different
+// part of speech, still uncaught. "first" is deliberately EXCLUDED, same
+// reasoning as "one": idiomatic ("the first pass", "first step") far more
+// often than a stated position implying a total.
+const ORDINAL_WORD =
+  "second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth";
+
+// The noun a count/ordinal attaches to, shared between counted-component and
+// ordinal-count so the two rules stay in sync (round 6 added cards/columns
+// after "three AI-drafted idea cards" and "the four 'promoted' columns" both
+// survived on a noun list that only covered infra components).
+const COUNTED_NOUN =
+  "lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?|mechanisms?|archetypes?|cards?|columns?";
+
 /**
  * Each rule is deliberately narrow. A false positive is more expensive than a
  * miss here: a noisy guard gets switched off, and then it protects nothing.
@@ -99,10 +114,11 @@ const RULES = [
   {
     id: "counted-component",
     // "five lanes", "three queues", "2 workers", "last 3 send-back attempts",
-    // "fifty retries", "eleven joke mechanisms", "2-lane split" — a count of
-    // a component, allowing up to two modifier words (bare or hyphenated,
-    // e.g. "independent scheduling", "send-back") between the number and
-    // the noun, and either a space OR a hyphen right after the number so a
+    // "fifty retries", "eleven joke mechanisms", "2-lane split", "three
+    // idea cards", "four promoted columns" — a count of a component,
+    // allowing up to two modifier words (bare or hyphenated, e.g.
+    // "independent scheduling", "send-back") between the number and the
+    // noun, and either a space OR a hyphen right after the number so a
     // compound-adjective form ("2-lane") is caught the same as the spaced
     // form ("2 lanes"). "retried N times" is a separate, modifier-free
     // alternative: folding bare "times" into the noun list above let it
@@ -110,10 +126,24 @@ const RULES = [
     // batch-cap's "at a time" idiom ("50 at a time" read as NUMBER + "at"
     // + "a" + noun "time") — kept apart so the two rules don't overlap.
     re: new RegExp(
-      `\\b${NUMBER}[\\s-]+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:lanes?|queues?|workers?|handlers?|attempts?|retries|connections?|instances?|slots?|mechanisms?|archetypes?)\\b|\\b${NUMBER}\\s+times\\b`,
+      `\\b${NUMBER}[\\s-]+(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:${COUNTED_NOUN})\\b|\\b${NUMBER}\\s+times\\b`,
       "gi",
     ),
     why: "a count of components is a value; say that they exist, not how many",
+  },
+  {
+    id: "ordinal-count",
+    // "a third, separate lane" — round 6: the "2-lane split ... in favor of
+    // 3" evasion round 5 fixed came back as an ordinal ("a third, separate
+    // lane") instead of a cardinal, restating the same lane count in a part
+    // of speech `counted-component` doesn't cover. The optional comma
+    // before the modifier/noun run matters: "a third, separate lane" is a
+    // realistic appositive construction, not just "a third lane", and an
+    // early draft of this rule missed it because `\s+` doesn't cross a
+    // comma. Shares `COUNTED_NOUN` with counted-component so a future noun
+    // addition doesn't have to be made twice.
+    re: new RegExp(`\\b(?:${ORDINAL_WORD})(?:,\\s+|\\s+)(?:[a-z]+(?:-[a-z]+)?\\s+){0,2}(?:${COUNTED_NOUN})\\b`, "gi"),
+    why: "an ordinal position implies a total count; say what it is, not which position or how many",
   },
   {
     id: "batch-cap",

@@ -44,6 +44,24 @@ test("catches a retry count phrased as \"N times\", and a hyphenated compound-ad
   assert.ok(scanText("a simpler 2-lane split was considered").length > 0, "missed a hyphenated compound count");
 });
 
+test("catches an ordinal restatement of a count, and two more taxonomy/UI nouns", () => {
+  // Regression: PR #298 round 6 — a full-corpus sweep found three more
+  // survivors: "three AI-drafted idea cards" and "the four 'promoted'
+  // columns" (nouns not yet on the list), and "in favor of a third, separate
+  // lane" — round 5's own fix for "in favor of 3" just reworded the same
+  // count as an ordinal instead of actually removing it, which no existing
+  // rule covered.
+  assert.deepEqual(ids("one of three AI-drafted idea cards"), ["counted-component"]);
+  assert.deepEqual(ids("the four promoted columns"), ["counted-component"]);
+  assert.deepEqual(ids("in favor of a third, separate lane"), ["ordinal-count"]);
+});
+
+test('"first" is NOT flagged as an ordinal count — it is an idiom, not a position implying a total', () => {
+  // Same reasoning as "one" for counted-component: "the first pass" and "the
+  // first queue to claim it" describe order, not a stated total.
+  assert.deepEqual(scanText("the first queue to claim it wins"), []);
+});
+
 test('"one queue" is NOT flagged — it is an idiom, not a count', () => {
   // Regression: an earlier revision flagged "the one queue whose failures reach
   // a real person's inbox", which is *the singular*, not a quantity. Training

@@ -172,12 +172,12 @@ because the *previous* worker tick hadn't finished processing a batch that
 happened to include something slow. A moderator's test render had the same
 problem in reverse: it could wait behind an unrelated bulk backfill batch.
 
-A simpler two-way split (fast vs. everything else) was considered and
-rejected in favor of a third, separate lane, specifically so a render a
-moderator is actively watching never has to wait on background batch work
-either — those are different enough in who's watching and how urgent they
-are to deserve separate isolation. The full decision, including the exact
-lane assignments and the concurrency-default reasoning, is in
+A split that folded renders into the same lane as batch work was considered
+and rejected, specifically so a render a moderator is actively watching
+never has to wait on background batch work either — those are different
+enough in who's watching and how urgent they are to deserve separate
+isolation. The full decision, including the exact lane assignments and the
+concurrency-default reasoning, is in
 [`decisions.md`](../ai-context/decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes);
 the general pattern (shared dispatcher + shared guard → head-of-line blocking)
 is written up as a reusable lesson in
