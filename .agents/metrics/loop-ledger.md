@@ -136,7 +136,7 @@ over the gate, also `unmeasured`; see row 16's note). #294 very nearly
 joined that excluded group too — its first adjudication attempt disagreed
 by 33.9%, and its second (corrected for the first attempt's defect)
 converged suspiciously well but on a still-flawed methodology; a third
-attempt, corrected again, landed on 16.1% disagreement and a genuinely
+attempt, corrected again, landed on 14.3% disagreement and a genuinely
 clean measured figure (see row 20's note for what each correction fixed).
 Naming all eleven, not a
 subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285
