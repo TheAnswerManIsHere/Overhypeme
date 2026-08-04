@@ -122,3 +122,33 @@ design; the essentials:
 the numbers above (100,000-key cap, 12,000/min default ceiling) are still
 current — they're explicitly documented in the plan as placeholders pending
 production instrumentation, not derived from measured traffic.
+
+## Re-attribution: restructuring code can make CodeQL re-flag a dismissed alert as "new"
+
+**Confirmed on PR #308's own implementation commit.** After the rate-limiter
+feature landed, its follow-up commit refactored `app.ts` into a `createApp()`
+factory (fixing an unrelated eager-singleton bug — see
+[`app-ts-eager-singleton-test-isolation.md`](./app-ts-eager-singleton-test-isolation.md)).
+That refactor touched no CSRF/CORS logic at all, but CodeQL's PR check fired
+"2 new alerts including 1 high severity" on that commit anyway: `js/missing-
+token-validation` on the `cookieParser()` line, and a "permissive CORS
+configuration" alert on the dev-admin-login block's `cors({ origin: true, ...
+})` call (the second one not previously seen in this repo's CodeQL history at
+all, despite the code being untouched).
+
+**Root cause:** `git diff origin/main -- app.ts` showed both flagged lines
+were **byte-identical** to `main` — only their line numbers changed, because
+wrapping the file body in a factory function reindented and shifted every
+line below it. GitHub's PR-diff-based code-scanning UI appears to attribute
+an alert to "new in this PR" partly by line position, so pre-existing,
+previously-dismissed-or-known alerts can resurface as apparently-new findings
+on a PR that only moved code, never changed its logic.
+
+**Rule:** before treating a CodeQL alert as real on a PR that restructures,
+reindents, or moves code (extracting a function, wrapping in a factory,
+reordering top-level statements), diff the flagged file against `main` first.
+If the flagged lines are byte-identical to what's already on `main`, this is
+re-attribution, not a new defect — cite this note (or the specific prior
+false-positive class above) in the reply rather than re-investigating the
+security substance from scratch. This still needs a human with repo-admin
+access to dismiss in the Security tab; no available tool lets the agent do it.

@@ -24,6 +24,25 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Global rate-limiter backstop for CodeQL's `js/missing-rate-limiting`**
+  (PR #308, implementing the plan approved after PR #299's 16-round review).
+  Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
+  per-instance, in-memory-backed ceiling — the first rate limiting of any
+  kind for 25 of this API's 31 route files — without changing any existing
+  narrow, DB-backed limiter. See
+  [`security-model.md`](./security-model.md#authentication--sessions) and the
+  2026-08-04 [`decisions.md`](./decisions.md) entry for why an in-memory
+  store was chosen over a DB-backed one after a 14-round detour. Also fixed:
+  the video/PuLID/AI-render/reference-image job pollers now classify a 429
+  as retryable (status-429-only, never on `Retry-After` presence alone) so
+  the new global 429 path can't terminate a still-running, already-paid-for
+  generation job. Six pre-existing repo bugs the review loop surfaced along
+  the way are deliberately deferred to separate `/bugfix` PRs, not folded in
+  here. **Open next:** two CodeQL alerts re-fired on this PR's own
+  restructuring of `app.ts` (a re-attribution false positive, not a real
+  gap — see
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
+  and need a repo-admin to dismiss them in the Security tab.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
@@ -330,15 +349,20 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Open product questions
 
-- **Should admin (`requireAdmin`) routes ever get rate limiting?** CodeQL
-  flagged the new `resubmit-for-moderation` route (PR #242) as high-severity
-  "missing rate limiting." Verified this matches ~30 existing `requireAdmin`
-  routes across `admin.ts`/`reviews.ts` — none are rate-limited; the two
-  rate-limiter factories in the repo are used exclusively on public/
-  authenticated-user-reachable routes (fact submission, AI generation). Pending
-  David's call: dismiss the alert as consistent with the existing admin trust
-  boundary (session + role, not per-request throttling), or start adding rate
-  limiting to admin routes as new policy.
+- **Should admin (`requireAdmin`) routes get their own *feature-specific* rate
+  limiting?** CodeQL flagged the new `resubmit-for-moderation` route (PR #242)
+  as high-severity "missing rate limiting," matching ~30 existing
+  `requireAdmin` routes across `admin.ts`/`reviews.ts` with no per-feature
+  throttle. **Partially resolved by PR #308** (2026-08-04): a global,
+  API-wide rate-limiter now sits in front of every `/api` route including
+  admin ones (a coarse per-IP ceiling — see
+  [`security-model.md`](./security-model.md) and the 2026-08-04
+  `decisions.md` entry), which clears the specific CodeQL alert class this
+  question was originally about. Still open: whether admin routes should get
+  their own **narrow, DB-backed** per-feature limiter on top of that coarse
+  backstop — the global one is a blast-radius ceiling, not a
+  per-endpoint-abuse control, so this is a genuinely separate question from
+  the one CodeQL was flagging.
 - Should any render scenario become a **hard** approval gate (today all waivable)?
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk

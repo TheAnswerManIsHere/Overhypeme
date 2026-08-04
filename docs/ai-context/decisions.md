@@ -13,6 +13,48 @@
 
 ---
 
+### 2026-08-04 · Global CodeQL rate-limiter backstop ships on `express-rate-limit`'s built-in `MemoryStore`, not a DB-backed `Store`
+- **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
+  `js/missing-rate-limiting` query (`artifacts/api-server/src/lib/rateLimit.ts`'s
+  `createGlobalLimiter` + `globalRateLimitStore.ts`'s `BoundedMemoryStore`) uses
+  an in-memory store — the package's own `MemoryStore` shape, with a hard
+  cardinality cap and FIFO eviction added — instead of a store backed by the
+  existing `rate_limit_counters` Postgres table.
+- **Why:** The original plan (`plan-review/codeql-rate-limiter`, PR #299)
+  spent review rounds 4–14 building a DB-backed `Store`, and each attempt
+  produced a new P1 on the same boundary — what the store does when a
+  database call doesn't complete — across rounds 9, 11, 12, 13, and 14, with
+  P1 counts going 8 → 6 → 6 → 10 (worsening, not converging). Round 14's
+  version was worse than the bug it replaced: a hung query would wedge the
+  in-process admission counter and 503 every request indefinitely, turning a
+  database stall into a total outage. The CodeQL alert itself only requires
+  the package to be mounted in the recognized shape — the original 213→0
+  local-scan proof used the stock `MemoryStore` and needed none of the DB
+  machinery. David's call: ship the shape that was already proven to clear
+  the alert, and route the genuine repository bugs the 14-round detour
+  surfaced (`adminConfig` stampede, `getStripeSync` pool-leak-on-disposal,
+  the unenforced autoscale instance cap, `IP_HASH_SALT` production fallback,
+  the unbounded `rate_limit_counters` table, and others) to their own
+  `/bugfix` PRs rather than lose them with the code they were found in.
+- **Accepted trade-off, stated rather than smoothed over:** `MemoryStore`'s
+  `localKeys = true` means this is a **per-instance** ceiling, not a bounded
+  fleet-wide one — on autoscale infrastructure with no configured instance
+  cap, the effective allowance is `instances × ceiling`. The existing narrow,
+  DB-backed limiters (`checkSharedRateLimit` / `createRateLimiter`) remain
+  the fleet-correct layer for the 6 of 31 route files they already cover; for
+  the other 25 this is the first rate limiting they have ever had, at a
+  coarse per-instance ceiling only.
+- **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
+  implementation PR #308. Full context:
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).
+- **Revisit if:** the per-instance ceiling proves too permissive under real
+  multi-instance autoscale traffic (would need either an enforced instance
+  cap or a return to a fleet-wide store design — this time scoped to avoid
+  the hot-path DB-failure boundary that sank the first attempt), or CodeQL's
+  query model changes to recognize custom stores/controls directly.
+
+---
+
 ### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
 - **Decision:** When an `async_jobs` row transitions to `failed` (either
   exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`

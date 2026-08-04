@@ -754,3 +754,18 @@ prose stand-ins in `docs/manual/`, which is what most of those rounds were
 actually about. The guard is deliberately narrow and **cannot** detect a fact
 with two homes, a paraphrased spec section, or a false claim. Those remain the
 human half, and this entry is the reminder that they exist.
+
+**The pattern generalizes past docs to code call sites (PR #308).** Mounting
+a new global rate limiter gave every `/api` poller its first-ever 429 path —
+a single new failure mode with **four independent call sites** across two
+components' worth of poll loops. The plan's own implementation fixed one
+(the video/PuLID pollers) up front; round 1 of review found a second
+(`AiBgPicker`'s render poller); round 2 found a third, in an entirely
+different component (`SourceImageConfirmModal`) that no earlier fix had
+touched, plus a fourth handler (`handleConfirmCancel`) left outside a
+sibling fix in the *same* file. Each fix was locally correct and each round
+looked like progress while the finding count didn't fall to zero until round
+3. Same avoidance: when a change introduces a new failure mode on a shared
+resource (an endpoint, a response shape, an error code), grep for **every**
+caller of that resource before considering the fix complete — not just the
+one a review comment or the plan happened to name.

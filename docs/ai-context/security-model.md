@@ -58,7 +58,25 @@ preview and the Playwright e2e admin flows keep working; production
 - **CodeQL doesn't recognize either hand-rolled control** as satisfying its
   `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
   see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
-  before treating a new alert on either as a real gap.
+  before treating a new alert on either as a real gap. That doc also covers
+  the **re-attribution trap**: restructuring `app.ts` (e.g. wrapping it in a
+  factory function) shifts every line number, and GitHub's diff-based
+  code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
+  this PR" — verify with `git diff origin/main -- app.ts` before assuming a
+  fresh alert on a restructuring-only PR is real.
+- **Global rate-limiter backstop** (`artifacts/api-server/src/lib/rateLimit.ts`'s
+  `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
+  `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
+  `/api` route — the first rate limiting of any kind for 25 of this repo's 31
+  route files. This exists specifically to satisfy CodeQL's
+  `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
+  npm packages, not `checkSharedRateLimit`) and does **not** replace or change
+  any narrow, DB-backed limiter above — it is a blast-radius backstop layered
+  on top. Exactly two exemptions (`/api/healthz`, the Stripe webhook); backed
+  by a bounded in-memory store (`BoundedMemoryStore`, capped and FIFO-evicted,
+  not `checkSharedRateLimit`'s DB table), so it is **per-instance**, not
+  fleet-wide. See the 2026-08-04 `decisions.md` entry for why an in-memory
+  store was chosen over a DB-backed one.
 
 ## Authorization — objects, media, and memes
 
