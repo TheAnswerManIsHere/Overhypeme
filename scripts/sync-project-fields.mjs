@@ -250,12 +250,17 @@ async function rest(path, token) {
   return res.json();
 }
 
-/** Sync one issue. Returns a one-line summary of what was written. */
+/**
+ * Sync one issue. Returns a one-line summary of what was written.
+ *
+ * Runs even when every field resolves to `null` — an issue that just lost its
+ * last workstream label still needs its stale Status/Waiting on/Mode values
+ * cleared from a board row that already exists. Skipping here would leave
+ * exactly the stale-value bug this script exists to prevent, just for the
+ * all-labels-removed case instead of the some-labels-removed case.
+ */
 async function syncIssue(issue, project, token) {
   const writes = labelsToFieldValues(issue.labels);
-  if (writes.every((w) => w.wanted === null)) {
-    return `#${issue.number} — no workstream labels, skipped`;
-  }
 
   // Resolve every option BEFORE writing anything, so a typo in one label can't
   // leave the board half-updated and internally inconsistent. A `null` wanted

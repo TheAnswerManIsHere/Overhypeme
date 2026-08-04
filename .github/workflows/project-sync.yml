@@ -16,16 +16,21 @@ on:
   # label convention, or any stretch where the sync may have missed events.
   workflow_dispatch:
 
-# One shared group across every trigger, not per issue. `labeled` and
-# `unlabeled` fire as separate events when labels are swapped, and a manual
-# workflow_dispatch reconcile touches every open issue — if that reconcile
-# read an issue's old labels before a concurrent per-issue run picked up a
-# fresh label change, it could finish later and overwrite the board with the
-# stale value. Full serialization is cheap here (these are lightweight
-# GraphQL calls, not long builds), so correctness wins over throughput.
+# One shared group across every trigger, not per issue, with a real FIFO
+# queue rather than the default single pending slot. `labeled`/`unlabeled`
+# fire as separate events when labels are swapped, and a manual
+# workflow_dispatch reconcile touches every open issue — with the default
+# `queue: single`, a run queued behind an in-progress one is only a *pending
+# candidate*: a second event arriving before the first starts replaces it
+# outright, so issue #1's sync could be dropped in favor of #2's and never
+# run at all (not just delayed). `queue: max` keeps every queued run instead
+# of collapsing to the newest. Full serialization is cheap here (these are
+# lightweight GraphQL calls, not long builds), so correctness wins over
+# throughput.
 concurrency:
   group: project-sync
   cancel-in-progress: false
+  queue: max
 
 jobs:
   sync:
