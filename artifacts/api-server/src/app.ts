@@ -368,5 +368,13 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
   return app;
 }
 
-const app: Express = createApp();
-export default app;
+// Deliberately NO default-exported singleton here (round-18 Codex finding).
+// `export default createApp();` would evaluate `createApp()` as a side
+// effect of merely IMPORTING this module — including importing only the
+// named `createApp` export — since ES module evaluation runs the whole file
+// regardless of which binding a consumer asks for. A test file that imports
+// `createApp` before another test file's `beforeEach` has set an env var
+// like `ALLOWED_ORIGINS` would silently freeze that env state into a
+// singleton the second file then reuses. Callers that want a ready-made app
+// call `createApp()` themselves: the production entrypoint (`index.ts`) and
+// `csrf.integration.test.ts`'s `getApp()` both do.

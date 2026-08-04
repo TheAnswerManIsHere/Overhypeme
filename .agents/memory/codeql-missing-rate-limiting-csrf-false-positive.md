@@ -69,9 +69,11 @@ The rate-limiting half of this (not the CSRF half — that stayed a manual
 per-alert dismissal) was resolved differently: rather than getting CodeQL to
 recognize `checkSharedRateLimit`, or dismissing 213 alerts by hand, the fix
 mounts `express-rate-limit` itself as a genuine, API-wide backstop. See
-[`docs/plans/PLAN_CODEQL_RATE_LIMITER.md`](../../docs/plans/PLAN_CODEQL_RATE_LIMITER.md)
-(on the never-merged `plan-review/codeql-rate-limiter` branch, PR #299,
-converged after 16 Codex review rounds) for the full design; the essentials:
+[`docs/plans/PLAN_CODEQL_RATE_LIMITER.md`](https://github.com/TheAnswerManIsHere/Overhypeme/blob/plan-review%2Fcodeql-rate-limiter/docs/plans/PLAN_CODEQL_RATE_LIMITER.md)
+(a GitHub blob link, not a relative path — the file lives only on the
+never-merged `plan-review/codeql-rate-limiter` branch, PR #299, converged
+after 16 Codex review rounds, and is not present in this tree) for the full
+design; the essentials:
 
 - **Confirmed empirically, not assumed:** building a local CodeQL database
   against a copy of the repo with nothing but

@@ -206,12 +206,18 @@ export function GodModeLoadingTakeover(props: Props) {
 
   const handleConfirmCancel = useCallback(async () => {
     setBusy(true);
+    setActionError(null);
     try {
       await api.cancel(jobId);
       onCancel();
+      setConfirmCancel(false);
+    } catch (err) {
+      // Leave the confirm dialog open on failure — a rate-limited cancel
+      // should let the user retry from where they are, not silently
+      // dismiss and leave the job uncanceled with no way back to this step.
+      setActionError(describeActionError(err));
     } finally {
       setBusy(false);
-      setConfirmCancel(false);
     }
   }, [api, jobId, onCancel]);
 
@@ -373,8 +379,9 @@ export function GodModeLoadingTakeover(props: Props) {
       {confirmCancel && (
         <CancelConfirm
           onConfirm={handleConfirmCancel}
-          onDismiss={() => setConfirmCancel(false)}
+          onDismiss={() => { setConfirmCancel(false); setActionError(null); }}
           busy={busy}
+          errorMessage={actionError}
         />
       )}
     </div>
@@ -580,8 +587,9 @@ interface CancelConfirmProps {
   onConfirm: () => void;
   onDismiss: () => void;
   busy: boolean;
+  errorMessage?: string | null;
 }
-function CancelConfirm({ onConfirm, onDismiss, busy }: CancelConfirmProps) {
+function CancelConfirm({ onConfirm, onDismiss, busy, errorMessage }: CancelConfirmProps) {
   return (
     <div
       className="absolute inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -592,6 +600,11 @@ function CancelConfirm({ onConfirm, onDismiss, busy }: CancelConfirmProps) {
         <p className="text-sm text-white/70">
           Your stylized image will be saved to your library.
         </p>
+        {errorMessage && (
+          <p className="text-sm text-destructive" role="alert" data-testid="god-mode-cancel-error">
+            {errorMessage}
+          </p>
+        )}
         <div className="flex gap-2">
           <Button
             type="button"

@@ -16,15 +16,18 @@ export const RATE_MAX = parsePositiveInt(process.env.RATE_MAX, 30);
 
 // Coarse, API-wide backstop satisfying CodeQL's js/missing-rate-limiting check
 // (which only recognizes specific npm packages, not this repo's DB-backed
-// checkSharedRateLimit — see docs/plans/PLAN_CODEQL_RATE_LIMITER.md and
-// .agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).
+// checkSharedRateLimit — see
+// .agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md, which
+// records the resolution and its rationale. The plan that derived this
+// design lived on a plan-review branch that was never merged, so it is not
+// cited here — that memory doc is the durable source).
 //
 // Default derived from this repo's real polling workload: two 500ms pollers
 // (video-jobs, pulid-jobs) at 120 req/min each for one active job, plus
-// ordinary browsing by the same users, with a 1.33x margin — see the plan for
-// the full derivation. This is a per-instance, per-IP ceiling (MemoryStore's
-// localKeys = true), not a fleet-wide one; the existing narrow, DB-backed
-// limiters (checkSharedRateLimit/createRateLimiter) remain the fleet-correct
+// ordinary browsing by the same users, with a 1.33x margin. This is a
+// per-instance, per-IP ceiling (MemoryStore's localKeys = true), not a
+// fleet-wide one; the existing narrow, DB-backed limiters
+// (checkSharedRateLimit/createRateLimiter) remain the fleet-correct
 // per-feature protection and are unchanged by this.
 export const GLOBAL_RATE_WINDOW_MS = parsePositiveInt(process.env.GLOBAL_RATE_WINDOW_MS, 60_000);
 export const GLOBAL_RATE_MAX = parsePositiveInt(process.env.GLOBAL_RATE_MAX, 12_000);
