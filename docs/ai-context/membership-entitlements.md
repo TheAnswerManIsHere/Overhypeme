@@ -32,7 +32,13 @@ one expression (`effectiveTierExpr`) owns the read, and nothing else may set
 ## The entitlement model
 
 A user's tier is derived from their **entitlement sources** —
-`membership_entitlements` rows, one per durable grant. Three source types:
+`membership_entitlements` rows, one per durable candidate the user has ever
+held. A row is **not** necessarily currently granting anything: a cancelled
+subscription, a refunded purchase, a disputed source, or one on a
+non-membership price are all retained rows that no longer (or never did)
+qualify — retained deliberately, as the audit trail, and never turned into a
+bare existence check. Whether a given row currently grants access is answered
+separately, below. Three source types:
 
 | Source type | Created by | Frozen identity | Verified against |
 |---|---|---|---|
@@ -139,9 +145,14 @@ early means cutting off someone who is still paying.
 
 ## Refunds and disputes
 
-A **partial** refund does not revoke — only a full refund does, and the
-distinction requires the charge amount, which earlier code never threaded into
-the refund handler at all. A **lost chargeback is permanent**:
+For a **lifetime purchase**: a partial refund does not revoke — only a full
+refund does, and the distinction requires the charge amount, which earlier
+code never threaded into the refund handler at all. This is specifically the
+`stripe_lifetime_payment` path (`prepareLifetimeRefund` in
+`membershipRefresh.ts`); a subscription refund is recorded to history but does
+not itself revoke anything — a subscription's access follows its lifecycle
+status (i.e. cancellation), not a refund issued against one of its invoices.
+A **lost chargeback is permanent**:
 `dispute_loss_revoked_at` is set-once (the same `BEFORE UPDATE` trigger that
 freezes identity), so no later refresh reporting the subscription `active` can
 clear it. A **won** dispute restores access, because the underlying purchase
@@ -187,9 +198,13 @@ a fabricated payment-intent id, `amount: 0`. Anyone reading payment records —
 including an operator reconciling revenue — couldn't tell a comp from a real
 sale. At most one **active** admin grant per user (a partial unique index), so
 two concurrent grants can't leave a second qualifying row behind a later
-revoke. Revoking marks the row revoked with who and when; it is never deleted
-— `membership_history` and the grant record are both append-only except
-through account deletion, where the user's whole trail goes with the user.
+revoke. **Revoking mutates the grant row in place** (`writeAdminRevocation`
+sets `lifecycleStatus: "revoked"` plus who/when/why on the same row) — it is
+never deleted, but it is not append-only either; the row transitions
+active → revoked rather than being superseded by a new row.
+`membership_history` is the append-only record of that transition — nothing
+ever removes a history row except through account deletion, where the user's
+whole trail goes with the user.
 
 **There is no membership-tier dropdown in Admin → Users.** Setting a tier by
 hand is exactly what this model removes: the next recompute would silently

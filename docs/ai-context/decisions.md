@@ -31,9 +31,17 @@
 - **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
   before sending notifications"); mechanics in
   [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).
-- **Revisit if:** duplicate alerts become an operational nuisance — a per-event
-  dedupe key on the alert enqueue would close the gap, but needs a new column
-  on `async_jobs` (a migration), so it wasn't folded into the PR that found it.
+- **Revisit if:** duplicate alerts become an operational nuisance. Closing the
+  gap is smaller than it first looked, but is not a bare config toggle:
+  `notifyAdminsOfDispute` currently calls `sendEmail` directly rather than
+  going through `async_jobs`/`enqueueJob` at all, so there is no enqueue here
+  to attach a dedupe key to yet. `async_jobs` already has a `dedupeKey` column
+  and a partial unique index on `(queue, dedupe_key)` — but that index covers
+  only non-terminal (`pending`/`processing`) rows by design, so it wouldn't by
+  itself stop a second alert once the first has already completed, which is
+  exactly the race this decision accepts. The real remaining work is routing
+  the alert through the queue and widening the index's scope (or adding a
+  separate "already alerted for this event" check), not adding a column.
 
 ### 2026-08-01 · Membership config relational writes lock the whole config set, not just the touched key
 - **Decision:** `PATCH /admin/config/:key` for a membership-timing key (lease

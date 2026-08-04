@@ -41,8 +41,10 @@ as Legendary. From there:
 - If a payment fails, the subscription enters a **14-day grace window**
   before access is actually lost — one missed card doesn't cut anyone off
   immediately, but it isn't indefinite either.
-- A **refund** removes access; a **partial** refund does not — only a full
-  refund does.
+- A full refund of a **lifetime purchase** removes access; a **partial**
+  refund does not. (A subscription refund doesn't drive this directly — a
+  subscription's access follows its own cancellation, separately from any
+  refund issued against it.)
 - Holding **two** sources of Legendary at once (say, a lifetime purchase and a
   subscription) means cancelling one doesn't touch the other. Access is lost
   only when the *last* qualifying source goes away.
@@ -77,20 +79,25 @@ carries a small status strip for the background job (below) that keeps the
 ### The machinery
 
 Every source of membership — a subscription, a lifetime purchase, an admin
-grant — is one row in a table of **entitlement sources**. A user's tier is
-computed by asking, right now, whether *any* of their sources currently
-qualifies (allowlisted product, no unresolved dispute, correct lifecycle
-status) — and that computed answer is what every part of the product actually
-checks, on every request. A `membership_tier` column still exists on the
-user, but it's a cached copy of the last computed answer, kept in sync by a
-background sweep — it is never the source of truth, and nothing ever writes
-it directly.
+grant — is one row in a table of **entitlement sources**. Whenever a source
+changes, the system asks, right then, whether *any* of a user's sources
+currently qualifies (allowlisted product, no unresolved dispute, correct
+lifecycle status) and stores the answer. A `membership_tier` column still
+exists on the user, but it's that computed answer, not a hand-set value — the
+one exception is a stored expiry: a request checks the stored tier against a
+stored deadline, so a grace window that has quietly passed still demotes the
+user immediately even before the next event recomputes anything. Nothing ever
+writes the tier column directly, and no request re-asks every source from
+scratch just to check who's logged in.
 
-Every write to an entitlement source — a webhook telling us a subscription
-changed, a route handling a cancel/reactivate click, an admin's grant — goes
+Every write to a Stripe-backed entitlement source — a webhook telling us a
+subscription changed, a route handling a cancel/reactivate click — goes
 through the same narrow path: retrieve the current truth from Stripe (never
 trust a value someone merely claims), then apply it under a lock that
-prevents two things from writing the same source at once.
+prevents two things from writing the same source at once. An admin grant is
+different on purpose: the admin *is* the authority for that source, so
+granting or revoking one writes directly, with no Stripe call and no lock to
+wait on.
 
 The full mechanics — the trust boundary, the locking, the 14-day grace
 calculation, why a lost chargeback is permanent — are
@@ -132,13 +139,16 @@ a comp from a real sale.
   create and end admin grants. This is a known, accepted gap — not an
   oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-- **Displayed tier can lag reality by up to an hour, never access itself.**
-  The background sweep that keeps the cached `membership_tier` column in sync
-  runs hourly. If someone's grace window lapses, they lose access
-  *immediately* — every access check computes the real answer live — but the
-  admin list's displayed tier can take up to an hour to visibly update to
-  match. The number is always right where it's actually enforced; only a
-  label can be briefly stale.
+- **The stored tier column itself can lag reality by up to an hour — but
+  nowhere a person actually looks shows that lag.** Access is never affected:
+  a lapsed grace window demotes a user's access immediately, on every request,
+  because the deadline check happens live regardless of what the stored column
+  says. Admin → Users and every other tier display compute the same live
+  answer, so what an admin actually sees is always current. The lag is purely
+  internal — the raw stored value sits stale until the hourly background sweep
+  catches it up — and the only place it's ever surfaced is the sweep's own
+  status strip on Admin → Refunds & Disputes, which exists specifically to
+  report that internal drift.
 - **A test-mode purchase can keep granting access after switching Stripe to
   live mode.** Entitlement sources don't currently record which Stripe
   account created them, so nothing notices a source belongs to the wrong one.

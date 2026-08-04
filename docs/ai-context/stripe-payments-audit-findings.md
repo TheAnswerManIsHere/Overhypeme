@@ -17,12 +17,19 @@
 > **Update 2026-08-03: the fix plan this audit commissioned has shipped
 > (PR #287).** This document is now **history, not current architecture** —
 > read [`membership-entitlements.md`](./membership-entitlements.md) for how
-> the system works today. The findings below (the private-annex ones
-> especially — 9, 10, 11) were the root of the entitlement-model rewrite;
-> most are fixed by construction under the new model rather than patched
-> individually. The exceptions: reconciliation (this audit's finding on
-> Stripe↔local drift repair) was deferred, not fixed — see
-> [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted).
+> the system works today. The private-annex findings (9, 10, 11) were the
+> root of the entitlement-model rewrite; most are fixed by construction under
+> the new model rather than patched individually. **This is not a
+> finding-by-finding audit of the audit — don't assume PR #287 closed a given
+> finding without checking current code.** Two gaps are confirmed still open:
+> reconciliation (Stripe↔local drift repair, part of the approved plan rather
+> than one of the numbered findings below) was deferred, not fixed — see
+> [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted)
+> — and finding 10 (the customer portal still runs on Stripe's default
+> configuration) was out of scope for this PR from the start and remains so;
+> see the manual's
+> [Payments & Membership](../manual/payments-and-membership.md#boundaries--known-limitations)
+> chapter.
 
 ---
 

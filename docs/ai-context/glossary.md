@@ -187,10 +187,13 @@
   them — no code writes it as a value.
   → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
 
-- **Entitlement source** — a `membership_entitlements` row: one durable grant
-  of membership, of type `stripe_subscription`, `stripe_lifetime_payment`, or
-  `admin_grant`. A user's tier is the **union** of their qualifying sources,
-  not a priority order — Legendary if *any* one qualifies.
+- **Entitlement source** — a `membership_entitlements` row: one durable
+  candidate for membership a user has ever held, of type
+  `stripe_subscription`, `stripe_lifetime_payment`, or `admin_grant`. **Not**
+  the same as "currently grants membership" — a cancelled, refunded, or
+  disputed source is retained, not deleted, and no longer qualifies. A user's
+  tier is the **union** of their *qualifying* sources (a separate check per
+  row), not a priority order — Legendary if *any* one qualifies.
   → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)
 
 - **Grace episode** — the 14-day window a `past_due` subscription keeps
