@@ -52,26 +52,87 @@ Verified against the packaged source, not docs or memory:
 Read from the packaged source rather than assumed, because "in-memory" is exactly
 the kind of choice that hides an unbounded-growth problem:
 
-- **Memory is bounded, not unbounded.** It keeps two maps and rotates them:
-  `init()` sets `setInterval(windowMs)` and `clearExpired()` is just
-  `previous = current; current = new Map()`. A key is therefore retained for at
-  most **two windows** (2 minutes here) after its last request, then dropped in
-  bulk. There is no per-key timer and no scan. A flood from many distinct
-  addresses costs a `Map` entry per address seen in a 2-minute span — a short
-  string plus `{totalHits, resetTime}` — not a permanent leak.
-- **The interval is `unref()`'d** (`init()`), so it never holds the event loop
-  open and needs no shutdown hook or test-mode handling.
+- **Retention is bounded by a two-map rotation.** `init()` sets
+  `setInterval(windowMs)`, and `clearExpired()` is just
+  `previous = current; current = new Map()`. A key is retained for at most **two
+  windows** (2 minutes here) after its last request, then dropped in bulk. No
+  per-key timer, no scan.
+- **The interval is `unref()`'d**, so it never holds the event loop open and
+  needs no shutdown hook or test-mode handling.
 - **`localKeys = true`** — the package's own declaration that counts do not
-  cross instances. That is the property we are knowingly trading away; see §5.
+  cross instances. See *What per-instance counting means* below.
 - `windowMs` must be ≤ `SET_TIMEOUT_MAX`; 60,000 is far inside it.
 
-**`passOnStoreError` is irrelevant here** and is left at its default. It exists
-to decide what happens when a store throws; `MemoryStore.increment` does a map
-lookup and an integer increment, with no I/O and nothing to fail. The entire
-failure-policy question that consumed rounds 9-14 does not arise, because there
-is no failure to have a policy about.
+### Peak cardinality is NOT bounded, and that needs a fix (round-15 finding, P1)
 
-Rejected: `@acpr/rate-limit-postgresql` and a hand-written DB `Store` — see §5.
+An earlier revision of this section claimed "memory is bounded, not unbounded."
+**That was wrong, and wrong in the direction that matters.** The rotation bounds
+*retention time*; it does not bound *peak entry count*. `getClient()` does an
+unconditional `this.current.set(key, client)` for every previously unseen key,
+with no cardinality ceiling and no heap check. So within a single window an
+attacker sending one request each from N distinct addresses adds N entries.
+
+At roughly 150-200 bytes per entry (Map overhead + key string + `{totalHits,
+resetTime}`), one million distinct keys is on the order of 200 MB, and two maps
+are live at once. **The scenario that produces it is precisely the gross-abuse
+flood this limiter exists to backstop** — and IPv6 makes distinct `/56` keys
+cheap for anyone with a real allocation. The failure is worse than the load that
+causes it: a transient flood becomes an out-of-memory **crash**, and a crash is
+persistent where the flood was not.
+
+The proposed memory test would not have caught this either. It asserted entries
+return to ~0 after traffic stops, which measures the rotation — the thing that
+already worked — and never measures the peak.
+
+**Fix: a bounded store, which is ~10 lines and reintroduces none of the
+DB-backed store's problems.** `GlobalRateLimitStore` wraps the same two-map
+rotation with a hard entry cap:
+
+```ts
+const MAX_TRACKED_KEYS = 100_000;   // ≈20-40 MB across both maps
+
+// On insert, if `current` is at the cap, evict the oldest entry first.
+// JS Map preserves insertion order, so this is O(1):
+if (this.current.size >= MAX_TRACKED_KEYS) {
+  this.current.delete(this.current.keys().next().value);
+}
+```
+
+**Why this is not a return to custom-Store territory.** What made the DB-backed
+Store dangerous was **I/O on the hot path**: connections to exhaust, queries to
+hang, failures needing a policy. This has none of that — it is a map insert with
+an eviction branch. Its only new behavior is eviction, and **eviction fails
+safe**: an evicted key's counter resets, so that caller gets a *looser* limit for
+one window. It can never produce a wrongful 429 and never crashes the process.
+An attacker can use eviction to reset their own counter, which is the same
+outcome as the OOM it replaces, minus the outage.
+
+100,000 keys is far above any plausible count of distinct legitimate addresses
+hitting one instance in a minute, so eviction should never occur under real
+traffic. §4 asserts both halves: peak memory stays bounded when driven well past
+the cap, and normal traffic never evicts.
+
+**The residual, stated rather than engineered around:** an attacker with enough
+distinct source addresses can cycle the table and evade this backstop entirely.
+That is inherent to per-IP limiting and equally true of the DB-backed design
+(where it produced unbounded *rows* instead of unbounded heap). A limiter keyed
+on IP cannot defend against an attacker who has many IPs; the narrow per-feature
+limiters, which key on user and endpoint too, are what cover that case.
+
+**`passOnStoreError` is irrelevant here** and is left at its default. It exists
+to decide what happens when a store throws; the store above does a map lookup,
+an integer increment and at most one eviction, with no I/O and nothing to fail.
+The entire failure-policy question that consumed rounds 9-14 does not arise,
+because there is no failure to have a policy about.
+
+**CodeQL note:** the 213→0 proof used the default store, and this plan supplies
+a custom one. The query models the `rateLimit()` call and its mount, not the
+store — but that is an assumption, not a proof, so §4's local re-scan is what
+actually confirms it. If a custom store were to break the model, falling back to
+the stock `MemoryStore` is a one-line change and the cardinality risk returns as
+a documented operational limit.
+
+Rejected: `@acpr/rate-limit-postgresql` and a DB-backed `Store` — see §5.
 
 ## 2. Wiring in `app.ts`
 
@@ -89,12 +150,18 @@ import { healthzHandler } from "./routes/health";
 //   • GodModeLoadingTakeover.tsx:80,166 → /api/memes/video-jobs/:id
 //   • PulidLoadingTakeover.tsx:27,93    → /api/memes/pulid-jobs/:id
 //
-// Crossing the ceiling is not a slow page today: the video poller throws on a
-// non-OK response and MAX_CONSECUTIVE_ERRORS = 5 (:127) marks a still-running
-// job **failed**, so 2.5 seconds of 429s destroys in-flight generations for
-// everyone behind that IP. That is a pre-existing client defect — it fires on
-// any 429 under any ceiling — and it is §6's first queue item rather than this
-// plan's, but it is why the ceiling below is set generously.
+// Crossing the ceiling is not a slow page: the video poller throws on a non-OK
+// response and MAX_CONSECUTIVE_ERRORS = 5 (:127) marks a still-running job
+// **failed**, so 2.5 seconds of 429s destroys in-flight generations for
+// everyone behind that IP.
+//
+// I first called that a pre-existing defect and deferred it to §6. THAT WAS
+// WRONG (round-15 finding, P1): `routes/videoJobs.ts:147` and
+// `routes/pulidJobs.ts:386` have NO rate limiter today — verified, no
+// createRateLimiter and no checkSharedRateLimit anywhere in either file. Those
+// polls cannot receive a 429 until this plan mounts one. So this change does
+// not merely inherit the defect, it CREATES the path that triggers it, and the
+// client fix belongs in this change. See §2's retryable-response section.
 //
 // Derivation:
 //   50 concurrent polling jobs behind one IP × 120 req/min   = 6,000
@@ -206,30 +273,75 @@ app.use("/api", globalLimiter);
   the ceiling would otherwise turn an unbounded request stream into an unbounded
   log stream.
 
+### A 429 must not destroy in-flight work (round-15 finding, P1)
+
+Because this plan creates the polling routes' first 429 path, it also owns the
+consequence. `GodModeLoadingTakeover.tsx:129-166` increments one
+consecutive-error counter on **any** non-OK poll response and, at
+`MAX_CONSECUTIVE_ERRORS = 5`, moves a still-running job to terminal `failed`.
+
+The fix has to start one layer below the component. `Step2Video.tsx:514-521`
+owns the fetch and reduces every failure to ``new Error(`poll: ${res.status}`)``
+— the status survives only inside a message string and all headers are
+discarded, so the takeover has nothing to branch on and no `Retry-After` to
+honor. A fix written only in the component would be unimplementable, or
+implemented by string-matching an error message.
+
+So the poll API returns a **typed retry classification** rather than a bare
+error, and the takeover backs off on retryable responses without incrementing
+the terminal counter. Two properties that must both hold, because they pull in
+opposite directions:
+
+- A limiter **429** (or a `Retry-After`-bearing response) is retryable — the job
+  keeps running and recovers when the window resets.
+- A **persistent generic failure** still terminates. Blanket-retrying every 5xx
+  would trade "kills live jobs" for "endless loading screen on a dead upstream,"
+  which is not an improvement.
+
+`PulidLoadingTakeover.tsx` needs the mirror-image change: it has no terminal
+counter at all and retries forever, so it gets the classification for its
+back-off behavior rather than to prevent a false terminal state.
+
 ### What per-instance counting means, stated plainly
 
 `MemoryStore.localKeys = true`: each autoscale instance counts independently, so
 one IP's effective allowance is up to `instances × 12,000/min` rather than
 12,000/min, depending on how the load balancer spreads that IP's requests.
 
-This is the trade being made, and it is acceptable **for this limiter
-specifically**:
+An earlier revision said this loosens the ceiling by "a single-digit multiple."
+**That figure was unsupported and is withdrawn** (round-15 finding):
+`.replit:9-11` selects autoscale with **no maximum instance count**, so there is
+no number to multiply by. The honest statement is that the fleet-wide allowance
+for one IP is `instances × 12,000/min` with `instances` unbounded above, and no
+load-balancer affinity guarantee that would concentrate one IP on one instance.
 
-- It is a **backstop against gross abuse**, not a per-feature throttle. The real
-  protection is the existing narrow limiters — 30/min general, 5/min fact-submit
-  — which are DB-backed, fleet-correct, and completely untouched by this plan.
-- The ceiling is already ~100× realistic single-IP usage. A limit that is loose
-  by a further single-digit multiple is still a limit, and the abuse it exists to
-  stop is orders of magnitude past it.
-- **The derivation above is unchanged by this**, because it was always the
-  worst case: all of one IP's traffic arriving at one instance. Per-instance
-  counting can only make the effective ceiling *looser* than derived, never
-  tighter, so no legitimate user is throttled by this choice.
+Stated without varnish: **this limiter provides CodeQL compliance and a
+per-instance abuse ceiling. It does not provide a bounded fleet-wide abuse
+ceiling.** That is a real limitation and it should not be sold as anything else.
 
-If fleet-wide global counting is ever genuinely needed, the correct answer is a
-shared counter in a store built for hot-path reads and writes, not Postgres —
-which is a different project with a different justification, not a variation on
-this one.
+Why it is nonetheless the right call here:
+
+- It is a **backstop**, not the protection. The existing narrow limiters —
+  30/min general, 5/min fact-submit — are DB-backed, fleet-correct, key on user
+  and endpoint as well as IP, and are completely untouched by this plan. They are
+  what actually stops abuse; nothing about this change weakens them.
+- **The derivation is unaffected**, because it was always the worst case: all of
+  one IP's traffic arriving at one instance. Per-instance counting can only make
+  the effective ceiling *looser*, never tighter, so no legitimate user is
+  throttled by this choice.
+- The alternative that would fix it is fleet-wide shared state on the hot path
+  of every request, which is exactly what rounds 4-14 spent fourteen review
+  rounds failing to make safe on Postgres.
+
+**What would make this bound real, if it ever needs to be:** an enforced
+autoscale instance cap — which §6 item 4 already requires for an unrelated
+reason (the connection budget depends on the same missing number). Once that
+number exists and is enforced, the fleet-wide ceiling becomes `cap × 12,000` and
+is quantifiable. Until then this section claims nothing about it.
+
+If genuine fleet-wide counting is ever needed, the answer is a shared counter in
+a store built for hot-path reads and writes — a different project with a
+different justification, not a variation on this one.
 
 ## 3. Files touched
 
@@ -238,6 +350,20 @@ this one.
 - `artifacts/api-server/src/lib/rateLimit.ts` — add `GLOBAL_RATE_WINDOW_MS` /
   `GLOBAL_RATE_MAX` beside the existing `RATE_WINDOW_MS` / `RATE_MAX`, one place
   to look.
+- `artifacts/api-server/src/lib/globalRateLimitStore.ts` — new, and *small*: the
+  two-map rotation with a `MAX_TRACKED_KEYS` cap and oldest-first eviction. No
+  I/O, no pool, no shutdown hook (the interval is `unref()`'d).
+- **The polling-client fix, which this plan creates the need for** (round-15
+  finding — these routes have no limiter today, so this change introduces their
+  429 path):
+  - `.../wizard/step2-video/Step2Video.tsx` — the poll API returns a typed retry
+    classification instead of collapsing every failure into a status-only
+    `Error`; status and `Retry-After` survive to the caller.
+  - `.../wizard/step2-video/GodModeLoadingTakeover.tsx` — retryable responses
+    back off without incrementing the terminal-failure counter; persistent
+    generic failures still terminate.
+  - `.../wizard/step2-image/PulidLoadingTakeover.tsx` — same classification,
+    used for back-off (it has no terminal counter to protect).
 - `artifacts/api-server/src/routes/health.ts` — extract the inline `/healthz`
   handler (`:11-14`) to an exported `healthzHandler`; the router keeps using it.
   No behavior change.
@@ -260,7 +386,17 @@ or any existing limiter.**
    on missing/stale generated libs):
    `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →
    `pnpm typecheck` → `pnpm run build`. `pnpm install --frozen-lockfile` succeeds.
-2. **Integration tests against the real `app`,** with an injected low limit:
+2. **Integration tests against the real `app`,** with an injected low limit.
+   **The injection needs an explicit seam, not an environment variable**
+   (round-15 finding): `run-tests-sharded.sh` runs each shard with
+   `--test-isolation=none`, `csrf.integration.test.ts:8` already imports the
+   singleton `app`, and the limiter is constructed once at module evaluation. If
+   another file in the same shard imports `app` first, setting
+   `GLOBAL_RATE_MAX` in the new file changes nothing and the result depends on
+   shard assignment and file order — a test that passes or fails by luck. So the
+   plan specifies a limiter/app **factory** (or an equivalent explicit reset
+   seam), and §4 verifies the low-limit case still passes when the real `app`
+   was imported first. Cases:
    - 429 + JSON body + `Cache-Control: no-store` + `RateLimit-*` headers past the
      ceiling; **exactly at the ceiling is allowed and ceiling+1 is blocked** (the
      package compares with `>`, not `>=`); no `X-RateLimit-*` legacy headers.
@@ -286,10 +422,22 @@ or any existing limiter.**
    — receives **zero 429s**. Not "does not trip `MAX_CONSECUTIVE_ERRORS`":
    zero. The plan claims this workload is never throttled, so that is the
    assertion.
-4. **Memory behavior, since in-memory is the design choice:** drive traffic from
-   a large number of distinct keys, then assert the store's entry count returns
-   to ~0 within two windows of the traffic stopping (the `previous`/`current`
-   rotation), and that the process holds no timer preventing exit.
+4. **Memory behavior — peak, not just reclamation** (round-15 finding: the
+   original version of this case measured only the part that already worked):
+   - Drive traffic from **more than `MAX_TRACKED_KEYS` distinct keys** and
+     assert the entry count never exceeds the cap and peak heap stays bounded.
+     This is the case that fails if the cap is ever removed.
+   - Assert **eviction is FIFO and fails safe**: an evicted key's next request
+     is allowed (counter reset), never wrongly blocked.
+   - Assert normal traffic volumes **never evict**, so the cap cannot silently
+     become a de-facto limit on legitimate users.
+   - Then the reclamation half: entry count returns to ~0 within two windows of
+     traffic stopping, and the process holds no timer preventing exit.
+4b. **The polling client, which this plan newly exposes to 429s:** five
+   consecutive limiter 429s to a running video job leave it running and it
+   recovers on the sixth; a **persistent generic 5xx still terminates** via the
+   existing five-error path. Both, because the fix is only correct if it
+   distinguishes them.
 5. **Full existing suite + E2E Smoke** — no new failures, and specifically no
    429s from this limiter. CI runs ~170 test files against one local server from
    one IP, so this is the empirical check that 12,000/min clears real CI volume.
@@ -365,13 +513,28 @@ goes to its own `/bugfix` branch and PR, not here.
    seconds — which affects the immediate `stripe_live_mode` refresh at
    `routes/admin.ts:2328-2341`. Needs a single-flight **with a generation counter**
    so only the current generation may publish.
-3. **`getStripeSync()` is not mode-scoped or rejection-safe.**
-   `stripeClient.ts:102-107` has no single-flight, so concurrent misses each run
-   `buildStripeSync()` — constructing extra `StripeSync` instances *and* extra pg
-   pools (`:96`, `max: 2`). A `stripe_live_mode` flip mid-flight can republish a
-   superseded client after `invalidateStripeSync()`, and `buildStripeSync()`
-   re-reads the mode independently for the secret and webhook secret instead of
-   using the mode captured at entry.
+3. **`getStripeSync()` is not mode-scoped or rejection-safe.** `stripeClient.ts:102-107`.
+   **The full remedy is recorded here deliberately** (round-15 finding: an
+   earlier version of this entry compressed it to "single-flight it," and a
+   later bugfix following that description could add one global promise and
+   still ship three of the four defects):
+   - *Concurrent construction.* No single-flight, so concurrent misses each run
+     `buildStripeSync()` — extra `StripeSync` instances **and** extra pg pools
+     (`:96`, `max: 2`), which also breaks item 4's arithmetic.
+   - *Superseded publication.* A `stripe_live_mode` flip mid-flight lets an
+     old-mode build publish **after** `invalidateStripeSync()`. The flight must
+     be **generation- and mode-scoped**, and a completion whose generation is no
+     longer current must be discarded rather than stored.
+   - *Mixed-mode credentials.* `buildStripeSync()` re-reads the mode
+     independently for the secret key and the webhook secret rather than using
+     the mode captured at `getStripeSync()` entry — so a flip landing between
+     those reads yields a live key with a test webhook secret, or the reverse.
+     The captured mode must be threaded through **all** credential resolution.
+     This one exists today independent of any single-flight.
+   - *Rejection poisoning.* A stored promise that rejected and is never cleared
+     fails every later webhook until restart. A rejected flight must be cleared.
+   - **Acceptance matrix:** a delayed mid-flight mode flip, and a construction
+     failure followed by a successful retry. Both, or the fix is not done.
 4. **The autoscale connection budget is unenforced and slightly wrong.**
    `.replit` selects `deploymentTarget = "autoscale"` with no maximum instance
    count, so `lib/db/src/index.ts:45-67`'s "safe up to 19 instances" is a comment
@@ -386,10 +549,21 @@ goes to its own `/bugfix` branch and PR, not here.
    the canonical production predicate
    (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on **both**
    branches of that `||`.
-6. **`purgeExpiredRateLimitCounters()` is one unbounded `DELETE`**
-   (`sharedRateLimiter.ts:83-85`) with no production caller. Either wire it up
-   with a bounded batch size *and* a per-run budget, or delete it — but it should
-   not sit in the tree looking like live cleanup.
+6. **`rate_limit_counters` has no production cleanup at all.**
+   `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`) is one
+   unbounded `DELETE` and nothing calls it. An earlier version of this entry
+   offered "or delete it" as an equally acceptable outcome — **that was wrong**
+   (round-15 finding): `checkSharedRateLimit` (`:44-68`) inserts a persistent row
+   for every new endpoint/IP/user/email key, so deleting the helper would leave
+   the table growing without limit and merely remove the evidence. The required
+   outcome is **real retention**: wire up deletion with a bounded statement
+   **and** a bounded whole-run budget with rescheduling, and test that expired
+   rows from a high-cardinality backlog are eventually removed without one run
+   monopolizing the pool.
+
+   Note this is a **pre-existing** gap that this plan does not touch — the
+   reduced design writes no rows — but it is the one queue item that gets worse
+   with time rather than staying static.
 
 Items 1-3 are user-visible or correctness bugs and should go first. Items 4-6 are
 latent.
