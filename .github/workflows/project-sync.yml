@@ -1,0 +1,57 @@
+name: Project sync
+
+# Mirrors an issue's workstream labels (stage:* / waiting:* / mode:*) into the
+# Projects v2 board's Status, Waiting on, and Mode fields. Labels are the only
+# part of this an agent can write, so they are the source of truth and the
+# board is the projection.
+#
+# Runs on label changes rather than a schedule: the board should be correct the
+# moment a workstream moves, and a polling loop would burn Actions minutes to
+# discover nothing most of the time.
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled]
+  # Manual full-board reconcile. Use after adding a Status option, changing a
+  # label convention, or any stretch where the sync may have missed events.
+  workflow_dispatch:
+
+# Only one sync at a time per issue: `labeled` and `unlabeled` fire as separate
+# events when labels are swapped, and two concurrent runs could write the
+# board's fields out of order.
+concurrency:
+  group: project-sync-${{ github.event.issue.number || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync labels to project fields
+    runs-on: ubuntu-latest
+
+    # Explicit least-privilege. GITHUB_TOKEN reads issues only; it cannot reach
+    # Projects v2 at all, which is why PROJECTS_TOKEN exists separately.
+    permissions:
+      contents: read
+      issues: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync labels to project fields
+        env:
+          # Classic PAT, `project` scope. A fine-grained token cannot reach a
+          # user-owned project — GitHub exposes no account-level Projects
+          # permission for them.
+          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: "1"
+          # Absent on workflow_dispatch, which reconciles every open issue.
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node scripts/sync-project-fields.mjs

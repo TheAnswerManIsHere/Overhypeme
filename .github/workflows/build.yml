@@ -65,6 +65,13 @@ jobs:
       - name: Check ledger-coverage guard logic
         run: node --test scripts/__tests__/check-ledger-coverage.test.mjs
 
+      # The workstream board is only trustworthy if its columns match reality.
+      # The label -> field mapping is the one place that can quietly drift (a
+      # renamed Status option, a new stage with no label slug), and a board that
+      # stops tracking reads identically to a board where nothing needs David.
+      - name: Check project-sync label mapping
+        run: node --test scripts/__tests__/sync-project-fields.test.mjs
+
       # The ledger only answers questions if the rows are actually in it. On
       # 2026-07-29 it held 2 rows against 13 closed loops — the obligation had
       # nowhere to fail, so it was skipped silently while CI stayed green.
