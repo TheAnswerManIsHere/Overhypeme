@@ -64,10 +64,18 @@ priorities (moderation speed, render/enrichment quality, video). See
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
   (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
-  into the Build job, fails CI when a loop that closed *before the current
-  PR opened* has neither a row nor a recorded exemption — a loop closing
-  while a PR is already in flight stays unenforced until the next one
-  opens. Also recorded in the same window: David enabled Codex
+  into the Build job, originally failed CI when a loop that closed *before
+  the current PR opened* had neither a row nor a recorded exemption — a
+  loop closing while a PR was already in flight stayed unenforced until the
+  next one opened. **Superseded 2026-08-02** (PR #304): rows now ship via a
+  dedicated `[LEDGER]`-titled PR rather than folding into whichever PR opens
+  next, so a regular PR's missing rows are a printed warning only, the
+  `[LEDGER]` PR carries them as a hard gate, and a push-to-`main` audit
+  closes the exact mid-flight gap described above — reporting pending debt
+  on every run and failing only once it goes overdue. See
+  [`working-modes.md`](./working-modes.md#the-loop-ledger) → *"A row ships
+  in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
+  enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
   mechanics, and the pre/post-boundary analysis all live in
