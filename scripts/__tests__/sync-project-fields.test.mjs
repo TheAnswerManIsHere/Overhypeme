@@ -122,6 +122,16 @@ test("a missing field names the available fields", () => {
   );
 });
 
+test("resolveField matches a field name regardless of case", () => {
+  // Regression: the project's real "Waiting On" field (capital O, created by
+  // hand in the UI) didn't match the "Waiting on" this script is configured
+  // with — an exact-string match meant every workstream failed to sync on
+  // the first real run against the live board. resolveOption already
+  // normalized for exactly this kind of drift; resolveField now does too.
+  const waitingOn = { name: "Waiting On", options: [] };
+  assert.equal(resolveField([STATUS_FIELD, waitingOn], "Waiting on"), waitingOn);
+});
+
 test("every configured prefix ends in a colon", () => {
   // The slug is taken as everything after the prefix, so a prefix without its
   // delimiter would silently capture the colon into the option name.

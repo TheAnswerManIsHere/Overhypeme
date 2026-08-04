@@ -88,9 +88,16 @@ export function resolveOption(fieldDef, wanted) {
   return hit.id;
 }
 
-/** Find a field definition by exact name. */
+/**
+ * Find a field definition whose name normalizes to `name`. Case-insensitive
+ * for the same reason `resolveOption` is: the field was created by hand in
+ * the project UI ("Waiting On", not "Waiting on" as configured here), and an
+ * exact-string match turned that harmless casing difference into every
+ * workstream failing to sync on the very first real run.
+ */
 export function resolveField(fields, name) {
-  const hit = fields.find((f) => f.name === name);
+  const want = normalize(name);
+  const hit = fields.find((f) => normalize(f.name) === want);
   if (!hit) {
     const available = fields.map((f) => `"${f.name}"`).join(", ");
     throw new Error(
