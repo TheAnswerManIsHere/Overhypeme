@@ -470,6 +470,18 @@ be trusted.
    the ledger's own note on this), not `0%`. Above **20% disagreement**
    across the full set, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
+   **"Disagreement" means an exact finding-by-finding comparison over a
+   population both classifications agree is the same 1..N set — never an
+   approximation from comparing aggregate category totals.** Two
+   classifications whose `new`/`prop`/`wrong` totals are merely close do not
+   establish a low disagreement count; they could differ on every single
+   finding and still land near the same totals by coincidence. If the two
+   classifications were produced against different populations (a different
+   round-merging convention, or one surfaced a finding the other's source
+   didn't count), that mismatch has to be resolved to a shared population
+   first — or the row stays `unmeasured` for want of a real comparison, not
+   a percentage computed from whatever rough alignment was easiest (loop
+   ledger row 17, #294, first got this wrong before being corrected).
 
 **The adjudication rubric.** Without a shared definition of the categories,
 two readers can legitimately disagree on *classification* without either

@@ -377,6 +377,39 @@ recorded as `unmeasured`, not silently trusted. Row 3's own adjudication
 works — it is not a substitute for running the replay on rows 1 and 2,
 whose classifications predate the current five-category rubric.
 
+**Before backfilling a row on a long-running branch, check whether `main`
+already has one.** A branch that adds rows for closed loops (to satisfy the
+coverage guard, typically) can sit open long enough that another session
+independently adds better rows for the *same* PRs directly on `main` in the
+meantime — with a real script fix behind them (e.g. the
+`countRounds`-plain-comment-undercount fix landing between when a branch
+cut its snapshot and when it merged). Merging `main` in at that point
+produces a genuine content collision, not just a git conflict: your
+branch's rows and `main`'s are both real rows for the same PR number, under
+the same row number, with different — usually not equally accurate — data.
+**Take `main`'s side.** It reflects more sessions' work and any script
+fixes that shipped in the interval; re-deriving from an older, narrower
+MCP snapshot on your branch is the stale artifact, not the correct answer
+just because you produced it. After resolving in `main`'s favor, re-audit
+the merged rows for anything that predates other changes your own branch
+made in the same PR (a renamed heading your branch moved, a stale
+cross-reference `main`'s authors couldn't have known about) — the content
+collision and your branch's other edits are independent problems and
+fixing one doesn't fix the other.
+
+**A row's causal share needs an exact disagreement count, not a plausible
+one — row 17 (#294) is the cautionary example.** Two real, independently-run
+classifications existed for it (an author pass and a blind adjudicator),
+their aggregate category totals were close, and it was initially recorded
+as measured with an approximated "~4-5 of 56 findings disagree" figure.
+That doesn't clear the bar: the two passes used different round-merging
+conventions and were never paired finding-by-finding against one agreed
+population, so "close in aggregate" was standing in for a real count that
+was never actually taken. Corrected to `unmeasured`, per
+[`working-modes.md`](../../docs/ai-context/working-modes.md#the-loop-ledger)'s
+now-explicit rule that disagreement means an exact pairwise comparison,
+never an aggregate-totals approximation.
+
 ---
 
 ## Deliberately not measured

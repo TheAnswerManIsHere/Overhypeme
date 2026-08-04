@@ -24,6 +24,26 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **CLAUDE.md cut roughly in half via skill migration + consolidation**
+  (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
+  tokens per session) — about half the file was procedural ceremony that
+  only matters at specific moments (the Codex plan-review loop, PR
+  watching, the paired TEST_RUN/UAT docs, model-routing detail), now
+  lazy-loaded as skills instead of resident every turn; trigger stubs for
+  the rules that must fire without the skill loaded stay resident. A
+  sentence-level audit confirmed no content was lost, only relocated or
+  (per a separate consolidation pass) genuinely superseded. Also fixed:
+  `check-docs-accuracy.mjs` didn't scan nested `CLAUDE.md` memory files
+  (e.g. `lib/api-zod/CLAUDE.md`), so a broken link in one had shipped
+  green; it now walks the whole repo for them. **Open gotcha, not yet a
+  guard:** moving a section between `CLAUDE.md` and a skill leaves *prose*
+  cross-references to the old heading (not markdown links) invisible to
+  the link checker — this PR's review loop found and fixed seven of them
+  one at a time across nine rounds before a systematic repo-wide sweep
+  caught the rest in one pass — see
+  [`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md).
+  The next migration of this shape should sweep first, not wait for review
+  to find them piecemeal.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
