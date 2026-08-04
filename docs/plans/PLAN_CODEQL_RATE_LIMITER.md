@@ -592,6 +592,14 @@ David's instruction (2026-08-04) was to keep these rather than lose them with th
 machinery. **None is caused by this plan; all exist in `main` today**, and each
 goes to its own `/bugfix` branch and PR, not here.
 
+**Ordering (David, 2026-08-04).** Item 4 — the unenforced autoscale instance cap
+— **goes first**, ahead of the user-visible bugs, per §7's decision: with 25 of
+31 route files having no other rate limiting, the fleet-wide bound is what makes
+this middleware mean anything, and it is currently unbounded. Then items 1-3 (the
+user-visible ones, in that order), then 5 and 6. Item 6 is last but is the only
+one that **worsens with time** — `rate_limit_counters` gains rows every day —
+so it should not be allowed to sit indefinitely.
+
 1. **Both job pollers mark live jobs dead on transient errors.**
    `GodModeLoadingTakeover.tsx:129-166` increments one counter on *any* non-OK
    poll response and at `MAX_CONSECUTIVE_ERRORS = 5` sets terminal `failed` on a
@@ -681,20 +689,27 @@ goes to its own `/bugfix` branch and PR, not here.
 Items 1-3 are user-visible or correctness bugs and should go first. Items 4-6 are
 latent.
 
-## 7. Open questions for David
+## 7. Decisions and open questions
 
-**1. Most of the API has no rate limiting at all today — does that change what
-this feature is?** (Round-16 finding.) Six of thirty-one route files carry a
-limiter; the other twenty-five have none. This middleware is therefore not a
-backstop for most of the API, it is the only rate limiting those routes will
-have. Two things follow that are David's call, not mine:
+**1. DECIDED (David, 2026-08-04): ship this plan as written, and reprioritize
+the queue.** Round 16 established that six of thirty-one route files carry a
+limiter and the other twenty-five have none — so for most of the API this
+middleware is not a backstop, it is the first rate limiting those routes will
+ever have had. David's call was that this does not change the plan, but it does
+change two things around it:
 
-- This is worth materially more than "clear a CodeQL alert," and probably
-  deserves to be described that way in the roadmap.
-- The unbounded-fleet limitation (§2) matters more than it would if every route
-  had a fleet-correct limiter underneath. The mitigation is an enforced
-  autoscale instance cap — §6 item 4 — which may deserve to be promoted ahead of
-  the other queue items rather than sitting fifth.
+- **This is worth more than "clear a CodeQL alert"** and should be described
+  that way rather than as compliance work.
+- **§6 item 4 — the unenforced autoscale instance cap — is promoted to the head
+  of the queue.** Per-instance counting matters considerably more when nothing
+  fleet-correct sits underneath it, and that cap is the one change that turns
+  §2's unbounded fleet-wide allowance into a quantifiable `cap × 12,000`. It is
+  no longer fifth behind three user-visible bugs; see §6's ordering note.
+
+The rejected alternative, recorded so it isn't re-proposed: adding per-route
+limiters to the uncovered twenty-five *before* shipping this. That is a much
+larger piece of work and it is the fleet-correct DB-backed path that consumed
+rounds 4-14. Coverage is a separate roadmap item, not a precondition.
 
 **2. Does `/api/admin/*` sit behind this ceiling?** It does by default, since the
 limiter mounts at `/api`. `current-roadmap.md:280-288` records this as a pending
