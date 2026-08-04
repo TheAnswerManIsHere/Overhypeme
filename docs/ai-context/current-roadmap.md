@@ -271,6 +271,27 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Pre-launch hardening (must-do before go-live)
 
+- **Record the Stripe mode on every entitlement source.** Sits here rather than
+  in the deferred list because the thing that triggers it *is* a go-live action.
+  Provider-backed sources in `membership_entitlements` store only the Stripe
+  object id, and `loadSourceSnapshots` derives membership from every retained
+  row — so a **test-mode** membership created before flipping
+  `stripe_live_mode` keeps granting Legendary afterwards. A live-mode refresh
+  cannot repair it either: the test object does not exist in the live account,
+  so the source is permanently unverifiable rather than merely stale.
+  - **Shape.** A `livemode` column on `membership_entitlements`, written from
+    the retrieved Stripe object at the trust boundary, and excluded from (or
+    recomputed by) the derivation when it does not match the active mode.
+  - **The part that is a decision, not a mechanic.** What `livemode` should be
+    for rows that predate the column. Defaulting them all to the *current* mode
+    is a guess, and guessing permissively recreates the exact bug the column
+    exists to prevent — so the backfill needs David's call, and the migration
+    wants `/overhype-migration-review`.
+  - **Sequencing.** Blocked on PR #287 merging: the table it adds a column to
+    only exists on that branch.
+  - **Exposure meanwhile.** Operator-only. No customer path reaches it, and no
+    live purchase is affected. Found by Codex on PR #287 round 11 and escalated
+    rather than patched in at the end of an eleven-round review loop.
 - **Scope/rotate `ADMIN_API_KEY`.** A single static key grants 9 admin routes
   (incl. `set-password` and the bulk backfill launchers) without a session;
   decide whether to scope, rotate, or replace it.

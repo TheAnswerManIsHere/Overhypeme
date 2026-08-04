@@ -145,6 +145,83 @@ deliberately excludes them and points here instead.
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (`fal_video` is defined but marked a **future** queue — the video pipeline does
   not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
+- **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
+  `render`, `bulk`, `pexels`, `ai_meme_backfill` 5s each
+  (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
+  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` / `_PEXELS_` /
+  `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
+  them — the old `intervalMs` argument is gone.
+- **Lane is orthogonal to retry and dedupe; ordering is per-lane, not
+  global.** `{ lane }` selects *scheduling* only — retries and dedupe behave
+  identically in every lane. **Claim ordering is the exception to state
+  carefully:** the claim query's `ORDER BY nextAttemptAt, id` is unchanged by
+  lane, but it runs *inside a queue-filtered query* driven by that lane's own
+  runner and timer, so it orders rows **within** a lane only. There is no
+  global FIFO across lanes — a newer `fast` row is routinely claimed ahead of
+  an older `bulk` one, which is the entire point of the split. Retry budget is
+  an **enqueue-time** option on the queue, which is
+  why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
+  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
+  The reason is that a retry could not help, not that it would cost twice:
+  the handler opens with a **replay guard** keyed on `facts.aiMemeBackfillStatus`,
+  and a failing attempt stamps that column `"failed"` before returning — so a
+  second attempt exits at the `existing === "failed"` branch **without calling
+  `generate` at all**. Extra attempts would burn the budget and delay
+  abandonment while doing nothing. The guard refuses rather than resumes
+  because there is nothing to resume from: `generateAiMemeBackgrounds` uploads
+  each slot's image as it goes but writes `facts.aiMemeImages` **once, after
+  the whole slot loop** (`aiMemePipeline.ts`), so a late-slot failure leaves
+  the fact with no record of the earlier successes even though their paid
+  OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
+  means `onAbandon` fires on the very first failure.
+- **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
+  `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
+  `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1 — worst
+  case **10** concurrent handlers. `lib/db/src/index.ts` now sets the pool
+  `max` explicitly to **20** (`POOL_MAX_DEFAULT`, overridable by
+  `DB_POOL_MAX`), derived from measured production capacity rather than
+  picked — deliberately double the lanes' worst case. **It was unset until
+  the async-queue hardening work (PR #288)**, which meant pg's default of 10
+  against a worst-case demand of exactly 10.
+  Even so, do not read handler count as connection count in either
+  direction: `maxConcurrency` bounds concurrent *handler promises*, not
+  checked-out clients. `asyncJobsTick` **commits and releases the claim
+  transaction before** `mapWithConcurrency` invokes any handler, and each
+  outcome opens only a short finalize transaction. **But occupancy is not
+  confined to those two boundaries** — handlers do their own DB work while
+  running (`factSendBackHandler` → `sendFactBackToReview` holds a transaction
+  across several reads and writes; the enrichment and image handlers query
+  too), so a handler *can* occupy a connection during its promise. What it
+  reliably does **not** do is hold one while awaiting an external provider,
+  which for the provider-bound lanes is most of a job's wall-clock. Occupancy
+  is therefore workload-dependent and bursty rather than pinned at the handler
+  count — which is why the old 10-vs-10 framing overstated the problem even
+  before the ceiling was raised. Every lane bound is env-overridable
+  (`ASYNC_JOBS_FAST_MAX_CONCURRENCY` etc.), so a raised lane still adds
+  claim/finalize contention; the headroom cost of that has never been
+  measured and this doc does not assert one.
+- **Stranded-row recovery is delayed by design (PR #283).** Claim commits
+  `processing` *before* the handler runs, so a crash — **or a rejection in the
+  finalize transaction after the handler returned** — leaves the row committed
+  as `processing`. `recoverStuckProcessing` requeues such rows to `pending`,
+  but **only** those whose `updatedAt` (stamped at claim) is older than
+  `RECOVER_STUCK_CUTOFF_MIN = 30` minutes, swept every `RECOVER_INTERVAL_MS`
+  (60s) by the **`bulk` runner only** (table-wide, so one owner is correct)
+  plus one sweep at boot. 30 minutes is a **floor, not a bound**: the age
+  comparison is strict, the sweep runs at most once a minute, and maintenance
+  happens only *after* the `bulk` lane's own tick finishes (overlapping timer
+  callbacks return early on the re-entrancy guard), so a long-running bulk
+  handler pushes recovery further out. That cost is deliberate: this
+  deployment is
+  `deploymentTarget = "autoscale"` with the worker started in **every**
+  instance, so too aggressive a cutoff reclaims a *different live instance's*
+  in-flight row and both runs execute — for `email`, a duplicate send to a
+  real person. The cutoff is load-bearing only because finalize matches on row
+  id with **no fencing token**; the real fix (lease tokens + fenced finalize)
+  is Phase 3a in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+  The boot path passes the cutoff explicitly so it can never silently use a
+  shorter one.
 - Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll

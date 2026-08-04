@@ -4,14 +4,12 @@ import { db } from "@workspace/db";
 import {
   usersTable,
   membershipHistoryTable,
-  subscriptionsTable,
-  lifetimeEntitlementsTable,
+  membershipEntitlementsTable,
   stripeProcessedEventsTable,
   stripeWebhookAuditTable,
 } from "@workspace/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
-import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
 import { checkoutLineItemsGrantMembership, subscriptionGrantsMembership } from "./membershipPricing";
 import { notifyAdminsOfDispute, notifyAdminsOfFraudWarning } from "./adminNotify";
 import { notifyUserAccessRevoked } from "./userNotify";
@@ -21,6 +19,22 @@ import {
   buildCardAutomaticallyUpdatedEmail,
   buildRenewalReminderEmail,
 } from "./email";
+import {
+  applyPrepared,
+  prepareDisputeEvent,
+  prepareLifetimeRefund,
+  prepareOneTimeCheckout,
+  prepareSubscriptionRefresh,
+  hasOneTimeCheckoutOrigin,
+  releasePrepared,
+  resolveInvoiceForPaymentIntent,
+  runNotifications,
+  subscriptionIdForInvoice,
+  type NotificationAction,
+  type Prepared,
+} from "./membershipRefresh";
+import { findSourceByProviderRef } from "./membershipSources";
+import { runBoundedApply } from "./membershipLease";
 
 /**
  * ─── Stripe webhook event coverage (Task #230) ────────────────────────────────
@@ -77,38 +91,106 @@ async function findUserById(userId: string) {
   return user ?? null;
 }
 
-async function setMembershipTier(userId: string, tier: "unregistered" | "registered" | "legendary") {
-  await db.update(usersTable).set({ membershipTier: tier }).where(eq(usersTable.id, userId));
+// setMembershipTier, userHasLifetimeEntitlement and userHasActiveSubscription
+// are gone. Nothing in this file writes users.membership_tier any more, and
+// nothing asks "does a lifetime row exist" — a bare-existence read is wrong
+// under a model that deliberately RETAINS refunded and dispute-revoked rows.
+// Both questions are now answered by the derivation, from the whole source set.
+
+// recordHistory is gone. History rows are now COLLECTED during prepare and
+// inserted inside the claim's transaction, so a retry after a failed apply
+// cannot duplicate them.
+
+// upsertSubscription, handleSubscriptionActivated and handleSubscriptionCancelled
+// are replaced by ONE call to refreshSubscriptionSource. Writing local rows from
+// an event payload is what let created/updated/deleted each maintain the same
+// derived state with its own guards; retrieving the subscription's current state
+// and applying it under the source lease means the local row cannot diverge by
+// which event happened to arrive, or in what order.
+
+/**
+ * The prepared description of one event.
+ *
+ * The webhook has to claim idempotency and perform every domain write in ONE
+ * transaction — otherwise a handler throw leaves the claim committed, Stripe's
+ * retry sees an already-processed event, and the work never happens. But
+ * invariant 1 forbids holding a transaction across network I/O, and the handlers
+ * retrieve from Stripe. Both hold at once only if the phases are separated:
+ *
+ *   - **prepare** (`prepareDomainEvent`) does every Stripe retrieval and user
+ *     resolution, takes the per-source lease, and produces this plain value.
+ *   - **apply** (`applyDomainEvent`) performs the writes inside the caller's
+ *     transaction, with no network call in it at all.
+ *
+ * `afterCommit` holds the emails and admin alerts. They must not run inside the
+ * transaction: an awaited `sendEmail` would commit an outbox row independently
+ * of the claim, so a rollback would leave a queued email for a grant that never
+ * happened, and a fire-and-forget call could outlive the transaction and notify
+ * on state that rolled back moments later. They keep exactly today's semantics —
+ * best-effort, unguaranteed, lost on a crash.
+ */
+/**
+ * Noop reasons that describe OUR failure to observe an object right now, not a
+ * settled fact about the object — a retry might succeed where this attempt
+ * didn't. Every other noop reason (`not_membership_product`, `wrong_mode`,
+ * `user_mismatch`, `no_customer`, `payment_not_complete`, …) is permanent:
+ * retrying the SAME event will reach the SAME conclusion, so claiming those is
+ * correct.
+ *
+ * `source_unknown` is in this set, and the DISPUTE and REFUND prepares can both
+ * produce it. It reads like a settled fact and is not: Stripe does not order
+ * deliveries, so a `charge.dispute.created` — or a `charge.refunded` — can arrive
+ * before the `checkout.session.completed` that creates the entitlement it
+ * attaches to. Claiming it would leave the source with no dispute row, no access
+ * hold and no permanent loss revocation (or, for a refund, an entitlement that
+ * the later checkout event then creates as ACTIVE), and nothing reconstructs
+ * that afterwards.
+ *
+ * The cost is that a dispute which never maps to one of our sources at all — a
+ * merch charge, say — is retried until Stripe stops (a few days) and audited as
+ * failed each time. That is the right side to err on: noisy logs for a
+ * non-membership dispute, against silently keeping paid access for a customer
+ * who charged back. The admin alert does NOT ride on this: it is sent during
+ * prepare, before any of it, precisely so a retried dispute still warns an
+ * operator inside the evidence window.
+ */
+const RETRYABLE_NOOP_REASONS = new Set([
+  "source_busy",
+  "retrieval_failed",
+  "incomplete_enumeration",
+  "source_unknown",
+  // A `past_due` refresh that could not resolve a fresh grace anchor while the
+  // stored episode has already expired. Ambiguous between "same episode" and
+  // "new episode after a missed recovery", and deciding it wrongly demotes a
+  // paying customer with nothing to repair it. See `prepareSubscriptionRefresh`.
+  "grace_anchor_ambiguous",
+]);
+
+/**
+ * The primary key of `stripe_processed_events` — the idempotency claim itself.
+ *
+ * Named rather than inferred because the whole point is to distinguish THIS
+ * constraint from every other unique index a webhook's processing can touch.
+ */
+const PROCESSED_EVENTS_PK = "stripe_processed_events_pkey";
+
+/**
+ * True only for a Postgres unique/PK violation on the NAMED constraint.
+ *
+ * `code === "23505"` alone is not enough: it says "some unique index was
+ * violated", and every table a handler writes to has its own.
+ */
+export function isConstraintViolation(err: unknown, constraint: string): boolean {
+  if (!(err instanceof Error)) return false;
+  const pg = err as unknown as { code?: string; constraint?: string };
+  return pg.code === "23505" && pg.constraint === constraint;
 }
 
-async function userHasLifetimeEntitlement(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: lifetimeEntitlementsTable.id })
-    .from(lifetimeEntitlementsTable)
-    .where(and(
-      eq(lifetimeEntitlementsTable.userId, userId),
-      eq(lifetimeEntitlementsTable.status, "active"),
-    ))
-    .limit(1);
-  return rows.length > 0;
-}
-
-async function userHasActiveSubscription(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: subscriptionsTable.id })
-    .from(subscriptionsTable)
-    .where(and(
-      eq(subscriptionsTable.userId, userId),
-      eq(subscriptionsTable.status, "active"),
-    ))
-    .limit(1);
-  return rows.length > 0;
-}
-
-async function recordHistory(
-  userId: string,
-  event: string,
-  opts: {
+export interface PreparedDomainEvent {
+  entitlement: Prepared;
+  historyWrites: Array<{
+    userId: string;
+    event: string;
     plan?: string;
     amount?: number;
     currency?: string;
@@ -116,321 +198,63 @@ async function recordHistory(
     stripeSubscriptionId?: string;
     stripeInvoiceId?: string;
     stripeDisputeId?: string;
-  } = {},
-) {
-  await db.insert(membershipHistoryTable).values({
-    userId,
-    event,
-    plan: opts.plan,
-    amount: opts.amount,
-    currency: opts.currency,
-    stripePaymentIntentId: opts.stripePaymentIntentId,
-    stripeSubscriptionId: opts.stripeSubscriptionId,
-    stripeInvoiceId: opts.stripeInvoiceId,
-    stripeDisputeId: opts.stripeDisputeId,
-  });
-}
-
-
-async function upsertSubscription(
-  userId: string,
-  stripeCustomerId: string,
-  sub: Stripe.Subscription,
-  plan: string,
-) {
-  // current_period_end exists at runtime even if not in all TS type versions
-  const rawSub = sub as unknown as { current_period_end?: number };
-  const currentPeriodEnd = rawSub.current_period_end
-    ? new Date(rawSub.current_period_end * 1000)
-    : null;
-
-  await db
-    .insert(subscriptionsTable)
-    .values({
-      userId,
-      stripeSubscriptionId: sub.id,
-      stripeCustomerId,
-      plan,
-      status: sub.status,
-      currentPeriodEnd,
-      cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
-    })
-    .onConflictDoUpdate({
-      target: subscriptionsTable.stripeSubscriptionId,
-      set: {
-        status: sub.status,
-        plan,
-        currentPeriodEnd,
-        cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
-      },
-    });
-}
-
-async function handleSubscriptionActivated(
-  stripe: Stripe,
-  customerId: string,
-  sub: Stripe.Subscription,
-) {
-  const user = await findUserByStripeCustomerId(customerId);
-  if (!user) { logger.warn({ customerId }, "No user found for Stripe customer"); return; }
-
-  // Positive membership allowlist: only a subscription whose product is tagged
-  // `overhype_membership=true` grants Legendary. A non-membership subscription
-  // (e.g. a future render-credits plan) is a NO-OP here — not an error — so the
-  // webhook still acks 200 and Stripe doesn't retry. This is the authoritative
-  // gate: checkout is not the only path that reaches this handler.
-  const isMembership = await subscriptionGrantsMembership(sub, {
-    retrieveProduct: (id) => stripe.products.retrieve(id),
-  });
-  if (!isMembership) {
-    logger.info({ userId: user.id, subscriptionId: sub.id }, "Subscription is not a membership plan — skipping Legendary grant");
-    return;
-  }
-
-  await grantLegendaryViaSubscription(
-    user.id,
-    customerId,
-    sub as Stripe.Subscription & { current_period_end?: number },
-    makeGrantDeps(),
-  );
-  logger.info({ userId: user.id }, "User upgraded to legendary via webhook");
-}
-
-async function handleSubscriptionCancelled(stripe: Stripe, customerId: string, sub: Stripe.Subscription) {
-  const user = await findUserByStripeCustomerId(customerId);
-  if (!user) return;
-
-  // Symmetric with the activation gate: only a MEMBERSHIP subscription affects
-  // the tier. Canceling a non-membership subscription (e.g. a future
-  // render-credits/add-on plan) must NOT downgrade a user whose membership is
-  // still active — so a non-membership cancel is a no-op here (no tier change,
-  // no sub-row write, since it never granted anything).
-  const isMembership = await subscriptionGrantsMembership(sub, {
-    retrieveProduct: (id) => stripe.products.retrieve(id),
-  });
-  if (!isMembership) {
-    logger.info({ userId: user.id, subscriptionId: sub.id }, "Non-membership subscription cancelled — no tier change");
-    return;
-  }
-
-  // Update app-level subscription record
-  await upsertSubscription(user.id, customerId, sub, "cancelled");
-
-  // NEVER downgrade a user with a lifetime entitlement (legendary tier)
-  const hasLifetime = await userHasLifetimeEntitlement(user.id);
-  if (hasLifetime) {
-    logger.info({ userId: user.id }, "Subscription cancelled but user has Legendary for Life — keeping legendary");
-    await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
-    return;
-  }
-
-  await setMembershipTier(user.id, "registered");
-  await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
-  logger.info({ userId: user.id }, "User reverted to registered after subscription cancel");
-}
-
-async function handleInvoicePaid(
-  customerId: string,
-  invoiceId: string,
-  amount: number,
-  currency: string,
-  subscriptionId?: string,
-  paymentIntentId?: string,
-) {
-  const user = await findUserByStripeCustomerId(customerId);
-  if (!user) return;
-
-  // Look up plan from our subscriptions table so the history entry has a label
-  let plan: string | undefined;
-  if (subscriptionId) {
-    const [appSub] = await db
-      .select({ plan: subscriptionsTable.plan })
-      .from(subscriptionsTable)
-      .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId))
-      .limit(1);
-    plan = appSub?.plan ?? undefined;
-  }
-
-  await recordHistory(user.id, "invoice_paid", {
-    plan,
-    amount,
-    currency,
-    stripeInvoiceId: invoiceId,
-    stripeSubscriptionId: subscriptionId,
-    stripePaymentIntentId: paymentIntentId,
-  });
-}
-
-async function handleOneTimePayment(
-  stripe: Stripe,
-  customerId: string,
-  sessionId: string,
-  paymentIntentId: string,
-  amount: number,
-  currency: string,
-) {
-  const user = await findUserByStripeCustomerId(customerId);
-  if (!user) return;
-
-  // Membership allowlist (fail-closed): verify the ACTUAL purchased product via
-  // the Checkout Session's line items — NOT any PI metadata stamp. Legacy
-  // pre-allowlist sessions stamped `membership=true` on non-membership one-time
-  // prices, so a pre-staged session could otherwise mint Legendary after
-  // deploy; reading the real line-item product closes that window. Shared with
-  // the confirm endpoint via checkoutLineItemsGrantMembership so the two
-  // one-time grant paths can't drift. A non-membership purchase is a NO-OP here
-  // (not an error), so the webhook still acks 200.
-  let isMembership = false;
-  try {
-    const lineItems = await stripe.checkout.sessions.listLineItems(sessionId, { expand: ["data.price.product"] });
-    isMembership = await checkoutLineItemsGrantMembership(lineItems.data, {
-      retrieveProduct: (id) => stripe.products.retrieve(id),
-    });
-  } catch (err) {
-    logger.warn({ err, sessionId, paymentIntentId, userId: user.id }, "One-time payment: could not verify line items — skipping grant (fail closed)");
-    return;
-  }
-
-  if (!isMembership) {
-    logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not for a membership product — skipping Legendary for Life grant");
-    return;
-  }
-
-  // Delegate grant + idempotency + DB writes + history to shared helper (same code path as checkout/confirm).
-  const result = await grantLegendaryViaOneTimePayment(
-    user.id,
-    customerId,
-    { id: paymentIntentId, status: "succeeded", amount, currency },
-    makeGrantDeps(),
-  );
-
-  if (result === "already_recorded") {
-    logger.info({ paymentIntentId }, "Legendary for Life entitlement already recorded — skipping");
-  } else {
-    logger.info({ userId: user.id }, "User granted Legendary for Life tier via webhook");
-  }
+  }>;
+  afterCommit: Array<() => void | Promise<void>>;
 }
 
 /**
- * Handle charge.refunded:
- * - If the refunded charge's payment intent matches a lifetime entitlement, mark it refunded
- *   and downgrade the user unless they have another active entitlement.
- * - If the charge is from a subscription invoice, record history only (the subscription
- *   cancellation flow handles downgrades separately).
+ * Has this event already been claimed?
+ *
+ * A plain read of the same row the claim transaction inserts. Advisory only —
+ * the claim's unique constraint is what actually enforces idempotency — so a
+ * false negative here is harmless. It exists so a side effect that must run
+ * BEFORE the claim (the dispute alert) can still skip a redelivery of work that
+ * already completed.
  */
-async function handleChargeRefunded(
-  charge: {
-    id: string;
-    customer: string | { id: string } | null;
-    payment_intent: string | { id: string } | null;
-    invoice: string | { id: string } | null;
-    amount_refunded: number;
-    currency: string;
-  },
-): Promise<void> {
-  const customerId = charge.customer
-    ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
-    : null;
-  if (!customerId) {
-    logger.warn({ chargeId: charge.id }, "charge.refunded has no customer — skipping");
-    return;
-  }
+async function eventAlreadyProcessed(eventId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ eventId: stripeProcessedEventsTable.eventId })
+    .from(stripeProcessedEventsTable)
+    .where(eq(stripeProcessedEventsTable.eventId, eventId))
+    .limit(1);
+  return row !== undefined;
+}
 
-  const user = await findUserByStripeCustomerId(customerId);
-  if (!user) {
-    logger.warn({ customerId }, "charge.refunded: no user found for Stripe customer");
-    return;
-  }
-
-  const paymentIntentId = charge.payment_intent
-    ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
-    : null;
-
-  const isSubscriptionInvoice = charge.invoice !== null && charge.invoice !== undefined;
-
-  if (paymentIntentId && !isSubscriptionInvoice) {
-    // Check if this is a lifetime purchase payment intent
-    const [entitlement] = await db
-      .select()
-      .from(lifetimeEntitlementsTable)
-      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
-      .limit(1);
-
-    if (entitlement) {
-      // Mark the lifetime entitlement as refunded
-      await db
-        .update(lifetimeEntitlementsTable)
-        .set({ status: "refunded" })
-        .where(eq(lifetimeEntitlementsTable.id, entitlement.id));
-
-      // Downgrade only if the user has no other active entitlement
-      const hasOtherLifetime = await userHasLifetimeEntitlement(user.id);
-      const hasActiveSub = await userHasActiveSubscription(user.id);
-      if (!hasOtherLifetime && !hasActiveSub) {
-        const wasLegendary = user.membershipTier === "legendary";
-        await setMembershipTier(user.id, "registered");
-        logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded — user downgraded to registered");
-        // Only email when this event actually caused a downgrade (legendary → registered).
-        // If the user was already on registered (e.g. an earlier event already revoked
-        // them), suppress the email so we don't spam them about a state change that
-        // didn't happen here.
-        if (wasLegendary) {
-          void notifyUserAccessRevoked(user.id, "refund");
-        }
-      } else {
-        logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded but user has other active entitlement — keeping legendary");
-      }
-
-      await recordHistory(user.id, "refund", {
-        plan: "lifetime",
-        amount: charge.amount_refunded,
-        currency: charge.currency,
-        stripePaymentIntentId: paymentIntentId,
-      });
-      return;
-    }
-  }
-
-  // Subscription invoice refund or unrecognized charge — record audit trail only
-  const invoiceId = charge.invoice
-    ? (typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id)
-    : undefined;
-  await recordHistory(user.id, "refund", {
-    amount: charge.amount_refunded,
-    currency: charge.currency,
-    stripePaymentIntentId: paymentIntentId ?? undefined,
-    stripeInvoiceId: invoiceId,
-  });
-  logger.info({ userId: user.id, chargeId: charge.id, isSubscriptionInvoice }, "charge.refunded: recorded history (no tier change)");
+/** The plan label for a subscription, from its entitlement source. History-only. */
+async function planLabelForSubscription(subscriptionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ plan: membershipEntitlementsTable.plan })
+    .from(membershipEntitlementsTable)
+    .where(
+      and(
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        eq(membershipEntitlementsTable.providerRef, subscriptionId),
+      ),
+    )
+    .limit(1);
+  return row?.plan ?? null;
 }
 
 /**
- * Resolve the user for a disputed charge by trying three escalating lookups:
- *   1. payment_intent → lifetime_entitlements (covers lifetime purchases)
- *   2. payment_intent → membership_history (covers subscription invoice PIs recorded at invoice.paid)
- *   3. Stripe API: retrieve charge → customer ID → usersTable (covers any remaining case)
- * Returns null if the user cannot be resolved.
+ * Resolve the USER behind a charge, for the paths that only record history —
+ * early-fraud warnings and dispute funds movements. Those genuinely want a user
+ * and not a source: they change no entitlement.
+ *
+ * Three escalating lookups. The first now reads `membership_entitlements`
+ * instead of the dropped `lifetime_entitlements`.
  */
-async function resolveUserForDispute(
+async function resolveUserForCharge(
   stripe: Stripe,
   paymentIntentId: string | null,
   chargeId: string,
-): Promise<{ user: Awaited<ReturnType<typeof findUserByStripeCustomerId>>; } | null> {
-  // 1. Lifetime entitlement lookup
+): Promise<{ user: Awaited<ReturnType<typeof findUserByStripeCustomerId>> } | null> {
   if (paymentIntentId) {
-    const [entitlement] = await db
-      .select({ userId: lifetimeEntitlementsTable.userId })
-      .from(lifetimeEntitlementsTable)
-      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
-      .limit(1);
-    if (entitlement) {
-      const user = await findUserById(entitlement.userId);
+    const source = await findSourceByProviderRef(db, "stripe_lifetime_payment", paymentIntentId);
+    if (source) {
+      const user = await findUserById(source.userId);
       if (user) return { user };
     }
-  }
 
-  // 2. Membership history lookup (covers subscription invoice payment intents recorded at invoice.paid)
-  if (paymentIntentId) {
     const [historyRow] = await db
       .select({ userId: membershipHistoryTable.userId })
       .from(membershipHistoryTable)
@@ -442,7 +266,6 @@ async function resolveUserForDispute(
     }
   }
 
-  // 3. Stripe API: retrieve charge to get the customer, then look up user
   try {
     const charge = await stripe.charges.retrieve(chargeId);
     const customerId = charge.customer
@@ -453,165 +276,105 @@ async function resolveUserForDispute(
       if (user) return { user };
     }
   } catch (err) {
-    logger.warn({ err, chargeId }, "dispute: could not retrieve charge from Stripe for customer lookup");
+    logger.warn({ err, chargeId }, "could not retrieve charge from Stripe for customer lookup");
   }
 
   return null;
 }
 
 /**
- * Handle charge.dispute.created:
- * Immediately revoke Legendary for the user associated with the disputed charge.
- * Disputes can take weeks to resolve; we don't give paid features to users actively
- * chargebacking us.
+ * All three dispute events route through ONE transition writer.
+ *
+ * `resolveUserForDispute`, `handleDisputeCreated` and `handleDisputeClosed` are
+ * gone. The first resolved a USER, which is all tier-level revocation ever
+ * needed — a source-local hold needs the source, or a dispute on one of two
+ * qualifying entitlements revokes the wrong one. The other two each decided the
+ * tier themselves from bare-existence reads, and between them covered only two
+ * of the four terminal outcomes Stripe defines.
+ *
+ * `.updated` reaching this writer is the behaviour change that matters most:
+ * Stripe sends it for status transitions, and it previously did only
+ * evidence-deadline alert work, so `needs_response -> under_review` stayed stale
+ * until a reconciliation pass happened to sweep it. That alert still fires — it
+ * is a separate concern riding the same event, and dropping it would be an
+ * unrelated regression.
  */
-async function handleDisputeCreated(
+async function prepareDispute(
   stripe: Stripe,
-  dispute: {
-    id: string;
-    charge: string | { id: string };
-    payment_intent: string | { id: string } | null;
-    amount: number;
-    currency: string;
-    livemode?: boolean;
-  },
-): Promise<void> {
-  const paymentIntentId = dispute.payment_intent
-    ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
-    : null;
-  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
-
-  // Fire-and-forget admin alert. We send this regardless of whether we can resolve
-  // the user — Stripe's response window is short and the operator needs to know
-  // immediately so they can gather evidence and respond in the dashboard.
-  void notifyAdminsOfDispute({
-    kind: "created",
-    disputeId: dispute.id,
-    amount: dispute.amount,
-    currency: dispute.currency,
-    livemode: dispute.livemode === true,
-  });
-
-  const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
-  if (!resolved) {
-    logger.warn({ disputeId: dispute.id, chargeId }, "dispute.created: could not resolve user — skipping tier change");
-    return;
+  eventId: string,
+  dispute: { id: string; amount?: number; currency?: string; livemode?: boolean },
+  kind: "created" | "updated" | "closed",
+): Promise<Prepared> {
+  if (kind === "created" && !(await eventAlreadyProcessed(eventId))) {
+    // Sent NOW, not deferred to afterCommit, and not tied to the entitlement
+    // write succeeding.
+    //
+    // `afterCommit` runs only if the claim transaction commits. A dispute whose
+    // entitlement source has not landed yet — or never will, because the charge
+    // was merch or credits — prepares as a retryable `source_unknown` and throws
+    // BEFORE the claim, so the deferred alert never ran at all. The operator lost
+    // the warning for exactly the disputes we understand least, during a
+    // response window Stripe measures in days.
+    //
+    // The accepted cost (David, 2026-07-30) is that Stripe's retries of an
+    // UNPROCESSED event re-alert. That is the right side to err on: a repeated
+    // alert is noise, a missing one is an undefended chargeback.
+    //
+    // A redelivery of an ALREADY-CLAIMED event is a different case and is not
+    // covered by that trade: `notifyAdminsOfDispute` enqueues a durable
+    // `async_jobs` row per admin, so a lost 200 on a fully processed event would
+    // permanently double-write the email queue for work that already happened.
+    //
+    // The guard is an ADVISORY read, and deliberately not a claim. It suppresses
+    // the sequential redelivery above — the common case, where the first
+    // delivery committed long ago. It does NOT suppress two deliveries racing
+    // before either commits: both reads return false and both alert. That is the
+    // same duplicate-alert cost David already accepted for unprocessed events,
+    // reached by a narrower window, and making it atomic would mean claiming the
+    // event during PREPARE — which is exactly the ordering this handler was
+    // rewritten to remove, because a claim that outlives a failed prepare drops
+    // the event entirely. A duplicate chargeback warning is noise; a missing one
+    // is an undefended chargeback.
+    //
+    // Best-effort — an alert that fails must not take the entitlement write
+    // down with it.
+    try {
+      await notifyAdminsOfDispute({
+        kind: "created",
+        disputeId: dispute.id,
+        amount: dispute.amount ?? 0,
+        currency: dispute.currency ?? "usd",
+        livemode: dispute.livemode === true,
+      });
+    } catch (error) {
+      logger.error({ err: error, disputeId: dispute.id }, "could not alert admins of a new dispute");
+    }
   }
-
-  const { user } = resolved;
-  const wasLegendary = user.membershipTier === "legendary";
-  await setMembershipTier(user.id, "registered");
-  await recordHistory(user.id, "dispute_opened", {
-    amount: dispute.amount,
-    currency: dispute.currency,
-    stripePaymentIntentId: paymentIntentId ?? undefined,
-    stripeDisputeId: dispute.id,
-  });
-  // Only email when this event actually downgraded the user. If they were
-  // already on registered (e.g. an earlier event flipped them), don't spam.
-  if (wasLegendary) {
-    void notifyUserAccessRevoked(user.id, "dispute_opened");
-  }
-  logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute opened — user immediately revoked from legendary");
+  return prepareDisputeEvent(stripe, dispute.id);
 }
 
 /**
- * Handle charge.dispute.closed:
- * - won: re-grant Legendary if the user still has an active entitlement.
- * - lost: keep at registered, also mark any related lifetime entitlement as refunded.
- * - warning_closed / other: record history, no tier change.
+ * Phase one: retrieve everything, write nothing.
+ *
+ * Shared by `processWebhook` and `processEventDirectly`. Every `pushHistory`
+ * call below appends a row to be inserted inside the claim's transaction rather
+ * than committing it here, so a retry after a failed apply cannot duplicate it —
+ * which the old claim-then-process ordering could not have caused only because a
+ * failure meant the event was never retried at all.
  */
-async function handleDisputeClosed(
-  stripe: Stripe,
-  dispute: {
-    id: string;
-    charge: string | { id: string };
-    payment_intent: string | { id: string } | null;
-    status: string;
-    amount: number;
-    currency: string;
-  },
-): Promise<void> {
-  const paymentIntentId = dispute.payment_intent
-    ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
-    : null;
-  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
+async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<PreparedDomainEvent> {
+  const historyWrites: PreparedDomainEvent["historyWrites"] = [];
+  const afterCommit: PreparedDomainEvent["afterCommit"] = [];
+  let entitlement: Prepared = { kind: "noop", reason: "no_entitlement_effect" };
 
-  // Resolve user via the same three-level lookup used in handleDisputeCreated
-  const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
-  if (!resolved) {
-    logger.info({ disputeId: dispute.id, status: dispute.status }, "dispute.closed: could not resolve user — skipping tier change");
-    return;
-  }
-  const { user } = resolved;
+  const pushHistory = (
+    userId: string,
+    eventName: string,
+    opts: Omit<PreparedDomainEvent["historyWrites"][number], "userId" | "event"> = {},
+  ) => {
+    historyWrites.push({ userId, event: eventName, ...opts });
+  };
 
-  // Also check if there's a lifetime entitlement for this PI (for marking as refunded on loss)
-  let entitlementId: number | null = null;
-  if (paymentIntentId) {
-    const [entitlement] = await db
-      .select({ id: lifetimeEntitlementsTable.id })
-      .from(lifetimeEntitlementsTable)
-      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
-      .limit(1);
-    if (entitlement) entitlementId = entitlement.id;
-  }
-
-  if (dispute.status === "won") {
-    // Re-grant legendary if the user still has an active entitlement
-    const hasLifetime = await userHasLifetimeEntitlement(user.id);
-    const hasActiveSub = await userHasActiveSubscription(user.id);
-    if (hasLifetime || hasActiveSub) {
-      await setMembershipTier(user.id, "legendary");
-      logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute won — user re-granted legendary");
-    } else {
-      logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute won but no active entitlement found — not re-granting legendary");
-    }
-    await recordHistory(user.id, "dispute_won", {
-      amount: dispute.amount,
-      currency: dispute.currency,
-      stripePaymentIntentId: paymentIntentId ?? undefined,
-      stripeDisputeId: dispute.id,
-    });
-  } else if (dispute.status === "lost") {
-    // Explicitly revoke Legendary — idempotent if dispute.created already fired,
-    // but also handles the case where dispute.created was missed/failed.
-    const wasLegendary = user.membershipTier === "legendary";
-    await setMembershipTier(user.id, "registered");
-    // Also mark lifetime entitlement as refunded if applicable
-    if (entitlementId !== null) {
-      await db
-        .update(lifetimeEntitlementsTable)
-        .set({ status: "refunded" })
-        .where(eq(lifetimeEntitlementsTable.id, entitlementId));
-    }
-    await recordHistory(user.id, "dispute_lost", {
-      amount: dispute.amount,
-      currency: dispute.currency,
-      stripePaymentIntentId: paymentIntentId ?? undefined,
-      stripeDisputeId: dispute.id,
-    });
-    // Only email when this event actually downgraded the user. In the common
-    // path dispute.created already revoked them and they're already on
-    // registered, so no email is sent here. The fallback path (dispute.created
-    // was missed) is the one that needs the notification.
-    if (wasLegendary) {
-      void notifyUserAccessRevoked(user.id, "dispute_lost");
-    }
-    logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute lost — user revoked to registered, entitlement marked refunded");
-  } else {
-    // warning_closed or other terminal non-won/non-lost statuses — record only
-    await recordHistory(user.id, "dispute_closed", {
-      amount: dispute.amount,
-      currency: dispute.currency,
-      stripePaymentIntentId: paymentIntentId ?? undefined,
-      stripeDisputeId: dispute.id,
-    });
-    logger.info({ userId: user.id, disputeId: dispute.id, status: dispute.status }, "Dispute closed with non-win/non-loss status — no tier change");
-  }
-}
-
-/** Shared domain-logic event processor used by both processWebhook and processEventDirectly */
-async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "checkout.session.completed": {
       // When a checkout completes with a subscription, the embedded subscription object
@@ -629,58 +392,45 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       const customerId = session.customer;
       const metadataUserId = session.metadata?.userId;
 
-      // Safety net: if the Stripe customer isn't yet linked to a user in our DB,
-      // use metadata.userId (set during checkout session creation) to link them.
-      if (customerId && metadataUserId) {
-        const existingUser = await findUserByStripeCustomerId(customerId);
-        if (!existingUser) {
-          const userById = await findUserById(metadataUserId);
-          if (userById) {
-            await db.update(usersTable)
-              .set({ stripeCustomerId: customerId })
-              .where(eq(usersTable.id, metadataUserId));
-            logger.info({ customerId, userId: metadataUserId }, "Linked Stripe customer to user via metadata.userId");
-          }
-        }
-      }
-
-      if (!customerId) break;
-
       if (session.mode === "subscription" && session.subscription) {
-        // Subscription checkout — load or use embedded sub object
-        let sub: Stripe.Subscription;
-        if (typeof session.subscription === "string") {
-          sub = await stripe.subscriptions.retrieve(session.subscription, { expand: ["items.data.price.product"] });
-        } else {
-          sub = session.subscription as unknown as Stripe.Subscription;
-        }
-        if (sub.status === "active" || sub.status === "trialing") {
-          await handleSubscriptionActivated(stripe, customerId, sub);
-        }
-      } else if (session.mode === "payment" && session.payment_intent) {
-        // One-time payment checkout (lifetime). Membership is verified from the
-        // session's line items inside the handler — not the PI metadata.
-        const piId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent;
-        const pi = await stripe.paymentIntents.retrieve(piId as string);
-        await handleOneTimePayment(stripe, customerId, session.id, pi.id, pi.amount, pi.currency);
+        // Every status is persisted, not just active/trialing. A subscription
+        // that reaches `past_due` and stays there is the case a three-status
+        // switch could never see, and a permanently failing card could sit in it
+        // forever with access intact.
+        const subscriptionId =
+          typeof session.subscription === "string" ? session.subscription : session.subscription.id;
+        entitlement = await prepareSubscriptionRefresh(stripe, subscriptionId, {
+          // The customer may not be linked to a user yet on a FIRST purchase.
+          // The hint can only ever link a user who has no customer — it can
+          // never re-point one that already belongs to someone else.
+          ...(metadataUserId ? { linkHintUserId: metadataUserId } : {}),
+          // No transitionEvent here: a genuinely NEW source already gets an
+          // unconditional "subscription_activated" fact inside applySubscription.
+          // Passing one here too would double-write it whenever this event is
+          // also the one that happens to flip the tier.
+        });
+      } else if (session.mode === "payment") {
+        // The session id, and nothing else. Amount, currency, payment status and
+        // the allowlist decision all come from objects retrieved inside the
+        // trust boundary.
+        entitlement = await prepareOneTimeCheckout(stripe, session.id);
+      } else if (!customerId) {
+        logger.info({ sessionId: session.id }, "checkout.session.completed with no customer — nothing to apply");
       }
       break;
     }
     case "customer.subscription.created":
-    case "customer.subscription.updated": {
-      const sub = event.data.object as Stripe.Subscription;
-      const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-      if (sub.status === "active" || sub.status === "trialing") {
-        await handleSubscriptionActivated(stripe, customerId, sub);
-      } else if (sub.status === "canceled") {
-        await handleSubscriptionCancelled(stripe, customerId, sub);
-      }
-      break;
-    }
+    case "customer.subscription.updated":
     case "customer.subscription.deleted": {
+      // One path for all three. The handler no longer decides anything from the
+      // event's status — it retrieves the subscription's CURRENT state, which is
+      // also what makes an out-of-order delivery harmless.
       const sub = event.data.object as Stripe.Subscription;
-      const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-      await handleSubscriptionCancelled(stripe, customerId, sub);
+      // subscription_cancelled is now recorded unconditionally by applySubscription
+      // itself when this source's own status transitions to canceled — passing it
+      // here too would double-write the history fact whenever the transition also
+      // happens to change the user's aggregate tier.
+      entitlement = await prepareSubscriptionRefresh(stripe, sub.id);
       break;
     }
     case "invoice.paid": {
@@ -689,14 +439,38 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         subscription?: string | { id: string } | null;
         payment_intent?: string | { id: string } | null;
       };
-      await handleInvoicePaid(
-        typeof inv.customer === "string" ? inv.customer : inv.customer.id,
-        inv.id,
-        inv.amount_paid,
-        inv.currency,
-        inv.subscription ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id) : undefined,
-        inv.payment_intent ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id) : undefined,
-      );
+      const paidCustomerId = typeof inv.customer === "string" ? inv.customer : inv.customer.id;
+      const paidUser = await findUserByStripeCustomerId(paidCustomerId);
+      if (paidUser) {
+        const paidSubscriptionId =
+          subscriptionIdForInvoice(inv as unknown as Stripe.Invoice) ?? undefined;
+        pushHistory(paidUser.id, "invoice_paid", {
+          ...(paidSubscriptionId
+            ? { plan: (await planLabelForSubscription(paidSubscriptionId)) ?? undefined }
+            : {}),
+          amount: inv.amount_paid,
+          currency: inv.currency,
+          stripeInvoiceId: inv.id,
+          stripeSubscriptionId: paidSubscriptionId,
+          stripePaymentIntentId: inv.payment_intent
+            ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id)
+            : undefined,
+        });
+
+        if (paidSubscriptionId) {
+          // Payment recovery is an authoritative event about the SOURCE, not
+          // just a receipt. If the `customer.subscription.updated` that would
+          // have cleared the dunning state was never delivered, a history-only
+          // handler leaves the source `past_due` carrying its old deadline —
+          // and then demotes a customer whose invoice we know was paid. With no
+          // reconciliation pass, nothing else revisits it.
+          //
+          // The refresh clears the grace window when Stripe reports the
+          // subscription active again, which is the whole point of retrieving
+          // rather than trusting the event we happened to receive.
+          entitlement = await prepareSubscriptionRefresh(stripe, paidSubscriptionId);
+        }
+      }
       break;
     }
     case "invoice.payment_failed": {
@@ -708,22 +482,23 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       const customerId = typeof inv.customer === "string" ? inv.customer : inv.customer.id;
       const user = await findUserByStripeCustomerId(customerId);
       if (user) {
-        const subscriptionId = inv.subscription
-          ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
-          : undefined;
-        await recordHistory(user.id, "payment_failed", {
+        const subscriptionId =
+          subscriptionIdForInvoice(inv as unknown as Stripe.Invoice) ?? undefined;
+        pushHistory(user.id, "payment_failed", {
           amount: inv.amount_due,
           currency: inv.currency,
           stripeInvoiceId: inv.id,
           stripeSubscriptionId: subscriptionId,
         });
         if (subscriptionId) {
-          await db
-            .update(subscriptionsTable)
-            .set({ status: "past_due" })
-            .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId));
+          // Not a hand-written `past_due`. The refresh retrieves the
+          // subscription's current status AND resolves the grace episode's
+          // anchor — the first failed attempt on the earliest still-unpaid
+          // invoice of this delinquency, which is the whole reason the 14-day
+          // window can be bounded at all.
+          entitlement = await prepareSubscriptionRefresh(stripe, subscriptionId);
         }
-        logger.warn({ userId: user.id, invoiceId: inv.id }, "Payment failed — subscription marked past_due");
+        logger.warn({ userId: user.id, invoiceId: inv.id }, "Payment failed — subscription refreshed from Stripe");
       }
       break;
     }
@@ -754,32 +529,51 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       const user = await findUserByStripeCustomerId(customerId);
       if (!user) { logger.warn({ customerId, invoiceId: inv.id }, "invoice.payment_action_required: no user found"); break; }
 
-      const subscriptionId = inv.subscription
-        ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
-        : undefined;
-      await recordHistory(user.id, "payment_action_required", {
+      const subscriptionId =
+        subscriptionIdForInvoice(inv as unknown as Stripe.Invoice) ?? undefined;
+      pushHistory(user.id, "payment_action_required", {
         amount: inv.amount_due ?? undefined,
         currency: inv.currency ?? undefined,
         stripeInvoiceId: inv.id,
         stripeSubscriptionId: subscriptionId,
       });
 
+      if (subscriptionId) {
+        // Authoritative about the source, exactly like `invoice.paid` and
+        // `invoice.payment_failed`. A renewal that needs SCA can already have
+        // moved the subscription to `past_due`, so if this is the only lifecycle
+        // event delivered, a history-only handler leaves the local source
+        // `active` with no grace deadline indefinitely — while holding an
+        // authoritative invoice event that says otherwise.
+        entitlement = await prepareSubscriptionRefresh(stripe, subscriptionId);
+      }
+
       if (!event.livemode) {
         logger.info({ userId: user.id, invoiceId: inv.id }, "invoice.payment_action_required: skipping SCA email — test-mode event");
         break;
       }
+      // Deferred to afterCommit: a genuine Stripe retry of an already-processed
+      // event must not resend this email. Moving it here is what actually makes
+      // that true — the claim's uniqueness check runs before afterCommit, never
+      // before this point in prepare.
       if (inv.hosted_invoice_url && user.email) {
-        const { subject, text, html } = buildSCAActionRequiredEmail({
-          hostedInvoiceUrl: inv.hosted_invoice_url,
-          amountMinor: inv.amount_due ?? null,
-          currency: inv.currency ?? null,
+        const hostedInvoiceUrl = inv.hosted_invoice_url;
+        const email = user.email;
+        const amountMinor = inv.amount_due ?? null;
+        const currency = inv.currency ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildSCAActionRequiredEmail({
+            hostedInvoiceUrl,
+            amountMinor,
+            currency,
+          });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+            logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
+          } catch (err) {
+            logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-          logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
-        } catch (err) {
-          logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
-        }
       } else {
         logger.warn(
           { userId: user.id, invoiceId: inv.id, hasUrl: !!inv.hosted_invoice_url, hasEmail: !!user.email },
@@ -807,19 +601,13 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
 
       // Look up plan label from the local subscriptions table (if present)
       let plan: string | undefined;
-      const subscriptionId = inv.subscription
-        ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
-        : undefined;
+      const subscriptionId =
+        subscriptionIdForInvoice(inv as unknown as Stripe.Invoice) ?? undefined;
       if (subscriptionId) {
-        const [appSub] = await db
-          .select({ plan: subscriptionsTable.plan })
-          .from(subscriptionsTable)
-          .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId))
-          .limit(1);
-        plan = appSub?.plan ?? undefined;
+        plan = (await planLabelForSubscription(subscriptionId)) ?? undefined;
       }
 
-      await recordHistory(user.id, "renewal_reminder", {
+      pushHistory(user.id, "renewal_reminder", {
         plan,
         amount: inv.amount_due ?? undefined,
         currency: inv.currency ?? undefined,
@@ -830,19 +618,26 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         logger.info({ userId: user.id, subscriptionId }, "invoice.upcoming: skipping renewal reminder email — test-mode event");
         break;
       }
+      // Deferred to afterCommit — same reason as the SCA email above.
       if (user.email && inv.amount_due != null && inv.currency) {
-        const { subject, text, html } = buildRenewalReminderEmail({
-          amountMinor: inv.amount_due,
-          currency: inv.currency,
-          nextAttemptAt: inv.next_payment_attempt ?? null,
-          plan: plan ?? null,
+        const email = user.email;
+        const amountMinor = inv.amount_due;
+        const currency = inv.currency;
+        const nextAttemptAt = inv.next_payment_attempt ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildRenewalReminderEmail({
+            amountMinor,
+            currency,
+            nextAttemptAt,
+            plan: plan ?? null,
+          });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+            logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
+          } catch (err) {
+            logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-          logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
-        } catch (err) {
-          logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
-        }
       } else {
         logger.warn(
           { userId: user.id, hasEmail: !!user.email, hasAmount: inv.amount_due != null },
@@ -867,7 +662,7 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       const user = await findUserByStripeCustomerId(customerId);
       if (!user) { logger.warn({ customerId, paymentMethodId: pm.id }, "payment_method.automatically_updated: no user found"); break; }
 
-      await recordHistory(user.id, "payment_method_updated", {
+      pushHistory(user.id, "payment_method_updated", {
         stripePaymentIntentId: pm.id, // reuse column to record the PM id
       });
       logger.info(
@@ -879,16 +674,19 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         logger.info({ userId: user.id, paymentMethodId: pm.id }, "payment_method.automatically_updated: skipping card-updated email — test-mode event");
         break;
       }
+      // Deferred to afterCommit — same reason as the SCA email above.
       if (user.email) {
-        const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({
-          brand: pm.card?.brand ?? null,
-          last4: pm.card?.last4 ?? null,
+        const email = user.email;
+        const brand = pm.card?.brand ?? null;
+        const last4 = pm.card?.last4 ?? null;
+        afterCommit.push(async () => {
+          const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({ brand, last4 });
+          try {
+            await sendEmail({ to: email, subject, text, html });
+          } catch (err) {
+            logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
+          }
         });
-        try {
-          await sendEmail({ to: user.email, subject, text, html });
-        } catch (err) {
-          logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
-        }
       }
       break;
     }
@@ -922,23 +720,27 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         logger.warn({ err, chargeId }, "early_fraud_warning: could not retrieve charge from Stripe");
       }
 
-      void notifyAdminsOfFraudWarning({
-        warningId: warning.id,
-        chargeId,
-        amount: chargeAmount,
-        currency: chargeCurrency,
-        livemode: warning.livemode ?? event.livemode,
-        fraudType: warning.fraud_type ?? null,
-        actionable: warning.actionable ?? null,
-      });
+      // Deferred to afterCommit, same as every other admin alert in this
+      // switch — a retry of an already-processed warning must not re-alert.
+      afterCommit.push(() =>
+        notifyAdminsOfFraudWarning({
+          warningId: warning.id,
+          chargeId,
+          amount: chargeAmount,
+          currency: chargeCurrency,
+          livemode: warning.livemode ?? event.livemode,
+          fraudType: warning.fraud_type ?? null,
+          actionable: warning.actionable ?? null,
+        }),
+      );
 
-      const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+      const resolved = await resolveUserForCharge(stripe, paymentIntentId, chargeId);
       if (!resolved) {
         logger.warn({ warningId: warning.id, chargeId }, "early_fraud_warning: could not resolve user — alert sent, no history recorded");
         break;
       }
       const { user } = resolved;
-      await recordHistory(user.id, "early_fraud_warning", {
+      pushHistory(user.id, "early_fraud_warning", {
         amount: chargeAmount,
         currency: chargeCurrency,
         stripePaymentIntentId: paymentIntentId ?? undefined,
@@ -954,38 +756,108 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         id: string;
         customer: string | { id: string } | null;
         payment_intent: string | { id: string } | null;
-        invoice: string | { id: string } | null;
+        // `amount` is what makes partial distinguishable from full. Its absence
+        // from the old destructured parameter is why the handler could not tell.
+        amount: number;
         amount_refunded: number;
         currency: string;
       };
-      await handleChargeRefunded(charge);
+      const refundPaymentIntentId = charge.payment_intent
+        ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
+        : null;
+
+      // Not every PaymentIntent on a `charge.refunded` event is a lifetime
+      // purchase — a subscription invoice, or any other charge, carries one too.
+      // A lifetime source routes through prepareLifetimeRefund, which records
+      // its own full/partial history tied to the entitlement; anything else
+      // falls back to the record-only path the old handler always took for a
+      // subscription/unrecognized refund, so it does not silently vanish from
+      // the audit trail.
+      const lifetimeSource = refundPaymentIntentId
+        ? await findSourceByProviderRef(db, "stripe_lifetime_payment", refundPaymentIntentId)
+        : null;
+
+      if (refundPaymentIntentId && lifetimeSource) {
+        // A PARTIAL refund records history and leaves the entitlement active
+        // (settled decision 6). `charge.amount` is what makes partial
+        // distinguishable from full, and its absence from the old handler's
+        // destructured parameter is exactly why it could not tell them apart.
+        entitlement = await prepareLifetimeRefund({
+          paymentIntentId: refundPaymentIntentId,
+          amountRefunded: charge.amount_refunded,
+          chargeAmount: charge.amount,
+          currency: charge.currency,
+        });
+      } else if (refundPaymentIntentId) {
+        // No local lifetime source. That is NOT proof this was not a lifetime
+        // purchase: Stripe does not order deliveries, so `charge.refunded` can
+        // overtake the `checkout.session.completed` that would have created the
+        // row. Treating local absence as proof is how a fully refunded purchase
+        // ended up granting Legendary forever — the refund recorded audit-only
+        // and claimed the event, and the checkout that arrived afterwards still
+        // saw a succeeded PaymentIntent and created an ACTIVE source.
+        //
+        // So resolve it authoritatively instead — by asking the question a
+        // lifetime source is actually created from. `prepareOneTimeCheckout`
+        // builds one only from a payment-mode Checkout Session, so if such a
+        // session exists for this PaymentIntent the source can still appear and
+        // this refund is ordering-ambiguous, not settled.
+        //
+        // Invoice linkage cannot answer it: `invoice_creation` is available on
+        // payment-mode sessions, so an invoice-backed charge may still be a
+        // one-time membership purchase. See `hasOneTimeCheckoutOrigin`.
+        if (await hasOneTimeCheckoutOrigin(stripe, refundPaymentIntentId)) {
+          entitlement = { kind: "noop", reason: "source_unknown" };
+          break;
+        }
+
+        // Subscription invoice refund — record for the audit trail only; the
+        // subscription cancellation flow (if any) handles downgrades separately,
+        // same as the handler this replaces.
+        const customerId = charge.customer
+          ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
+          : null;
+        const user = customerId ? await findUserByStripeCustomerId(customerId) : null;
+        if (user) {
+          // Looked up rather than read off the charge: `Charge` has no `invoice`
+          // field in this API version. Only for the receipt link on the history
+          // row — the origin question is already settled above.
+          const refundInvoiceId =
+            (await resolveInvoiceForPaymentIntent(stripe, refundPaymentIntentId)) ?? undefined;
+          pushHistory(user.id, "refund", {
+            amount: charge.amount_refunded,
+            currency: charge.currency,
+            stripePaymentIntentId: refundPaymentIntentId,
+            stripeInvoiceId: refundInvoiceId,
+          });
+        } else {
+          logger.warn(
+            { chargeId: charge.id, paymentIntentId: refundPaymentIntentId },
+            "charge.refunded: non-lifetime refund, could not resolve user — nothing recorded",
+          );
+        }
+      } else {
+        logger.warn({ chargeId: charge.id }, "charge.refunded has no payment intent — nothing to apply");
+      }
       break;
     }
-    case "charge.dispute.created": {
+    case "charge.dispute.created":
+    case "charge.dispute.closed": {
       const dispute = event.data.object as unknown as {
         id: string;
-        charge: string | { id: string };
-        payment_intent: string | { id: string } | null;
-        status: string;
         amount: number;
         currency: string;
         livemode?: boolean;
       };
-      // Fall back to the event-level livemode flag if the dispute object omits it
-      // (e.g. minimal test fixtures), so the admin alert links to the correct dashboard.
-      await handleDisputeCreated(stripe, { ...dispute, livemode: dispute.livemode ?? event.livemode });
-      break;
-    }
-    case "charge.dispute.closed": {
-      const dispute = event.data.object as unknown as {
-        id: string;
-        charge: string | { id: string };
-        payment_intent: string | { id: string } | null;
-        status: string;
-        amount: number;
-        currency: string;
-      };
-      await handleDisputeClosed(stripe, dispute);
+      // Fall back to the event-level livemode flag if the dispute object omits
+      // it (minimal test fixtures), so the admin alert links to the right
+      // dashboard.
+      entitlement = await prepareDispute(
+        stripe,
+        event.id,
+        { ...dispute, livemode: dispute.livemode ?? event.livemode },
+        event.type === "charge.dispute.created" ? "created" : "closed",
+      );
       break;
     }
     case "charge.dispute.updated": {
@@ -1001,6 +873,12 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         livemode?: boolean;
         evidence_details?: { due_by?: number | null } | null;
       };
+      // The transition write, which this case previously did not do at all —
+      // Stripe sends `.updated` for status transitions, so `needs_response ->
+      // under_review` reached no writer and stayed stale until reconciliation
+      // happened to sweep it.
+      entitlement = await prepareDispute(stripe, event.id, dispute, "updated");
+
       const dueBy = dispute.evidence_details?.due_by ?? null;
       const isActionable = dispute.status === "needs_response" || dispute.status === "warning_needs_response";
       if (dueBy != null && isActionable) {
@@ -1011,14 +889,18 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
           // Round up so a deadline 30 minutes out reads as "1 hour" rather than
           // "0 hours" — operators need a non-zero urgency cue in the subject line.
           const ceiledHours = Math.max(1, Math.ceil(hoursUntilDue));
-          void notifyAdminsOfDispute({
-            kind: "deadline_approaching",
-            disputeId: dispute.id,
-            amount: dispute.amount,
-            currency: dispute.currency,
-            livemode: dispute.livemode ?? event.livemode,
-            hoursUntilDue: ceiledHours,
-          });
+          // Deferred to afterCommit — a retry of an already-processed `.updated`
+          // must not re-alert with a recomputed (and now smaller) hours-until-due.
+          afterCommit.push(() =>
+            notifyAdminsOfDispute({
+              kind: "deadline_approaching",
+              disputeId: dispute.id,
+              amount: dispute.amount,
+              currency: dispute.currency,
+              livemode: dispute.livemode ?? event.livemode,
+              hoursUntilDue: ceiledHours,
+            }),
+          );
         }
       }
       break;
@@ -1035,14 +917,17 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       };
 
       // Always alert admins regardless of whether we can resolve the user — balance
-      // accounting matters even when the user lookup fails.
-      void notifyAdminsOfDispute({
-        kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
-        disputeId: dispute.id,
-        amount: dispute.amount,
-        currency: dispute.currency,
-        livemode: dispute.livemode ?? event.livemode,
-      });
+      // accounting matters even when the user lookup fails. Deferred to
+      // afterCommit, same reason as every other alert in this switch.
+      afterCommit.push(() =>
+        notifyAdminsOfDispute({
+          kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
+          disputeId: dispute.id,
+          amount: dispute.amount,
+          currency: dispute.currency,
+          livemode: dispute.livemode ?? event.livemode,
+        }),
+      );
 
       // Record a history entry against the user/dispute so the admin dispute
       // history page (#229) can show when Stripe actually debited / reinstated
@@ -1055,9 +940,9 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         : null;
 
       if (chargeId) {
-        const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+        const resolved = await resolveUserForCharge(stripe, paymentIntentId, chargeId);
         if (resolved) {
-          await recordHistory(
+          pushHistory(
             resolved.user.id,
             event.type === "charge.dispute.funds_withdrawn" ? "dispute_funds_withdrawn" : "dispute_funds_reinstated",
             {
@@ -1082,6 +967,50 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
     default:
       break;
   }
+
+  return { entitlement, historyWrites, afterCommit };
+}
+
+/**
+ * Execute the emails and admin alerts a committed event owes.
+ *
+ * Best-effort by construction, exactly as today: a crash between commit and here
+ * loses them, and that loss is accepted — see the plan's *Notifications are out
+ * of scope*. What this ordering buys is that nothing notifies on state that
+ * rolled back moments later.
+ */
+async function runAfterCommit(
+  prepared: PreparedDomainEvent,
+  notifications: NotificationAction[],
+): Promise<void> {
+  await runNotifications(notifications);
+  for (const action of prepared.afterCommit) {
+    try {
+      await action();
+    } catch (err) {
+      logger.error({ err }, "post-commit webhook side effect failed");
+    }
+  }
+}
+
+/**
+ * Phase two: perform the prepared writes inside the caller's transaction.
+ *
+ * No network call happens here — a `PreparedDomainEvent` carries no Stripe
+ * client, so this phase cannot reach the network even by mistake. Returns the
+ * notifications the apply decided on, from the locked pre-mutation state.
+ */
+async function applyDomainEvent(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  prepared: PreparedDomainEvent,
+): Promise<NotificationAction[]> {
+  const result = await applyPrepared(tx, prepared.entitlement);
+
+  if (prepared.historyWrites.length > 0) {
+    await tx.insert(membershipHistoryTable).values(prepared.historyWrites);
+  }
+
+  return result.notifications;
 }
 
 export class WebhookHandlers {
@@ -1095,11 +1024,18 @@ export class WebhookHandlers {
    */
   static async processEventDirectly(event: Stripe.Event): Promise<void> {
     const stripe = await getUncachableStripeClient();
+    const prepared = await prepareDomainEvent(stripe, event);
     try {
-      await processDomainSwitch(stripe, event);
+      // No idempotency claim on this path — it is test-mode QA, replaying a
+      // hand-built event deliberately. The prepare/apply split still holds, so
+      // the same code runs here as in production.
+      const notifications = await runBoundedApply((tx) => applyDomainEvent(tx, prepared));
+      await runAfterCommit(prepared, notifications);
     } catch (err) {
       logger.error({ err, eventType: event.type }, "Test domain event handler error");
       throw err;
+    } finally {
+      await releasePrepared(prepared.entitlement);
     }
   }
 
@@ -1146,14 +1082,24 @@ export class WebhookHandlers {
     }
 
     // Phase 2: Acquire the Stripe client for domain processing.
-    // If credentials are unavailable, skip domain logic — the sync already persisted
-    // the event data to stripe.* tables so nothing is lost.
+    //
+    // THROWS rather than returning. This used to return, on the reasoning that
+    // the sync had already persisted the event to the `stripe.*` tables so
+    // nothing was lost — but that only held while reconciliation existed to
+    // consume those tables. With reconciliation deferred, returning here means
+    // the route answers 200, Stripe never redelivers, and a received
+    // cancellation, refund or dispute is dropped permanently with no repair
+    // path. A credential outage is transient by nature, which is exactly what
+    // Stripe's retry schedule is for.
     let stripe: Stripe | null = null;
     try {
       stripe = await getUncachableStripeClient();
     } catch (credErr) {
-      logger.warn({ err: credErr }, "Stripe credentials unavailable — skipping domain event processing");
-      return;
+      logger.error(
+        { err: credErr },
+        "Stripe credentials unavailable — failing the webhook so Stripe redelivers rather than dropping the event",
+      );
+      throw credErr;
     }
 
     // Phase 3: Parse the verified payload as a typed Stripe event.
@@ -1167,31 +1113,77 @@ export class WebhookHandlers {
     }
     await this.audit(event.id, event.type, "received");
 
-    // Atomic idempotency claim: insert fails on duplicate under concurrent deliveries.
+    let prepared: PreparedDomainEvent | undefined;
+
+    // The idempotency claim and the domain processing share ONE transaction.
+    //
+    // Claimed-then-processed as two commits drops events: the claim survives a
+    // handler throw, so Stripe's retry sees the event as already processed and
+    // the work never happens. In one transaction a throw rolls the claim back
+    // and the retry can succeed.
+    //
+    // The AUDIT writes stay OUTSIDE it, deliberately. A `failed` audit row that
+    // rolled back with the claim would destroy the only evidence the failure
+    // ever happened — which is exactly the record you need when an event
+    // silently did not apply.
     try {
-      await db.insert(stripeProcessedEventsTable).values({ eventId: event.id });
+      // Phase A — prepare. Every Stripe retrieval and the per-source lease,
+      // with no transaction open. At this point stripe is guaranteed non-null:
+      // either we acquired it in phase 1, or we returned early above.
+      prepared = await prepareDomainEvent(stripe!, event);
+
+      // A noop is not automatically a settled fact. `source_busy` (lease
+      // contention), `retrieval_failed` and `incomplete_enumeration` (a Stripe
+      // call or pagination pass that didn't complete) describe OUR inability to
+      // observe the object right now, not something about the object itself —
+      // unlike e.g. `not_membership_product`, which will never become true on a
+      // retry. Committing the idempotency claim on a retryable noop would
+      // permanently ack a transient failure: Stripe would never redeliver it, and
+      // nothing else reconstructs a one-time grant or dispute transition from
+      // scratch. So this throws BEFORE the claim, same as any other failure.
+      if (prepared.entitlement.kind === "noop" && RETRYABLE_NOOP_REASONS.has(prepared.entitlement.reason)) {
+        throw new Error(`retryable prepare failure: ${prepared.entitlement.reason}`);
+      }
+
+      // Phase B — apply. The claim and every domain write, one transaction, no
+      // network. A throw rolls the claim back so Stripe's retry can succeed.
+      const readyToApply = prepared;
+      const notifications = await runBoundedApply(async (tx) => {
+        // Fails on duplicate under concurrent deliveries. Inside the transaction
+        // it also holds the row lock for the whole of processing, so two
+        // simultaneous deliveries of one event cannot both proceed.
+        await tx.insert(stripeProcessedEventsTable).values({ eventId: event.id });
+        return applyDomainEvent(tx, readyToApply);
+      });
+
+      await this.audit(event.id, event.type, "processed");
+
+      // Phase C — after the commit, and only if it committed.
+      await runAfterCommit(readyToApply, notifications);
     } catch (err) {
-      const isUniqueViolation = err instanceof Error &&
-        ((err as unknown as { code?: string }).code === "23505" || err.message.toLowerCase().includes("unique"));
-      if (isUniqueViolation) {
+      // ONLY the claim's own unique violation means "already processed".
+      //
+      // This catch spans preparation, the whole domain transaction, auditing and
+      // post-commit work, so a broad 23505 test convicts the wrong error: two
+      // first-purchase events racing in `linkCustomerToUser` make the loser
+      // violate the unique Stripe-customer constraint during PREPARE, before any
+      // claim exists. Calling that a duplicate returns 200, so Stripe never
+      // redelivers and a real purchase is dropped — the exact failure the
+      // claim-inside-the-transaction design exists to prevent, reached through
+      // the error path instead. Matching on the constraint name is what makes
+      // "already claimed" mean it. The message-substring test is gone with it:
+      // "unique" appears in plenty of unrelated errors.
+      const isDuplicateClaim = isConstraintViolation(err, PROCESSED_EVENTS_PK);
+      if (isDuplicateClaim) {
         await this.audit(event.id, event.type, "ignored_duplicate");
         logger.info({ eventId: event.id, eventType: event.type }, "Webhook event already processed — skipping (idempotency)");
         return;
       }
-      await this.audit(event.id, event.type, "failed", "idempotency_claim_failed");
-      throw err;
-    }
-
-    // Process domain-specific logic via shared switch
-    // At this point stripe is guaranteed non-null: either we successfully acquired it
-    // in phase 1, or we returned early in the degraded-mode branch above.
-    try {
-      await processDomainSwitch(stripe!, event);
-      await this.audit(event.id, event.type, "processed");
-    } catch (err) {
       await this.audit(event.id, event.type, "failed", err instanceof Error ? err.message.slice(0, 400) : String(err));
       logger.error({ err, eventType: event.type }, "Webhook domain handler error");
       throw err;
+    } finally {
+      if (prepared) await releasePrepared(prepared.entitlement);
     }
   }
 }

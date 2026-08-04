@@ -3,8 +3,8 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
@@ -52,6 +52,55 @@ import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
+  isMembershipConfigKey,
+  lockAndLoadMembershipConfig,
+  resolveMembershipConfig,
+  validateMembershipConfigSet,
+  type MembershipConfigKey,
+} from "../lib/membershipTiming";
+
+/**
+ * A relational-config rejection raised from inside the write transaction.
+ *
+ * Distinguished by type rather than by message so the catch cannot mistake a
+ * genuine database failure for a validation rejection and answer it with a 400.
+ */
+class RelationalConfigError extends Error {}
+
+/**
+ * Parse a config value EXACTLY as the runtime resolver will.
+ *
+ * `adminConfig`'s `getConfigInt` uses `parseInt`, which stops at the first
+ * non-digit: "1e5" is 1 at runtime but 100000 to `Number`. Validating with one
+ * and running with the other lets an operator store a value the validator
+ * approved and the system then violates. Non-canonical strings are refused
+ * outright rather than silently reinterpreted — round-tripping the parsed number
+ * back to a string is what makes "canonical" checkable.
+ */
+function parseMembershipConfigValue(raw: string, dataType: string): number | null {
+  const trimmed = raw.trim();
+  if (dataType === "integer") {
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isNaN(parsed)) return null;
+    return String(parsed) === trimmed ? parsed : null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+import { deriveEffectiveMembership, effectiveTierExpr } from "../lib/membershipState";
+import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
+import { graceSweepHealth } from "../lib/membershipSchedules";
+import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
+import {
+  loadSourceSnapshots,
+  loadSourceStateVersions,
+  hasQualifyingLifetimeSource,
+  recomputeMembership,
+  writeAdminGrant,
+  writeAdminRevocation,
+} from "../lib/membershipSources";
+import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
+import {
   FACT_ENRICHMENT_CONFIG_KEYS,
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
   resolveFactEnrichmentSystemPrompt,
@@ -69,25 +118,75 @@ import { logger } from "../lib/logger";
 
 const _styleStorage = new ObjectStorageService();
 
-async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
-  const lifetimeRows = await db
-    .select({ id: lifetimeEntitlementsTable.id })
-    .from(lifetimeEntitlementsTable)
-    .where(eq(lifetimeEntitlementsTable.userId, userId))
-    .limit(1);
-  if (lifetimeRows.length > 0) return "legendary";
+/**
+ * The human-readable label an admin action is attributed by.
+ *
+ * First NON-BLANK candidate, not first non-null: the admin edit route accepts a
+ * whitespace-only display name, and `??` would pick that over a perfectly good
+ * email — which `authorizeAdminGrant` then trims to empty and rejects, turning
+ * grant, revoke and Legendary user-creation into 500s. Returns "" when nothing
+ * readable exists, which those constructors reject deliberately; the raw id is
+ * never a fallback, since no internal id may reach an admin-visible surface.
+ */
+function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
+  return [actor.displayName, actor.email].find((v) => (v ?? "").trim() !== "")?.trim() ?? "";
+}
 
-  const activeSubRows = await db
-    .select({ id: subscriptionsTable.id })
-    .from(subscriptionsTable)
-    .where(and(
-      eq(subscriptionsTable.userId, userId),
-      gt(subscriptionsTable.currentPeriodEnd, new Date()),
-    ))
-    .limit(1);
-  if (activeSubRows.length > 0) return "legendary";
-
-  return "registered";
+/**
+ * Reinstatement recomputes from AUTHORITATIVE state, not from local rows.
+ *
+ * The old version asked "does a lifetime row exist" and "is there a subscription
+ * whose period has not ended" — two bare-existence reads that both say yes for a
+ * user whose purchase was refunded, or whose subscription Stripe has already
+ * cancelled while the webhook was dropped. And reinstatement is a manual action
+ * that can easily precede a reconciliation pass.
+ *
+ * So it refreshes every Stripe-backed source first. This is a rare,
+ * high-consequence operation, so the extra retrieval is free.
+ *
+ * And an INCOMPLETE refresh may not return `legendary`. An earlier revision
+ * recomputed from local state whenever the refresh failed and called that
+ * "failing closed" — it is the opposite. The precise case reinstatement exists
+ * to catch is a source whose cancellation webhook was dropped: locally it still
+ * says `active`, and recomputing from that restores paid access on exactly the
+ * evidence we could not confirm. Failing closed means declining to assert
+ * Legendary without an authoritative read, which is what this does; the admin
+ * can reinstate again once Stripe is reachable, and the scheduled reconciliation
+ * repairs the source regardless.
+ */
+/**
+ * Refresh every Stripe-backed source before a reinstatement decides anything.
+ *
+ * Returns whether the refresh was COMPLETE. `failed` counts per-source failures
+ * `refreshAllSourcesForUser` swallows internally, so the absence of a throw is
+ * not evidence that every source was seen — and reinstating on a stale local row
+ * is exactly how a cancelled subscription hands Legendary back.
+ *
+ * Deliberately returns no tier. An earlier revision derived one here, in its own
+ * transaction, and the caller copied it into a later `UPDATE` — so a refund or
+ * cancellation webhook recomputing in the gap was overwritten, restoring
+ * Legendary with a null horizon and granting access indefinitely. The derivation
+ * has to happen under the same lock as the write that lands it, which is the
+ * caller's transaction, not this function's.
+ */
+async function refreshSourcesForReinstatement(
+  userId: string,
+): Promise<{ complete: boolean; verifiedSourceIds: Set<number> }> {
+  try {
+    const { getUncachableStripeClient } = await import("../lib/stripeClient");
+    const stripe = await getUncachableStripeClient();
+    const { failed, verifiedSourceIds } = await refreshAllSourcesForUser(stripe, userId);
+    if (failed > 0) {
+      logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
+      return { complete: false, verifiedSourceIds };
+    }
+    return { complete: true, verifiedSourceIds };
+  } catch (err) {
+    logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
+    // A total failure verified nothing — never an empty set standing in for
+    // "everything was fine".
+    return { complete: false, verifiedSourceIds: new Set() };
+  }
 }
 
 const router: IRouter = Router();
@@ -137,8 +236,20 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
     : undefined;
   const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : (activeFilter ?? searchFilter);
 
+  // The admin list renders `membershipTier`, so it reports the EFFECTIVE tier
+  // rather than the raw column: with the convergence sweep failing and a grace
+  // horizon passed, authorization has already demoted the user and this screen
+  // would otherwise still show Legendary. Both surfaces evaluate at one bound
+  // instant so the list cannot disagree with itself mid-page.
+  const asOf = new Date();
   const [users, [{ total }]] = await Promise.all([
-    db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
+    db
+      .select({ ...getTableColumns(usersTable), membershipTier: effectiveTierExpr(asOf) })
+      .from(usersTable)
+      .where(where)
+      .orderBy(desc(usersTable.createdAt))
+      .limit(limit)
+      .offset(offset),
     db.select({ total: count() }).from(usersTable).where(where),
   ]);
 
@@ -158,8 +269,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
-  if (body["membershipTier"] !== undefined && ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"])))
-    updates.membershipTier = String(body["membershipTier"]) as "unregistered" | "registered" | "legendary";
+  // `membershipTier` is deliberately NOT accepted here. It is derived from
+  // entitlement sources, and accepting it would let an admin write a value the
+  // next recompute silently reverts — the failure mode being that the change
+  // appears to work and then does not. Comping a membership is
+  // POST /admin/users/:id/grant-lifetime, which writes an entitlement.
   if (body["pronouns"] !== undefined) {
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
@@ -180,22 +294,145 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     return;
   }
 
+  let reinstating = false;
   if (updates.isActive === true && body["membershipTier"] === undefined) {
     const [currentUser] = await db
       .select({ isActive: usersTable.isActive })
       .from(usersTable)
       .where(eq(usersTable.id, id))
       .limit(1);
-    if (currentUser && currentUser.isActive === false) {
-      updates.membershipTier = await resolveUserTierOnReinstatement(id);
-    }
+    reinstating = currentUser?.isActive === false;
   }
 
-  const [updated] = await db
-    .update(usersTable)
-    .set(updates)
-    .where(eq(usersTable.id, id))
-    .returning();
+  // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
+  // only whether it was complete — never a tier.
+  //
+  // The per-source versions are read BEFORE the refresh so "applied since we
+  // began" is answerable against COMMITTED state, whoever did the applying.
+  const versionsBeforeRefresh = reinstating
+    ? await loadSourceStateVersions(db, id)
+    : new Map<number, number>();
+  const refresh = reinstating
+    ? await refreshSourcesForReinstatement(id)
+    : { complete: true, verifiedSourceIds: new Set<number>() };
+
+  const [updated] = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, id))
+      .returning();
+
+    if (!row || !reinstating) return [row];
+
+    // Derived and written under the SAME lock, in the same transaction as the
+    // activation. `recomputeMembership` takes the user row `FOR UPDATE`, so a
+    // refund or cancellation webhook either lands before this and is counted, or
+    // waits behind it — where copying a previously-derived tier into this update
+    // would simply overwrite whatever it had just decided.
+    await recomputeMembership(tx, id);
+
+    if (!refresh.complete) {
+      // Fail closed — but only over sources that are ACTUALLY unverified, and
+      // only to the extent that the tier actually rests on them.
+      //
+      // "My refresh failed" is not the same as "this data is unverified". The
+      // common failure is `source_busy`, which means another writer held the
+      // lease — and that writer's own authoritative apply may well have landed
+      // while we waited. Overwriting the derived tier on that basis strands a
+      // paying user at `registered` with nothing scheduled to revisit them,
+      // since the event that would have fixed it has already been consumed.
+      //
+      // A source is TRUSTED if either is true:
+      //
+      //   1. We verified it ourselves. A successful verification can write
+      //      nothing at all — confirming a lifetime purchase was not refunded
+      //      is a no-op — so verification has to be tracked separately rather
+      //      than inferred from the version. Inferring it labelled a
+      //      verified-clean source stale whenever some OTHER source's version
+      //      moved.
+      //   2. Its version moved, meaning somebody else applied it since we
+      //      began. Per-source, not a single sequence watermark: sequences
+      //      advance outside commit, so a writer can allocate its token before a
+      //      `last_value` read and commit after it. Comparing committed row
+      //      values to committed row values is the only comparison that
+      //      respects commit order. A source absent from the "before" map is
+      //      new, therefore fresh; one that has since disappeared cannot be
+      //      stale.
+      //
+      // `admin_grant` never appears here at all — it has no provider state to
+      // verify against, so it is authoritative by construction.
+      const versionsNow = await loadSourceStateVersions(tx, id);
+      const staleSourceIds = new Set<number>();
+      for (const [sourceId, version] of versionsNow) {
+        if (refresh.verifiedSourceIds.has(sourceId)) continue;
+        const before = versionsBeforeRefresh.get(sourceId);
+        if (before !== undefined && before === version) staleSourceIds.add(sourceId);
+      }
+
+      if (staleSourceIds.size > 0) {
+        // Re-derive over the TRUSTED sources and persist that whole result —
+        // tier and horizon together.
+        //
+        // Two things go wrong if this is a boolean check that merely preserves
+        // what `recomputeMembership` wrote. An aggregate downgrade throws away
+        // independently authoritative entitlements: a comped member with a
+        // qualifying `admin_grant` would be dropped to `registered` by a
+        // transient Stripe outage on an unrelated subscription, with no provider
+        // event guaranteed to ever restore them. And preserving the all-sources
+        // result keeps the all-sources HORIZON — so a verified `past_due` source
+        // whose grace ends soon, sitting beside an unverified source that still
+        // looks indefinitely active locally, yields a null horizon and grants
+        // Legendary from the stale source forever, with the sweep recomputing
+        // the same wrong answer every hour.
+        //
+        // Deriving from `trusted` answers both: the tier reflects only sources
+        // we can stand behind, and the horizon is the one those sources
+        // actually support.
+        const trusted = (await loadSourceSnapshots(tx, id)).filter(
+          (snapshot) => !staleSourceIds.has(snapshot.id),
+        );
+        const derived = deriveEffectiveMembership(trusted, new Date());
+
+        // `unregistered` is an AUTH state, not an entitlement one, and the
+        // derivation must never promote out of it — `recomputeMembership`
+        // enforces exactly that, and writing `derived.tier` here bypassed it.
+        // Its no-source answer is `registered`, so an unregistered account being
+        // reinstated with any stale source would have been silently granted
+        // registration capabilities by the fail-closed path.
+        const [locked] = await tx
+          .select({ tier: usersTable.membershipTier })
+          .from(usersTable)
+          .where(eq(usersTable.id, id))
+          .limit(1);
+        const nextTier = locked?.tier === "unregistered" ? "unregistered" : derived.tier;
+
+        await tx
+          .update(usersTable)
+          .set({ membershipTier: nextTier, membershipValidUntil: derived.validUntil })
+          .where(eq(usersTable.id, id));
+
+        logger.info(
+          {
+            userId: id,
+            staleSources: staleSourceIds.size,
+            trustedTier: derived.tier,
+            trustedValidUntil: derived.validUntil,
+          },
+          "reinstatement refresh was incomplete — membership re-derived over the sources it could trust",
+        );
+      } else {
+        logger.info(
+          { userId: id },
+          "reinstatement refresh reported incomplete, but every source was either verified or applied " +
+            "by another writer since it began — the derived tier stands",
+        );
+      }
+    }
+
+    const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    return [fresh];
+  });
 
   if (!updated) {
     res.status(404).json({ error: "User not found" });
@@ -275,11 +512,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 2.5: Cancel active Stripe subscription (non-fatal — user is being permanently deleted)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -287,13 +528,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[hard-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[hard-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -305,8 +548,11 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 3: Delete records with NOT NULL user_id FKs and no cascade
       currentStage = "membership";
       await db.delete(stripeCheckoutRequestLedgerTable).where(eq(stripeCheckoutRequestLedgerTable.userId, id));
-      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
-      await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+      // membership_entitlements is NOT deleted here: its user_id FK is
+      // ON DELETE CASCADE, so the rows go with the user in step 5. Deleting
+      // them explicitly would also destroy the disputes that cascade off them
+      // before the user row is gone, for no benefit.
+
       await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
       await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
       await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
@@ -341,11 +587,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 1: Cancel active Stripe subscription (non-fatal)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -353,13 +603,25 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
+              // Apply the cancellation LOCALLY rather than waiting for the
+              // webhook. Under a derived model, leaving the row `active` means a
+              // later reinstatement recomputes Legendary for a user whose
+              // subscription Stripe has already cancelled — and "the webhook
+              // usually closes the gap" is exactly what this model refuses.
+              // subscription_cancelled is recorded unconditionally by
+              // applySubscription itself on the status transition — passing it
+              // as a transitionEvent too would double-write it whenever this
+              // cancellation also happens to change the user's aggregate tier.
+              await refreshSubscriptionSource(stripe, subscriptionId);
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[soft-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -394,26 +656,44 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   const id = String(req.params["id"] ?? "");
   try {
     const [lifetimeRows, subRows, historyRows] = await Promise.all([
+      // A lifetime PURCHASE and an admin GRANT are now different source types,
+      // where the old schema conflated them: a comp was a lifetime row with a
+      // synthesized payment-intent id and amount 0. This screen shows both, and
+      // says which is which.
       db.select({
-        id: lifetimeEntitlementsTable.id,
-        userId: lifetimeEntitlementsTable.userId,
-        stripePaymentIntentId: lifetimeEntitlementsTable.stripePaymentIntentId,
-        stripeCustomerId: lifetimeEntitlementsTable.stripeCustomerId,
-        amount: lifetimeEntitlementsTable.amount,
-        currency: lifetimeEntitlementsTable.currency,
-        status: lifetimeEntitlementsTable.status,
-        grantedByAdminId: lifetimeEntitlementsTable.grantedByAdminId,
-        createdAt: lifetimeEntitlementsTable.createdAt,
-        grantedByAdminDisplayName: usersTable.displayName,
-        grantedByAdminEmail: usersTable.email,
+        id: membershipEntitlementsTable.id,
+        userId: membershipEntitlementsTable.userId,
+        sourceType: membershipEntitlementsTable.sourceType,
+        stripePaymentIntentId: membershipEntitlementsTable.providerRef,
+        amount: membershipEntitlementsTable.amount,
+        currency: membershipEntitlementsTable.currency,
+        status: membershipEntitlementsTable.lifecycleStatus,
+        isMembershipProduct: membershipEntitlementsTable.isMembershipProduct,
+        disputeLossRevokedAt: membershipEntitlementsTable.disputeLossRevokedAt,
+        grantedByAdminId: membershipEntitlementsTable.grantedByAdminId,
+        grantedByAdminLabel: membershipEntitlementsTable.grantedByAdminLabel,
+        grantReason: membershipEntitlementsTable.grantReason,
+        revokedByAdminLabel: membershipEntitlementsTable.revokedByAdminLabel,
+        revokedReason: membershipEntitlementsTable.revokedReason,
+        revokedAt: membershipEntitlementsTable.revokedAt,
+        createdAt: membershipEntitlementsTable.createdAt,
       })
-        .from(lifetimeEntitlementsTable)
-        .leftJoin(usersTable, eq(lifetimeEntitlementsTable.grantedByAdminId, usersTable.id))
-        .where(eq(lifetimeEntitlementsTable.userId, id))
-        .limit(1),
-      db.select().from(subscriptionsTable)
-        .where(eq(subscriptionsTable.userId, id))
-        .orderBy(desc(subscriptionsTable.createdAt))
+        .from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          or(
+            eq(membershipEntitlementsTable.sourceType, "stripe_lifetime_payment"),
+            eq(membershipEntitlementsTable.sourceType, "admin_grant"),
+          ),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
+        .limit(5),
+      db.select().from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
         .limit(1),
       (() => {
         const adminUsers = alias(usersTable, "admin_users");
@@ -438,7 +718,23 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
       })(),
     ]);
 
-    const appSub = subRows[0] ?? null;
+    // The shape this endpoint has always returned, rebuilt from the entitlement
+    // source so the admin client contract is unchanged — same pattern as
+    // GET /stripe/subscription.
+    const subSource = subRows[0] ?? null;
+    const appSub = subSource
+      ? {
+          id: subSource.id,
+          userId: subSource.userId,
+          stripeSubscriptionId: subSource.providerRef,
+          plan: subSource.plan,
+          status: subSource.lifecycleStatus,
+          currentPeriodEnd: subSource.currentPeriodEnd,
+          cancelAtPeriodEnd: subSource.cancelAtPeriodEnd ?? false,
+          createdAt: subSource.createdAt,
+          updatedAt: subSource.updatedAt,
+        }
+      : null;
 
     let stripeSub: Record<string, unknown> | null = null;
     if (appSub?.stripeSubscriptionId) {
@@ -453,7 +749,15 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
     const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
 
     res.json({
-      isLifetime: lifetimeRows.length > 0,
+      // Qualification, not existence: a refunded purchase keeps its row.
+      isLifetime: await hasQualifyingLifetimeSource(id),
+      // Separate from `isLifetime` on purpose. Revoking only ever acts on an
+      // active admin grant, so the client needs to know about THAT source
+      // specifically — a paid lifetime purchase also makes `isLifetime` true and
+      // has nothing for revoke to act on.
+      hasActiveAdminGrant: lifetimeRows.some(
+        (row) => row.sourceType === "admin_grant" && row.status === "active",
+      ),
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
@@ -467,11 +771,61 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
 });
 
 // GET /admin/refunds-disputes — paginated list of refund/dispute events from membership_history
-// Returns rows for events: refund, dispute_opened, dispute_won, dispute_lost, dispute_closed.
+// Returns rows for events: refund, partial_refund, dispute_opened, dispute_won,
+// dispute_lost, dispute_closed.
 // Joined with the users table so the UI can display who was affected without a second round-trip.
+/**
+ * GET /admin/membership/grace-sweep — the sweep's status at BOTH altitudes.
+ *
+ * `health` is the aggregate: cadence, staleness, whether it is past its alert
+ * threshold, and the last error. `drifted` is the per-item disposition: the
+ * users whose stored tier currently disagrees with what the read path enforces,
+ * i.e. exactly what a sweep that partially converged and then failed left
+ * behind.
+ *
+ * Nothing here is an access bug. `effectiveTierExpr` demotes these users on
+ * every request already; what this reports is a projection lag, which is
+ * precisely why it needs a surface rather than an alarm.
+ *
+ * Rate-limited like its `queue-health` sibling above: `requireAdmin` bounds
+ * *who* can call this, not how often — an authenticated or compromised admin
+ * session could otherwise re-run `driftedMembershipUsers()`'s full active-user
+ * scan on every request. Same family/shape as `admin.queue-health`.
+ */
+router.get("/admin/membership/grace-sweep", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.membership.grace-sweep", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
+    const [health, drifted] = await Promise.all([
+      graceSweepHealth(),
+      driftedMembershipUsers(),
+    ]);
+    // `driftedCount` is the UNCAPPED total, not the length of the sample. A cap
+    // reported as the total is a silent truncation, and this surface exists to
+    // tell an operator the real backlog.
+    res.json({
+      health,
+      drifted: drifted.users,
+      driftedCount: drifted.total,
+      driftedTruncated: drifted.truncated,
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] grace sweep status query failed");
+    res.status(503).json({ error: "Could not read grace sweep status" });
+  }
+});
+
 router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Response) => {
   const REFUND_DISPUTE_EVENTS = [
     "refund",
+    // A partial refund is a real refund event with its own durable history row
+    // (it deliberately leaves the entitlement active). Omitting it here hid it
+    // from the one surface dedicated to refunds while it sat in the database.
+    "partial_refund",
     "dispute_opened",
     "dispute_won",
     "dispute_lost",
@@ -540,45 +894,62 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
   }
 });
 
-// POST /admin/users/:id/grant-lifetime — manually grant Legendary for Life
+// POST /admin/users/:id/grant-lifetime — comp a membership
+//
+// W1b: an admin comp is an ENTITLEMENT with an actor, a label and a reason —
+// never a payment. What this replaces inserted a `lifetime_entitlements` row
+// with a synthesized payment-intent id (`admin_grant_<timestamp>_<random>`),
+// `stripeCustomerId: "admin_grant"` and `amount: 0`, which is indistinguishable
+// from a real purchase in any payment audit, and then set the tier by hand.
 router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const [existing, userRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
-      db.select({ stripeCustomerId: usersTable.stripeCustomerId }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
+    const [userRows] = await Promise.all([
+      db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
     ]);
-    if (existing.length > 0) {
-      res.status(400).json({ error: "User already has Legendary for Life" });
-      return;
-    }
     if (!userRows[0]) {
       res.status(404).json({ error: "User not found" });
       return;
     }
 
-    const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.insert(lifetimeEntitlementsTable).values({
-        userId: id,
-        stripePaymentIntentId: fakePaymentIntentId,
-        stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
-        amount: 0,
-        currency: "usd",
-        grantedByAdminId: adminUserId,
-      });
-      await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
+    const actor = req.user!;
+    // The only constructor for a grant. It throws rather than returning a
+    // partial record, so a blank actor or reason cannot reach the database and
+    // be discovered at a constraint — or not at all, if a future writer bypasses
+    // the constraint's shape.
+    const grant = authorizeAdminGrant({
+      userId: id,
+      grantedByAdminId: actor.id,
+      // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: adminLabel(actor),
+      grantReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Comped by an administrator",
+    });
+
+    const outcome = await db.transaction(async (tx) => {
+      const { created } = await writeAdminGrant(tx, grant);
+      if (!created) return { created: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "lifetime_purchase",
-        plan: "lifetime",
-        amount: 0,
-        currency: "usd",
-        stripePaymentIntentId: fakePaymentIntentId,
-        performedByAdminId: adminUserId,
+        event: "admin_grant",
+        performedByAdminId: actor.id,
       });
+      // The tier is DERIVED, not assigned. This is the same recompute every
+      // other writer calls.
+      await recomputeMembership(tx, id);
+      return { created: true as const };
     });
+
+    if (!outcome.created) {
+      // The partial unique index on active admin grants makes a duplicate
+      // submission — or a retry after an uncertain response — a no-op rather
+      // than a second qualifying row that would survive a later revoke.
+      res.status(400).json({ error: "User already has an active admin grant" });
+      return;
+    }
 
     const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     res.json({ success: true, user: updated });
@@ -588,26 +959,40 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
   }
 });
 
-// POST /admin/users/:id/revoke-lifetime — remove Legendary for Life entitlement
+// POST /admin/users/:id/revoke-lifetime — revoke an admin grant
+//
+// W1b's revocation clause: the grant is marked revoked WITH provenance, never
+// deleted. Deleting it — which is what this replaces — destroys the record that
+// a human granted and a human took it away, and history is append-only.
 router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const existing = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1);
-    if (existing.length === 0) {
-      res.status(400).json({ error: "User does not have Legendary for Life" });
-      return;
-    }
+    const actor = req.user!;
+    const revocation = authorizeAdminRevocation({
+      revokedByAdminId: actor.id,
+      // Never the raw admin id — same reasoning as the grant path above.
+      revokedByAdminLabel: adminLabel(actor),
+      revokedReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Revoked by an administrator",
+    });
 
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+    const outcome = await db.transaction(async (tx) => {
+      const { revoked } = await writeAdminRevocation(tx, id, revocation);
+      if (!revoked) return { revoked: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "subscription_cancelled",
-        plan: "lifetime",
-        performedByAdminId: adminUserId,
+        event: "admin_revoke",
+        performedByAdminId: actor.id,
       });
+      await recomputeMembership(tx, id);
+      return { revoked: true as const };
     });
+
+    if (!outcome.revoked) {
+      res.status(400).json({ error: "User does not have an active admin grant" });
+      return;
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -651,10 +1036,52 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
-    const [created] = await db
-      .insert(usersTable)
-      .values({ email, passwordHash, displayName, membershipTier, isAdmin, isActive: true })
-      .returning();
+    // Settled decision 8: admin user-creation writes an ENTITLEMENT, never a
+    // tier. Creating a user at `legendary` directly would put the one field this
+    // whole model derives back under manual control, and the first recompute
+    // would silently undo it — the user would appear Legendary until any event
+    // touched them, then drop.
+    const actor = req.user!;
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(usersTable)
+        .values({
+          email,
+          passwordHash,
+          displayName,
+          // Never `legendary`: that tier is granted below, through the model.
+          membershipTier: membershipTier === "legendary" ? "registered" : membershipTier,
+          isAdmin,
+          isActive: true,
+        })
+        .returning();
+
+      if (membershipTier === "legendary") {
+        await writeAdminGrant(
+          tx,
+          authorizeAdminGrant({
+            userId: row.id,
+            grantedByAdminId: actor.id,
+            // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: adminLabel(actor),
+            grantReason: "Created as a Legendary member by an administrator",
+          }),
+        );
+        await tx.insert(membershipHistoryTable).values({
+          userId: row.id,
+          event: "admin_grant",
+          performedByAdminId: actor.id,
+        });
+        await recomputeMembership(tx, row.id);
+        const [refreshed] = await tx.select().from(usersTable).where(eq(usersTable.id, row.id)).limit(1);
+        return refreshed ?? row;
+      }
+
+      return row;
+    });
+
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
   } catch (err: unknown) {
@@ -2232,6 +2659,17 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   let newValueLabel: string | null | undefined;
   let newDebugValue: string | null | undefined;
   let newDebugValueLabel: string | null | undefined;
+  /**
+   * Relational checks to run INSIDE the write transaction, against the locked
+   * config set — never against a cached read taken before it.
+   */
+  /**
+   * The membership-config columns this ONE request changes, collected so the
+   * transaction below can build a single final state rather than checking each
+   * field against the pre-patch rows. `debug: null` means the override is being
+   * cleared, which is a change like any other.
+   */
+  const relationalChanges: Array<{ value: number | null; target: "value" | "debug" }> = [];
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2264,16 +2702,42 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
+    // Some settings are only coherent against each other: the entitlement lease
+    // must outlive the bounded Stripe retrieval plus the apply, a waiter must
+    // not outlive the lease it waits for, and the sweep alert must not fire
+    // before the sweep could have run again. Every individual range can pass
+    // while the SET is broken, and a relational invariant enforced on one side
+    // only is not enforced — so this runs on a write to ANY component.
+    if (isMembershipConfigKey(key)) {
+      // Parsed the way RUNTIME parses it, not the way JavaScript would like to.
+      // `getConfigInt` uses `parseInt`, so "1e5" resolves to 1 at runtime while
+      // `Number` reads it as 100000 — the validator would approve a relationship
+      // the running system then violates, from a value stored verbatim.
+      const parsed = parseMembershipConfigValue(rawValue, existing.dataType);
+      if (parsed === null) {
+        res.status(400).json({ error: "Value must be a number" });
+        return;
+      }
+      // Deferred to the write transaction below, where the set it is checked
+      // against is locked — see `lockAndLoadMembershipConfig`.
+      relationalChanges.push({ value: parsed, target: "value" });
+    }
+
     newValue = rawValue;
     newValueLabel = body.valueLabel !== undefined && body.valueLabel !== null
       ? String(body.valueLabel).trim() || null
       : undefined;
   }
 
-  if (hasDebugValue) {
-    const rawDebug = body.debugValue === null || String(body.debugValue).trim() === ""
-      ? null
-      : String(body.debugValue).trim();
+  if (hasDebugValue || clearDebug) {
+    // `clearDebugValue: true` sent alone (no `debugValue` key at all) is a
+    // second way to clear the override, and it must land on the exact same
+    // validation path as `debugValue: null` — a separate `else if (clearDebug)`
+    // branch after this block used to skip every check below, including the
+    // relational one, for this specific mechanism.
+    const rawDebug = hasDebugValue
+      ? (body.debugValue === null || String(body.debugValue).trim() === "" ? null : String(body.debugValue).trim())
+      : null;
     if (rawDebug !== null && existing.dataType === "integer") {
       const parsed = parseInt(rawDebug, 10);
       if (isNaN(parsed)) {
@@ -2303,27 +2767,116 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
+    // Debug mode makes debugValue the EFFECTIVE value everywhere (see
+    // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
+    // of breaking the lease/waiter/sweep-alert relationships as a
+    // write to value, and skipping the check here left debug mode a backdoor
+    // around it. CLEARING an override is not exempt either: clearing this
+    // key's debug value does not make it inert, it reverts the EFFECTIVE value
+    // to the base `value` column — which can violate a relational invariant
+    // against another key's still-active debug override exactly as easily as
+    // setting a bad debug value can. So the check always runs, using whichever
+    // value this key's write actually makes effective.
+    if (isMembershipConfigKey(key)) {
+      const parsed = parseMembershipConfigValue(
+        rawDebug !== null ? rawDebug : existing.value,
+        existing.dataType,
+      );
+      if (parsed === null) {
+        res.status(400).json({ error: "Debug value must be a number" });
+        return;
+      }
+      // `rawDebug === null` is a CLEAR: the override goes away and the base
+      // value becomes effective again, which is why null is carried through
+      // rather than substituted here.
+      relationalChanges.push({ value: rawDebug !== null ? parsed : null, target: "debug" });
+    }
     newDebugValue = rawDebug;
-    newDebugValueLabel = body.debugValueLabel !== undefined && body.debugValueLabel !== null
-      ? String(body.debugValueLabel).trim() || null
-      : undefined;
-  } else if (clearDebug) {
-    newDebugValue = null;
-    newDebugValueLabel = null;
+    // Clearing (either mechanism) always clears the label too — a null debug
+    // value never keeps a stale debug label attached to it.
+    newDebugValueLabel = rawDebug === null
+      ? null
+      : (body.debugValueLabel !== undefined && body.debugValueLabel !== null
+          ? String(body.debugValueLabel).trim() || null
+          : undefined);
   }
 
-  const [updated] = await db
-    .update(adminConfigTable)
-    .set({
-      ...(newValue !== undefined ? { value: newValue } : {}),
-      ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
-      ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
-      ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
-      updatedAt: new Date(),
-      updatedById: req.user?.id ?? null,
-    })
-    .where(eq(adminConfigTable.key, key))
-    .returning();
+  const patch = {
+    ...(newValue !== undefined ? { value: newValue } : {}),
+    ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
+    ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
+    ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
+    updatedAt: new Date(),
+    updatedById: req.user?.id ?? null,
+  };
+
+  let updated: typeof adminConfigTable.$inferSelect | undefined;
+
+  if (relationalChanges.length === 0) {
+    [updated] = await db
+      .update(adminConfigTable)
+      .set(patch)
+      .where(eq(adminConfigTable.key, key))
+      .returning();
+  } else {
+    // The relational check and the write it authorises share one transaction, so
+    // the set the check read cannot move before the write lands. Rejections
+    // travel out as a thrown message rather than a mid-transaction `res.json`,
+    // which would respond while the transaction was still open.
+    try {
+      updated = await db.transaction(async (tx) => {
+        const membershipKey = key as MembershipConfigKey;
+        const rows = await lockAndLoadMembershipConfig(tx);
+
+        // ONE final state, validated under BOTH resolutions.
+        //
+        // Both halves of that matter. Checking each field of the patch against
+        // the ORIGINAL rows let a single request that changes `value` AND clears
+        // `debugValue` slip through: each check saw the other field unchanged,
+        // and the committed combination satisfied neither. So the whole patch is
+        // applied to the locked rows first, and the result is what gets checked.
+        //
+        // And both resolutions, not just the one in force: while debug mode is
+        // off its overrides are inert, so a debug value checked only against the
+        // base set sits there looking fine until the mode is flipped — and
+        // `debug_mode_active` is not a membership key, so its own PATCH runs no
+        // relational check and would activate the invalid pair in one step.
+        const nextRow = { ...rows[membershipKey] };
+        for (const change of relationalChanges) {
+          if (change.target === "debug") {
+            nextRow.debugValue = change.value;
+          } else if (change.value !== null) {
+            nextRow.value = change.value;
+          }
+        }
+        const nextRows = { ...rows, [membershipKey]: nextRow };
+
+        const baseError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, false));
+        const debugError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, true));
+        const error = baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
+        if (error) {
+          // The prefix belongs to whichever half of the patch is debug-only, so
+          // an operator editing a debug override is told so.
+          const prefix = relationalChanges.some((c) => c.target === "value")
+            ? ""
+            : "Debug value: ";
+          throw new RelationalConfigError(`${prefix}${error}`);
+        }
+        const [row] = await tx
+          .update(adminConfigTable)
+          .set(patch)
+          .where(eq(adminConfigTable.key, key))
+          .returning();
+        return row;
+      });
+    } catch (error) {
+      if (error instanceof RelationalConfigError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  }
 
   bustConfigCache();
 
@@ -2546,16 +3099,18 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   try {
     // Active legendary subscribers = users with legendary tier and an active subscription
     // Registered members = users with registered tier (no payment)
-    const [legendaryRows, registeredRows] = await Promise.all([
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true))),
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "registered"), eq(usersTable.isActive, true))),
-    ]);
+    // ONE statement with conditional aggregation, not two in a Promise.all.
+    // `now()` is the TRANSACTION timestamp, so two implicit transactions get two
+    // different instants, and a user crossing their grace horizon between them
+    // is counted twice or not at all. Sharing the expression makes the counts
+    // agree on the RULE; only one statement makes them agree on the INSTANT.
+    const [tierCounts] = await db
+      .select({
+        legendary: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'legendary')::int`,
+        registered: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'registered')::int`,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.isActive, true));
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
     // values themselves — only whether each one is configured.
@@ -2581,8 +3136,8 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     ]);
 
     res.json({
-      activeSubscribers: legendaryRows[0]?.cnt ?? 0,
-      registeredMembers: registeredRows[0]?.cnt ?? 0,
+      activeSubscribers: tierCounts?.legendary ?? 0,
+      registeredMembers: tierCounts?.registered ?? 0,
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,

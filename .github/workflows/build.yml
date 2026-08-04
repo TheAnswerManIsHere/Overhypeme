@@ -51,6 +51,21 @@ jobs:
       - name: Check docs accuracy (links + cited paths)
         run: node scripts/check-docs-accuracy.mjs
 
+      # The manual's charter reserves configuration — values and their prose
+      # stand-ins — for docs/ai-context/. That rule was written after a de-fork
+      # PR spent three review rounds on the boundary, then took three MORE
+      # because each round surfaced another phrase that failed it while the
+      # previous one was being fixed. Every one of those was lexically
+      # detectable, so per docs/ai-context/decisions.md ("Recurring failure
+      # patterns become CI guards, not just doc updates") this is a check
+      # rather than a seventh promise to be careful.
+      # LEXICAL ONLY — it cannot see duplicated facts or false claims.
+      - name: Check manual tuning language
+        run: node scripts/check-manual-tuning-language.mjs
+
+      - name: Check manual tuning-language guard logic
+        run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
+
       # Also dependency-free. The loop ledger's whole premise is that counted
       # numbers beat recalled ones, so its counting logic has to be provably
       # right — an unverified derivation would carry exactly the false

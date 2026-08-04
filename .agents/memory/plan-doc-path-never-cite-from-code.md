@@ -5,8 +5,8 @@ description: A module docstring cited docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md a
 
 # A `docs/plans/PLAN_*.md` path is never a valid citation from implementation code
 
-The Codex plan-review loop (`CLAUDE.md`'s *Automated plan review* section)
-commits the plan markdown to a dedicated `plan-review/<slug>` branch on a
+The Codex plan-review loop (the `plan-review-loop` skill) commits the plan
+markdown to a dedicated `plan-review/<slug>` branch on a
 **draft PR that is never merged**. That branch — and the plan file on it — is
 the review channel only. It is not reachable from `main`, and a
 `docs/plans/PLAN_*.md` file lands on `main` **only if David explicitly asks to
