@@ -89,14 +89,30 @@ DB-backed store's problems.** `GlobalRateLimitStore` wraps the same two-map
 rotation with a hard entry cap:
 
 ```ts
-const MAX_TRACKED_KEYS = 100_000;   // ≈20-40 MB across both maps
+const MAX_TRACKED_KEYS = 100_000;   // total across BOTH maps
 
-// On insert, if `current` is at the cap, evict the oldest entry first.
-// JS Map preserves insertion order, so this is O(1):
-if (this.current.size >= MAX_TRACKED_KEYS) {
-  this.current.delete(this.current.keys().next().value);
+// The budget applies to current.size + previous.size, and eviction takes the
+// true oldest across both — draining `previous` before `current`, since every
+// entry in `previous` is older than every entry in `current` by construction.
+//
+// Capping `current` alone was the round-16 finding: `previous` holds up to a
+// full window's keys at the same time, so a per-map cap admits ~2× the budget
+// and §4's "never exceeds the cap" assertion could not have passed. JS Map is
+// insertion-ordered, so the eviction itself stays O(1).
+while (this.current.size + this.previous.size >= MAX_TRACKED_KEYS) {
+  const victim = this.previous.size > 0 ? this.previous : this.current;
+  victim.delete(victim.keys().next().value);
 }
 ```
+
+**One subtlety worth stating, since insertion order is not last-seen order.**
+`getClient` promotes a key found in `previous` into `current` by re-inserting it,
+so a long-lived caller keeps moving to the back of the queue and is evicted late
+— which is the behavior we want. But a key that is *only* read (never
+re-inserted) keeps its original position. That makes this FIFO-by-insertion
+rather than a true LRU. The distinction doesn't matter here: eviction only
+happens under a flood, and under a flood the entries being evicted are the
+attacker's own by sheer volume.
 
 **Why this is not a return to custom-Store territory.** What made the DB-backed
 Store dangerous was **I/O on the hot path**: connections to exhaust, queries to
@@ -107,10 +123,35 @@ one window. It can never produce a wrongful 429 and never crashes the process.
 An attacker can use eviction to reset their own counter, which is the same
 outcome as the OOM it replaces, minus the outage.
 
-100,000 keys is far above any plausible count of distinct legitimate addresses
-hitting one instance in a minute, so eviction should never occur under real
-traffic. §4 asserts both halves: peak memory stays bounded when driven well past
-the cap, and normal traffic never evicts.
+**On the number itself.** I wrote that 100,000 is "far above any plausible count
+of distinct legitimate addresses," and round 16 correctly pushed back that this
+is unsupported — I have no production distinct-key measurement, and I'd tied the
+cap to no explicit heap budget. Both halves of what makes a number defensible
+were missing, and this plan has already been caught twice picking figures that
+sounded reasonable.
+
+What I can establish from here, stated as the basis rather than dressed up as a
+derivation:
+
+- **The heap side is computable.** ~150-200 bytes per entry × 100,000 total
+  (the cap now spans both maps) ≈ **15-20 MB**, a fixed worst case rather than
+  an estimate. That is the number to check against the deployment's memory
+  budget.
+- **The traffic side I cannot measure from here.** Distinct client addresses per
+  instance per minute is a production quantity, and this environment has no
+  access to it.
+
+So the implementation step **must** record the observed figure before the cap is
+final: instrument peak `current.size + previous.size` per instance for a normal
+traffic period, then set the cap at a stated multiple of the observed peak,
+bounded by the heap budget. If the observed peak turns out to be anywhere near
+100,000, the number is wrong and the eviction policy needs to be revisited, not
+just the constant. §4's "normal traffic never evicts" becomes a real acceptance
+condition at that point instead of an assumption.
+
+Until that measurement exists, **100,000 is a placeholder with a known heap cost
+and an unknown safety margin** — which is a weaker statement than the one it
+replaces, and the accurate one.
 
 **The residual, stated rather than engineered around:** an attacker with enough
 distinct source addresses can cycle the table and evade this backstop entirely.
@@ -167,8 +208,14 @@ import { healthzHandler } from "./routes/health";
 //   50 concurrent polling jobs behind one IP × 120 req/min   = 6,000
 //   ordinary browsing by those same 50 users, ~60 req/min ea = 3,000
 //   → 9,000, ×1.33 margin                                   ≈ 12,000/min
-const GLOBAL_RATE_WINDOW_MS = parsePositiveInt(process.env.GLOBAL_RATE_WINDOW_MS, 60_000);
-const GLOBAL_RATE_MAX = parsePositiveInt(process.env.GLOBAL_RATE_MAX, 12_000);
+// These live in rateLimit.ts and are IMPORTED here — not redeclared (round-16
+// finding). An earlier revision declared them inline in app.ts while §3 said
+// they'd go beside the existing RATE_WINDOW_MS / RATE_MAX, which is two sources
+// that can drift; and `parsePositiveInt` is private to that module anyway, so
+// the inline version wouldn't have compiled. rateLimit.ts exports
+// `createGlobalLimiter(overrides?)` — one factory, one source of truth, and the
+// seam §4's tests use so the test and the mounted middleware cannot disagree
+// about the ceiling.
 
 // Express's default routing is neither strict nor case-sensitive (verified:
 // express@5.2.1, no `strict routing` or `case sensitive routing` override in
@@ -210,14 +257,25 @@ function isExemptRequest(req: Request): boolean {
   );
 }
 
+// createGlobalLimiter() lives in rateLimit.ts and returns exactly this:
 const globalLimiter = rateLimit({
   windowMs: GLOBAL_RATE_WINDOW_MS,
   limit: GLOBAL_RATE_MAX,
+  // MOUNTING THE BOUNDED STORE IS NOT OPTIONAL (round-16 finding, P1). An
+  // earlier revision specified the store in §1 and then omitted this line, so
+  // implementing the plan literally would have selected the package's default
+  // unbounded MemoryStore and left the entire eviction mechanism as dead code —
+  // reopening the exact OOM path the round-15 revision existed to close. §4's
+  // peak-cardinality test therefore exercises THIS limiter, not the store class
+  // in isolation, so the two can never diverge again.
+  store: new BoundedMemoryStore(MAX_TRACKED_KEYS),
   keyGenerator: (req) => ipKeyGenerator(ipFromRequest(req)),
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => isExemptRequest(req),
   handler: (req, res) => {
+    // See the log-volume note below: this helper is throttled, but it is not
+    // the only line a rejected request produces.
     logBlockedThrottled({ path: req.originalUrl.split("?")[0] }, "global rate limit exceeded");
     res.set("Cache-Control", "no-store");
     res.status(429).json({ error: "Too many requests. Please slow down." });
@@ -269,9 +327,16 @@ app.use("/api", globalLimiter);
 - **`Cache-Control: no-store` on the 429**, set directly — this mount runs before
   the existing `noStore` middleware list, so a 429 could otherwise be cached by an
   intermediate proxy and served to a since-recovered client.
-- **The block log is throttled** to ≤1 line/second/process; a sustained burst past
-  the ceiling would otherwise turn an unbounded request stream into an unbounded
-  log stream.
+- **Log volume needs the request logger handled too, not just my helper**
+  (round-16 finding). Throttling `logBlockedThrottled` to ≤1 line/sec/process
+  bounds *that* line — but `pinoHttp` is mounted at `app.ts:84-143`, ahead of
+  CORS and this limiter, and emits a `logger.info()` on **every** response
+  completion including each 429. So a sustained flood still produces one log
+  line per rejected request no matter what my helper does. The plan therefore
+  specifies suppression/sampling of limiter-429 completion logs in the
+  `pinoHttp` config, and §4's burst assertion counts **total logger output**
+  rather than calls to the new helper — the narrower assertion would have
+  passed while the unbounded stream continued.
 
 ### A 429 must not destroy in-flight work (round-15 finding, P1)
 
@@ -292,11 +357,17 @@ error, and the takeover backs off on retryable responses without incrementing
 the terminal counter. Two properties that must both hold, because they pull in
 opposite directions:
 
-- A limiter **429** (or a `Retry-After`-bearing response) is retryable — the job
-  keeps running and recovers when the window resets.
-- A **persistent generic failure** still terminates. Blanket-retrying every 5xx
-  would trade "kills live jobs" for "endless loading screen on a dead upstream,"
-  which is not an improvement.
+- **Only a limiter response is indefinitely retryable**, identified by
+  **status `429`** (optionally corroborated by the limiter's own
+  `RateLimit-*` headers) — **not** by the presence of `Retry-After`
+  (round-16 finding). A persistent generic `503` may legitimately carry
+  `Retry-After`, and treating that as retryable reopens the endless-loading-
+  screen failure on the other side of the boundary this section claims to hold.
+  Worse, the test I'd specified could have passed while the hole existed, simply
+  because its 503 fixture omitted the header.
+- A **persistent generic failure** still terminates via the existing five-error
+  path. Blanket-retrying every 5xx would trade "kills live jobs" for "endless
+  loading screen on a dead upstream," which is not an improvement.
 
 `PulidLoadingTakeover.tsx` needs the mirror-image change: it has no terminal
 counter at all and retries forever, so it gets the classification for its
@@ -321,10 +392,25 @@ ceiling.** That is a real limitation and it should not be sold as anything else.
 
 Why it is nonetheless the right call here:
 
-- It is a **backstop**, not the protection. The existing narrow limiters —
-  30/min general, 5/min fact-submit — are DB-backed, fleet-correct, key on user
-  and endpoint as well as IP, and are completely untouched by this plan. They are
-  what actually stops abuse; nothing about this change weakens them.
+- The existing narrow limiters are DB-backed, fleet-correct, key on user and
+  endpoint as well as IP, and are completely untouched by this plan. **But they
+  cover far less of the API than I claimed** (round-16 finding, and the most
+  consequential thing this whole loop has surfaced). Counted directly: **6 of 31
+  route files** contain any limiter — `facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` — and the 30/min
+  `createRateLimiter()` is *instantiated inside `ai.ts`*, not applied API-wide.
+
+  So "the narrow limiters are what actually stops abuse" is true for those six
+  and **false for the other twenty-five**, which have no rate limiting of any
+  kind today. That inverts this plan's framing rather than qualifying it: for
+  most of this API the middleware is **not a backstop behind real protection —
+  it is the first and only rate limiting those routes will ever have had.**
+
+  Two consequences, both stated rather than smoothed over. It makes the change
+  considerably more valuable than "CodeQL compliance." And it makes the
+  unbounded-fleet limitation above matter *more*, because for twenty-five route
+  files there is no fleet-correct layer underneath it. §7 puts this to David as
+  a product question instead of settling it here.
 - **The derivation is unaffected**, because it was always the worst case: all of
   one IP's traffic arriving at one instance. Per-instance counting can only make
   the effective ceiling *looser*, never tighter, so no legitimate user is
@@ -393,10 +479,20 @@ or any existing limiter.**
    singleton `app`, and the limiter is constructed once at module evaluation. If
    another file in the same shard imports `app` first, setting
    `GLOBAL_RATE_MAX` in the new file changes nothing and the result depends on
-   shard assignment and file order — a test that passes or fails by luck. So the
-   plan specifies a limiter/app **factory** (or an equivalent explicit reset
-   seam), and §4 verifies the low-limit case still passes when the real `app`
-   was imported first. Cases:
+   shard assignment and file order — a test that passes or fails by luck.
+
+   **"A factory or an equivalent reset seam" was still underspecified**
+   (round-16 finding, and the same defect as the compressed Stripe queue item:
+   a description an implementer can satisfy while leaving the problem intact).
+   A *reset* seam would make the imported-first case pass by mutating the
+   module-cached singleton — and then leak the low limit and its store into
+   every file executed afterward in the same shard. So the requirement is
+   specific: an **instance-scoped factory** — `createApp()` / `createGlobalLimiter()`
+   returning a fresh instance the test owns, with no mutation of the singleton.
+   If a reset seam is used instead, it carries an explicit restoration contract
+   with teardown. §4 tests **both orders**: the low-limit case with the real
+   `app` imported first, *and* a default-ceiling case running after it, so
+   neither execution order can share injected state. Cases:
    - 429 + JSON body + `Cache-Control: no-store` + `RateLimit-*` headers past the
      ceiling; **exactly at the ceiling is allowed and ceiling+1 is blocked** (the
      package compares with `>`, not `>=`); no `X-RateLimit-*` legacy headers.
@@ -512,7 +608,14 @@ goes to its own `/bugfix` branch and PR, not here.
    flight, and that read then repopulates it with pre-write rows for another 60
    seconds — which affects the immediate `stripe_live_mode` refresh at
    `routes/admin.ts:2328-2341`. Needs a single-flight **with a generation counter**
-   so only the current generation may publish.
+   so only the current generation may publish, **and rejection cleanup**
+   (round-16 finding — I specified this for item 3 and omitted it here, in the
+   same document): a stored promise that rejects once during a transient
+   database failure and is never cleared makes every config reader await that
+   rejection until restart, so every getter falls back to its default —
+   including `isLiveMode()` silently selecting **test mode** on a live
+   deployment. Clearing must not clobber a newer generation's replacement.
+   Acceptance: a failed load followed by a successful retry, matching item 3's.
 3. **`getStripeSync()` is not mode-scoped or rejection-safe.** `stripeClient.ts:102-107`.
    **The full remedy is recorded here deliberately** (round-15 finding: an
    earlier version of this entry compressed it to "single-flight it," and a
@@ -533,8 +636,18 @@ goes to its own `/bugfix` branch and PR, not here.
      This one exists today independent of any single-flight.
    - *Rejection poisoning.* A stored promise that rejected and is never cleared
      fails every later webhook until restart. A rejected flight must be cleared.
-   - **Acceptance matrix:** a delayed mid-flight mode flip, and a construction
-     failure followed by a successful retry. Both, or the fix is not done.
+   - *Pool leakage on disposal* (round-16 finding — discarding a superseded
+     completion prevents stale *publication* but does not dispose of what it
+     built). In installed `stripe-replit-sync@1.0.0` the `StripeSync`
+     constructor creates a `PostgresClient`, whose constructor creates a
+     `pg.Pool`. So every superseded completion **and** every instance dropped by
+     the existing `invalidateStripeSync()` leaks two connections. Repeated mode
+     flips therefore leak steadily and invalidate item 4's arithmetic. Both
+     paths need lifecycle-safe draining (`postgresClient.pool.end()`), which
+     means "discard" is the wrong verb throughout this item — it is *dispose*.
+   - **Acceptance matrix:** a delayed mid-flight mode flip; a construction
+     failure followed by a successful retry; and **repeated flips returning the
+     live pool count to one**. All three, or the fix is not done.
 4. **The autoscale connection budget is unenforced and slightly wrong.**
    `.replit` selects `deploymentTarget = "autoscale"` with no maximum instance
    count, so `lib/db/src/index.ts:45-67`'s "safe up to 19 instances" is a comment
@@ -568,12 +681,25 @@ goes to its own `/bugfix` branch and PR, not here.
 Items 1-3 are user-visible or correctness bugs and should go first. Items 4-6 are
 latent.
 
-## 7. Open question for David
+## 7. Open questions for David
 
-**Does `/api/admin/*` sit behind this ceiling?** It does by default, since the
+**1. Most of the API has no rate limiting at all today — does that change what
+this feature is?** (Round-16 finding.) Six of thirty-one route files carry a
+limiter; the other twenty-five have none. This middleware is therefore not a
+backstop for most of the API, it is the only rate limiting those routes will
+have. Two things follow that are David's call, not mine:
+
+- This is worth materially more than "clear a CodeQL alert," and probably
+  deserves to be described that way in the roadmap.
+- The unbounded-fleet limitation (§2) matters more than it would if every route
+  had a fleet-correct limiter underneath. The mitigation is an enforced
+  autoscale instance cap — §6 item 4 — which may deserve to be promoted ahead of
+  the other queue items rather than sitting fifth.
+
+**2. Does `/api/admin/*` sit behind this ceiling?** It does by default, since the
 limiter mounts at `/api`. `current-roadmap.md:280-288` records this as a pending
-decision, so this plan flags it rather than settling it silently — but the sharp
-edge is gone: with a code-constant ceiling there is no admin endpoint whose
+decision, so this plan flags it rather than settling it silently — the sharp edge
+is gone, since with a code-constant ceiling there is no admin endpoint whose
 throttling could lock an operator out of fixing the throttle. Admin routes behind
 12,000/min per IP is unremarkable, so **the recommendation is to leave them
 covered** and close the roadmap item.
