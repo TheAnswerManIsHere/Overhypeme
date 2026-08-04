@@ -103,6 +103,16 @@ This is an exception, not a general licence — it applies to the narrative
 sections of a chapter whose subject is machinery, and it never extends to
 restating a whole spec section.
 
+**This boundary is CI-enforced, not just reviewer-enforced.**
+`scripts/check-manual-tuning-language.mjs` fails the build on a value or a
+qualitative stand-in for one anywhere in `docs/manual/` (the `<!-- tuning-ok
+-->` escape hatch above is how this section's own deliberate quotations pass
+it). It is lexical, not semantic — it cannot catch a fact with two homes or a
+paraphrased spec section, only a stated value — so it doesn't replace review,
+only the mechanical half of it. See
+[`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#fixing-the-flagged-site-and-leaving-its-siblings)
+for what it still can't do.
+
 ## How the manual grows
 
 Written incrementally by the **`/document` ceremony**

@@ -754,3 +754,47 @@ prose stand-ins in `docs/manual/`, which is what most of those rounds were
 actually about. The guard is deliberately narrow and **cannot** detect a fact
 with two homes, a paraphrased spec section, or a false claim. Those remain the
 human half, and this entry is the reminder that they exist.
+
+## Satisfying a lexical guard by changing a value's form, not its meaning
+
+**Looks like:** a CI text guard flags a stated value in prose. The fix changes
+*how* the value is written — a digit becomes a spelled-out word, a cardinal
+becomes an ordinal, a bare value gets wrapped in markdown emphasis or a link,
+a phrase gets reflowed across a line break — without changing what the
+sentence actually asserts. The guard goes green; the value it exists to keep
+out of that document is still fully present, just spelled differently.
+
+**Dangerous:** a green check reads as "compliant," so the sentence doesn't get
+looked at again — but the source-of-truth risk the rule exists to prevent (the
+same fact living in two places, able to drift independently) is completely
+intact. Because each round of this only narrows the *specific* form just
+caught, not the general risk, a review loop chasing it can run for many
+rounds, one surface form at a time, and look like slow but real progress the
+whole way.
+
+**Avoid:** when a value is flagged, ask "does this sentence's truth depend on
+the number, in *any* form?" — not "does it still contain the literal string
+the rule matched." Removing the concept (say that something exists or is
+true, not how much) is the fix; rewording the same count in a different part
+of speech is not, and is usually just as fast to write, which is what makes it
+tempting. Authoring or extending a guard like this has the mirror-image
+discipline: after closing one evasion, actively probe for the *next* form of
+the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
+markdown markup, a hard-wrapped line split) instead of declaring the class
+closed after the one instance found.
+
+**Overhype:** PR #298 (the manual tuning-language guard) took 6 Codex review
+rounds to converge, and this exact pattern recurred inside its own fix
+history — round 5 found "a simpler 2-lane split ... in favor of 3" and fixed
+it by spelling the count out ("a simpler two-way split ... in favor of a
+third, separate lane"), which round 6 caught as the same lane count restated
+as an ordinal instead of removed; the sentence was only genuinely fixed on the
+second pass, by describing the split qualitatively with no number in any
+form. Separately, the guard's own detection had to grow across rounds to
+cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
+phrase split across two physical lines, and a spelled-out-number extension
+whose digit-derived "attached s" shorthand accidentally matched an ordinary
+English word ("hundred" + "s" = "hundreds," not a duration). The full list of
+evasions the guard now covers, and why each was needed, lives in
+`scripts/check-manual-tuning-language.mjs`'s own header and rule comments —
+not duplicated here.
