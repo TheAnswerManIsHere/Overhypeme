@@ -1,12 +1,16 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
+import { createApp } from "../app.js";
 
 const allowedOrigin = "https://app.example.com";
 
+// A fresh instance per call (never a cached singleton) — createApp() reads
+// ALLOWED_ORIGINS at call time, so each test's beforeEach-set value is
+// always the one actually in effect, regardless of what any other test file
+// in the same --test-isolation=none shard imported or set before this one.
 async function getApp() {
-  const mod = await import("../app.js");
-  return mod.default;
+  return createApp();
 }
 
 describe("CSRF + Origin protection", () => {
