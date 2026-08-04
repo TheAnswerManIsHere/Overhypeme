@@ -387,15 +387,24 @@ cut its snapshot and when it merged). Merging `main` in at that point
 produces a genuine content collision, not just a git conflict: your
 branch's rows and `main`'s are both real rows for the same PR number, under
 the same row number, with different — usually not equally accurate — data.
-**Take `main`'s side.** It reflects more sessions' work and any script
-fixes that shipped in the interval; re-deriving from an older, narrower
-MCP snapshot on your branch is the stale artifact, not the correct answer
-just because you produced it. After resolving in `main`'s favor, re-audit
-the merged rows for anything that predates other changes your own branch
-made in the same PR (a renamed heading your branch moved, a stale
-cross-reference `main`'s authors couldn't have known about) — the content
-collision and your branch's other edits are independent problems and
-fixing one doesn't fix the other.
+**Don't take a side by branch identity — compare provenance.** Check each
+duplicate row's snapshot pagination (fully attested vs. partial), which
+`loop-metrics.mjs` version produced it (a script fix like the
+`countRounds`-plain-comment-undercount fix landing between when a branch
+cut its snapshot and when it merged makes the later derivation more
+accurate), and whether the classification is a full-population adjudication
+or an approximation. `main` usually wins this comparison because it
+reflects more sessions' elapsed time and any script fixes that shipped in
+the interval, but that is a consequence of checking provenance, not a
+standing rule — a long-running branch's row can be the later, more fully
+paginated, or better-adjudicated one, in which case *that* side wins, and a
+row whose provenance genuinely can't be determined from either side is a
+case for re-deriving fresh with the current script rather than guessing.
+After resolving the collision, re-audit the winning rows for anything that
+predates other changes your own branch made in the same PR (a renamed
+heading your branch moved, a stale cross-reference the other side's authors
+couldn't have known about) — the content collision and your branch's other
+edits are independent problems and fixing one doesn't fix the other.
 
 **A row's causal share needs an exact disagreement count, not a plausible
 one — row 17 (#294) is the cautionary example.** Two real, independently-run

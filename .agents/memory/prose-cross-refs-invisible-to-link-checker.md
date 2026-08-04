@@ -28,11 +28,14 @@ actually moved, which caught the rest in a single pass.
 
 ## What worked instead
 
-After the migration is otherwise done, `grep -rn` the exact old heading
-text (and any other prose forms of it — "the advisor tool," "the ~20-round
-cap") across the whole repo, not just the files being edited. Fix every
-hit found this way in the same pass, rather than waiting for review to
-surface them individually. Confirm each still-resident heading you *didn't*
+After the migration is otherwise done, `rg -n` (not `grep -rn` — ripgrep
+respects `.gitignore` by default, so it skips `node_modules`, `.git`, and
+other generated/vendored trees a plain recursive grep would traverse and
+that could surface non-source copies that shouldn't be edited) the exact
+old heading text (and any other prose forms of it — "the advisor tool,"
+"the ~20-round cap") across the whole repo, not just the files being
+edited. Fix every hit found this way in the same pass, rather than waiting
+for review to surface them individually. Confirm each still-resident heading you *didn't*
 move is actually still there before leaving its citations alone — a
 reference to a section that never moved needs no fix, and "fixing" it
 would introduce a real error.
