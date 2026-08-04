@@ -526,7 +526,7 @@ function makeDefaultVideoJobApi(): VideoJobApi {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) throw new Error(`proceed: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async regenerate(jobId, lookStyleId) {
       const res = await fetch(`/api/memes/video-jobs/${jobId}/regenerate`, {
@@ -535,14 +535,14 @@ function makeDefaultVideoJobApi(): VideoJobApi {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(lookStyleId ? { lookStyleId } : {}),
       });
-      if (!res.ok) throw new Error(`regenerate: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async proceedWithNoFaceFallback(jobId) {
       const res = await fetch(
         `/api/memes/video-jobs/${jobId}/proceed-with-no-face-fallback`,
         { method: "POST", credentials: "include" },
       );
-      if (!res.ok) throw new Error(`proceed-no-face: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async cancel(jobId) {
       const res = await fetch(`/api/memes/video-jobs/${jobId}`, {

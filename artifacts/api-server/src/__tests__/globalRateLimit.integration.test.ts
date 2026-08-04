@@ -2,7 +2,7 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { createApp } from "../app.js";
-import { globalLimiterLogLevel } from "../lib/rateLimit.js";
+import { globalLimiterLogLevel, GLOBAL_RATE_LIMIT_BLOCKED } from "../lib/rateLimit.js";
 import { BoundedMemoryStore } from "../lib/globalRateLimitStore.js";
 import type { Options } from "express-rate-limit";
 import { logger } from "../lib/logger.js";
@@ -229,18 +229,37 @@ describe("global rate limiter", () => {
       // interception point.
       const blockedByGlobalLimiter = {
         statusCode: 429,
-        getHeader: (name: string) => (name === "RateLimit-Limit" ? "12000" : undefined),
+        locals: { [GLOBAL_RATE_LIMIT_BLOCKED]: true },
       };
       assert.equal(globalLimiterLogLevel(blockedByGlobalLimiter), "silent");
 
       const blockedByNarrowLimiter = {
         statusCode: 429,
-        getHeader: () => undefined,
+        locals: {},
       };
       assert.equal(globalLimiterLogLevel(blockedByNarrowLimiter), "info");
 
-      const ok = { statusCode: 200, getHeader: () => undefined };
+      const ok = { statusCode: 200, locals: {} };
       assert.equal(globalLimiterLogLevel(ok), "info");
+    });
+
+    it("does NOT silence a request the global limiter admitted but a later narrow limiter rejected", () => {
+      // The regression this guards: standardHeaders:true sets RateLimit-*
+      // headers on every request the global limiter ADMITS, not just the
+      // ones it blocks. An earlier version keyed suppression on those
+      // headers' mere presence, which would have wrongly silenced this case
+      // — a request that passed the global limiter and was later 429'd by a
+      // narrow, DB-backed limiter (e.g. createFactSubmitRateLimiter) never
+      // touches res.locals[GLOBAL_RATE_LIMIT_BLOCKED] at all.
+      const admittedByGlobalThenBlockedByNarrowLimiter = {
+        statusCode: 429,
+        locals: {}, // the global limiter's own handler never ran
+      };
+      assert.equal(
+        globalLimiterLogLevel(admittedByGlobalThenBlockedByNarrowLimiter),
+        "info",
+        "a narrow limiter's 429 must stay visible even though the global limiter's headers are already on the response",
+      );
     });
   });
 

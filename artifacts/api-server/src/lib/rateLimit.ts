@@ -72,6 +72,21 @@ function logBlockedThrottled(context: Record<string, unknown>, message: string):
 }
 
 /**
+ * Marker `logBlockedThrottled`'s handler sets on `res.locals` — and ONLY
+ * that handler sets it — so `globalLimiterLogLevel` can identify exactly the
+ * responses the global limiter itself blocked. `RateLimit-*` headers are NOT
+ * a safe discriminator for this: `standardHeaders: true` sets them on every
+ * request the limiter admits too, so an admitted request later rejected by a
+ * narrow, DB-backed limiter (e.g. `createFactSubmitRateLimiter`, local-auth
+ * throttles) would still carry them and be wrongly silenced (round-17 Codex
+ * finding on this PR).
+ */
+// Exported (only) as a test seam so globalLimiterLogLevel's unit test can
+// construct a `res.locals` fixture with the exact same key the real handler
+// sets, without needing to intercept pino-http's internal per-request logger.
+export const GLOBAL_RATE_LIMIT_BLOCKED = Symbol("globalRateLimitBlocked");
+
+/**
  * pino-http's `customLogLevel` for the app's request logger (see app.ts):
  * silences the per-response completion log ONLY for a response the global
  * limiter itself blocked. `logBlockedThrottled` above already bounds the
@@ -79,14 +94,11 @@ function logBlockedThrottled(context: Record<string, unknown>, message: string):
  * independently — without this, a sustained flood still produces one log
  * line per rejected request no matter what that helper does.
  *
- * Identified by the `RateLimit-*` headers `standardHeaders: true` sets on
- * every metered response, so this can never silence a 429 from one of the
- * narrow, DB-backed per-feature limiters (they don't set those headers).
  * A pure function (not a closure over `res`) so it's directly unit-testable
  * without needing to intercept pino-http's internal per-request logging.
  */
-export function globalLimiterLogLevel(res: { statusCode: number; getHeader(name: string): unknown }): "silent" | "info" {
-  if (res.statusCode === 429 && res.getHeader("RateLimit-Limit") !== undefined) {
+export function globalLimiterLogLevel(res: { statusCode: number; locals?: Record<PropertyKey, unknown> }): "silent" | "info" {
+  if (res.statusCode === 429 && res.locals?.[GLOBAL_RATE_LIMIT_BLOCKED] === true) {
     return "silent";
   }
   return "info";
@@ -117,6 +129,7 @@ export function createGlobalLimiter(overrides: GlobalRateLimiterOverrides = {}):
     skip: (req) => isExemptRequest(req),
     handler: (req, res) => {
       logBlockedThrottled({ path: req.originalUrl.split("?")[0] }, "global rate limit exceeded");
+      (res.locals as Record<PropertyKey, unknown>)[GLOBAL_RATE_LIMIT_BLOCKED] = true;
       res.set("Cache-Control", "no-store");
       res.status(429).json({ error: "Too many requests. Please slow down." });
     },

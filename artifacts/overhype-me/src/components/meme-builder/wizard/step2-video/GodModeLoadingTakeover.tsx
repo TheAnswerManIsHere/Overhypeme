@@ -118,6 +118,11 @@ export function GodModeLoadingTakeover(props: Props) {
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [stage1Attempts, setStage1Attempts] = useState(1);
+  // Surfaced when a stage-1 decision action (proceed/regenerate/no-face
+  // fallback) fails — including a 429 from the global rate limiter, which
+  // these user-triggered POSTs get no other handling for. Cleared on the
+  // next attempt so a stale message never lingers past a retry.
+  const [actionError, setActionError] = useState<string | null>(null);
   const completedRef = useRef(false);
 
   // Poll the job.
@@ -212,8 +217,11 @@ export function GodModeLoadingTakeover(props: Props) {
 
   const handleProceed = useCallback(async () => {
     setBusy(true);
+    setActionError(null);
     try {
       await api.proceed(jobId);
+    } catch (err) {
+      setActionError(describeActionError(err));
     } finally {
       setBusy(false);
     }
@@ -222,9 +230,12 @@ export function GodModeLoadingTakeover(props: Props) {
   const handleRegenerate = useCallback(
     async (lookStyleId?: string) => {
       setBusy(true);
+      setActionError(null);
       try {
         await api.regenerate(jobId, lookStyleId);
         setStage1Attempts((n) => n + 1);
+      } catch (err) {
+        setActionError(describeActionError(err));
       } finally {
         setBusy(false);
       }
@@ -234,8 +245,11 @@ export function GodModeLoadingTakeover(props: Props) {
 
   const handleNoFaceFallback = useCallback(async () => {
     setBusy(true);
+    setActionError(null);
     try {
       await api.proceedWithNoFaceFallback(jobId);
+    } catch (err) {
+      setActionError(describeActionError(err));
     } finally {
       setBusy(false);
     }
@@ -308,17 +322,22 @@ export function GodModeLoadingTakeover(props: Props) {
             onRegenerateWithStyle={(id) => handleRegenerate(id)}
             onCancel={() => setConfirmCancel(true)}
             busy={busy}
+            errorMessage={actionError}
           />
         ) : phase === "stage1_no_face_review" ? (
           <NoFaceFallback
             stillUrl={stillUrl}
             aspectRatio={aspectRatio}
             busy={busy}
+            errorMessage={actionError}
             onTryAgain={async () => {
               setBusy(true);
+              setActionError(null);
               try {
                 await api.cancel(jobId);
                 onCancel();
+              } catch (err) {
+                setActionError(describeActionError(err));
               } finally {
                 setBusy(false);
               }
@@ -432,10 +451,11 @@ interface NoFaceFallbackProps {
   stillUrl: string | null;
   aspectRatio: AspectRatio;
   busy: boolean;
+  errorMessage?: string | null;
   onTryAgain: () => void;
   onUseAbstract: () => void;
 }
-function NoFaceFallback({ stillUrl, aspectRatio, busy, onTryAgain, onUseAbstract }: NoFaceFallbackProps) {
+function NoFaceFallback({ stillUrl, aspectRatio, busy, errorMessage, onTryAgain, onUseAbstract }: NoFaceFallbackProps) {
   const aspectClass: Record<AspectRatio, string> = {
     landscape: "aspect-[16/9]",
     square: "aspect-square",
@@ -452,6 +472,11 @@ function NoFaceFallback({ stillUrl, aspectRatio, busy, onTryAgain, onUseAbstract
           use a face this time, we can generate an abstract image from the fact
           instead.
         </p>
+        {errorMessage && (
+          <p className="text-sm text-destructive" role="alert" data-testid="god-mode-no-face-error">
+            {errorMessage}
+          </p>
+        )}
         {stillUrl && (
           <div className={`mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black ${aspectClass[aspectRatio]}`}>
             <img src={stillUrl} alt="" className="h-full w-full object-cover" />
@@ -594,6 +619,20 @@ function CancelConfirm({ onConfirm, onDismiss, busy }: CancelConfirmProps) {
 }
 
 /* ────────────────────────── Helpers ────────────────────────── */
+
+/**
+ * User-facing message for a failed stage-1 decision action (proceed,
+ * regenerate, no-face fallback). Unlike the poll loop, these are one-shot,
+ * user-triggered POSTs with no retry loop of their own — a 429 here just
+ * needs to tell the user to wait a beat and press the button again, not be
+ * silently swallowed into an unhandled rejection.
+ */
+function describeActionError(err: unknown): string {
+  if (isRetryablePollError(err)) {
+    return "You're going a bit fast — please wait a moment and try again.";
+  }
+  return "That didn't go through. Please try again.";
+}
 
 function deriveTargetProgress(
   status: VideoJobStatus | null,
