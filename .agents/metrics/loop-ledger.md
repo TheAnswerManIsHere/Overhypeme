@@ -184,14 +184,15 @@ than one finding-bearing round** — where propagation and wrong-fix are
 structurally possible — which is #270 (16 rounds, 15 finding-bearing — row 3
 notes one review event with zero findings), #274 (4 rounds, findings in
 every one), #282 (9 rounds, findings in every one), #285 (5 rounds, findings
-in every one), #288 (5 rounds, findings in every one), and #289 (2 rounds,
-findings in every one). #286 does not qualify despite its true two-round
-engagement, because only round 1 produced findings. **#290 would qualify by
-round shape (7 rounds, 6 finding-bearing) but is excluded because its figure
-is `unmeasured`, not because it's a single-round loop** — the two exclusion
-reasons are different and shouldn't be conflated.
+in every one), #288 (5 rounds, findings in every one), #289 (2 rounds,
+findings in every one), and #294 (13 rounds, findings in every one). #286
+does not qualify despite its true two-round engagement, because only round
+1 produced findings. **#290 would qualify by round shape (7 rounds, 6
+finding-bearing) but is excluded because its figure is `unmeasured`, not
+because it's a single-round loop** — the two exclusion reasons are
+different and shouldn't be conflated.
 
-**Of these six, three are confirmed pre-boundary, two are confirmed
+**Of these seven, three are confirmed pre-boundary, three are confirmed
 post-boundary, and one (#285) straddles the boundary — this is not a clean
 three/three split, and treating it as one would repeat the exact error
 corrected here previously.** David enabled Codex "Exhaustive code review"
@@ -314,13 +315,15 @@ can confirm or kill it rather than re-deriving it.
 
 ### The cohort rule leaks bugfix loops into prose/contract
 
-Three of this file's twenty rows (#276, #283 — and #284 only narrowly escaping)
-are bugfix-mode loops by intent. Two of them are cohorted `prose/contract`,
-because `classifyCohort` checks for any `.md` file **before** it checks the
-PR body's `**Fix tier:**` field, and a bugfix PR routinely carries a doc — a
-UAT, a deferred-work entry. The rule is doing exactly what it was written to
-do (mixed diffs land in the cohort with the stricter obligations), and that
-was the right call when the question was "where is the measured risk."
+Four of this file's twenty rows (#276, #283, #297 — and #284 only narrowly
+escaping) are bugfix-mode loops by intent. Three of them are cohorted
+`prose/contract`, because `classifyCohort` checks for any `.md` file
+**before** it checks the PR body's `**Fix tier:**` field, and a bugfix PR
+routinely carries a doc — a UAT, a deferred-work entry, or (for #297) the
+`working-modes.md` edit its own fix required. The rule is doing exactly
+what it was written to do (mixed diffs land in the cohort with the
+stricter obligations), and that was the right call when the question was
+"where is the measured risk."
 
 It is the wrong call for the question David actually asked on 2026-07-29 —
 *how effective is bugfix review?* — because it drains the bugfix cohort into
