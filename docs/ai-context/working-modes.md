@@ -662,8 +662,16 @@ split by PR kind (David, 2026-08-02):
   PR. Verified by content, not inferred from timing alone (round 2's first
   pass) — a stalled or incomplete `[LEDGER]` PR
   sitting open doesn't by itself mean it's paying any particular loop's
-  debt. A verified-carrying open `[LEDGER]` PR defers the second trigger —
-  the debt is visibly being paid — but never the first.
+  debt. Even a content-perfect carrier's own AGE is bounded (round 7): a
+  `[LEDGER]` PR can be permanently blocked from merging by something no
+  content check can see — this repo's required-conversation-resolution
+  merge gate stuck on an unresolved Codex thread, a required review nobody
+  answers, plain abandonment — so once as many other PRs have merged since
+  *that carrier itself* opened as the backstop's own threshold, it stops
+  counting as an active deferral, on the same yardstick a carrierless debt
+  is held to. A verified-carrying, not-yet-stale open `[LEDGER]` PR defers
+  the second trigger — the debt is visibly being paid — but never the
+  first.
 
 The guard exists because the obligation met its first fast build run and
 lost: by 2026-07-29 the ledger held 2 rows against 13 closed loops, with

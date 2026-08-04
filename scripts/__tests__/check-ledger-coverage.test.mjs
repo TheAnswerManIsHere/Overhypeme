@@ -311,6 +311,33 @@ test("an open [LEDGER] PR whose head does NOT carry the row does not defer the b
   assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
 });
 
+test("a stale open [LEDGER] PR (2+ merges since IT opened) no longer defers the backstop, even though its content carries the row", () => {
+  // Fixed on PR #304 (Codex round 7, P2): a [LEDGER] PR can be permanently
+  // blocked from merging by something this audit doesn't model at all — an
+  // unresolved Codex review thread against this repo's required-
+  // conversation-resolution merge gate, a stuck required review, plain
+  // abandonment — while still passing every content check here (structural,
+  // permanence, arithmetic, coverage). Reusing the same
+  // OVERDUE_BACKSTOP_MERGES yardstick against the CARRIER's own age (not
+  // just the debt's age) caps how long an abandoned carrier can suppress
+  // the backstop, without this audit having to model GitHub's merge gates.
+  const later = (n, at) => ({ number: n, created_at: at, closed_at: at, merged_at: at, title: "later", user: { login: "me" } });
+  const openLedger = { number: 301, created_at: "2026-07-31T00:30:00Z", closed_at: null, merged_at: null, title: "[LEDGER] rows for #290", user: { login: "me" } };
+  const { overdue, pending } = auditLedgerDebt({
+    allPrs: [
+      closedLoop(290, "2026-07-30T21:09:48Z"),
+      openLedger,
+      later(294, "2026-07-31T01:00:00Z"), // merged AFTER the carrier opened — 1st
+      later(296, "2026-07-31T02:00:00Z"), // merged AFTER the carrier opened — 2nd, hits the threshold
+    ],
+    ledger: { rows: [{ pr: 294 }, { pr: 296 }], exempt: new Map() },
+    confirmedLedgerPrs: new Set([301]),
+    openLedgerPrCarries: new Map([[301, new Set([290])]]), // content genuinely carries #290
+  });
+  assert.deepEqual(pending, []);
+  assert.deepEqual(overdue.map((o) => [o.pr.number, o.trigger]), [[290, "backstop"]]);
+});
+
 test("an open [LEDGER] PR that predates a loop's closure does not defer that loop's backstop", () => {
   // Originally fixed on PR #304 round 1 as a timing check (deferral used to
   // be one repo-wide boolean); superseded by round 2's content-based fix

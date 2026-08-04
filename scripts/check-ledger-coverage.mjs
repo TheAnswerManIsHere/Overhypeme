@@ -641,13 +641,25 @@ export function owedRows({ allPrs, currentPr, ledger, confirmedLedgerPrs = new S
  *
  * The backstop's "defer while a [LEDGER] PR is open" clause is evaluated
  * PER LOOP against VERIFIED CONTENT, not one repo-wide "is anything open"
- * boolean and not opening-time ordering alone (fixed on PR #304, both
- * Codex round 1 P2 and round 2 P2, same clause hardened twice): an open
+ * boolean and not opening-time ordering alone (fixed on PR #304, Codex
+ * round 1 P2 and round 2 P2, same clause hardened twice): an open
  * ledger PR can only defer a loop's debt if its OWN CURRENT HEAD actually
  * carries a row or exemption for that specific loop, per `openLedgerPrCarries`
  * — timing order alone doesn't establish that (a `[LEDGER]` PR opened after
  * several loops closed could still be missing one of them, stalled, and open
  * indefinitely, deferring a backstop it was never actually going to pay).
+ *
+ * The deferring carrier's own AGE is also bounded (fixed on PR #304, Codex
+ * round 7, P2): content being correct doesn't mean the PR can actually
+ * merge — a required-conversation-resolution merge gate (this repo has one;
+ * see `pr-watch`) can block it on an unresolved review thread forever, a
+ * required review can go unanswered, or it can simply be abandoned, none of
+ * which `openLedgerPrCarries`'s content/structure/permanence/arithmetic/
+ * coverage checks can see. Rather than modeling every merge gate GitHub
+ * could ever add, the same `OVERDUE_BACKSTOP_MERGES` yardstick used for a
+ * debt with no carrier at all is applied to the carrier's own age: once
+ * that many other PRs have merged since the carrier itself opened without
+ * it merging either, it stops counting as an active deferral.
  */
 export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set(), openLedgerPrCarries = new Map() }) {
   const overdue = [];
@@ -667,7 +679,7 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
     }));
   const openLedgerPrs = allPrs
     .filter((pr) => !pr.closed_at && !pr.draft && isLedger(pr) && (pr.base?.ref ?? "main") === "main")
-    .map((pr) => ({ number: pr.number }));
+    .map((pr) => ({ number: pr.number, opened: new Date(pr.created_at) }));
 
   for (const pr of allPrs) {
     if (pr.number < FIRST_ENFORCED_PR) continue;
@@ -693,9 +705,24 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
     }
 
     const mergedSince = landed.filter((c) => c.number !== pr.number && c.merged > closedAt).length;
-    const deferredByOpenCarrier = openLedgerPrs.some(
-      (c) => c.number !== pr.number && (openLedgerPrCarries.get(c.number) ?? new Set()).has(pr.number),
-    );
+    const deferredByOpenCarrier = openLedgerPrs.some((c) => {
+      if (c.number === pr.number) return false;
+      if (!(openLedgerPrCarries.get(c.number) ?? new Set()).has(pr.number)) return false;
+      // The carrier itself must not be stale (fixed on PR #304, Codex round
+      // 7, P2): a `[LEDGER]` PR that's structurally clean and content-valid
+      // can still be permanently blocked from merging by something this
+      // audit doesn't model — an unresolved Codex review thread against the
+      // repo's required-conversation-resolution merge gate, a stuck required
+      // review, or simple abandonment. Reusing every merge gate GitHub could
+      // ever add would chase an open-ended list; instead, the same
+      // `OVERDUE_BACKSTOP_MERGES` yardstick already used for a debt with no
+      // carrier at all is applied to the carrier's OWN age — once that many
+      // other PRs have merged since the carrier opened without it merging
+      // either, it stops counting as an active deferral, exactly like a
+      // debt with no carrier would.
+      const mergedSinceCarrierOpened = landed.filter((l) => l.number !== c.number && l.merged > c.opened).length;
+      return mergedSinceCarrierOpened < OVERDUE_BACKSTOP_MERGES;
+    });
     if (mergedSince >= OVERDUE_BACKSTOP_MERGES && !deferredByOpenCarrier) {
       overdue.push({ pr, trigger: "backstop", mergedSince });
       continue;
