@@ -4,6 +4,7 @@ import request from "supertest";
 import { createApp } from "../app.js";
 import { globalLimiterLogLevel } from "../lib/rateLimit.js";
 import { BoundedMemoryStore } from "../lib/globalRateLimitStore.js";
+import type { Options } from "express-rate-limit";
 import { logger } from "../lib/logger.js";
 
 const allowedOrigin = "https://app.example.com";
@@ -244,9 +245,19 @@ describe("global rate limiter", () => {
   });
 
   describe("store peak cardinality", () => {
-    it("never exceeds the configured cap, evicting oldest-first across both maps", async () => {
+    // `init()` is what gives the store its windowMs. A store that never got it
+    // has windowMs = 0, which makes EVERY increment look expired and reset the
+    // counter to 1 — so a counter assertion against an un-init'd store passes
+    // whether or not eviction works at all. These tests therefore always init.
+    function initStore(store: BoundedMemoryStore, windowMs = 60_000): void {
+      // init only reads windowMs; the rest of Options is irrelevant here.
+      store.init({ windowMs } as unknown as Options);
+    }
+
+    it("never exceeds the configured cap", async () => {
       const CAP = 20;
       const store = new BoundedMemoryStore(CAP);
+      initStore(store);
 
       for (let i = 0; i < CAP * 3; i++) {
         await store.increment(`key-${i}`);
@@ -258,8 +269,44 @@ describe("global rate limiter", () => {
       assert.equal(store.trackedKeyCount, CAP);
     });
 
+    it("drains `previous` before `current`, so eviction takes the genuinely oldest keys", async (t) => {
+      // The cap spans BOTH maps and eviction must drain `previous` first — the
+      // round-16 plan finding. Reaching that branch needs a window rotation,
+      // which only happens on the init() interval, so drive it with fake timers
+      // rather than leaving the branch untested (it never fires otherwise: with
+      // no rotation `previous` stays empty and eviction only ever hits
+      // `current`).
+      t.mock.timers.enable({ apis: ["setInterval", "Date"], now: Date.now() });
+      const CAP = 10;
+      const store = new BoundedMemoryStore(CAP);
+      initStore(store);
+
+      for (let i = 0; i < CAP; i++) await store.increment(`old-${i}`);
+      assert.equal(store.trackedKeyCount, CAP);
+
+      // Rotate: current -> previous, current = {}. Nothing is dropped yet.
+      t.mock.timers.tick(60_000);
+      assert.equal(store.trackedKeyCount, CAP, "rotation moves keys between maps, it does not drop them");
+
+      const NEW_KEYS = 5;
+      for (let i = 0; i < NEW_KEYS; i++) await store.increment(`new-${i}`);
+      assert.equal(store.trackedKeyCount, CAP, "the cap must hold across both maps combined, not per-map");
+
+      // The oldest `previous` entries went first; the newest keys are untouched.
+      for (let i = 0; i < NEW_KEYS; i++) {
+        assert.equal(await store.get(`old-${i}`), undefined, `old-${i} should have been evicted first`);
+      }
+      for (let i = NEW_KEYS; i < CAP; i++) {
+        assert.ok(await store.get(`old-${i}`), `old-${i} should still be tracked`);
+      }
+      for (let i = 0; i < NEW_KEYS; i++) {
+        assert.ok(await store.get(`new-${i}`), `new-${i} must never be evicted ahead of an older key`);
+      }
+    });
+
     it("never evicts under normal (non-flooding) traffic", async () => {
       const store = new BoundedMemoryStore(100_000);
+      initStore(store);
       for (let i = 0; i < 50; i++) {
         await store.increment(`normal-key-${i}`);
       }
@@ -267,14 +314,24 @@ describe("global rate limiter", () => {
     });
 
     it("resets an evicted key's counter (fails safe, never a wrongful 429)", async () => {
-      const store = new BoundedMemoryStore(2);
+      const store = new BoundedMemoryStore(3);
+      initStore(store);
+
       await store.increment("victim");
-      await store.increment("victim");
-      // Two more distinct keys forces eviction under a cap of 2.
-      await store.increment("other-1");
-      await store.increment("other-2");
-      const info = await store.increment("victim");
-      assert.equal(info.totalHits, 1, "victim's counter should have reset after eviction, not kept climbing");
+      const victimCount = (await store.increment("victim")).totalHits;
+      // Guards the whole assertion below: if the store were not accumulating
+      // (the un-init'd windowMs = 0 case), the post-eviction "=== 1" check
+      // would hold no matter what eviction did.
+      assert.equal(victimCount, 2, "sanity: an initialized store accumulates hits across requests");
+
+      // Three more distinct keys under a cap of 3 evicts `victim`, the oldest.
+      await store.increment("filler-1");
+      await store.increment("filler-2");
+      await store.increment("filler-3");
+      assert.equal(await store.get("victim"), undefined, "victim should have been evicted");
+
+      const afterEviction = (await store.increment("victim")).totalHits;
+      assert.equal(afterEviction, 1, "an evicted key starts over — a looser limit for a window, never a wrongful 429");
     });
   });
 

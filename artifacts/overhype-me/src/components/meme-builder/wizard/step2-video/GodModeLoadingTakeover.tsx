@@ -144,11 +144,11 @@ export function GodModeLoadingTakeover(props: Props) {
       } catch (err) {
         if (cancelled) return;
         if (isRetryablePollError(err)) {
-          // Rate-limited, not broken: the job is still running server-side.
-          // Back off past the normal poll interval instead of hammering the
-          // limiter again immediately, and do NOT count this toward the
-          // terminal-failure threshold below — a burst of 429s must never
-          // destroy a still-running job.
+          // Rate-limited, not broken: the job is still running server-side,
+          // so this must NOT count toward the terminal-failure threshold
+          // below — a burst of 429s must never fail a live generation.
+          // Waits out the server's Retry-After when it sent one (the global
+          // limiter always does), otherwise just keeps the normal cadence.
           timer = setTimeout(tick, retryDelayMsFor(err, pollIntervalMs));
           return;
         }

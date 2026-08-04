@@ -91,10 +91,12 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
         }
       } catch (err) {
         if (isRetryablePollError(err)) {
-          // Rate-limited, not broken: back off past the normal poll interval
-          // instead of hammering the limiter again immediately. This poller
-          // already retries forever regardless, so the classification is
-          // used purely for pacing here, not to avoid a false terminal state.
+          // Rate-limited, not broken. This poller already retries forever and
+          // has no terminal counter to protect, so the classification is used
+          // purely for pacing: wait out the server's Retry-After when it sent
+          // one (the global limiter always does), otherwise keep the normal
+          // cadence. It also keeps a 429 out of the consecutive-error count
+          // that drives the stale-progress fallback estimator.
           if (!cancelled && !terminatedRef.current) {
             window.setTimeout(poll, retryDelayMsFor(err, POLL_INTERVAL_MS));
           }

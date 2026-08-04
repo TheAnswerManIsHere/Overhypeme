@@ -15,8 +15,6 @@
  * 429s kills a live job" for "a dead upstream spins forever."
  */
 
-const DEFAULT_RETRY_BACKOFF_MS = 2_000;
-
 /**
  * Thrown by a job-polling fetch when the server returns a non-OK response.
  * Carries the HTTP status and, if present, the `Retry-After` header (in
@@ -48,12 +46,24 @@ export function isRetryablePollError(err: unknown): err is PollHttpError {
 }
 
 /**
- * Delay before the next poll after a retryable (429) response: honors the
- * server's `Retry-After` when present, otherwise a fixed backoff — either
- * way, longer than the normal poll interval so the client isn't hammering
- * the limiter it just tripped.
+ * Delay before the next poll after a retryable (429) response.
+ *
+ * The server's `Retry-After` is the only real backoff signal, and it is the
+ * one that fires in practice: `express-rate-limit` sets `Retry-After` on
+ * every 429 it produces (verified in the packaged source — it is written
+ * immediately before the configured handler runs, whenever `standardHeaders`
+ * or `legacyHeaders` is on, and this repo sets `standardHeaders: true`). It
+ * carries the seconds remaining in the limiter's window, so honoring it
+ * waits exactly as long as the block actually lasts.
+ *
+ * `fallbackMs` is required rather than defaulted, because there is no
+ * defensible universal fallback: a caller that omitted it would be silently
+ * choosing someone else's pacing. Both current callers pass their normal
+ * poll interval — i.e. absent an explicit server instruction we keep our
+ * usual cadence rather than inventing a backoff. That is deliberate and NOT
+ * a backoff; do not describe it as one.
  */
-export function retryDelayMsFor(err: PollHttpError, fallbackMs: number = DEFAULT_RETRY_BACKOFF_MS): number {
+export function retryDelayMsFor(err: PollHttpError, fallbackMs: number): number {
   if (err.retryAfterSeconds !== null && err.retryAfterSeconds > 0) {
     return err.retryAfterSeconds * 1000;
   }
