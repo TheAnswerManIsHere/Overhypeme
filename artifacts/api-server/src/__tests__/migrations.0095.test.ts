@@ -1142,6 +1142,45 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       assert.match(rows[0]!.def, /config_write/, "the full vocabulary must be restored");
     });
 
+    it("rejects an action CHECK disguised to render correctly while accepting everything", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `= ANY (expected || ARRAY[action])` renders with the same outer shape as the real
+      // constraint and mentions exactly the same literals, but the array it compares against
+      // always contains the value being tested, so every action passes. Verified directly:
+      // this predicate satisfied the previous anchored-shape-plus-literal-set check AND
+      // accepted a made-up action. No rendering-based test can be sound against this class of
+      // disguise, which is why verification now evaluates the predicate instead.
+      assert.ok(pool, "pool unavailable");
+      await pool.query(`ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_action_check`);
+      await pool.query(
+        `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_action_check
+           CHECK ("action" = ANY (ARRAY['retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write']::varchar[] || ARRAY["action"]::varchar[]))`,
+      );
+      try {
+        const { output } = execSqlCapturingDiagnostics(null, null, actionCheckBlock());
+        assert.doesNotMatch(
+          output,
+          /already present and correct/,
+          "a constraint that accepts every action must never be accepted as correct",
+        );
+        // Repaired, since this role owns the table.
+        const { rows } = await pool.query<{ def: string }>(
+          `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+            WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+        );
+        assert.doesNotMatch(rows[0]!.def, /ARRAY\[\(action\)/, "the disguise must have been replaced");
+        // And the repaired constraint must actually reject an unknown action.
+        await assert.rejects(
+          () => pool!.query(
+            `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t@e.com', 'totally_made_up')`,
+          ),
+          /violates check constraint/,
+        );
+      } finally {
+        await pool.query(actionCheckBlock());
+      }
+    });
+
     it("rejects an action CHECK with the right literals but different semantics", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // `CHECK (action IN (...) OR true)` mentions exactly the expected vocabulary and
@@ -1451,7 +1490,12 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         const result = execSqlCapturingDiagnostics(app, appPassword, actionCheckBlock());
         assert.ok(result.ok, `must not abort without TEMP privilege; got: ${result.output}`);
         assert.match(result.output, /already present and correct/);
-        assert.match(result.output, /verified structurally/, "and must say the check degraded");
+        // No degraded mode any more, and that is the point: verification is now done by
+        // EVALUATING the constraint's predicate against the vocabulary and against values
+        // outside it, which needs no DDL at all. The generated-reference approach that needed
+        // TEMP was also defeatable by a predicate that rendered correctly while accepting
+        // everything, so removing the dependency and closing that hole were the same change.
+        assert.match(result.output, /evaluating its predicate/);
       } finally {
         await pool.query(`GRANT TEMPORARY ON DATABASE ${process.env["PGDATABASE"] ?? "overhype_test"} TO PUBLIC`).catch(() => {});
         await pool.query(`DROP OWNED BY ${app}`).catch(() => {});

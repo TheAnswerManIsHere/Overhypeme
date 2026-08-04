@@ -95,39 +95,47 @@ BEGIN
      AND c.conrelid = to_regclass('ncmec_reports')
      AND c.contype = 'f';
 
-  IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
-    ALTER TABLE "ncmec_reports" DROP CONSTRAINT "ncmec_reports_quarantine_id_fk";
-    con_oid := NULL;
-  END IF;
+  -- Ownership-aware, for the same reason the action-check and trigger paths are: after a DBA
+  -- has transferred the ledger, the application role cannot ALTER it, and an unconditional
+  -- DROP/ADD aborts the migration with "must be owner of table". That is precisely the
+  -- database that still needs reconciling — a hardened ledger carrying the old
+  -- ON DELETE SET NULL foreign key can never converge if the repair cannot run there.
+  BEGIN
+    IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_reports', 'ncmec_reports_quarantine_id_fk');
+      con_oid := NULL;
+    END IF;
 
-  IF con_oid IS NULL THEN
-    ALTER TABLE "ncmec_reports"
-      ADD CONSTRAINT "ncmec_reports_quarantine_id_fk"
-      FOREIGN KEY ("quarantine_id") REFERENCES "quarantined_memes"("id")
-      ON DELETE set null ON UPDATE no action;
-  END IF;
+    IF con_oid IS NULL THEN
+      EXECUTE format(
+        'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE set null ON UPDATE no action',
+        'ncmec_reports', 'ncmec_reports_quarantine_id_fk', 'quarantine_id', 'quarantined_memes', 'id');
+    END IF;
 
-  -- Drop any OTHER foreign key on this column pointing at the same table, whatever it is
-  -- named. This is not defensive tidying: `drizzle-kit push` derives constraint names from
-  -- its own convention (`<table>_<col>_<reftable>_<refcol>_fk`), which does NOT match the
-  -- name this migration uses, so a database that has been through a push carries BOTH — and
-  -- the reconciliation above, which matches on `conname`, cannot see the other one.
-  -- Verified directly against this repository's PostgreSQL 16 target: with both present the
-  -- weaker action wins in practice, because PostgreSQL applies SET NULL and leaves RESTRICT
-  -- with nothing to refuse. For the audit ledger that is precisely the silent-rewrite this
-  -- constraint was changed to prevent, surviving the change.
-  FOR dup_name IN
-    SELECT c.conname FROM pg_catalog.pg_constraint c
-     WHERE c.conrelid = to_regclass('ncmec_reports')
-       AND c.contype = 'f'
-       AND c.conname <> 'ncmec_reports_quarantine_id_fk'
-       AND c.confrelid = to_regclass('quarantined_memes')
-       AND c.conkey = ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute
-                              WHERE attrelid = to_regclass('ncmec_reports') AND attname = 'quarantine_id')]::smallint[]
-  LOOP
-    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_reports', dup_name);
-    RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_reports.quarantine_id (kept ncmec_reports_quarantine_id_fk)', dup_name;
-  END LOOP;
+    FOR dup_name IN
+      SELECT c.conname FROM pg_catalog.pg_constraint c
+       WHERE c.conrelid = to_regclass('ncmec_reports')
+         AND c.contype = 'f'
+         AND c.conname <> 'ncmec_reports_quarantine_id_fk'
+         AND c.confrelid = to_regclass('quarantined_memes')
+         AND c.conkey = ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute
+                                WHERE attrelid = to_regclass('ncmec_reports') AND attname = 'quarantine_id')]::smallint[]
+    LOOP
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_reports', dup_name);
+      RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_reports.quarantine_id (kept ncmec_reports_quarantine_id_fk)', dup_name;
+    END LOOP;
+  EXCEPTION WHEN insufficient_privilege THEN
+    -- A warning, not an exception, and the asymmetry with the action check is deliberate: a
+    -- missing action CHECK lets a bad value INTO an append-only ledger, which can never be
+    -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
+    -- latent hazard on a delete path nothing currently exercises, and failing the whole
+    -- migration over it would block every other reconciliation this file performs.
+    RAISE WARNING '0095: the foreign key ncmec_reports_quarantine_id_fk on ncmec_reports.quarantine_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE set null ON UPDATE no action; -- and drop any other foreign key on the same column.',
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
+      'quarantine_id', 'quarantined_memes', 'id';
+  END;
+
 END $$;
 --> statement-breakpoint
 
@@ -535,9 +543,11 @@ DECLARE
                             'reopen','config_write'];
   con_oid   oid;
   con_def   text;
-  ref_def   text;
   con_valid boolean;
-  con_struct_ok boolean := false;
+  predicate text;
+  probe     text;
+  probe_result boolean;
+  con_semantics_ok boolean := false;
   ledger_schema text;
 BEGIN
   SELECT n.nspname INTO ledger_schema
@@ -551,69 +561,88 @@ BEGIN
      AND c.contype = 'c';
 
   IF con_oid IS NOT NULL THEN
-    -- Compared against a reference the SAME SERVER renders from the SAME expression, not
-    -- against a hardcoded string and not against the set of literals the constraint mentions.
+    -- The constraint is verified by EVALUATING IT, not by comparing how it renders.
     --
-    -- A hardcoded string is version-fragile: pg_get_constraintdef's output carries casts and
-    -- parenthesization this migration does not control.
+    -- Three text-based approaches were tried here across earlier rounds and each was defeated
+    -- by a predicate that renders acceptably while enforcing something else:
     --
-    -- A literal-set comparison is worse in a way that matters more, and is the defect this
-    -- replaces: `CHECK (action IN (...) OR true)` and `CHECK (action NOT IN (...))` both
-    -- mention exactly the expected literals and both reference the `action` column, so both
-    -- were accepted as correct. The first enforces nothing; the second inverts the vocabulary
-    -- outright. On a hardened replay the block would then return without touching either —
-    -- announcing a boundary it had just declined to verify.
+    --   * a hardcoded expected string        — version-fragile; casts and parenthesization
+    --                                          are not this migration's to control.
+    --   * the set of literals it mentions    — `CHECK (action IN (...) OR true)` enforces
+    --                                          nothing and `NOT IN` inverts the vocabulary,
+    --                                          and both mention exactly the right literals.
+    --   * an anchored shape + literal set    — defeated by
+    --                                          `action = ANY (expected || ARRAY[action])`,
+    --                                          which renders with the same outer shape and the
+    --                                          same literals while accepting EVERY value.
+    --                                          Reproduced directly on this repository's
+    --                                          PostgreSQL 16 target.
     --
-    -- Building the reference on a scratch table sidesteps both problems: identical expression,
-    -- identical server, identical renderer, so the two texts are directly comparable and any
-    -- semantic difference at all shows up as a difference. The scratch table is temporary and
-    -- dropped immediately; `action` is declared with the same type as the real column so the
-    -- rendered casts match.
-    -- The reference is generated by the server from the same expression, but generating it
-    -- needs TEMP DDL — and a locked-down application role may have had TEMP revoked on the
-    -- database. Round 12 ran this unguarded and BEFORE the insufficient_privilege handler
-    -- below, so such a role aborted on `permission denied to create temporary tables` even
-    -- when the constraint was already perfectly correct: the hardened-replay path this whole
-    -- block exists to serve neither accepted the valid constraint nor printed its guidance.
+    -- Rendering is simply not a sound proxy for meaning: for any pattern, a predicate can be
+    -- written that matches it and permits arbitrary actions. So the predicate is pulled out of
+    -- pg_get_constraintdef and evaluated against probe values, which answers the question this
+    -- block actually cares about — does this constraint accept exactly the intended vocabulary
+    -- and nothing else — rather than a proxy for it.
     --
-    -- So the strong check is attempted, and its ABSENCE degrades rather than aborting. The
-    -- fallback is still strictly stronger than the literal-set comparison it replaced: the
-    -- LIKE pattern is anchored over the WHOLE rendered predicate, so `... OR true` (which no
-    -- longer ends in `)))`) and `NOT IN` (which renders as `<> ALL`, not `= ANY`) are both
-    -- rejected, while the single wildcard keeps it tolerant of the cast and spacing
-    -- differences across server versions that make an exact hardcoded string unusable.
-    BEGIN
-      CREATE TEMP TABLE _ncmec_0095_action_ref ("action" varchar(40));
-      EXECUTE $ref$ALTER TABLE _ncmec_0095_action_ref ADD CONSTRAINT _ncmec_0095_action_ref_check
-  CHECK ("action" IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write'))$ref$;
-      SELECT pg_catalog.pg_get_constraintdef(c.oid) INTO ref_def
-        FROM pg_catalog.pg_constraint c
-       WHERE c.conname = '_ncmec_0095_action_ref_check'
-         AND c.conrelid = to_regclass('_ncmec_0095_action_ref');
-      DROP TABLE _ncmec_0095_action_ref;
-    EXCEPTION WHEN insufficient_privilege THEN
-      ref_def := NULL;
-      RAISE NOTICE '0095: no TEMP privilege, so ncmec_safety_audit_log_action_check is verified structurally rather than against a generated reference. A predicate with the right vocabulary but different logic is still rejected; only the exact-rendering comparison is unavailable.';
-    END;
+    -- This also removes the TEMP dependency the generated-reference approach introduced: no
+    -- DDL of any kind is performed, so a locked-down role with TEMP revoked verifies the
+    -- constraint just as strictly as a privileged one. There is no degraded mode left to
+    -- disagree about.
+    --
+    -- Evaluating catalog-derived SQL is safe here in a way it would not be for user input:
+    -- the text comes from this database's own pg_constraint, it is already being enforced on
+    -- every write to this table, and the probe values are passed through %L rather than
+    -- interpolated.
+    predicate := regexp_replace(con_def, '^CHECK \s*\((.*)\)\s*$', '\1');
 
-    -- convalidated matters alongside the predicate: a constraint added NOT VALID renders
-    -- identically to a validated one while leaving pre-existing rows unchecked.
+    con_semantics_ok := true;
+
+    -- Every value the vocabulary is supposed to permit must be ACCEPTED. This is what catches
+    -- an inverted (`NOT IN`) or narrowed constraint.
+    FOREACH probe IN ARRAY expected LOOP
+      BEGIN
+        EXECUTE format('SELECT COALESCE((%s), false) FROM (SELECT %L::varchar(40) AS action) AS t',
+                       predicate, probe)
+          INTO probe_result;
+      EXCEPTION WHEN OTHERS THEN
+        -- A predicate referencing other columns, or otherwise not evaluable in isolation, is
+        -- not one this migration wrote. Fail closed rather than guessing.
+        probe_result := false;
+      END;
+      IF NOT COALESCE(probe_result, false) THEN
+        con_semantics_ok := false;
+        EXIT;
+      END IF;
+    END LOOP;
+
+    -- And every value OUTSIDE it must be REJECTED. This is what catches `OR true`, the
+    -- `|| ARRAY[action]` disguise, and any other predicate that renders plausibly while
+    -- admitting arbitrary actions. The probes are deliberately varied in shape — a bare
+    -- unknown word, a near-miss of a real action, an empty string, and a case variant — so a
+    -- constraint that happens to be permissive in only one direction is still caught.
+    IF con_semantics_ok THEN
+      FOREACH probe IN ARRAY ARRAY['zzz_not_a_real_action', 'retry_', '_retry', '', 'RETRY'] LOOP
+        BEGIN
+          EXECUTE format('SELECT COALESCE((%s), false) FROM (SELECT %L::varchar(40) AS action) AS t',
+                         predicate, probe)
+            INTO probe_result;
+        EXCEPTION WHEN OTHERS THEN
+          probe_result := true;  -- unevaluable: fail closed
+        END;
+        IF COALESCE(probe_result, true) THEN
+          con_semantics_ok := false;
+          EXIT;
+        END IF;
+      END LOOP;
+    END IF;
+
+    -- convalidated matters alongside the predicate: a constraint added NOT VALID evaluates
+    -- exactly the same way while leaving pre-existing rows unchecked.
     SELECT c.convalidated INTO con_valid
       FROM pg_catalog.pg_constraint c WHERE c.oid = con_oid;
 
-    IF ref_def IS NULL THEN
-      con_struct_ok :=
-        con_def LIKE 'CHECK (((action)::text = ANY (%)))'
-        AND (SELECT array(SELECT DISTINCT m[1]
-                            FROM pg_catalog.regexp_matches(con_def, $re$'([^']*)'$re$, 'g') AS m
-                           ORDER BY 1))
-            = array(SELECT DISTINCT unnest(expected) ORDER BY 1);
-    END IF;
-
-    IF COALESCE(con_valid, false)
-       AND ((ref_def IS NOT NULL AND con_def = ref_def)
-            OR (ref_def IS NULL AND con_struct_ok)) THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log_action_check is already present and correct — left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
+    IF con_semantics_ok AND COALESCE(con_valid, false) THEN
+      RAISE NOTICE '0095: ncmec_safety_audit_log_action_check is already present and correct — verified by evaluating its predicate against the full vocabulary and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
       RETURN;
     END IF;
   END IF;
@@ -705,39 +734,47 @@ BEGIN
      AND c.conrelid = to_regclass('ncmec_safety_audit_log')
      AND c.contype = 'f';
 
-  IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
-    ALTER TABLE "ncmec_safety_audit_log" DROP CONSTRAINT "ncmec_safety_audit_log_report_id_fk";
-    con_oid := NULL;
-  END IF;
+  -- Ownership-aware, for the same reason the action-check and trigger paths are: after a DBA
+  -- has transferred the ledger, the application role cannot ALTER it, and an unconditional
+  -- DROP/ADD aborts the migration with "must be owner of table". That is precisely the
+  -- database that still needs reconciling — a hardened ledger carrying the old
+  -- ON DELETE SET NULL foreign key can never converge if the repair cannot run there.
+  BEGIN
+    IF con_oid IS NOT NULL AND NOT COALESCE(con_ok, false) THEN
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk');
+      con_oid := NULL;
+    END IF;
 
-  IF con_oid IS NULL THEN
-    ALTER TABLE "ncmec_safety_audit_log"
-      ADD CONSTRAINT "ncmec_safety_audit_log_report_id_fk"
-      FOREIGN KEY ("report_id") REFERENCES "ncmec_reports"("id")
-      ON DELETE restrict ON UPDATE no action;
-  END IF;
+    IF con_oid IS NULL THEN
+      EXECUTE format(
+        'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE restrict ON UPDATE no action',
+        'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk', 'report_id', 'ncmec_reports', 'id');
+    END IF;
 
-  -- Drop any OTHER foreign key on this column pointing at the same table, whatever it is
-  -- named. This is not defensive tidying: `drizzle-kit push` derives constraint names from
-  -- its own convention (`<table>_<col>_<reftable>_<refcol>_fk`), which does NOT match the
-  -- name this migration uses, so a database that has been through a push carries BOTH — and
-  -- the reconciliation above, which matches on `conname`, cannot see the other one.
-  -- Verified directly against this repository's PostgreSQL 16 target: with both present the
-  -- weaker action wins in practice, because PostgreSQL applies SET NULL and leaves RESTRICT
-  -- with nothing to refuse. For the audit ledger that is precisely the silent-rewrite this
-  -- constraint was changed to prevent, surviving the change.
-  FOR dup_name IN
-    SELECT c.conname FROM pg_catalog.pg_constraint c
-     WHERE c.conrelid = to_regclass('ncmec_safety_audit_log')
-       AND c.contype = 'f'
-       AND c.conname <> 'ncmec_safety_audit_log_report_id_fk'
-       AND c.confrelid = to_regclass('ncmec_reports')
-       AND c.conkey = ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute
-                              WHERE attrelid = to_regclass('ncmec_safety_audit_log') AND attname = 'report_id')]::smallint[]
-  LOOP
-    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_safety_audit_log', dup_name);
-    RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_safety_audit_log.report_id (kept ncmec_safety_audit_log_report_id_fk)', dup_name;
-  END LOOP;
+    FOR dup_name IN
+      SELECT c.conname FROM pg_catalog.pg_constraint c
+       WHERE c.conrelid = to_regclass('ncmec_safety_audit_log')
+         AND c.contype = 'f'
+         AND c.conname <> 'ncmec_safety_audit_log_report_id_fk'
+         AND c.confrelid = to_regclass('ncmec_reports')
+         AND c.conkey = ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute
+                                WHERE attrelid = to_regclass('ncmec_safety_audit_log') AND attname = 'report_id')]::smallint[]
+    LOOP
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_safety_audit_log', dup_name);
+      RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_safety_audit_log.report_id (kept ncmec_safety_audit_log_report_id_fk)', dup_name;
+    END LOOP;
+  EXCEPTION WHEN insufficient_privilege THEN
+    -- A warning, not an exception, and the asymmetry with the action check is deliberate: a
+    -- missing action CHECK lets a bad value INTO an append-only ledger, which can never be
+    -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
+    -- latent hazard on a delete path nothing currently exercises, and failing the whole
+    -- migration over it would block every other reconciliation this file performs.
+    RAISE WARNING '0095: the foreign key ncmec_safety_audit_log_report_id_fk on ncmec_safety_audit_log.report_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE restrict ON UPDATE no action; -- and drop any other foreign key on the same column.',
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
+      'report_id', 'ncmec_reports', 'id';
+  END;
+
 END $$;
 --> statement-breakpoint
 
@@ -1653,12 +1690,15 @@ BEGIN
       -- role whose own grant can afterwards be revoked), which is why this note names it.
       recovery_cmds := recovery_cmds
         || 'REVOKE overhype_audit_owner FROM CURRENT_USER; '
-        || '-- NOTE: creating overhype_audit_owner as a non-superuser CREATEROLE role leaves an '
-        || 'automatic membership granted by the bootstrap superuser that only that superuser can '
-        || 'revoke, and which still carries ADMIN OPTION. Until it is removed the append-only '
-        || 'boundary stays bypassable and the activation gate will keep refusing production. '
-        || 'Have a superuser run the CREATE ROLE above, or have one run: '
-        || 'REVOKE overhype_audit_owner FROM <the creating role> GRANTED BY <the grantor>;';
+        || '-- NOTE: creating overhype_audit_owner as a non-superuser CREATEROLE role leaves that '
+        || 'role an automatic membership, granted by the bootstrap superuser and carrying ADMIN '
+        || 'OPTION, which only that superuser can revoke. This is the DBA''s own retained '
+        || 'authority over a role it created, NOT a path from the application: '
+        || 'ncmecAuditBoundaryStatus() asks whether the APPLICATION can reach overhype_audit_owner, '
+        || 'so this membership does not by itself keep boundaryEnforced false or block activation. '
+        || 'It is worth removing anyway if the DBA account is not meant to retain standing access '
+        || 'to the ledger''s owner — have a superuser run the CREATE ROLE above instead, or have '
+        || 'one run: REVOKE overhype_audit_owner FROM <the creating role> GRANTED BY <the grantor>;';
     END IF;
 
     -- The REVOKEs above are not optional: on PostgreSQL 16 creating a role auto-grants it to
