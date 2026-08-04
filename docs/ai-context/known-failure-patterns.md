@@ -737,8 +737,12 @@ Verify against the *fact*, not the string you happened to delete: a paraphrase
 forks exactly as well as a quotation, so a grep for the removed wording can
 pass while the claim survives three lines away in different words.
 
-**Overhype:** PR #291 (the async-lane de-fork) ran six review rounds and this
-pattern accounted for a finding in five of them. The clearest instance: a claim
+**Overhype:** PR #291 (the async-lane de-fork) narrated six review rounds in
+its own body, but the loop ledger's fully-paginated, mechanically-derived
+count (row 18 of `.agents/metrics/loop-ledger.md`) is seven — that figure is
+the one of record, per this file's own reason to exist, and the "six" here is
+superseded by it rather than reconciled against it. This pattern accounted
+for a finding in five of the narrated rounds. The clearest instance: a claim
 equating async-jobs handler concurrency with database pool occupancy was
 corrected in `architecture-map.md` in round 4, which left `background-work.md`
 and `deferred-work.md` asserting the disproved version — so the repo

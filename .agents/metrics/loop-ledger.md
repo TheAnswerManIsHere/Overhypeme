@@ -82,13 +82,13 @@ and a round target would score both backwards.
 | 14 | [#280](https://github.com/TheAnswerManIsHere/Overhypeme/pull/280) | plan-review | 2 | 3574 | 0 | 18 | 180 | — | — | — | — | — | *not classified* | 34.7 | — | **fired** | ✗ **not run** | Closed unmerged (`[PLAN REVIEW] NCMEC CyberTipline submission + safety admin surface`). **Mechanical columns only** — same deferral as row 6 (#279), per David's precedent decision: full causal classification and blind adjudication of a loop this size is expensive and out of scope for a fold-in. This loop is now the ledger's **largest by findings** (180, surpassing #279's 166) and second only to #279 by round count (18 vs. 32). Both the PR's own body ("Sixteen rounds, 138 findings... round 17 requested") and its committed hand-off doc ("17 closed, 18 requested... 158 findings addressed") understate the mechanical count — neither hand-narrated figure matches `get_reviews`/`get_review_comments`'s fully-paginated totals, another instance of this file's core reason to exist. `breakers fired` is recorded rather than deferred (unlike row 6) since it's a single stated fact, not a per-finding judgment call: round 16's findings-per-round trend (12→18→22, not narrowing) triggered the plan-review contract's stop-and-check rule before the literal ~20-round cap, and David's resulting decision (cut incident-alert aggregation into its own plan) let the loop continue two more rounds rather than halting it. Public-disclosure check passed per the PR's own attestation; no operational security detail from the plan is repeated here. `pre-open preflight` is `—`, unmeasured, matching row 6's convention. **A concurrent, independent backfill of this same PR** (PR #292) left `findings` unmeasured (`—`) rather than 180, arguing the 180 figure is `get_review_comments`'s raw `totalCount` and was never run through `loop-metrics.mjs`'s `REVIEWER_LOGINS`-filtered derivation the way row 12/#288's 20 was. Re-checked live during this merge (2026-08-01): the GraphQL `totalCount` for #280's review threads is still exactly 180, and — unlike #288 — this is a plan-review PR against a markdown-only diff with no code change, so there is no CodeQL-scanning contamination risk to filter out the way #288's 4 CodeQL threads needed excluding; every thread here originates from a `chatgpt-codex-connector[bot]`-authored root comment. 180 is kept as this row's figure on that basis, but PR #292's objection is recorded because it identifies a real methodological gap (no full per-thread author verification was run, only a spot-check of the first thread plus the aggregate `totalCount`) that a future full re-derivation should close properly rather than repeat this shortcut. |
 | 15 | [#290](https://github.com/TheAnswerManIsHere/Overhypeme/pull/290) | prose/contract | 7 | 217 | 36 | 7 | 20 | 7 | 11 | 2 | 0 | 0 | **unmeasured** | 1.0 | ~0.5 | none | ✗ **unmeasured** (25.0%, 5/20 disagreement, exceeds the 20% gate) | Merged. This ledger's **second** self-referential PR (after #286/row 11) to close without its own row — the CI guard didn't catch it because it closed while another PR (#294) was already in flight, exactly the next-PR enforcement gap this PR's own review rounds forced it to document. The loop is unusually self-referential: it edits the ledger's own analysis prose about *other* rows (#270/#274/#282/#285/#286), and it is the **first row whose causal figure lands `unmeasured`** rather than a measured percentage — 5 of 20 findings (R2-F1, R2-F3, R2-F4, R4-F3, R5-F3) disagree between the author (this session) and an independent blind adjudicator, and every one of the five crosses the new-ground/self-inflicted boundary — a real, checkable fact about this row alone; row 7 (#282) already shows a prior row where boundary crossings were the majority (11 of 16), so this is not being contrasted against "every prior row stayed within-category," only stated as this row's own shape — the two readings land at 65.0% (author: 7 new/11 prop/2 wrong) and 50.0% (adjudicator: 10 new/8 prop/2 wrong), a 15-point spread neither this file nor `working-modes.md`'s gate design intends to paper over. The disagreement clusters on findings whose causal chain requires distinguishing "content present since the original diff, only discovered several review rounds later" (new ground) from "content an intervening round's fix actually touched or introduced" (self-inflicted) — exactly the class of judgment call the rubric's causal test is hardest to apply retroactively to once several rounds of edits have layered on the same passage. The counts recorded above are the **author's** (this session's, per the "author's classification is canonical" precedent from rows 3/4/7/10) — but per the rubric, an `unmeasured` result is excluded from the self-inflicted-share trend, not reported as 65.0%. Two things this row's causal-count columns don't capture, worth stating plainly: round 6's restructuring fix (trimming duplicated ledger analysis out of the roadmap, per an earlier finding) regressed two already-fixed facts back out of the text, requiring round 7 to re-fix them — a real "fix that undoes a prior fix" pattern; and round 3 (03:34:36) was a genuinely clean confirmation round that **did** post as a formal review object (unlike row 11/#286's and row 12/#288's confirmed clean-reaction gaps — both directly verified, see the note above), so `rounds`/`review hrs` here are not subject to that same undercount. **A third, independent backfill of this same PR exists** (from PR #295's branch, found while resolving that branch's merge against `main`): `new=10/prop=2/wrong=8`, also landing `unmeasured` (its own author-vs-adjudicator disagreement exceeded the 20% gate too), and differing substantially from both readings already on record here — a third source of classification disagreeing with the first two is itself evidence that this loop's retroactive causal judgment is genuinely hard, not that any single reading is wrong; disclosed per this file's standing practice rather than reconciled by picking one. |
 | 16 | [#292](https://github.com/TheAnswerManIsHere/Overhypeme/pull/292) | prose/contract | 14 | 770 | 72 | 7 | 19 | 4 | 3 | 8 | 0 | 4 | *unmeasured* (>20% disagreement) | 2.3 | — | none | ✗ **unmeasured** (21.1% disagreement, 4/19) | Merged (login-redirect XSS/open-redirect fix). `rounds` is mechanically undercounted by 1 (true 8): round 8, against the final commit `02bdcac`, came back clean and posted as a plain issue comment rather than a formal review — the same `countRounds` gap confirmed on row 11 (#286) and row 12 (#288), now observed a third time. `review hrs` (2.3, open→round 7) is undercounted the same way. Author classification (this row's recorded new/prop/wrong/invalid cells): round 1 (1, new ground). Round 2 (4: 3 new ground, 1 wrong-fix — round 1's fix didn't test encoded dot-segment spellings). Round 3 (1, wrong-fix — round 2's fix didn't wire the parity script into CI). Round 4 (4, wrong-fix — this PR's own ledger-obligation edits, made in an earlier commit of this same PR, left stale content). Round 5 (3: 2 propagation, 1 wrong-fix). Round 6 (4, invalid — reviewed the stale pre-fix commit `66c2780`, already superseded by `8ab18f6`; see below). Round 7 (1, wrong-fix). **Independent blind adjudication (fresh-context agent, no visibility into this classification) disagreed on 4 of 19 findings (21.1%) — over the ledger's 20% gate, so the self-inflicted share is `unmeasured` and this row is excluded from the trend, per this file's own rule.** All 4 mismatches are round 4's findings, all in the same direction: this classification called them `wrong_fix` (reasoning: they critique ledger content this same PR had written in an earlier commit), the adjudicator called them `new_ground` (reasoning: `wrong_fix` requires an earlier fix that *responded to a prior round's finding* — round 4 was the first time any reviewer saw that ledger content, regardless of which of this PR's own commits wrote it, so by the rubric's letter it's new ground). **The adjudicator's reading is very plausibly the more correct one** — recorded as a disagreement rather than silently adopted, because overriding my own classification with the adjudicator's on sight would defeat the purpose of an independent check; a future reconciliation pass can resolve it properly. The other disagreement candidates the adjudicator's report might suggest at first glance (round 4's internal wrong-fix-vs-propagation split) turned out, on direct finding-by-finding comparison, to already agree — the 4/19 count is exact, not estimated. Round 6's 4 findings are `invalid` by both readings: this session initially misjudged them as duplicate webhook deliveries with no action needed — genuinely wrong, caught only because David asked directly why comments were unanswered — but on investigation they were a real re-review that simply evaluated a stale, already-superseded commit; the underlying claims were moot against the PR's actual state at review time, not live defects, and the adjudicator's independent report confirms the same stale-commit read from the formal review's own "Reviewed commit" field. |
-| 17 | [#287](https://github.com/TheAnswerManIsHere/Overhypeme/pull/287) | prose/contract | 52 | 9918 | 3089 | 7 | 101 | — | — | — | — | — | *not classified* | 55.0 | — | none | ✗ **not run** | Merged (membership-from-entitlements derivation). **Mechanical columns only** — backfilled together with rows 18–22 via PR #306 (this ledger's next carrier after #298 merged), per David's precedent decision (rows 6/14): full causal classification and blind adjudication of a loop this size is expensive and out of scope for a fold-in. The PR's own body narrates round-4 findings as "15 → 13 → 7 → 15," describing only its last four rounds' trend, not a total — the mechanically counted total across all 7 rounds is 101, on a `get_review_comments`-paginated, `REVIEWER_LOGINS`-filtered derivation (`loop-metrics.mjs --mcp-snapshot`), not a recalled figure. 3 reviewer passes each absorbed a bodiless inline-comment review record alongside their announcement (counted as one round per pass, per `reviewerPasses`' announcement rule) — see the script's own `warnings` output for the exact commit ids. |
-| 18 | [#291](https://github.com/TheAnswerManIsHere/Overhypeme/pull/291) | prose/contract | 4 | 247 | 61 | 7 | 32 | — | — | — | — | — | *not classified* | 58.4 | — | none | ✗ **not run** | Merged (the async-lane de-fork, PR 1 of the manual backfill). **Mechanical columns only**, same batch and same precedent as row 17. `rounds` is 7, not the "six review rounds" PR #298's own body narrates — the mechanical count from a fully-paginated `get_reviews`/`get_review_comments` snapshot is the figure of record here (this file's core reason to exist), and the "six" figure elsewhere is superseded by it, not reconciled against it. |
-| 19 | [#295](https://github.com/TheAnswerManIsHere/Overhypeme/pull/295) | prose/contract | 2 | 27 | 13 | 0 | 0 | — | — | — | — | — | *not classified* | — | — | none | ✗ **not run** | Merged (CodeQL rate-limiting memory-note correction). **Mechanical columns only**, same batch as row 17. Zero Codex review activity exists on this PR at all (`reviews: []`, `reviewThreads: []` — confirmed empty, not unpaginated) — a real loop never ran, so `review hrs` is `—` rather than 0.0, and the row exists only to satisfy the coverage guard's "every closed PR needs a row or an exemption" rule, not because a loop closed here. |
-| 20 | [#297](https://github.com/TheAnswerManIsHere/Overhypeme/pull/297) | prose/contract | 6 | 794 | 58 | 2 | 3 | — | — | — | — | — | *not classified* | 0.3 | — | none | ✗ **not run** | Merged (loop-metrics: count reviewer passes correctly + audit ledger debt post-merge). **Mechanical columns only**, same batch as row 17 — notably, this is the PR that *fixed* the `reviewerPasses`/`countRounds` clean-pass-undercount defect the "Rounds undercounted when a re-review is clean" section below documents, so its own 3 findings are measured with the corrected logic it introduced. |
-| 21 | [#300](https://github.com/TheAnswerManIsHere/Overhypeme/pull/300) | prose/contract | 6 | 811 | 641 | 0 | 0 | — | — | — | — | — | *not classified* | — | — | none | ✗ **not run** | Closed unmerged, superseded same-day by #301 ("Redone in 301"). **Mechanical columns only**, same batch as row 17. Zero Codex review activity (`reviews: []`, `reviewThreads: []`) — closed before any review ran, so this row exists solely to satisfy the coverage guard, same as row 19. |
-| 22 | [#301](https://github.com/TheAnswerManIsHere/Overhypeme/pull/301) | prose/contract | 12 | 979 | 886 | 12 | 19 | — | — | — | — | — | *not classified* | 51.6 | — | none | ✗ **not run** | Merged (supersedes #300: CLAUDE.md skill-migration follow-ups, loop-ledger rows 15–16 for #290/#292, the nested-`CLAUDE.md` link-checker fix, and a consolidation pass). **Mechanical columns only**, same batch as row 17. This PR added rows 15–16 (#290, #292) to this very file — those rows' own judgment columns are unaffected by this batch; only row 22's own loop (the review this PR itself received) is mechanical-only. |
-| 23 | [#298](https://github.com/TheAnswerManIsHere/Overhypeme/pull/298) | prose/contract | 10 | 773 | 21 | 6 | 17 | 13 | 2 | 2 | 0 | 0 | **23.5%** | 65.9 | 0 | none | ✓ **17.6%** (3/17, full population) | Merged (the manual tuning-language CI guard). Unlike rows 17–22, given a **full** row: this session ran the loop itself, so classification happened with complete context rather than as a cold backfill. `pre-open preflight` is 0 (28 seconds: first commit `50d927e` at 04:16:55Z, PR opened 04:17:23Z). Round 1 (5, all new ground — the guard's first commit, never touched by anything prior). Round 2 (3: 2 new ground — `taxonomy-and-enrichment.md`'s "one fact or fifty" predates round 1 entirely; the line-join/markdown-normalization gap is baseline behavior never touched — and 1 wrong-fix — round 1's fix for "scan fenced configuration examples" added a test that passed for the wrong reason, the same underlying "config in a fence" claim still open). Round 3 (6: 3 new ground — `duration`/`counted-component`'s missing spelled-number support and `markdownFiles`'s non-recursive walk and the unmatched-end-marker gap are all baseline, untouched since round 1 — 2 propagation — `config-kv`'s missing snake_case support and the line-join window's suppression bug both exist only because round 2's fix *created* that code — and 1 wrong-fix — round 2's `stripEmphasis` fix for "normalize markdown" covered bold/code only, the same markup-evasion claim still open via italics/links). Round 4 (1, new ground — `taxonomy-and-enrichment.md`'s "eleven joke mechanisms" line was never touched by any prior fix; the round-3 fix that centralized the number vocabulary touched other *rules*, not this sentence). Round 5 (1, new ground — `background-work.md` was untouched by any in-loop fix before this round; its content entered the branch only via the round-5 merge from `main`). Round 6 (1, new ground on majority evidence — bundles 3 sites, 2 of which (`moderation.md`, `taxonomy-and-enrichment.md`) are untouched pre-existing content; the 3rd (`background-work.md`'s lane sentence) is a real wrong-fix, since round 5's own fix reworded the flagged digit as an ordinal instead of removing the count — see the new `known-failure-patterns.md` entry this exact defect prompted). **Independent blind adjudication (fresh-context agent, diff-verified against every fix commit, no visibility into this classification) disagreed on 3 of 17 findings (17.6%) — under the ledger's 20% gate, so the self-inflicted share is measured.** One disagreement (round 2's fenced-config test) was a same-side propagation-vs-wrong-fix boundary call and doesn't move the share either way; the adjudicator's read (wrong-fix — round 1's fix was a direct, failed attempt at the identical underlying claim) is adopted as the more rubric-precise of the two, per row 13's precedent. The other two (round 4's "eleven joke mechanisms", round 6's bundled finding) crossed the self-inflicted boundary: this session's own initial read called both wrong-fix on narrative grounds (the vocabulary/rewording work that *contributed* to each survival), but the adjudicator checked every candidate fix commit's actual diff and confirmed neither ever touched the specifically-flagged content before that round — the textbook new-ground test. That evidence is adopted here too, over this session's own softer reasoning: **23.5% (4/17) is the figure of record**, not this session's un-reconciled first pass of 35.3% (6/17), disclosed so the reconciliation itself is on record rather than silently overwritten. |
+| 17 | [#287](https://github.com/TheAnswerManIsHere/Overhypeme/pull/287) | prose/contract | 52 | 9918 | 3089 | 7 | 101 | — | — | — | — | — | *not classified* | 55.0 | — | — unverified | ✗ **not run** | Merged (membership-from-entitlements derivation). **Mechanical columns only** — backfilled together with rows 18–22 via PR #306 (this ledger's next carrier after #298 merged), per David's precedent decision (rows 6/14): full causal classification and blind adjudication of a loop this size is expensive and out of scope for a fold-in. The PR's own body narrates round-4 findings as "15 → 13 → 7 → 15," describing only its last four rounds' trend, not a total — the mechanically counted total across all 7 rounds is 101, on a `get_review_comments`-paginated, `REVIEWER_LOGINS`-filtered derivation (`loop-metrics.mjs --mcp-snapshot`), not a recalled figure. 3 reviewer passes each absorbed a bodiless inline-comment review record alongside their announcement (counted as one round per pass, per `reviewerPasses`' announcement rule) — see the script's own `warnings` output for the exact commit ids. `breakers fired` is `— unverified`, not `none`: this batch never actually read the round-by-round content to check whether the plan-review contract's non-convergence rule or the ~2-round mechanical-fix break fired at any point across 7 rounds and 101 findings — a real check, not a formality, given this row's size — so asserting `none` without having looked would be exactly the kind of unearned confidence this ledger exists to avoid recording. |
+| 18 | [#291](https://github.com/TheAnswerManIsHere/Overhypeme/pull/291) | prose/contract | 4 | 247 | 61 | 7 | 32 | — | — | — | — | — | *not classified* | 58.4 | — | — unverified | ✗ **not run** | Merged (the async-lane de-fork, PR 1 of the manual backfill). **Mechanical columns only**, same batch and same precedent as row 17. `rounds` is 7, not the "six review rounds" PR #298's own body narrates — the mechanical count from a fully-paginated `get_reviews`/`get_review_comments` snapshot is the figure of record here (this file's core reason to exist), and the "six" figure elsewhere is superseded by it, not reconciled against it. `breakers fired` is `— unverified`, same reasoning as row 17: this batch derived only the mechanical columns and never read the 32 findings closely enough to confirm no break-the-loop rule fired. |
+| 19 | [#295](https://github.com/TheAnswerManIsHere/Overhypeme/pull/295) | prose/contract | 2 | 27 | 13 | 0 | 0 | — | — | — | — | — | **n/a — clean loop** | — | — | none | **n/a — clean loop** | Merged (CodeQL rate-limiting memory-note correction). **Mechanical columns only**, same batch as row 17. Zero Codex review activity exists on this PR at all (`reviews: []`, `reviewThreads: []` — confirmed empty, not unpaginated) — a real loop never ran, so `review hrs` is `—` rather than 0.0, and both the self-infl. and adjudicated columns are `n/a — clean loop` per the `adjudicated` column's own definition ("at findings = 0 there is nothing to adjudicate"), not `*not classified*`/`✗ not run` — this row is not a deferred judgment call like rows 17/18/20/22, it is a loop with nothing to judge. The row exists only to satisfy the coverage guard's "every closed PR needs a row or an exemption" rule, not because a loop closed here. |
+| 20 | [#297](https://github.com/TheAnswerManIsHere/Overhypeme/pull/297) | prose/contract | 6 | 794 | 58 | 2 | 3 | — | — | — | — | — | *not classified* | 0.3 | — | — unverified | ✗ **not run** | Merged (loop-metrics: count reviewer passes correctly + audit ledger debt post-merge). **Mechanical columns only**, same batch as row 17 — notably, this is the PR that *fixed* the `reviewerPasses`/`countRounds` clean-pass-undercount defect the "Rounds undercounted when a re-review is clean" section below documents, so its own 3 findings are measured with the corrected logic it introduced. `breakers fired` is `— unverified`, same reasoning as row 17: 3 findings across 2 rounds is small, but this batch still never read them closely enough to confirm no break-the-loop rule fired, so `none` would be asserted rather than checked. |
+| 21 | [#300](https://github.com/TheAnswerManIsHere/Overhypeme/pull/300) | prose/contract | 6 | 811 | 641 | 0 | 0 | — | — | — | — | — | **n/a — clean loop** | — | — | none | **n/a — clean loop** | Closed unmerged, superseded same-day by #301 ("Redone in 301"). **Mechanical columns only**, same batch as row 17. Zero Codex review activity (`reviews: []`, `reviewThreads: []`) — closed before any review ran, so both the self-infl. and adjudicated columns are `n/a — clean loop` per the same reasoning as row 19, not `*not classified*`/`✗ not run`. This row exists solely to satisfy the coverage guard. |
+| 22 | [#301](https://github.com/TheAnswerManIsHere/Overhypeme/pull/301) | prose/contract | 12 | 979 | 886 | 12 | 19 | — | — | — | — | — | *not classified* | 51.6 | — | — unverified | ✗ **not run** | Merged (supersedes #300: CLAUDE.md skill-migration follow-ups, loop-ledger rows 15–16 for #290/#292, the nested-`CLAUDE.md` link-checker fix, and a consolidation pass). **Mechanical columns only**, same batch as row 17. This PR added rows 15–16 (#290, #292) to this very file — those rows' own judgment columns are unaffected by this batch; only row 22's own loop (the review this PR itself received) is mechanical-only. `breakers fired` is `— unverified`, same reasoning as row 17: 12 rounds is well inside the ~20-round soft cap by round count alone, but this batch never checked the findings-per-round trend for a narrowing/non-narrowing pattern, so `none` would be an unearned assertion rather than a checked fact. |
+| 23 | [#298](https://github.com/TheAnswerManIsHere/Overhypeme/pull/298) | prose/contract | 10 | 773 | 21 | 6 | 17 | 11 | 3 | 3 | 0 | 0 | **35.3%** | 65.9 | 0 | none | ✓ **5.9%** (1/17, full population) | Merged (the manual tuning-language CI guard). Unlike rows 17–22, given a **full** row: this session ran the loop itself, so classification happened with complete context rather than as a cold backfill. `pre-open preflight` is 0 (28 seconds: first commit `50d927e` at 04:16:55Z, PR opened 04:17:23Z). Round 1 (5, all new ground — the guard's first commit, never touched by anything prior). Round 2 (3: 2 new ground — `taxonomy-and-enrichment.md`'s "one fact or fifty" predates round 1 entirely; the line-join/markdown-normalization gap is baseline behavior never touched — and 1 wrong-fix — round 1's fix for "scan fenced configuration examples" added a test that passed for the wrong reason, the same underlying "config in a fence" claim still open). Round 3 (6: 2 new ground — `markdownFiles`'s non-recursive walk and the unmatched-end-marker gap are both baseline, untouched since round 1 — 3 propagation — `config-kv`'s missing snake_case support, the line-join window's suppression bug (both exist only because round 2's fix *created* that code), and the spelled-number-vocabulary finding (**ambiguous default applied**: it bundles two baseline-rule sites with one site traceable to round 1's own `batch-cap` fix, so it defaults to self-inflicted per `working-modes.md`'s rubric rather than majority-evidence new ground) — and 1 wrong-fix — round 2's `stripEmphasis` fix for "normalize markdown" covered bold/code only, the same markup-evasion claim still open via italics/links). Round 4 (1, new ground — `taxonomy-and-enrichment.md`'s "eleven joke mechanisms" line was never touched by any prior fix; the round-3 fix that centralized the number vocabulary touched other *rules*, not this sentence). Round 5 (1, new ground — `background-work.md` was untouched by any in-loop fix before this round; its content entered the branch only via the round-5 merge from `main`). Round 6 (1, wrong-fix — **ambiguous default applied**: bundles 3 sites, 2 of which (`moderation.md`, `taxonomy-and-enrichment.md`) are untouched pre-existing content, but the 3rd (`background-work.md`'s lane sentence) is a confirmed wrong-fix, since round 5's own fix reworded the flagged digit as an ordinal instead of removing the count — see the new `known-failure-patterns.md` entry this exact defect prompted; per `working-modes.md`'s rubric, a finding that plausibly spans new ground and self-inflicted defaults to self-inflicted, not majority vote, so the whole finding is wrong-fix). **Independent blind adjudication (fresh-context agent, diff-verified against every fix commit, no visibility into this classification) initially disagreed with this session's own first pass on 3 of 17 findings, but 2 of the 3 (rounds 4 and 6) were both readers independently applying the same majority-evidence approach to a bundled finding — which the rubric's ambiguous-default rule overrides for both.** Reconciled against the rubric text directly (Codex review on PR #306 caught this): once the ambiguous-default rule is applied correctly by both sides, rounds 4 and 6 stop disagreeing (both land on new-ground and wrong-fix respectively, matching this row's figures) and only round 2's fenced-config-test finding remains a genuine disagreement — a same-side propagation-vs-wrong-fix boundary call with **1/17 (5.9%) disagreement**, well under the 20% gate. The adjudicator's wrong-fix read for that one (round 1's fix was a direct, failed attempt at the identical underlying claim) is adopted as the more rubric-precise of the two, per row 13's precedent — it doesn't move the share either way since both categories are self-inflicted. **35.3% (6/17) is the figure of record.** An earlier revision of this row (before this reconciliation) recorded 23.5% by applying majority-evidence instead of the documented ambiguous-default rule to the two bundled findings — corrected here rather than left to stand, since the whole point of a written rubric is that it isn't re-derived by feel each time. |
 
 ### Rounds undercounted when a re-review is clean
 
@@ -129,18 +129,18 @@ failure. Its **mechanical** columns are fully derived and sound on their own.
 
 ### What the ledger's adjudicated rows now show
 
-**Nine rows carry a real adjudicated self-inflicted-share percentage** —
+**Ten rows carry a real adjudicated self-inflicted-share percentage** —
 every adjudicated row except #284 (adjudicated but with nothing to report:
 its one finding is `invalid`, so the denominator is zero; see its own row
 note), #290 (adjudicated on both sides, but the two readings disagreed by
 25% — above the 20% gate — so its figure is `unmeasured` and excluded here,
 per its own row note), and #292 (same reasoning: 21.1% disagreement, also
-over the gate, also `unmeasured`; see row 16's note). Naming all nine, not a
+over the gate, also `unmeasured`; see row 16's note). Naming all ten, not a
 subset, matters: #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285
-50.0%, #286 0%, #288 35.0%, #289 33.3%. (A concurrent PR — #292 — independently
-derived #288 at 40.0% instead of 35.0%; row 12's own note discloses both
-readings rather than picking one silently. #292's #289 figure agrees exactly
-at 33.3%.)
+50.0%, #286 0%, #288 35.0%, #289 33.3%, #298 35.3%. (A concurrent PR — #292 —
+independently derived #288 at 40.0% instead of 35.0%; row 12's own note
+discloses both readings rather than picking one silently. #292's #289 figure
+agrees exactly at 33.3%.)
 
 **The three 0% rows are not evidence the workflow is clean — they are a
 structural floor, not a measurement.** The precise criterion is **rounds that
@@ -178,16 +178,17 @@ than one finding-bearing round** — where propagation and wrong-fix are
 structurally possible — which is #270 (16 rounds, 15 finding-bearing — row 3
 notes one review event with zero findings), #274 (4 rounds, findings in
 every one), #282 (9 rounds, findings in every one), #285 (5 rounds, findings
-in every one), #288 (5 rounds, findings in every one), and #289 (2 rounds,
-findings in every one). #286 does not qualify despite its true two-round
-engagement, because only round 1 produced findings. **#290 would qualify by
-round shape (7 rounds, 6 finding-bearing) but is excluded because its figure
-is `unmeasured`, not because it's a single-round loop** — the two exclusion
-reasons are different and shouldn't be conflated.
+in every one), #288 (5 rounds, findings in every one), #289 (2 rounds,
+findings in every one), and #298 (6 rounds, findings in every one: 5/3/6/1/1/1).
+#286 does not qualify despite its true two-round engagement, because only
+round 1 produced findings. **#290 would qualify by round shape (7 rounds, 6
+finding-bearing) but is excluded because its figure is `unmeasured`, not
+because it's a single-round loop** — the two exclusion reasons are different
+and shouldn't be conflated.
 
-**Of these six, three are confirmed pre-boundary, two are confirmed
+**Of these seven, three are confirmed pre-boundary, three are confirmed
 post-boundary, and one (#285) straddles the boundary — this is not a clean
-three/three split, and treating it as one would repeat the exact error
+split down the middle, and treating it as one would repeat the exact error
 corrected here previously.** David enabled Codex "Exhaustive code review"
 shortly after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent
 is timestamped then, and he confirmed the change in the same breath) — no
@@ -208,6 +209,10 @@ evidence, #288's review window (2026-07-30T02:03–03:20 UTC) and #289's
 (2026-07-30T02:17–03:10 UTC) both start well after 00:56Z, so both are
 confirmed post-boundary** — grounded in the repo's own commit evidence,
 not a "latest plausible timezone" argument that doesn't actually hold.
+**#298 needs none of that timezone reasoning: its review window
+(2026-08-01T04:23Z–2026-08-03T22:12Z) runs entirely more than two days after
+00:56Z on 2026-07-29 under any plausible timezone, so it is confirmed
+post-boundary without qualification.**
 **#285 is different**: its review window is
 2026-07-29T22:39Z–2026-07-30T02:09Z, and 00:56Z falls **inside** that
 window, not before it, so #285 straddles the boundary: its earlier
@@ -229,54 +234,68 @@ section's straddle finding is the product of that later, more thoroughly
 checked analysis, not an equally-valid alternative reading.
 
 **The pre-boundary trend (n=3) stands as originally measured: 64.7% → 68.4%
-→ 72.1%, not falling.** **The confirmed post-boundary population is n=2
-(#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289),
-declining slightly.** Two points is thinner evidence than the three-point
-reading this section previously reported, and shouldn't be overstated
-either way. **The confirmed post-boundary pair shares a script cohort
-*label* but not a real shape, and that confound is not removed by
-excluding #285 — it's the same problem in a new place.** #288 and #289 are
-both classified `prose/contract` only because `classifyCohort` checks for
-any `.md` file before checking the PR's own fix-tier field, exactly the
-leakage this file already documents (see *The cohort rule leaks bugfix
-loops into prose/contract* below): row 12 describes #288 as a 21-file
+→ 72.1%, not falling.** **The confirmed post-boundary population is now n=3
+(#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289) → 35.3%
+(#298), no longer a clean decline.** Three points is still thin evidence,
+and shouldn't be overstated either way, but the addition of #298 already
+kills the "declining slightly" reading this section carried before it: the
+third point ticks back up, not down, so the honest description is "roughly
+flat in the mid-30s" rather than a trend in either direction.
+**The confirmed post-boundary set shares a script cohort *label* but not a
+real shape, and that confound is not removed by excluding #285 — it's the
+same problem in a new place.** #288, #289, and #298 are all classified
+`prose/contract` only because `classifyCohort` checks for any `.md` file
+before checking the PR's own fix-tier field, exactly the leakage this file
+already documents (see *The cohort rule leaks bugfix loops into
+prose/contract* below): row 12 describes #288 as a 21-file
 backend/frontend/migration/test **implementation** that happens to carry
-paired docs, while row 13 describes #289 as a **documentation-backfill**
-PR with no comparable code surface. So the n=2 post-boundary reading is
-**implementation-vs-docs confounded**, not a clean same-shape pair — #285
-was excluded for a real, different reason (the boundary straddle), and
-that exclusion neither creates nor removes this separate confound. With
-only two confirmed post-boundary points, already-thin evidence, that
-confound matters more, not less. #285 itself is not discarded as
-a data point: its 50.0% self-inflicted share still stands in the row 10 note
-and in the nine-row list above; it is excluded from this specific
-pre/post-boundary comparison only, because its own rounds don't sit
-cleanly on one side of the line being compared. (#292's alternate n=3
-reading — #285 50.0%, #289 33.3%, #288 40.0%, all treated as cleanly
-post-boundary — is disclosed in row 12's own note rather than adopted; its
-#288 figure also differs from this row's 35.0%, per that same note.)
+paired docs, row 13 describes #289 as a **documentation-backfill** PR with
+no comparable code surface, and row 23 describes #298 as a **CI-guard
+script plus its manual-chapter targets** — a third distinct shape again
+(one new detector script, its own test suite, and edits across three manual
+chapters, not a docs-only backfill and not a multi-surface product
+implementation). So the n=3 post-boundary reading is **three different loop
+shapes wearing one cohort label**, not a same-shape sample — #285 was
+excluded for a real, different reason (the boundary straddle), and that
+exclusion neither creates nor removes this separate confound. With only
+three confirmed post-boundary points, already-thin evidence, that confound
+matters more, not less. #285 itself is not discarded as a data point: its
+50.0% self-inflicted share still stands in the row 10 note and in the
+ten-row list above; it is excluded from this specific pre/post-boundary
+comparison only, because its own rounds don't sit cleanly on one side of
+the line being compared. (#292's alternate n=3 reading — #285 50.0%, #289
+33.3%, #288 40.0%, all treated as cleanly post-boundary — is disclosed in
+row 12's own note rather than adopted; its #288 figure also differs from
+this row's 35.0%, per that same note. #292 predates #298 and so has no
+figure for it either way.)
 
 **Two structural observations, both from counted data rather than
-impression, now checked against six loops instead of four:**
+impression, now checked against seven loops instead of four:**
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
-  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6. Five of six
-  qualifying loops replicate this exactly (the sixth, #270, ran before this
-  ledger tracked per-round breakdowns finely enough to confirm or deny it) —
-  this pattern is not an artifact of the pre-boundary reviewer, the
-  plan-review cohort, or any single loop's shape.
-- **Wrong fix dominates propagation in four of the six loops, not all six.**
-  #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs 6), and
-  #288 (4 vs 3) all show it. **#270 and #289 do not.** #270's reversal (18
-  propagation vs 4 wrong-fix) is already explained in row 3: this ledger's
-  own bootstrapping loop, with propagation findings concentrated in
-  subsystems built *mid-loop* (the MCP adapter, the rubric itself) rather
-  than "fixed one site, left another." #289's reversal is narrower (2
-  propagation vs 1 wrong-fix, on only 3 self-inflicted findings total) and
-  is better read as too small a sample to show the pattern than as a genuine
-  counter-example — a single finding moving categories would flip it back.
-  The dominance pattern holds reliably for plan-review loops (#274/#282) and
-  now replicates in #288 — a 21-file, code-plus-docs *implementation* PR
+  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6; in #298,
+  5/5. Six of seven qualifying loops replicate this exactly (the seventh,
+  #270, ran before this ledger tracked per-round breakdowns finely enough to
+  confirm or deny it) — this pattern is not an artifact of the pre-boundary
+  reviewer, the plan-review cohort, or any single loop's shape.
+- **Wrong fix dominates propagation in four of the seven loops, not all
+  seven.** #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs
+  6), and #288 (4 vs 3) all show it. **#270 and #289 do not, and #298 is a
+  third, different exception: a tie**, 3 wrong-fix vs 3 propagation,
+  neither dominating. #270's reversal (18 propagation vs 4 wrong-fix) is
+  already explained in row 3: this ledger's own bootstrapping loop, with
+  propagation findings concentrated in subsystems built *mid-loop* (the MCP
+  adapter, the rubric itself) rather than "fixed one site, left another."
+  #289's reversal is narrower (2 propagation vs 1 wrong-fix, on only 3
+  self-inflicted findings total) and is better read as too small a sample to
+  show the pattern than as a genuine counter-example — a single finding
+  moving categories would flip it back. #298's tie is the same small-sample
+  caveat at a slightly larger n (6 self-inflicted findings total, 3 and 3):
+  one finding moving categories either way would produce dominance or
+  reversal, so a tie at this size is not evidence against the pattern, just
+  evidence the sample is still too small to call reliably on this loop. The
+  dominance pattern holds reliably for plan-review loops (#274/#282) and now
+  replicates in #288 — a 21-file, code-plus-docs *implementation* PR
   (backend, frontend, migration, tests, paired docs; cohorted
   `prose/contract` only because the diff carries docs alongside code, not
   because it's a single-document edit), which is a genuinely different loop
@@ -284,9 +303,12 @@ impression, now checked against six loops instead of four:**
   shape difference is a real replication, not a restatement of the
   plan-review case — the pattern may be about self-inflicted findings in
   general rather than something specific to editing one document, though
-  n=1 outside the plan-review shape isn't enough to claim that broadly. It
-  is not yet tested on a genuinely large *pure-docs-harvest* loop (like this
-  PR, #294, once it closes) the way #270 tested it for code.
+  n=1 outside the plan-review shape isn't enough to claim that broadly. #298
+  (a third shape again — CI-guard script plus manual-chapter edits) neither
+  strengthens nor breaks that claim, since a tie is not a data point for or
+  against dominance. It is not yet tested on a genuinely large
+  *pure-docs-harvest* loop (like the docs-harvest PR that produced this row,
+  #306, once it closes) the way #270 tested it for code.
 
 This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
 post-boundary (declining; #285 excluded as a boundary straddle — a

@@ -26,11 +26,15 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - **Manual tuning-language guard, and PR 1 of the manual backfill** (PR #298,
   building on PR #291's async-lane de-fork). New
-  `scripts/check-manual-tuning-language.mjs`, wired into the Build job,
-  mechanically enforces `docs/manual/README.md`'s charter: a chapter may name
-  what a component is and who it serves, but not how it's configured. Current
-  detection coverage lives in the script's own comments, not here, so this
-  stays true as the rules evolve. Took 6 Codex review rounds to converge; the
+  `scripts/check-manual-tuning-language.mjs`, wired into the Build job, is
+  part of the CI enforcement for `docs/manual/README.md`'s charter: a chapter
+  may name what a component is and who it serves, but not how it's
+  configured. The script is lexical and catches only the detectable value
+  forms named in its own comments — a green run means no *detected*
+  violation, not full compliance, so it narrows what review still has to
+  catch rather than replacing it. Current detection coverage lives in the
+  script's own comments, not here, so this stays true as the rules evolve.
+  Took 6 Codex review rounds to converge; the
   generalized lesson from that loop — including a self-referential gap where a
   fix satisfied the guard by rewording a value instead of removing it — is in
   the new [`known-failure-patterns.md`](./known-failure-patterns.md#satisfying-a-lexical-guard-by-changing-a-values-form-not-its-meaning)
