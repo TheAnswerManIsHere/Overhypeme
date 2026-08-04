@@ -253,7 +253,7 @@ that exclusion neither creates nor removes this separate confound. With
 only two confirmed post-boundary points, already-thin evidence, that
 confound matters more, not less. #285 itself is not discarded as
 a data point: its 50.0% self-inflicted share still stands in the row 10 note
-and in the ten-row list above; it is excluded from this specific
+and in the eleven-row list above; it is excluded from this specific
 pre/post-boundary comparison only, because its own rounds don't sit
 cleanly on one side of the line being compared. (#292's alternate n=3
 reading — #285 50.0%, #289 33.3%, #288 40.0%, all treated as cleanly
