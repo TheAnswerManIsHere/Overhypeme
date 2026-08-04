@@ -13,6 +13,66 @@
 
 ---
 
+### 2026-08-01 · Dispute alerts fire on every delivery attempt, accepting duplicates
+- **Decision:** The admin dispute-created alert fires on every webhook delivery
+  where an advisory `eventAlreadyProcessed` check says the event hasn't
+  committed yet — including two deliveries racing before either one commits,
+  where both see "not yet processed" and both alert. No attempt is made to
+  reserve the alert atomically across that race.
+- **Why:** Reserving it atomically would mean claiming the event during
+  *prepare*, which is the ordering PR #287 specifically removed — a claim that
+  outlives a failed prepare permanently acks an event whose domain write never
+  happened, and Stripe never redelivers it. On a response window Stripe
+  measures in days, a duplicate chargeback warning is noise; a missing one is
+  an undefended chargeback. The advisory check still suppresses the common
+  case (a sequential redelivery of an already-committed event), so this only
+  costs a duplicate alert in the narrow concurrent-delivery window, never a
+  dropped one.
+- **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
+  before sending notifications"); mechanics in
+  [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).
+- **Revisit if:** duplicate alerts become an operational nuisance — a per-event
+  dedupe key on the alert enqueue would close the gap, but needs a new column
+  on `async_jobs` (a migration), so it wasn't folded into the PR that found it.
+
+### 2026-08-01 · Membership config relational writes lock the whole config set, not just the touched key
+- **Decision:** `PATCH /admin/config/:key` for a membership-timing key (lease
+  TTL, waiter timeout, sweep interval/threshold) locks and validates **every**
+  membership config row inside the write transaction, not only the key being
+  changed.
+- **Why:** The relational invariants are between *pairs* of settings — a lease
+  must outlive the retrieval-plus-apply budget it protects, a waiter must not
+  outlive the lease it waits for — so validating one key against a value read
+  outside the transaction lets two concurrent writes each pass individually
+  and commit an unsafe pair together. Locking the whole set closes that at the
+  cost of contention between concurrent config writers, which is theoretical
+  here: there is one admin, and will only be one for a while.
+- **Reference:** PR #287 review rounds 4–5 (escalated finding: concurrent
+  `PATCH /admin/config/:key` writes can each validate a safe intermediate
+  state and commit an unsafe pair); `lockAndLoadMembershipConfig` in
+  `membershipTiming.ts`.
+- **Revisit if:** more than one admin account becomes routine and the lock's
+  contention cost stops being theoretical.
+
+### 2026-07-30 · Reconciliation is deferred out of the entitlement-model PR; the gap is accepted
+- **Decision:** PR #287 ships the settled core of the payments/membership
+  rewrite — the entitlement model, its derivation, every write path, read-path
+  enforcement — **without** the Stripe↔local reconciliation job the original
+  plan called for. The job existed, was built, and was pulled out.
+- **Why:** Four Codex review rounds on reconciliation did not converge
+  (15 → 13 → 7 → 15 findings), and round 4's surface was almost entirely the
+  reconciliation subsystem plus regressions in the previous round's fixes *to
+  that subsystem* — not the settled core, which had stopped generating
+  defects. Narrowing scope shipped the part that was actually done instead of
+  letting an unconverging subsystem hold up a correct one.
+- **Reference:** PR #287 body ("Scope narrowed after review round 4"); the gap
+  itself and why it's harder than "write the job" (it can't enumerate from
+  local rows) are recorded under "Stripe↔local membership reconciliation" in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+- **Revisit if:** a real membership is observed out of step with Stripe with
+  no explaining event, or before scaling paid signups materially — whichever
+  comes first (same trigger recorded in `deferred-work.md`).
+
 ### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
 - **Decision:** When an `async_jobs` row transitions to `failed` (either
   exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`

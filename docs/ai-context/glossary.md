@@ -182,7 +182,22 @@
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).
-  → [product-brief](./product-brief.md)
+  **Derived, never assigned**: `users.membership_tier` is a projection
+  computed from a user's entitlement sources, recomputed on every change to
+  them — no code writes it as a value.
+  → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
+
+- **Entitlement source** — a `membership_entitlements` row: one durable grant
+  of membership, of type `stripe_subscription`, `stripe_lifetime_payment`, or
+  `admin_grant`. A user's tier is the **union** of their qualifying sources,
+  not a priority order — Legendary if *any* one qualifies.
+  → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)
+
+- **Grace episode** — the 14-day window a `past_due` subscription keeps
+  qualifying for, counted from the first failed charge on the earliest
+  still-unpaid invoice of the contiguous unpaid run. Not "however long Stripe
+  keeps retrying" — a bounded, computed deadline.
+  → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a
   confidence bound on up/down votes) plus score/comment/share counts.

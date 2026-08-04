@@ -715,3 +715,107 @@ exactly where the numerator lives. Both defects were confirmed by
 independent review before the sampling design was replaced entirely with
 full-population adjudication. See
 [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).
+
+## A widening cast over a field the SDK's current version doesn't have
+
+**Looks like:** reading a property off a typed third-party object via a cast —
+`(obj as Type & { field?: X }).field` — instead of the field actually being on
+`Type`. TypeScript accepts the cast without complaint, because a widening
+intersection cast can add any property regardless of whether the base type has
+it. **Dangerous:** the code compiles clean, and the field silently reads
+`undefined` on every real call — not an error, not a crash, just a `null` where
+a real value belonged. Neither typecheck nor an ordinary product-testing pass
+catches it: typecheck can't, because the cast is *why* it compiles; testing
+often can't either, because the field degrading to `null` doesn't break the
+feature it's attached to, it just quietly loses one piece of data forever.
+**Avoid:** before reading any field off a pinned SDK's object, grep the SDK's
+own `.d.ts` for that field name rather than trusting memory of an older API
+version or writing a cast to make TypeScript stop complaining — a cast that
+"fixes" a type error on a third-party object is a signal to go verify the
+field actually moved, not license to keep going. **Overhype:** `stripe@20`
+relocated three fields this same PR needed, each caught only by an independent
+reviewer, not by typecheck: `Invoice` has no top-level `subscription` (only
+`parent.subscription_details.subscription`); `Charge` has no `invoice` field
+at all (use `invoicePayments.list` as the reverse lookup instead); and
+`Subscription` has no top-level `current_period_end` (moved to each
+`SubscriptionItem`) — the last one shipped as
+`(subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end`
+and stored `null` on every refreshed entitlement source until PR #287's round
+9 review caught it. See
+[`membership-entitlements.md`](./membership-entitlements.md#the-trust-boundary--w1a).
+
+## A sequence's `last_value` is not a commit-order watermark
+
+**Looks like:** reading a Postgres sequence's current position (`SELECT
+last_value FROM some_seq`, or the analogous "current version counter") before
+starting some work, then later comparing a row's stamped version against that
+watermark to answer "has anything touched this row since I began?" **Dangerous:**
+`nextval()` is **not transactional** — a sequence value is consumed the instant
+`nextval()` runs, independent of whether the transaction that called it ever
+commits, and independent of *when* it commits relative to other transactions.
+So a concurrent writer can allocate a token (making it visible to a `last_value`
+read) and then commit its write *after* your watermark was taken — its row now
+carries a version equal to your watermark, and a `<= watermark` comparison calls
+that freshly-committed row stale. Sequence allocation order is simply not the
+same thing as commit order, and nothing about `last_value` makes it so.
+**Avoid:** compare **committed row values to committed row values** instead of
+either side to a sequence position — read each row's own version before the
+work begins, then read it again after, and treat "the version changed" as "an
+authoritative write landed," whoever performed it. **Overhype:** the
+reinstatement fail-closed path (PR #287, review round 8) took
+`membership_source_state_seq`'s `last_value` as a watermark before refreshing a
+user's sources, then compared each source's `source_state_as_of` against it —
+exactly the race above, confirmed independently by review. Replaced with
+`loadSourceStateVersions`, which snapshots each source's own version before and
+after. See
+[`membership-entitlements.md`](./membership-entitlements.md#the-admin-surfaces-are-entitlements-not-fake-payments-or-a-tier-field).
+
+## A transaction alone doesn't give two reads one consistent snapshot
+
+**Looks like:** wrapping two related `SELECT`s in `db.transaction(...)` to make
+them "atomic," when the actual goal is that both statements see the same
+database state — e.g. deriving a status from one query and selecting the row
+that status applies to with a second. **Dangerous:** the database's default
+isolation level, READ COMMITTED, gives a transaction atomicity **on write**
+(all-or-nothing), not a consistent snapshot **on read** — every statement
+inside a READ COMMITTED transaction still takes its own fresh snapshot at the
+moment it runs. A write landing between the two `SELECT`s (a webhook cancelling
+row B, say) is invisible to the first statement and visible to the second, so
+the two reads can legitimately disagree about the same row — reintroducing
+exactly the inconsistency the transaction looked like it was preventing.
+**Avoid:** for a multi-statement read that must see one snapshot, either
+collapse it into one statement, or explicitly request `{ isolationLevel:
+"repeatable read" }` — safe on a read-only block, since a serialization failure
+there has nothing to undo and no write to retry. **Overhype:** twice in one PR
+(#287, rounds 8–9): `GET /stripe/subscription` selected a qualifying source in
+one statement and the row to return in a second, which could disagree about
+which of two subscriptions was current; and the grace-drift admin panel read an
+uncapped `count(*)` and a capped sample as two separate statements against a
+predicate the hourly sweep was actively changing, which could report a total
+smaller than the list beside it. Both were plain `db.transaction(...)` blocks
+before the fix — the first was corrected to `repeatable read`, the second to
+`count(*) OVER ()` in one statement.
+
+## A broad error-class match convicts more than the one case it was written for
+
+**Looks like:** catching an error and testing a general property of it — an
+error code, a substring of the message — to answer a specific question ("was
+this a duplicate?", "was this a timeout?"), when the general property is shared
+by cases the specific question doesn't apply to. **Dangerous:** the broad test
+passes on the wrong case just as readily as the right one, and silently
+mis-routes it — often into the code path that swallows or acknowledges the
+error, which is the most expensive place to be wrong. The bug is invisible in
+the common case (where only the intended cause ever produces that error) and
+appears only under a specific concurrent or edge condition that produces the
+same broad symptom for a different reason. **Avoid:** match the most specific
+identifying detail available — a Postgres error's `constraint` name, not just
+`code === "23505"`; a specific error subclass, not a message substring — so the
+test can only be true for the actual case it exists to handle. **Overhype:** a
+webhook handler's catch block tested `code === "23505" || message.includes("unique")`
+to detect "this event was already processed," inside a `try` that also covers
+domain writes touching *other* unique constraints. Two racing first-purchase
+deliveries could violate an unrelated unique-customer constraint during
+prepare — a real failure — and the broad test called it a duplicate, silently
+acking an event whose purchase was never granted (PR #287, review round 9).
+Fixed by matching `err.constraint === "stripe_processed_events_pkey"`
+specifically.

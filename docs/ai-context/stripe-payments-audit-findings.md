@@ -13,6 +13,16 @@
 > with **no real payment data**, so that protection was guarding a harm that
 > does not exist, and the fixes land before launch. They are now published
 > below as findings 9, 10 and 11. Nothing is held back.
+>
+> **Update 2026-08-03: the fix plan this audit commissioned has shipped
+> (PR #287).** This document is now **history, not current architecture** —
+> read [`membership-entitlements.md`](./membership-entitlements.md) for how
+> the system works today. The findings below (the private-annex ones
+> especially — 9, 10, 11) were the root of the entitlement-model rewrite;
+> most are fixed by construction under the new model rather than patched
+> individually. The exceptions: reconciliation (this audit's finding on
+> Stripe↔local drift repair) was deferred, not fixed — see
+> [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted).
 
 ---
 

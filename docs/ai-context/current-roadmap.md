@@ -24,6 +24,35 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Membership is derived from entitlements, not assigned per-event** (PR #287,
+  from the plan reviewed on the closed-unmerged
+  [PR #279](https://github.com/TheAnswerManIsHere/Overhypeme/pull/279), 32
+  plan-review rounds). `users.membership_tier` stops being a value fifteen
+  call sites wrote by hand — each with its own idea of which other sources to
+  check first — and becomes a projection derived from durable
+  `membership_entitlements` rows every time something about them changes. See
+  [`membership-entitlements.md`](./membership-entitlements.md) for the model
+  (three source types, the W1a trust boundary, per-source leases with
+  fencing, grace episodes) and the manual's
+  [Payments & Membership](../manual/payments-and-membership.md) chapter for
+  the product-facing behavior. Comping a membership now writes an
+  `admin_grant` entitlement — actor, reason, timestamp, revocation — never a
+  fake payment and never a tier field; the admin membership-tier dropdown is
+  gone, not merely hidden. **Scope was narrowed mid-build** (David,
+  2026-07-30): reconciliation — the job that would repair a webhook Stripe
+  never successfully delivers — did not converge after four review rounds and
+  was pulled into its own deferred item rather than block the settled core.
+  See
+  [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted)
+  and [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+  **The build ran 11 further code-review rounds after the plan converged**
+  (101 findings total across both loops, every one fixed or explicitly
+  recorded as a gap — none silently dropped); David stopped the loop after
+  round 11 rather than chasing full convergence, a deliberate call recorded
+  on the PR rather than an oversight. One gap surfaced in that final round —
+  entitlement sources don't record which Stripe account (live vs. test) they
+  came from — is filed as pre-launch hardening below rather than fixed inline,
+  since it needs a migration and a backfill-semantics decision.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —

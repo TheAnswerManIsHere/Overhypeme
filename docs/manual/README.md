@@ -163,7 +163,7 @@ In reading order. A chapter file appears only once it holds real content, so
 | 7 | `public-site-and-sharing.md` | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | not yet written |
 | 8 | `community-and-engagement.md` | Ratings, comments, comment hearts, meme hearts, and the activity feed | not yet written |
 | 9 | `accounts-and-auth.md` | Sign-in methods, the account lifecycle, verification and password journeys | not yet written |
-| 10 | `payments-and-membership.md` | Free vs. Legendary, plan shapes, and what a membership unlocks | not yet written |
+| 10 | [`payments-and-membership.md`](./payments-and-membership.md) | Free vs. Legendary, plan shapes, and what a membership unlocks | ✅ written |
 | 11 | `admin-console.md` | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | not yet written |
 | 12 | [`background-work.md`](./background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 

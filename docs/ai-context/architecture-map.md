@@ -450,5 +450,5 @@ deliberately excludes them and points here instead.
 | Enrichment / taxonomy | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md), `factEnrichment*.ts`, `enrichmentVersioning.ts`, `taxonomyHealth/` |
 | Tokenizer / grammar | [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md), `factTokenizer.ts`, `templateGrammar.ts`, `render-fact.ts` |
 | Schema / migration / backfill | [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md), `lib/db/src/schema/*` |
-| Billing | `routes/stripe.ts`, `stripe*`, `lib/db/src/schema/memberships.ts` |
+| Billing / membership | [`membership-entitlements.md`](./membership-entitlements.md), `routes/stripe.ts`, `routes/admin.ts` (grant/revoke), `lib/membershipState.ts`, `lib/membershipSources.ts`, `lib/db/src/schema/membershipEntitlements.ts` |
 | Async jobs | `lib/db/src/schema/asyncJobs.ts`, the `*Jobs.ts` handlers |
