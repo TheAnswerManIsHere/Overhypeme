@@ -1328,6 +1328,10 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           `the creator must self-grant SET before the transfer; got: ${output}`,
         );
         // Now actually run the sequence the block printed, as the DBA it was written for.
+        // The WHOLE sequence, including the trailing REVOKEs — truncating before them is what
+        // let a syntactically invalid `REVOKE ... FROM <the role that runs the CREATE ROLE
+        // above>` ship: under fail-fast tooling that aborts after the transfers have already
+        // succeeded, leaving the temporary membership this test is meant to prove is removed.
         const cmds = output.slice(output.indexOf("CREATE ROLE overhype_audit_owner"));
         // The ordering matters as much as the presence: the self-grant has to precede the
         // ALTER that needs it. Measured inside the command list, not the whole message, which
@@ -1336,13 +1340,32 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
           cmds.indexOf("WITH SET TRUE") < cmds.indexOf("ALTER TABLE"),
           "the SET grant must come before the ownership transfer",
         );
-        const upToRevoke = cmds.slice(0, cmds.indexOf("REVOKE overhype_audit_maintenance"));
-        const applied = execSqlCapturingDiagnostics(dba, dbaPassword, upToRevoke);
+        assert.doesNotMatch(cmds, /<the role that runs/, "the sequence must be executable SQL, not prose");
+        const applied = execSqlCapturingDiagnostics(dba, dbaPassword, cmds);
         assert.ok(applied.ok, `the printed recovery sequence must actually run; got: ${applied.output}`);
         const { rows } = await pool.query<{ owner: string }>(
           `SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE relname = 'ncmec_safety_audit_log'`,
         );
         assert.equal(rows[0]?.owner, "overhype_audit_owner", "the transfer must have succeeded");
+        // And the temporary membership the sequence granted itself must be gone — the point of
+        // the final REVOKE, and the thing the truncated run could never observe.
+        const { rows: memberRows } = await pool.query<{ grantor: string }>(
+          `SELECT grantor::regrole::text AS grantor FROM pg_auth_members
+            WHERE roleid = 'overhype_audit_owner'::regrole AND member = $1::regrole`,
+          [dba],
+        );
+        // The SELF-GRANTED row (the SET access the sequence gave itself) must be gone.
+        // The automatic creator membership is NOT removable here — verified directly: its
+        // grantor is the bootstrap superuser, and PostgreSQL permits only a role with that
+        // grantor's privileges to revoke it, ADMIN OPTION notwithstanding. So the sequence
+        // must SAY so rather than leave a DBA believing the boundary is closed.
+        const selfGranted = memberRows.filter((r) => r.grantor === dba);
+        assert.equal(selfGranted.length, 0, "the sequence's own SET grant must be revoked");
+        assert.match(
+          output,
+          /only that superuser can revoke/,
+          "the sequence must disclose the membership it cannot remove",
+        );
       } finally {
         await pool.query(`ALTER TABLE ncmec_safety_audit_log OWNER TO CURRENT_USER`).catch(() => {});
         await pool.query(`ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO CURRENT_USER`).catch(() => {});
@@ -1351,6 +1374,88 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         await pool.query(`DROP ROLE IF EXISTS ${dba}`);
         await pool.query(`DROP OWNED BY overhype_audit_owner`).catch(() => {});
         await pool.query(`DROP ROLE IF EXISTS overhype_audit_owner`).catch(() => {});
+      }
+    });
+
+    it("repairs a foreign key that points at the right table with the wrong referential action", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `confrelid` alone accepts a same-named FK on the right target table with the wrong
+      // local column, referenced column, or ON DELETE/ON UPDATE action. For the audit log that
+      // is not cosmetic: the old ON DELETE SET NULL is an UPDATE of an append-only ledger, so
+      // a database still carrying it must be MIGRATED, not accepted.
+      assert.ok(pool, "pool unavailable");
+      await pool.query(`ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_report_id_fk`);
+      await pool.query(
+        `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_report_id_fk
+           FOREIGN KEY (report_id) REFERENCES ncmec_reports(id) ON DELETE SET NULL`,
+      );
+      const { output } = execSqlCapturingDiagnostics(null, null, executableMigration());
+      assert.ok(output !== undefined);
+      const { rows } = await pool.query<{ deltype: string }>(
+        `SELECT confdeltype AS deltype FROM pg_constraint
+          WHERE conname = 'ncmec_safety_audit_log_report_id_fk'`,
+      );
+      assert.equal(rows[0]?.deltype, "r", "the SET NULL action must have been reconciled to RESTRICT");
+    });
+
+    it("refuses to delete a report whose handling was logged, rather than rewriting the ledger", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // ON DELETE SET NULL would issue an UPDATE against the append-only ledger: either the
+      // delete fails from a trigger nobody would connect to it, or — under the maintenance
+      // role — it silently rewrites the history of a legal record. RESTRICT refuses the delete
+      // outright, which is both compatible with append-only and correct on its own terms.
+      assert.ok(pool, "pool unavailable");
+      const { rows: rep } = await pool.query<{ id: string }>(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, submission_status)
+         VALUES ('arachnid', 'restricted/quarantine/fk-restrict-test', 'pending') RETURNING id`,
+      );
+      const reportId = rep[0]!.id;
+      await pool.query(
+        `INSERT INTO ncmec_safety_audit_log (report_id, actor_label, action)
+         VALUES ($1, 'test@example.com', 'retry')`,
+        [reportId],
+      );
+      try {
+        await assert.rejects(
+          () => pool!.query(`DELETE FROM ncmec_reports WHERE id = $1`, [reportId]),
+          /violates foreign key constraint/,
+          "deleting a report with audit history must be refused",
+        );
+        // And the ledger entry is untouched — not nulled, not removed.
+        const { rows } = await pool.query<{ report_id: string }>(
+          `SELECT report_id FROM ncmec_safety_audit_log WHERE report_id = $1`,
+          [reportId],
+        );
+        assert.equal(rows.length, 1, "the audit entry must survive intact");
+      } finally {
+        await pool.query(`DELETE FROM ncmec_safety_audit_log WHERE report_id = $1`, [reportId]).catch(() => {});
+        await pool.query(`DELETE FROM ncmec_reports WHERE id = $1`, [reportId]).catch(() => {});
+      }
+    });
+
+    it("verifies the action CHECK without TEMP privilege instead of aborting", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // Round 12 generated its reference constraint on a TEMP table, unguarded and before the
+      // insufficient_privilege handler — so a locked-down role with TEMP revoked aborted on
+      // `permission denied to create temporary tables` even when the constraint was already
+      // correct, defeating the hardened-replay path the block exists for.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_notemp_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`GRANT USAGE ON SCHEMA public TO ${app}`);
+        await pool.query(`GRANT SELECT ON ncmec_safety_audit_log TO ${app}`);
+        // TEMP is granted to PUBLIC by default; revoking it there is what actually removes it.
+        await pool.query(`REVOKE TEMPORARY ON DATABASE ${process.env["PGDATABASE"] ?? "overhype_test"} FROM PUBLIC`);
+        const result = execSqlCapturingDiagnostics(app, appPassword, actionCheckBlock());
+        assert.ok(result.ok, `must not abort without TEMP privilege; got: ${result.output}`);
+        assert.match(result.output, /already present and correct/);
+        assert.match(result.output, /verified structurally/, "and must say the check degraded");
+      } finally {
+        await pool.query(`GRANT TEMPORARY ON DATABASE ${process.env["PGDATABASE"] ?? "overhype_test"} TO PUBLIC`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
       }
     });
 

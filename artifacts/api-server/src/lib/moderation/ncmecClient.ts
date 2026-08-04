@@ -263,7 +263,23 @@ async function readBoundedText(response: Response, limit: number): Promise<strin
     joined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder("utf-8").decode(joined);
+  // `fatal: true`, because the default is silent repair and silent repair is indistinguishable
+  // from success here. A non-fatal TextDecoder replaces an invalid octet with U+FFFD, which is
+  // a perfectly valid XML character — so a corrupted `/submit` response yields a well-formed
+  // envelope carrying a reportId like `123�`, which this client would accept, persist as
+  // the report's identity, and then send on every subsequent /upload, /fileinfo and /finish.
+  // Every one of those would fail against an id NCMEC never issued, and the report would look
+  // like it had been opened successfully. Byte-level corruption has to enter the same
+  // malformed-response path as every other unreadable body, where /submit's and /upload's
+  // ambiguity downgrades can classify it.
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(joined);
+  } catch (err) {
+    throw new NcmecResponseError(
+      "malformed",
+      `ISPWS response was not valid UTF-8: ${(err as Error).message}`,
+    );
+  }
 }
 
 /**

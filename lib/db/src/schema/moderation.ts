@@ -1,5 +1,6 @@
 import {
   bigint,
+  foreignKey,
   bigserial,
   boolean,
   check,
@@ -141,8 +142,13 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
   /** The id `exttest` assigned, kept for debugging. */
   testReportId: varchar("test_report_id", { length: 64 }),
   /** Upstream linkage, so an orphaned quarantine row is findable by query rather than by inference. */
-  quarantineId: bigint("quarantine_id", { mode: "number" })
-    .references(() => quarantinedMemesTable.id, { onDelete: "set null" }),
+  /**
+   * Declared in the table's extra config below rather than inline, so the constraint carries
+   * the SAME NAME 0095 uses. Drizzle derives its own name from a different convention, and a
+   * database that has been through both a push and the migrator ends up with two foreign keys
+   * on this column — which 0095's name-matched reconciliation cannot see.
+   */
+  quarantineId: bigint("quarantine_id", { mode: "number" }),
   /**
    * When this row entered terminal `failed`, by the database clock. Written by
    * every path that finalizes a row `failed`, in the same transaction as the
@@ -202,6 +208,11 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
   index("IDX_ncmec_failed_unalerted")
     .on(t.id)
     .where(sql`${t.submissionStatus} = 'failed' AND ${t.alertNotifiedAt} IS NULL`),
+  foreignKey({
+    columns: [t.quarantineId],
+    foreignColumns: [quarantinedMemesTable.id],
+    name: "ncmec_reports_quarantine_id_fk",
+  }).onDelete("set null"),
   uniqueIndex("UQ_ncmec_reports_quarantine")
     .on(t.quarantineId)
     .where(sql`${t.quarantineId} IS NOT NULL`),
@@ -297,9 +308,16 @@ export type NcmecAuditAction = typeof NCMEC_AUDIT_ACTIONS[number];
  */
 export const ncmecSafetyAuditLogTable = pgTable("ncmec_safety_audit_log", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
-  /** Null for config writes, which are not row-scoped. */
-  reportId: bigint("report_id", { mode: "number" })
-    .references(() => ncmecReportsTable.id, { onDelete: "set null" }),
+  /**
+   * Null for config writes, which are not row-scoped.
+   *
+   * `restrict`, not `set null`: SET NULL is an UPDATE of this table, which the always-enabled
+   * append-only trigger either rejects (making an unrelated delete fail) or — under the
+   * maintenance role — permits, silently rewriting a legal record's history. A ledger a foreign
+   * key can mutate is not append-only. Refusing to delete a report whose handling was logged
+   * here is also correct on its own terms.
+   */
+  reportId: bigint("report_id", { mode: "number" }),
   /**
    * Deliberately carries no foreign key. A FK would make the ledger's contents
    * depend on the users table — ON DELETE SET NULL would erase the
@@ -327,6 +345,11 @@ export const ncmecSafetyAuditLogTable = pgTable("ncmec_safety_audit_log", {
   attemptId: uuid("attempt_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  foreignKey({
+    columns: [t.reportId],
+    foreignColumns: [ncmecReportsTable.id],
+    name: "ncmec_safety_audit_log_report_id_fk",
+  }).onDelete("restrict"),
   index("IDX_ncmec_audit_report_created").on(t.reportId, t.createdAt.desc()),
   index("IDX_ncmec_audit_created").on(t.createdAt.desc()),
   // Declared here, not only in 0095, for the same reason the two ncmec_reports checks are:
