@@ -27,7 +27,14 @@ clothes.
 
 Now one module (`membershipSources.ts`'s `recomputeMembership`) owns the write,
 one expression (`effectiveTierExpr`) owns the read, and nothing else may set
-`membership_tier` directly. If you find code doing that, it's a regression.
+`membership_tier` directly. **One narrow, designed exception:** admin
+reinstatement (`PATCH /admin/users/:id` in `routes/admin.ts`) writes
+`membershipTier`/`membershipValidUntil` directly, bypassing
+`recomputeMembership`, when a source refresh comes back incomplete — it
+re-derives over only the sources it could verify and writes that fail-closed
+result itself, rather than trusting a recompute that might count a source it
+never actually re-checked. See the reader-inventory section below for the
+mechanics. Any *other* code writing the column directly is a regression.
 
 ## The entitlement model
 
@@ -95,7 +102,13 @@ being permanently acked on a transient failure.
 
 ## Concurrency — leases, fencing, and the prepare/apply split
 
-Every write path splits into two phases:
+This section scopes to **Stripe-backed writes** — refreshes and webhook-driven
+updates to `stripe_subscription`/`stripe_lifetime_payment` sources. Admin
+grants and revocations (`writeAdminGrant`/`writeAdminRevocation`) write
+directly inside their own transaction, with no Stripe retrieval, no lease, and
+no fencing check — there is nothing to race against but another writer of the
+same admin action, and the admin *is* the authority for that source. Every
+Stripe-backed write path splits into two phases:
 
 - **prepare** — every Stripe retrieval and the per-source lease, with **no
   transaction open**. Network calls inside a transaction is the invariant this
@@ -184,10 +197,20 @@ predicate is correct only when instantiated at `'legendary'`; at `'registered'`
 a lapsed member matches neither branch and silently falls out of both counts.
 
 **`unregistered` is an auth state, not an entitlement one**, and the derivation
-must never promote out of it — a brand-new or deactivated account has no
-entitlements to derive from, and the no-source answer is `registered`. Every
-writer that touches a user's tier (`recomputeMembership`, and the reinstatement
+must never promote out of it — a brand-new account has no entitlements to
+derive from, and the no-source answer is `registered`, which would silently
+grant registration capabilities to someone who never signed up. Every writer
+that touches a user's tier (`recomputeMembership`, and the reinstatement
 fail-closed override) checks this explicitly before writing.
+
+**Deactivating an account is not the same as it having no entitlements.**
+Soft-deletion (`is_active = false`) cancels the user's active Stripe
+subscriptions at Stripe and locally, so those sources stop qualifying — but it
+does not touch `stripe_lifetime_payment` or `admin_grant` sources, and it
+doesn't set the stored tier to `unregistered`. A lifetime purchase or an admin
+grant survives deactivation untouched, which is exactly why reinstatement
+re-verifies the retained sources rather than assuming there's nothing left to
+check.
 
 ## The admin surfaces are entitlements, not fake payments or a tier field
 

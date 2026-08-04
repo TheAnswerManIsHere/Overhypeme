@@ -40,7 +40,10 @@ as Legendary. From there:
   prorated charge shown before confirming.
 - If a payment fails, the subscription enters a **14-day grace window**
   before access is actually lost — one missed card doesn't cut anyone off
-  immediately, but it isn't indefinite either.
+  immediately, but it isn't meant to be indefinite either. (In the rare case
+  where the system can't pin down exactly when the failures started, it keeps
+  access rather than guessing at a deadline — see *Boundaries & known
+  limitations* below.)
 - A full refund of a **lifetime purchase** removes access; a **partial**
   refund does not. (A subscription refund doesn't drive this directly — a
   subscription's access follows its own cancellation, separately from any
@@ -52,8 +55,10 @@ as Legendary. From there:
 Occasionally the subscription panel shows an amber notice saying its own
 records "haven't caught up yet" after a change. That's not an error — the
 change went through at Stripe — it's the panel being honest that its own copy
-of the state hasn't refreshed yet, and it corrects itself within a minute or
-two without anyone doing anything.
+of the state hasn't refreshed yet. Normally it corrects itself within a minute
+or two, no action needed, as soon as Stripe's webhook for that change arrives.
+If that webhook never arrives, the notice can persist — the same known gap
+described under *Boundaries & known limitations* below.
 
 ### For the admin
 
@@ -73,8 +78,10 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
   doesn't come back to life just because the account did.
 
 **Admin → Refunds & Disputes** lists refund and chargeback activity, and
-carries a small status strip for the background job (below) that keeps the
-*displayed* tier list in sync with what's actually being enforced.
+carries a small status strip for the background job (below). Admin → Users
+already shows every user's live, current tier regardless of that job — the
+strip reports the *internal* projection catching up, not anything a person is
+looking at.
 
 ### The machinery
 
@@ -129,6 +136,12 @@ a comp from a real sale.
 
 ## Boundaries & known limitations
 
+- **The 14-day grace window can run longer than 14 days in one rare case.** If
+  the system can't pin down exactly when a subscription's failed-payment run
+  actually started — an incomplete Stripe invoice page, an ambiguous episode
+  boundary — it keeps access rather than guess at a deadline and risk cutting
+  off someone who's still paying. The case is logged for follow-up rather than
+  silently accepted.
 - **No repair for a webhook Stripe never successfully delivers.** Every event
   Stripe *does* deliver is handled correctly, including duplicates and events
   arriving out of order. But if Stripe's delivery attempts for one event all
