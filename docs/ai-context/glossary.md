@@ -184,7 +184,9 @@
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).
   **Derived, never assigned**: `users.membership_tier` is a projection
   computed from a user's entitlement sources, recomputed on every change to
-  them — no code writes it as a value.
+  them. One narrow, designed exception: admin reinstatement writes it
+  directly, fail-closed, when a source refresh comes back incomplete — see
+  [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else).
   → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
 
 - **Entitlement source** — a `membership_entitlements` row: one durable
@@ -199,7 +201,9 @@
 - **Grace episode** — the 14-day window a `past_due` subscription keeps
   qualifying for, counted from the first failed charge on the earliest
   still-unpaid invoice of the contiguous unpaid run. Not "however long Stripe
-  keeps retrying" — a bounded, computed deadline.
+  keeps retrying" — a bounded, computed deadline once the anchor is known; if
+  it can't be resolved yet (incomplete pagination, an ambiguous episode
+  boundary), the source keeps qualifying without a deadline until it can be.
   → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a

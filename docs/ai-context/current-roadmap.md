@@ -316,8 +316,10 @@ priorities (moderation speed, render/enrichment quality, video). See
     is a guess, and guessing permissively recreates the exact bug the column
     exists to prevent — so the backfill needs David's call, and the migration
     wants `/overhype-migration-review`.
-  - **Sequencing.** Blocked on PR #287 merging: the table it adds a column to
-    only exists on that branch.
+  - **Sequencing.** No longer blocked — PR #287 merged and
+    `membership_entitlements` exists on `main`. This is now the actual next
+    prerequisite for go-live, not a dependency waiting on something else to
+    ship.
   - **Exposure meanwhile.** Operator-only. No customer path reaches it, and no
     live purchase is affected. Found by Codex on PR #287 round 11 and escalated
     rather than patched in at the end of an eleven-round review loop.

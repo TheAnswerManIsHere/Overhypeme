@@ -145,9 +145,11 @@ redelivers it.
 
 ## Grace episodes — bounded dunning, not indefinite retry
 
-`past_due` qualifies **only** inside a 14-day window from the first failed
-charge on the earliest still-unpaid invoice of the contiguous unpaid run — a
-**grace episode**, not "however long Stripe keeps retrying." Precedence between
+Once its grace anchor is known, `past_due` qualifies **only** inside a 14-day
+window from the first failed charge on the earliest still-unpaid invoice of
+the contiguous unpaid run — a **grace episode**, not "however long Stripe
+keeps retrying." (See the fail-open exception below for the case where the
+anchor isn't known yet.) Precedence between
 a freshly-resolved anchor and a previously-stored one: the resolved value wins
 only if it is strictly newer, so a duplicate or out-of-order webhook can never
 walk the deadline backward on top of a more-authoritative apply. When the first

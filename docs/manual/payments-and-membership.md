@@ -70,8 +70,10 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
   and why. It shows up distinctly from a real purchase (no amount, no
   payment id) so nobody mistakes a comp for revenue.
 - **Revoke** ends that grant. It stays visible in the history, marked
-  revoked — nothing about a user's membership history is ever deleted, only
-  ended.
+  revoked — a revoke only ends it, never deletes it. History is retained for
+  the lifetime of the account; a hard account deletion (a separate, rarer
+  action from deactivation) removes the account's whole history along with
+  everything else.
 - **Reinstating** a deactivated user re-checks their actual Stripe state
   before restoring their tier, rather than trusting whatever was last stored
   — so a subscription that quietly lapsed while the account was deactivated
@@ -93,9 +95,11 @@ lifecycle status) and stores the answer. A `membership_tier` column still
 exists on the user, but it's that computed answer, not a hand-set value — the
 one exception is a stored expiry: a request checks the stored tier against a
 stored deadline, so a grace window that has quietly passed still demotes the
-user immediately even before the next event recomputes anything. Nothing ever
-writes the tier column directly, and no request re-asks every source from
-scratch just to check who's logged in.
+user immediately even before the next event recomputes anything. Essentially
+nothing writes the tier column directly — no request re-asks every source
+from scratch just to check who's logged in — with one narrow, designed
+exception: reinstating a deactivated user writes the tier directly when it
+can't fully verify their sources, described below.
 
 Every write to a Stripe-backed entitlement source — a webhook telling us a
 subscription changed, a route handling a cancel/reactivate click — goes
@@ -103,8 +107,10 @@ through the same narrow path: retrieve the current truth from Stripe (never
 trust a value someone merely claims), then apply it under a lock that
 prevents two things from writing the same source at once. An admin grant is
 different on purpose: the admin *is* the authority for that source, so
-granting or revoking one writes directly, with no Stripe call and no lock to
-wait on.
+granting or revoking one skips that lock — though it still briefly waits
+behind the user's own row lock if something else is recomputing their tier at
+the same moment, and behind the one-active-grant constraint if another grant
+for the same user is mid-flight.
 
 The full mechanics — the trust boundary, the locking, the 14-day grace
 calculation, why a lost chargeback is permanent — are
@@ -152,8 +158,12 @@ a comp from a real sale.
   create and end admin grants. This is a known, accepted gap — not an
   oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-- **The stored tier column itself can lag reality by up to an hour — but
-  nowhere a person actually looks shows that lag.** Access is never affected:
+- **The stored tier column itself can lag reality — normally by up to an hour,
+  the sweep's default cadence, but nowhere a person actually looks shows that
+  lag.** (Longer if the sweep is misconfigured to run less often, or a run
+  fails — a failed sweep is logged and reported, not silently skipped, but
+  doesn't guarantee catching up on the very next tick.) Access is never
+  affected:
   a lapsed grace window demotes a user's access immediately, on every request,
   because the deadline check happens live regardless of what the stored column
   says. Admin → Users and every other tier display compute the same live
