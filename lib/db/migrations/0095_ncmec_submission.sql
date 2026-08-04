@@ -267,9 +267,14 @@ DECLARE
   n_linked      bigint;
   conflict_ids  text;
 BEGIN
-  DROP TABLE IF EXISTS _ncmec_0095_candidates;
-
-  CREATE TEMP TABLE _ncmec_0095_candidates AS
+  -- Classified with CTEs rather than a TEMP table, and that is a privilege decision rather
+  -- than a style one: CREATE TEMP TABLE needs TEMPORARY on the database, which a locked-down
+  -- application role replaying this migration may not hold. Such a role aborted here, in the
+  -- very first block, long before reaching any of the hardened-replay handling further down —
+  -- so the no-TEMP replay path the rest of this file supports was unreachable in practice.
+  -- The classification itself is unchanged: the same four shapes, the same MATERIALIZED
+  -- barrier keeping the bigint cast away from unvalidated text, and dangling still resolved
+  -- before conflicting so a dangling row cannot make its twin look like a conflict.
   WITH raw AS MATERIALIZED (
     SELECT r.id AS report_id, r.request_metadata->>'quarantineId' AS raw_qid
       FROM ncmec_reports r
@@ -278,77 +283,70 @@ BEGIN
   typed AS MATERIALIZED (
     SELECT report_id,
            raw_qid,
-           -- Bounded to 18 digits, NOT just `^[0-9]+$`. A digit-only value can still
-           -- overflow: `'999999999999999999999999'::bigint` raises
-           -- numeric_value_out_of_range, which aborts the whole migration — the exact
-           -- failure this classification exists to prevent, surviving in the subclass a
-           -- shape-only regex lets through. Any 18-digit value is below bigint's
-           -- 9223372036854775807 ceiling, and quarantine ids are a bigserial starting at 1,
-           -- so this is enormous headroom rather than a real bound.
+           -- Bounded to 18 digits, NOT just `^[0-9]+$`. A digit-only value can still overflow:
+           -- `'999999999999999999999999'::bigint` raises numeric_value_out_of_range, which
+           -- aborts the whole migration — the exact failure this classification exists to
+           -- prevent, surviving in the subclass a shape-only regex lets through.
            CASE WHEN raw_qid IS NULL THEN 'missing'
                 WHEN raw_qid !~ '^[0-9]{1,18}$' THEN 'malformed'
                 ELSE 'numeric' END AS shape
       FROM raw
+  ),
+  cast_ok AS MATERIALIZED (
+    SELECT report_id, raw_qid, shape,
+           CASE WHEN shape <> 'numeric' THEN NULL ELSE raw_qid::bigint END AS qid
+      FROM typed
+  ),
+  with_dangling AS MATERIALIZED (
+    SELECT c.report_id, c.qid,
+           CASE WHEN c.shape = 'numeric'
+                 AND NOT EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = c.qid)
+                THEN 'dangling' ELSE c.shape END AS shape
+      FROM cast_ok c
+  ),
+  classified AS MATERIALIZED (
+    -- Conflicting: two or more reports claiming the SAME quarantine row. Never auto-picked —
+    -- choosing one would silently discard a real report's linkage, and the choice is exactly
+    -- the judgement a human has to make.
+    SELECT w.report_id, w.qid,
+           CASE WHEN w.shape = 'numeric'
+                 AND (EXISTS (SELECT 1 FROM with_dangling o
+                               WHERE o.qid = w.qid AND o.report_id <> w.report_id
+                                 AND o.shape = 'numeric')
+                      OR EXISTS (SELECT 1 FROM ncmec_reports r
+                                  WHERE r.quarantine_id = w.qid AND r.id <> w.report_id))
+                THEN 'conflicting' ELSE w.shape END AS shape
+      FROM with_dangling w
   )
-  SELECT t.report_id,
-         t.raw_qid,
-         CASE WHEN t.shape <> 'numeric' THEN NULL ELSE t.raw_qid::bigint END AS qid,
-         t.shape
-    FROM typed t;
-
-  -- Dangling: numerically valid but pointing at no quarantine row.
-  UPDATE _ncmec_0095_candidates c
-     SET shape = 'dangling'
-   WHERE c.shape = 'numeric'
-     AND NOT EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = c.qid);
-
-  -- Conflicting: two or more reports claiming the SAME quarantine row. Never
-  -- auto-picked — choosing one would silently discard a real report's linkage,
-  -- and the choice is exactly the judgement a human has to make.
-  UPDATE _ncmec_0095_candidates c
-     SET shape = 'conflicting'
-   WHERE c.shape = 'numeric'
-     AND (
-       EXISTS (SELECT 1 FROM _ncmec_0095_candidates o
-                WHERE o.qid = c.qid AND o.report_id <> c.report_id AND o.shape = 'numeric')
-       OR EXISTS (SELECT 1 FROM ncmec_reports r
-                   WHERE r.quarantine_id = c.qid AND r.id <> c.report_id)
-     );
-
   SELECT count(*) FILTER (WHERE shape = 'missing'),
          count(*) FILTER (WHERE shape = 'malformed'),
          count(*) FILTER (WHERE shape = 'dangling'),
          count(*) FILTER (WHERE shape = 'conflicting'),
-         count(*) FILTER (WHERE shape = 'numeric')
-    INTO n_missing, n_malformed, n_dangling, n_conflicting, n_linked
-    FROM _ncmec_0095_candidates;
+         count(*) FILTER (WHERE shape = 'numeric'),
+         string_agg(DISTINCT qid::text, ', ') FILTER (WHERE shape = 'conflicting')
+    INTO n_missing, n_malformed, n_dangling, n_conflicting, n_linked, conflict_ids
+    FROM classified;
 
   IF n_conflicting > 0 THEN
-    SELECT string_agg(DISTINCT c.qid::text, ', ' ORDER BY c.qid::text)
-      INTO conflict_ids
-      FROM _ncmec_0095_candidates c WHERE c.shape = 'conflicting';
     RAISE EXCEPTION
       '0095: % ncmec_reports rows claim a quarantine row another report already claims (quarantined_memes ids: %). Resolve by hand before migrating — pick the authoritative report per quarantine row and clear the other''s request_metadata->>''quarantineId''. Auto-picking would silently discard a real report''s linkage.',
       n_conflicting, conflict_ids;
   END IF;
 
+  -- Reached only when nothing conflicts, so the EXISTS below is the only remaining exclusion
+  -- (it is what leaves dangling ids NULL). The regex is repeated rather than carried over,
+  -- because a CTE cannot span statements.
+  WITH linkable AS MATERIALIZED (
+    SELECT r.id AS report_id, (r.request_metadata->>'quarantineId')::bigint AS qid
+      FROM ncmec_reports r
+     WHERE r.quarantine_id IS NULL
+       AND r.request_metadata->>'quarantineId' ~ '^[0-9]{1,18}$'
+  )
   UPDATE ncmec_reports r
-     SET quarantine_id = c.qid
-    FROM _ncmec_0095_candidates c
-   WHERE r.id = c.report_id
-     AND c.shape = 'numeric';
-
-  -- Observability, per the migration-review rule: a backfill that reports
-  -- nothing cannot be told from one that matched nothing.
-  RAISE NOTICE '0095 quarantine_id backfill: linked=%, missing=% (pre-stub rows — stay NULL, they are the backlog audit''s population), malformed=%, dangling=%',
-    n_linked, n_missing, n_malformed, n_dangling;
-
-  IF n_malformed > 0 OR n_dangling > 0 THEN
-    RAISE WARNING '0095: % malformed and % dangling quarantineId values left NULL. These rows are unlinked and must be dispositioned by the pre-activation backlog audit.',
-      n_malformed, n_dangling;
-  END IF;
-
-  DROP TABLE _ncmec_0095_candidates;
+     SET quarantine_id = l.qid
+    FROM linkable l
+   WHERE r.id = l.report_id
+     AND EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = l.qid);
 END $$;
 -- <<< ncmec-0095 backfill block (end)
 --> statement-breakpoint

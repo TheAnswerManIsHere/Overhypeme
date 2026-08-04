@@ -1472,6 +1472,54 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
+    it("runs the backfill and action-check blocks as a role with no TEMP privilege", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The previous version of this test exercised only actionCheckBlock(), which proved that
+      // slice while two earlier TEMP dependencies remained: the backfill built a TEMP table,
+      // and the reachability helpers were `CREATE FUNCTION pg_temp...`. Both need TEMPORARY on
+      // the database, so a locked-down role aborted long before reaching the action check and
+      // the no-TEMP replay path this file advertises was unreachable in practice.
+      //
+      // All three blocks are exercised here rather than the whole file, because replaying the
+      // whole file additionally requires OWNERSHIP of the tables it alters — a separate
+      // requirement from TEMP, and not the one under test. These three are exactly the places
+      // TEMP was ever needed.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_notemp_${randomUUID().slice(0, 8)}`;
+      const appPassword = randomUUID();
+      const db = new URL(process.env["DATABASE_URL"]!).pathname.slice(1);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}'`);
+      try {
+        await pool.query(`GRANT USAGE ON SCHEMA public TO ${app}`);
+        await pool.query(`GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO ${app}`);
+        // TEMPORARY is granted to PUBLIC by default, so revoking it from the role alone would
+        // prove nothing — it would still hold it through PUBLIC.
+        await pool.query(`REVOKE TEMPORARY ON DATABASE ${db} FROM PUBLIC`);
+        await pool.query(`REVOKE TEMPORARY ON DATABASE ${db} FROM ${app}`);
+
+        // The ownership-hardening block is deliberately NOT in this list: its reachability
+        // helpers are still `CREATE FUNCTION pg_temp...`, which needs TEMPORARY. That is a
+        // known remaining gap, recorded on the PR rather than papered over here — asserting
+        // only what is actually true is the whole point of this test existing.
+        for (const [name, sql] of [
+          ["backfill", backfillBlock()],
+          ["action check", actionCheckBlock()],
+        ] as const) {
+          const result = execSqlCapturingDiagnostics(app, appPassword, sql);
+          assert.ok(result.ok, `${name} must run without TEMP privilege; got: ${result.output}`);
+          assert.doesNotMatch(
+            result.output,
+            /permission denied to create temporary/,
+            `${name} must not depend on TEMP`,
+          );
+        }
+      } finally {
+        await pool.query(`GRANT TEMPORARY ON DATABASE ${db} TO PUBLIC`).catch(() => {});
+        await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`);
+      }
+    });
+
     it("verifies the action CHECK without TEMP privilege instead of aborting", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // Round 12 generated its reference constraint on a TEMP table, unguarded and before the
