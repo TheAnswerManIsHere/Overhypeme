@@ -62,8 +62,10 @@ preview and the Playwright e2e admin flows keep working; production
   the **re-attribution trap**: restructuring `app.ts` (e.g. wrapping it in a
   factory function) shifts every line number, and GitHub's diff-based
   code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
-  this PR" — verify with `git diff origin/main -- app.ts` before assuming a
-  fresh alert on a restructuring-only PR is real.
+  this PR" — verify with `git diff origin/main -- artifacts/api-server/src/app.ts`
+  before assuming a fresh alert on a restructuring-only PR is real (there is no
+  `app.ts` at the repo root; a bare-path diff silently produces an empty,
+  falsely-reassuring result).
 - **Global rate-limiter backstop** (`artifacts/api-server/src/lib/rateLimit.ts`'s
   `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
   `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**

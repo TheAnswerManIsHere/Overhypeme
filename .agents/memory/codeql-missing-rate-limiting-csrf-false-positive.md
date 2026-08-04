@@ -141,8 +141,9 @@ configuration" alert on the dev-admin-login block's `cors({ origin: true, ...
 })` call (the second one not previously seen in this repo's CodeQL history at
 all, despite the code being untouched).
 
-**Root cause:** `git diff origin/main -- app.ts` showed both flagged lines
-were **byte-identical** to `main` — only their line numbers changed, because
+**Root cause:** `git diff origin/main -- artifacts/api-server/src/app.ts`
+showed both flagged lines were **byte-identical** to `main` — only their line
+numbers changed, because
 wrapping the file body in a factory function reindented and shifted every
 line below it. GitHub's PR-diff-based code-scanning UI appears to attribute
 an alert to "new in this PR" partly by line position, so pre-existing,

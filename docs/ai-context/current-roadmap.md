@@ -36,7 +36,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   the video/PuLID/AI-render/reference-image job pollers now classify a 429
   as retryable (status-429-only, never on `Retry-After` presence alone) so
   the new global 429 path can't terminate a still-running, already-paid-for
-  generation job. Six pre-existing repo bugs the review loop surfaced along
+  generation job. Five pre-existing repo bugs the review loop surfaced along
   the way are deliberately deferred to separate `/bugfix` PRs, not folded in
   here. **Open next:** two CodeQL alerts re-fired on this PR's own
   restructuring of `app.ts` (a re-attribution false positive, not a real

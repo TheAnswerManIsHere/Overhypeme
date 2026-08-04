@@ -49,10 +49,14 @@
   `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
   this is a **per-instance** ceiling, not a bounded fleet-wide one — on
   autoscale infrastructure with no configured instance cap, the effective
-  allowance is `instances × ceiling`. The existing narrow, DB-backed limiters
-  (`checkSharedRateLimit` / `createRateLimiter`) remain the fleet-correct
-  layer for the 9 of 31 route files they already cover; for the other 22 this
-  is the first rate limiting they have ever had, at a coarse per-instance
+  allowance is `instances × ceiling`. Of the 9 of 31 route files with prior
+  rate limiting, only 6 (`facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts`) use the DB-backed
+  `checkSharedRateLimit` / `createRateLimiter` and are genuinely fleet-correct;
+  the other 3 (`share.ts`, `shareCopy.ts`, `videos.ts`) use their own
+  in-process `Map`-bucket limiters, which share this backstop's same
+  per-instance limitation. For the remaining 22 route files this backstop is
+  the first rate limiting they have ever had, at a coarse per-instance
   ceiling only.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
   implementation PR #308. Full context:
