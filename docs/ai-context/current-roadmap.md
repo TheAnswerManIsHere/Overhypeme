@@ -28,21 +28,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   building on PR #291's async-lane de-fork). New
   `scripts/check-manual-tuning-language.mjs`, wired into the Build job,
   mechanically enforces `docs/manual/README.md`'s charter: a chapter may name
-  what a component is and who it serves, but not how it's configured — no
-  number, and no qualitative stand-in for one (`capped at`, `serialized`,
-  `about half an hour`, …). Recursive across `docs/manual/`, tolerant of
-  markdown markup and this corpus's own hard-wrap, and covers digits,
-  spelled-out numbers (through the teens and tens), ordinals, and hyphenated
-  compound forms — the detail is in the script's own comments, not repeated
-  here. Took 6 Codex review rounds to converge, each finding a genuine
-  detection gap (not a false positive) via a full-corpus sweep; one of the
-  gaps found was self-referential — a round-5 fix satisfied the guard by
-  rewording a flagged count instead of removing it, caught in round 6. See
+  what a component is and who it serves, but not how it's configured. Current
+  detection coverage lives in the script's own comments, not here, so this
+  stays true as the rules evolve. Took 6 Codex review rounds to converge; the
+  generalized lesson from that loop — including a self-referential gap where a
+  fix satisfied the guard by rewording a value instead of removing it — is in
   the new [`known-failure-patterns.md`](./known-failure-patterns.md#satisfying-a-lexical-guard-by-changing-a-values-form-not-its-meaning)
-  entry for the generalized lesson. **Open next:** the manual backfill's
-  remaining chapters (tracked in "in-progress slices" below) still need
-  writing; this guard is the mechanical half of the review discipline PR
-  #291 needed by hand.
+  entry. **Open next:** the manual backfill's remaining chapters (tracked in
+  "in-progress slices" below) still need writing; this guard is the mechanical
+  half of the review discipline PR #291 needed by hand.
 
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
