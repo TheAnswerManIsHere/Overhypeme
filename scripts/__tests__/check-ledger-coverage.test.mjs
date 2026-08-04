@@ -500,8 +500,40 @@ test("openLedgerPrCarries fetches head content only for open confirmed candidate
     const carries = await openLedgerPrCarries(allPrs, new Set([301, 302]), "fake-token");
     assert.deepEqual([...carries.keys()], [301]);
     assert.deepEqual([...carries.get(301)], [290]);
-    assert.equal(requested.length, 1);
+    // One fetch for the candidate's own head, one for live main's ledger (the
+    // permanence cross-check added in round 3) — fetched once, lazily, only
+    // because a real candidate reached that point.
+    assert.equal(requested.length, 2);
     assert.ok(requested[0].includes("abc123"));
+    assert.ok(requested[1].includes("ref=main"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("openLedgerPrCarries excludes every row from a candidate whose head fails the live-main permanence check", async () => {
+  // Fixed on PR #304 (Codex round 3, P2): a concurrent [LEDGER] PR can land a
+  // row on main that this open PR's head doesn't have yet, making the open
+  // PR unmergeable via its own permanence gate (the same one main() enforces
+  // on the current PR) — even though its OTHER individual rows are each
+  // arithmetic-valid. Without this, those other rows could still defer their
+  // loops' backstops indefinitely from a stale, permanently red PR.
+  const originalFetch = globalThis.fetch;
+  const ledgerMd = (rows) =>
+    `# Loop ledger\n\n## Rows\n\n| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n${rows
+      .map((n) => `| 1 | [#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n}) | bugfix | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |`)
+      .join("\n")}\n`;
+  const staleHead = ledgerMd([290]); // missing #292, which main already has
+  const main = ledgerMd([290, 292]);
+  globalThis.fetch = async (url) => {
+    const body = url.includes("ref=main") ? main : staleHead;
+    return { ok: true, json: async () => ({ content: Buffer.from(body, "utf8").toString("base64"), encoding: "base64" }) };
+  };
+  try {
+    const carries = await openLedgerPrCarries([{ number: 301, closed_at: null, head: { sha: "stalesha" } }], new Set([301]), "fake-token");
+    // #290's row is individually arithmetic-valid, but the candidate as a
+    // whole can't merge (missing #292's row) — so it carries nothing.
+    assert.deepEqual([...carries.get(301)], []);
   } finally {
     globalThis.fetch = originalFetch;
   }

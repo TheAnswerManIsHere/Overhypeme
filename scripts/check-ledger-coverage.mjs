@@ -239,8 +239,8 @@ export function removedRows(before, after) {
  * ledger PR defer every timing-eligible loop's backstop indefinitely, even
  * loops its own current head doesn't contain a row for at all.
  *
- * Two further constraints, both fixed on PR #304 (Codex round 2, second
- * pass, both P2):
+ * Three further constraints, all fixed on PR #304 (Codex round 2's two
+ * passes and round 3, all P2):
  *  - A row that fails the arithmetic hard gate can never actually merge as
  *    written, so it must not count as "carried" — see `deliverableRowNumbers`.
  *  - Only a PR targeting `main` can ever deliver anything to `main`. This
@@ -249,15 +249,41 @@ export function removedRows(before, after) {
  *    exception — one based on a non-`main` branch cannot pay `main`'s debt no
  *    matter how clean its own diff is, matching the `base.ref === "main"`
  *    filter `auditLedgerDebt` already applies to landed carriers.
+ *  - A candidate whose head is missing a row or exemption live `main` already
+ *    has (round 3) fails its OWN permanence hard gate — the same one `main()`
+ *    enforces on the current PR — and so can never merge as-is either, even
+ *    if its other individual rows are each arithmetically fine. A concurrent
+ *    `[LEDGER]` PR landing a row this one doesn't have yet is exactly how
+ *    that happens. Such a candidate carries nothing, not just its broken
+ *    rows, since it cannot be merged at all until it catches up to `main`.
  */
 export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
   const carries = new Map();
+  let mainLedgerPromise = null;
+  const getMainLedger = () => {
+    if (!mainLedgerPromise) {
+      mainLedgerPromise = fetchFileAtRef(LEDGER_ONLY_PATH, "main", token).then((text) =>
+        text ? parseLedger(text) : { rows: [], exempt: new Map() },
+      );
+    }
+    return mainLedgerPromise;
+  };
   for (const pr of allPrs) {
     if (pr.closed_at) continue;
     if ((pr.base?.ref ?? "main") !== "main") continue;
     if (!confirmedLedgerPrs.has(pr.number)) continue;
     const text = await fetchFileAtRef(LEDGER_ONLY_PATH, pr.head.sha, token);
-    carries.set(pr.number, text ? deliverableRowNumbers(parseLedger(text)) : new Set());
+    if (!text) {
+      carries.set(pr.number, new Set());
+      continue;
+    }
+    const parsed = parseLedger(text);
+    const mainLedger = await getMainLedger();
+    if (removedRows(mainLedger, parsed).length > 0) {
+      carries.set(pr.number, new Set());
+      continue;
+    }
+    carries.set(pr.number, deliverableRowNumbers(parsed));
   }
   return carries;
 }
