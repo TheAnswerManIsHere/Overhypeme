@@ -28,6 +28,7 @@ import type { LookStyleDTO } from "./data/videoCatalogue";
 import { VideoCheckpointScreen } from "./VideoCheckpointScreen";
 import { VideoBudgetExceededScreen } from "./VideoBudgetExceededScreen";
 import { storageUrlFor } from "./util/resolveSourceImagePath";
+import { isRetryablePollError, retryDelayMsFor } from "../util/pollRetryClassification";
 
 export type VideoJobPhase =
   | "queued"
@@ -142,6 +143,15 @@ export function GodModeLoadingTakeover(props: Props) {
         }
       } catch (err) {
         if (cancelled) return;
+        if (isRetryablePollError(err)) {
+          // Rate-limited, not broken: the job is still running server-side.
+          // Back off past the normal poll interval instead of hammering the
+          // limiter again immediately, and do NOT count this toward the
+          // terminal-failure threshold below — a burst of 429s must never
+          // destroy a still-running job.
+          timer = setTimeout(tick, retryDelayMsFor(err, pollIntervalMs));
+          return;
+        }
         consecutiveErrors += 1;
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
           // Too many consecutive failures — the server likely restarted and

@@ -30,6 +30,7 @@ import {
   storageUrlFor,
 } from "./util/resolveSourceImagePath";
 import { DEFAULT_LOOK_STYLE_ID } from "./aiStylePresets";
+import { pollHttpErrorFromResponse } from "../util/pollRetryClassification";
 
 interface Step2VideoProps {
   factId: string;
@@ -517,7 +518,7 @@ function makeDefaultVideoJobApi(): VideoJobApi {
       const res = await fetch(`/api/memes/video-jobs/${jobId}`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error(`poll: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
       return (await res.json()) as VideoJobStatus;
     },
     async proceed(jobId) {
