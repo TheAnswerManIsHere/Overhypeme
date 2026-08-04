@@ -13,13 +13,18 @@
 
 ---
 
-### 2026-08-04 · Global CodeQL rate-limiter backstop ships on `express-rate-limit`'s built-in `MemoryStore`, not a DB-backed `Store`
+### 2026-08-04 · Global CodeQL rate-limiter backstop ships on a custom bounded in-memory store, not a DB-backed `Store`
 - **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
   `js/missing-rate-limiting` query (`artifacts/api-server/src/lib/rateLimit.ts`'s
-  `createGlobalLimiter` + `globalRateLimitStore.ts`'s `BoundedMemoryStore`) uses
-  an in-memory store — the package's own `MemoryStore` shape, with a hard
-  cardinality cap and FIFO eviction added — instead of a store backed by the
-  existing `rate_limit_counters` Postgres table.
+  `createGlobalLimiter`) is backed by `globalRateLimitStore.ts`'s
+  `BoundedMemoryStore` — a **custom** class mirroring `express-rate-limit`'s
+  own stock `MemoryStore` two-map rotation, but with a hard cardinality cap
+  (`MAX_TRACKED_KEYS`, spanning both maps combined) and FIFO eviction added —
+  instead of a store backed by the existing `rate_limit_counters` Postgres
+  table. The stock, unbounded `MemoryStore` is what the original 213→0
+  CodeQL-clearing proof used and is **not** what ships to production; the
+  cardinality cap is the security-relevant difference and must not be dropped
+  in a future cleanup that "simplifies" back to the stock store.
 - **Why:** The original plan (`plan-review/codeql-rate-limiter`, PR #299)
   spent review rounds 4–14 building a DB-backed `Store`, and each attempt
   produced a new P1 on the same boundary — what the store does when a
@@ -30,20 +35,25 @@
   database stall into a total outage. The CodeQL alert itself only requires
   the package to be mounted in the recognized shape — the original 213→0
   local-scan proof used the stock `MemoryStore` and needed none of the DB
-  machinery. David's call: ship the shape that was already proven to clear
-  the alert, and route the genuine repository bugs the 14-round detour
-  surfaced (`adminConfig` stampede, `getStripeSync` pool-leak-on-disposal,
-  the unenforced autoscale instance cap, `IP_HASH_SALT` production fallback,
-  the unbounded `rate_limit_counters` table, and others) to their own
-  `/bugfix` PRs rather than lose them with the code they were found in.
+  machinery; production adds the bounded-cardinality hardening the stock
+  store lacks. David's call: ship the proven-shape store (bounded, not stock),
+  and route the genuine repository bugs the 14-round detour surfaced to their
+  own `/bugfix` PRs rather than lose them with the code they were found in —
+  see [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt)
+  for the `adminConfig` stampede, `getStripeSync` pool-leak-on-disposal, and
+  `rate_limit_counters` cleanup entries, and its
+  [Security & patching](../engineering/deferred-work.md#security--patching)
+  section for the autoscale instance cap and `IP_HASH_SALT` production
+  fallback.
 - **Accepted trade-off, stated rather than smoothed over:** `MemoryStore`'s
-  `localKeys = true` means this is a **per-instance** ceiling, not a bounded
-  fleet-wide one — on autoscale infrastructure with no configured instance
-  cap, the effective allowance is `instances × ceiling`. The existing narrow,
-  DB-backed limiters (`checkSharedRateLimit` / `createRateLimiter`) remain
-  the fleet-correct layer for the 6 of 31 route files they already cover; for
-  the other 25 this is the first rate limiting they have ever had, at a
-  coarse per-instance ceiling only.
+  `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
+  this is a **per-instance** ceiling, not a bounded fleet-wide one — on
+  autoscale infrastructure with no configured instance cap, the effective
+  allowance is `instances × ceiling`. The existing narrow, DB-backed limiters
+  (`checkSharedRateLimit` / `createRateLimiter`) remain the fleet-correct
+  layer for the 9 of 31 route files they already cover; for the other 22 this
+  is the first rate limiting they have ever had, at a coarse per-instance
+  ceiling only.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
   implementation PR #308. Full context:
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).

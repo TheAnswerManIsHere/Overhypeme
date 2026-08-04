@@ -67,7 +67,7 @@ preview and the Playwright e2e admin flows keep working; production
 - **Global rate-limiter backstop** (`artifacts/api-server/src/lib/rateLimit.ts`'s
   `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
   `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
-  `/api` route — the first rate limiting of any kind for 25 of this repo's 31
+  `/api` route — the first rate limiting of any kind for 22 of this repo's 31
   route files. This exists specifically to satisfy CodeQL's
   `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
   npm packages, not `checkSharedRateLimit`) and does **not** replace or change

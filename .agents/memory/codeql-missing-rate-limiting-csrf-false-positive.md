@@ -105,11 +105,16 @@ design; the essentials:
   bounded fleet-wide one — see the plan's "What per-instance counting means"
   section for the honest limitation statement, and §6 item 4 (the unenforced
   autoscale instance cap) for what would need to exist to make it fleet-wide.
-- **Only 6 of this API's 31 route files had any rate limiter before this
+- **Only 9 of this API's 31 route files had any rate limiter before this
   change** (`facts.ts`, `reviews.ts`, `admin.ts`, `adminTaxonomyHealth.ts`,
-  `ai.ts`, `localAuth.ts`) — a round-16 finding that inverted the plan's
-  original framing. For the other 25, this middleware isn't a backstop behind
-  real protection; it's the first rate limiting those routes have ever had.
+  `ai.ts`, `localAuth.ts`, `share.ts`, `shareCopy.ts`, `videos.ts`) — a
+  round-16 finding that inverted the plan's original framing (the plan's own
+  text undercounted this as 6/31; corrected 2026-08-04 after Codex's review of
+  the `/document` harvest for this PR caught the same undercount propagated
+  into `security-model.md`/`current-roadmap.md`/`decisions.md`, verified by
+  `rg 'RATE_LIMIT|takeBucket|checkBucket|checkSharedRateLimit|createRateLimiter|createFactSubmitRateLimiter|requireRateLimit' artifacts/api-server/src/routes/*.ts`).
+  For the other 22, this middleware isn't a backstop behind real protection;
+  it's the first rate limiting those routes have ever had.
 - Because this mounts the API's first-ever global 429 path, it also created a
   429 path for the video/pulid job pollers, which previously had none — fixed
   in the same change (`artifacts/overhype-me/.../util/pollRetryClassification.ts`):
@@ -147,8 +152,20 @@ on a PR that only moved code, never changed its logic.
 **Rule:** before treating a CodeQL alert as real on a PR that restructures,
 reindents, or moves code (extracting a function, wrapping in a factory,
 reordering top-level statements), diff the flagged file against `main` first.
-If the flagged lines are byte-identical to what's already on `main`, this is
-re-attribution, not a new defect — cite this note (or the specific prior
-false-positive class above) in the reply rather than re-investigating the
-security substance from scratch. This still needs a human with repo-admin
-access to dismiss in the Security tab; no available tool lets the agent do it.
+Byte-identical flagged lines are a **necessary but not sufficient** check —
+in Express, the *relative order* of middleware registration is often the
+actual security behavior (e.g. CSRF/origin checks must run before the routes
+they protect), and a restructuring PR could leave the flagged
+`cookieParser()`/`cors(...)` line itself untouched while moving CSRF or
+origin-check middleware to run *after* the routes instead of before — a real
+regression that a line-content-only diff would miss entirely (Codex review
+finding on PR #319's `/document` harvest of this note, 2026-08-04). So:
+diff the flagged lines for byte-identity **and** separately confirm the
+surrounding middleware registration order — which check runs before which
+route/handler — is unchanged (e.g. `grep -n` each relevant `app.use(...)`
+call and compare the sequence, not just individual line contents) before
+calling it re-attribution. If either check fails, treat the alert as
+potentially real and investigate the security substance from scratch. Once
+confirmed as re-attribution by both checks, this still needs a human with
+repo-admin access to dismiss in the Security tab; no available tool lets the
+agent do it.

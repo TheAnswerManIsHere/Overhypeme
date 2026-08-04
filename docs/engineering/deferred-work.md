@@ -334,6 +334,119 @@ re-gather it when the work is scheduled.
 > `enrichmentVersioning.ts`, is **product** work (an unbuilt feature) and is
 > tracked in the roadmap's deferred list, not here.
 
+- **`adminConfig.loadAll()` has a cache stampede and a stale-fill race (found on PR #299's review, deferred by PR #308).**
+  - **What.** `adminConfig.ts:32-39` checks `_cache`, awaits the query, then
+    assigns, with no in-flight promise — concurrent callers on an empty or
+    just-expired cache each issue their own query. Worse, `bustConfigCache()`
+    can clear the cache while an older read is in flight; that read then
+    repopulates it with pre-write rows for another ~60 seconds, which affects
+    the immediate `stripe_live_mode` refresh at `routes/admin.ts:2328-2341`. A
+    stored promise that rejects during a transient DB failure and is never
+    cleared makes every later config reader await that same rejection until
+    restart — every getter falls back to its default, including `isLiveMode()`
+    silently selecting **test mode** on a live deployment.
+  - **Why deferred now.** Pre-existing on `main`, not caused by PR #308's
+    rate-limiter work — surfaced as a side finding during the 16-round review
+    of the plan that became #308, deliberately kept rather than lost with the
+    code it was found in, and queued for its own `/bugfix` PR per David's
+    2026-08-04 decision.
+  - **Cost of waiting.** Redundant concurrent config queries under load, and a
+    latent risk of `isLiveMode()` reading stale/default config (including
+    silently landing in test mode) after a transient DB failure during a
+    cache-busting window. Not observed in production; a theoretical race until
+    it fires.
+  - **Revisit trigger.** Next `/bugfix` pass through this area, or if a
+    stripe-live-mode/config-staleness symptom is actually observed. Fix needs
+    a single-flight with a **generation counter** (so only the current
+    generation may publish) and rejection cleanup (a rejected in-flight
+    promise must be cleared, not cached).
+
+- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
+  - **What.** `stripeClient.ts:102-107`, four independent defects: (1) no
+    single-flight, so concurrent misses each run `buildStripeSync()`, creating
+    extra `StripeSync` instances **and** extra `pg.Pool`s; (2) a
+    `stripe_live_mode` flip mid-flight lets an old-mode build publish *after*
+    `invalidateStripeSync()` — the flight must be generation- **and**
+    mode-scoped, discarding a completion whose generation is no longer
+    current; (3) `buildStripeSync()` re-reads the mode independently for the
+    secret key and the webhook secret rather than using the mode captured at
+    entry, so a flip landing between those reads can yield a live key paired
+    with a test webhook secret or the reverse; (4) a rejected promise that's
+    never cleared fails every later webhook until restart. A superseded or
+    invalidated `StripeSync` also **leaks its underlying `pg.Pool`** — the
+    installed `stripe-replit-sync@1.0.0`'s constructor creates a
+    `PostgresClient`, whose constructor creates a `pg.Pool` — so repeated mode
+    flips leak connections steadily; "discard" is the wrong verb throughout,
+    the fix must *dispose* (`postgresClient.pool.end()`).
+  - **Why deferred now.** Pre-existing on `main`; same review/deferral
+    provenance as the `adminConfig` entry above.
+  - **Cost of waiting.** Extra Postgres connections and pool churn on every
+    concurrent Stripe-sync miss or live/test mode flip, worsening the
+    autoscale connection-budget problem below. No known production incident
+    yet; the mixed-mode-credentials case (3) is the most severe if it fires —
+    a live secret key paired with a test webhook secret.
+  - **Revisit trigger.** Next `/bugfix` pass through Stripe sync, or the
+    connection-budget item below being fixed first (its arithmetic assumes
+    this leak doesn't exist). Acceptance needs three cases proven together: a
+    delayed mid-flight mode flip, a construction failure followed by a
+    successful retry, and repeated flips returning the live pool count to one.
+
+- **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
+  - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
+    maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19
+    instances" comment cannot actually fail if violated. It also omits the
+    `StripeSync` pool's `max: 2` from the per-instance total, making the real
+    per-instance total 22 (not 19) and the honest ceiling
+    `floor(398 / 22) = 18`, not the assumed 19.
+  - **Why deferred now.** Pre-existing on `main`; same provenance as the two
+    entries above. Prioritized **first** among these five by David's
+    2026-08-04 ordering decision — with most of this API's route files having
+    had no other rate limiting before PR #308's global backstop, an unbounded
+    per-instance ceiling multiplied by an unbounded instance count is the one
+    item that determines whether that backstop means anything fleet-wide.
+  - **Cost of waiting.** The global rate-limiter's advertised per-IP ceiling
+    (12,000/min) is a **per-instance** number with no fleet-wide bound — see
+    the 2026-08-04 `decisions.md` entry's "accepted trade-off" note. The DB
+    connection budget is also silently thinner than the code comment claims.
+  - **Revisit trigger.** Either a deployment-level instance cap is configured,
+    or a boot-validated instance-count input is added to derive `DB_POOL_MAX`
+    correctly (including the `StripeSync` pool's connections). Should land
+    before scaling autoscale usage materially.
+
+- **`IP_HASH_SALT` can silently fall back in production (found on PR #299's review, deferred by PR #308).**
+  - **What.** `hashIp` falls back to a repository-known string when the salt
+    env var is missing or under 16 characters, logged only as a WARN. PR
+    #308's own rate limiter doesn't hash IPs, but `transientRenderLog.ts`'s
+    existing usage still does, so this fallback remains live.
+  - **Why deferred now.** Pre-existing on `main`; same provenance as the
+    entries above.
+  - **Cost of waiting.** In production with a missing/weak salt, IP hashes in
+    `transientRenderLog` would use a value anyone with repo access can derive
+    — defeating the point of hashing — with only a WARN log as the signal.
+  - **Revisit trigger.** Next security-focused pass, or the quarterly security
+    review. Fix is a boot assertion on the canonical production predicate
+    (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
+    **both** branches of that `||`.
+
+- **`rate_limit_counters` has no production cleanup at all (found on PR #299's review, deferred by PR #308).**
+  - **What.** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`)
+    is one unbounded `DELETE` and nothing calls it, while
+    `checkSharedRateLimit` (`:44-68`) inserts a persistent row for every new
+    endpoint/IP/user/email key combination. The table grows without limit.
+  - **Why deferred now.** Pre-existing on `main` — PR #308's rate limiter uses
+    its own bounded in-memory store and writes no rows to this table at all,
+    so it doesn't touch this gap. Ordered **last** of these five by David's
+    2026-08-04 decision, but flagged as the one that **worsens with time**
+    rather than staying static, so it shouldn't sit indefinitely.
+  - **Cost of waiting.** Unbounded row growth in `rate_limit_counters`,
+    worsening query/index cost over time. No data-correctness risk — expired
+    rows are just inert until purged.
+  - **Revisit trigger.** A scheduled maintenance pass, or observed table-size
+    growth becoming a real query-latency concern. Fix needs real retention: a
+    bounded per-run delete statement plus a bounded whole-run budget with
+    rescheduling (not a single unbounded `DELETE`), verified against a
+    high-cardinality backlog so no single run monopolizes the pool.
+
 ---
 
 ## Product deferrals live elsewhere
