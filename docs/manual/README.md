@@ -64,6 +64,7 @@ quality bar. So chapters may cross the line in exactly one direction
   see it take effect; another for batches nobody is watching."* Audience and
   consequence are what a reader needs to follow the story, and they change
   only when the **product** changes.
+<!-- tuning-ok:start -->
 - **Not allowed — how it is configured.** Not a number, and **not a
   qualitative stand-in for one**: *fast*, *frequently*, *serialized*, *a few
   at a time*, *capped*, *about half an hour* are all values wearing prose.
@@ -89,6 +90,7 @@ the line too. It sounds qualitative but it is a claim about magnitude, and
 shrinking the delay would falsify it. *"On a deliberate delay"* says the thing
 a reader actually needs — recovery is not instant, and that is a choice, not a
 bug — without betting on how long.
+<!-- tuning-ok:end -->
 
 **There is no "but the product changed" escape.** An earlier draft of this
 rule said that if a constant change would falsify the narrative phrasing, the

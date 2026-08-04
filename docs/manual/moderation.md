@@ -42,7 +42,7 @@ The review opens as a three-step wizard:
 2. **Visual Concept.** After the AI has classified the fact, the review arrives
    here. The moderator works on the **Visual Concept** — the plain-language
    "describe the picture" scene that is the authoritative description of how the
-   gag works visually. They can accept one of three AI-drafted idea cards, edit
+   gag works visually. They can accept one of several AI-drafted idea cards, edit
    one, or write their own, then **"approve the visual gag."** Crucially, **no
    test renders have run yet** — this gate is deliberately free. Approving the gag
    is what unlocks render spend.
