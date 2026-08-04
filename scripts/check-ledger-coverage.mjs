@@ -176,20 +176,27 @@ export async function confirmedLedgerPrNumbers(allPrs, token) {
  * separate rather than overloading `gh()` to branch on response shape.
  * Returns null if the file doesn't exist at that ref (e.g. the ledger was
  * added after the ref's commit).
+ *
+ * Requests the `raw` media type rather than the default JSON envelope (fixed
+ * on PR #304, Codex round 6, P2): the default response's base64 `content`
+ * field is only populated for files under 1MB — past that, GitHub reports an
+ * empty payload with `encoding: "none"`, which would throw here (or
+ * silently decode to garbage) the day this append-only ledger crosses that
+ * size. The raw media type returns the file body directly, no JSON envelope
+ * or size cliff, up to 100MB.
  */
 async function fetchFileAtRef(path, ref, token) {
   const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}?ref=${encodeURIComponent(ref)}`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
+      Accept: "application/vnd.github.raw+json",
       "User-Agent": "check-ledger-coverage",
     },
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} fetching ${path}@${ref}`);
-  const data = await res.json();
-  return Buffer.from(data.content, data.encoding ?? "base64").toString("utf8");
+  return res.text();
 }
 
 /** Every PR number carrying a row or an exemption entry in a parsed ledger. */
@@ -224,8 +231,8 @@ export function removedRows(before, after) {
  * ledger PR defer every timing-eligible loop's backstop indefinitely, even
  * loops its own current head doesn't contain a row for at all.
  *
- * Four further constraints, all fixed on PR #304 (Codex round 2's two passes,
- * round 3, and round 4, all P2):
+ * Six further constraints, all fixed on PR #304 (Codex round 2's two passes,
+ * round 3, round 4, and round 6, all P2):
  *  - The candidate's WHOLE ledger must pass the same `checkArithmetic` gate
  *    `main()` runs — not just the individual row a given loop cares about.
  *    `checkArithmetic` fails the entire build on ANY broken row, so a
@@ -248,21 +255,32 @@ export function removedRows(before, after) {
  *    if its other individual rows are each arithmetically fine. A concurrent
  *    `[LEDGER]` PR landing a row this one doesn't have yet is exactly how
  *    that happens.
- *  - Read at the candidate's `merge_commit_sha` (GitHub's precomputed test-
- *    merge of head into base) when available, not its raw `head.sha` (round
- *    4). This repo's Build workflow checks out the default `pull_request`
- *    ref, which for a PR event IS that same test-merge commit, not the raw
- *    head — so the current PR's own hard gates (which read the checkout)
- *    validate the merge tree. Validating other open candidates against their
- *    raw head instead would judge them by a different, stricter tree than
- *    their own CI run does: a candidate merely behind `main` (but cleanly
- *    mergeable) would wrongly look like it's missing a row it would actually
- *    deliver. Falls back to `head.sha` if GitHub hasn't computed the merge
- *    commit yet (e.g. right after a push) or the PR has conflicts — the
- *    conservative direction, since it can only undercount a carry, never
- *    overcount one.
+ *  - Read ONLY at the candidate's `merge_commit_sha` (GitHub's precomputed
+ *    test-merge of head into base), never its raw `head.sha` (round 4,
+ *    hardened round 6). This repo's Build workflow checks out the default
+ *    `pull_request` ref, which for a PR event IS that same test-merge
+ *    commit — so the current PR's own hard gates (which read the checkout)
+ *    validate the merge tree, and judging another open candidate by its raw
+ *    head instead would hold it to a different tree than its own CI run
+ *    does. A missing `merge_commit_sha` (GitHub hasn't computed it yet, or
+ *    the PR has real conflicts with `main`) means mergeability was never
+ *    established, so that candidate carries nothing rather than falling
+ *    back to the head: a head that conflicts with `main` can contain row
+ *    prose that passes the identity-only permanence/arithmetic checks below
+ *    while still being a tree that can never actually land.
+ *  - Not a draft (round 6). A draft PR cannot be merged at all regardless of
+ *    how clean its content is — and this repo's own Codex connector only
+ *    auto-reviews non-draft PRs — so treating one as a viable carrier could
+ *    defer a loop's backstop behind a PR that's structurally barred from
+ *    ever delivering it.
+ *  - The candidate must owe nothing else at its own opening time (round 6):
+ *    `main()`'s own `[LEDGER]`-PR gate hard-fails if the PR is missing ANY
+ *    row it owed when it opened, not just the one loop under audit here. A
+ *    candidate missing an unrelated loop's row can never merge either, so
+ *    running the same `owedRows` check the live gate would run is what
+ *    makes this mirror that gate instead of only partially replicating it.
  *
- * Any of the four failing means the WHOLE candidate carries nothing — a
+ * Any of these failing means the WHOLE candidate carries nothing — a
  * `[LEDGER]` PR that can't currently merge can't currently deliver anything,
  * regardless of which individual rows inside it look fine on their own.
  */
@@ -279,17 +297,22 @@ export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
   };
   for (const pr of allPrs) {
     if (pr.closed_at) continue;
+    if (pr.draft) continue;
     if ((pr.base?.ref ?? "main") !== "main") continue;
     if (!confirmedLedgerPrs.has(pr.number)) continue;
-    const ref = pr.merge_commit_sha ?? pr.head.sha;
-    const text = await fetchFileAtRef(LEDGER_ONLY_PATH, ref, token);
+    if (!pr.merge_commit_sha) {
+      carries.set(pr.number, new Set());
+      continue;
+    }
+    const text = await fetchFileAtRef(LEDGER_ONLY_PATH, pr.merge_commit_sha, token);
     if (!text) {
       carries.set(pr.number, new Set());
       continue;
     }
     const parsed = parseLedger(text);
     const mainLedger = await getMainLedger();
-    if (removedRows(mainLedger, parsed).length > 0 || checkArithmetic(parsed).length > 0) {
+    const { owed } = owedRows({ allPrs, currentPr: pr, ledger: parsed, confirmedLedgerPrs });
+    if (removedRows(mainLedger, parsed).length > 0 || checkArithmetic(parsed).length > 0 || owed.length > 0) {
       carries.set(pr.number, new Set());
       continue;
     }
@@ -643,7 +666,7 @@ export function auditLedgerDebt({ allPrs, ledger, confirmedLedgerPrs = new Set()
       ledger: isLedger(pr),
     }));
   const openLedgerPrs = allPrs
-    .filter((pr) => !pr.closed_at && isLedger(pr) && (pr.base?.ref ?? "main") === "main")
+    .filter((pr) => !pr.closed_at && !pr.draft && isLedger(pr) && (pr.base?.ref ?? "main") === "main")
     .map((pr) => ({ number: pr.number }));
 
   for (const pr of allPrs) {
