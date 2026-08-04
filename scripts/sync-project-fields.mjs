@@ -50,27 +50,29 @@ export function normalize(value) {
 }
 
 /**
- * Reduce an issue's labels to the field writes they imply.
+ * Reduce an issue's labels to the field writes they imply. Every configured
+ * field is always represented — `wanted: null` means "no matching label,
+ * clear this field" — so a removed `waiting:*` label (an `unlabeled` event
+ * with nothing to replace it) clears the board's stale owner instead of
+ * leaving it untouched. Labels are the source of truth; the board must never
+ * be able to disagree with them by omission.
+ *
  * Throws when a prefix appears more than once — two `stage:` labels means the
  * issue is in two places at once, and guessing which one wins would put a
  * wrong-but-confident value on the board.
  */
 export function labelsToFieldValues(labels) {
   const names = labels.map((l) => (typeof l === "string" ? l : l.name));
-  const writes = [];
 
-  for (const { prefix, field } of LABEL_FIELDS) {
+  return LABEL_FIELDS.map(({ prefix, field }) => {
     const hits = names.filter((n) => n.startsWith(prefix));
-    if (hits.length === 0) continue;
     if (hits.length > 1) {
       throw new Error(
         `${hits.length} "${prefix}" labels (${hits.join(", ")}) — exactly one expected`,
       );
     }
-    writes.push({ field, wanted: hits[0].slice(prefix.length) });
-  }
-
-  return writes;
+    return { field, wanted: hits.length === 1 ? hits[0].slice(prefix.length) : null };
+  });
 }
 
 /** Find a single-select option whose name normalizes to `wanted`. */
@@ -189,6 +191,52 @@ async function writeField(projectId, itemId, fieldId, optionId, token) {
   );
 }
 
+async function clearField(projectId, itemId, fieldId, token) {
+  await graphql(
+    `mutation ($project: ID!, $item: ID!, $field: ID!) {
+      clearProjectV2ItemFieldValue(input: {
+        projectId: $project
+        itemId: $item
+        fieldId: $field
+      }) {
+        projectV2Item { id }
+      }
+    }`,
+    { project: projectId, item: itemId, field: fieldId },
+    token,
+  );
+}
+
+/**
+ * REST GET, following `Link: rel="next"` pagination until exhausted. Without
+ * this a repo whose open-issue count crosses a page boundary would silently
+ * drop later workstreams from a full reconcile — the exact failure mode this
+ * board exists to prevent, just moved one layer down.
+ */
+export async function restAll(path, token) {
+  const results = [];
+  let next = `https://api.github.com${path}`;
+
+  while (next) {
+    const res = await fetch(next, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`REST ${next} -> HTTP ${res.status}: ${await res.text()}`);
+    }
+    results.push(...(await res.json()));
+
+    const link = res.headers.get("link") ?? "";
+    const nextMatch = link.split(",").find((part) => part.includes('rel="next"'));
+    next = nextMatch ? nextMatch.trim().match(/^<(.*)>/)?.[1] : undefined;
+  }
+
+  return results;
+}
+
 async function rest(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: {
@@ -205,21 +253,31 @@ async function rest(path, token) {
 /** Sync one issue. Returns a one-line summary of what was written. */
 async function syncIssue(issue, project, token) {
   const writes = labelsToFieldValues(issue.labels);
-  if (writes.length === 0) return `#${issue.number} — no workstream labels, skipped`;
+  if (writes.every((w) => w.wanted === null)) {
+    return `#${issue.number} — no workstream labels, skipped`;
+  }
 
   // Resolve every option BEFORE writing anything, so a typo in one label can't
-  // leave the board half-updated and internally inconsistent.
+  // leave the board half-updated and internally inconsistent. A `null` wanted
+  // value needs no option — it clears the field instead of setting one.
   const resolved = writes.map(({ field, wanted }) => {
     const fieldDef = resolveField(project.fields, field);
-    return { fieldDef, optionId: resolveOption(fieldDef, wanted), wanted };
+    const optionId = wanted === null ? null : resolveOption(fieldDef, wanted);
+    return { fieldDef, optionId, wanted };
   });
 
   const itemId = await ensureItem(project.id, issue.node_id, token);
   for (const { fieldDef, optionId } of resolved) {
-    await writeField(project.id, itemId, fieldDef.id, optionId, token);
+    if (optionId === null) {
+      await clearField(project.id, itemId, fieldDef.id, token);
+    } else {
+      await writeField(project.id, itemId, fieldDef.id, optionId, token);
+    }
   }
 
-  const summary = resolved.map((r) => `${r.fieldDef.name}=${r.wanted}`).join(", ");
+  const summary = resolved
+    .map((r) => `${r.fieldDef.name}=${r.wanted === null ? "(cleared)" : r.wanted}`)
+    .join(", ");
   return `#${issue.number} — ${summary}`;
 }
 
@@ -250,7 +308,7 @@ async function main() {
 
   const issues = only
     ? [await rest(`/repos/${repository}/issues/${only}`, githubToken)]
-    : (await rest(`/repos/${repository}/issues?state=open&per_page=100`, githubToken)).filter(
+    : (await restAll(`/repos/${repository}/issues?state=open&per_page=100`, githubToken)).filter(
         // The issues endpoint returns PRs too; they are artifacts of a
         // workstream, not workstreams, and never belong on this board.
         (i) => !i.pull_request,

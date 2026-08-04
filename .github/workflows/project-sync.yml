@@ -16,11 +16,15 @@ on:
   # label convention, or any stretch where the sync may have missed events.
   workflow_dispatch:
 
-# Only one sync at a time per issue: `labeled` and `unlabeled` fire as separate
-# events when labels are swapped, and two concurrent runs could write the
-# board's fields out of order.
+# One shared group across every trigger, not per issue. `labeled` and
+# `unlabeled` fire as separate events when labels are swapped, and a manual
+# workflow_dispatch reconcile touches every open issue — if that reconcile
+# read an issue's old labels before a concurrent per-issue run picked up a
+# fresh label change, it could finish later and overwrite the board with the
+# stale value. Full serialization is cheap here (these are lightweight
+# GraphQL calls, not long builds), so correctness wins over throughput.
 concurrency:
-  group: project-sync-${{ github.event.issue.number || 'all' }}
+  group: project-sync
   cancel-in-progress: false
 
 jobs:

@@ -5,6 +5,7 @@ import {
   labelsToFieldValues,
   resolveOption,
   resolveField,
+  restAll,
   LABEL_FIELDS,
 } from "../sync-project-fields.mjs";
 
@@ -70,16 +71,31 @@ test("labels map to their fields by prefix", () => {
 test("labels arrive as REST objects too, not just strings", () => {
   assert.deepEqual(labelsToFieldValues([{ name: "stage:coding" }]), [
     { field: "Status", wanted: "coding" },
+    { field: "Waiting on", wanted: null },
+    { field: "Mode", wanted: null },
   ]);
 });
 
-test("unrelated labels are ignored", () => {
-  assert.deepEqual(labelsToFieldValues(["dependencies", "javascript"]), []);
+test("unrelated labels leave every field marked for clearing", () => {
+  // Every configured field is always represented — `wanted: null` means
+  // "no matching label", which the caller must treat as clear-this-field,
+  // not skip-this-field. An issue with no workstream labels at all should
+  // still clear a project row that predates this convention.
+  assert.deepEqual(labelsToFieldValues(["dependencies", "javascript"]), [
+    { field: "Status", wanted: null },
+    { field: "Waiting on", wanted: null },
+    { field: "Mode", wanted: null },
+  ]);
 });
 
-test("a partial label set writes only the fields it names", () => {
+test("a partial label set clears the fields it doesn't name", () => {
+  // Regression: an `unlabeled` event that removes `waiting:codex` without
+  // adding a replacement must clear `Waiting on` on the board, not leave the
+  // previous value (e.g. "David") standing after the label is gone.
   assert.deepEqual(labelsToFieldValues(["stage:planning"]), [
     { field: "Status", wanted: "planning" },
+    { field: "Waiting on", wanted: null },
+    { field: "Mode", wanted: null },
   ]);
 });
 
@@ -112,4 +128,46 @@ test("every configured prefix ends in a colon", () => {
   for (const { prefix } of LABEL_FIELDS) {
     assert.ok(prefix.endsWith(":"), `prefix without colon: ${prefix}`);
   }
+});
+
+test("restAll follows Link: rel=next until exhausted", async (t) => {
+  // Regression: a full reconcile only read the first REST page. A repo whose
+  // open-issue count crosses the page boundary would silently drop later
+  // workstreams from the backfill — this pins the fix.
+  const pages = [
+    { body: [{ number: 1 }, { number: 2 }], link: '<https://api.github.com/p2>; rel="next"' },
+    { body: [{ number: 3 }], link: '<https://api.github.com/p3>; rel="next"' },
+    { body: [{ number: 4 }], link: "" }, // no rel="next" — last page
+  ];
+  let call = 0;
+
+  t.mock.method(globalThis, "fetch", async () => {
+    const page = pages[call++];
+    return {
+      ok: true,
+      headers: { get: (name) => (name === "link" ? page.link : null) },
+      json: async () => page.body,
+    };
+  });
+
+  const issues = await restAll("/repos/x/y/issues?state=open&per_page=100", "tok");
+  assert.deepEqual(
+    issues.map((i) => i.number),
+    [1, 2, 3, 4],
+  );
+  assert.equal(call, 3, "should have followed exactly 2 next-links after the first page");
+});
+
+test("restAll stops at a single page when there is no Link header", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    headers: { get: () => null },
+    json: async () => [{ number: 1 }],
+  }));
+
+  const issues = await restAll("/repos/x/y/issues", "tok");
+  assert.deepEqual(
+    issues.map((i) => i.number),
+    [1],
+  );
 });
