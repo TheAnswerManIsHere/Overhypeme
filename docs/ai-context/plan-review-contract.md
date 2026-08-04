@@ -441,8 +441,8 @@ On this surface, every piece of information above six-shape output is carried
   a defect.
 - **The lens is not something you attest to — it's something you're asked to
   apply.** The `@codex review` trigger comment states the lens for that round
-  and names the specific prior findings to reconcile (see *Automated plan
-  review* in `CLAUDE.md`) — review under that stated lens, don't invent your
+  and names the specific prior findings to reconcile (see the
+  `plan-review-loop` skill) — review under that stated lens, don't invent your
   own framing for it, and don't re-declare it in a finding (there is no
   surface-specific requirement that you do — the *Re-reviews* section's lens
   obligation is satisfied by the full-document surface only, or by this

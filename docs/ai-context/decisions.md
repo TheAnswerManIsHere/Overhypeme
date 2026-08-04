@@ -808,9 +808,11 @@
 - **Doc-routing principle applied:** the *review contract Codex executes* is
   **shared** ([`plan-review-contract.md`](./plan-review-contract.md), routed
   from [`AGENTS.md`](../../AGENTS.md)); the *workflow ceremony Claude drives* stays
-  **Claude-specific** (`CLAUDE.md`). Instructions live where the agent that runs
-  them reads — a narrower, correct split than mirroring one agent's whole
-  workflow into the shared docs.
+  **Claude-specific** — detailed in the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`), with only the guardrails that
+  must fire without the skill loaded resident in `CLAUDE.md`. Instructions
+  live where the agent that runs them reads — a narrower, correct split than
+  mirroring one agent's whole workflow into the shared docs.
 - **Guardrails (each a deliberate why):** a **public-repo disclosure check**
   keeps security-sensitive/confidential plans off the public PR channel (a
   closed-unmerged PR is still public history — see
@@ -820,14 +822,15 @@
   network-restricted; **model tier** — the whole plan-review loop is *planning*
   and stays on Opus, the only downshift to Sonnet being execution of a *simple*
   approved plan.
-- **Reference:** PR #226. Operational contract: `CLAUDE.md` → *Automated plan
-  review: the Codex draft-PR loop*; reviewer contract:
+- **Reference:** PR #226. Operational contract: the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`); reviewer contract:
   [`plan-review-contract.md`](./plan-review-contract.md).
-- **Revisit if:** the calibration pilot (first ~3 real plans — Codex's review vs.
-  what the manual ChatGPT pass would have caught) shows Codex's plan reviews are
-  too shallow. The PR **transport** stays good regardless; the fix would be to
-  swap the **reviewer** (a dedicated Codex task/Action, or manual review for the
-  substance) while keeping the draft-PR channel.
+- **Revisit if:** the loop ledger (`.agents/metrics/loop-ledger.md`) shows
+  Codex's plan reviews are too shallow — e.g. a self-inflicted share that
+  climbs without bound, or rounds converging on zero findings that a manual
+  read would have caught. The PR **transport** stays good regardless; the fix
+  would be to swap the **reviewer** (a dedicated Codex task/Action, or manual
+  review for the substance) while keeping the draft-PR channel.
 
 ### 2026-07 · NB2 render pipeline hardened: terminal async failures, a measured prompt budget, 6000-char ceiling
 - **Decision:** three coordinated hardening changes to the Nano Banana 2 render
