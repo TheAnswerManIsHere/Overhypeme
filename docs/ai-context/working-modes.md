@@ -630,21 +630,29 @@ split by PR kind (David, 2026-08-02):
   skipped it), or two-plus PRs of any kind have merged since the loop closed
   with the row still missing and no `[LEDGER]` PR open **whose own current
   head actually, deliverably carries that row**. "Deliverably" is doing real
-  work here (fixed across PR #304 round 2's second pass and round 3): the
-  open PR must target `main` itself, not a stacked branch (a `[LEDGER]` PR
-  based on another PR's head, per working-modes.md's own *Dependent bugs*
-  pattern, cannot pay `main`'s debt no matter how clean its diff is); the row
-  it carries must pass the arithmetic check on its own — a row whose causal
-  counts don't sum to its findings parses fine but can never actually merge;
-  and the candidate as a whole must pass its own permanence check against
-  live `main` (round 3) — a concurrent `[LEDGER]` PR can land a row this
-  candidate's head doesn't have yet, making it just as unmergeable as a
-  broken-arithmetic row would, even though its other individual rows are
-  each fine on their own. None of these may be trusted to defer a backstop
-  indefinitely just by sitting in an open, permanently-red PR. Verified by
-  content, not inferred from
-  timing alone (round 2's first pass) — a stalled or incomplete `[LEDGER]`
-  PR sitting open doesn't by itself mean it's paying any particular loop's
+  work here (fixed across PR #304 round 2's second pass, round 3, and round
+  5): the open PR must target `main` itself, not a stacked branch (a
+  `[LEDGER]` PR based on another PR's head, per working-modes.md's own
+  *Dependent bugs* pattern, cannot pay `main`'s debt no matter how clean its
+  diff is); its WHOLE ledger must pass the same arithmetic gate `main()`
+  enforces (round 5 — `main()` fails the whole build on any one broken row,
+  so a candidate with a valid row for the loop in question and a broken row
+  for some other, unrelated loop still can't merge at all; round 2's
+  second-pass fix checked only the row in question, which missed exactly
+  that case); and the candidate as a whole must pass its own permanence
+  check against live `main` (round 3) — a concurrent `[LEDGER]` PR can land
+  a row this candidate's head doesn't have yet, making it just as
+  unmergeable as a broken-arithmetic row would. Content is read at the
+  candidate's precomputed test-merge commit when GitHub has one, not its raw
+  head (round 5) — this repo's Build workflow checks out the default
+  `pull_request` ref, which for a PR event already IS that merge tree, so
+  judging another open candidate by its raw head instead would hold it to a
+  stricter standard than its own CI run does: merely being behind `main`
+  (while still mergeable) could otherwise look like a missing row. None of
+  these may be trusted to defer a backstop indefinitely just by sitting in
+  an open, permanently-red PR. Verified by content, not inferred from timing
+  alone (round 2's first pass) — a stalled or incomplete `[LEDGER]` PR
+  sitting open doesn't by itself mean it's paying any particular loop's
   debt. A verified-carrying open `[LEDGER]` PR defers the second trigger —
   the debt is visibly being paid — but never the first.
 

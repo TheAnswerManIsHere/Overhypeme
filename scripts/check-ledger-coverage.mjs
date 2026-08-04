@@ -198,21 +198,6 @@ function prNumbersInLedger(ledger) {
 }
 
 /**
- * PR numbers whose row is either not arithmetic-checkable (a baseline or
- * wholly-deferred row — see `isArithmeticCheckable`) or checkable and correct,
- * plus every exempted PR number. Used to decide whether an open `[LEDGER]`
- * PR's head content actually, deliverably carries a given loop's row (fixed
- * on PR #304, Codex round 2, P2) — a row with broken arithmetic can never
- * pass this file's own hard gate, so a PR that only carries it that way can
- * never merge as-is and must not be trusted to defer that loop's backstop
- * indefinitely while it sits open and red.
- */
-function deliverableRowNumbers(ledger) {
-  const ok = ledger.rows.filter((row) => !isArithmeticCheckable(row) || rowCauseSum(row) === row.findings).map((r) => r.pr);
-  return new Set([...ok, ...ledger.exempt.keys()]);
-}
-
-/**
  * PR numbers with a row or exemption in `before` that are missing from BOTH
  * in `after` — a permanence violation (fixed on PR #304, Codex round 2, P2).
  *
@@ -239,10 +224,18 @@ export function removedRows(before, after) {
  * ledger PR defer every timing-eligible loop's backstop indefinitely, even
  * loops its own current head doesn't contain a row for at all.
  *
- * Three further constraints, all fixed on PR #304 (Codex round 2's two
- * passes and round 3, all P2):
- *  - A row that fails the arithmetic hard gate can never actually merge as
- *    written, so it must not count as "carried" — see `deliverableRowNumbers`.
+ * Four further constraints, all fixed on PR #304 (Codex round 2's two passes,
+ * round 3, and round 4, all P2):
+ *  - The candidate's WHOLE ledger must pass the same `checkArithmetic` gate
+ *    `main()` runs — not just the individual row a given loop cares about.
+ *    `checkArithmetic` fails the entire build on ANY broken row, so a
+ *    candidate with one bad row for an unrelated loop can't merge at all,
+ *    and none of its rows — including otherwise-fine ones — are actually
+ *    deliverable. (Round 2's second pass filtered row-by-row instead, which
+ *    missed exactly this: a candidate with one valid row and one broken row
+ *    for a different loop still counted the valid one as carried, even
+ *    though the whole PR is red and can't merge until the broken one is
+ *    fixed.)
  *  - Only a PR targeting `main` can ever deliver anything to `main`. This
  *    repo stacks dependent bugfix PRs on other open PRs' heads
  *    (working-modes.md's *Dependent bugs* note), and a `[LEDGER]` PR is no
@@ -254,8 +247,24 @@ export function removedRows(before, after) {
  *    enforces on the current PR — and so can never merge as-is either, even
  *    if its other individual rows are each arithmetically fine. A concurrent
  *    `[LEDGER]` PR landing a row this one doesn't have yet is exactly how
- *    that happens. Such a candidate carries nothing, not just its broken
- *    rows, since it cannot be merged at all until it catches up to `main`.
+ *    that happens.
+ *  - Read at the candidate's `merge_commit_sha` (GitHub's precomputed test-
+ *    merge of head into base) when available, not its raw `head.sha` (round
+ *    4). This repo's Build workflow checks out the default `pull_request`
+ *    ref, which for a PR event IS that same test-merge commit, not the raw
+ *    head — so the current PR's own hard gates (which read the checkout)
+ *    validate the merge tree. Validating other open candidates against their
+ *    raw head instead would judge them by a different, stricter tree than
+ *    their own CI run does: a candidate merely behind `main` (but cleanly
+ *    mergeable) would wrongly look like it's missing a row it would actually
+ *    deliver. Falls back to `head.sha` if GitHub hasn't computed the merge
+ *    commit yet (e.g. right after a push) or the PR has conflicts — the
+ *    conservative direction, since it can only undercount a carry, never
+ *    overcount one.
+ *
+ * Any of the four failing means the WHOLE candidate carries nothing — a
+ * `[LEDGER]` PR that can't currently merge can't currently deliver anything,
+ * regardless of which individual rows inside it look fine on their own.
  */
 export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
   const carries = new Map();
@@ -272,18 +281,19 @@ export async function openLedgerPrCarries(allPrs, confirmedLedgerPrs, token) {
     if (pr.closed_at) continue;
     if ((pr.base?.ref ?? "main") !== "main") continue;
     if (!confirmedLedgerPrs.has(pr.number)) continue;
-    const text = await fetchFileAtRef(LEDGER_ONLY_PATH, pr.head.sha, token);
+    const ref = pr.merge_commit_sha ?? pr.head.sha;
+    const text = await fetchFileAtRef(LEDGER_ONLY_PATH, ref, token);
     if (!text) {
       carries.set(pr.number, new Set());
       continue;
     }
     const parsed = parseLedger(text);
     const mainLedger = await getMainLedger();
-    if (removedRows(mainLedger, parsed).length > 0) {
+    if (removedRows(mainLedger, parsed).length > 0 || checkArithmetic(parsed).length > 0) {
       carries.set(pr.number, new Set());
       continue;
     }
-    carries.set(pr.number, deliverableRowNumbers(parsed));
+    carries.set(pr.number, prNumbersInLedger(parsed));
   }
   return carries;
 }

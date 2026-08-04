@@ -563,6 +563,80 @@ test("openLedgerPrCarries excludes a row that fails its own arithmetic check", a
   }
 });
 
+test("openLedgerPrCarries excludes an otherwise-valid row when a DIFFERENT row in the same candidate fails arithmetic", async () => {
+  // Fixed on PR #304 (Codex round 5, P2): checkArithmetic fails the WHOLE
+  // build on any one broken row (main() runs it over the entire table, not
+  // per-row), so a candidate with a valid row for overdue loop #290 and a
+  // broken row for unrelated loop #295 can't merge at all — round 2's
+  // second-pass fix filtered row-by-row instead, which still counted #290's
+  // valid row as carried even though the whole PR is red.
+  const originalFetch = globalThis.fetch;
+  const twoRowMd =
+    `# Loop ledger\n\n## Rows\n\n| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |\n` +
+    `|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n` +
+    `| 1 | ${PULL(290)} | bugfix | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |\n` + // valid: findings=1, sum=1
+    `| 2 | ${PULL(295)} | bugfix | 1 | 1 | 0 | 1 | 2 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |\n`; // broken: findings=2, sum=1
+  globalThis.fetch = async (url) => {
+    if (url.includes("ref=main")) return { status: 404, ok: false, json: async () => ({}) };
+    return { ok: true, json: async () => ({ content: Buffer.from(twoRowMd, "utf8").toString("base64"), encoding: "base64" }) };
+  };
+  try {
+    const carries = await openLedgerPrCarries([{ number: 301, closed_at: null, head: { sha: "abc" } }], new Set([301]), "fake-token");
+    assert.deepEqual([...carries.get(301)], []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("openLedgerPrCarries reads a candidate's merge_commit_sha, not its raw head, when available", async () => {
+  // Fixed on PR #304 (Codex round 5, P2): this repo's Build workflow checks
+  // out the default `pull_request` ref, which is the synthetic test-merge
+  // commit, not the raw PR head — so the current PR's own hard gates (which
+  // read the checkout) validate the merge tree. Reading another open
+  // candidate's raw head instead judges it against a stricter, different
+  // tree: one that's merely behind main (but would merge cleanly) could
+  // wrongly look like it's missing a row it would actually deliver.
+  const originalFetch = globalThis.fetch;
+  const ledgerMd = (rows) =>
+    `# Loop ledger\n\n## Rows\n\n| # | pr | cohort | files | +lines | -lines | rounds | findings | new | prop | wrong | re-raised | invalid | self-infl. | review hrs | pre-open preflight | breakers fired | adjudicated | notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n${rows
+      .map((n) => `| 1 | [#${n}](https://github.com/TheAnswerManIsHere/Overhypeme/pull/${n}) | bugfix | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | **0%** | 0.1 | — | none | ✓ | note |`)
+      .join("\n")}\n`;
+  const bodies = {
+    headsha: ledgerMd([]), // raw head is stale — missing #290, not yet rebased on main
+    mergesha: ledgerMd([290]), // the test-merge with main already includes it
+    main: ledgerMd([290]),
+  };
+  globalThis.fetch = async (url) => {
+    const key = url.includes("ref=mergesha") ? "mergesha" : url.includes("ref=headsha") ? "headsha" : "main";
+    return { ok: true, json: async () => ({ content: Buffer.from(bodies[key], "utf8").toString("base64"), encoding: "base64" }) };
+  };
+  try {
+    const carries = await openLedgerPrCarries(
+      [{ number: 301, closed_at: null, head: { sha: "headsha" }, merge_commit_sha: "mergesha" }],
+      new Set([301]),
+      "fake-token",
+    );
+    assert.deepEqual([...carries.get(301)], [290]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("openLedgerPrCarries falls back to head.sha when merge_commit_sha is unavailable", async () => {
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    return { ok: true, json: async () => ({ content: "", encoding: "base64" }) };
+  };
+  try {
+    await openLedgerPrCarries([{ number: 301, closed_at: null, head: { sha: "headsha" }, merge_commit_sha: null }], new Set([301]), "fake-token");
+    assert.ok(requested[0].includes("headsha"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("openLedgerPrCarries skips an open [LEDGER] PR based on a non-main branch", async () => {
   // Fixed on PR #304 (Codex round 2, second pass, P2): a stacked [LEDGER] PR
   // targeting another PR's branch, not main (working-modes.md's *Dependent
