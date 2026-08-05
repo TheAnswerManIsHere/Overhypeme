@@ -186,31 +186,41 @@ separation aids review). Placement:
 
 ## The harvest itself is a tracked workstream
 
-Per [`workstream-tracking.md`](./workstream-tracking.md), a `/document`
+**Scope: this applies only to the default path above** (a new, standalone
+docs-only PR). The mid-build exception — committing to the feature's own
+still-open branch/PR — has no separate harvest PR at all; the feature's own
+workstream issue already covers it, and nothing below applies.
+
+Per [`workstream-tracking.md`](./workstream-tracking.md), a standalone
 harvest has its own branch, PR, and review loop, so it gets its own board
 row — a **sub-issue** of the feature's workstream issue, never folded into
 the parent as a status value. This applies to every agent running this
 ceremony, not just Claude's enactment of it:
 
-1. Open the harvest PR first (per the placement rule above — the PR number
-   is needed before either the sub-issue or its docs can cite it).
-2. Open the sub-issue: parented to the feature's workstream issue,
-   `stage:code-review`, `waiting:codex` (matching round 1's auto-trigger,
-   same as any other PR), `mode:docs`, with its own State of Play block.
-3. **Update the PR body's `Workstream:` line to cite the new sub-issue, not
-   the parent.** The PR was opened before the sub-issue existed, so its
-   initial `Workstream:` reference (if any) points at the parent — which is
-   often already well past this harvest's own stage (e.g. already at
-   Close-out), so any reviewer tooling keyed off that line would track the
-   wrong issue's lifecycle. Correct it as soon as the sub-issue exists,
-   before requesting review.
-4. From there the harvest is watched exactly like any other PR — the
-   normal review-loop skill/process for that agent owns the sub-issue's
-   label transitions and State of Play upkeep from this point on.
-
-If the feature being documented never got its own workstream issue (a
-`/document` run against pre-this-system work), there's no parent to nest
-under — say so in the report rather than inventing one retroactively.
+1. Open the harvest PR **as a draft.** Every non-draft PR is auto-reviewed
+   on open (per `CLAUDE.md`), and `pr-watch` reads `Workstream: #N` from the
+   PR body the moment it opens — so a non-draft PR here would get reviewed
+   and labeled against whatever the body says *before* the sub-issue exists
+   (nothing, or a placeholder). Draft defers both until the sub-issue is
+   real.
+2. Open the sub-issue: parented to the feature's workstream issue if one
+   exists (`stage:code-review`, `waiting:codex`, `mode:docs`, its own State
+   of Play block). **If the feature never got its own workstream issue** (a
+   `/document` run against pre-this-system work), open the harvest as a
+   **standalone** `mode:docs` workstream issue instead of skipping tracking
+   — `pr-watch` needs *some* issue to label regardless of whether a parent
+   exists, and an untracked harvest is invisible to `/status` and the board
+   despite having its own real review loop.
+3. Set the PR body's `Workstream:` line to the sub-issue (or standalone
+   issue) just created — never the parent, which is typically already well
+   past this harvest's own stage.
+4. **Mark the PR ready for review.** This is what actually triggers round 1
+   (per `CLAUDE.md`'s trigger list — open / mark-ready / `@codex review`),
+   so by the time any review or label transition happens, the `Workstream:`
+   line is already correct.
+5. From there the harvest is watched exactly like any other PR — the
+   normal review-loop skill/process for that agent owns the label
+   transitions and State of Play upkeep from this point on.
 
 ## Boundaries
 

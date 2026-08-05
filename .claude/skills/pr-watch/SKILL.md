@@ -134,11 +134,17 @@ silently leaving the workstream unlabeled):
 - **A genuine design/architecture decision goes to David** (the escalate
   rule above) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **The PR merges** → `stage:uat` if it has product-visible behavior (a
-  UAT doc exists or is due), otherwise `stage:close-out` for a pure-docs or
-  pure-devops PR with no product surface. Never `stage:done` at merge —
-  that's David's to set once he's actually verified it, the same reason
-  the Project's built-in `PR merged → Done` workflow is off.
+- **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
+  due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
+  bugfix or a Tier B bugfix whose only surface is internal (per
+  `working-modes.md`'s Tier B exception): all three go straight to
+  `stage:close-out` instead, since holding them at `uat` would be a gate
+  with nothing to run against it. "Has product-visible behavior" is *not*
+  the test by itself — a Tier A fix can be product-visible and still ship
+  no UAT doc, which is what makes checking for the doc the right test, not
+  the behavior. Never `stage:done` at merge — that's David's to set once
+  he's actually verified it, the same reason the Project's built-in
+  `PR merged → Done` workflow is off.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
