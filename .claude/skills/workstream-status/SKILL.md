@@ -74,16 +74,23 @@ does:
 
 For every workstream issue, call `issue_read` (`method: get`) and check
 `has_children`. Where true, `get_sub_issues` to pull the children (e.g. a
-`/document` harvest nested under its parent feature). A sub-issue is its
-own row with its own `stage:`/`waiting:` labels — render it nested under
-its parent, not flattened into the top-level list.
+`/document` harvest nested under its parent feature). **Filter the
+returned children to `state: OPEN` before rendering** — `get_sub_issues`
+returns closed children too (e.g. a harvest sub-issue that finished and
+closed while its parent stayed open through UAT), and this is a report of
+*open* work, so a closed child should render as neither a nested row nor
+inflate any count. An open sub-issue is its own row with its own
+`stage:`/`waiting:` labels — render it nested under its parent, not
+flattened into the top-level list.
 
-**Remove every issue returned by `get_sub_issues` from the Step 1 set**
-before rendering the top-level fleet view. Step 1 fetches *every* open
-issue with a `stage:` label, which already includes labeled sub-issues —
-without this removal, a child appears twice (once nested under its
-parent, once again as its own top-level row) and the section counts are
-wrong.
+**Remove every issue returned by `get_sub_issues` (open or closed) from
+the Step 1 set** before rendering the top-level fleet view. Step 1 fetches
+*every* open issue with a `stage:` label, which already includes labeled
+sub-issues — without this removal, an open child appears twice (once
+nested under its parent, once again as its own top-level row) and the
+section counts are wrong. (A closed child was never in the Step 1 set to
+begin with, since Step 1 only fetches open issues — this removal matters
+only for open children.)
 
 ## Step 3 — Find each workstream's PR(s) and its full activity
 
@@ -107,14 +114,19 @@ report should surface anyway.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
-open threads, **and `get_comments` for top-level issue comments**) — same
-discipline as `pr-watch`, minimal calls, no per-thread narration in the
-output. `get_comments` matters here, not just for completeness: this
-repo's Codex loop delivers some events — a clean re-review pass, an
-`@codex review` trigger — as plain issue comments rather than inline
-review threads (`scripts/loop-metrics.mjs`'s own derivation has to handle
-this same shape). Skipping `get_comments` makes those events invisible,
-which can misreport who's actually holding a workstream.
+open threads, `get_comments` for top-level issue comments, **and
+`get_commits` for attributable push history**) — same discipline as
+`pr-watch`, minimal calls, no per-thread narration in the output.
+`get_comments` matters here, not just for completeness: this repo's Codex
+loop delivers some events — a clean re-review pass, an `@codex review`
+trigger — as plain issue comments rather than inline review threads
+(`scripts/loop-metrics.mjs`'s own derivation has to handle this same
+shape). Skipping `get_comments` makes those events invisible, which can
+misreport who's actually holding a workstream. `get_commits` matters for
+Step 4's stall detection: a PR's raw `updated_at` advances on *any*
+update — including a relabel or a David edit with no comment — but
+carries no actor, so it can't tell you who moved it last. Commit
+authorship can.
 
 ## Step 4 — The judgment layer (this is the actual point)
 
@@ -130,16 +142,23 @@ A workstream is **stalled** when `waiting` is NOT `david` (a David-gate is
 there has been no relevant activity — no new commit, no Codex comment, no
 reply from Claude — for **more than 48 hours**.
 
-**Compute the activity timestamp from the latest *non-David* action**,
-across the PR's `updated_at`, `get_review_comments`, and `get_comments`
-(step 3) — never from David's own last comment or the PR's raw
-`updated_at` alone. A `waiting:claude`/`waiting:codex` thread that David
+**Compute the activity timestamp from the latest *attributable, non-David*
+action** — the newest of: the latest commit's author + date
+(`get_commits`), the latest review comment's author + timestamp
+(`get_review_comments`), and the latest issue comment's author + timestamp
+(`get_comments`), all from step 3, filtered to exclude anything authored
+by David. **Never use the PR's raw `updated_at` as an activity signal on
+its own** — it advances on any update (a relabel, a David edit with no
+comment) but carries no author, so it can't be attributed to "David" or
+"not David" at all; treat it only as a fallback when none of the three
+attributable sources above yield anything (e.g. a brand-new PR with no
+commits fetched yet). A `waiting:claude`/`waiting:codex` thread that David
 pinged after it had already gone quiet is exactly the stale handoff this
-report exists to catch; using David's ping as the activity timestamp
-resets the 48-hour clock and hides it. If David *was* the last person to
-act (e.g. he already answered and nobody has picked it up since), still
-report that fact plainly — just don't let his own activity mask a stale
-non-David handoff underneath it.
+report exists to catch; using David's ping — or the `updated_at` bump it
+causes — as the activity timestamp resets the 48-hour clock and hides it.
+If David *was* the last person to act (e.g. he already answered and
+nobody has picked it up since), still report that fact plainly — just
+don't let his own activity mask a stale non-David handoff underneath it.
 
 **A workstream with no linked PR can stall too** — a Discovery/Planning-
 stage issue sitting at `waiting:claude`/`waiting:codex` with no repo

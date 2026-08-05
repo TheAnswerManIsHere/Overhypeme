@@ -4,11 +4,15 @@
   strike through (~~…~~) what doesn't. Human and agent PRs both use this.
 -->
 
-**Workstream:** #<!-- issue number, if this PR belongs to a tracked workstream
-     (see docs/ai-context/workstream-tracking.md). Never "Closes #N" — that
-     auto-closes the issue at merge and skips Test run/UAT. Leave blank/delete
-     this line for a PR with no workstream issue (exploratory work, a trivial
-     fix with nothing to track). -->
+Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
+     tracked (see docs/ai-context/workstream-tracking.md; AGENTS.md's
+     workstream-tracking contract). Never "Closes #N" — that auto-closes the
+     issue at merge and skips Test run/UAT. The ONLY exemption is a
+     sensitive/disclosure-carve-out workstream, tracked as a private draft
+     Project item instead of a public issue — leave this line blank/deleted
+     only for that case. Plain text, no markdown bold — /workstream-status
+     parses this line with the regex `Workstream:\s*#(\d+)`, which bold
+     formatting (`**Workstream:**`) breaks. -->
 
 ## What & why
 
