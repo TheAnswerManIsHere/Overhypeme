@@ -72,6 +72,12 @@ live DB),
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.
 
+Agent sandboxes:
+[`docs/ai-context/codex-environment.md`](docs/ai-context/codex-environment.md) —
+what Codex's container can and cannot do (it boots without a database by
+default, so the api-server integration suite is unavailable there unless
+`CODEX_SETUP_DB=1`).
+
 ## Working agreement with David
 
 David is the product owner. **Do not implement major changes from a non-trivial
