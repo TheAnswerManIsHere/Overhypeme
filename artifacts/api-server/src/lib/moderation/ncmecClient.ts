@@ -538,23 +538,6 @@ export class NcmecClient {
       };
     }
 
-    if (envelope.root !== init.expectedRoot) {
-      // A misrouted or invalid response confirming the wrong thing is worse than an
-      // obviously-broken one: read uncritically, `/finish` returning a well-formed
-      // <reportResponse> with responseCode 0 would look exactly like a successful
-      // completion to a caller that never checks which root it got. Not retryable —
-      // this is ISPWS answering the wrong question, not a transient condition repeating
-      // the request would fix.
-      return {
-        status: "err",
-        responseCode: envelope.responseCode,
-        message: `ISPWS answered ${path} with <${envelope.root}>, not the documented <${init.expectedRoot}> — refusing to trust fields read off the wrong envelope`,
-        retryable: init.retryableIfWrongRoot,
-        kind: "malformed",
-        credentialFailure: false,
-      };
-    }
-
     if (!response.ok) {
       // A non-2xx response whose body happens to PARSE as a success envelope. That sounds
       // exotic and isn't: a proxy or gateway in front of ISPWS returning 502 with a cached,
@@ -579,8 +562,35 @@ export class NcmecClient {
       };
     }
 
+    // ERROR ENVELOPES ARE CLASSIFIED BEFORE THE ROOT IS ENFORCED, and the order is the whole
+    // point. ISPWS reports failures in `<reportResponse>` on EVERY endpoint — every committed
+    // `err-*.xml` fixture uses that root, including the ones an operation with a different
+    // success root receives. `/finish` expects `<reportDoneResponse>`, so with the root check
+    // first, a 5102 ("report already finished") on `/finish` never reached errFromCode: it was
+    // returned as `malformed`. That is the single most consequential misclassification in this
+    // client — 5102 on a retry is precisely how a finish whose acknowledgement was lost proves
+    // it landed, and it is what the duplicate-filing guard keys on. The same reordering
+    // restores credential alerting for 2000/3000 and the terminal classification for 4100,
+    // each of which was being read as a malformed envelope and retried.
     if (envelope.responseCode !== NCMEC_RESPONSE_CODES.SUCCESS) {
       return errFromCode(envelope.responseCode, envelope.description);
+    }
+
+    if (envelope.root !== init.expectedRoot) {
+      // Now reached only for a SUCCESS envelope, which is exactly the case this check was
+      // written for and loses nothing by the move: `/finish` answering with a well-formed
+      // <reportResponse> carrying responseCode 0 would look like a completed filing to a
+      // caller that never checks which root it got. An ERROR envelope on the wrong root
+      // claims nothing succeeded, so there is no false confirmation to guard against — only a
+      // verdict to classify.
+      return {
+        status: "err",
+        responseCode: envelope.responseCode,
+        message: `ISPWS answered ${path} with a successful <${envelope.root}>, not the documented <${init.expectedRoot}> — refusing to trust fields read off the wrong envelope`,
+        retryable: init.retryableIfWrongRoot,
+        kind: "malformed",
+        credentialFailure: false,
+      };
     }
     return envelope;
   }
@@ -761,7 +771,13 @@ export class NcmecClient {
     if ("status" in result) return result;
     const returnedId = textOf(result.values["reportId"]);
     if (!returnedId) {
-      return missingElement("/fileinfo", "reportId");
+      // Retryable, for the same reason /finish's is: this request carries its own reportId, so
+      // repeating it is the safe no-op this method's own `retryableIfWrongRoot: true` already
+      // asserts — it cannot open a second report. Left at missingElement()'s non-retryable
+      // default, this endpoint terminated a report permanently on the one response shape that
+      // is better-formed than the malformed and wrong-root cases it already retries, purely
+      // because the acknowledgement was incomplete.
+      return missingElement("/fileinfo", "reportId", true);
     }
     // Same correlation as /upload, /finish and /retract: a well-formed success response for
     // a DIFFERENT report would otherwise attach file metadata as though it belonged to this

@@ -123,6 +123,14 @@ function ownershipHardeningBlock(): string {
   return sliceBetween(OWNERSHIP_START, OWNERSHIP_END);
 }
 
+const MAINTENANCE_START = "-- >>> ncmec-0097 maintenance role block (start)";
+const MAINTENANCE_END = "-- <<< ncmec-0097 maintenance role block (end)";
+
+/** Just the best-effort role creation + creator-membership revoke DO block. */
+function maintenanceRoleBlock(): string {
+  return sliceBetween(MAINTENANCE_START, MAINTENANCE_END);
+}
+
 const ACTION_CHECK_START = "-- >>> ncmec-0097 action check block (start)";
 const ACTION_CHECK_END = "-- <<< ncmec-0097 action check block (end)";
 
@@ -1142,6 +1150,44 @@ describe("migration 0097 — database behaviour (skipped when DATABASE_URL is un
       assert.match(rows[0]!.def, /config_write/, "the full vocabulary must be restored");
     });
 
+    it("accepts the constraint after it has been round-tripped through pg_get_constraintdef", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `pg_get_constraintdef` is not a fixed point: re-applying its own output moves the cast
+      // from the array to its elements, so the identical predicate renders as
+      // `ANY (ARRAY[('retry'::character varying)::text, …])` instead of
+      // `ANY ((ARRAY['retry'::character varying, …])::text[])`. The structure gate accepted
+      // only the first form, so anything that round-trips the constraint through text — a
+      // `pg_dump`/restore cycle, a DBA pasting this block's own recovery command, or
+      // `drizzle-kit push` reconciling against the Drizzle snapshot — made a correct
+      // constraint report as drift. CI hit exactly that: the api-server suite runs push AFTER
+      // the migration applies, and on the not-the-owner replay path the mismatch is fatal.
+      assert.ok(pool, "pool unavailable");
+      const { rows: before } = await pool.query<{ def: string }>(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+          WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+      );
+      const rendered = before[0]!.def;
+      await pool.query(`ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_action_check`);
+      await pool.query(
+        `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_action_check ${rendered}`,
+      );
+      try {
+        const { rows: after } = await pool.query<{ def: string }>(
+          `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+            WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+        );
+        assert.notEqual(after[0]!.def, rendered, "the round trip must actually change the rendering");
+        const { output } = execSqlCapturingDiagnostics(null, null, actionCheckBlock());
+        assert.match(
+          output,
+          /already present and correct/,
+          "a semantically identical constraint in PostgreSQL's other rendering must be accepted",
+        );
+      } finally {
+        await pool.query(actionCheckBlock());
+      }
+    });
+
     it("rejects an action CHECK that permits an EXTRA value beyond the vocabulary", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // `... OR action = 'legacy_action'` accepts all nine expected values and rejects every
@@ -1239,6 +1285,112 @@ describe("migration 0097 — database behaviour (skipped when DATABASE_URL is un
       const { output } = execSqlCapturingDiagnostics(null, null, backfillBlock());
       assert.match(output, /quarantine_id backfill: linked=\d+, missing=\d+/);
       assert.match(output, /malformed=\d+, dangling=\d+/);
+    });
+
+    it("reports the rows the update actually wrote, not the candidates it classified", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `linked=` used to carry the CLASSIFICATION count of numeric candidates, computed before
+      // the UPDATE ran. The target-side null recheck can legitimately skip some of those when a
+      // concurrent reconciler wins the race, so the diagnostics overstated the linkage in
+      // exactly the situation that recheck exists to handle: a run that deferred to another
+      // writer looked identical to one that did all the linking itself.
+      //
+      // The race itself is not stageable from this harness — it needs two sessions interleaved
+      // around a row lock — so the divergence is pinned structurally, and the ordinary path is
+      // checked behaviourally below.
+      assert.ok(pool, "pool unavailable");
+      assert.match(
+        MIGRATION_SQL,
+        /GET DIAGNOSTICS n_linked = ROW_COUNT;/,
+        "the linked count must come from the UPDATE's ROW_COUNT",
+      );
+      assert.match(
+        MIGRATION_SQL,
+        /INTO n_missing, n_malformed, n_dangling, n_conflicting, n_candidates, conflict_ids/,
+        "the classification count must be kept separate from the linked count",
+      );
+      assert.match(
+        MIGRATION_SQL,
+        /IF n_candidates > n_linked THEN/,
+        "candidates the update skipped must be reported rather than absorbed into linked=",
+      );
+
+      const { rows: q } = await pool.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source) VALUES ('restricted/q/count', 'arachnid') RETURNING id`,
+      );
+      const qid = q[0]!.id;
+      const { rows: rep } = await pool.query<{ id: string }>(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, submission_status, request_metadata)
+         VALUES ('arachnid', 'restricted/q/count', 'pending', $1::jsonb) RETURNING id`,
+        [JSON.stringify({ quarantineId: qid })],
+      );
+      // The BEFORE INSERT trigger links `quarantine_id` from `request_metadata` for any writer,
+      // so a freshly-inserted row is never a backfill candidate. Cleared here to stage the
+      // legacy shape the backfill exists for: a row written before that trigger existed.
+      await pool.query(`UPDATE ncmec_reports SET quarantine_id = NULL WHERE id = $1`, [rep[0]!.id]);
+      try {
+        const { output } = execSqlCapturingDiagnostics(null, null, backfillBlock());
+        assert.match(output, /quarantine_id backfill: linked=1,/, "one linkable row must report linked=1");
+        assert.doesNotMatch(
+          output,
+          /already linked by another writer/,
+          "an uncontended run must not report a skip",
+        );
+      } finally {
+        await pool.query(`DELETE FROM ncmec_reports WHERE id = $1`, [rep[0]!.id]).catch(() => {});
+        await pool.query(`DELETE FROM quarantined_memes WHERE id = $1`, [qid]).catch(() => {});
+      }
+    });
+
+    it("never claims to have revoked the creator membership it could not actually revoke", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // On PostgreSQL 16, `CREATE ROLE overhype_audit_maintenance` run by a NON-SUPERUSER
+      // CREATEROLE role records the automatic membership with the BOOTSTRAP SUPERUSER as
+      // grantor. The block's own `REVOKE ... FROM current_user` then does not raise — it emits
+      // `WARNING: role ... has not been granted membership ... by role ...` and returns
+      // successfully having changed nothing. So the EXCEPTION handler never fired and the block
+      // printed "revoked the automatic creator membership" over a database where the membership
+      // was still there, and the recovery guidance repeated the same no-op command.
+      //
+      // Reproduced directly before the fix. The residual row carries inherit_option = f, so the
+      // trigger gate is not immediately bypassable — but it carries ADMIN OPTION, so the
+      // application can grant itself the role WITH INHERIT TRUE whenever it likes, which is why
+      // ncmecAuditBoundaryStatus() counts it.
+      assert.ok(pool, "pool unavailable");
+      const app = `ncmec_mt_${randomUUID().slice(0, 8)}`;
+      const appPassword = "mt-probe";
+      await pool.query(`DROP ROLE IF EXISTS overhype_audit_maintenance`);
+      await pool.query(`CREATE ROLE ${app} LOGIN PASSWORD '${appPassword}' CREATEROLE`);
+      try {
+        const { output } = execSqlCapturingDiagnostics(app, appPassword, maintenanceRoleBlock());
+        const { rows } = await pool.query<{ grantor: string }>(
+          `SELECT pg_get_userbyid(m.grantor) AS grantor FROM pg_auth_members m
+            WHERE pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'
+              AND pg_get_userbyid(m.member) = $1`,
+          [app],
+        );
+        assert.equal(rows.length, 1, "the automatic creator membership must survive — otherwise this test proves nothing");
+        assert.doesNotMatch(
+          output,
+          /revoked the automatic creator membership/,
+          "the block must not claim a revoke that did not happen",
+        );
+        assert.match(output, /STILL PRESENT/, "the residual membership must be reported");
+        assert.match(
+          output,
+          new RegExp(`granted by ${rows[0]!.grantor}`),
+          "the warning must name the grantor, the only role that can remove the row",
+        );
+        assert.match(output, /Run, AS /, "the warning must name the role that must run the REVOKE");
+      } finally {
+        await pool.query(`REVOKE overhype_audit_maintenance FROM ${app}`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS overhype_audit_maintenance`).catch(() => {});
+        await pool.query(`DROP ROLE IF EXISTS ${app}`).catch(() => {});
+        // Restored as the pool's own role so the rest of the file sees the state the migration
+        // leaves behind, not this test's teardown.
+        await pool.query(`CREATE ROLE overhype_audit_maintenance NOLOGIN`).catch(() => {});
+        await pool.query(`REVOKE overhype_audit_maintenance FROM CURRENT_USER`).catch(() => {});
+      }
     });
 
     it("schema-qualifies the referenced table in the owner-run foreign-key commands", async (t) => {

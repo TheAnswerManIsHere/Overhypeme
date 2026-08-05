@@ -473,6 +473,62 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status === "err" && result.retryable, false);
   });
 
+  it("classifies a 5102 on /finish as the duplicate-filing signal, not a wrong-root envelope", async () => {
+    // ISPWS answers /finish with <reportDoneResponse> on success but reports EVERY failure in
+    // <reportResponse> — every committed err-*.xml fixture uses that root. Enforcing the
+    // expected root before interpreting the response code turned 5102 into `malformed`, which
+    // is the one code /finish must never lose: after a finish whose acknowledgement was lost,
+    // 5102 on the retry is how the report proves it was already filed. Read as malformed it
+    // stays retryable forever and never reaches the duplicate-filing guard.
+    const { instance } = client(fixture("err-5102"));
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.responseCode, 5102);
+    assert.notEqual(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("keeps credential alerting for a 2000 on /finish", async () => {
+    // Same root mismatch, different consequence: an auth failure on the last call in the
+    // sequence was being reported as a malformed document, so nothing alerted on it.
+    const { instance } = client(fixture("err-2000"));
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.responseCode, 2000);
+    assert.equal(result.status === "err" && result.credentialFailure, true);
+  });
+
+  it("keeps a 4100 on /finish terminal instead of retrying it as malformed", async () => {
+    const { instance } = client(fixture("err-4100"));
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.responseCode, 4100);
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
+  it("still refuses a SUCCESSFUL envelope on the wrong root for /finish", async () => {
+    // The reordering must not weaken the case the root check exists for: responseCode 0 on
+    // <reportResponse> is a completion this client has no basis to believe.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportResponse>',
+    );
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "malformed");
+  });
+
+  it("keeps an incomplete /fileinfo acknowledgement retryable", async () => {
+    // A 2xx, responseCode 0 <reportResponse> with no <reportId>. The request carries its own
+    // reportId, so repeating it is a no-op — the same reasoning that already makes this
+    // endpoint's malformed and wrong-root responses retryable. Non-retryable here terminated
+    // the report on the best-formed of those three shapes.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode></reportResponse>',
+    );
+    const result = await instance.submitFileInfo("4564654", "<fileDetails><reportId>4564654</reportId></fileDetails>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.retryable, true);
+  });
+
   it("refuses a non-2xx response even when its body parses as a success envelope", async () => {
     // A gateway in front of ISPWS returning 502 with a cached, wrapped or replayed body
     // produces exactly this: every field the caller checks is present and well-formed, and

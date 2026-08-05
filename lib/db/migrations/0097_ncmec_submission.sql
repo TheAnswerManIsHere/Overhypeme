@@ -271,6 +271,14 @@ DECLARE
   n_malformed   bigint;
   n_dangling    bigint;
   n_conflicting bigint;
+  -- Rows the CLASSIFICATION judged linkable. Deliberately not called `n_linked`: it is a
+  -- pre-update count, and the UPDATE's target-side `quarantine_id IS NULL` recheck can
+  -- legitimately skip some of them when a concurrent reconciler or operator wins the race.
+  -- Reporting this number as "linked" made the diagnostics wrong in exactly the situation the
+  -- recheck was added to handle — a run that quietly deferred to another writer looked
+  -- identical to one that did all the linking itself.
+  n_candidates  bigint;
+  -- What the UPDATE actually wrote, from ROW_COUNT.
   n_linked      bigint;
   conflict_ids  text;
 BEGIN
@@ -331,7 +339,7 @@ BEGIN
          count(*) FILTER (WHERE shape = 'conflicting'),
          count(*) FILTER (WHERE shape = 'numeric'),
          string_agg(DISTINCT qid::text, ', ') FILTER (WHERE shape = 'conflicting')
-    INTO n_missing, n_malformed, n_dangling, n_conflicting, n_linked, conflict_ids
+    INTO n_missing, n_malformed, n_dangling, n_conflicting, n_candidates, conflict_ids
     FROM classified;
 
   IF n_conflicting > 0 THEN
@@ -364,12 +372,26 @@ BEGIN
      AND r.quarantine_id IS NULL
      AND EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = l.qid);
 
+  -- The rows the statement WROTE, not the rows it considered. The two differ by exactly the
+  -- candidates the target-side recheck deferred on, which is a real outcome an operator needs
+  -- named rather than absorbed into the linked count.
+  GET DIAGNOSTICS n_linked = ROW_COUNT;
+
   -- Observability, per the migration-review rule: a backfill that reports nothing cannot be
   -- told from one that matched nothing. Dropped by the CTE rewrite, which computed all four
   -- counts and then discarded them — leaving an operator unable to distinguish a clean no-op
   -- from a migration that deliberately left rows for the backlog audit to disposition.
   RAISE NOTICE '0097 quarantine_id backfill: linked=%, missing=% (pre-stub rows — stay NULL, they are the backlog audit''s population), malformed=%, dangling=%',
     n_linked, n_missing, n_malformed, n_dangling;
+
+  IF n_candidates > n_linked THEN
+    -- Not a failure and not a warning: the recheck doing its job. Reported because "linked=0,
+    -- everything else 0" would otherwise be indistinguishable from a database with nothing to
+    -- backfill, and the difference matters when someone is auditing whether a replay raced a
+    -- live reconciler.
+    RAISE NOTICE '0097 quarantine_id backfill: % of % linkable candidates were already linked by another writer between classification and update, and were left alone.',
+      n_candidates - n_linked, n_candidates;
+  END IF;
 
   IF n_malformed > 0 OR n_dangling > 0 THEN
     RAISE WARNING '0097: % malformed and % dangling quarantineId values left NULL. These rows are unlinked and must be dispositioned by the pre-activation backlog audit.',
@@ -691,8 +713,28 @@ BEGIN
     -- The semantic probes are kept alongside rather than replaced: structure alone would
     -- accept a canonical-looking predicate whose literals somehow do not behave as written,
     -- and the two together are what make the check both exhaustive and grounded.
+    -- TWO renderings are accepted, and that is not laxity — it is the direct consequence of a
+    -- property verified against this repository's PostgreSQL 16 target: `pg_get_constraintdef`
+    -- is NOT a fixed point. Feeding its own output back into `ADD CONSTRAINT` produces a
+    -- DIFFERENT string for the identical predicate:
+    --
+    --   written as `"action" IN (...)`           -> ANY ((ARRAY['retry'::character varying, …])::text[])
+    --   the above re-applied verbatim            -> ANY (ARRAY[('retry'::character varying)::text, …])
+    --
+    -- The cast migrates from the array to its elements. Anything that round-trips a constraint
+    -- through its rendered text lands in the second form — `pg_dump` of an already-round-tripped
+    -- schema, a DBA pasting the recovery command this block itself prints, and `drizzle-kit push`
+    -- reconciling against the Drizzle snapshot, which is how CI hit it: the api-server suite runs
+    -- push AFTER the migration has applied, so by the time this block replays, the constraint it
+    -- wrote has been re-parsed into a form its own gate rejected. Accepting only the first form
+    -- meant a correct, semantically identical constraint was reported as drift, and on the
+    -- not-the-owner replay path that is FATAL rather than merely a rebuild.
+    --
+    -- Both alternatives keep the two properties the structure gate exists for: `[^][]*` forbids
+    -- a nested `ARRAY[...]` (the `|| ARRAY[action]` disguise) and the anchors forbid an appended
+    -- `OR ...`. So under either rendering the literals ARE the vocabulary.
     con_canonical_ok :=
-      con_def ~ '^CHECK \(\(\(action\)::text = ANY \(\(ARRAY\[[^][]*\]\)::text\[\]\)\)\)$'
+      con_def ~ '^CHECK \(\(\(action\)::text = ANY \((?:\(ARRAY\[[^][]*\]\)::text\[\]|ARRAY\[[^][]*\])\)\)\)$'
       AND (SELECT array(SELECT DISTINCT m[1]
                           FROM pg_catalog.regexp_matches(con_def, $re$'([^']*)'$re$, 'g') AS m
                          WHERE m[1] <> ''
@@ -884,7 +926,10 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_audit_created"
 -- Best-effort creation: a deployment whose application role lacks CREATEROLE must not fail
 -- its deploy here. The trigger fails CLOSED when the role is absent, so a skipped creation
 -- makes the ledger stricter, never looser.
+-- >>> ncmec-0097 maintenance role block (start)
 DO $$
+DECLARE
+  residual_grantor text;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance') THEN
     BEGIN
@@ -905,13 +950,49 @@ BEGIN
      ) THEN
     BEGIN
       EXECUTE format('REVOKE overhype_audit_maintenance FROM %I', current_user);
-      RAISE NOTICE '0097: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
     EXCEPTION
       WHEN OTHERS THEN
-        RAISE WARNING '0097: could NOT revoke overhype_audit_maintenance from % (%). The application role can bypass the append-only trigger until a DBA runs: REVOKE overhype_audit_maintenance FROM that role.', current_user, SQLERRM;
+        RAISE WARNING '0097: REVOKE overhype_audit_maintenance FROM % raised % — see the follow-up notice for the residual state.', current_user, SQLERRM;
     END;
+
+    -- The REVOKE is VERIFIED, never assumed, because on this repository's PostgreSQL 16 target
+    -- it does not fail loudly when it cannot do its job. Reproduced directly: when a
+    -- non-superuser CREATEROLE role runs `CREATE ROLE overhype_audit_maintenance`, PostgreSQL
+    -- records the automatic membership with the BOOTSTRAP SUPERUSER as grantor
+    -- (admin_option = t, inherit_option = f, set_option = f). A later
+    -- `REVOKE overhype_audit_maintenance FROM <that role>`, run as that role, does not raise
+    -- insufficient_privilege — it emits `WARNING: role ... has not been granted membership in
+    -- role ... by role ...` and returns successfully having changed nothing. So the EXCEPTION
+    -- handler above never fired, and this block used to print "revoked the automatic creator
+    -- membership" over a database where the membership was still there. A migration that
+    -- reports a security boundary closed when it is open is worse than one that reports
+    -- nothing, so the claim is now conditioned on re-reading pg_auth_members.
+    SELECT pg_catalog.pg_get_userbyid(m.grantor) INTO residual_grantor
+      FROM pg_catalog.pg_auth_members m
+     WHERE pg_catalog.pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'
+       AND m.member = pg_catalog.to_regrole(current_user);
+
+    IF residual_grantor IS NULL THEN
+      RAISE NOTICE '0097: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
+    ELSE
+      -- The command is named WITH the role that must run it. Naming the REVOKE alone — which
+      -- is what this warning and the DBA guidance below both used to do — hands the operator a
+      -- statement that silently no-ops for them, so they see it succeed and believe the
+      -- boundary is closed. Only the grantor (or a superuser) can remove this row; ADMIN
+      -- OPTION on the role is NOT sufficient.
+      --
+      -- The residual grant carries inherit_option = f and set_option = f, so it does not by
+      -- itself let the application pass the trigger's `pg_has_role(..., 'usage')` gate. It
+      -- carries ADMIN OPTION, though, which lets the application grant itself the role WITH
+      -- INHERIT TRUE at any moment — verified, usage flips from false to true in one
+      -- statement. That is why ncmecAuditBoundaryStatus() counts an admin-option chain as
+      -- reachability and keeps reporting the bypass until this row is gone.
+      RAISE WARNING '0097: the automatic creator membership of overhype_audit_maintenance in % is STILL PRESENT — it was granted by %, and only % (or a superuser) can remove it; ADMIN OPTION is not enough. Until then the application can grant itself the role WITH INHERIT TRUE and bypass the append-only trigger. Run, AS %: REVOKE overhype_audit_maintenance FROM %; The supported alternative is to have overhype_audit_maintenance created by a superuser instead, which leaves the application no membership at all.',
+        current_user, residual_grantor, residual_grantor, residual_grantor, current_user;
+    END IF;
   END IF;
 END $$;
+-- <<< ncmec-0097 maintenance role block (end)
 --> statement-breakpoint
 
 -- The audit-log guard objects are created only when the current role is able to. After the
@@ -1415,8 +1496,23 @@ BEGIN
   -- triggers outright — the guard function admits any caller with an effective grant of it.
   IF can_maintenance THEN
     IF COALESCE(array_length(maintenance_edges, 1), 0) > 0 THEN
+      -- Each REVOKE is printed together with the role that must RUN it. A membership created
+      -- by `CREATE ROLE` from a non-superuser CREATEROLE role has the bootstrap superuser as
+      -- its grantor, and PostgreSQL 16 lets anyone else run the REVOKE to no effect: it warns
+      -- and returns success. An operator handed the bare command therefore watches it succeed
+      -- and concludes the bypass is closed, while ncmecAuditBoundaryStatus() goes on reporting
+      -- it — the same false-success this migration's own maintenance block was corrected for.
+      -- Only the grantor or a superuser can remove the row; ADMIN OPTION cannot.
       maintenance_hint := (
-        SELECT string_agg(format('REVOKE %I FROM %I;', e, app_role), ' ' ORDER BY e)
+        SELECT string_agg(
+                 format('REVOKE %I FROM %I;  -- must be run AS %I (the grantor of this membership) or a superuser; running it as any other role warns and changes nothing',
+                        e, app_role,
+                        COALESCE((SELECT pg_catalog.pg_get_userbyid(m.grantor)
+                                    FROM pg_catalog.pg_auth_members m
+                                   WHERE pg_catalog.pg_get_userbyid(m.roleid) = e
+                                     AND pg_catalog.pg_get_userbyid(m.member) = app_role
+                                   LIMIT 1), app_role)),
+                 ' ' ORDER BY e)
           FROM unnest(maintenance_edges) AS e
       );
     ELSE
