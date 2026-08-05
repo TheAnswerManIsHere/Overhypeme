@@ -13,6 +13,72 @@
 
 ---
 
+### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
+- **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
+  **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out
+  work, which never becomes a public issue and instead lives as a private
+  draft Project item, per `plan-review-loop`'s existing disclosure check
+  (this repo is public, so an issue body is public even though the Project
+  itself is private). For everything else, the issue is opened from
+  Discovery onward — before any branch exists — carrying a **State of Play**
+  block (defined in the routed contract below) and exactly one label
+  from each of three prefixes: `stage:` (the ten lifecycle stages),
+  `waiting:` (david/claude/codex/replit/ci), and `mode:`. Those issues are
+  tracked on a private Project board whose `Status`/`Waiting On`/`Mode`
+  fields are populated from the labels by a CI Action
+  (`.github/workflows/project-sync.yml` → `scripts/sync-project-fields.mjs`),
+  and read back by a `/status` skill. **Labels are the writable truth; the
+  board is a projection of them.** Four skills — `plan-review-loop`,
+  `bugfix`, `pr-watch`, `pr-docs` — each own a specific label transition at
+  a trigger point they already hit, rather than any agent carrying a
+  standing "go check the board" habit. The full contract is
+  [`workstream-tracking.md`](./workstream-tracking.md).
+- **Why:** David runs ~10 concurrent Claude Code sessions and could not tell
+  which needed him without opening each one; the session list shows a name
+  and a timestamp, and has no field for stage or whose-turn, so it cannot
+  answer that question no matter how sessions are named. Three alternatives
+  were considered and rejected. **A status file in the repo:** the session
+  container is ephemeral, so a local file dies with the session; committing
+  one requires a branch (which a pure Discovery conversation doesn't have),
+  and a *shared* board file written by many concurrent squash-merged
+  branches is the worst possible git shape — a failure this repo has already
+  recorded once in
+  [`document-ceremony-concurrent-docs-pr-conflict.md`](../../.agents/memory/document-ceremony-concurrent-docs-pr-conflict.md).
+  **A second Project for `/document` harvests:** fragments exactly what this
+  exists to unfragment; harvests are **sub-issues** of their parent
+  workstream instead, since each has its own branch, PR, and review loop and
+  therefore needs its own row rather than a status value on the parent.
+  **Reading the board directly:** no available MCP or REST tool can read
+  *or* write a Projects v2 item field — confirmed twice independently — so
+  labels are not a stylistic choice but the only writable surface an agent
+  has, and `/status` recomputes the board's view from them rather than
+  querying the board. `Waiting On` is deliberately a field **separate from**
+  `Status` because the two diverge: a blocking question mid-build leaves
+  `stage` at `coding` while the turn passes to David, and that divergence
+  *is* the interruption that was being lost. The Project's built-in
+  `PR merged → Done` workflow stays **off** because a merge is followed by
+  TEST_RUN and UAT — proven correct in practice by #311, which merged and
+  correctly stayed at `🛑 UAT` rather than claiming verified work. For the
+  same reason PR bodies link with `Workstream: #N`, never `Closes #N`.
+  A downstream consequence worth stating: because the State of Play block
+  now holds a workstream's context durably *outside* any session, **sessions
+  became disposable** — resuming cold in a fresh session is the intended
+  path, not a loss, which is what makes the "ran out of tokens, come back
+  tomorrow" case cheap instead of requiring an old transcript to be re-read
+  uncached.
+- **Reference:** PRs #318 (sync mechanism), #322 (field-name matching fix),
+  #323 (`/status` skill), #324 (label maintenance wired into the four
+  skills + the shared contract); workstream #317;
+  [`workstream-tracking.md`](./workstream-tracking.md). Board:
+  *Overhype.me Workstreams* (private, user-owned project 1).
+- **Revisit if:** a tool appears that can read or write Projects v2 item
+  fields directly — that would let `/status` read the board and could retire
+  the sync Action entirely, collapsing labels and fields into one surface.
+  Also revisit if the number of genuinely concurrent workstreams drops far
+  enough that the board costs more ceremony than it saves.
+
+---
+
 ### 2026-08-04 · Global CodeQL rate-limiter backstop ships on a custom bounded in-memory store, not a DB-backed `Store`
 - **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
   `js/missing-rate-limiting` query (`artifacts/api-server/src/lib/rateLimit.ts`'s

@@ -44,6 +44,27 @@ priorities (moderation speed, render/enrichment quality, video). See
   gap — see
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
   and need a repo-admin to dismiss them in the Security tab.
+- **Workstream tracking: a GitHub Project board, label-driven, plus a
+  `/status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
+  unit of work now has a GitHub issue as its spine — except sensitive/
+  disclosure-carve-out work, which stays a private draft Project item, never
+  a public issue — carrying a **State of Play** block and
+  `stage:`/`waiting:`/`mode:` labels that a CI Action
+  mirrors onto a private Project board; `/status` reads those labels back
+  and adds what the board can't compute — stall detection and a
+  plain-language restatement of whatever a David-gate is actually asking.
+  Solves the problem that ~10 concurrent sessions gave David no way to tell
+  which needed him without opening each one. Labels are the source of truth
+  and the board is a projection, because **no MCP or REST tool can read or
+  write a Projects v2 item field** — the same constraint that keeps
+  `/status` reading labels rather than the board. Label maintenance is owned
+  by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
+  points they already hit, not by a standing habit. See
+  [`workstream-tracking.md`](./workstream-tracking.md) and
+  [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
+  **Open next:** the board's value depends on labels staying current now
+  that no human maintains them — worth a check after a few workstreams that
+  the four skills actually fire as intended.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —

@@ -31,6 +31,37 @@ Test run, and UAT like everything else.
 glyph used for the mid-task interruption banner in chat, deliberately: one
 symbol means "David," everywhere, not only in conversation.
 
+## The State of Play block
+
+Labels are machine-readable state; the **State of Play block** is the
+human-readable narrative that makes an issue resumable **cold**, in a fresh
+session with zero prior context. It's a fixed section maintained at the top
+of the workstream issue's body, with these fields:
+
+- **Stage** — mirrors the `stage:` label, spelled out.
+- **Waiting on** — mirrors the `waiting:` label, spelled out.
+- **Last movement** — date + one-line description of what last happened.
+- **What this is** — a few sentences of orientation; what the workstream
+  actually accomplishes and why.
+- **Where it actually stands** — the real narrative: what's landed, what
+  hasn't, anything that broke and how it was fixed. Not a checklist for its
+  own sake — enough that a cold reader understands the current shape.
+- **What's blocking** — if `waiting` is `david`, the actual question,
+  restated in plain language from the real thread, not inferred from the
+  stage name alone (the same accuracy bar `/status` applies). If nothing's
+  blocking, say so.
+- **What you need to do** — the concrete next action, or "nothing right now."
+- **Artifacts** — PR numbers, branch names, key file paths, the Project link.
+- **To resume** — the literal instruction for picking this back up: which
+  branch/session to open, what to ask for, which model tier fits.
+
+**Whoever changes an issue's `stage:` or `waiting:` label updates this block
+in the same edit** — the two must never drift apart, since a label with a
+stale narrative behind it is worse than an honest gap. That means the same
+skills that own label transitions
+(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
+current at those same trigger points; there is no separate maintainer.
+
 ## Labels are the actual source of truth
 
 The Project board's `Status`/`Waiting On`/`Mode` fields are the *display*;
@@ -92,8 +123,18 @@ restatement.
   auto-close the issue at merge and skip UAT entirely.
 - **Sensitive / disclosure-carve-out workstreams never become public
   issues.** They're draft Project items instead — this repo is public, and
-  an issue body is public even though the Project itself is private. Same
-  carve-out as `plan-review-loop`'s disclosure check.
+  an issue body is public even though the Project itself is private. This
+  is the **canonical definition** of the disclosure check that gates
+  opening a public workstream issue, referenced (not restated) by
+  `plan-review-loop`, `working-modes.md`'s bugfix disclosure check, and
+  `documentation-workflow.md`'s harvest-tracking section: before a
+  workstream — a plan, a bug report, or a `/document` harvest — becomes a
+  public issue, confirm it contains none of unpatched-vulnerability
+  details, auth/authorization bypass specifics, secrets/credentials,
+  payment-fraud abuse paths, private customer/commercial data, or
+  embargoed-plan content. If it does, it stays off the public path — a
+  draft Project item, or (for a plan specifically) the manual/private
+  review path instead of a plan-review PR.
 - **No hand-typed GitHub UI name (a field, an option) gets matched by exact
   string in code.** The sync script's first live run against the real board
   failed all 9 workstream syncs because the real `Waiting On` field
