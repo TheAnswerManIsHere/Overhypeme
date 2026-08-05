@@ -233,7 +233,24 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
 
   if (currentStage === "test-run") {
     targetStage = computeTransition(uatFilename !== null).stage;
-    finalLabels = swapPrefixedLabel(swapPrefixedLabel(labels, "stage:", targetStage), "waiting:", "david");
+
+    // Re-fetch labels immediately before the mutating PUT, rather than
+    // reusing the snapshot from the GET above — narrows (doesn't eliminate)
+    // the window in which a concurrent label change (David, or another
+    // agent) would otherwise be silently overwritten by a stale full-array
+    // PUT. Bail if the stage moved on since: something else already handled
+    // this transition, so writing our now-stale computation would clobber it.
+    const freshLabelsIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+    const freshLabels = freshLabelsIssue.labels.map((l) => l.name);
+    if (!freshLabels.includes("stage:test-run")) {
+      console.log(
+        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed concurrently since the ` +
+          `first read — skipping this pass rather than overwriting it`,
+      );
+      return;
+    }
+
+    finalLabels = swapPrefixedLabel(swapPrefixedLabel(freshLabels, "stage:", targetStage), "waiting:", "david");
     await rest("PUT", `/repos/${repository}/issues/${issueNumber}/labels`, token, { labels: finalLabels });
   } else {
     // Labels already moved (this run or an earlier partial one) — reconcile
