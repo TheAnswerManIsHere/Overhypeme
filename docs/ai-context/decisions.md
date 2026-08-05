@@ -28,11 +28,18 @@
   making `--force-with-lease` **mandatory** on the branches this session owns
   (`claude/*`, `plan-review/*`) — the container is ephemeral, so an
   overwritten remote branch has no local reflog to recover from. Three Codex
-  review rounds on PR #329 then closed 33 concrete parser gaps (9, 11, 12
-  falling round over round); round 4 found **19** — more than round 3, not
-  fewer. Rather than open a round 5, David stopped the loop there; round 4's
-  gaps are recorded in `guard-decision.mjs`'s docstring (`ROUND 4, AND THE
-  DECISION TO STOP`) as accepted, not fixed.
+  review rounds on PR #329 then found 36 concrete parser gaps and fixed 33
+  (round 1: 11 found / 9 fixed, 2 disclosed as known limits; round 2: 11 / 11;
+  round 3: 14 / 13, 1 disclosed as a policy question). Round 4 found **19**.
+  Rather than open a round 5, David stopped the loop there; round 4's gaps are
+  recorded in `guard-decision.mjs`'s docstring (`ROUND 4, AND THE DECISION TO
+  STOP`) as accepted, not fixed.
+- **The finding counts never fell — 11, 11, 14, 19 across four rounds.** Worth
+  stating precisely, because the intuition that a review loop is "converging"
+  is exactly what this decision is a correction to. Each round's *fixes*
+  landed and were real, but the number of newly-discovered gaps was flat and
+  then rising, which is the falsifiable signal that the defense was the wrong
+  shape rather than merely unfinished.
 - **Why:** A hand-rolled recognizer trying to prove "no way this string
   executes a force push" is effectively reimplementing Bash's own parser and
   expander, and Bash's surface for "ways to dispatch a command" (wrapper
