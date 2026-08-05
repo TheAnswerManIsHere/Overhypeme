@@ -123,8 +123,18 @@ restatement.
   auto-close the issue at merge and skip UAT entirely.
 - **Sensitive / disclosure-carve-out workstreams never become public
   issues.** They're draft Project items instead — this repo is public, and
-  an issue body is public even though the Project itself is private. Same
-  carve-out as `plan-review-loop`'s disclosure check.
+  an issue body is public even though the Project itself is private. This
+  is the **canonical definition** of the disclosure check that gates
+  opening a public workstream issue, referenced (not restated) by
+  `plan-review-loop`, `working-modes.md`'s bugfix disclosure check, and
+  `documentation-workflow.md`'s harvest-tracking section: before a
+  workstream — a plan, a bug report, or a `/document` harvest — becomes a
+  public issue, confirm it contains none of unpatched-vulnerability
+  details, auth/authorization bypass specifics, secrets/credentials,
+  payment-fraud abuse paths, private customer/commercial data, or
+  embargoed-plan content. If it does, it stays off the public path — a
+  draft Project item, or (for a plan specifically) the manual/private
+  review path instead of a plan-review PR.
 - **No hand-typed GitHub UI name (a field, an option) gets matched by exact
   string in code.** The sync script's first live run against the real board
   failed all 9 workstream syncs because the real `Waiting On` field

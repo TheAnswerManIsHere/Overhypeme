@@ -72,12 +72,15 @@ contract — my own `overhype-plan-review` skill and ChatGPT's manual-upload pat
 
 **Before opening anything — the disclosure check.** This repo is **public**, and
 a closed-unmerged PR stays in public history. So before I open a plan-review PR I
-confirm the plan contains no unpatched-vulnerability details, auth/authorization
-bypass specifics, secrets/credentials, payment-fraud abuse paths, private
-customer/commercial data, or embargoed plans. **If it does, it does NOT go
+run the disclosure check —
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+canonical definition of what disqualifies a workstream from a public issue,
+which this same check gates for a plan too. **If it does, it does NOT go
 through the public PR channel** — that plan stays on the manual/private review
-path (a public plan describing an exploit discloses it before the fix ships). I
-run this check every time, before creating the PR, not after.
+path (a public plan describing an exploit discloses it before the fix ships;
+plans are the one workstream kind where the fallback is manual/private review
+rather than a draft Project item, since a plan's whole purpose is external
+review). I run this check every time, before creating the PR, not after.
 
 **And I record that it passed, in the PR body** (the *Public-disclosure check*
 section of the template below). An obligation that leaves no evidence decays —
