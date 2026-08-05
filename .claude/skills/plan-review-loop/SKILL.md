@@ -304,6 +304,17 @@ An issue opened without these three labels is invisible to
 to the board's sync Action, so skipping them isn't a smaller version of
 tracking this workstream — it's not tracking it at all.
 
+**Immediately after, edit the already-open PR body to add `Workstream: #N`
+with the issue's real number.** The PR opened before the issue existed, so
+its body was created from the template with that field blank or absent —
+the issue's number literally didn't exist yet to fill it in. Nothing
+backfills this automatically: `pr-watch` can't find an issue-less PR to
+label, and `/workstream-status`'s targeted Planning-stage search
+(`workstream-status/SKILL.md`'s Step 3) can't find a PR with no
+`Workstream:` marker in its body either — so without this edit, the PR
+stays permanently unlinked to the issue that now exists for it, in both
+directions, for the rest of its life.
+
 **Every label change above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per
 `workstream-tracking.md`'s ownership rule. A label change with no matching

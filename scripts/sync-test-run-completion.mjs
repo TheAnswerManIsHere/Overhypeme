@@ -234,12 +234,10 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   if (currentStage === "test-run") {
     targetStage = computeTransition(uatFilename !== null).stage;
 
-    // Re-fetch labels immediately before the mutating PUT, rather than
-    // reusing the snapshot from the GET above — narrows (doesn't eliminate)
-    // the window in which a concurrent label change (David, or another
-    // agent) would otherwise be silently overwritten by a stale full-array
-    // PUT. Bail if the stage moved on since: something else already handled
-    // this transition, so writing our now-stale computation would clobber it.
+    // Re-fetch immediately before mutating, rather than reusing the
+    // snapshot from the GET above, and bail if the stage moved on since —
+    // something else already handled this transition, so acting on our now-
+    // stale computation would clobber it.
     const freshLabelsIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
     const freshLabels = freshLabelsIssue.labels.map((l) => l.name);
     if (!freshLabels.includes("stage:test-run")) {
@@ -250,12 +248,51 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       return;
     }
 
+    // Targeted delete-then-add, not a full-array PUT: a PUT replaces every
+    // label with whatever this process last read, so a label change landing
+    // in the gap between this GET and the write — even this narrowed one —
+    // would still be silently erased. Delete-by-name and add-by-name each
+    // touch only the specific label named, so an unrelated concurrent
+    // change (a new `mode:` label, say) survives regardless of timing.
+    const oldWaiting = freshLabels.find((l) => l.startsWith("waiting:"));
+    await rest(
+      "DELETE",
+      `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent("stage:test-run")}`,
+      token,
+    );
+    if (oldWaiting) {
+      await rest(
+        "DELETE",
+        `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent(oldWaiting)}`,
+        token,
+      );
+    }
+    await rest("POST", `/repos/${repository}/issues/${issueNumber}/labels`, token, {
+      labels: [`stage:${targetStage}`, "waiting:david"],
+    });
+
     finalLabels = swapPrefixedLabel(swapPrefixedLabel(freshLabels, "stage:", targetStage), "waiting:", "david");
-    await rest("PUT", `/repos/${repository}/issues/${issueNumber}/labels`, token, { labels: finalLabels });
   } else {
-    // Labels already moved (this run or an earlier partial one) — reconcile
-    // the board/body against that, don't re-derive or re-write the label.
-    targetStage = currentStage;
+    // Labels already moved (this run or an earlier partial one) — but don't
+    // trust the top-of-function read for *which* stage it moved to; a retry
+    // can start minutes after that read, plenty of time for David or another
+    // agent to have advanced it again since. Re-fetch and re-derive fresh,
+    // right before reconciling the board/body against it, and bail rather
+    // than reconciling against a stage that's no longer current if it moved
+    // somewhere this function doesn't own.
+    const freshStageIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+    const freshStage = freshStageIssue.labels
+      .map((l) => l.name)
+      .find((l) => l.startsWith("stage:"))
+      ?.slice("stage:".length);
+    if (freshStage !== "uat" && freshStage !== "close-out") {
+      console.log(
+        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed since the first read ` +
+          `(now: ${freshStage ? `stage:${freshStage}` : "none"}) — skipping this pass`,
+      );
+      return;
+    }
+    targetStage = freshStage;
   }
 
   const targetDisplay = STAGE_DISPLAY[targetStage];
@@ -337,8 +374,24 @@ async function main() {
   console.log(`${testRunDeletions.length} deleted TEST_RUN doc(s): ${testRunDeletions.join(", ")}\n`);
 
   // Fetched once and reused across every deletion in this push — the same
-  // board, looked up once, rather than once per issue.
-  const project = await fetchProject(projectOwner, projectNumber, projectsToken);
+  // board, looked up once, rather than once per issue. The board sync is a
+  // projection of the labels, not their source — an expired PROJECTS_TOKEN
+  // or a transient Projects GraphQL outage must never block the labels
+  // themselves from moving (labels are the authoritative half this whole
+  // Action exists to guarantee). So a failure here is caught, not thrown:
+  // `project` stays null, every `syncIssue` call below is already
+  // conditioned on `if (project)` and just skips, and the loop still runs.
+  let project = null;
+  let projectLookupFailed = false;
+  try {
+    project = await fetchProject(projectOwner, projectNumber, projectsToken);
+  } catch (err) {
+    projectLookupFailed = true;
+    console.error(
+      `✗ Project board lookup failed (${err.message}) — proceeding without board sync; ` +
+        `labels/body will still update.`,
+    );
+  }
 
   const failures = [];
   for (const path of testRunDeletions) {
@@ -348,6 +401,14 @@ async function main() {
       failures.push(`${path}: ${err.message}`);
       console.error(`  ✗ ${path} — ${err.message}`);
     }
+  }
+
+  // The board-sync failure doesn't block the loop above, but it should
+  // still turn this run red — someone needs to notice PROJECTS_TOKEN or the
+  // Projects API needs attention, even though the authoritative labels went
+  // through fine.
+  if (projectLookupFailed) {
+    process.exitCode = 1;
   }
 
   if (failures.length) {
