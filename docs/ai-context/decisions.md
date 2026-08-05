@@ -77,6 +77,118 @@
   Also revisit if the number of genuinely concurrent workstreams drops far
   enough that the board costs more ceremony than it saves.
 
+---
+
+### 2026-08-04 · Global CodeQL rate-limiter backstop ships on a custom bounded in-memory store, not a DB-backed `Store`
+- **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
+  `js/missing-rate-limiting` query (`artifacts/api-server/src/lib/rateLimit.ts`'s
+  `createGlobalLimiter`) is backed by `globalRateLimitStore.ts`'s
+  `BoundedMemoryStore` — a **custom** class mirroring `express-rate-limit`'s
+  own stock `MemoryStore` two-map rotation, but with a hard cardinality cap
+  (`MAX_TRACKED_KEYS`, spanning both maps combined) and FIFO eviction added —
+  instead of a store backed by the existing `rate_limit_counters` Postgres
+  table. The stock, unbounded `MemoryStore` is what the original 213→0
+  CodeQL-clearing proof used and is **not** what ships to production; the
+  cardinality cap is the security-relevant difference and must not be dropped
+  in a future cleanup that "simplifies" back to the stock store.
+- **Why:** The original plan (`plan-review/codeql-rate-limiter`, PR #299)
+  spent review rounds 4–14 building a DB-backed `Store`, and each attempt
+  produced a new P1 on the same boundary — what the store does when a
+  database call doesn't complete — across rounds 9, 11, 12, 13, and 14, with
+  P1 counts going 8 → 6 → 6 → 10 (worsening, not converging). Round 14's
+  version was worse than the bug it replaced: a hung query would wedge the
+  in-process admission counter and 503 every request indefinitely, turning a
+  database stall into a total outage. The CodeQL alert itself only requires
+  the package to be mounted in the recognized shape — the original 213→0
+  local-scan proof used the stock `MemoryStore` and needed none of the DB
+  machinery; production adds the bounded-cardinality hardening the stock
+  store lacks. David's call: ship the proven-shape store (bounded, not stock),
+  and route the genuine repository bugs the 14-round detour surfaced to their
+  own `/bugfix` PRs rather than lose them with the code they were found in —
+  see [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt)
+  for the `adminConfig` stampede, `getStripeSync` pool-leak-on-disposal, and
+  `rate_limit_counters` cleanup entries, and its
+  [Security & patching](../engineering/deferred-work.md#security--patching)
+  section for the autoscale instance cap and `IP_HASH_SALT` production
+  fallback.
+- **Accepted trade-off, stated rather than smoothed over:** `MemoryStore`'s
+  `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
+  this is a **per-instance** ceiling, not a bounded fleet-wide one — on
+  autoscale infrastructure with no configured instance cap, the effective
+  allowance is `instances × ceiling`. **At least 13 of 31 route files** had
+  some pre-existing rate/quota limiting before this PR — 7 DB-backed with an
+  **atomic** guarantee (`facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` via
+  `checkSharedRateLimit`/`createRateLimiter`'s single
+  `INSERT ... ON CONFLICT ... DO UPDATE`; `storage.ts` via
+  `checkUploadRateLimit` → `checkSharedRateLimit`, same guarantee); 2
+  DB-*observed* but **not atomic** (`videos.ts` and `memes.ts`, which each
+  `SELECT count(...)` from `videoJobsTable`/`memesTable` and only *then*
+  `INSERT` the new row as a separate statement — under a genuinely
+  concurrent multi-instance burst, multiple requests can all pass the read
+  before any insert commits, a classic TOCTOU race; DB-persisted and
+  fleet-*visible*, but not fleet-*correct* the way the atomic family is); 2
+  in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
+  backstop's own per-instance limitation); and 3 **budget/quota gates, a
+  different protection class from rate-per-window** (`videos.ts` *also*
+  returns 429 from `checkBudget()` — a per-user cost cap, a second,
+  independent 429 source in the same file as its `videoJobsTable` check;
+  `pulidJobs.ts` returns 429 from `isUserAtImageLimit()`, a per-user image-
+  count cap; `videoJobs.ts` — a *separate* route file from `videos.ts`,
+  mounted independently via `routes/index.ts`'s `router.use(videoJobsRouter)`
+  — delegates to `startVideoJob()` in
+  `artifacts/api-server/src/lib/videoPipelineRunner.ts`, whose pre-flight
+  `checkBudget()` call throws the same 429 before a job is
+  created). **This budget/quota-gate list is non-exhaustive on gates, even
+  though the file count isn't affected:** `memes.ts` (already counted above,
+  among the DB-*observed*-but-not-atomic pair) also rejects AI generation via
+  `isUserAtImageLimit()`/`BudgetExceededError`
+  (`artifacts/api-server/src/routes/memes.ts:1333-1452`), and `reviews.ts`
+  (already counted among the atomic DB-backed group) rejects fact
+  submissions once `FACT_SUBMIT_PENDING_CAP` is reached
+  (`artifacts/api-server/src/routes/reviews.ts:193-208`) — a quota gate
+  distinct from that same file's `checkSharedRateLimit`-backed rate limit.
+  Neither changes the 13/31 count (both files already counted), but a future
+  quota/budget hardening pass using this note as a source of truth would
+  miss both if it only read the three named files above. **A fourth layer,
+  not a fourth file:** `videos.ts` and
+  `memes.ts` also call `enforceGovernance()`
+  (`artifacts/api-server/src/lib/resourceGovernance.ts`) before generation,
+  which 429s from its own process-local `usageEvents`/`inFlightByUser`
+  in-memory counters (requests/spend/concurrency caps) — a third protection
+  layer on top of those two files' existing DB-observed and budget-gate
+  429s, sharing this backstop's own per-instance limitation. Doesn't change
+  the 13/31 file count (both files are already counted), but a future audit
+  hardening per-instance controls specifically would miss this layer if it
+  only looked at the `share.ts`/`shareCopy.ts` in-process bucket. `render.ts`'s preview/download endpoints are separately
+  protected at the Cloudflare WAF edge layer (infrastructure, not
+  application code — not counted in this tally either way; see
+  `docs/cloudflare-rate-limits.md`). **No single number in this note should
+  be trusted as final** — this count has been revised upward across five
+  separate Codex review rounds on the same PR (6 → 9 → 11 → 12 → 13), each
+  finding a real case the previous pass missed (a route-file symbol grep,
+  then `lib/`-delegated protection, then a non-`checkSharedRateLimit`
+  DB-backed check, then a budget/quota gate distinct from rate limiting,
+  then a same-topic sibling route file the grep never visited because it
+  isn't named `videos.ts`). Treat every count here as a lower bound on
+  pre-existing protection and an upper bound on "newly covered by this
+  backstop," not a verified-exhaustive audit — a further pass could
+  plausibly find more. Since "existing" can only grow as more are found,
+  **"18 route files getting their first application-level rate limiting
+  from this PR" (31 − 13) is correspondingly an upper bound, not a lower
+  one** — treat it as approximate, and as likely to shrink on a future
+  audit, not grow.
+- **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
+  implementation PR #308. Full context:
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).
+- **Revisit if:** the per-instance ceiling proves too permissive under real
+  multi-instance autoscale traffic (would need either an enforced instance
+  cap or a return to a fleet-wide store design — this time scoped to avoid
+  the hot-path DB-failure boundary that sank the first attempt), or CodeQL's
+  query model changes to recognize custom stores/controls directly.
+
+---
+
 ### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
 - **Decision:** When an `async_jobs` row transitions to `failed` (either
   exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`
@@ -1382,3 +1494,18 @@
   proven with invariant tests.
 - **Reference:** [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
 - **Revisit if:** never, unless the token model changes fundamentally.
+
+### 2026-08 · Codex boots without a database; CI owns the integration suite
+- **Decision:** Codex's container provisions no Postgres. `scripts/codex-setup.sh`
+  installs, generates the API client, and builds `lib/**` — nothing else — and
+  the database is opt-in behind `CODEX_SETUP_DB=1` for the exceptional task.
+- **Why:** Boot cost is paid on *every* Codex task, and provisioning a database
+  is the expensive part of it; the api-server suite is the minority need. Codex
+  reviews by reading, and GitHub's required `Test` check already runs that suite
+  against a real database before anything merges — so the capability lost in
+  Codex is still covered at the gate that decides.
+- **Reference:** PR #332; see [`codex-environment.md`](./codex-environment.md)
+  for the verified capability matrix (codegen, typecheck, production build, and
+  the frontend suite all pass DB-less).
+- **Revisit if:** Codex starts driving backend implementation rather than review,
+  or the api-server suite becomes something a reviewer must execute to trust.
