@@ -167,6 +167,13 @@ facts (already in review) to keep the response bounded regardless of corpus
 size — `selected` gives each chosen fact an explicit, reasoned skip outcome
 instead, since the admin picked it deliberately.
 
+`all_stale` also excludes any fact whose most recent `fact_send_back` jobs
+have repeatedly failed — `factsWithRepeatedSendBackFailures`'s default
+`streak` of **3** — so a persistently-broken fact can't eat a bulk run's
+capacity forever (`repeatedFailureCount` in the response). `selected`
+deliberately is NOT gated by this: a manual retry after investigating
+`lastError` on the terminal rows is the only path that clears the streak.
+
 A guard rejection (`NOT_ACTIVE` / already in review) is a
 **terminal skip, not a retry** — that's what makes re-running a batch
 idempotent. `REFRESH_ALREADY_IN_PROGRESS` gets extra handling: the primitive

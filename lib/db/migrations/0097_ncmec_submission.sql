@@ -122,7 +122,7 @@ BEGIN
                                 WHERE attrelid = to_regclass('ncmec_reports') AND attname = 'quarantine_id')]::smallint[]
     LOOP
       EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_reports', dup_name);
-      RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_reports.quarantine_id (kept ncmec_reports_quarantine_id_fk)', dup_name;
+      RAISE NOTICE '0097: dropped duplicate foreign key % on ncmec_reports.quarantine_id (kept ncmec_reports_quarantine_id_fk)', dup_name;
     END LOOP;
   EXCEPTION WHEN insufficient_privilege THEN
     -- A warning, not an exception, and the asymmetry with the action check is deliberate: a
@@ -130,7 +130,7 @@ BEGIN
     -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
     -- latent hazard on a delete path nothing currently exercises, and failing the whole
     -- migration over it would block every other reconciliation this file performs.
-    RAISE WARNING '0095: the foreign key ncmec_reports_quarantine_id_fk on ncmec_reports.quarantine_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE set null ON UPDATE no action; -- and drop any other foreign key on the same column.',
+    RAISE WARNING '0097: the foreign key ncmec_reports_quarantine_id_fk on ncmec_reports.quarantine_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE set null ON UPDATE no action; -- and drop any other foreign key on the same column.',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
       'quarantine_id',
@@ -159,7 +159,7 @@ END $$;
 -- records it instead and the row stays `in_progress` throughout.
 --
 -- Keep in lockstep with NCMEC_SUBMISSION_STATUSES in lib/db/src/schema/moderation.ts.
--- migrations.0095.test.ts asserts the two agree, so the lockstep is enforced
+-- migrations.0097.test.ts asserts the two agree, so the lockstep is enforced
 -- rather than remembered.
 ALTER TABLE "ncmec_reports" DROP CONSTRAINT IF EXISTS "ncmec_reports_submission_status_check";
 --> statement-breakpoint
@@ -260,11 +260,11 @@ END $$;
 -- non-numeric value and aborts the whole migration; a numeric-but-dangling id
 -- would fit none of the reported counts. The CTEs below are MATERIALIZED so
 -- the regex filter is a genuine barrier and the cast never sees a bad value.
--- migrations.0095.test.ts slices on the two sentinels below so it can replay
+-- migrations.0097.test.ts slices on the two sentinels below so it can replay
 -- the classification against fixtures without re-running the whole migration.
 -- Keep them wrapping exactly the DO block, and keep each sentinel alone on its
 -- line — the test executes everything between them verbatim.
--- >>> ncmec-0095 backfill block (start)
+-- >>> ncmec-0097 backfill block (start)
 DO $$
 DECLARE
   n_missing     bigint;
@@ -336,7 +336,7 @@ BEGIN
 
   IF n_conflicting > 0 THEN
     RAISE EXCEPTION
-      '0095: % ncmec_reports rows claim a quarantine row another report already claims (quarantined_memes ids: %). Resolve by hand before migrating — pick the authoritative report per quarantine row and clear the other''s request_metadata->>''quarantineId''. Auto-picking would silently discard a real report''s linkage.',
+      '0097: % ncmec_reports rows claim a quarantine row another report already claims (quarantined_memes ids: %). Resolve by hand before migrating — pick the authoritative report per quarantine row and clear the other''s request_metadata->>''quarantineId''. Auto-picking would silently discard a real report''s linkage.',
       n_conflicting, conflict_ids;
   END IF;
 
@@ -368,20 +368,20 @@ BEGIN
   -- told from one that matched nothing. Dropped by the CTE rewrite, which computed all four
   -- counts and then discarded them — leaving an operator unable to distinguish a clean no-op
   -- from a migration that deliberately left rows for the backlog audit to disposition.
-  RAISE NOTICE '0095 quarantine_id backfill: linked=%, missing=% (pre-stub rows — stay NULL, they are the backlog audit''s population), malformed=%, dangling=%',
+  RAISE NOTICE '0097 quarantine_id backfill: linked=%, missing=% (pre-stub rows — stay NULL, they are the backlog audit''s population), malformed=%, dangling=%',
     n_linked, n_missing, n_malformed, n_dangling;
 
   IF n_malformed > 0 OR n_dangling > 0 THEN
-    RAISE WARNING '0095: % malformed and % dangling quarantineId values left NULL. These rows are unlinked and must be dispositioned by the pre-activation backlog audit.',
+    RAISE WARNING '0097: % malformed and % dangling quarantineId values left NULL. These rows are unlinked and must be dispositioned by the pre-activation backlog audit.',
       n_malformed, n_dangling;
   END IF;
 END $$;
--- <<< ncmec-0095 backfill block (end)
+-- <<< ncmec-0097 backfill block (end)
 --> statement-breakpoint
 
 -- ─── 4b. The backfill is one-shot; the deploy window is not ─────────────────
 --
--- 0095 commits before the new code is serving everywhere. During a rolling deploy an OLD
+-- 0097 commits before the new code is serving everywhere. During a rolling deploy an OLD
 -- instance keeps running the existing `quarantine.ts`, which writes the linkage only into
 -- `request_metadata` and knows nothing about `quarantine_id`. Those reports land AFTER the
 -- one-shot backfill has already selected its rows, and the partial unique index happily
@@ -505,7 +505,7 @@ BEGIN
     is_correct := COALESCE(is_correct, false);
 
     IF NOT is_correct THEN
-      RAISE EXCEPTION '0095: an index named "UQ_ncmec_reports_quarantine" already exists but is not the exact unique constraint this migration requires (unique on ncmec_reports(quarantine_id) WHERE quarantine_id IS NOT NULL). This is the constraint that keeps two concurrent orphan sweeps from filing two reports for one quarantine hit; refusing to silently accept a wrong or drifted index. Inspect it with: SELECT indexdef FROM pg_indexes WHERE indexname = ''UQ_ncmec_reports_quarantine''; — then drop it and rerun this migration.';
+      RAISE EXCEPTION '0097: an index named "UQ_ncmec_reports_quarantine" already exists but is not the exact unique constraint this migration requires (unique on ncmec_reports(quarantine_id) WHERE quarantine_id IS NOT NULL). This is the constraint that keeps two concurrent orphan sweeps from filing two reports for one quarantine hit; refusing to silently accept a wrong or drifted index. Inspect it with: SELECT indexdef FROM pg_indexes WHERE indexname = ''UQ_ncmec_reports_quarantine''; — then drop it and rerun this migration.';
     END IF;
   ELSE
     CREATE UNIQUE INDEX "UQ_ncmec_reports_quarantine"
@@ -549,19 +549,19 @@ CREATE TABLE IF NOT EXISTS "ncmec_safety_audit_log" (
 -- by a future route, migration, or raw SQL statement can never be corrected through ordinary
 -- application access afterward, and no consumer of the ledger could reliably classify it.
 -- Keep in lockstep with NCMEC_AUDIT_ACTIONS in lib/db/src/schema/moderation.ts.
--- migrations.0095.test.ts asserts the two agree, so the lockstep is enforced rather than
+-- migrations.0097.test.ts asserts the two agree, so the lockstep is enforced rather than
 -- remembered.
 -- Inspect-then-reconcile rather than an unconditional DROP + ADD, and that is load-bearing for
 -- exactly the recovery state the ownership-hardening block below is built to support. Once a
 -- DBA has transferred this ledger to `overhype_audit_owner`, the application role no longer
 -- owns it — and `ALTER TABLE ... DROP CONSTRAINT` requires ownership, so an unconditional pair
 -- of ALTERs here aborts the whole migration before that block ever runs. The hash-based
--- migrator reaches this path whenever migration tracking is lost or 0095's hash changes, which
+-- migrator reaches this path whenever migration tracking is lost or 0097's hash changes, which
 -- is the same rerun scenario the ownership block's verify-and-continue logic already exists to
 -- survive. So: an existing, correct constraint is accepted untouched, and a missing or drifted
 -- one is repaired only if this role can actually alter the table — otherwise the exact
 -- owner-run commands are reported instead of failing on "must be owner of table".
--- >>> ncmec-0095 action check block (start)
+-- >>> ncmec-0097 action check block (start)
 DO $$
 DECLARE
   expected  text[] := ARRAY['retry','send_to_test_started','send_to_test_completed','backlog_audit',
@@ -700,7 +700,7 @@ BEGIN
           = array(SELECT DISTINCT unnest(expected) ORDER BY 1);
 
     IF con_canonical_ok AND con_semantics_ok AND COALESCE(con_valid, false) THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log_action_check is already present and correct — its predicate has the canonical single-comparison structure (so its literals are exhaustively the vocabulary) and evaluates correctly against every expected value and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
+      RAISE NOTICE '0097: ncmec_safety_audit_log_action_check is already present and correct — its predicate has the canonical single-comparison structure (so its literals are exhaustively the vocabulary) and evaluates correctly against every expected value and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
       RETURN;
     END IF;
   END IF;
@@ -715,7 +715,7 @@ BEGIN
     -- Deliberately fatal rather than a warning. Unlike the "already correct" case above, the
     -- constraint genuinely is missing or wrong here, and this ledger is database-enforced
     -- append-only: a row written with an action outside the vocabulary could never afterwards
-    -- be corrected through ordinary application access. Finishing quietly would record 0095 as
+    -- be corrected through ordinary application access. Finishing quietly would record 0097 as
     -- applied over a ledger that does not actually constrain what it accepts.
     -- `RAISE EXCEPTION '%', format(...)`, never RAISE's own directives. RAISE understands
     -- only bare `%` — it does NOT implement format()'s `%I`/`%L`/`%s`, so writing those here
@@ -723,7 +723,7 @@ BEGIN
     -- printed recovery commands. Caught by this block's own regression test, which asserted on
     -- the message text.
     RAISE EXCEPTION '%', format(
-      '0095: ncmec_safety_audit_log_action_check is missing or has drifted (found: %s), and this role does not own %I.%I, so it cannot be repaired here. A DBA must run, as the table''s owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check"; ALTER TABLE %I.%I ADD CONSTRAINT "ncmec_safety_audit_log_action_check" CHECK ("action" IN (%s));',
+      '0097: ncmec_safety_audit_log_action_check is missing or has drifted (found: %s), and this role does not own %I.%I, so it cannot be repaired here. A DBA must run, as the table''s owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check"; ALTER TABLE %I.%I ADD CONSTRAINT "ncmec_safety_audit_log_action_check" CHECK ("action" IN (%s));',
       COALESCE(con_def, '<absent>'),
       ledger_schema, 'ncmec_safety_audit_log',
       ledger_schema, 'ncmec_safety_audit_log',
@@ -732,7 +732,7 @@ BEGIN
     );
   END;
 END $$;
--- <<< ncmec-0095 action check block (end)
+-- <<< ncmec-0097 action check block (end)
 --> statement-breakpoint
 
 -- ON DELETE **RESTRICT**, not SET NULL, and the reason is the append-only guarantee rather
@@ -819,7 +819,7 @@ BEGIN
                                 WHERE attrelid = to_regclass('ncmec_safety_audit_log') AND attname = 'report_id')]::smallint[]
     LOOP
       EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', 'ncmec_safety_audit_log', dup_name);
-      RAISE NOTICE '0095: dropped duplicate foreign key % on ncmec_safety_audit_log.report_id (kept ncmec_safety_audit_log_report_id_fk)', dup_name;
+      RAISE NOTICE '0097: dropped duplicate foreign key % on ncmec_safety_audit_log.report_id (kept ncmec_safety_audit_log_report_id_fk)', dup_name;
     END LOOP;
   EXCEPTION WHEN insufficient_privilege THEN
     -- A warning, not an exception, and the asymmetry with the action check is deliberate: a
@@ -827,7 +827,7 @@ BEGIN
     -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
     -- latent hazard on a delete path nothing currently exercises, and failing the whole
     -- migration over it would block every other reconciliation this file performs.
-    RAISE WARNING '0095: the foreign key ncmec_safety_audit_log_report_id_fk on ncmec_safety_audit_log.report_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE restrict ON UPDATE no action; -- and drop any other foreign key on the same column.',
+    RAISE WARNING '0097: the foreign key ncmec_safety_audit_log_report_id_fk on ncmec_safety_audit_log.report_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE restrict ON UPDATE no action; -- and drop any other foreign key on the same column.',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
       'report_id',
@@ -891,7 +891,7 @@ BEGIN
       CREATE ROLE overhype_audit_maintenance NOLOGIN;
     EXCEPTION
       WHEN insufficient_privilege THEN
-        RAISE WARNING '0095: could not create role overhype_audit_maintenance (insufficient privilege). The append-only trigger fails closed without it: no session can UPDATE, DELETE or TRUNCATE ncmec_safety_audit_log until a DBA creates the role. Create it with: CREATE ROLE overhype_audit_maintenance NOLOGIN;';
+        RAISE WARNING '0097: could not create role overhype_audit_maintenance (insufficient privilege). The append-only trigger fails closed without it: no session can UPDATE, DELETE or TRUNCATE ncmec_safety_audit_log until a DBA creates the role. Create it with: CREATE ROLE overhype_audit_maintenance NOLOGIN;';
     END;
   END IF;
 
@@ -905,10 +905,10 @@ BEGIN
      ) THEN
     BEGIN
       EXECUTE format('REVOKE overhype_audit_maintenance FROM %I', current_user);
-      RAISE NOTICE '0095: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
+      RAISE NOTICE '0097: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
     EXCEPTION
       WHEN OTHERS THEN
-        RAISE WARNING '0095: could NOT revoke overhype_audit_maintenance from % (%). The application role can bypass the append-only trigger until a DBA runs: REVOKE overhype_audit_maintenance FROM that role.', current_user, SQLERRM;
+        RAISE WARNING '0097: could NOT revoke overhype_audit_maintenance from % (%). The application role can bypass the append-only trigger until a DBA runs: REVOKE overhype_audit_maintenance FROM that role.', current_user, SQLERRM;
     END;
   END IF;
 END $$;
@@ -922,13 +922,13 @@ END $$;
 -- this role may not touch them, the migration verifies them and moves on; when they are
 -- MISSING and it cannot create them, it fails loudly rather than leaving the ledger
 -- unguarded.
--- >>> ncmec-0095 audit guard block (start)
+-- >>> ncmec-0097 audit guard block (start)
 DO $outer$
 DECLARE
   -- Captured on entry and restored explicitly at every probe below, instead of RESET ROLE.
   -- RESET ROLE returns the session to `session_user`, NOT to whichever role was current when
   -- this block was entered — verified directly against this repository's PostgreSQL 16 target.
-  -- A DBA replaying the migration as the application role (`SET ROLE <app>; \i 0095.sql`)
+  -- A DBA replaying the migration as the application role (`SET ROLE <app>; \i 0097.sql`)
   -- would otherwise be silently switched to their own login role by the FIRST probe here, and
   -- every ownership check afterwards — including the whole ownership-hardening block further
   -- down, which runs later in the same session — would then be answered for, and grant
@@ -1120,13 +1120,13 @@ BEGIN
      WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
 
     IF trg_count = 2 AND COALESCE(fn_intact, false) THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log is owned by another role, both append-only triggers are already present, enabled and correctly wired, and the guard function''s source still implements the check — leaving them alone.';
+      RAISE NOTICE '0097: ncmec_safety_audit_log is owned by another role, both append-only triggers are already present, enabled and correctly wired, and the guard function''s source still implements the check — leaving them alone.';
     ELSE
-      RAISE EXCEPTION '0095: ncmec_safety_audit_log is owned by a role this session cannot assume, and either the append-only triggers are not both present/origin-enabled/correctly wired, or the guard function they call no longer appears to implement the check. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.';
+      RAISE EXCEPTION '0097: ncmec_safety_audit_log is owned by a role this session cannot assume, and either the append-only triggers are not both present/origin-enabled/correctly wired, or the guard function they call no longer appears to implement the check. A DBA must recreate them as the owner; refusing to leave the ledger unguarded.';
     END IF;
   END IF;
 END $outer$;
--- <<< ncmec-0095 audit guard block (end)
+-- <<< ncmec-0097 audit guard block (end)
 --> statement-breakpoint
 
 -- Ownership hardening, when a DBA has pre-provisioned the owner role.
@@ -1145,7 +1145,7 @@ END $outer$;
 -- lib/db — and the phase 6 activation gate refuses production while the
 -- boundary is unenforced, which blocks the dangerous STATE rather than one
 -- path into it.
--- >>> ncmec-0095 ownership hardening block (start)
+-- >>> ncmec-0097 ownership hardening block (start)
 --
 -- Mirrors lib/db/src/index.ts's canEffectivelyAssumeRole (usage, SET ROLE, or admin option —
 -- including a further, nested admin option — checked recursively through admin-option
@@ -1387,7 +1387,7 @@ BEGIN
   -- exists for — the application reaches it through OTHER roles it holds (transitively, or via
   -- an ADMIN OPTION holder that can re-grant at will), so `REVOKE overhype_audit_owner FROM
   -- <app>` removes a membership that was never there: it succeeds, changes nothing, and leaves
-  -- 0095 emitting this same warning on every subsequent rerun.
+  -- 0097 emitting this same warning on every subsequent rerun.
   --
   -- Every edge is listed, not just one. Severing a single path when several exist would leave
   -- the boundary open while looking resolved on the next rerun's first check.
@@ -1490,7 +1490,7 @@ BEGIN
   IF tbl_done AND fn_done AND grants_done
      AND NOT can_own_schema AND NOT can_own_function_schema AND NOT can_own
      AND NOT can_maintenance THEN
-    RAISE NOTICE '0095: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place, and neither the containing schema, the guard function''s own schema, nor overhype_audit_owner itself is assumable by the application, and the application cannot assume overhype_audit_maintenance either.';
+    RAISE NOTICE '0097: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place, and neither the containing schema, the guard function''s own schema, nor overhype_audit_owner itself is assumable by the application, and the application cannot assume overhype_audit_maintenance either.';
   ELSIF tbl_done AND fn_done AND grants_done THEN
     -- Table ownership, function ownership, and the application's grants are all correctly
     -- done — but at least one of three things is still true: the application can become
@@ -1516,7 +1516,7 @@ BEGIN
         || ', a role the application can also become — the same reconciliation gap applies to it independently of the table''s schema.';
     END IF;
     boundary_note := boundary_note || maintenance_note;
-    RAISE WARNING '0095: ncmec_safety_audit_log, its guard function, and the application''s grants are all correctly hardened, but the application can still bypass the append-only guarantee through a role it can become.%', boundary_note;
+    RAISE WARNING '0097: ncmec_safety_audit_log, its guard function, and the application''s grants are all correctly hardened, but the application can still bypass the append-only guarantee through a role it can become.%', boundary_note;
   ELSIF can_set_own THEN
     -- `can_set_own`, NOT `can_own`. Both statements this branch opens with require the ability
     -- to SET ROLE to overhype_audit_owner specifically: `ALTER TABLE ... OWNER TO` fails with
@@ -1557,7 +1557,7 @@ BEGIN
     -- Restores the role this block was ENTERED under, which is not what RESET ROLE does: it
     -- returns to `session_user`, verified directly against this repository's PostgreSQL 16
     -- target. Same hazard, same fix as pg_temp.ncmec_assume_path's — a DBA replaying the
-    -- migration with `SET ROLE <app>; \i 0095.sql` would otherwise have every statement after
+    -- migration with `SET ROLE <app>; \i 0097.sql` would otherwise have every statement after
     -- this line run as their own login role instead of the application role.
     EXECUTE format('SET LOCAL ROLE %I', app_role);
     -- can_set_own is this branch's entry condition, and it implies can_own (a role that can SET
@@ -1579,7 +1579,7 @@ BEGIN
         || ', a role the application can also become.';
     END IF;
     boundary_note := boundary_note || maintenance_note;
-    RAISE WARNING '0095: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %), but the boundary is not yet complete.%',
+    RAISE WARNING '0097: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %), but the boundary is not yet complete.%',
       tbl_done, fn_done, grants_done, boundary_note;
   ELSIF tbl_done AND fn_done AND NOT grants_done THEN
     -- Hardened but incomplete, and the sharpest of the end states this block can leave a
@@ -1614,7 +1614,7 @@ BEGIN
     END IF;
     boundary_note := boundary_note || maintenance_note;
     RAISE EXCEPTION '%', format(
-      '0095: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: '
+      '0097: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: '
       'GRANT SELECT, INSERT ON %I.%I TO %I; '
       'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I;%s',
       ledger_schema, 'ncmec_safety_audit_log', app_role,
@@ -1669,7 +1669,7 @@ BEGIN
     -- TABLE, verified directly against this repository's PostgreSQL 16 target), so this is
     -- constructed conditionally rather than made idempotent syntactically.
     recovery_cmds :=
-      '0095: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: ';
+      '0097: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: ';
     IF NOT owner_role_exists THEN
       -- The self-grant is not redundant with the CREATE, and omitting it made this whole
       -- sequence fail for exactly the audience it is written for. Verified directly against
@@ -1719,7 +1719,7 @@ BEGIN
     -- above), which is only `REVOKE overhype_audit_owner FROM <app>` when the application holds
     -- it directly. When it does not — an admin-option chain — that command removes a membership
     -- that was never there: the DBA sees it succeed, the bypass stays open, and the next rerun
-    -- of 0095 prints this same instruction again, indefinitely. `revoke_hint` is NULL only when
+    -- of 0097 prints this same instruction again, indefinitely. `revoke_hint` is NULL only when
     -- can_own is false, i.e. there is no path left to break, in which case nothing is appended.
     IF revoke_hint IS NOT NULL THEN
       recovery_cmds := recovery_cmds || revoke_hint;
@@ -1788,7 +1788,7 @@ BEGIN
     RAISE WARNING '%', recovery_cmds || boundary_note || maintenance_note;
   END IF;
 END $$;
--- <<< ncmec-0095 ownership hardening block (end)
+-- <<< ncmec-0097 ownership hardening block (end)
 --> statement-breakpoint
 
 -- ─── 7. Config seeds ────────────────────────────────────────────────────────

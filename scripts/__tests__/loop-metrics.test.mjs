@@ -5,6 +5,7 @@ import {
   countRounds,
   countFindings,
   findingsByRound,
+  reviewerPasses,
   reviewInterval,
   classifyCohort,
   artifactSize,
@@ -17,6 +18,33 @@ import {
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
 const ME = { login: "TheAnswerManIsHere" };
+
+/**
+ * The connector's clean-pass announcement, verbatim in shape from this repo's
+ * PR #286/#288/#290 — a plain ISSUE comment (not a review record) whose only
+ * stable machine-readable content is the reviewed-commit line. The sentiment
+ * suffix varies ("Delightful!" / "Swish!" / ":+1:"), which is exactly why
+ * detection keys on the marker and not the prose.
+ */
+let cleanPassAutoId = 900000;
+const cleanPass = (sha, at, id = ++cleanPassAutoId, flourish = "Delightful!") => ({
+  id,
+  user: BOT,
+  created_at: at,
+  body: `Codex Review: Didn't find any major issues. ${flourish}\n\n**Reviewed commit:** \`${sha}\`\n`,
+});
+
+/** A review record that ANNOUNCES a completed pass — the found-something shape. */
+const announced = (id, sha, at) => ({
+  id,
+  user: BOT,
+  commit_id: sha,
+  submitted_at: at,
+  body: `\n### 💡 Codex Review\n\nHere are some automated review suggestions.\n\n**Reviewed commit:** \`${sha.slice(0, 10)}\`\n`,
+});
+
+/** A bodiless review record — the inline-comment carrier half of one pass. */
+const carrier = (id, sha, at) => ({ id, user: BOT, commit_id: sha, submitted_at: at });
 
 test("a round is a reviewer review event, not an @codex review comment", () => {
   // The connector auto-reviews on open with no trigger comment, so counting
@@ -38,6 +66,167 @@ test("a duplicated review record counts as one round, not two", () => {
     { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" },
   ];
   assert.equal(countRounds(reviews), 1);
+});
+
+test("a clean pass posted as an issue comment counts as a round", () => {
+  // The undercount half of the pre-2026-08-01 bug. On #286 and #288 a pass
+  // that found nothing submitted no review record at all — it posted a plain
+  // issue comment — so reading only `reviews` reported fewer rounds than
+  // actually ran. #288 lost two rounds this way.
+  const reviews = [announced(1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-07-30T01:00:00Z")];
+  const issueComments = [cleanPass("bbbbbbbbbb", "2026-07-30T02:00:00Z")];
+  assert.equal(countRounds(reviews, issueComments), 2);
+  assert.equal(countRounds(reviews), 1); // the old, wrong answer, if you don't pass them
+});
+
+test("a bodiless carrier record and its announcement are one pass, not two rounds", () => {
+  // The overcount half, from #290 round 3: a bodiless record carrying the
+  // inline findings plus the summary record announcing the pass, both against
+  // c81d316fe6. Counting records reported 7 rounds for a loop that ran 6
+  // finding-bearing passes plus one clean one.
+  const reviews = [
+    carrier(4815015613, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:34:36Z"),
+    announced(4815024115, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:36:14Z"),
+  ];
+  assert.equal(countRounds(reviews), 1);
+  assert.equal(reviewerPasses(reviews)[0].records, 2);
+});
+
+test("two ANNOUNCEMENTS on one commit are two genuine passes, not one", () => {
+  // #292's records 4823525411 and 4823605230: both full announcements against
+  // 66c2780bd0, twelve minutes apart, separated by author replies and no push
+  // — a real re-review of the same head. Grouping passes by commit (the design
+  // this test's fix replaced) merged them, undercounting that loop by a round.
+  const reviews = [
+    announced(4823525411, "66c2780bd05e7435382f8afafb7c14b58338fa39", "2026-07-30T21:52:30Z"),
+    announced(4823605230, "66c2780bd05e7435382f8afafb7c14b58338fa39", "2026-07-30T22:04:31Z"),
+  ];
+  assert.equal(countRounds(reviews), 2);
+});
+
+test("a carrier attaches to a same-commit announcement over an earlier unrelated one", () => {
+  // With two announcements following a carrier, the one on its own commit is
+  // the pass it belongs to — otherwise its findings land in the wrong round.
+  const reviews = [
+    carrier(1, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "2026-07-30T01:00:00Z"),
+    announced(2, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-07-30T01:01:00Z"),
+    announced(3, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "2026-07-30T01:02:00Z"),
+  ];
+  const passes = reviewerPasses(reviews);
+  assert.equal(passes.length, 2);
+  assert.deepEqual(passes.find((p) => p.commit.startsWith("bbb")).reviewIds.sort(), [1, 3]);
+});
+
+test("a trailing carrier with no announcement after it stands alone", () => {
+  // Its findings must still be attributable, or derive()'s reconciliation
+  // check fires on what is really a truncated-capture problem.
+  const reviews = [
+    announced(1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-07-30T01:00:00Z"),
+    carrier(2, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "2026-07-30T02:00:00Z"),
+  ];
+  assert.equal(countRounds(reviews), 2);
+});
+
+test("a duplicated clean-pass issue comment counts as one round, not two", () => {
+  // Same reasoning as the review-record and root-comment dedup above, applied
+  // to issue comments: two overlapping concatenated get_comments pages (or a
+  // bad fixture) could otherwise repeat one clean-pass announcement into two
+  // phantom rounds, each with zero findings — invisible to derive()'s
+  // reconciliation check since a zero-finding round can't disagree with
+  // anything.
+  const dupe = cleanPass("bbbbbbbbbb", "2026-07-30T02:00:00Z", 42);
+  assert.equal(countRounds([], [dupe, { ...dupe }]), 1);
+});
+
+test("a reviewer issue comment with no reviewed-commit marker is not a pass", () => {
+  // The connector also answers questions and reports actions in issue
+  // comments. Only a completed-pass announcement declares a reviewed commit.
+  const chatter = [{ user: BOT, created_at: "2026-07-30T02:00:00Z", body: "Working on that now." }];
+  assert.equal(countRounds([], chatter), 0);
+});
+
+test("an @codex review trigger by the author is never a round", () => {
+  // The oldest invariant on this function, restated against the new input:
+  // trigger comments live in the same collection the clean passes do now.
+  const triggers = [{ user: ME, created_at: "2026-07-30T02:00:00Z", body: "@codex review\n\nFix round 2." }];
+  assert.equal(countRounds([], triggers), 0);
+});
+
+test("rounds and per-round entries agree once passes replace records", () => {
+  // #290's real shape: the split pass must report its findings once, under one
+  // round, rather than as two rounds that between them claim the same
+  // findings — which would trip derive()'s reconciliation check.
+  const reviews = [
+    carrier(1, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:34:36Z"),
+    announced(2, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:36:14Z"),
+  ];
+  const comments = [
+    { id: 11, user: BOT, pull_request_review_id: 1 },
+    { id: 12, user: BOT, pull_request_review_id: 2 },
+  ];
+  const per = findingsByRound(reviews, comments, [cleanPass("8ff39f24ae", "2026-07-30T04:17:44Z")]);
+  assert.equal(per.length, 2);
+  assert.deepEqual(
+    per.map((p) => [p.round, p.findings, p.source]),
+    [
+      [1, 2, "review"],
+      [2, 0, "comment"],
+    ],
+  );
+  assert.equal(
+    per.reduce((n, p) => n + p.findings, 0),
+    countFindings(comments),
+  );
+});
+
+test("review interval runs to a clean pass that posted as an issue comment", () => {
+  // #286 measured 0.1h against a true ~2.8h window because its final reviewer
+  // engagement was a comment, not a review record — a 28× understatement.
+  const pr = { created_at: "2026-07-29T23:24:00Z" };
+  const reviews = [announced(1, "c8b6395000000000000000000000000000000000", "2026-07-29T23:30:00Z")];
+  const issueComments = [cleanPass("6b04de28e6", "2026-07-30T02:14:20Z")];
+  assert.equal(reviewInterval(pr, reviews).hours, 0.1);
+  assert.equal(reviewInterval(pr, reviews, issueComments).hours, 2.8);
+});
+
+test("derive warns rather than silently undercounting when issue comments are absent", () => {
+  // A row derived from a snapshot that cannot see clean passes must not look
+  // like a row that could. The ledger's own standard: a number that cannot be
+  // trusted is not presented as though it can.
+  const base = {
+    pr: { number: 1, title: "x", created_at: "2026-07-30T00:00:00Z" },
+    reviews: [announced(1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-07-30T01:00:00Z")],
+    comments: [],
+    files: [{ filename: "a.ts", additions: 1, deletions: 0 }],
+  };
+  assert.match(derive(base).warnings.join(" "), /issueComments was not supplied/);
+  assert.deepEqual(derive({ ...base, issueComments: [] }).warnings, []);
+});
+
+test("derive reports an absorbed carrier record instead of merging it silently", () => {
+  const out = derive({
+    pr: { number: 1, title: "x", created_at: "2026-07-30T00:00:00Z" },
+    reviews: [
+      carrier(1, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:34:36Z"),
+      announced(2, "c81d316fe63800c3c4f0e5fdb9468533528e33cd", "2026-07-30T03:36:14Z"),
+    ],
+    comments: [],
+    files: [{ filename: "a.ts", additions: 1, deletions: 0 }],
+    issueComments: [],
+  });
+  assert.equal(out.rounds, 1);
+  assert.match(out.warnings.join(" "), /c81d316fe6×2/);
+});
+
+test("records with no body at all keep the old one-pass-per-record count", () => {
+  // Fixtures captured before review bodies were retained carry no
+  // announcement to key on. With nothing to improve, they must keep their
+  // prior counts rather than collapsing to zero passes.
+  const reviews = [
+    { id: 1, user: BOT, submitted_at: "2026-07-27T01:00:00Z" },
+    { id: 2, user: BOT, submitted_at: "2026-07-27T02:00:00Z" },
+  ];
+  assert.equal(countRounds(reviews), 2);
 });
 
 test("author replies never count as findings", () => {
@@ -625,6 +814,46 @@ test("flattenMcpThreads infers pull_request_review_id across the bot's two login
   assert.equal(c.pull_request_review_id, MCP_REVIEW.id);
 });
 
+test("an MCP snapshot carrying issue comments must attest to paginating them", () => {
+  // Same reasoning as the other three collections: a truncated first page
+  // would silently drop the very clean passes the field was added to find.
+  // Only enforced when the field is present, so pre-2026-08-01 snapshots that
+  // omit it still derive (with derive()'s warning instead).
+  const withComments = realSnapshot({ issueComments: [cleanPass("aaaaaaaaaa", "2026-07-30T02:00:00Z")] });
+  assert.throws(() => fromMcp(withComments), /complete\.issueComments must be explicitly true/);
+  assert.throws(() => fromMcp(withComments), /method:"get_comments"/);
+
+  withComments.complete.issueComments = true;
+  assert.equal(fromMcp(withComments).issueComments.length, 1);
+});
+
+test("fromMcp preserves an omitted issueComments as undefined, not as an empty array", () => {
+  // The distinction derive() warns on: "supplied and empty" is a loop with no
+  // clean pass; "not supplied" is a snapshot that cannot answer the question.
+  assert.equal(fromMcp(realSnapshot()).issueComments, undefined);
+  assert.match(derive(fromMcp(realSnapshot())).warnings.join(" "), /issueComments was not supplied/);
+});
+
+test("fromMcp refuses an issue comment missing the fields pass detection reads", () => {
+  const bad = realSnapshot({
+    issueComments: [{ id: 1, user: { login: "chatgpt-codex-connector[bot]" }, created_at: "2026-07-30T02:00:00Z" }],
+    complete: { reviews: true, files: true, reviewThreads: true, issueComments: true },
+  });
+  assert.throws(() => fromMcp(bad), /issueComments\[0\] must have a stable id.*a string body/);
+});
+
+test("fromMcp refuses an issue comment with no stable id", () => {
+  // reviewerPasses dedupes issue comments by id; an id-less comment would
+  // either collide with every other id-less comment or, left unvalidated,
+  // could repeat across concatenated pages and fabricate a phantom round.
+  const bad = realSnapshot({
+    issueComments: [cleanPass("aaaaaaaaaa", "2026-07-30T02:00:00Z")],
+    complete: { reviews: true, files: true, reviewThreads: true, issueComments: true },
+  });
+  delete bad.issueComments[0].id;
+  assert.throws(() => fromMcp(bad), /issueComments\[0\] must have a stable id/);
+});
+
 test("flattenMcpThreads assigns no review id when the comment predates every review by that author", () => {
   const earlyComment = {
     ...MCP_THREAD_UNANSWERED,
@@ -650,9 +879,10 @@ function realSnapshot(overrides = {}) {
 }
 
 test("fromMcp refuses a snapshot with no completeness attestation at all", () => {
-  // A loop with 18 rounds and 40 findings (our worst case, and exactly the
-  // shape this adapter is for) will paginate at least one collection. Deriving
-  // from an unmarked partial snapshot silently undercounts precisely there.
+  // PR #279's loop — 32 rounds, 166 findings, our worst case, and exactly the
+  // shape this adapter is for — will paginate at least one collection.
+  // Deriving from an unmarked partial snapshot silently undercounts precisely
+  // there.
   const { complete: _drop, ...noAttestation } = realSnapshot();
   assert.throws(() => fromMcp(noAttestation), /complete\.reviews/);
 });

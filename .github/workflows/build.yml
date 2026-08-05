@@ -1,7 +1,18 @@
 name: Build
 
 on:
+  # `edited` is explicit, not just the GitHub default (opened/synchronize/
+  # reopened): retitling a PR to `[LEDGER] …` after its last push must
+  # re-run the ledger-coverage step's structural gate against the new
+  # title, or a stale green check from before the retitle would stay
+  # attached to the commit. check-ledger-coverage.mjs's
+  # confirmedLedgerPrNumbers is the primary defense (it re-validates any
+  # [LEDGER]-titled PR's live files rather than trusting title alone), but
+  # re-triggering here means the PR's own check reflects reality
+  # immediately instead of only the next PR's or the push-to-main audit's
+  # re-check.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
   push:
@@ -40,6 +51,21 @@ jobs:
       - name: Check docs accuracy (links + cited paths)
         run: node scripts/check-docs-accuracy.mjs
 
+      # The manual's charter reserves configuration — values and their prose
+      # stand-ins — for docs/ai-context/. That rule was written after a de-fork
+      # PR spent three review rounds on the boundary, then took three MORE
+      # because each round surfaced another phrase that failed it while the
+      # previous one was being fixed. Every one of those was lexically
+      # detectable, so per docs/ai-context/decisions.md ("Recurring failure
+      # patterns become CI guards, not just doc updates") this is a check
+      # rather than a seventh promise to be careful.
+      # LEXICAL ONLY — it cannot see duplicated facts or false claims.
+      - name: Check manual tuning language
+        run: node scripts/check-manual-tuning-language.mjs
+
+      - name: Check manual tuning-language guard logic
+        run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
+
       # Also dependency-free. The loop ledger's whole premise is that counted
       # numbers beat recalled ones, so its counting logic has to be provably
       # right — an unverified derivation would carry exactly the false
@@ -50,6 +76,22 @@ jobs:
       - name: Check ledger-coverage guard logic
         run: node --test scripts/__tests__/check-ledger-coverage.test.mjs
 
+      # The workstream board is only trustworthy if its columns match reality.
+      # The label -> field mapping is the one place that can quietly drift (a
+      # renamed Status option, a new stage with no label slug), and a board that
+      # stops tracking reads identically to a board where nothing needs David.
+      - name: Check project-sync label mapping
+        run: node --test scripts/__tests__/sync-project-fields.test.mjs
+
+      # The Bash guard decides which git commands this session may run. Its
+      # previous version blocked `git push --force` and allowed `git push -f`,
+      # so the one thing it existed to prevent was the one thing it let past —
+      # and nothing tested it, so the hole survived however long it was there.
+      # A guard whose block/allow matrix is unasserted is a guard nobody can
+      # rely on, which is worse than none: it is trusted.
+      - name: Check Bash guard decisions
+        run: node --test scripts/__tests__/guard-decision.test.mjs
+
       # The ledger only answers questions if the rows are actually in it. On
       # 2026-07-29 it held 2 rows against 13 closed loops — the obligation had
       # nowhere to fail, so it was skipped silently while CI stayed green.
@@ -58,13 +100,34 @@ jobs:
       # (a just-merged loop's row belongs to the NEXT PR, not to itself) and
       # only the offline arithmetic check runs.
       - name: Check loop-ledger coverage
+        if: github.event_name == 'pull_request'
         run: node scripts/check-ledger-coverage.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
+      # The post-merge half. The step above can only see the current PR's
+      # context — nobody asks between PRs, and that interval is where both of
+      # the ledger's real misses (#286, #290) actually happened. Rows ship via
+      # dedicated [LEDGER] PRs (working-modes.md), so this fails `main` when a
+      # merged [LEDGER] carrier skipped a row it owed, or when the no-carrier
+      # backstop trips (2+ merges since a loop closed, row still missing, no
+      # [LEDGER] PR open). Pending-but-not-yet-due rows are printed, not failed.
+      - name: Audit loop-ledger debt
+        if: github.event_name == 'push'
+        run: node scripts/check-ledger-coverage.mjs --audit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The client and server each keep their own copy of the redirect-target
+      # validator (no shared workspace boundary between them) — PR #292 found
+      # the same normalization defect in both at once. This is the mechanical
+      # guard against a future fix landing on only one copy.
+      - name: Check return-to validator parity
+        run: pnpm run check:return-to-parity
 
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots

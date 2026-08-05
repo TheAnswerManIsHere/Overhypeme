@@ -44,7 +44,7 @@ export const quarantinedMemesTable = pgTable("quarantined_memes", {
   /**
    * Where the imagery came from, frozen at quarantine time. Nullable — null
    * means genuinely unknown, and the report omits the annotation rather than
-   * guessing. Keep in lockstep with the CHECK constraint in 0095.
+   * guessing. Keep in lockstep with the CHECK constraint in 0097.
    */
   contentOrigin: varchar("content_origin", { length: 16 }).$type<ContentOrigin>(),
   /**
@@ -67,7 +67,7 @@ export const quarantinedMemesTable = pgTable("quarantined_memes", {
   index("IDX_quarantined_user_created").on(t.userId, t.createdAt.desc()),
   index("IDX_quarantined_source_created").on(t.source, t.createdAt.desc()),
   index("IDX_quarantined_live").on(t.id).where(isNull(t.deletedAt)),
-  // Mirrors 0095's raw CHECK — see the note on `ncmecReportsTable`'s indexes for
+  // Mirrors 0097's raw CHECK — see the note on `ncmecReportsTable`'s indexes for
   // why an object that exists only in a numbered migration is not safe here.
   check(
     "quarantined_memes_content_origin_check",
@@ -104,7 +104,7 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
     .default("pending")
     .$type<NcmecSubmissionStatus>(),
 
-  // ─── Submission lifecycle (0095) ──────────────────────────────────────────
+  // ─── Submission lifecycle (0097) ──────────────────────────────────────────
 
   /** When `/finish` returned 0. */
   finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -144,9 +144,9 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
   /** Upstream linkage, so an orphaned quarantine row is findable by query rather than by inference. */
   /**
    * Declared in the table's extra config below rather than inline, so the constraint carries
-   * the SAME NAME 0095 uses. Drizzle derives its own name from a different convention, and a
+   * the SAME NAME 0097 uses. Drizzle derives its own name from a different convention, and a
    * database that has been through both a push and the migrator ends up with two foreign keys
-   * on this column — which 0095's name-matched reconciliation cannot see.
+   * on this column — which 0097's name-matched reconciliation cannot see.
    */
   quarantineId: bigint("quarantine_id", { mode: "number" }),
   /**
@@ -170,7 +170,7 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
    * alert_notified_at IS NULL` is the durable "nobody has been told" predicate.
    */
   alertNotifiedAt: timestamp("alert_notified_at", { withTimezone: true }),
-  /** Provenance, copied from the quarantine row. Keep in lockstep with 0095's CHECK. */
+  /** Provenance, copied from the quarantine row. Keep in lockstep with 0097's CHECK. */
   contentOrigin: varchar("content_origin", { length: 16 }).$type<ContentOrigin>(),
   /** Uploader identity as of quarantine time, immutable. The single authoritative representation. */
   reporterSnapshot: jsonb("reporter_snapshot"),
@@ -195,11 +195,11 @@ export const ncmecReportsTable = pgTable("ncmec_reports", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("IDX_ncmec_status_created").on(t.submissionStatus, t.createdAt),
-  // The three below are declared here as well as in 0095's raw SQL, deliberately.
+  // The three below are declared here as well as in 0097's raw SQL, deliberately.
   // `drizzle-kit push --force` reconciles the database to THIS snapshot and
   // auto-approves data-loss statements, so an object that exists only in a
   // numbered migration can be dropped by a push — and the hash-based migrator
-  // will not recreate it, because 0095 is already recorded as applied. For an
+  // will not recreate it, because 0097 is already recorded as applied. For an
   // index that is a correctness constraint rather than a performance one, that
   // is the difference between one report per hit and two.
   index("IDX_ncmec_nonfinal")
@@ -238,7 +238,7 @@ export type NcmecMatchSource = typeof NCMEC_MATCH_SOURCES[number];
 
 /**
  * NCMEC report lifecycle. Keep in lockstep with the SQL CHECK constraint in
- * 0095 — `migrations.0095.test.ts` asserts the two agree, so the lockstep is
+ * 0097 — `migrations.0097.test.ts` asserts the two agree, so the lockstep is
  * enforced rather than remembered.
  *
  * There is deliberately no `retracted` status: retraction is a step within an
@@ -276,7 +276,7 @@ export const NCMEC_NONFINAL_STATUSES = [
  * Where quarantined imagery came from. Drives the report's `<generativeAi>`
  * annotation, which is computed from this (`content_origin === 'generated'`)
  * rather than stored separately — two representations of one fact would be two
- * things that can disagree. Keep in lockstep with the CHECK constraints in 0095.
+ * things that can disagree. Keep in lockstep with the CHECK constraints in 0097.
  */
 export const CONTENT_ORIGINS = ["generated", "user_upload", "stock", "template", "identity"] as const;
 export type ContentOrigin = typeof CONTENT_ORIGINS[number];
@@ -301,7 +301,7 @@ export type NcmecAuditAction = typeof NCMEC_AUDIT_ACTIONS[number];
 /**
  * Append-only ledger of every mutation made through `/admin/safety`.
  *
- * Append-only is enforced by database triggers created in 0095, not by this
+ * Append-only is enforced by database triggers created in 0097, not by this
  * module declining to export a delete helper — a helper's absence constrains
  * nothing about a future route, migration, script, or raw Drizzle call, and
  * this table is the sole control over destructive admin actions.
@@ -352,11 +352,11 @@ export const ncmecSafetyAuditLogTable = pgTable("ncmec_safety_audit_log", {
   }).onDelete("restrict"),
   index("IDX_ncmec_audit_report_created").on(t.reportId, t.createdAt.desc()),
   index("IDX_ncmec_audit_created").on(t.createdAt.desc()),
-  // Declared here, not only in 0095, for the same reason the two ncmec_reports checks are:
+  // Declared here, not only in 0097, for the same reason the two ncmec_reports checks are:
   // `drizzle-kit push --force` reconciles the live database against THIS definition, so a
   // constraint that exists only in the migration is a data-loss statement a forced push will
-  // auto-approve — dropped, and never recreated once 0095's hash is already recorded.
-  // Keep the value list in lockstep with NCMEC_AUDIT_ACTIONS above and with 0095.
+  // auto-approve — dropped, and never recreated once 0097's hash is already recorded.
+  // Keep the value list in lockstep with NCMEC_AUDIT_ACTIONS above and with 0097.
   check(
     "ncmec_safety_audit_log_action_check",
     sql`${t.action} IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write')`,

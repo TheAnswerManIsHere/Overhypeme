@@ -166,7 +166,7 @@ describe("canEffectivelyAssumeRole — from a genuinely restricted connection", 
  * before `targetPool` existed: called with no argument (every caller outside this file), it
  * queries through this module's own `pool`, a superuser — so `applicationOwnsTable`,
  * `applicationOwnsFunction`, and `applicationCanBypassTrigger` would report `true`
- * unconditionally, regardless of migration 0095's real, current ownership state. This does
+ * unconditionally, regardless of migration 0097's real, current ownership state. This does
  * not mutate `ncmec_safety_audit_log`'s actual ownership (a shared, migration-owned object) —
  * it only compares what two different connections report about whatever state it is already
  * in, which is enough to prove the injected pool is actually driving these fields rather than
@@ -216,7 +216,7 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
     // connection every real caller uses by default. A superuser satisfies
     // pg_has_role(..., 'usage') for any role with zero explicit grant, so these read true
     // regardless of who actually owns anything — proving why boundaryEnforced can never
-    // usefully be asserted true through this default pool (see migrations.0095.test.ts's
+    // usefully be asserted true through this default pool (see migrations.0097.test.ts's
     // comment on the same limitation).
     const status = await ncmecAuditBoundaryStatus();
     assert.equal(status.applicationOwnsTable, true);
@@ -281,7 +281,7 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
       );
       // shadowSchema leads, pg_catalog is named explicitly, and public trails so the REAL
       // functions (once correctly qualified) can still resolve the real ledger by its
-      // unqualified name — same technique as the migrations.0095.test.ts search_path test.
+      // unqualified name — same technique as the migrations.0097.test.ts search_path test.
       await loginPool.query(`SET search_path = "${shadowSchema}", pg_catalog, public`);
       await loginPool.query(
         `CREATE FUNCTION "${shadowSchema}".to_regclass(text) RETURNS regclass AS $$ SELECT '${decoySchema}.decoy_ledger'::regclass $$ LANGUAGE sql`,

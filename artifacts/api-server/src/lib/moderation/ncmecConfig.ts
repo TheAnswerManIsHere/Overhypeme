@@ -2,10 +2,10 @@
  * The NCMEC `admin_config` keys, and which of them the generic config route
  * refuses to write.
  *
- * Migration 0095 seeds these keys into `admin_config`, and the pre-existing
+ * Migration 0097 seeds these keys into `admin_config`, and the pre-existing
  * generic `PATCH /admin/config/:key` route writes any key that exists there
  * after validating nothing but data type and min/max. Without the reserved list
- * below, the moment 0095 landed an admin could set
+ * below, the moment 0097 landed an admin could set
  * `ncmec_submission_enabled = true` and `ncmec_ispws_environment = production`
  * through a route that knows nothing about backlog audits — and once the worker
  * and reconciler register, that configuration files real reports with the
@@ -45,7 +45,7 @@ export function isNcmecReservedConfigKey(key: string): boolean {
 }
 
 /**
- * Keys 0095 seeds that are deliberately NOT reserved.
+ * Keys 0097 seeds that are deliberately NOT reserved.
  *
  * `ncmec_safety_alert_email` cannot cause a filing, and reserving it would make
  * a routine operational edit need a bespoke endpoint. The two retry keys are
@@ -80,7 +80,7 @@ export const NCMEC_UNRESERVED_CONFIG_KEYS = [
   "async_job_ncmec_submit_retry_delay_4_ms",
 ] as const;
 
-/** Every key migration 0095 seeds, reserved or not. */
+/** Every key migration 0097 seeds, reserved or not. */
 export const NCMEC_SEEDED_CONFIG_KEYS = [
   ...NCMEC_RESERVED_CONFIG_KEYS,
   ...NCMEC_UNRESERVED_CONFIG_KEYS,

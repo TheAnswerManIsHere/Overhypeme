@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, isNull } from "drizzle-orm";
+import { effectiveTierForRow, effectiveTierPredicate } from "./membershipState";
 
 // Membership history events that indicate the user lost Legendary access
 // involuntarily (refund or chargeback). These trigger an in-app notice so
@@ -22,11 +23,68 @@ export class StripeStorage {
     await db.update(usersTable).set({ stripeCustomerId }).where(eq(usersTable.id, userId));
   }
 
-  async getSubscriptionForUser(userId: string) {
+  /**
+   * Bind a Stripe customer to a user ONLY if the user has none yet, reporting
+   * whether this call is the one that bound it.
+   *
+   * The unconditional setter above is last-writer-wins, which is how two racing
+   * first checkouts could each create a customer and leave the user pointing at
+   * only one of them. A paid session on the OTHER customer then belongs to
+   * nobody: verification cannot resolve a user from it, the reason is permanent,
+   * and the purchase is lost. This lets the loser find out that it lost — before
+   * any checkout session exists on the customer it created — and adopt the
+   * winner's customer instead.
+   */
+  async bindStripeCustomerIfUnset(userId: string, stripeCustomerId: string): Promise<boolean> {
+    const bound = await db
+      .update(usersTable)
+      .set({ stripeCustomerId })
+      .where(and(eq(usersTable.id, userId), isNull(usersTable.stripeCustomerId)))
+      .returning({ id: usersTable.id });
+    return bound.length > 0;
+  }
+
+  /**
+   * Clear a user's Stripe customer, but ONLY if it is still the id we found to
+   * be dead. Compare-and-swap, so a good id bound by a concurrent request in the
+   * meantime survives.
+   *
+   * Needed because `bindStripeCustomerIfUnset` only fires on a NULL column: a
+   * known-stale id left stored blocks the rebind permanently.
+   */
+  async clearStripeCustomerIfMatches(userId: string, staleCustomerId: string): Promise<boolean> {
+    const cleared = await db
+      .update(usersTable)
+      .set({ stripeCustomerId: null })
+      .where(and(eq(usersTable.id, userId), eq(usersTable.stripeCustomerId, staleCustomerId)))
+      .returning({ id: usersTable.id });
+    return cleared.length > 0;
+  }
+
+  /**
+   * @param subscriptionId When given, return THIS subscription rather than
+   * whichever qualifying one is newest.
+   *
+   * The caller that renders the subscription panel supplies it. Without it, this
+   * method and the entitlement-source query beside it each pick independently —
+   * "newest qualifying by Stripe's created" here, "newest row" there — so a user
+   * whose newer subscription B was cancelled while older A stays active gets the
+   * price and period of A rendered next to the cancel/reactivate state of B, and
+   * the controls then mutate a subscription the page is not describing.
+   */
+  async getSubscriptionForUser(userId: string, subscriptionId?: string) {
     const user = await this.getUserById(userId);
     if (!user?.stripeCustomerId) return null;
 
-    const result = await db.execute(
+    const result = subscriptionId
+      ? await db.execute(
+          sql`SELECT s.* FROM stripe.subscriptions s
+              JOIN stripe.customers c ON c.id = s.customer
+              WHERE c.id = ${user.stripeCustomerId}
+              AND s.id = ${subscriptionId}
+              LIMIT 1`,
+        )
+      : await db.execute(
       sql`SELECT s.* FROM stripe.subscriptions s
           JOIN stripe.customers c ON c.id = s.customer
           WHERE c.id = ${user.stripeCustomerId}
@@ -56,8 +114,12 @@ export class StripeStorage {
     const rows = await db
       .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
+      // The EFFECTIVE tier: this is the mailing recipient list (factOfTheDay),
+      // so filtering on the raw column would keep EMAILING members whose grace
+      // horizon has passed. A row helper cannot serve this reader — it selects
+      // before any row exists to pass.
       .where(and(
-        eq(usersTable.membershipTier, "legendary"),
+        effectiveTierPredicate("legendary"),
         eq(usersTable.isActive, true)
       ));
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
@@ -66,7 +128,7 @@ export class StripeStorage {
 
   async getMembershipTierForUser(userId: string): Promise<"unregistered" | "registered" | "legendary"> {
     const user = await this.getUserById(userId);
-    return user?.membershipTier ?? "unregistered";
+    return user ? effectiveTierForRow(user) : "unregistered";
   }
 
   async getPaymentHistory(userId: string) {
@@ -96,7 +158,9 @@ export class StripeStorage {
    */
   async getAccessRevocationNotice(userId: string): Promise<{ kind: RevocationEvent; occurredAt: string } | null> {
     const user = await this.getUserById(userId);
-    if (!user || user.membershipTier !== "registered") return null;
+    // Effective tier: the notice is shown to a user who WAS downgraded, and a
+    // grace horizon passing is a downgrade the raw column has not caught up to.
+    if (!user || effectiveTierForRow(user) !== "registered") return null;
 
     const cutoff = new Date(Date.now() - REVOCATION_NOTICE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 

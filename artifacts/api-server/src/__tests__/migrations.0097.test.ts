@@ -1,5 +1,5 @@
 /**
- * Migration 0095 — NCMEC CyberTipline submission, phase 1.
+ * Migration 0097 — NCMEC CyberTipline submission, phase 1.
  *
  * This file pins the properties that a later phase would otherwise be free to
  * break silently. Three of them are about the DATABASE rather than about code,
@@ -52,14 +52,14 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_DB = path.resolve(__dirname, "../../../../lib/db");
-const MIGRATION_PATH = path.join(REPO_DB, "migrations/0095_ncmec_submission.sql");
+const MIGRATION_PATH = path.join(REPO_DB, "migrations/0097_ncmec_submission.sql");
 const MIGRATION_SQL = fs.readFileSync(MIGRATION_PATH, "utf-8");
 
-const BACKFILL_START = "-- >>> ncmec-0095 backfill block (start)";
-const BACKFILL_END = "-- <<< ncmec-0095 backfill block (end)";
+const BACKFILL_START = "-- >>> ncmec-0097 backfill block (start)";
+const BACKFILL_END = "-- <<< ncmec-0097 backfill block (end)";
 
-/** Every column 0095 adds. Also the teardown list for the 0094-state fixture. */
-const NCMEC_REPORT_COLUMNS_0095 = [
+/** Every column 0097 adds. Also the teardown list for the 0094-state fixture. */
+const NCMEC_REPORT_COLUMNS_0097 = [
   "finished_at", "finish_started_at", "attempt_count", "last_error", "last_error_code",
   "submission_environment", "uploaded_files", "retracted_at", "submission_lease_owner",
   "submission_lease_until", "manually_filed_at", "test_submitted_at",
@@ -69,7 +69,7 @@ const NCMEC_REPORT_COLUMNS_0095 = [
   "manual_report_id",
 ];
 
-const QUARANTINE_COLUMNS_0095 = [
+const QUARANTINE_COLUMNS_0097 = [
   "content_origin", "report_intent", "reporter_snapshot", "request_metadata",
 ];
 
@@ -78,13 +78,13 @@ function executableMigration(): string {
   return MIGRATION_SQL.split("--> statement-breakpoint").join("\n");
 }
 
-const GUARD_START = "-- >>> ncmec-0095 audit guard block (start)";
-const GUARD_END = "-- <<< ncmec-0095 audit guard block (end)";
+const GUARD_START = "-- >>> ncmec-0097 audit guard block (start)";
+const GUARD_END = "-- <<< ncmec-0097 audit guard block (end)";
 
 function sliceBetween(startMarker: string, endMarker: string): string {
   const start = MIGRATION_SQL.indexOf(startMarker);
   const end = MIGRATION_SQL.indexOf(endMarker);
-  assert.ok(start >= 0 && end > start, `sentinels ${startMarker} / ${endMarker} missing from 0095`);
+  assert.ok(start >= 0 && end > start, `sentinels ${startMarker} / ${endMarker} missing from 0097`);
   return MIGRATION_SQL.slice(start + startMarker.length, end);
 }
 
@@ -99,7 +99,7 @@ function auditGuardBlock(): string {
 }
 
 /**
- * The `fn_body` literal 0095 declares (a dollar-quoted string bounded by a repeated
+ * The `fn_body` literal 0097 declares (a dollar-quoted string bounded by a repeated
  * `$body_src$` tag) — extracted so its exact text can be compared against
  * `NCMEC_AUDIT_LOG_GUARD_FN_BODY` in lib/db/src/index.ts, the copy `ncmecAuditBoundaryStatus()`
  * compares against `pg_proc.prosrc`. The two are hand-kept identical rather than shared
@@ -109,37 +109,37 @@ function auditGuardBlock(): string {
 function guardFnBodyLiteral(): string {
   const tag = "$body_src$";
   const start = MIGRATION_SQL.indexOf(tag);
-  assert.ok(start >= 0, "fn_body's $body_src$ opening tag missing from 0095");
+  assert.ok(start >= 0, "fn_body's $body_src$ opening tag missing from 0097");
   const end = MIGRATION_SQL.indexOf(tag, start + tag.length);
-  assert.ok(end > start, "fn_body's $body_src$ closing tag missing from 0095");
+  assert.ok(end > start, "fn_body's $body_src$ closing tag missing from 0097");
   return MIGRATION_SQL.slice(start + tag.length, end);
 }
 
-const OWNERSHIP_START = "-- >>> ncmec-0095 ownership hardening block (start)";
-const OWNERSHIP_END = "-- <<< ncmec-0095 ownership hardening block (end)";
+const OWNERSHIP_START = "-- >>> ncmec-0097 ownership hardening block (start)";
+const OWNERSHIP_END = "-- <<< ncmec-0097 ownership hardening block (end)";
 
 /** Just the DBA-provisioned-ownership-transfer DO block. */
 function ownershipHardeningBlock(): string {
   return sliceBetween(OWNERSHIP_START, OWNERSHIP_END);
 }
 
-const ACTION_CHECK_START = "-- >>> ncmec-0095 action check block (start)";
-const ACTION_CHECK_END = "-- <<< ncmec-0095 action check block (end)";
+const ACTION_CHECK_START = "-- >>> ncmec-0097 action check block (start)";
+const ACTION_CHECK_END = "-- <<< ncmec-0097 action check block (end)";
 
 /** Just the inspect-then-reconcile block for the audit log's action vocabulary. */
 function actionCheckBlock(): string {
   return sliceBetween(ACTION_CHECK_START, ACTION_CHECK_END);
 }
 
-describe("migration 0095 — static contract", () => {
+describe("migration 0097 — static contract", () => {
   it("is registered in the journal and exempted from snapshot checking", () => {
     const journal = JSON.parse(
       fs.readFileSync(path.join(REPO_DB, "migrations/meta/_journal.json"), "utf-8"),
     ) as { entries: Array<{ idx: number; tag: string }> };
 
-    const entry = journal.entries.find((e) => e.tag === "0095_ncmec_submission");
-    assert.ok(entry, "journal does not include 0095_ncmec_submission");
-    assert.equal(entry.idx, 95, "0095 must sit at journal idx 95");
+    const entry = journal.entries.find((e) => e.tag === "0097_ncmec_submission");
+    assert.ok(entry, "journal does not include 0097_ncmec_submission");
+    assert.equal(entry.idx, 97, "0097 must sit at journal idx 97");
 
     // 0094 is PR #288's worker_lane_heartbeats. If this ever fails, someone
     // renumbered a migration into a slot that is already taken.
@@ -150,14 +150,14 @@ describe("migration 0095 — static contract", () => {
       path.join(REPO_DB, "scripts/check-migration-snapshots.ts"),
       "utf-8",
     );
-    assert.match(checkScript, /"0095_ncmec_submission"/);
+    assert.match(checkScript, /"0097_ncmec_submission"/);
   });
 
   it("submission_status CHECK is in lockstep with NCMEC_SUBMISSION_STATUSES", () => {
     const match = MIGRATION_SQL.match(
       /ADD CONSTRAINT "ncmec_reports_submission_status_check"\s*\n\s*CHECK \("submission_status" IN \(([^)]*)\)\)/,
     );
-    assert.ok(match?.[1], "could not find the submission_status CHECK in 0095");
+    assert.ok(match?.[1], "could not find the submission_status CHECK in 0097");
     const inSql = match[1]
       .split(",")
       .map((s) => s.trim().replace(/^'|'$/g, ""))
@@ -173,7 +173,7 @@ describe("migration 0095 — static contract", () => {
     const match = MIGRATION_SQL.match(
       /ADD CONSTRAINT "ncmec_safety_audit_log_action_check"\s*\n\s*CHECK \("action" IN \(([^)]*)\)\)/,
     );
-    assert.ok(match?.[1], "could not find the action CHECK in 0095");
+    assert.ok(match?.[1], "could not find the action CHECK in 0097");
     const inSql = match[1]
       .split(",")
       .map((s) => s.trim().replace(/^'|'$/g, ""))
@@ -221,7 +221,7 @@ describe("migration 0095 — static contract", () => {
     assert.deepEqual(
       [...seeded].sort(),
       [...NCMEC_SEEDED_CONFIG_KEYS].sort(),
-      "0095's seed list and NCMEC_SEEDED_CONFIG_KEYS have drifted",
+      "0097's seed list and NCMEC_SEEDED_CONFIG_KEYS have drifted",
     );
 
     // The count is asserted on purpose. An earlier revision of this policy said
@@ -252,11 +252,11 @@ describe("migration 0095 — static contract", () => {
     );
   });
 
-  it("every index and CHECK 0095 creates is also declared in the Drizzle schema", () => {
+  it("every index and CHECK 0097 creates is also declared in the Drizzle schema", () => {
     // `drizzle-kit push --force` reconciles the database to the Drizzle snapshot and
     // auto-approves data-loss statements, so an object that lives only in a numbered
     // migration can be dropped by a push — and the hash-based migrator will not recreate it,
-    // because 0095 is already recorded as applied. For UQ_ncmec_reports_quarantine, which is
+    // because 0097 is already recorded as applied. For UQ_ncmec_reports_quarantine, which is
     // a correctness constraint rather than a performance one, that silently becomes two
     // reports per hit.
     const schema = fs.readFileSync(path.join(REPO_DB, "src/schema/moderation.ts"), "utf-8");
@@ -274,7 +274,7 @@ describe("migration 0095 — static contract", () => {
       "ncmec_safety_audit_log_action_check",
     ];
     for (const name of declared) {
-      assert.match(MIGRATION_SQL, new RegExp(`"${name}"`), `${name} is not created by 0095`);
+      assert.match(MIGRATION_SQL, new RegExp(`"${name}"`), `${name} is not created by 0097`);
       assert.match(schema, new RegExp(`"${name}"`), `${name} exists only in raw SQL — a push would drop it`);
     }
   });
@@ -307,7 +307,7 @@ describe("migration 0095 — static contract", () => {
   });
 });
 
-describe("migration 0095 — database behaviour (skipped when DATABASE_URL is unset)", () => {
+describe("migration 0097 — database behaviour (skipped when DATABASE_URL is unset)", () => {
   // Structural, rather than `import type { PoolClient } from "pg"`: `pg` is a dependency of
   // `@workspace/db`, not of this package, and adding it here to type four calls would be a
   // dependency edge bought for a test. Naming exactly the surface used also documents it.
@@ -439,7 +439,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   it("adds every ncmec_reports column the later phases write", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const expected = NCMEC_REPORT_COLUMNS_0095;
+    const expected = NCMEC_REPORT_COLUMNS_0097;
     const { rows } = await pool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'ncmec_reports' AND column_name = ANY($1)`,
@@ -450,7 +450,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   it("adds the four quarantined_memes provenance columns", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    const expected = QUARANTINE_COLUMNS_0095;
+    const expected = QUARANTINE_COLUMNS_0097;
     const { rows } = await pool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'quarantined_memes' AND column_name = ANY($1)`,
@@ -509,7 +509,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     // worker's admin_config. Re-applying the migration inside the rolled-back
     // transaction guarantees the seeds exist for this assertion regardless of
     // which database state it runs against, the same self-contained pattern the
-    // 0094->0095 transition test already uses.
+    // 0094->0097 transition test already uses.
     await inRolledBackTx(async (client) => {
       await client.query(executableMigration());
       const { rows } = await client.query<{ key: string; value: string }>(
@@ -893,7 +893,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       // probes `SET ROLE` against the ledger's schema owner on every run, so under the old
       // RESET ROLE the very first probe silently switched the session to session_user, and
       // every ownership, schema and grant check afterwards answered for the wrong role. A DBA
-      // replaying the migration as the application role (`SET ROLE <app>; \i 0095.sql`) is the
+      // replaying the migration as the application role (`SET ROLE <app>; \i 0097.sql`) is the
       // realistic way in.
       assert.ok(pool, "pool unavailable");
       const mid = `ncmec_mid_${randomUUID().slice(0, 8)}`;
@@ -1086,7 +1086,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
     it("replays the action CHECK against a hardened ledger it no longer owns", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
-      // The hash-based migrator replays 0095 whenever migration tracking is lost or the file's
+      // The hash-based migrator replays 0097 whenever migration tracking is lost or the file's
       // hash changes — including after a DBA has transferred the ledger. An unconditional
       // `ALTER TABLE ... DROP CONSTRAINT` there fails with "must be owner of table" and aborts
       // the migration before the ownership block, which is built to survive exactly this state,
@@ -1967,7 +1967,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       }
     });
 
-    it("keeps NCMEC_AUDIT_LOG_GUARD_FN_BODY (lib/db) byte-identical to 0095's fn_body", (t) => {
+    it("keeps NCMEC_AUDIT_LOG_GUARD_FN_BODY (lib/db) byte-identical to 0097's fn_body", (t) => {
       if (!NCMEC_AUDIT_LOG_GUARD_FN_BODY) return t.skip("DATABASE_URL not set");
       // The two copies exist only because a SQL migration and a TypeScript module cannot
       // literally share source text. This is what makes an edit to one without the other a
@@ -1978,9 +1978,9 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
 
   describe("quarantine_id backfill", () => {
     /**
-     * Produce rows the way pre-0095 code did: metadata-only, no `quarantine_id`.
+     * Produce rows the way pre-0097 code did: metadata-only, no `quarantine_id`.
      *
-     * The linking trigger 0095 installs would otherwise fill the column at insert time, so
+     * The linking trigger 0097 installs would otherwise fill the column at insert time, so
      * a fixture built with it enabled is a POST-migration row wearing legacy clothes — and
      * the backfill, whose whole job is the rows that already existed, would never see a
      * candidate. Disabling the trigger for the insert is the only way to construct the
@@ -2014,7 +2014,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
             ["malformed", JSON.stringify({ quarantineId: "not-a-number" })],
             ["dangling", JSON.stringify({ quarantineId: 2147483000 })],
             // Digit-only but past bigint. A shape-only `^[0-9]+$` regex lets this through
-            // and `::bigint` then raises numeric_value_out_of_range, aborting all of 0095 —
+            // and `::bigint` then raises numeric_value_out_of_range, aborting all of 0097 —
             // the exact failure the classification exists to prevent, surviving in a
             // subclass.
             ["oversized", JSON.stringify({ quarantineId: "999999999999999999999999" })],
@@ -2063,7 +2063,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         // Only constructible as a PRE-migration pair: with the linking trigger enabled the
         // second insert is refused by UQ_ncmec_reports_quarantine, which is the trigger
         // doing its job. The conflict this branch handles is therefore strictly a legacy
-        // one — two rows that already claimed the same quarantine before 0095 existed.
+        // one — two rows that already claimed the same quarantine before 0097 existed.
         await asPreMigrationWriter(client, async () => {
           for (let i = 0; i < 2; i++) {
             await client.query(
@@ -2081,12 +2081,12 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
   });
 
   /**
-   * Undo everything 0095 creates, so the next statement runs against an 0094-shaped
+   * Undo everything 0097 creates, so the next statement runs against an 0094-shaped
    * database.
    *
    * Without this the "re-runnable" test proves nothing about the transition that actually
    * matters: the suite's lifecycle runs `push-force` then `migrate`, so the database is
-   * already at 0095 before the first line of any test — every application is a no-op over
+   * already at 0097 before the first line of any test — every application is a no-op over
    * objects that were there when it started. A missing `ADD COLUMN`, or an ordering failure
    * masked by an object Drizzle's push created, would sail past both the column assertions
    * and a two-run rerun check.
@@ -2104,13 +2104,13 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_quarantine_id_fk`);
     await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_content_origin_check`);
     await client.query(`ALTER TABLE quarantined_memes DROP CONSTRAINT IF EXISTS quarantined_memes_content_origin_check`);
-    for (const column of NCMEC_REPORT_COLUMNS_0095) {
+    for (const column of NCMEC_REPORT_COLUMNS_0097) {
       await client.query(`ALTER TABLE ncmec_reports DROP COLUMN IF EXISTS "${column}"`);
     }
-    for (const column of QUARANTINE_COLUMNS_0095) {
+    for (const column of QUARANTINE_COLUMNS_0097) {
       await client.query(`ALTER TABLE quarantined_memes DROP COLUMN IF EXISTS "${column}"`);
     }
-    // Back to 0043's narrower vocabulary, which is what 0095 has to widen.
+    // Back to 0043's narrower vocabulary, which is what 0097 has to widen.
     await client.query(`ALTER TABLE ncmec_reports DROP CONSTRAINT IF EXISTS ncmec_reports_submission_status_check`);
     await client.query(
       `ALTER TABLE ncmec_reports ADD CONSTRAINT ncmec_reports_submission_status_check
@@ -2130,9 +2130,9 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       const { rows: cols } = await client.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns
           WHERE table_name = 'ncmec_reports' AND column_name = ANY($1)`,
-        [NCMEC_REPORT_COLUMNS_0095],
+        [NCMEC_REPORT_COLUMNS_0097],
       );
-      assert.equal(cols.length, NCMEC_REPORT_COLUMNS_0095.length, "a column was not added from the 0094 state");
+      assert.equal(cols.length, NCMEC_REPORT_COLUMNS_0097.length, "a column was not added from the 0094 state");
 
       const { rows: idx } = await client.query<{ indexname: string }>(
         `SELECT indexname FROM pg_indexes WHERE tablename = 'ncmec_reports'
@@ -2156,10 +2156,10 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     // A partially recovered or manually drifted database could have an index called
     // "UQ_ncmec_reports_quarantine" that is not this migration's constraint at all — not
     // unique, or missing the predicate. `CREATE UNIQUE INDEX IF NOT EXISTS` would accept the
-    // name and record 0095 as applied while the correctness constraint stayed absent.
+    // name and record 0097 as applied while the correctness constraint stayed absent.
     await inRolledBackTx(async (client) => {
       await rewindTo0094(client);
-      // First bring the database to a genuine 0095 state, so quarantine_id exists to index.
+      // First bring the database to a genuine 0097 state, so quarantine_id exists to index.
       await client.query(executableMigration());
       // Then swap the real (correct) index for a wrong one under the same name — not
       // unique, so two reports could still claim one quarantine hit — and rerun.
@@ -2281,9 +2281,9 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
     });
   });
 
-  it("links a report written by pre-0095 code during the rolling-deploy window", async (t) => {
+  it("links a report written by pre-0097 code during the rolling-deploy window", async (t) => {
     if (!pool) return t.skip("DATABASE_URL not set");
-    // 0095 commits before the new code is serving everywhere, so an OLD instance keeps
+    // 0097 commits before the new code is serving everywhere, so an OLD instance keeps
     // writing the linkage into request_metadata only — after the one-shot backfill has
     // already selected its rows. Those reports would be invisible to the orphan sweep, which
     // would then create a second report for the same hit.
@@ -2294,7 +2294,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       );
       const qid = Number(q!.id);
 
-      // Exactly what the pre-0095 code writes: no quarantine_id column in the INSERT.
+      // Exactly what the pre-0097 code writes: no quarantine_id column in the INSERT.
       const { rows: [r] } = await client.query<{ quarantine_id: string | null }>(
         `INSERT INTO ncmec_reports (match_source, evidence_uri, request_metadata)
          VALUES ('arachnid', 'restricted/quarantine/rolling.jpg', $1::jsonb)

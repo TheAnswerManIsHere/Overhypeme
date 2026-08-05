@@ -13,6 +13,7 @@ import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { ipFromRequest } from "../lib/transientRenderLog";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
+import { effectiveTierForRow } from "../lib/membershipState";
 
 const router: IRouter = Router();
 
@@ -188,7 +189,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      membershipTier: effectiveTierForRow(user),
     },
     access_token: "",
     captchaVerified: false,
@@ -210,7 +211,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      membershipTier: effectiveTierForRow(user),
     },
   });
   return;
@@ -289,7 +290,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      membershipTier: effectiveTierForRow(user),
     },
     access_token: "",
     captchaVerified: user.captchaVerified,
@@ -304,7 +305,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      membershipTier: effectiveTierForRow(user),
     },
   });
 });
@@ -501,7 +502,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
         id: verifiedUser.id,
         email: verifiedUser.email,
         profileImageUrl: verifiedUser.profileImageUrl,
-        membershipTier: verifiedUser.membershipTier,
+        membershipTier: effectiveTierForRow(verifiedUser),
       },
       access_token: "",
       captchaVerified: verifiedUser.captchaVerified,
@@ -761,7 +762,7 @@ async function handleDevAdminLogin(req: Request, res: Response) {
       id: adminUser.id,
       email: adminUser.email,
       profileImageUrl: adminUser.profileImageUrl,
-      membershipTier: adminUser.membershipTier,
+      membershipTier: effectiveTierForRow(adminUser),
     },
     access_token: "",
     captchaVerified: adminUser.captchaVerified,

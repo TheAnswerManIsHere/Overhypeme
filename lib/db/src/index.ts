@@ -202,7 +202,7 @@ export interface NcmecAuditBoundaryStatus {
    * tgfoid, tgtype) — the trigger genuinely calls "the function named
    * ncmec_safety_audit_log_append_only", it just no longer does what that name promises.
    * `NCMEC_AUDIT_LOG_GUARD_FN_BODY` below is compared against `pg_proc.prosrc` for an exact
-   * match, mirroring the same check migration 0095 makes on the same tampering (see `fn_body`
+   * match, mirroring the same check migration 0097 makes on the same tampering (see `fn_body`
    * there — a migration test asserts the two copies stay byte-identical, since this file
    * cannot literally share the migration's PL/pgSQL source). Byte-identical source text is
    * not sufficient on its own, though: inside a `SECURITY DEFINER` function, `current_user`
@@ -217,10 +217,10 @@ export interface NcmecAuditBoundaryStatus {
 }
 
 /**
- * The append-only guard function's exact body, copied from migration 0095's `fn_body`
- * (`lib/db/migrations/0095_ncmec_submission.sql`). Kept identical there and here rather than
+ * The append-only guard function's exact body, copied from migration 0097's `fn_body`
+ * (`lib/db/migrations/0097_ncmec_submission.sql`). Kept identical there and here rather than
  * computed once and shared, because a SQL migration file and a TypeScript module cannot
- * literally import from each other — `migrations.0095.test.ts` asserts byte-for-byte equality
+ * literally import from each other — `migrations.0097.test.ts` asserts byte-for-byte equality
  * between the two copies, so drift fails CI instead of silently weakening this check.
  *
  * `pg_roles`/`pg_has_role` are schema-qualified as `pg_catalog.pg_roles`/
@@ -253,13 +253,13 @@ END;
  * Report whether the append-only guarantee on `ncmec_safety_audit_log` is a
  * real privilege boundary or only a convention with teeth.
  *
- * Migration 0095 creates the table, the role-gated triggers, and the
+ * Migration 0097 creates the table, the role-gated triggers, and the
  * maintenance role — but a migration cannot manufacture a privilege boundary
  * above itself. It runs as the application role, so the application role owns
  * what it creates and `ALTER TABLE … DISABLE TRIGGER` needs nothing more than
  * ownership. Completing the boundary is a DBA step outside the migration
  * (transfer ownership to `overhype_audit_owner`, grant the application role no
- * membership in it), and 0095 prints exactly that command when it finds the
+ * membership in it), and 0097 prints exactly that command when it finds the
  * step undone.
  *
  * This function is how the rest of the system finds out which of those two
@@ -542,7 +542,7 @@ export async function ncmecAuditBoundaryStatus(
   const row = rows[0];
   if (!row) {
     throw new Error(
-      "ncmec_safety_audit_log does not exist — migration 0095 has not been applied to this database.",
+      "ncmec_safety_audit_log does not exist — migration 0097 has not been applied to this database.",
     );
   }
 

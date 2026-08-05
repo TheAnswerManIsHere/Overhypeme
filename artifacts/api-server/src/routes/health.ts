@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { stripeProcessedEventsTable } from "@workspace/db/schema";
@@ -8,10 +8,15 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/healthz", (_req, res) => {
+// Exported so app.ts can re-register the same handler ahead of the global
+// rate limiter (see app.ts) — one implementation, so a future response-schema
+// change can't leave an early copy stale while the router's own tests pass.
+export function healthzHandler(_req: Request, res: Response): void {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
-});
+}
+
+router.get("/healthz", healthzHandler);
 
 // Richer health endpoint intended for external uptime monitors (UptimeRobot,
 // BetterStack, etc). Cheap: one indexed read against stripe_processed_events
@@ -49,10 +54,14 @@ router.get("/health", async (_req, res) => {
 /**
  * Unauthenticated worker-liveness probe for an external monitor.
  *
- * **This is the only design in the plan that survives total process death** — an
- * in-process watchdog cannot detect its own absence, so the alerting built in
- * later phases has a blind spot that only something outside the process can
- * close. Point any uptime monitor here.
+ * This route dies with the process like any other — it does not itself
+ * survive anything. What makes it the right thing to point a monitor at is
+ * that an in-process watchdog can never detect its own absence, so only an
+ * *external* caller polling this endpoint can turn total process death into
+ * a signal (a connection failure), closing the blind spot the alerting built
+ * in later phases would otherwise have. While the process IS up, it also
+ * adds a meaningful non-200 no other endpoint has: 503 when every worker has
+ * stopped scheduling a lane fleet-wide. Point any uptime monitor here.
  *
  * **Mounted under `/api`** (`app.ts`: `app.use("/api", router)`), so the real
  * path is `/api/health/queues`, not the bare route path below — a monitor

@@ -24,6 +24,139 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **CLAUDE.md cut roughly in half via skill migration + consolidation**
+  (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
+  tokens per session) — about half the file was procedural ceremony that
+  only matters at specific moments (the Codex plan-review loop, PR
+  watching, the paired TEST_RUN/UAT docs, model-routing detail), now
+  lazy-loaded as skills instead of resident every turn; trigger stubs for
+  the rules that must fire without the skill loaded stay resident. A
+  sentence-level audit confirmed no content was lost, only relocated or
+  (per a separate consolidation pass) genuinely superseded. Also fixed:
+  `check-docs-accuracy.mjs` didn't scan nested `CLAUDE.md` memory files
+  (e.g. `lib/api-zod/CLAUDE.md`), so a broken link in one had shipped
+  green; it now walks the whole repo for them. **Open gotcha, not yet a
+  guard:** moving a section between `CLAUDE.md` and a skill leaves *prose*
+  cross-references to the old heading (not markdown links) invisible to
+  the link checker — this PR's review loop found and fixed seven of them
+  one at a time across nine rounds before a systematic repo-wide sweep
+  caught the rest in one pass — see
+  [`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md).
+  The next migration of this shape should sweep first, not wait for review
+  to find them piecemeal.
+- **Global rate-limiter backstop for CodeQL's `js/missing-rate-limiting`**
+  (PR #308, implementing the plan approved after PR #299's 16-round review).
+  Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
+  per-instance, in-memory-backed ceiling — the first application-level rate
+  limiting for approximately 18 (upper-bound estimate, revised across five
+  review rounds — do not trust as final) of this API's 31 route
+  files — without changing any existing narrow, DB-backed limiter. See
+  [`security-model.md`](./security-model.md#authentication--sessions) and the
+  2026-08-04 [`decisions.md`](./decisions.md) entry for why an in-memory
+  store was chosen over a DB-backed one after a 14-round detour. Also fixed:
+  the video/PuLID/AI-render/reference-image job pollers now classify a 429
+  as retryable (status-429-only, never on `Retry-After` presence alone) so
+  the new global 429 path can't terminate a still-running, already-paid-for
+  generation job. Five pre-existing repo bugs the review loop surfaced along
+  the way are deliberately deferred to separate `/bugfix` PRs, not folded in
+  here. **Open next:** two CodeQL alerts re-fired on this PR's own
+  restructuring of `app.ts` (a re-attribution false positive, not a real
+  gap — see
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
+  and need a repo-admin to dismiss them in the Security tab.
+- **Workstream tracking: a GitHub Project board, label-driven, plus a
+  `/status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
+  unit of work now has a GitHub issue as its spine — except sensitive/
+  disclosure-carve-out work, which stays a private draft Project item, never
+  a public issue — carrying a **State of Play** block and
+  `stage:`/`waiting:`/`mode:` labels that a CI Action
+  mirrors onto a private Project board; `/status` reads those labels back
+  and adds what the board can't compute — stall detection and a
+  plain-language restatement of whatever a David-gate is actually asking.
+  Solves the problem that ~10 concurrent sessions gave David no way to tell
+  which needed him without opening each one. Labels are the source of truth
+  and the board is a projection, because **no MCP or REST tool can read or
+  write a Projects v2 item field** — the same constraint that keeps
+  `/status` reading labels rather than the board. Label maintenance is owned
+  by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
+  points they already hit, not by a standing habit. See
+  [`workstream-tracking.md`](./workstream-tracking.md) and
+  [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
+  **Open next:** the board's value depends on labels staying current now
+  that no human maintains them — worth a check after a few workstreams that
+  the four skills actually fire as intended.
+- **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
+  Health surface** (PR #288, from the plan reviewed on the closed-unmerged
+  PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
+  this phase adds observability, not new queue behavior, though it does
+  write new state (see below). Each lane's worker now publishes a heartbeat
+  (`worker_lane_heartbeats`), and three new endpoints comprise the surface:
+  an admin aggregate view and an unauthenticated `/api/health/queues`
+  liveness probe both read the heartbeat — the aggregate view already
+  reports a fleet-wide stall as JSON data (always behind a 200); the probe
+  uniquely turns that same verdict into the HTTP status code itself, a
+  meaningful 503 when the API process is alive but every worker has stopped
+  scheduling a lane fleet-wide; a paginated
+  per-item drill-down (all eleven queues, not just email) reads only
+  `async_jobs`, not the heartbeat. One narrow, David-approved exception to
+  "no finalize changes": `processClaimedJob` now persists the resolved
+  retry ceiling at the moment a row finalizes to `failed` — the
+  `abandoned_no_retry` classification itself stays derived on every read,
+  never stored (see
+  [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)).
+  Also closed a real gap from the five-lane expansion (PR #256, which added
+  the `pexels`/`ai_meme_backfill` lanes on top of PR #216's original
+  fast/render/bulk split): the shared DB pool's
+  `max` is now explicit and derived (20) instead of pg's implicit default
+  (10), which had left zero spare connections once all five lanes were
+  simultaneously busy. See
+  [`architecture-map.md`](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
+  and the manual's [Background Work](../manual/background-work.md#worker-liveness-and-the-queue-health-surface)
+  chapter. **Open next:** Phases 2–4 of the same plan are not yet
+  scheduled — Phase 2 (two alert channels: in-app + an out-of-band webhook
+  that doesn't depend on the DB-backed email queue), Phase 3 (claim
+  fencing so a rare duplicate paid call is preferred over ever losing work),
+  Phase 4 (the enqueue primitive moves to `onConflictDoNothing`).
+- **Loop ledger backfilled + a CI guard against future gaps** (PR #286, rows
+  #285/#286 folded in later via PR #290). Between the ledger's creation
+  (PR #270) and 2026-07-29 it had accrued 2 rows against 13 closed loops,
+  with zero rows in the bugfix and feature/code cohorts — the
+  append-when-a-loop-closes obligation had nowhere to fail, so it was
+  silently skipped while every PR stayed green. Backfilled: #274, #282,
+  #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
+  (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
+  into the Build job, originally failed CI when a loop that closed *before
+  the current PR opened* had neither a row nor a recorded exemption — a
+  loop closing while a PR was already in flight stayed unenforced until the
+  next one opened. **Superseded 2026-08-02** (PR #304): rows now ship via a
+  dedicated `[LEDGER]`-titled PR rather than folding into whichever PR opens
+  next, so a regular PR's missing rows are a printed warning only, the
+  `[LEDGER]` PR carries them as a hard gate, and a push-to-`main` audit
+  closes the exact mid-flight gap described above — reporting pending debt
+  on every run and failing only once it goes overdue. See
+  [`working-modes.md`](./working-modes.md#the-loop-ledger) → *"A row ships
+  in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
+  enabled Codex
+  "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
+  **The row-by-row numbers, the self-inflicted-share trend, the cohort
+  mechanics, and the pre/post-boundary analysis all live in
+  [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+  — read there, not here.** Duplicating that analysis into this file was
+  the original design of this bullet and it went stale twice across PR
+  #290's own review rounds (a trend claim, a cohort explanation, and a
+  boundary claim each drifted from the canonical ledger before landing);
+  this bullet is deliberately kept to a shipped-slice summary from here on.
+  See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger). Two things
+  surfaced but deliberately left unfixed, for David to decide: the ledger's
+  own `classifyCohort` routes any **non-plan-review** PR carrying a
+  non-ledger markdown file to `prose/contract` (a `[PLAN REVIEW]`-titled PR
+  is checked first and stays `plan-review` regardless), which is part of
+  why the `feature/code` cohort is still empty (see the ledger's
+  cohort-leakage note for the precise mechanism);
+  and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
+  trigger a check-in, with no record of whether one happened (see the
+  ledger's row 6).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). Both Claude Code and Codex now append a row — mechanical
   columns machine-derived, judgment columns hand-entered and marked as such —
@@ -207,6 +340,27 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Pre-launch hardening (must-do before go-live)
 
+- **Record the Stripe mode on every entitlement source.** Sits here rather than
+  in the deferred list because the thing that triggers it *is* a go-live action.
+  Provider-backed sources in `membership_entitlements` store only the Stripe
+  object id, and `loadSourceSnapshots` derives membership from every retained
+  row — so a **test-mode** membership created before flipping
+  `stripe_live_mode` keeps granting Legendary afterwards. A live-mode refresh
+  cannot repair it either: the test object does not exist in the live account,
+  so the source is permanently unverifiable rather than merely stale.
+  - **Shape.** A `livemode` column on `membership_entitlements`, written from
+    the retrieved Stripe object at the trust boundary, and excluded from (or
+    recomputed by) the derivation when it does not match the active mode.
+  - **The part that is a decision, not a mechanic.** What `livemode` should be
+    for rows that predate the column. Defaulting them all to the *current* mode
+    is a guess, and guessing permissively recreates the exact bug the column
+    exists to prevent — so the backfill needs David's call, and the migration
+    wants `/overhype-migration-review`.
+  - **Sequencing.** Blocked on PR #287 merging: the table it adds a column to
+    only exists on that branch.
+  - **Exposure meanwhile.** Operator-only. No customer path reaches it, and no
+    live purchase is affected. Found by Codex on PR #287 round 11 and escalated
+    rather than patched in at the end of an eleven-round review loop.
 - **Scope/rotate `ADMIN_API_KEY`.** A single static key grants 9 admin routes
   (incl. `set-password` and the bulk backfill launchers) without a session;
   decide whether to scope, rotate, or replace it.
@@ -245,15 +399,20 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Open product questions
 
-- **Should admin (`requireAdmin`) routes ever get rate limiting?** CodeQL
-  flagged the new `resubmit-for-moderation` route (PR #242) as high-severity
-  "missing rate limiting." Verified this matches ~30 existing `requireAdmin`
-  routes across `admin.ts`/`reviews.ts` — none are rate-limited; the two
-  rate-limiter factories in the repo are used exclusively on public/
-  authenticated-user-reachable routes (fact submission, AI generation). Pending
-  David's call: dismiss the alert as consistent with the existing admin trust
-  boundary (session + role, not per-request throttling), or start adding rate
-  limiting to admin routes as new policy.
+- **Should admin (`requireAdmin`) routes get their own *feature-specific* rate
+  limiting?** CodeQL flagged the new `resubmit-for-moderation` route (PR #242)
+  as high-severity "missing rate limiting," matching ~30 existing
+  `requireAdmin` routes across `admin.ts`/`reviews.ts` with no per-feature
+  throttle. **Partially resolved by PR #308** (2026-08-04): a global,
+  API-wide rate-limiter now sits in front of every `/api` route including
+  admin ones (a coarse per-IP ceiling — see
+  [`security-model.md`](./security-model.md) and the 2026-08-04
+  `decisions.md` entry), which clears the specific CodeQL alert class this
+  question was originally about. Still open: whether admin routes should get
+  their own **narrow, DB-backed** per-feature limiter on top of that coarse
+  backstop — the global one is a blast-radius ceiling, not a
+  per-endpoint-abuse control, so this is a genuinely separate question from
+  the one CodeQL was flagging.
 - Should any render scenario become a **hard** approval gate (today all waivable)?
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk

@@ -320,6 +320,22 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Source of truth: lib/db/src/schema/workerLaneHeartbeats.ts.
   "0094_worker_lane_heartbeats",
 
+  // Entitlement model part 1: creates membership_entitlements,
+  // entitlement_source_disputes, membership_leases, the two ordering sequences
+  // and users.membership_valid_until, plus the admin_config seeds. Hand-authored
+  // idempotent DDL — drizzle-kit generate stays broken on the malformed 0063
+  // snapshot, and the file carries triggers and partial/conditional constraints
+  // Drizzle's snapshot format cannot represent anyway. Source of truth:
+  // lib/db/src/schema/membershipEntitlements.ts + auth.ts.
+  "0095_membership_entitlements",
+
+  // Entitlement model part 2: drops the legacy `subscriptions` and
+  // `lifetime_entitlements` tables once every writer has moved onto
+  // membership_entitlements. Two DROP statements — no schema delta drizzle-kit
+  // can express against a snapshot chain it cannot regenerate. Source of truth:
+  // lib/db/src/schema/memberships.ts (both tables removed).
+  "0096_drop_legacy_membership_tables",
+
   // Phase 1 of the NCMEC CyberTipline submission plan: additive columns on
   // ncmec_reports + quarantined_memes, the widened submission_status CHECK, the
   // append-only ncmec_safety_audit_log (table + role-gated triggers), three
@@ -327,7 +343,7 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // eight seeded admin_config rows. Hand-authored idempotent DDL — drizzle-kit
   // generate stays broken on the malformed 0063 snapshot.
   // Source of truth: lib/db/src/schema/moderation.ts.
-  "0095_ncmec_submission",
+  "0097_ncmec_submission",
 ]);
 
 interface JournalEntry {

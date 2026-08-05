@@ -474,30 +474,45 @@ lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
 
-## Un-frozen input re-resolved live between enqueue and async execution
+## Un-frozen input re-resolved live after its freeze point
 
-**Looks like:** a value (identity, config, a selected option) is fixed at the
-moment a user takes an action, but an async worker that processes the
-resulting job re-derives that same value **live** — a fresh DB query, a fresh
-config read — instead of reading whatever was fixed at enqueue time.
-**Dangerous:** if the underlying source changes in the window between enqueue
-and execution (a profile edit, a config change, a row deactivated), the worker
-silently uses the NEW value while other parts of the same job (text already
-rendered from the OLD value) still reflect the old one — producing output that
-is internally inconsistent with itself, and non-reproducible (the same job
-re-run later can produce a different result than it would have at enqueue
-time). **Avoid:** resolve every input a job needs exactly ONCE, at the point of
-enqueue, and persist a validated snapshot on the job/row; the worker reads the
-snapshot and never re-queries the live source for that input. **Overhype:** the
-`image_prompt_generation` worker re-queried the user's `displayName`/`pronouns`
-and re-resolved the selected look-style live on every run, even though the
-fact text had already been frozen at enqueue — a profile edit or a style
-edit/deactivation in that window could produce a render whose frozen fact text
-and whose live-resolved identity/style disagreed. Fixed by
-`prepareImagePromptAttemptInputs()` freezing a `PromptIdentitySnapshot` +
-`ResolvedRenderStyleSnapshot` once and rendering the fact text from that same
-identity (PR #223). See
-[`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+**Looks like:** a value (identity, config, a selected option) is fixed at one
+point in a pipeline — enqueue time, or a job's finalization — but a later
+consumer (the worker that runs it, or a reader that classifies it afterward)
+re-derives that same value **live** — a fresh DB query, a fresh config read —
+instead of reading whatever was fixed at that earlier point.
+**Dangerous:** if the underlying source changes in the window between the
+freeze point and the later read (a profile edit, a config change, a row
+deactivated, an admin raising a limit), the consumer silently uses the NEW
+value while other parts of the same record (text already rendered, or a
+status already decided from the OLD value) still reflect the old one —
+producing output that is internally inconsistent with itself, and
+non-reproducible (re-reading later can produce a different answer than it
+would have at the freeze point). **Avoid:** resolve every input exactly ONCE,
+at the point it's actually known, and persist a validated snapshot on the
+job/row; every later consumer reads the snapshot and never re-queries the live
+source for that input. **Overhype:**
+- The `image_prompt_generation` worker re-queried the user's
+  `displayName`/`pronouns` and re-resolved the selected look-style live on
+  every run, even though the fact text had already been frozen at enqueue —
+  a profile edit or a style edit/deactivation in that window could produce a
+  render whose frozen fact text and whose live-resolved identity/style
+  disagreed. Fixed by `prepareImagePromptAttemptInputs()` freezing a
+  `PromptIdentitySnapshot` + `ResolvedRenderStyleSnapshot` once and rendering
+  the fact text from that same identity (PR #223). See
+  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+- The Queue Health surface's `abandoned_no_retry` classification re-resolved
+  a queue's retry ceiling from **current** `admin_config` at read time for
+  any row still carrying the `0` sentinel (the common case — no per-row
+  override). A row that legitimately exhausted retries under an old, lower
+  ceiling would silently flip to `abandoned_no_retry` the moment an admin
+  later raised that queue's limit — degrading *after* the fact,
+  with no code change to explain it. Fixed by persisting the resolved
+  ceiling onto the row at the one moment it's finalized to `failed` (PR
+  #288); a pre-fix legacy row (still carrying the sentinel, since the
+  migration doesn't backfill) is classified conservatively rather than risk
+  the same bug on data that can't be resolved safely. See
+  [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live).
 
 ## Budget-constrained assembly blindly truncates wherever length lands
 
@@ -700,3 +715,72 @@ exactly where the numerator lives. Both defects were confirmed by
 independent review before the sampling design was replaced entirely with
 full-population adjudication. See
 [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).
+
+## Fixing the flagged site and leaving its siblings
+
+**Symptom:** a reviewer names one place a fact is wrong or duplicated. You fix
+exactly that place, push, and the next review round names the next copy. Repeat
+for as many rounds as the fact has homes. Each round looks like progress and
+the finding count never falls.
+
+**Why it happens:** review comments are anchored to a *line*, so they arrive
+scoped to one site even when the defect is repo-wide. Fixing what was pointed
+at feels complete and is locally verifiable — the flagged line is now correct —
+so nothing prompts the wider search. Worse, correcting one copy can *create* a
+contradiction, because the other copies now disagree with a document that was
+previously consistent with them.
+
+**Avoid:** treat a finding as naming a **fact**, not a line. Before pushing the
+fix, grep the whole repo for every other site asserting that fact — including
+docs the PR does not otherwise touch — and fix or explicitly qualify each one.
+Verify against the *fact*, not the string you happened to delete: a paraphrase
+forks exactly as well as a quotation, so a grep for the removed wording can
+pass while the claim survives three lines away in different words.
+
+**Overhype:** PR #291 (the async-lane de-fork) ran six review rounds and this
+pattern accounted for a finding in five of them. The clearest instance: a claim
+equating async-jobs handler concurrency with database pool occupancy was
+corrected in `architecture-map.md` in round 4, which left `background-work.md`
+and `deferred-work.md` asserting the disproved version — so the repo
+contradicted itself in three places *because* one site had been fixed, and
+`decisions.md` turned out to be a fourth. In another instance the round-1 fix
+deleted the offending sentences and left paraphrases of the same two facts
+inside the very sentence that linked to the spec; the author's own verification
+grepped for the deleted strings, passed, and missed it.
+
+**The lexical half of this is now a CI guard** —
+`scripts/check-manual-tuning-language.mjs` fails the build on values and their
+prose stand-ins in `docs/manual/`, which is what most of those rounds were
+actually about. The guard is deliberately narrow and **cannot** detect a fact
+with two homes, a paraphrased spec section, or a false claim. Those remain the
+human half, and this entry is the reminder that they exist.
+
+**The pattern generalizes past docs to code call sites (PR #308).** Mounting
+a new global rate limiter gave several `/api` pollers their first-ever
+rate-limit 429 path to handle — **not every poller**, since some endpoints
+already had their own pre-existing 429 (see below) — a new failure mode with
+**at least four independent call sites** (not a
+verified-exhaustive count, per the same undercounting this file's own
+"fixing the flagged site" lesson warns about) across two components' worth
+of poll loops. The plan's own implementation fixed one (the video/PuLID
+pollers) up front; round 1 of review found a second (`AiBgPicker`'s render
+poller); round 2 found a third, in an entirely different component
+(`SourceImageConfirmModal`) that no earlier fix had touched, plus a fourth
+handler (`handleConfirmCancel`) left outside a sibling fix in the *same*
+file. Each fix was locally correct and each round looked like progress while
+the finding count didn't fall to zero until round 3. **Not every poller of
+an endpoint the global limiter now covers was newly exposed** — a Codex
+round on this very `/document` harvest found a fifth poller
+(`useTaxonomyHealthActions.ts` → `/api/admin/taxonomy-health/job-status` —
+the client-visible path; `/admin/...` is only the router-local path before
+`app.use("/api", router)` mounts it) whose
+429 handling predates this PR entirely, because that route already had its
+own `checkSharedRateLimit` call (it's one of the pre-existing DB-backed
+limiters `adminTaxonomyHealth.ts` is documented as, elsewhere in this repo's
+docs) — a reminder that "every caller of a newly-changed resource" still
+needs checking against what was already true, not assumed to be uniformly
+new. Same avoidance: when a change introduces a new failure mode on a shared
+resource (an endpoint, a response shape, an error code), grep for **every**
+caller of that resource before considering the fix complete — not just the
+one a review comment or the plan happened to name, and not assuming the
+count found is the count that exists.

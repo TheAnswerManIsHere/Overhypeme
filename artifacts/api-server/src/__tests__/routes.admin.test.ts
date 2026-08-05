@@ -844,7 +844,7 @@ describe("PATCH /admin/config/:key", () => {
     assert.equal(res.body.error, "admin_required");
   });
 
-  // Migration 0095 seeds the NCMEC keys into admin_config, and this route
+  // Migration 0097 seeds the NCMEC keys into admin_config, and this route
   // writes any key that exists there after validating nothing but data type and
   // min/max. Without the refusal below, an admin could set
   // ncmec_submission_enabled = true and ncmec_ispws_environment = production
@@ -879,10 +879,10 @@ describe("PATCH /admin/config/:key", () => {
     // gate instead — production is refused unless a recipient resolves.
     //
     // Seeded here rather than assumed present: the sharded test runner clones
-    // each worker database from a `pg_dump --schema-only` template, so 0095's
+    // each worker database from a `pg_dump --schema-only` template, so 0097's
     // seed INSERTs from the shared "pretest" migrate run never reach a worker's
     // admin_config — only the schema does. Seeding it (idempotently, matching
-    // 0095's own row shape) makes this test self-contained regardless of which
+    // 0097's own row shape) makes this test self-contained regardless of which
     // database state it runs against.
     const [existing] = await db
       .select({ value: adminConfigTable.value })
