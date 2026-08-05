@@ -295,7 +295,14 @@ already at `stage:planning`:
 
 If the workstream issue doesn't exist yet when the review PR opens (a
 Discovery conversation that went straight to a plan without ever getting
-its own issue), open it now rather than leaving this loop untracked.
+its own issue), open it now rather than leaving this loop untracked —
+with the full initial label set (`stage:planning`, `waiting:codex` if the
+first `@codex review` trigger is about to post or `waiting:claude` if not
+yet, `mode:feature`) and a State of Play block, not just the issue itself.
+An issue opened without these three labels is invisible to
+`/workstream-status` (it filters to issues carrying a `stage:` label) and
+to the board's sync Action, so skipping them isn't a smaller version of
+tracking this workstream — it's not tracking it at all.
 
 **Every label change above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per

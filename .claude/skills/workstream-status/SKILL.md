@@ -1,9 +1,9 @@
 ---
-name: status
-description: Give David a cold-open summary of every open workstream — where each stands in the lifecycle, who's holding it, and which ones are stalled or need his input. Use when David says /status, "what's the state of things", "what needs me", or is picking a session back up after time away and doesn't remember where he left off. Best run from a fresh, cheap session rather than an existing long thread.
+name: workstream-status
+description: Give David a cold-open summary of every open workstream — where each stands in the lifecycle, who's holding it, and which ones are stalled or need his input. Use when David says /workstream-status, "what's the state of things", "what needs me", or is picking a session back up after time away and doesn't remember where he left off. Best run from a fresh, cheap session rather than an existing long thread.
 ---
 
-# /status — the workstream board, read cold
+# /workstream-status — the workstream board, read cold
 
 David runs ~10 concurrent sessions across Discovery → Planning →
 🛑 Plan approval → Coding → Code review → 🛑 Merge → Test run →
@@ -12,6 +12,10 @@ each one. This skill answers that from **outside** any of them, using
 GitHub as the shared substrate — no session memory required, which is why
 it works cold in a brand-new session and shouldn't be run inside a long
 existing thread (that burns the wrong session's context for no benefit).
+
+**Named `/workstream-status`, not `/status`**, because `/status` is
+Claude Code's own built-in command (opens the Settings Status tab) — using
+that name would make this skill unreachable through its intended trigger.
 
 **This is a read-only reporting skill.** It never writes labels, comments,
 or issue bodies — that's `pr-watch`, `plan-review-loop`, `bugfix`, and
@@ -32,10 +36,10 @@ right (or the sync Action needs a look).
 
 **Work with no issue yet.** A pure Discovery conversation that hasn't
 produced an issue is invisible to GitHub entirely — this is a structural
-gap, not a bug in this skill. If a `/status` run feels like it's missing a
-session David knows is active, that session hasn't opened its workstream
-issue yet. Mention this possibility in the report if the count looks low
-relative to what David expects.
+gap, not a bug in this skill. If a `/workstream-status` run feels like
+it's missing a session David knows is active, that session hasn't opened
+its workstream issue yet. Mention this possibility in the report if the
+count looks low relative to what David expects.
 
 **Sensitive/disclosure-carve-out workstreams.** Per the plan-review-loop's
 disclosure rule, those live as draft Project items, not issues, precisely
@@ -44,9 +48,15 @@ tool-based report, including this one.
 
 ## Step 1 — Fetch every open workstream issue
 
+Page through **all** open issues, not just the first page — a single
+capped call silently drops any workstream past the page boundary, and a
+missing row reads as "nothing needs attention," the opposite of what this
+report promises:
+
 ```
-list_issues(owner, repo, state: OPEN, perPage: 50,
+list_issues(owner, repo, state: OPEN, perPage: 100,
             fields: [number, title, labels, updated_at])
+# repeat with pagination until the response is exhausted
 ```
 
 Filter out anything without a `stage:` label — that's not a workstream
@@ -60,7 +70,7 @@ does:
 - `waiting:*` → who's holding it (david / claude / codex / replit / ci)
 - `mode:*` → feature / bugfix / docs / devops
 
-## Step 2 — Fetch sub-issues
+## Step 2 — Fetch sub-issues, then deduplicate the top-level set
 
 For every workstream issue, call `issue_read` (`method: get`) and check
 `has_children`. Where true, `get_sub_issues` to pull the children (e.g. a
@@ -68,7 +78,14 @@ For every workstream issue, call `issue_read` (`method: get`) and check
 own row with its own `stage:`/`waiting:` labels — render it nested under
 its parent, not flattened into the top-level list.
 
-## Step 3 — Find each workstream's PR(s)
+**Remove every issue returned by `get_sub_issues` from the Step 1 set**
+before rendering the top-level fleet view. Step 1 fetches *every* open
+issue with a `stage:` label, which already includes labeled sub-issues —
+without this removal, a child appears twice (once nested under its
+parent, once again as its own top-level row) and the section counts are
+wrong.
+
+## Step 3 — Find each workstream's PR(s) and its full activity
 
 There is no GitHub-native issue↔PR link here, because PR bodies say
 `Workstream: #N`, never `Closes #N` (deliberately — the latter would
@@ -90,8 +107,14 @@ report should surface anyway.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
-open threads) — same discipline as `pr-watch`, minimal calls, no
-per-thread narration in the output.
+open threads, **and `get_comments` for top-level issue comments**) — same
+discipline as `pr-watch`, minimal calls, no per-thread narration in the
+output. `get_comments` matters here, not just for completeness: this
+repo's Codex loop delivers some events — a clean re-review pass, an
+`@codex review` trigger — as plain issue comments rather than inline
+review threads (`scripts/loop-metrics.mjs`'s own derivation has to handle
+this same shape). Skipping `get_comments` makes those events invisible,
+which can misreport who's actually holding a workstream.
 
 ## Step 4 — The judgment layer (this is the actual point)
 
@@ -105,9 +128,27 @@ worth running.
 A workstream is **stalled** when `waiting` is NOT `david` (a David-gate is
 "needs you," a more urgent bucket — never double-count it as stalled) and
 there has been no relevant activity — no new commit, no Codex comment, no
-reply from Claude — in the linked PR for **more than 48 hours**. Use the
-PR's `updated_at` plus the latest comment/review timestamp from
-`get_review_comments`, whichever is more recent.
+reply from Claude — for **more than 48 hours**.
+
+**Compute the activity timestamp from the latest *non-David* action**,
+across the PR's `updated_at`, `get_review_comments`, and `get_comments`
+(step 3) — never from David's own last comment or the PR's raw
+`updated_at` alone. A `waiting:claude`/`waiting:codex` thread that David
+pinged after it had already gone quiet is exactly the stale handoff this
+report exists to catch; using David's ping as the activity timestamp
+resets the 48-hour clock and hides it. If David *was* the last person to
+act (e.g. he already answered and nobody has picked it up since), still
+report that fact plainly — just don't let his own activity mask a stale
+non-David handoff underneath it.
+
+**A workstream with no linked PR can stall too** — a Discovery/Planning-
+stage issue sitting at `waiting:claude`/`waiting:codex` with no repo
+activity for days is stalled the same way a quiet PR thread is, even
+though Step 3 found nothing to check. For these, use the issue's own
+`updated_at` and its comment history (`issue_read`) as the activity
+source instead of a PR's — don't let "no PR yet" mean "can't be stalled,"
+since a workstream that never gets a PR shape stalls in exactly the same
+way, just on a different object.
 
 This catches both directions: `waiting:codex` with no Codex response
 (review hasn't landed) *and* `waiting:claude`/`waiting:codex` with a
@@ -118,7 +159,8 @@ how long ago, who was last to act) and let David or the resuming session
 draw the conclusion.
 
 48 hours is a default, not a hard rule — if David asks for a tighter or
-looser window in the invocation (e.g. "/status stalled=24h"), honor it.
+looser window in the invocation (e.g. "/workstream-status stalled=24h"),
+honor it.
 
 ### Plain-language blockers for anything `waiting:david`
 
@@ -168,7 +210,7 @@ banner's structure here.
 No item anywhere gets silently dropped to keep the report short — if
 something doesn't fit a bucket cleanly, say so rather than omitting it.
 
-## Drill-down: `/status <issue-number>`
+## Drill-down: `/workstream-status <issue-number>`
 
 Skip the fleet view. Fetch that one issue's full body (its State of Play
 block), its linked PR's live CI + all open threads, and its sub-issues if

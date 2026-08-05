@@ -4,6 +4,12 @@
   strike through (~~…~~) what doesn't. Human and agent PRs both use this.
 -->
 
+**Workstream:** #<!-- issue number, if this PR belongs to a tracked workstream
+     (see docs/ai-context/workstream-tracking.md). Never "Closes #N" — that
+     auto-closes the issue at merge and skips Test run/UAT. Leave blank/delete
+     this line for a PR with no workstream issue (exploratory work, a trivial
+     fix with nothing to track). -->
+
 ## What & why
 
 <!-- What changed and the intent it serves. Link the plan/issue if there is one. -->

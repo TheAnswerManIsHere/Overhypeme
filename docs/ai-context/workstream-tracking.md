@@ -14,7 +14,7 @@ or which need him, without opening each one. This closes that gap using
 GitHub's own project management rather than a bespoke tracker: **one issue
 per workstream**, a private Project board
 ([Overhype.me Workstreams](https://github.com/users/TheAnswerManIsHere/projects/1))
-for visual scanning, and a `/status` skill for the judgment the board can't
+for visual scanning, and a `/workstream-status` skill for the judgment the board can't
 compute on its own (stall detection, plain-language restatement of what a
 David-gate is actually asking).
 
@@ -48,7 +48,7 @@ of the workstream issue's body, with these fields:
   own sake — enough that a cold reader understands the current shape.
 - **What's blocking** — if `waiting` is `david`, the actual question,
   restated in plain language from the real thread, not inferred from the
-  stage name alone (the same accuracy bar `/status` applies). If nothing's
+  stage name alone (the same accuracy bar `/workstream-status` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
 - **Artifacts** — PR numbers, branch names, key file paths, the Project link.
@@ -68,7 +68,7 @@ The Project board's `Status`/`Waiting On`/`Mode` fields are the *display*;
 the issue's labels are what's actually true. **No available tool (MCP or
 REST) can read or write a Projects v2 item field directly** — confirmed
 twice, independently, building the sync mechanism (PR #318) and again
-confirming `/status` has to read labels rather than the board (PR #323). A
+confirming `/workstream-status` has to read labels rather than the board (PR #323). A
 `.github/workflows/project-sync.yml` Action
 (`scripts/sync-project-fields.mjs`) mirrors labels onto the board's fields
 on every label change; nothing else writes to the board, and nothing should.
@@ -143,9 +143,9 @@ restatement.
   Match by normalized name, not exact string, for anything a human typed
   into a GitHub UI.
 
-## `/status`
+## `/workstream-status`
 
-A **read-only** skill (`.claude/skills/status/SKILL.md`) that recomputes
+A **read-only** skill (`.claude/skills/workstream-status/SKILL.md`) that recomputes
 the board's view directly from issues + labels + PR state — it can't read
 the Project board either, for the same tooling gap above, so it doesn't
 try. Works from any session, including a fresh throwaway one; that's the

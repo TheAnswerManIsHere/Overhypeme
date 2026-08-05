@@ -137,19 +137,32 @@ silently leaving the workstream unlabeled):
 - **CI is green and Codex has converged, but the PR isn't merged yet** →
   `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
   the issue at `stage:code-review` here is exactly the kind of ready-to-go
-  workstream `/status` exists to surface, so don't let it sit unlabeled
-  just because nothing forced a transition.
-- **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
-  due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
-  bugfix or a Tier B bugfix whose only surface is internal (per
-  `working-modes.md`'s Tier B exception): all three go straight to
-  `stage:close-out` instead, since holding them at `uat` would be a gate
-  with nothing to run against it. "Has product-visible behavior" is *not*
-  the test by itself — a Tier A fix can be product-visible and still ship
-  no UAT doc, which is what makes checking for the doc the right test, not
-  the behavior. Never `stage:done` at merge — that's David's to set once
-  he's actually verified it, the same reason the Project's built-in
-  `PR merged → Done` workflow is off.
+  workstream `/workstream-status` exists to surface, so don't let it sit
+  unlabeled just because nothing forced a transition.
+- **The PR merges with a TEST_RUN doc** (`docs/PR<N>_..._TEST_RUN.md`) →
+  `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
+  between Merge and UAT, not a step to skip past. Per the `pr-docs`
+  contract, the TEST_RUN doc is transient: David deletes it once Replit has
+  actually run it, so its **absence on `main`** is the completion signal.
+  I (or whichever agent next touches this workstream — often
+  `/workstream-status`, since I may have already unsubscribed by the time
+  Replit finishes) move the issue to `stage:uat`/`waiting:david` on
+  noticing the doc is gone; there's no webhook that fires the moment
+  Replit finishes, so this transition is best-effort rather than
+  instantaneous — flag it if a workstream sits at `stage:test-run` with no
+  TEST_RUN doc for more than a day, since that means the transition was
+  simply never made, not that the run is still in progress.
+- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
+  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+  and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
+  internal (per `working-modes.md`'s Tier B exception): all three go
+  straight to `stage:close-out` instead, since holding them at `uat` would
+  be a gate with nothing to run against it. "Has product-visible behavior"
+  is *not* the test by itself — a Tier A fix can be product-visible and
+  still ship no UAT doc, which is what makes checking for the doc the right
+  test, not the behavior. Never `stage:done` at merge — that's David's to
+  set once he's actually verified it, the same reason the Project's
+  built-in `PR merged → Done` workflow is off.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
