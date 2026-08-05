@@ -823,9 +823,12 @@ its own fix history — round 5 found "a simpler 2-lane split ... in favor of
 3" and fixed
 it by spelling the count out ("a simpler two-way split ... in favor of a
 third, separate lane"), which round 6 caught as the same lane count restated
-as an ordinal instead of removed; the sentence was only genuinely fixed on the
-second pass, by describing the split qualitatively with no number in any
-form. Separately, the guard's own detection had to grow across rounds to
+as an ordinal instead of removed; the round-6 fix describes the split
+qualitatively with no number in any form, which is what a genuine fix looks
+like for this pattern — but that fix was never independently re-reviewed
+before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+row 22), so its correctness is this PR's own claim, not a confirmed close.
+Separately, the guard's own detection had to grow across rounds to
 cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
 phrase split across two physical lines, and a spelled-out-number extension
 whose digit-derived "attached s" shorthand accidentally matched an ordinary
