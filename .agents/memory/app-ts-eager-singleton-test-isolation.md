@@ -44,14 +44,26 @@ isn't a theoretical concern; it's load-bearing for this specific
 instance** at module level. Every caller — the production entrypoint
 (`index.ts`) and every test file — calls `createApp()` itself and gets an
 independent instance reading whatever env is current *at that call*, not at
-first-import time. **Scoped claim, not absolute:** `app.ts` still has other
-top-level, env-reading state unrelated to this bug — `ORIGIN_EXEMPT_PATHS`
-(built at module scope, calling `isDevAdminLoginEnabled()` which reads an env
-var) — because that state is a `Set`, not a stateful *app instance* built
-from request-serving middleware; it doesn't recreate the caching/leak
-mechanism this note is about. The rule below is specifically about
-constructing a full app/server/client instance eagerly, not a blanket ban on
-any top-level state.
+first-import time.
+
+**Scoped claim, not a complete fix — a related, still-open gap remains.**
+`app.ts` still has other top-level, env-reading state: `ORIGIN_EXEMPT_PATHS`
+is a module-scope `Set`, conditionally gaining `/api/auth/dev-admin-login`
+only via an `if (isDevAdminLoginEnabled())` block that runs once at import
+time. `createApp()` itself re-checks `isDevAdminLoginEnabled()` fresh on
+every call (to decide whether to mount the permissive dev-admin CORS
+middleware), but `isOriginExempt()` — used by the origin-check middleware
+`createApp()` registers — reads that same frozen-at-import `Set`. So in a
+shared-process caller that imports `app.ts` before `ENABLE_DEV_ADMIN_LOGIN`
+is set, then calls `createApp()` after: the permissive CORS gets mounted
+(fresh check), but the origin-exemption never gets added (stale check) — a
+cross-origin dev-admin-login POST would get permissive CORS headers and then
+be rejected by the origin-check middleware anyway. This is the same species
+of import-time-env-capture bug this note is about, just not what PR #308's
+actual fix addressed (that fix targeted the app-instance singleton
+specifically, not this `Set`). **Not fixed here** — tracked as its own
+`deferred-work.md` entry (Codex review, PR #319's `/document` harvest) rather
+than a drive-by code change inside a docs-only harvest PR.
 
 **Rule:** a module meant to be imported by tests under a shared-process
 runner (`--test-isolation=none`, or any setup where import order across

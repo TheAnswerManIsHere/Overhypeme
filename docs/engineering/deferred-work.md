@@ -479,12 +479,58 @@ re-gather it when the work is scheduled.
   - **Cost of waiting.** A third dangling-citation instance stays possible
     and undetected by CI until this ships — the exact gap that let occurrence
     #2 slip through despite the rule already being documented from #1.
+  - **Scope note (Codex review, PR #319, second pass).** The guard must NOT
+    scan `docs/*_TEST_RUN.md`/similar historical docs — a repo-wide search
+    already finds a real, legitimate citation surviving there
+    (`docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md` cites a `docs/plans/*`
+    file for the async-queue-hardening plan, long since gone from `main`, as
+    a "not built in this PR" note). A guard scoped only to implementation
+    code comments (`artifacts/*/src/`) and `.agents/memory/` catches the
+    actual failure mode (a docstring pointing readers at a plan that won't
+    exist on `main`)
+    without breaking on transient docs that are allowed to reference a
+    plan-review PR they're paired with. Whitelisting after the fact, rather
+    than scoping correctly from the start, would recreate exactly the kind
+    of guard-vs-legitimate-content conflict this repo's other content guards
+    already had to learn to avoid.
   - **Revisit trigger.** Next dev-infra/tooling pass, or the next time this
     exact mistake recurs a third time. Fix is a small regex/grep-based check
     (relative `docs/plans/*` path references appearing outside that directory
-    itself)
-    added to `check-docs-accuracy.mjs` or a sibling script, wired into the
-    Build job like the other content guards.
+    itself), scoped to implementation code and `.agents/memory/` only, not
+    `docs/` generally, added to `check-docs-accuracy.mjs` or a sibling
+    script, wired into the Build job like the other content guards.
+
+- **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
+  - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
+    conditionally gaining `/api/auth/dev-admin-login` only inside an
+    `if (isDevAdminLoginEnabled())` block that runs **once at import time**.
+    `createApp()` (`:107` onward) separately re-checks
+    `isDevAdminLoginEnabled()` **fresh on every call** to decide whether to
+    mount the permissive dev-admin CORS middleware — but the origin-check
+    middleware it also registers calls `isOriginExempt()`, which reads the
+    same frozen-at-import `Set`. In a shared-process caller (a test file, a
+    preview helper) that imports `app.ts` before `ENABLE_DEV_ADMIN_LOGIN` is
+    set and calls `createApp()` after, the permissive CORS gets mounted
+    (fresh check passes) but the exemption never gets added (stale check) —
+    a cross-origin dev-admin-login POST gets permissive CORS headers and is
+    then rejected by the origin-check middleware anyway.
+  - **Why deferred now.** Same species of import-time-env-capture bug as the
+    eager-singleton fix PR #308 shipped
+    ([`app-ts-eager-singleton-test-isolation.md`](../../.agents/memory/app-ts-eager-singleton-test-isolation.md)),
+    but that fix targeted the app-instance singleton specifically and did not
+    touch this `Set` — found by a later Codex review round on the `/document`
+    harvest documenting that fix, not by PR #308 itself. Not implemented here
+    because this is a docs-only harvest PR.
+  - **Cost of waiting.** Narrow blast radius: only fires for a caller that
+    imports `app.ts` before flipping `ENABLE_DEV_ADMIN_LOGIN`, which is
+    already a non-production-only backdoor (fail-closed by design). No known
+    production or CI incident.
+  - **Revisit trigger.** Next `/bugfix` pass through `app.ts`, or if a
+    dev-admin-login-in-tests symptom is actually observed. Fix is either
+    moving `ORIGIN_EXEMPT_PATHS`'s conditional entry into `createApp()`
+    itself (so it's re-evaluated per call, matching the CORS-mount check), or
+    documenting the asymmetry as an intentional exception if there's a reason
+    the exemption specifically must stay import-time-frozen.
 
 ---
 
