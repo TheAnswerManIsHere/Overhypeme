@@ -4,7 +4,7 @@
 // unhandled errors, which is all we need.
 import "./instrument";
 import * as Sentry from "@sentry/node";
-import app from "./app";
+import { createApp } from "./app";
 import { logger } from "./lib/logger";
 import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
@@ -261,6 +261,7 @@ if (getFalApiKey()) {
 }
 
 // Bind the port now — deployment health checks can pass immediately.
+const app = createApp();
 const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");

@@ -183,7 +183,7 @@ test("every finding carries a rule id and a reason, so the failure is actionable
 test("the real historical violations are all caught", () => {
   // The exact phrases that cost review rounds on PR #291 (narrated as six in
   // the PR body; seven per the loop ledger's mechanically-derived count,
-  // which is the figure of record — see loop-ledger.md row 18). This is the
+  // which is the figure of record — see loop-ledger.md row 23). This is the
   // acceptance test for the whole guard: if any of these stops being caught,
   // the guard has regressed to the state that made it necessary.
   const historical = [

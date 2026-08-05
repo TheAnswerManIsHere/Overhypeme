@@ -66,6 +66,10 @@ same thing in both places.
 | GitHub | Sync hub + PR gate for Claude/Codex | Required `Build` + `Test` checks on `main` |
 | Claude / Codex sandboxes | Advisory pre-checks | Report local failures clearly; defer DB-environment failures to CI |
 
+Claude's sandbox provisions Postgres on every session. **Codex's does not** — it
+boots DB-less for speed, so DB-backed tests are unavailable there by default;
+see [`ai-context/codex-environment.md`](ai-context/codex-environment.md).
+
 The practical rule: when you push a PR (Claude/Codex), GitHub CI is what must go
 green before merge. When you change something directly in Replit, run the same
 suite in Replit before you trust it. If the two ever disagree on the *same*
@@ -225,7 +229,7 @@ gate yet and are tracked as a fast-follow — don't pretend they're covered:
 |---|---|---|
 | Guard refuses; `DATABASE_URL` is `heliumdb` | Expected — that's the prod/dev DB | Point `DATABASE_URL` at `heliumdb_test` (Replit) or `overhype_test` (CI/sandbox) |
 | `node --test` can't read a `.ts` file | Invalid command — plain Node has no `tsx/esm` loader | Use `run-test.sh` (targeted) or `pnpm … test` (full suite); not a test failure |
-| Sandbox has no Postgres | The Claude/Codex sandbox can't run DB-backed tests | Defer DB verification to GitHub CI; report as environment, not product, failure |
+| Sandbox has no Postgres | Expected in Codex (DB-less by default); in Claude it means the SessionStart hook failed | Defer DB verification to GitHub CI; report as environment, not product, failure. For a Codex task that genuinely needs the suite, set `CODEX_SETUP_DB=1` on the environment and re-run — it cannot be fixed mid-task, since Codex has no network then |
 | CI `Test` job is red | A real gate failure until proven otherwise | Read the failing test; treat as a genuine regression unless shown to be a parity/env issue |
 
 ## A note on older docs
