@@ -58,19 +58,24 @@ preview and the Playwright e2e admin flows keep working; production
 - **CodeQL doesn't recognize either hand-rolled control** as satisfying its
   `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
   see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
-  before treating a new alert on either as a real gap. **The triage rule:** a
-  route with a workload-appropriate **narrow** control CodeQL merely fails to
-  recognize (checked against this repo's established patterns) is the
-  false-positive case: fix by confirming the control, not by adding a
-  redundant one. A route with **no narrow control** — including one that
-  relies on the global rate-limiter backstop below alone — is never eligible
-  for that class on consistency grounds; matching an unprotected sibling is
-  not evidence of safety, since the siblings may just share the same latent
-  gap, and the coarse per-instance backstop existing on every `/api` route
-  doesn't settle whether *this* route's own workload is cheap to hit
-  repeatedly. Route it to a real cost/abuse assessment (or add a narrow
-  control, if cheap and pattern-matched) instead. That memory doc also
-  covers the **re-attribution trap**:
+  before treating a new alert on either as a real gap. **The `js/missing-rate-limiting`
+  triage rule:** a route with a workload-appropriate **narrow** control CodeQL
+  merely fails to recognize (checked against this repo's established
+  patterns) is the false-positive case: fix by confirming the control, not by
+  adding a redundant one. A route with **no narrow control** — including one
+  that relies on the global rate-limiter backstop below alone — is never
+  eligible for that class on consistency grounds; matching an unprotected
+  sibling is not evidence of safety, since the siblings may just share the
+  same latent gap, and the coarse per-instance backstop existing on every
+  non-exempt `/api` route (two route/handler exemptions below) doesn't settle
+  whether *this* route's own workload is cheap to hit repeatedly. Route it to
+  a real cost/abuse assessment (or add a narrow control, if cheap and
+  pattern-matched) instead. **This narrow-control test is specific to
+  `js/missing-rate-limiting`** — a `js/missing-token-validation` (CSRF) alert
+  is checked against the global double-submit CSRF middleware above instead,
+  since CSRF is intentionally enforced globally rather than per-route, so the
+  absence of a *narrow* control on a CSRF-flagged route is expected, not a
+  signal to escalate. That memory doc also covers the **re-attribution trap**:
   restructuring `app.ts` (e.g. wrapping it in a
   factory function) shifts every line number, and GitHub's diff-based
   code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
