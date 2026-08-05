@@ -83,6 +83,15 @@ jobs:
       - name: Check project-sync label mapping
         run: node --test scripts/__tests__/sync-project-fields.test.mjs
 
+      # The Bash guard decides which git commands this session may run. Its
+      # previous version blocked `git push --force` and allowed `git push -f`,
+      # so the one thing it existed to prevent was the one thing it let past —
+      # and nothing tested it, so the hole survived however long it was there.
+      # A guard whose block/allow matrix is unasserted is a guard nobody can
+      # rely on, which is worse than none: it is trusted.
+      - name: Check Bash guard decisions
+        run: node --test scripts/__tests__/guard-decision.test.mjs
+
       # The ledger only answers questions if the rows are actually in it. On
       # 2026-07-29 it held 2 rows against 13 closed loops — the obligation had
       # nowhere to fail, so it was skipped silently while CI stayed green.

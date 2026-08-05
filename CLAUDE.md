@@ -314,22 +314,50 @@ David reports a conflict:
 
 ### This environment's git constraints (learned the hard way — work WITH them)
 
-`.claude/guard.sh` and the git proxy impose hard limits. I verified all of these;
-do not relitigate them mid-task:
+Three layers constrain what I can do here, and I kept mistaking the innermost
+one for the whole story. In order of authority:
 
-- **`git push --force` / `--force-with-lease` → BLOCKED** by the guard.
-- **`git reset --hard` → BLOCKED** by the guard.
-- **`git push origin --delete <branch>` → does NOT work** (the proxy hangs /
-  "remote end hung up"). I cannot delete a remote branch.
-- **`git checkout -B <branch> <ref>` → WORKS** (moves the branch ref without a
-  `--hard` reset; the guard allows it). This is my reset primitive.
+1. **The harness classifier.** It refuses to let me edit my own guardrails —
+   writing `.claude/guard.sh` needs David to approve the write. **This is
+   deliberate and stays (David, 2026-08-05):** I may *propose* a guard change
+   in a PR he merges, never apply one unilaterally. If a guard edit is blocked,
+   that is the rule working — I stop and ask, and I never route around it.
+2. **GitHub's ruleset on `main`** (verified 2026-08-05): *Block force pushes*,
+   *Restrict deletions*, *Require linear history*, *Require a pull request
+   before merging*, *Require status checks to pass* — all ON. It targets `main`
+   only, not `claude/*` (proven by `890528b`, a merge commit that pushed
+   cleanly to a feature branch while *Require linear history* was on). This is
+   the real protection for `main`: server-side, every actor, every spelling.
+3. **`.claude/guard.sh`.** Given layers 1 and 2, its only job is making the
+   **lease mandatory** on my own branches. That matters because the container
+   is ephemeral — the local reflog dies with it, so an overwritten remote
+   branch has no second copy.
 
-**The governing rule: NEVER rewrite history that is already pushed.** With no
-force-push, no remote-branch delete, and no hard reset, a rebased/amended
-already-pushed branch becomes **unpublishable** (plain push correctly rejects
-it as non-fast-forward, and I have no way to reconcile). Rebasing "to sit on
-top of main" is also unnecessary — GitHub's squash-merge 3-way-merges against
-current `main` at merge time.
+What that means in practice:
+
+- **`git push --force-with-lease <remote> <claude/…|plan-review/…>` → WORKS**,
+  with an **explicit refspec**. This is the only permitted force shape.
+- **Bare `--force` / `-f` / `--force-if-includes` / `--mirror` → BLOCKED**
+  everywhere, including my own branches. The lease is not optional.
+- **Any force push at `main` → BLOCKED** twice over (guard, then ruleset).
+- **An implicit refspec (`git push --force-with-lease` with no target) →
+  BLOCKED.** The guard cannot see my upstream, so naming the branch is the
+  price of forcing.
+- **`git reset --hard` → WORKS.** It cannot reach the remote; blocking it
+  protected `main` from nothing.
+- **`git push origin --delete <branch>` → still does NOT work** (the proxy
+  hangs / "remote end hung up"). *Restrict deletions* is on the ruleset but
+  targets `main`, so it is not the cause here — the proxy is.
+- **`git checkout -B <branch> <ref>` → WORKS.** Still my reset primitive, and
+  still the right tool when I do not need to publish the rewrite.
+
+**The governing rule: never rewrite history that is already pushed *unless* I
+publish it with `--force-with-lease`.** Rebasing "to sit on top of main" is
+still unnecessary — GitHub's squash-merge 3-way-merges against current `main`
+at merge time — so the reach for force stays rare. What changed is that an
+accidentally-rebased branch is no longer **unpublishable**: previously plain
+push rejected it as non-fast-forward and I had no way to reconcile, so the
+guard did not prevent that mistake, it only made recovery lossy.
 
 **Before the FIRST push of a fresh branch**: base it cleanly on main —
 `git fetch origin main && git checkout -B <branch> origin/main`, apply work,
@@ -343,10 +371,14 @@ base with no merged history to fight, the sanctioned no-force reset.)
 2. If I genuinely need current `main`'s changes in the branch, **merge, don't
    rebase**: `git fetch origin main && git merge origin/main` (a merge commit is
    fine — the squash collapses it). Then push.
-3. If local has accidentally diverged from the remote (e.g. an errant rebase I
-   can't publish), realign to the remote and continue: `git checkout -B <branch>
-   origin/<branch>` (content is preserved — the remote already has the work),
-   then add new commits and plain-push.
+3. If local has accidentally diverged from the remote (e.g. an errant rebase),
+   I now have two options. Default: realign to the remote and continue —
+   `git checkout -B <branch> origin/<branch>` (content is preserved, the remote
+   already has the work), then add new commits and plain-push. Only when the
+   rewrite is the thing I actually want to keep: publish it with
+   `git push --force-with-lease origin <branch>`. The lease is what makes that
+   safe — it refuses if the remote moved since my last fetch, so I can never
+   discard a push I haven't seen.
 
 Only ever do this to MY feature branch, never `main`. When in doubt,
 `git diff origin/main HEAD --stat` shows the true delta the PR will contain.
