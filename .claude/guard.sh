@@ -34,7 +34,7 @@ if command -v node >/dev/null 2>&1; then
   exit $?
 fi
 
-if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-rf[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-f[[:space:]])|git[[:space:]]+update-ref'; then
+if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-[a-zA-Z]*f[a-zA-Z]*)|git[[:space:]]+update-ref'; then
   echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
   exit 2
 fi

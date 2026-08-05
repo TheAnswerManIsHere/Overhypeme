@@ -83,6 +83,23 @@ const MUST_BLOCK = [
   ["ANSI-C quoted program name", "$'git' push -f origin claude/x"],
   ["empty-source refspec deletes rather than updates", "git push --force-with-lease origin :claude/x"],
   ["--delete is a deletion even without a force flag", "git push --delete origin claude/x"],
+
+  // --- round-2 review findings (PR #329) ---
+  ["inline alias expansion carries the force flag itself", "git -c alias.p='push --force' p origin claude/x"],
+  ["env -i is a known bare flag, unwrapping continues past it", "env -i git push -f origin claude/x"],
+  ["command -p is a known bare flag, unwrapping continues past it", "command -p git push -f origin claude/x"],
+  ["short -d is the documented short form of --delete", "git push -d origin claude/x"],
+  ["a nested bash -c push is judged the same as a top-level one", "bash -c 'git push -f origin claude/x'"],
+  ["a nested sh -c rm -rf / is judged the same as a top-level one", "sh -c 'rm -rf /'"],
+  ["coproc hides the real command the same way { or if do", "coproc git push -f origin claude/x"],
+  ["rm -Rf -- the capital-R spelling rm --help lists first", "rm -Rf /"],
+  ["rm -fR -- reordered capital-R bundle", "rm -fR /"],
+  ["rm --recursive --force as separate long flags", "rm --recursive --force /"],
+  ["a leading-dot root glob is still root-only", "rm -rf /.*"],
+  ["a bracket character class is a class, not literal text", "rm -rf /[be]*"],
+  ["ANSI-C hex escapes decode to the program name", "$'\\x67\\x69\\x74' push -f origin claude/x"],
+  ["brace expansion turns one token into two force-shaped flags", "git push -{f,u} origin claude/x"],
+  ["a versioned drizzle-kit package spec is still drizzle-kit", "npx drizzle-kit@latest push"],
 ];
 
 const MUST_ALLOW = [
@@ -123,6 +140,17 @@ const MUST_ALLOW = [
   ["a root-only glob is not confused with a scoped one", "rm -rf /tmp/scratch-xyz"],
   ["a scoped absolute glob is not root-shaped", "rm -rf /tmp/*"],
   ["an alias to something other than push is not treated as one", "git -c alias.co=checkout co claude/x"],
+
+  // --- round-2 review findings (PR #329): the same constructs, permitted shape ---
+  ["env -i around a permitted push", "env -i git push --force-with-lease origin claude/x"],
+  ["command -p around a permitted push", "command -p git push --force-with-lease origin claude/x"],
+  ["a nested bash -c permitted push", "bash -c 'git push --force-with-lease origin claude/x'"],
+  ["a nested bash -c doing something harmless", "bash -c 'echo hi'"],
+  ["rm -Rf on a scoped path is still scoped", "rm -Rf /tmp/scratch-xyz"],
+  ["a leading dot on a real directory name is a real name", "rm -rf /.git"],
+  ["a bracket glob confined to a scoped directory stays scoped", "rm -rf /tmp/[ab]*"],
+  ["a brace with no comma is literal text, not expansion", 'echo "hi{there}"'],
+  ["an ordinary drizzle-kit command other than push is untouched", "npx drizzle-kit generate"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -282,6 +310,36 @@ test("checkCommand judges a single argv", () => {
   assert.equal(checkCommand(["git", "push", "-f", "origin", "main"]) !== null, true);
   assert.equal(checkCommand(["git", "status"]), null);
   assert.equal(checkCommand([]), null);
+});
+
+// Round-2 review findings (PR #329): tokenizer-level units for the two
+// syntactic expansions added this round.
+
+test("brace expansion splits one token into several", () => {
+  assert.deepEqual(tokenize("git push -{f,u} origin claude/x"), [
+    "git", "push", "-f", "-u", "origin", "claude/x",
+  ]);
+});
+
+test("a brace with no comma is not expansion", () => {
+  assert.deepEqual(tokenize("echo hi{there}"), ["echo", "hi{there}"]);
+});
+
+test("ANSI-C hex escapes decode per byte", () => {
+  assert.deepEqual(tokenize("$'\\x67\\x69\\x74'"), ["git"]);
+});
+
+test("ANSI-C octal escapes decode", () => {
+  assert.deepEqual(tokenize("$'\\147\\151\\164'"), ["git"]);
+});
+
+test("ANSI-C unicode escapes decode by code point", () => {
+  assert.deepEqual(tokenize("$'\\u0067\\u0069\\u0074'"), ["git"]);
+});
+
+test("an ANSI-C escape this module does not recognise keeps its backslash, matching Bash", () => {
+  // Verified directly: `bash -c "printf '%s\n' \$'\\q'"` prints `\q`, not `q`.
+  assert.deepEqual(tokenize("$'\\q'"), ["\\q"]);
 });
 
 // ---------------------------------------------------------------------------
