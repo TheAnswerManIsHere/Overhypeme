@@ -24,8 +24,9 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
-- **Manual tuning-language guard, and PR 1 of the manual backfill** (PR #298,
-  building on PR #291's async-lane de-fork). New
+- **Manual tuning-language guard, following PR 1 of the manual backfill**
+  (PR #298, a follow-up guard for PR #291's async-lane de-fork — #291 is PR 1
+  of the backfill; #298 does not itself add a chapter). New
   `scripts/check-manual-tuning-language.mjs`, wired into the Build job, is
   part of the CI enforcement for `docs/manual/README.md`'s charter: a chapter
   may name what a component is and who it serves, but not how it's
@@ -34,7 +35,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   violation, not full compliance, so it narrows what review still has to
   catch rather than replacing it. Current detection coverage lives in the
   script's own comments, not here, so this stays true as the rules evolve.
-  Took 6 Codex review rounds to converge; the
+  Six finding-bearing review rounds, with an unverified final fix — round 6's
+  fix was never re-reviewed before merge (see
+  [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md) row 22), a genuine
+  loop-closure gap, not a confirmed clean convergence; the
   generalized lesson from that loop — including a self-referential gap where a
   fix satisfied the guard by rewording a value instead of removing it — is in
   the new [`known-failure-patterns.md`](./known-failure-patterns.md#satisfying-a-lexical-guard-by-changing-a-values-form-not-its-meaning)

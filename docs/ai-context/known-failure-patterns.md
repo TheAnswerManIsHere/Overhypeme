@@ -817,9 +817,10 @@ the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
 markdown markup, a hard-wrapped line split) instead of declaring the class
 closed after the one instance found.
 
-**Overhype:** PR #298 (the manual tuning-language guard) took 6 Codex review
-rounds to converge, and this exact pattern recurred inside its own fix
-history — round 5 found "a simpler 2-lane split ... in favor of 3" and fixed
+**Overhype:** PR #298 (the manual tuning-language guard) went through six
+finding-bearing Codex review rounds, and this exact pattern recurred inside
+its own fix history — round 5 found "a simpler 2-lane split ... in favor of
+3" and fixed
 it by spelling the count out ("a simpler two-way split ... in favor of a
 third, separate lane"), which round 6 caught as the same lane count restated
 as an ordinal instead of removed; the sentence was only genuinely fixed on the
