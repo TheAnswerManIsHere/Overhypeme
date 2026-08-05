@@ -67,6 +67,22 @@ const MUST_BLOCK = [
   ["drizzle-kit push", "drizzle-kit push"],
   ["drizzle-kit push via pnpm", "pnpm drizzle-kit push"],
   ["drizzle-kit push via npx", "npx drizzle-kit push --force"],
+
+  // --- round-1 review findings (PR #329), each pinned where it was found ---
+  ["rm -rf on a root glob -- the old regex's un-anchored match caught this too", "rm -rf /*"],
+  ["command wrapper hides the real program", "command git push --force origin claude/x"],
+  ["env wrapper hides the real program", "env git push -f origin claude/x"],
+  ["sudo wrapper hides the real program", "sudo git push -f origin claude/x"],
+  ["leading env-assignment hides the real program", "GIT_SSH_COMMAND=ssh git push --force origin claude/x"],
+  ["abbreviated --mirror", "git push --m origin"],
+  ["abbreviated --force-with-lease onto main is still main", "git push --force-with origin main"],
+  ["backslash-newline splits a bundled short flag", "git push -\\\nf origin main"],
+  ["inline git alias expands to push", "git -c alias.p=push p --force origin claude/x"],
+  ["grouping braces hide the real command", "{ git push -f origin claude/x; }"],
+  ["if/then hides the real command", "if true; then git push -f origin claude/x; fi"],
+  ["ANSI-C quoted program name", "$'git' push -f origin claude/x"],
+  ["empty-source refspec deletes rather than updates", "git push --force-with-lease origin :claude/x"],
+  ["--delete is a deletion even without a force flag", "git push --delete origin claude/x"],
 ];
 
 const MUST_ALLOW = [
@@ -94,6 +110,19 @@ const MUST_ALLOW = [
   ["echoing the rule", 'echo "do not use git push -f on main"'],
   ["grep -f is not a force flag", "grep -f patterns.txt CLAUDE.md"],
   ["rm -rf on a scoped path", "rm -rf node_modules/.cache"],
+
+  // --- round-1 review findings (PR #329): the same constructs, permitted shape ---
+  ["command wrapper around a permitted push", "command git push --force-with-lease origin claude/x"],
+  ["env wrapper around a permitted push", "env git push --force-with-lease origin claude/x"],
+  ["env-assignment prefix around a permitted push", "GIT_SSH_COMMAND=ssh git push --force-with-lease origin claude/x"],
+  ["abbreviated lease onto an owned branch", "git push --force-with origin claude/x"],
+  ["abbreviated lease with -c reaching the subcommand correctly", "git -c core.pager=cat push --force-with-lease origin claude/x"],
+  ["grouping braces around a permitted push", "{ git push --force-with-lease origin claude/x; }"],
+  ["if/then around a permitted push", "if true; then git push --force-with-lease origin claude/x; fi"],
+  ["ANSI-C quoted program name, permitted shape", "$'git' push --force-with-lease origin claude/x"],
+  ["a root-only glob is not confused with a scoped one", "rm -rf /tmp/scratch-xyz"],
+  ["a scoped absolute glob is not root-shaped", "rm -rf /tmp/*"],
+  ["an alias to something other than push is not treated as one", "git -c alias.co=checkout co claude/x"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -137,6 +166,21 @@ test("a hard reset to a computed ref is not collateral", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The two limits the module docstring discloses rather than chases. These are
+// not "should fail" assertions -- they pin the CURRENT, documented behaviour,
+// so a change to either is a deliberate edit to the docstring, not a silent
+// drift discovered later.
+// ---------------------------------------------------------------------------
+
+test("known limit: a substitution nested in double quotes is not decomposed", () => {
+  assert.equal(blocked('echo "$(git push -f origin main)"'), false);
+});
+
+test("known limit: IFS-based field splitting is not reconstructed", () => {
+  assert.equal(blocked("git${IFS}push${IFS}-f${IFS}origin${IFS}claude/x"), false);
+});
+
+// ---------------------------------------------------------------------------
 // Heredocs. A body is data being fed to a program, not commands to judge --
 // and this repo writes every commit message through one. An earlier revision
 // scanned the body as text and blocked its own introducing commit for quoting
@@ -164,6 +208,23 @@ test("prose apostrophes in a heredoc do not break tokenising", () => {
 test("a real force push is still caught when the command also carries a heredoc", () => {
   const command = ["git push -f origin main", "git commit -F - <<'MSG'", "harmless text", "MSG"].join("\n");
   assert.equal(blocked(command), true);
+});
+
+// Round-1 finding (PR #329): a command chained after the heredoc OPENER, on
+// the very same line, is not part of the body. The single-regex version
+// swallowed it anyway -- `cat <<EOF && git push -f ...` executes `cat`
+// (reading the heredoc as its stdin) and then, once that finishes, the push,
+// but the old regex removed everything from `<<EOF` through the terminator,
+// deleting the push along with the genuinely inert body beneath it.
+test("a command chained after a heredoc opener is not swallowed as body", () => {
+  const command = ["cat <<EOF && git push -f origin claude/x", "harmless body", "EOF"].join("\n");
+  assert.equal(blocked(command), true);
+});
+
+test("stripHeredocs preserves a command chained on the opener's own line", () => {
+  const stripped = stripHeredocs(["cat <<EOF && git push -f origin claude/x", "harmless body", "EOF"].join("\n"));
+  assert.match(stripped, /git push -f origin claude\/x/);
+  assert.equal(/harmless body/.test(stripped), false);
 });
 
 test("stripHeredocs removes the body and keeps the surrounding command", () => {
