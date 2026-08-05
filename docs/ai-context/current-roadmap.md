@@ -26,8 +26,10 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - **Workstream tracking: a GitHub Project board, label-driven, plus a
   `/status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
-  unit of work now has a GitHub issue as its spine, carrying a **State of
-  Play** block and `stage:`/`waiting:`/`mode:` labels that a CI Action
+  unit of work now has a GitHub issue as its spine — except sensitive/
+  disclosure-carve-out work, which stays a private draft Project item, never
+  a public issue — carrying a **State of Play** block and
+  `stage:`/`waiting:`/`mode:` labels that a CI Action
   mirrors onto a private Project board; `/status` reads those labels back
   and adds what the board can't compute — stall detection and a
   plain-language restatement of whatever a David-gate is actually asking.

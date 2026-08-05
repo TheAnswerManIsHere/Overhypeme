@@ -15,8 +15,13 @@
 
 ### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
 - **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
-  **GitHub issue as its spine**, opened from Discovery onward — before any
-  branch exists — carrying a **State of Play** block and exactly one label
+  **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out
+  work, which never becomes a public issue and instead lives as a private
+  draft Project item, per `plan-review-loop`'s existing disclosure check
+  (this repo is public, so an issue body is public even though the Project
+  itself is private). For everything else, the issue is opened from
+  Discovery onward — before any branch exists — carrying a **State of Play**
+  block (defined in the routed contract below) and exactly one label
   from each of three prefixes: `stage:` (the ten lifecycle stages),
   `waiting:` (david/claude/codex/replit/ci), and `mode:`. Those issues are
   tracked on a private Project board whose `Status`/`Waiting On`/`Mode`
