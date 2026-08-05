@@ -130,10 +130,17 @@ BEGIN
     -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
     -- latent hazard on a delete path nothing currently exercises, and failing the whole
     -- migration over it would block every other reconciliation this file performs.
-    RAISE WARNING '0095: the foreign key ncmec_reports_quarantine_id_fk on ncmec_reports.quarantine_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE set null ON UPDATE no action; -- and drop any other foreign key on the same column.',
+    RAISE WARNING '0095: the foreign key ncmec_reports_quarantine_id_fk on ncmec_reports.quarantine_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE set null ON UPDATE no action; -- and drop any other foreign key on the same column.',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'ncmec_reports_quarantine_id_fk',
-      'quarantine_id', 'quarantined_memes', 'id';
+      'quarantine_id',
+      -- The REFERENCED table is schema-qualified too. Qualifying only the source table
+      -- left `REFERENCES quarantined_memes(id)` to resolve through whatever search_path the DBA
+      -- happens to have — so on a deployment using a non-default schema the command either
+      -- fails outright or, worse, binds the repaired foreign key to a same-named table in
+      -- another schema. Either way the replay never converges, which is the whole point of
+      -- emitting the command.
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('quarantined_memes')), 'quarantined_memes', 'id';
   END;
 
 END $$;
@@ -346,7 +353,28 @@ BEGIN
      SET quarantine_id = l.qid
     FROM linkable l
    WHERE r.id = l.report_id
+     -- Rechecked on the TARGET row, not only inside `linkable`. The CTE's own filter runs at
+     -- snapshot time; this one is re-evaluated by PostgreSQL's update revalidation after any
+     -- concurrent writer commits, which is what actually fences the backfill. Without it a
+     -- replay running alongside the reconciler (or an operator) could read a NULL, wait on
+     -- another transaction that writes the authoritative linkage, and then overwrite that
+     -- value with the legacy JSON one — contradicting the explicit-value-wins rule the
+     -- adjacent trigger states in so many words. Lost in the CTE rewrite, which moved this
+     -- predicate into the source side where it no longer fences anything.
+     AND r.quarantine_id IS NULL
      AND EXISTS (SELECT 1 FROM quarantined_memes q WHERE q.id = l.qid);
+
+  -- Observability, per the migration-review rule: a backfill that reports nothing cannot be
+  -- told from one that matched nothing. Dropped by the CTE rewrite, which computed all four
+  -- counts and then discarded them — leaving an operator unable to distinguish a clean no-op
+  -- from a migration that deliberately left rows for the backlog audit to disposition.
+  RAISE NOTICE '0095 quarantine_id backfill: linked=%, missing=% (pre-stub rows — stay NULL, they are the backlog audit''s population), malformed=%, dangling=%',
+    n_linked, n_missing, n_malformed, n_dangling;
+
+  IF n_malformed > 0 OR n_dangling > 0 THEN
+    RAISE WARNING '0095: % malformed and % dangling quarantineId values left NULL. These rows are unlinked and must be dispositioned by the pre-activation backlog audit.',
+      n_malformed, n_dangling;
+  END IF;
 END $$;
 -- <<< ncmec-0095 backfill block (end)
 --> statement-breakpoint
@@ -546,6 +574,7 @@ DECLARE
   probe     text;
   probe_result boolean;
   con_semantics_ok boolean := false;
+  con_canonical_ok boolean := false;
   ledger_schema text;
 BEGIN
   SELECT n.nspname INTO ledger_schema
@@ -639,8 +668,39 @@ BEGIN
     SELECT c.convalidated INTO con_valid
       FROM pg_catalog.pg_constraint c WHERE c.oid = con_oid;
 
-    IF con_semantics_ok AND COALESCE(con_valid, false) THEN
-      RAISE NOTICE '0095: ncmec_safety_audit_log_action_check is already present and correct — verified by evaluating its predicate against the full vocabulary and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
+    -- The probes above are a finite sample, and a finite sample cannot establish a CLOSED
+    -- vocabulary. `CHECK (action IN (...) OR action = 'legacy_action')` accepts all nine
+    -- expected values, rejects all five probes, and still leaves `legacy_action` writable —
+    -- reproduced directly against this repository's PostgreSQL 16 target, where the block
+    -- announced "already present and correct" and an insert using the extra action succeeded.
+    -- No enlargement of the probe set fixes this; the next drift just picks a different value.
+    --
+    -- So the predicate must ALSO have the canonical structure this migration itself writes:
+    -- exactly one `= ANY (ARRAY[...]::text[])` comparison on `action`, anchored at both ends,
+    -- with no additional disjunct and no nested array. `[^][]*` is what forbids the nesting,
+    -- which is how `|| ARRAY[action]` is excluded; the anchors are what forbid an appended
+    -- `OR ...`. Given that structure, the literals ARE the vocabulary, so comparing the
+    -- extracted set against `expected` is exhaustive rather than sampled.
+    --
+    -- Failing closed on an unrecognised structure costs nothing: this migration only ever
+    -- writes the canonical form, so anything else is drift by definition, and "repair" means
+    -- rebuilding a constraint that is already supposed to be identical. A future PostgreSQL
+    -- that renders this differently would cause a harmless rebuild rather than a wrong answer
+    -- — which is the correct direction for a check that gates an append-only ledger.
+    --
+    -- The semantic probes are kept alongside rather than replaced: structure alone would
+    -- accept a canonical-looking predicate whose literals somehow do not behave as written,
+    -- and the two together are what make the check both exhaustive and grounded.
+    con_canonical_ok :=
+      con_def ~ '^CHECK \(\(\(action\)::text = ANY \(\(ARRAY\[[^][]*\]\)::text\[\]\)\)\)$'
+      AND (SELECT array(SELECT DISTINCT m[1]
+                          FROM pg_catalog.regexp_matches(con_def, $re$'([^']*)'$re$, 'g') AS m
+                         WHERE m[1] <> ''
+                         ORDER BY 1))
+          = array(SELECT DISTINCT unnest(expected) ORDER BY 1);
+
+    IF con_canonical_ok AND con_semantics_ok AND COALESCE(con_valid, false) THEN
+      RAISE NOTICE '0095: ncmec_safety_audit_log_action_check is already present and correct — its predicate has the canonical single-comparison structure (so its literals are exhaustively the vocabulary) and evaluates correctly against every expected value and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
       RETURN;
     END IF;
   END IF;
@@ -767,10 +827,17 @@ BEGIN
     -- corrected afterwards, so that case refuses to proceed. A stale referential action is a
     -- latent hazard on a delete path nothing currently exercises, and failing the whole
     -- migration over it would block every other reconciliation this file performs.
-    RAISE WARNING '0095: the foreign key ncmec_safety_audit_log_report_id_fk on ncmec_safety_audit_log.report_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE restrict ON UPDATE no action; -- and drop any other foreign key on the same column.',
+    RAISE WARNING '0095: the foreign key ncmec_safety_audit_log_report_id_fk on ncmec_safety_audit_log.report_id needs reconciling but this role does not own the table. A DBA must run, as its owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I; ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I.%I(%I) ON DELETE restrict ON UPDATE no action; -- and drop any other foreign key on the same column.',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
       (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_safety_audit_log')), 'ncmec_safety_audit_log', 'ncmec_safety_audit_log_report_id_fk',
-      'report_id', 'ncmec_reports', 'id';
+      'report_id',
+      -- The REFERENCED table is schema-qualified too. Qualifying only the source table
+      -- left `REFERENCES ncmec_reports(id)` to resolve through whatever search_path the DBA
+      -- happens to have — so on a deployment using a non-default schema the command either
+      -- fails outright or, worse, binds the repaired foreign key to a same-named table in
+      -- another schema. Either way the replay never converges, which is the whole point of
+      -- emitting the command.
+      (SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass('ncmec_reports')), 'ncmec_reports', 'id';
   END;
 
 END $$;

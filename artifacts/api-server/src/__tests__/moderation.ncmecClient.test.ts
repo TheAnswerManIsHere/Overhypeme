@@ -473,6 +473,34 @@ describe("NcmecClient — parser hardening", () => {
     assert.equal(result.status === "err" && result.retryable, false);
   });
 
+  it("refuses a non-2xx response even when its body parses as a success envelope", async () => {
+    // A gateway in front of ISPWS returning 502 with a cached, wrapped or replayed body
+    // produces exactly this: every field the caller checks is present and well-formed, and
+    // nothing consulted the HTTP status once parsing succeeded. On /finish that records a
+    // filing that never happened; on /submit it persists someone else's reportId.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportDoneResponse><responseCode>0</responseCode><reportId>4564654</reportId></reportDoneResponse>',
+      { status: 502 },
+    );
+    const result = await instance.finishReport("4564654");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "http");
+    assert.match(result.status === "err" ? result.message : "", /HTTP 502/);
+  });
+
+  it("routes a non-2xx success envelope on /submit through the ambiguity downgrade", async () => {
+    // The request may genuinely have been processed upstream before the gateway failed, so
+    // /submit must not retry it blindly — the same reasoning as an unreadable non-2xx body.
+    const { instance } = client(
+      '<?xml version="1.0"?><reportResponse><responseCode>0</responseCode><reportId>9999999</reportId></reportResponse>',
+      { status: 503 },
+    );
+    const result = await instance.submitReport("<report/>");
+    assert.equal(result.status, "err");
+    assert.equal(result.status === "err" && result.kind, "ambiguous");
+    assert.equal(result.status === "err" && result.retryable, false);
+  });
+
   it("treats a malformed 2xx body on /retract as retryable, same as /finish", async () => {
     const { instance } = client(
       "<reportResponse><responseCode>0</responseCode></reportResponse><reportResponse><responseCode>0</responseCode></reportResponse>",

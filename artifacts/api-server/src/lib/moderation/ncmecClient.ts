@@ -555,6 +555,30 @@ export class NcmecClient {
       };
     }
 
+    if (!response.ok) {
+      // A non-2xx response whose body happens to PARSE as a success envelope. That sounds
+      // exotic and isn't: a proxy or gateway in front of ISPWS returning 502 with a cached,
+      // wrapped or replayed body produces exactly this, and until now nothing downstream
+      // consulted the HTTP status once parsing succeeded. The consequences are the sharpest
+      // in this client — `/finish` recorded as a completed filing that never happened, or
+      // `/submit` persisting a reportId belonging to some other report — and they are silent,
+      // because every field the caller checks is present and well-formed.
+      //
+      // The unreadable-body case above already handled non-2xx correctly; this is the same
+      // fact arriving through the one door that was still open. Classified identically, so
+      // `/submit` and `/upload` route it through their ambiguity downgrades: the request may
+      // genuinely have been processed upstream before the gateway failed, which is precisely
+      // what "ambiguous" is for.
+      return {
+        status: "err",
+        responseCode: null,
+        message: `ISPWS returned HTTP ${response.status} with a parseable ${envelope.root} body (responseCode ${envelope.responseCode}) — refusing to treat a failed HTTP request as a result`,
+        retryable: true,
+        kind: "http",
+        credentialFailure: false,
+      };
+    }
+
     if (envelope.responseCode !== NCMEC_RESPONSE_CODES.SUCCESS) {
       return errFromCode(envelope.responseCode, envelope.description);
     }

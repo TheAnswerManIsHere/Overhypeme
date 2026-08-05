@@ -1142,6 +1142,120 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
       assert.match(rows[0]!.def, /config_write/, "the full vocabulary must be restored");
     });
 
+    it("rejects an action CHECK that permits an EXTRA value beyond the vocabulary", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // `... OR action = 'legacy_action'` accepts all nine expected values and rejects every
+      // probe the block tests, so a sampled check declares it correct while an undeclared
+      // action stays writable. Reproduced exactly that before the fix. No enlargement of the
+      // probe set closes this — a finite sample cannot establish a closed vocabulary — which
+      // is why the block now also requires the canonical single-comparison structure, under
+      // which the literals ARE the vocabulary.
+      assert.ok(pool, "pool unavailable");
+      await pool.query(`ALTER TABLE ncmec_safety_audit_log DROP CONSTRAINT ncmec_safety_audit_log_action_check`);
+      await pool.query(
+        `ALTER TABLE ncmec_safety_audit_log ADD CONSTRAINT ncmec_safety_audit_log_action_check
+           CHECK ("action" IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write')
+                  OR "action" = 'legacy_action')`,
+      );
+      try {
+        const { output } = execSqlCapturingDiagnostics(null, null, actionCheckBlock());
+        assert.doesNotMatch(
+          output,
+          /already present and correct/,
+          "a constraint permitting an undeclared action must not be accepted",
+        );
+        const { rows } = await pool.query<{ def: string }>(
+          `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+            WHERE conname = 'ncmec_safety_audit_log_action_check'`,
+        );
+        assert.doesNotMatch(rows[0]!.def, /legacy_action/, "the extra value must have been removed");
+        await assert.rejects(
+          () => pool!.query(
+            `INSERT INTO ncmec_safety_audit_log (actor_label, action) VALUES ('t@e.com', 'legacy_action')`,
+          ),
+          /violates check constraint/,
+        );
+      } finally {
+        await pool.query(actionCheckBlock());
+      }
+    });
+
+    it("keeps the target-side null recheck that fences the backfill against concurrent linkage", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The CTE rewrite moved the `quarantine_id IS NULL` filter to the source side, where it
+      // is evaluated at snapshot time and fences nothing. PostgreSQL re-evaluates the TARGET
+      // predicate after a concurrent writer commits, so it has to be there — otherwise a
+      // replay running alongside the reconciler can clobber an authoritative linkage with the
+      // legacy JSON value, contradicting the trigger's explicit-value-wins rule. Simulated
+      // here by pre-setting a different linkage, which is the state the race produces.
+      assert.ok(pool, "pool unavailable");
+      const { rows: q } = await pool.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source) VALUES ('restricted/q/a', 'arachnid') RETURNING id`,
+      );
+      const { rows: q2 } = await pool.query<{ id: string }>(
+        `INSERT INTO quarantined_memes (evidence_object_path, source) VALUES ('restricted/q/b', 'arachnid') RETURNING id`,
+      );
+      const legacy = q[0]!.id;
+      const authoritative = q2[0]!.id;
+      const { rows: rep } = await pool.query<{ id: string }>(
+        `INSERT INTO ncmec_reports (match_source, evidence_uri, submission_status, request_metadata, quarantine_id)
+         VALUES ('arachnid', 'restricted/q/race', 'pending', $1::jsonb, $2) RETURNING id`,
+        [JSON.stringify({ quarantineId: legacy }), authoritative],
+      );
+      try {
+        await pool.query(backfillBlock());
+        const { rows } = await pool.query<{ qid: string }>(
+          `SELECT quarantine_id AS qid FROM ncmec_reports WHERE id = $1`,
+          [rep[0]!.id],
+        );
+        assert.equal(
+          String(rows[0]!.qid),
+          String(authoritative),
+          "an already-set linkage must survive the backfill",
+        );
+        // The assertion above passes with or without the fix, because the source-side filter
+        // already excludes an already-linked row — a genuine race needs two sessions
+        // interleaved around a row lock, which this harness cannot stage. So the property is
+        // pinned structurally as well: PostgreSQL re-evaluates the TARGET predicate after a
+        // concurrent writer commits, and that predicate is what was lost in the CTE rewrite.
+        assert.match(
+          MIGRATION_SQL,
+          /FROM linkable l\s*\n\s*WHERE r\.id = l\.report_id[\s\S]{0,800}?AND r\.quarantine_id IS NULL/,
+          "the UPDATE must recheck quarantine_id IS NULL on the target row",
+        );
+      } finally {
+        await pool.query(`DELETE FROM ncmec_reports WHERE id = $1`, [rep[0]!.id]).catch(() => {});
+        await pool.query(`DELETE FROM quarantined_memes WHERE id = ANY($1)`, [[legacy, authoritative]]).catch(() => {});
+      }
+    });
+
+    it("reports the backfill's outcome counts rather than computing them silently", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // The migration-review rule: a backfill that reports nothing cannot be told from one
+      // that matched nothing. The CTE rewrite computed all four counts and then discarded
+      // them, so an operator could not distinguish a clean no-op from a run that deliberately
+      // left rows for the backlog audit.
+      assert.ok(pool, "pool unavailable");
+      const { output } = execSqlCapturingDiagnostics(null, null, backfillBlock());
+      assert.match(output, /quarantine_id backfill: linked=\d+, missing=\d+/);
+      assert.match(output, /malformed=\d+, dangling=\d+/);
+    });
+
+    it("schema-qualifies the referenced table in the owner-run foreign-key commands", async (t) => {
+      if (!pool) return t.skip("DATABASE_URL not set");
+      // Qualifying only the source table left `REFERENCES <reftable>(id)` to resolve through
+      // whatever search_path the DBA has, so on a non-default schema the emitted command
+      // either fails or binds the repaired key to a same-named table elsewhere — and the
+      // replay never converges, which is the only reason the command is emitted.
+      assert.ok(pool, "pool unavailable");
+      // Scoped to the WARNING text a DBA copies out, not to every REFERENCES in the file: the
+      // in-session repair a few lines above runs under the migration's own search_path and is
+      // correctly unqualified. Both referential actions appear so each block is covered.
+      const sql = MIGRATION_SQL;
+      assert.match(sql, /REFERENCES %I\.%I\(%I\) ON DELETE set null ON UPDATE no action;/);
+      assert.match(sql, /REFERENCES %I\.%I\(%I\) ON DELETE restrict ON UPDATE no action;/);
+    });
+
     it("rejects an action CHECK disguised to render correctly while accepting everything", async (t) => {
       if (!pool) return t.skip("DATABASE_URL not set");
       // `= ANY (expected || ARRAY[action])` renders with the same outer shape as the real
@@ -1543,7 +1657,7 @@ describe("migration 0095 — database behaviour (skipped when DATABASE_URL is un
         // outside it, which needs no DDL at all. The generated-reference approach that needed
         // TEMP was also defeatable by a predicate that rendered correctly while accepting
         // everything, so removing the dependency and closing that hole were the same change.
-        assert.match(result.output, /evaluating its predicate/);
+        assert.match(result.output, /canonical single-comparison structure/);
       } finally {
         await pool.query(`GRANT TEMPORARY ON DATABASE ${process.env["PGDATABASE"] ?? "overhype_test"} TO PUBLIC`).catch(() => {});
         await pool.query(`DROP OWNED BY ${app}`).catch(() => {});
