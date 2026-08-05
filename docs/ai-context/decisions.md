@@ -1428,3 +1428,18 @@
   proven with invariant tests.
 - **Reference:** [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
 - **Revisit if:** never, unless the token model changes fundamentally.
+
+### 2026-08 · Codex boots without a database; CI owns the integration suite
+- **Decision:** Codex's container provisions no Postgres. `scripts/codex-setup.sh`
+  installs, generates the API client, and builds `lib/**` — nothing else — and
+  the database is opt-in behind `CODEX_SETUP_DB=1` for the exceptional task.
+- **Why:** Boot cost is paid on *every* Codex task, and provisioning a database
+  is the expensive part of it; the api-server suite is the minority need. Codex
+  reviews by reading, and GitHub's required `Test` check already runs that suite
+  against a real database before anything merges — so the capability lost in
+  Codex is still covered at the gate that decides.
+- **Reference:** PR #332; see [`codex-environment.md`](./codex-environment.md)
+  for the verified capability matrix (codegen, typecheck, production build, and
+  the frontend suite all pass DB-less).
+- **Revisit if:** Codex starts driving backend implementation rather than review,
+  or the api-server suite becomes something a reviewer must execute to trust.
