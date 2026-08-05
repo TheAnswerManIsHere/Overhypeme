@@ -559,10 +559,14 @@ export async function ensureSchema(): Promise<void> {
         processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
     },
-    {
-      label: "lifetime_entitlements.status",
-      ddl: `ALTER TABLE lifetime_entitlements ADD COLUMN IF NOT EXISTS status varchar NOT NULL DEFAULT 'active'`,
-    },
+    // The `lifetime_entitlements.status` entry is REMOVED, and its removal is
+    // part of migration 0095 rather than follow-up work.
+    //
+    // ensureSchema() runs immediately after runMigrations() and BEFORE the port
+    // binds. `ADD COLUMN IF NOT EXISTS` guards the COLUMN, not the table, so once
+    // 0095 drops `lifetime_entitlements` that statement raises 42P01 outside the
+    // migration runner's SAVEPOINT recovery — and aborts startup. Leaving it here
+    // would have made this the deploy that never came up.
     {
       label: "membership_history.stripe_dispute_id",
       ddl: `ALTER TABLE membership_history ADD COLUMN IF NOT EXISTS stripe_dispute_id varchar`,

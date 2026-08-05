@@ -296,6 +296,40 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** When classify-time signature stamping lands — wire this
     in the same pass.
 
+- **Stripe↔local membership reconciliation — the repair path for an event that
+  never arrives (PR #287).**
+  - **What.** Every Stripe event we *receive* is authoritative, fenced and
+    idempotent, and duplicates and out-of-order deliveries are handled. What is
+    missing is the job that discovers a discrepancy nothing told us about — a
+    webhook Stripe never successfully delivers across its whole retry window.
+    That user's entitlement stays whatever it was until the next event for the
+    same subscription or payment happens to arrive.
+  - **Why it bites in one direction only.** Access wrongly *lost* is repairable
+    by hand — an admin grant restores it. Access wrongly *kept* is not: admin
+    grant/revoke act on admin grants, so nothing on the admin surface can mark a
+    stale Stripe subscription cancelled, or a purchase refunded or
+    dispute-lost. That direction is the one that costs money.
+  - **Why deferred now.** It was built and then pulled from PR #287 to narrow
+    the PR (David, 2026-07-30). The machinery it needs — run lease with
+    heartbeat, staged apply that re-verifies at apply time, the bounded
+    downgrade guard, and a durable run record at both altitudes — is
+    substantially more than the grace sweep that stayed, and it accounted for a
+    large share of that PR's review findings.
+  - **The known hard part, unsolved.** It cannot enumerate from local rows
+    alone. A first purchase whose checkout webhook never landed has *no* local
+    row to scan, so a subscription-row-driven sweep examines zero sources and
+    never finds the paying customer who was never granted access. Closing that
+    means enumerating from Stripe, which has no natural "list everything that
+    might be ours" query — a design question, not an implementation one.
+  - **Cost of waiting.** Real but bounded: it requires a webhook to fail for its
+    entire retry window. Stated as an accepted limitation in
+    `PR287_PAYMENTS_ENTITLEMENT_MODEL_UAT.md` and in `membershipSchedules.ts`'s
+    header, so it is a known gap rather than a silent one.
+  - **Revisit trigger.** The first time a real membership is observed out of
+    step with Stripe with no explaining event — or before scaling paid signups
+    materially, whichever comes first.
+  - **Sequencing.** Blocked on PR #287 merging.
+
 > The other inline marker, `TODO(version-rollback)` in
 > `enrichmentVersioning.ts`, is **product** work (an unbuilt feature) and is
 > tracked in the roadmap's deferred list, not here.

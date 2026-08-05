@@ -51,6 +51,58 @@ like [`ADMIN_FIELD_REFERENCE.md`](../ADMIN_FIELD_REFERENCE.md), the first step
 toward this manual — stay generated; chapters link to them and never
 hand-restate their content.
 
+### The one bounded exception: naming machinery without quantifying it
+
+Some areas' product story *is* their machinery — background work, the visual
+pipeline, enrichment. For those, a pure link leaves a chapter that reads
+"there are some moving parts; see the spec," which fails this manual's own
+quality bar. So chapters may cross the line in exactly one direction
+(David, 2026-07-30):
+
+- **Allowed — what a component is, who it serves, and what is at stake.**
+  *"A lane for admin actions where someone clicked a button and is waiting to
+  see it take effect; another for batches nobody is watching."* Audience and
+  consequence are what a reader needs to follow the story, and they change
+  only when the **product** changes.
+<!-- tuning-ok:start -->
+- **Not allowed — how it is configured.** Not a number, and **not a
+  qualitative stand-in for one**: *fast*, *frequently*, *serialized*, *a few
+  at a time*, *capped*, *about half an hour* are all values wearing prose.
+  Counts, intervals, concurrency bounds, timeouts, thresholds, retry budgets,
+  defaults, and queue-to-component assignments live **only** in
+  `docs/ai-context/`.
+
+The test: **could someone change a constant — by any amount, including an
+order of magnitude — without making this sentence wrong?** If not, it is over
+the line. Naming the audience and the stake survives any constant change;
+describing the tuning does not, even in words.
+
+| Over the line | Fine |
+| --- | --- |
+| "five lanes" | "independent lanes" |
+| "polls every 2 seconds" / "polls frequently" | "for work someone is waiting on" |
+| "serialized to one job at a time" | "for work that spends money at an external provider" |
+| "recovered after about half an hour" / "not promptly" | "recovered automatically, on a deliberate delay" |
+
+The rightmost column stays true whether the interval is two seconds or two
+hours — which is the whole point. Note the last row: *"not promptly"* is over
+the line too. It sounds qualitative but it is a claim about magnitude, and
+shrinking the delay would falsify it. *"On a deliberate delay"* says the thing
+a reader actually needs — recovery is not instant, and that is a choice, not a
+bug — without betting on how long.
+<!-- tuning-ok:end -->
+
+**There is no "but the product changed" escape.** An earlier draft of this
+rule said that if a constant change would falsify the narrative phrasing, the
+product had changed and the chapter should be rewritten. That let any tuning
+drift be relabelled a product change, which is the loophole the rule exists to
+close. The test is mechanical: **if the sentence's truth depends on the value,
+it belongs in the spec** — no matter how the change is characterised.
+
+This is an exception, not a general licence — it applies to the narrative
+sections of a chapter whose subject is machinery, and it never extends to
+restating a whole spec section.
+
 ## How the manual grows
 
 Written incrementally by the **`/document` ceremony**

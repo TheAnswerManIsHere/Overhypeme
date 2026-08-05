@@ -25,6 +25,17 @@ export const usersTable = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   membershipTier: membershipTierEnum("membership_tier").notNull().default("registered"),
+  /**
+   * The instant the stored `membership_tier` stops being valid in the absence of
+   * new events — the horizon over the user's *whole* qualifying source set, not
+   * one source's deadline. Null means no expiry (some qualifying source is
+   * indefinitely valid, or the tier is already non-qualifying).
+   *
+   * Written by the same single derivation that writes `membership_tier`. The read
+   * path enforces it (`effectiveTierExpr`), so grace expiry does not depend on a
+   * scheduled job being healthy; the sweep only converges the stored tier.
+   */
+  membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
   avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
   avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),

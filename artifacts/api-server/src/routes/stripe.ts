@@ -5,14 +5,25 @@ import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
-import { lifetimeEntitlementsTable, stripeCheckoutRequestLedgerTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
+import { membershipEntitlementsTable, stripeCheckoutRequestLedgerTable, usersTable } from "@workspace/db/schema";
+import {
+  applyPrepared,
+  prepareOneTimeCheckout,
+  refreshSubscriptionSource,
+  refreshSubscriptionSourceAfterMutation,
+  releasePrepared,
+  runNotifications,
+} from "../lib/membershipRefresh";
+import { runBoundedApply } from "../lib/membershipLease";
+import { hasQualifyingLifetimeSource, loadSourceSnapshots } from "../lib/membershipSources";
+import {
+  QUALIFIABLE_SUBSCRIPTION_STATUSES,
+  getEffectiveMembership,
+  qualifySource,
+} from "../lib/membershipState";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
-import {
-  makeGrantDeps,
-  handleConfirmRequest,
-} from "../lib/membershipGrant";
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 import { priceGrantsMembership } from "../lib/membershipPricing";
@@ -41,6 +52,86 @@ router.get("/stripe/plans", async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * The ONE subscription the panel describes AND its controls act on.
+ *
+ * Shared deliberately. When only the GET path used this selection, cancel,
+ * reactivate, switch-preview and switch-plan each independently took the first
+ * entry of `subscriptions.list({ status: "active" })` — so if newer
+ * subscription B was disputed or on a non-membership price while older A was
+ * the qualifying source, the panel described A and every button mutated B. A
+ * user could be told their subscription was cancelled while A kept billing.
+ *
+ * `qualifies` is returned rather than folded in, because the two consumers want
+ * different things from a non-qualifying result: the panel still renders the
+ * newest row so a fully-cancelled user sees their history instead of an empty
+ * card, while a mutation must refuse — cancelling an already-cancelled
+ * subscription is not a request anyone made.
+ */
+async function selectMembershipSubscription(userId: string): Promise<{
+  hasLifetime: boolean;
+  source: typeof membershipEntitlementsTable.$inferSelect | null;
+  qualifies: boolean;
+}> {
+  // ONE snapshot, and REPEATABLE READ is what makes that true. Qualification
+  // and the row that gets returned must come from the same read: a webhook
+  // cancelling or disputing B between the two statements leaves B in
+  // `qualifyingIds` from the first while the second returns its new
+  // non-qualifying state — selecting B over the older qualifying A and
+  // recreating exactly the mismatch this selection exists to prevent.
+  //
+  // A bare transaction does NOT prevent that. Under the pool's default READ
+  // COMMITTED isolation every statement takes a fresh snapshot, so grouping the
+  // two reads changes only their atomicity on write, which this read path has
+  // none of. The isolation level is the fix; the transaction alone was the
+  // appearance of one. Safe to raise because this is a pure read: a
+  // serialization failure has nothing to undo and no write to retry.
+  //
+  // "Does a lifetime row exist" is likewise the wrong question under a model
+  // that deliberately RETAINS refunded and dispute-revoked rows. Ask whether one
+  // currently QUALIFIES — `loadSourceSnapshots` resolves the dispute hold as a
+  // query, which is what makes qualification here mean the same thing it means
+  // in the derivation.
+  const { hasLifetime, subscriptionSnapshots, appSubRows } = await db.transaction(async (tx) => {
+    const snapshots = await loadSourceSnapshots(tx, userId);
+    const rows = await tx.select().from(membershipEntitlementsTable)
+      .where(and(
+        eq(membershipEntitlementsTable.userId, userId),
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+      ))
+      .orderBy(desc(membershipEntitlementsTable.createdAt));
+    return {
+      hasLifetime: snapshots.some(
+        (snapshot) =>
+          (snapshot.sourceType === "stripe_lifetime_payment" ||
+            snapshot.sourceType === "admin_grant") &&
+          qualifySource(snapshot, new Date()).qualifies,
+      ),
+      subscriptionSnapshots: snapshots.filter(
+        (snapshot) => snapshot.sourceType === "stripe_subscription",
+      ),
+      appSubRows: rows,
+    };
+  }, { isolationLevel: "repeatable read" });
+
+  // The newest source that still GRANTS access, not simply the newest row. The
+  // model supports more than one subscription source, and picking by recency
+  // alone returns a cancelled subscription B while access rests on an older
+  // active A.
+  const now = new Date();
+  const qualifyingIds = new Set(
+    subscriptionSnapshots
+      .filter((snapshot) => qualifySource(snapshot, now).qualifies)
+      .map((snapshot) => snapshot.id),
+  );
+  const qualifying = appSubRows.find((row) => qualifyingIds.has(row.id)) ?? null;
+  return {
+    hasLifetime,
+    source: qualifying ?? appSubRows[0] ?? null,
+    qualifies: qualifying !== null,
+  };
+}
+
 // GET /stripe/subscription — current user's subscription + membership state
 router.get("/stripe/subscription", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -49,20 +140,28 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
     // authMiddleware already loaded the canonical user row, so prefer
     // req.user.membershipTier over re-querying the DB here.
     const tier = req.user.membershipTier ?? "unregistered";
-    const [lifetimeRows, appSubRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
-      db.select().from(subscriptionsTable)
-        .where(eq(subscriptionsTable.userId, userId))
-        .orderBy(desc(subscriptionsTable.createdAt))
-        .limit(1),
-    ]);
+    const { hasLifetime, source } = await selectMembershipSubscription(userId);
 
-    const hasLifetime = lifetimeRows.length > 0;
-    const appSub = appSubRows[0] ?? null;
+    // The shape GET /stripe/subscription has always returned, rebuilt from the
+    // entitlement source so the client contract is unchanged.
+    const appSub = source
+      ? {
+          id: source.id,
+          userId: source.userId,
+          stripeSubscriptionId: source.providerRef,
+          plan: source.plan,
+          status: source.lifecycleStatus,
+          currentPeriodEnd: source.currentPeriodEnd,
+          cancelAtPeriodEnd: source.cancelAtPeriodEnd ?? false,
+          createdAt: source.createdAt,
+          updatedAt: source.updatedAt,
+        }
+      : null;
 
     // Also fetch the live subscription from Stripe-synced data for renewal dates
+    // BY ID, so both halves of this response describe the same subscription.
     const stripeSub = appSub?.stripeSubscriptionId
-      ? await stripeStorage.getSubscriptionForUser(userId)
+      ? await stripeStorage.getSubscriptionForUser(userId, appSub.stripeSubscriptionId)
       : null;
 
     res.json({
@@ -95,15 +194,32 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       // Verify the saved customer still exists in Stripe. It may have been
       // deleted, or the Stripe account / API keys may have been rotated since
       // the ID was stored. If it's gone, fall through to create a fresh one.
+      let stale = false;
       try {
         const existing = await stripe.customers.retrieve(customerId);
-        if ((existing as { deleted?: boolean }).deleted) customerId = undefined;
+        if ((existing as { deleted?: boolean }).deleted) stale = true;
       } catch (e) {
         if ((e as { code?: string }).code === "resource_missing") {
-          customerId = undefined;
+          stale = true;
         } else {
           throw e;
         }
+      }
+      if (stale) {
+        // CLEAR THE COLUMN, not just the local variable.
+        //
+        // The conditional bind below only fires on a NULL column, so leaving a
+        // known-dead id stored meant the bind necessarily lost, the adopt-the-
+        // winner re-read handed back that same dead id, and session creation
+        // failed — turning a path that used to recover on its own into a hard
+        // error. Compare-and-swap on the exact stale value so this cannot stomp
+        // a good id another request bound in the meantime.
+        await stripeStorage.clearStripeCustomerIfMatches(user.id, customerId);
+        logger.info(
+          { userId: user.id, staleCustomerId: customerId },
+          "the saved Stripe customer is gone from this account — clearing it and creating a fresh one",
+        );
+        customerId = undefined;
       }
     }
     if (!customerId) {
@@ -111,8 +227,25 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
         email: user.email ?? undefined,
         metadata: { userId: user.id },
       });
-      await stripeStorage.updateUserStripeCustomerId(user.id, customer.id);
-      customerId = customer.id;
+      // Bind CONDITIONALLY, and settle the race before any session exists.
+      //
+      // The unconditional setter is last-writer-wins: two racing first
+      // checkouts each created a customer and the user ended up pointing at
+      // only one of them. A paid session on the other belongs to nobody — its
+      // verification resolves no user, `user_unresolvable` is permanent, and the
+      // purchase is silently lost. So the loser adopts the winner's customer
+      // here, while the customer it created is still session-free and therefore
+      // harmless to abandon.
+      if (await stripeStorage.bindStripeCustomerIfUnset(user.id, customer.id)) {
+        customerId = customer.id;
+      } else {
+        const rebound = await stripeStorage.getUserById(user.id);
+        customerId = rebound?.stripeCustomerId ?? customer.id;
+        logger.info(
+          { userId: user.id, abandonedCustomerId: customer.id, customerId },
+          "another checkout bound this user's Stripe customer first — using theirs",
+        );
+      }
     }
 
     // Validate + resolve price — confirm it exists and is active in Stripe.
@@ -304,29 +437,74 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
     ]);
     if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-    const result = await handleConfirmRequest({
-      userId: req.user.id,
-      userStripeCustomerId: user.stripeCustomerId ?? null,
-      sessionId,
-      stripe,
-      deps: makeGrantDeps(),
-      linkCustomerId: (uid, cid) => stripeStorage.updateUserStripeCustomerId(uid, cid),
-      retrieveProduct: (id) => stripe.products.retrieve(id),
-    });
+    // The same trust boundary the webhook uses, with `expectedUserId` bound to
+    // the caller: the acceptance case is that a valid session belonging to
+    // ANOTHER customer cannot be applied to the requesting user, and binding it
+    // here is what makes the ownership check a property of the verifier rather
+    // than a separate guard this route has to remember.
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    if ("httpStatus" in result) {
-      if (result.httpStatus === 403) {
-        logger.warn({ userId: req.user.id, sessionId }, "checkout/confirm ownership check failed");
+    if (session.mode === "subscription") {
+      const subscriptionId =
+        typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+      if (!subscriptionId) {
+        res.status(400).json({ error: "Checkout session has no subscription" });
+        return;
       }
-      res.status(result.httpStatus).json({ error: result.error });
+      const applied = await refreshSubscriptionSource(stripe, subscriptionId, {
+        // The hint must come from the SESSION's own metadata (set by our backend
+        // at checkout creation — see POST /stripe/checkout), never from the
+        // caller's identity. Hinting with req.user.id would let bindUser link an
+        // unbound customer to whichever authenticated caller happens to submit
+        // this session id, and then trivially pass expectedUserId because it had
+        // just linked the customer to that same id moments before.
+        ...(session.metadata?.userId ? { linkHintUserId: session.metadata.userId } : {}),
+        expectedUserId: req.user.id,
+        // subscription_activated is now recorded unconditionally by applySubscription
+        // itself when the source is newly created — passing it here too would
+        // double-write the history fact.
+      });
+      if (!applied.applied) {
+        logger.warn({ userId: req.user.id, sessionId, reason: applied.reason }, "checkout/confirm did not apply");
+        res.status(applied.reason === "user_mismatch" ? 403 : 400).json({
+          error: applied.reason === "user_mismatch"
+            ? "This checkout session belongs to a different account"
+            : "Checkout could not be confirmed yet — it will apply automatically once Stripe confirms payment",
+        });
+        return;
+      }
+      const membership = await getEffectiveMembership(req.user.id);
+      res.json({ source: "subscription", result: "granted", tier: membership?.tier ?? null });
       return;
     }
 
-    logger.info(
-      { userId: req.user.id, sessionId, source: result.source, result: result.result },
-      "User granted Legendary via checkout/confirm (synchronous verification)",
-    );
-    res.json(result);
+    const prepared = await prepareOneTimeCheckout(stripe, sessionId, { expectedUserId: req.user.id });
+    if (prepared.kind === "noop") {
+      logger.warn({ userId: req.user.id, sessionId, reason: prepared.reason }, "checkout/confirm did not apply");
+      res.status(prepared.reason === "user_mismatch" ? 403 : 400).json({
+        error: prepared.reason === "user_mismatch"
+          ? "This checkout session belongs to a different account"
+          : "Checkout could not be confirmed yet — it will apply automatically once Stripe confirms payment",
+      });
+      return;
+    }
+
+    try {
+      const applied = await runBoundedApply((tx) => applyPrepared(tx, prepared));
+      await runNotifications(applied.notifications);
+      logger.info(
+        { userId: req.user.id, sessionId, applied: applied.applied },
+        "checkout/confirm applied through the trust boundary",
+      );
+      const membership = await getEffectiveMembership(req.user.id);
+      res.json({
+        source: "lifetime",
+        result: applied.applied ? "granted" : "already_recorded",
+        tier: membership?.tier ?? null,
+      });
+    } finally {
+      await releasePrepared(prepared);
+    }
 
   } catch (err) {
     paymentErrorResponse({
@@ -371,19 +549,102 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
   }
 });
 
-// Helper: get the user's active non-lifetime subscription from Stripe
-async function getActiveStripeSub(userId: string) {
-  const user = await stripeStorage.getUserById(userId);
-  if (!user?.stripeCustomerId) return null;
+/**
+ * What a mutation route is allowed to act on.
+ *
+ * `target_changed` is a first-class outcome, not an error dressed up as one.
+ * When the displayed subscription turns out to be stale, this helper repairs the
+ * local source — and the correct target afterwards may be a DIFFERENT
+ * subscription. Silently mutating that one would mean a single click aimed at B
+ * cancels A, which the user never saw and never asked for. So the route stops
+ * and tells the client to refetch.
+ */
+type MutationTarget =
+  | { kind: "subscription"; subscription: Stripe.Subscription }
+  | { kind: "none" }
+  | { kind: "target_changed" };
 
-  // Fetch active subscriptions from Stripe (not local DB)
-  const stripe = await getUncachableStripeClient();
-  const subs = await stripe.subscriptions.list({
-    customer: user.stripeCustomerId,
-    status: "active",
-    limit: 5,
+/**
+ * The Stripe subscription a mutation route may act on — the SAME one the panel
+ * is describing.
+ *
+ * Retrieved by id from the server-side selection rather than taken as the first
+ * entry of `subscriptions.list({ status: "active" })`. The list order is
+ * Stripe's, not ours, so it could hand back a subscription the panel is not
+ * showing; and `status: "active"` excludes a `past_due` subscription that still
+ * qualifies during its grace window, which left a member in dunning unable to
+ * cancel the thing they were being dunned for.
+ *
+ * The panel's fallback to the newest non-qualifying row is for DISPLAY only and
+ * must never become a mutation target.
+ */
+async function getMutationTarget(stripe: Stripe, userId: string): Promise<MutationTarget> {
+  // The CALLER's client, not a fresh one. `stripe_live_mode` is operator-tunable
+  // at runtime, so a second `getUncachableStripeClient()` here could resolve to
+  // the other account mid-request: the target would be retrieved from one mode
+  // and mutated through the other. One client per request means one mode
+  // snapshot across selection, price validation, mutation and refresh.
+  const selected = await selectMembershipSubscription(userId);
+  if (!selected.qualifies || !selected.source?.providerRef) return { kind: "none" };
+
+  const live = await retrieveSubscription(stripe, userId, selected.source.providerRef);
+  if (!live) return { kind: "none" };
+
+  // The question is whether the LIVE subscription still qualifies — not whether
+  // Stripe would technically accept an update on it.
+  //
+  // Those differ, and the difference is a money bug: `unpaid` and `paused` are
+  // both mutable and both non-qualifying, so a locally-stale row that Stripe had
+  // moved to one of them passed a mutability check and became the target while
+  // an OLDER, actually-qualifying subscription kept billing. Asking the
+  // qualification question means this gate and the derivation agree by
+  // construction.
+  if (QUALIFIABLE_SUBSCRIPTION_STATUSES.has(live.status)) return { kind: "subscription", subscription: live };
+
+  // Local state was stale. Repair it authoritatively, then reselect ONCE — one
+  // retry, not a loop: if the second selection is also stale, something is
+  // actively racing us and refusing beats spinning.
+  logger.info(
+    { userId, subscriptionId: live.id, status: live.status },
+    "the selected subscription no longer qualifies at Stripe — refreshing the local source and reselecting",
+  );
+  await refreshSubscriptionSourceAfterMutation(stripe, live.id);
+
+  const reselected = await selectMembershipSubscription(userId);
+  if (!reselected.qualifies || !reselected.source?.providerRef) return { kind: "none" };
+
+  // A DIFFERENT subscription is now the right target — but it is not the one the
+  // user was looking at when they clicked, so acting on it would be acting
+  // without consent. The local source has been repaired, so the client's refetch
+  // will show the truth and a second click means what it says.
+  if (reselected.source.providerRef !== live.id) return { kind: "target_changed" };
+
+  const fresh = await retrieveSubscription(stripe, userId, reselected.source.providerRef);
+  return fresh && QUALIFIABLE_SUBSCRIPTION_STATUSES.has(fresh.status)
+    ? { kind: "subscription", subscription: fresh }
+    : { kind: "none" };
+}
+
+/** The 409 a route answers when its target moved out from under the click. */
+function respondTargetChanged(res: Response): void {
+  res.status(409).json({
+    error:
+      "Your subscription details have changed since this page loaded. " +
+      "Refresh and try again — nothing was modified.",
+    targetChanged: true,
   });
-  return subs.data[0] ?? null;
+}
+
+async function retrieveSubscription(stripe: Stripe, userId: string, subscriptionId: string) {
+  try {
+    return await stripe.subscriptions.retrieve(subscriptionId);
+  } catch (error) {
+    logger.warn(
+      { err: error, userId, subscriptionId },
+      "the qualifying subscription source could not be retrieved from Stripe",
+    );
+    return null;
+  }
 }
 
 // POST /stripe/subscription/cancel — cancel subscription at period end
@@ -393,38 +654,43 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
   try {
     const userId = req.user.id;
 
-    // Block lifetime users
-    const [lifetimeRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
-    ]);
-    if (lifetimeRows.length > 0) {
+    // Block lifetime users — but only those whose entitlement still QUALIFIES.
+    // A refunded lifetime purchase keeps its row, and blocking on mere existence
+    // would leave a refunded user unable to cancel a subscription they do have.
+    if (await hasQualifyingLifetimeSource(userId)) {
       res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to cancel" });
       return;
     }
 
     const stripe = await getUncachableStripeClient();
-    const user = await stripeStorage.getUserById(userId);
-    if (!user?.stripeCustomerId) {
+    // The subscription the PANEL is describing, not whichever entry Stripe's
+    // list happens to return first — otherwise the button and the card can
+    // disagree about which subscription they mean.
+    const target = await getMutationTarget(stripe, userId);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
-
-    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
-    const sub = subs.data[0];
-    if (!sub) {
-      res.status(400).json({ error: "No active subscription found" });
-      return;
-    }
+    const sub = target.subscription;
 
     const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: true });
 
-    // Sync local DB immediately so next GET /stripe/subscription reflects updated state
-    await db
-      .update(subscriptionsTable)
-      .set({ cancelAtPeriodEnd: true })
-      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+    // Re-retrieve rather than write what we believe we just set. This route
+    // completes its Stripe call BEFORE its local write, so a token minted after
+    // the lock would order database application rather than provider state: a
+    // stalled response could acquire the lock after a newer webhook stored
+    // `canceled` and overwrite it with stale `active`. Going through the same
+    // authoritative refresh the webhook uses removes the special case instead of
+    // trying to order it.
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,
@@ -445,26 +711,26 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
     const userId = req.user.id;
 
     // Block lifetime users — same guard as cancel
-    const lifetimeRowsReactivate = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1);
+    const lifetimeRowsReactivate = (await hasQualifyingLifetimeSource(userId)) ? [1] : [];
     if (lifetimeRowsReactivate.length > 0) {
       res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to reactivate" });
       return;
     }
 
     const stripe = await getUncachableStripeClient();
-    const user = await stripeStorage.getUserById(userId);
-    if (!user?.stripeCustomerId) {
+    // The subscription the PANEL is describing, not whichever entry Stripe's
+    // list happens to return first — otherwise the button and the card can
+    // disagree about which subscription they mean.
+    const target = await getMutationTarget(stripe, userId);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
-
-    // Find subscriptions that are active or set to cancel at period end
-    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
-    const sub = subs.data[0];
-    if (!sub) {
-      res.status(400).json({ error: "No active subscription found" });
-      return;
-    }
+    const sub = target.subscription;
 
     if (!sub.cancel_at_period_end) {
       res.status(400).json({ error: "Subscription is not set to cancel" });
@@ -473,13 +739,13 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
 
     const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: false });
 
-    // Sync local DB immediately so next GET /stripe/subscription reflects updated state
-    await db
-      .update(subscriptionsTable)
-      .set({ cancelAtPeriodEnd: false })
-      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+    // Re-retrieve rather than write what we believe we just set — see the cancel
+    // route above for why a local write after a Stripe call cannot be ordered.
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,
@@ -501,7 +767,7 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
 
   try {
     // Block lifetime users — same guard as switch-plan/cancel/reactivate
-    const lifetimeRowsPreview = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
+    const lifetimeRowsPreview = (await hasQualifyingLifetimeSource(req.user.id)) ? [1] : [];
     if (lifetimeRowsPreview.length > 0) {
       res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to switch" });
       return;
@@ -523,11 +789,16 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
       return;
     }
 
-    const sub = await getActiveStripeSub(req.user.id);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, req.user.id);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     const currentItem = sub.items.data[0];
     if (!currentItem) {
@@ -601,17 +872,22 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
     }
 
     // Block lifetime users
-    const lifetimeRows = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
+    const lifetimeRows = (await hasQualifyingLifetimeSource(req.user.id)) ? [1] : [];
     if (lifetimeRows.length > 0) {
       res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to switch" });
       return;
     }
 
-    const sub = await getActiveStripeSub(req.user.id);
-    if (!sub) {
+    const target = await getMutationTarget(stripe, req.user.id);
+    if (target.kind === "target_changed") {
+      respondTargetChanged(res);
+      return;
+    }
+    if (target.kind === "none") {
       res.status(400).json({ error: "No active subscription found" });
       return;
     }
+    const sub = target.subscription;
 
     const currentItem = sub.items.data[0];
     if (!currentItem) {
@@ -636,13 +912,15 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
       proration_behavior: "create_prorations",
     });
 
-    // Sync local DB immediately so next GET /stripe/subscription reflects updated plan
-    await db
-      .update(subscriptionsTable)
-      .set({ plan: "annual" })
-      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+    // Re-retrieve rather than write what we believe we just set. This matters
+    // most here: the plan switch is exactly the path that can move a
+    // subscription OFF an allowlisted product, and only a refresh re-evaluates
+    // `is_membership_product` against what the user is now subscribed to.
+    const localRefresh = await refreshSubscriptionSourceAfterMutation(stripe, sub.id);
 
-    res.json({ subscription: updated });
+    // The Stripe half of this response is authoritative either way; the flag
+    // says only that our local entitlement row may lag until its webhook lands.
+    res.json({ subscription: updated, ...(localRefresh.applied ? {} : { localStateStale: true }) });
   } catch (err) {
     paymentErrorResponse({
       req,
