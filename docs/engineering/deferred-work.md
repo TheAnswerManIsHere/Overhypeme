@@ -431,12 +431,14 @@ re-gather it when the work is scheduled.
     provenance as the `adminConfig` entry above.
   - **Cost of waiting.** Extra Postgres connections and pool churn on every
     concurrent Stripe-sync miss or live/test mode flip, worsening the
-    autoscale connection-budget problem below. No known production incident
-    yet; the mixed-mode-credentials case (3) is the most severe if it fires —
-    a live secret key paired with a test webhook secret.
+    [autoscale connection-budget problem](#security--patching) (now filed
+    under Security & patching, above this section). No known production
+    incident yet; the mixed-mode-credentials case (3) is the most severe if
+    it fires — a live secret key paired with a test webhook secret.
   - **Revisit trigger.** Next `/bugfix` pass through Stripe sync, or the
-    connection-budget item below being fixed first (its arithmetic assumes
-    this leak doesn't exist). Acceptance needs three cases proven together: a
+    [autoscale connection-budget entry](#security--patching) being fixed
+    first (its arithmetic assumes this leak doesn't exist). Acceptance needs
+    three cases proven together: a
     delayed mid-flight mode flip, a construction failure followed by a
     successful retry, and repeated flips returning the live pool count to one.
 
@@ -499,6 +501,20 @@ re-gather it when the work is scheduled.
     itself), scoped to implementation code and `.agents/memory/` only, not
     `docs/` generally, added to `check-docs-accuracy.mjs` or a sibling
     script, wired into the Build job like the other content guards.
+    **Second scope note (Codex review, PR #319, third pass):** a literal
+    regex over `.agents/memory/` would also fail on the canonical
+    rule-defining docs themselves —
+    [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
+    cites `docs/plans/PLAN_*.md`-shaped examples as the teaching content the
+    rule is *about*, and
+    [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
+    links a `docs/plans/*` GitHub blob URL (a legitimate historical
+    citation, deliberately not a relative path — see that doc's own note on
+    why). The guard needs either an explicit exemption for these two files,
+    or — cleaner — to only flag a *relative* `docs/plans/*` reference (a
+    bare path, not a full `https://github.com/...` blob URL or a
+    `PLAN_*.md` glob/example used as prose), since a relative path is what's
+    actually dangling; a fully-qualified URL or a glob-marked example is not.
 
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,

@@ -65,14 +65,27 @@ specifically, not this `Set`). **Not fixed here** — tracked as its own
 `deferred-work.md` entry (Codex review, PR #319's `/document` harvest) rather
 than a drive-by code change inside a docs-only harvest PR.
 
-**Rule:** a module meant to be imported by tests under a shared-process
+**Rule — scoped to import-time env/config capture, not singletons in
+general:** a module meant to be imported by tests under a shared-process
 runner (`--test-isolation=none`, or any setup where import order across
-files isn't controlled) must never construct a stateful singleton — DB
-client, Express app, cache, anything that reads mutable config — as a
-top-level side effect, even behind a *named* export the caller doesn't
-appear to be asking for. If a "fresh instance" helper is needed, it must call
-a **factory function** each time, never memoize or return a cached
-module-level value. When reviewing a file like this, check every top-level
-`const x = someFactory();` for whether `x` (or a default export built from
-it) is ever imported anywhere a test file's env-dependent setup could race
-against it.
+files isn't controlled) must never construct, as a top-level side effect, an
+instance whose behavior is **fixed by mutable env/config read at that
+construction moment** — even behind a *named* export the caller doesn't
+appear to be asking for. If a "fresh instance" helper is needed for such a
+case, it must call a **factory function** each time, never memoize or return
+a cached module-level value.
+
+**This is NOT a blanket ban on module-level singletons** (Codex review, PR
+#319, third pass) — most of this repo's real ones are fine and shouldn't be
+"fixed" under this rule: `lib/db/src/index.ts`'s `export const pool = new
+Pool({...})` is a genuinely shared, process-wide connection pool with no
+per-test env dependency baked into its behavior at construction time, and
+`adminConfig.ts`'s `let _cache` is a lazily-populated cache variable, not
+something constructed *from* env at import. The defect this note documents
+is specifically: a singleton built by reading env/config **once, at
+first-import**, whose resulting behavior a later test can't override by
+setting env before its own call — not "any top-level `const`." When
+reviewing a file like this, check every top-level `const x = someFactory();`
+for two things together: does its behavior depend on env/config read at
+construction, AND does any caller need that value to reflect env set *after*
+the module was first imported? Only that combination is the bug.

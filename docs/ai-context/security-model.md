@@ -87,13 +87,19 @@ preview and the Playwright e2e admin flows keep working; production
   Stripe webhook); backed by a bounded in-memory store (`BoundedMemoryStore`,
   capped and FIFO-evicted, not `checkSharedRateLimit`'s DB table), so it is
   **per-instance**, not fleet-wide. **Separately, CORS preflight (`OPTIONS`)
-  requests to any `/api` path bypass the limiter entirely** — `cors()` is
-  registered in `app.ts` before `createGlobalLimiter()` mounts, with no
-  `preflightContinue` override, so a preflight is answered and the request
-  cycle ends before it ever reaches the limiter. This is unmetered traffic
-  distinct from the two named exemptions, not a third named exemption — don't
-  assume preflight volume counts against the ceiling. See the 2026-08-04
-  `decisions.md` entry for why an in-memory store was chosen over a
+  requests bypass the limiter ONLY for a no-origin or allowed-origin
+  request** — `cors()` is registered in `app.ts` before
+  `createGlobalLimiter()` mounts, with no `preflightContinue` override, so an
+  allowed preflight is answered and ends there. A **rejected-origin**
+  preflight behaves differently: `cors@2.8.6`'s dynamic-origin callback path
+  calls `next(err2)` (with no error) when the origin callback returns a
+  falsy value, which does **not** short-circuit the response — the request
+  falls through past `cors()` unanswered and continues into
+  `createGlobalLimiter`, so rejected-origin preflights ARE metered (verified
+  against the installed package's source, not assumed). Don't treat "OPTIONS
+  bypasses the limiter" as universally true — it depends on the origin
+  decision. See the 2026-08-04 `decisions.md` entry for why an in-memory
+  store was chosen over a
   DB-backed one.
 
 ## Authorization — objects, media, and memes
