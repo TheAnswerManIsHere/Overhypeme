@@ -31,7 +31,15 @@
   board is a projection of them.** Four skills — `plan-review-loop`,
   `bugfix`, `pr-watch`, `pr-docs` — each own a specific label transition at
   a trigger point they already hit, rather than any agent carrying a
-  standing "go check the board" habit. The full contract is
+  standing "go check the board" habit, plus one automated exception: the
+  `test-run-completion.yml` Action (PR #334) is the sole non-agent label
+  writer, moving `stage:test-run` to `stage:uat`/`stage:close-out` the
+  moment a PR's TEST_RUN doc is deleted — nothing with write access was
+  otherwise guaranteed to ever notice that event. Because that Action
+  writes labels with `GITHUB_TOKEN`, whose events GitHub deliberately does
+  not cascade to other workflows, it cannot rely on `project-sync.yml`'s
+  own `issues:labeled` trigger firing from its write — it calls the same
+  reconcile function directly instead. The full contract is
   [`workstream-tracking.md`](./workstream-tracking.md).
 - **Why:** David runs ~10 concurrent Claude Code sessions and could not tell
   which needed him without opening each one; the session list shows a name
@@ -69,7 +77,9 @@
 - **Reference:** PRs #318 (sync mechanism), #322 (field-name matching fix),
   #323 (`/workstream-status` skill, later renamed from `/status` to avoid
   colliding with Claude Code's own built-in command), #324 (label maintenance wired into the four
-  skills + the shared contract); workstream #317;
+  skills + the shared contract), #334 (`test-run-completion.yml` — the
+  automated TEST_RUN-completion trigger, added after Codex flagged that
+  transition's missing owner twice reviewing that PR); workstream #317;
   [`workstream-tracking.md`](./workstream-tracking.md). Board:
   *Overhype.me Workstreams* (private, user-owned project 1).
 - **Revisit if:** a tool appears that can read or write Projects v2 item

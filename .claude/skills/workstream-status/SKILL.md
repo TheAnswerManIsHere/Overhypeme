@@ -107,10 +107,23 @@ list_pull_requests(owner, repo, state: all, sort: updated, direction: desc,
 
 One call, not one per issue — regex `Workstream:\s*#(\d+)` out of each
 body to build the issue→PR map locally. Bounding to the most-recently-
-updated 50 is intentional: an active workstream's PR is recent by
-definition, and a workstream with no PR in that window is either
-pre-code (Discovery/Planning) or genuinely stalled, both of which the
-report should surface anyway.
+updated 50 is intentional for the common case: an *active* workstream's
+PR is recent by definition, so one batched call covers nearly everyone.
+
+**But recency isn't proof of "no PR" for a workstream at a long-lived
+gate.** An issue sitting at `stage:merge`/`stage:uat`/`stage:close-out`
+for a while is exactly the kind of thing that stops generating new PR
+activity — its own PR isn't updating, so 50 *other*, busier PRs (routine
+bugfixes, devops, docs) can push it off the page even though it's still
+genuinely linked. Don't treat every issue the top-50 scan didn't match as
+stalled: for any workstream at a stage that structurally implies a PR
+should already exist (`coding` onward — everything past Planning) with no
+match in the map, do one targeted lookup instead of assuming — search
+for `"Workstream: #<N>"` in PR bodies (`search_pull_requests`, query
+`"Workstream: #<N>" in:body repo:<owner>/<repo>`) before concluding it's
+actually unlinked. This only fires for the rare case the batched scan
+missed, so it stays cheap in the common case while closing the gap for
+long-lived gates.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
@@ -173,8 +186,12 @@ stage issue sitting at `waiting:claude`/`waiting:codex` with no repo
 activity for days is stalled the same way a quiet PR thread is, even
 though Step 3 found nothing to check. For these, apply the **same
 attributable, non-David filtering as the PR path above** — the issue's
-own comment history (`issue_read`), filtered to exclude anything authored
-by David, not its raw `updated_at` alone. A David comment, label edit, or
+own comment history (`issue_read`, **paged to exhaustion, same as the PR
+path's `get_commits`/`get_review_comments`/`get_comments`**), filtered to
+exclude anything authored by David, not its raw `updated_at` alone. A
+single capped page can omit the latest non-David reply the same way an
+unpaged PR call can, and mis-mark an active issue stalled or attribute
+the last move to the wrong actor. A David comment, label edit, or
 body edit advances `updated_at` the same actorless way a PR's does, and
 would reset this clock and hide the same stale handoff the PR path is
 designed to expose — don't let "no PR yet" mean "can't be stalled,"

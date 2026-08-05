@@ -79,7 +79,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   write a Projects v2 item field** — the same constraint that keeps
   `/workstream-status` reading labels rather than the board. Label maintenance is owned
   by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
-  points they already hit, not by a standing habit. See
+  points they already hit, not by a standing habit — plus one automated
+  exception: the `test-run-completion.yml` Action (PR #334) is the sole
+  non-agent label writer, moving a workstream from `stage:test-run` to
+  `stage:uat`/`stage:close-out` the moment its TEST_RUN doc is deleted,
+  since nothing else was guaranteed to notice that event. See
   [`workstream-tracking.md`](./workstream-tracking.md) and
   [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
   **Open next:** the board's value depends on labels staying current now

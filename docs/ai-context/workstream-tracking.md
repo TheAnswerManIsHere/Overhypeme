@@ -71,7 +71,12 @@ twice, independently, building the sync mechanism (PR #318) and again
 confirming `/workstream-status` has to read labels rather than the board (PR #323). A
 `.github/workflows/project-sync.yml` Action
 (`scripts/sync-project-fields.mjs`) mirrors labels onto the board's fields
-on every label change; nothing else writes to the board, and nothing should.
+on every label change. One deliberate exception: `test-run-completion.yml`
+(`scripts/sync-test-run-completion.mjs`) writes labels with `GITHUB_TOKEN`,
+whose events GitHub does not cascade to other workflows — so
+`project-sync.yml`'s own `issues:labeled` trigger would never fire from
+that write — and calls `sync-project-fields.mjs`'s `syncIssue` directly
+instead of relying on the event chain. Nothing else writes to the board.
 
 Every workstream issue carries exactly one label from each of three
 prefixes:
