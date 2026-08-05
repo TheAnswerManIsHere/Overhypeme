@@ -58,6 +58,57 @@ we've sequenced for later.
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
 
+- **`rate_limit_counters` has no production cleanup — PII- and session-token-retention gap, not just table growth.** See the
+  [Code-level tech debt](#code-level-tech-debt) entry below for the full
+  detail: every row `checkSharedRateLimit` writes carries the raw IP, user
+  id, and sometimes a normalized recipient email, with no purge ever wired
+  up — and for both `createRateLimiter`- and `createFactSubmitRateLimiter`-
+  backed routes (including fact submission in `reviews.ts`), "user id" is
+  the actual session token. Left in Code-level tech debt (grouped with the sibling
+  `adminConfig`/`getStripeSync` entries from the same review), but flagged
+  here so the quarterly `/security-review` — which otherwise only reads this
+  section — doesn't miss it.
+
+- **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
+  - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
+    maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19
+    instances" comment cannot actually fail if violated. It also omits the
+    `StripeSync` pool's `max: 2` from the per-instance total, making the real
+    per-instance total 22 (not 19) and the honest ceiling
+    `floor(398 / 22) = 18`, not the assumed 19.
+  - **Why deferred now.** Pre-existing on `main`; same provenance as the
+    `adminConfig`/`getStripeSync`/`rate_limit_counters` entries in
+    [Code-level tech debt](#code-level-tech-debt) below — all five surfaced on
+    the same 16-round review of the plan that became PR #308. Prioritized
+    **first** among these five by David's 2026-08-04 ordering decision — with
+    most of this API's route files having had no other rate limiting before
+    PR #308's global backstop, an unbounded per-instance ceiling multiplied by
+    an unbounded instance count is the one item that determines whether that
+    backstop means anything fleet-wide.
+  - **Cost of waiting.** The global rate-limiter's advertised per-IP ceiling
+    (12,000/min) is a **per-instance** number with no fleet-wide bound — see
+    the 2026-08-04 `decisions.md` entry's "accepted trade-off" note. The DB
+    connection budget is also silently thinner than the code comment claims.
+  - **Revisit trigger.** Either a deployment-level instance cap is configured,
+    or a boot-validated instance-count input is added to derive `DB_POOL_MAX`
+    correctly (including the `StripeSync` pool's connections). Should land
+    before scaling autoscale usage materially.
+
+- **`IP_HASH_SALT` can silently fall back in production (found on PR #299's review, deferred by PR #308).**
+  - **What.** `hashIp` falls back to a repository-known string when the salt
+    env var is missing or under 16 characters, logged only as a WARN. PR
+    #308's own rate limiter doesn't hash IPs, but `transientRenderLog.ts`'s
+    existing usage still does, so this fallback remains live.
+  - **Why deferred now.** Pre-existing on `main`; same provenance as the
+    autoscale entry above.
+  - **Cost of waiting.** In production with a missing/weak salt, IP hashes in
+    `transientRenderLog` would use a value anyone with repo access can derive
+    — defeating the point of hashing — with only a WARN log as the signal.
+  - **Revisit trigger.** Next security-focused pass, or the quarterly security
+    review. Fix is a boot assertion on the canonical production predicate
+    (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
+    **both** branches of that `||`.
+
 **Security follow-ups from the C5/C9 review.** Lower-risk hardening the
 security review consciously deferred. Full context lives in
 [`security-model.md`](../ai-context/security-model.md#deliberately-out-of-scope--deferred);
@@ -333,6 +384,214 @@ re-gather it when the work is scheduled.
 > The other inline marker, `TODO(version-rollback)` in
 > `enrichmentVersioning.ts`, is **product** work (an unbuilt feature) and is
 > tracked in the roadmap's deferred list, not here.
+
+- **`adminConfig.loadAll()` has a cache stampede and a stale-fill race (found on PR #299's review, deferred by PR #308).**
+  - **What.** `adminConfig.ts:32-39` checks `_cache`, awaits the query, then
+    assigns, with no in-flight promise today — concurrent callers on an empty
+    or just-expired cache each issue their own query (the stampede). Worse,
+    `bustConfigCache()` can clear the cache while an older read is in flight;
+    that read then repopulates it with pre-write rows for another ~60 seconds,
+    which affects the immediate `stripe_live_mode` cache-bust/invalidate path
+    at `routes/admin.ts:2881-2897`. **Forward-looking guardrail, not a current
+    symptom:** today's code has no stored in-flight promise at all, so there's
+    nothing to leak on a failed query — but any single-flight fix for the
+    stampede must not introduce an unlogged failure mode of its own: a stored
+    promise that rejects during a transient DB failure must be cleared, not
+    cached, or every later config reader would await that same rejection until
+    restart — every getter falling back to its default, including
+    `isLiveMode()` silently selecting **test mode** on a live deployment.
+  - **Why deferred now.** Pre-existing on `main`, not caused by PR #308's
+    rate-limiter work — surfaced as a side finding during the 16-round review
+    of the plan that became #308, deliberately kept rather than lost with the
+    code it was found in, and queued for its own `/bugfix` PR per David's
+    2026-08-04 decision.
+  - **Cost of waiting.** Redundant concurrent config queries under load today.
+    No rejection-poisoning risk exists yet (there's no single-flight to poison)
+    — that's a pitfall to avoid *when* single-flight is added, not a present
+    defect.
+  - **Revisit trigger.** Next `/bugfix` pass through this area, or if
+    stampede-driven query load is actually observed. Fix needs a single-flight
+    with a **generation counter** (so only the current generation may publish)
+    and rejection cleanup built in from the start (a rejected in-flight
+    promise must be cleared, not cached) — not added later as a patch.
+
+- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
+  - **What.** `stripeClient.ts:120-126` (`getStripeSync()` itself; the cached
+    module-level vars and `buildStripeSync()` start at `:103-107`), three
+    current defects plus one forward-looking guardrail: (1) no single-flight,
+    so concurrent misses each run `buildStripeSync()`, creating extra
+    `StripeSync` instances **and** extra `pg.Pool`s; (2) a `stripe_live_mode`
+    flip mid-flight lets an old-mode build publish *after*
+    `invalidateStripeSync()` — the flight must be generation- **and**
+    mode-scoped, discarding a completion whose generation is no longer
+    current; (3) `buildStripeSync()` re-reads the mode independently for the
+    secret key and the webhook secret rather than using the mode captured at
+    entry, so a flip landing between those reads can yield a live key paired
+    with a test webhook secret or the reverse. **Forward-looking guardrail:**
+    today's code has no stored in-flight promise either — `stripeSync = await
+    buildStripeSync()` simply throws to the caller on failure, leaving the
+    prior cached value in place — but any single-flight fix must clear a
+    rejected promise rather than cache it, or every later webhook would fail
+    until restart. A superseded or invalidated `StripeSync` also **leaks its
+    underlying `pg.Pool`** — the installed `stripe-replit-sync@1.0.0`'s
+    constructor creates a `PostgresClient`, whose constructor creates a
+    `pg.Pool` — so repeated mode flips leak connections steadily; "discard" is
+    the wrong verb throughout, the fix must *dispose*
+    (`postgresClient.pool.end()`).
+  - **Why deferred now.** Pre-existing on `main`; same review/deferral
+    provenance as the `adminConfig` entry above.
+  - **Cost of waiting.** Extra Postgres connections and pool churn on every
+    concurrent Stripe-sync miss or live/test mode flip, worsening the
+    [autoscale connection-budget problem](#security--patching) (now filed
+    under Security & patching, above this section). No known production
+    incident yet; the mixed-mode-credentials case (3) is the most severe if
+    it fires — a live secret key paired with a test webhook secret.
+  - **Revisit trigger.** Next `/bugfix` pass through Stripe sync, or the
+    [autoscale connection-budget entry](#security--patching) being fixed
+    first (its arithmetic assumes this leak doesn't exist). Acceptance needs
+    three cases proven together: a
+    delayed mid-flight mode flip, a construction failure followed by a
+    successful retry, and repeated flips returning the live pool count to one.
+
+- **`rate_limit_counters` has no production cleanup at all (found on PR #299's review, deferred by PR #308).**
+  - **What.** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`)
+    is one unbounded `DELETE` and nothing calls it, while
+    `checkSharedRateLimit` (`:44-68`) inserts a persistent row for every new
+    endpoint/IP/user/email key combination. The table grows without limit.
+  - **Why deferred now.** Pre-existing on `main` — PR #308's rate limiter uses
+    its own bounded in-memory store and writes no rows to this table at all,
+    so it doesn't touch this gap. Ordered **last** of these five by David's
+    2026-08-04 decision, but flagged as the one that **worsens with time**
+    rather than staying static, so it shouldn't sit indefinitely.
+  - **Cost of waiting.** Not just table growth: `key_raw`
+    (`sharedRateLimiter.ts`'s `normalizeRateLimitKey()`) stores the raw IP,
+    user id, and — for endpoints scoped by `recipientEmail` — a normalized
+    email address, per row, for every endpoint/IP/user/email key combination
+    ever seen. **For both `createRateLimiter`- and `createFactSubmitRateLimiter`-
+    backed routes, the "user id" is `getSessionId(req)`** (both factories call
+    the same `rateLimitScope()` in `rateLimit.ts` — `createFactSubmitRateLimiter`
+    passes `scope.userId` into its own `checkSharedRateLimit` call for the
+    `fact_submit` endpoint, mounted on fact submission in `reviews.ts`) — this
+    repo's 32-byte hex session cookie/Bearer token, not an opaque account id —
+    so those rows, across both factories, retain live/recent **session
+    tokens**, a materially higher-severity secret than an identifier. With no cleanup,
+    this is an **unbounded PII-and-session-token retention backlog**, not
+    merely inert counters — a privacy/security cost, not only a
+    query-latency one. This reframes the item: the quarterly
+    `/security-review` should track it too, not just a maintenance pass, and
+    a design that only addresses index/query cost (e.g. archiving instead of
+    deleting) would leave the retention problem unsolved — worse, archiving
+    would extend the retention window on live session tokens.
+  - **Revisit trigger.** A scheduled maintenance pass, the quarterly security
+    review, or observed table-size growth becoming a real query-latency
+    concern — whichever fires first. Fix needs real retention (deletion, not
+    archiving, given the PII content): a bounded per-run delete statement
+    plus a bounded whole-run budget with rescheduling (not a single
+    unbounded `DELETE`), verified against a
+    high-cardinality backlog so no single run monopolizes the pool.
+
+- **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
+  - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
+    documents the rule — plan-review branches are never merged, so a code
+    comment or docstring citing a `docs/plans/*` path is dangling from
+    the moment it's written — and records **two** confirmed occurrences (PR
+    #256, PR #308) despite the rule already existing after the first one.
+    `scripts/check-docs-accuracy.mjs` only link/path-checks the shared docs
+    set (`docs/ai-context/`, the manual, etc.); it does not scan implementation
+    code comments or `.agents/memory/` for this specific pattern, so a third
+    occurrence can still merge green.
+  - **Why deferred now.** This repo's own rule is that a recurring failure
+    pattern becomes a deterministic CI guard, not a reviewer-memory ask — this
+    item is the queued acknowledgment of that rule firing, not a decision to
+    skip it. Not implemented in the PR that raised it (#319) because that PR
+    is a docs-only `/document` harvest; adding a new guard script + build.yml
+    wiring is a code change outside that ceremony's boundary (see
+    `docs/ai-context/documentation-workflow.md`'s "Docs-only" boundary).
+  - **Cost of waiting.** A third dangling-citation instance stays possible
+    and undetected by CI until this ships — the exact gap that let occurrence
+    #2 slip through despite the rule already being documented from #1.
+  - **Scope note (Codex review, PR #319, second pass).** The guard must NOT
+    scan `docs/*_TEST_RUN.md`/similar historical docs — a repo-wide search
+    already finds a real, legitimate citation surviving there
+    (`docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md` cites a `docs/plans/*`
+    file for the async-queue-hardening plan, long since gone from `main`, as
+    a "not built in this PR" note). A guard scoped only to implementation
+    code comments (`artifacts/*/src/` **and** `lib/*/src/` — this repo ships
+    real implementation source under both roots, e.g. `lib/db/src` and
+    `lib/api-zod/src`, either of which could carry the same dangling
+    citation and merge green under an `artifacts/`-only guard) and
+    `.agents/memory/` catches the actual failure mode (a docstring pointing
+    readers at a plan that won't exist on `main`)
+    without breaking on transient docs that are allowed to reference a
+    plan-review PR they're paired with. Whitelisting after the fact, rather
+    than scoping correctly from the start, would recreate exactly the kind
+    of guard-vs-legitimate-content conflict this repo's other content guards
+    already had to learn to avoid.
+  - **Revisit trigger.** Next dev-infra/tooling pass, or the next time this
+    exact mistake recurs a third time. Fix is a small regex/grep-based check
+    (relative `docs/plans/*` path references appearing outside that directory
+    itself), scoped to implementation code and `.agents/memory/` only, not
+    `docs/` generally, added to `check-docs-accuracy.mjs` or a sibling
+    script, wired into the Build job like the other content guards.
+    **Second scope note (Codex review, PR #319, third pass):** a literal
+    regex over `.agents/memory/` would also fail on the canonical
+    rule-defining docs themselves —
+    [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
+    cites `docs/plans/PLAN_*.md`-shaped examples as the teaching content the
+    rule is *about*, and
+    [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
+    links a `docs/plans/*` GitHub blob URL (a legitimate historical
+    citation, deliberately not a relative path — see that doc's own note on
+    why).
+    **Retracted (Codex review, PR #319, fourth pass):** an earlier revision
+    of this note proposed "only flag a *relative* path, not a full URL" as a
+    cleaner alternative to an explicit file exemption — that does NOT work.
+    `plan-doc-path-never-cite-from-code.md`'s own teaching examples
+    (`docs/plans/PLAN_ASYNC_QUEUE_HARDENING*.md`,
+    `docs/plans/PLAN_CODEQL_RATE_LIMITER*.md`, both verified as literal text
+    in that file) are themselves bare relative paths used as historical
+    prose, not URLs and not asterisk-glob placeholders — a relative-path-only
+    regex would still flag them. The guard genuinely needs an **explicit
+    file-level exemption** for `plan-doc-path-never-cite-from-code.md`
+    specifically (its whole purpose is to name the dangling-path pattern in
+    prose); the relative-vs-URL distinction only correctly resolves the
+    *other* memory doc's citation, not this one. **The exemption list also
+    needs `MEMORY.md`** (Codex review, PR #319, fifth pass): its own one-line
+    index summary of the "never cite a `docs/plans/*` path from code" lesson
+    (`MEMORY.md:23`) repeats the same bare `docs/plans/PLAN_*.md` teaching
+    text, a third file the guard would need to know about before it can ship.
+
+- **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
+  - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
+    conditionally gaining `/api/auth/dev-admin-login` only inside an
+    `if (isDevAdminLoginEnabled())` block that runs **once at import time**.
+    `createApp()` (`:107` onward) separately re-checks
+    `isDevAdminLoginEnabled()` **fresh on every call** to decide whether to
+    mount the permissive dev-admin CORS middleware — but the origin-check
+    middleware it also registers calls `isOriginExempt()`, which reads the
+    same frozen-at-import `Set`. In a shared-process caller (a test file, a
+    preview helper) that imports `app.ts` before `ENABLE_DEV_ADMIN_LOGIN` is
+    set and calls `createApp()` after, the permissive CORS gets mounted
+    (fresh check passes) but the exemption never gets added (stale check) —
+    a cross-origin dev-admin-login POST gets permissive CORS headers and is
+    then rejected by the origin-check middleware anyway.
+  - **Why deferred now.** Same species of import-time-env-capture bug as the
+    eager-singleton fix PR #308 shipped
+    ([`app-ts-eager-singleton-test-isolation.md`](../../.agents/memory/app-ts-eager-singleton-test-isolation.md)),
+    but that fix targeted the app-instance singleton specifically and did not
+    touch this `Set` — found by a later Codex review round on the `/document`
+    harvest documenting that fix, not by PR #308 itself. Not implemented here
+    because this is a docs-only harvest PR.
+  - **Cost of waiting.** Narrow blast radius: only fires for a caller that
+    imports `app.ts` before flipping `ENABLE_DEV_ADMIN_LOGIN`, which is
+    already a non-production-only backdoor (fail-closed by design). No known
+    production or CI incident.
+  - **Revisit trigger.** Next `/bugfix` pass through `app.ts`, or if a
+    dev-admin-login-in-tests symptom is actually observed. Fix is either
+    moving `ORIGIN_EXEMPT_PATHS`'s conditional entry into `createApp()`
+    itself (so it's re-evaluated per call, matching the CORS-mount check), or
+    documenting the asymmetry as an intentional exception if there's a reason
+    the exemption specifically must stay import-time-frozen.
 
 ---
 
