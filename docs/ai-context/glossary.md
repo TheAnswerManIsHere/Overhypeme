@@ -187,3 +187,23 @@
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a
   confidence bound on up/down votes) plus score/comment/share counts.
   → [architecture-map](./architecture-map.md)
+
+- **Workstream** — one unit of work (a feature, a bugfix, a `/document`
+  harvest) tracked end-to-end by a single GitHub issue, from Discovery
+  through UAT. Deliberately **not** the same as a session or a PR: a
+  workstream outlives both and can span several PRs, which is why it — not
+  the PR number — is the stable thing to name and track against.
+  → [workstream-tracking](./workstream-tracking.md)
+
+- **State of Play block** — the standard block maintained in a workstream
+  issue's body: current stage, whose turn it is, the open question in plain
+  language, artifact links, and how to resume. It exists so a workstream can
+  be picked up **cold in a fresh session**, which is what makes sessions
+  disposable rather than something to keep alive for their scrollback.
+  → [workstream-tracking](./workstream-tracking.md)
+
+- **David-gate** — a lifecycle stage only David can move past, marked 🛑 in
+  both the board's Status options and the chat interruption banner: Plan
+  approval, Merge, and UAT. One glyph means "David" everywhere, so scanning
+  for it finds exactly the blocking moments.
+  → [workstream-tracking](./workstream-tracking.md)
