@@ -173,40 +173,84 @@ changes.**
    `Workstream: #N` line in a PR opened by this session; the branch name
    matched against open issues. **Ambiguous or nothing found → ask, never
    guess** (writing to the wrong issue is this skill's worst failure).
-2. **Discover the PR — explicitly, not "where linked."** *(round-2 finding 1)*
+2. **Discover the PR — explicitly, and only from a TRUSTED association.**
+   *(round-2 finding 1; **materially hardened in round 5** — see below.)*
    `list_pull_requests(state: all, sort: updated, direction: desc, perPage: 50)`
-   and regex `Workstream:\s*#(\d+)` over the bodies — the same convention
-   `/status-all` already relies on, so there is one discovery mechanism, not
-   two. The workstream's **current PR** is the most-recently-updated match.
-   Fallbacks when the window misses it: the issue body's `### Artifacts`
-   section, then the branch name. **If a PR is found by any path, its live
-   state must be read before deriving anything** — the #328 self-heal depends
-   entirely on this step, and an issue-only invocation that skips it is the
-   exact failure that leaves `code-review`/`codex` standing.
-3. **Gather live evidence, batched, read-only.** One `issue_read` (labels,
-   body, `has_children`); where a PR was discovered, one `pull_request_read`
-   covering `get` + `get_status` + `get_review_comments`. **Plus, when the
-   discovered PR is merged, a ref-qualified lookup of the TEST_RUN document
-   against `main`** — `get_file_contents(path: "docs/", ref: "main")` (or the
-   equivalent targeted path check), never the local checkout and never the
-   PR's own file list. *(round-4 finding 2)* Both of those alternatives are
-   wrong for the same reason: the doc is **deleted in a later commit**, so the
-   PR that added it always shows it present, and the working branch may not be
-   `main` at all. Only a live `main` lookup answers "is it still there?"
+   and regex `Workstream:\s*#(\d+)` over the bodies. The workstream's
+   **current PR** is the most-recently-updated match **that passes the trust
+   check**. Fallbacks when the window misses it: the issue body's
+   `### Artifacts` section, then the branch name. **If a PR is found by any
+   path, its live state must be read before deriving anything** — the #328
+   self-heal depends entirely on this step.
+
+   **The trust check, and why it is not optional** *(round-5 finding)*. This
+   repository is **public**, and a PR body is **attacker-controlled input** —
+   the repo's own agentic-action threat model already says so. Anyone can open
+   a PR whose body reads `Workstream: #328`; because discovery takes the
+   most-recently-updated match and step 9 *writes*, an outsider could steer
+   `/status` into rewriting a maintainer's issue from a PR they control.
+   **Inheriting this convention from the old read-only fleet report is not
+   authorization**: a matching rule that was merely a display heuristic
+   becomes a write-targeting primitive here, and it has to be re-earned.
+
+   A discovered PR is trusted only when **both** hold:
+   - its author is the **repository owner** (`author_association: OWNER`), and
+   - its head branch lives in **this repository, not a fork**
+     (`head.repo.full_name == base.repo.full_name`).
+
+   **The issue-side link overrides everything.** When the issue body's
+   `### Artifacts` section names a PR, that association wins outright,
+   because the issue body is maintainer-controlled — it is the one side of
+   the link an outsider cannot write. An untrusted PR is **ignored for
+   derivation entirely** — not merely deprioritized — and its existence is
+   reported in chat so a genuine mis-association is visible rather than
+   silently dropped.
+3. **Gather live evidence, batched, read-only.** Every source the later steps
+   consume must be fetched **here** — a derivation rule that names an input
+   step 3 never retrieves is a rule that silently degrades *(round-5
+   finding)*.
+   - One `issue_read` (labels, body, `has_children`).
+   - **`issue_read(method: get_comments)`** — a separate collection in this
+     repo's tooling, and one the activity clock depends on. Without it, an
+     issue with a fresh human comment falls back to creation time and gets
+     written as `STALLED`.
+   - **The issue's event/label timeline**, paginated, so a label change by
+     another writer counts as activity **and** so `/status`'s own label
+     writes can be excluded **by actor** — the only workable way to tell
+     "someone moved this" from "I moved this."
+   - Where a PR was discovered and trusted, one `pull_request_read` covering
+     `get` + `get_status` + `get_review_comments` + `get_commits`.
+   - **When the discovered PR is merged, a ref-qualified lookup of the
+     TEST_RUN document against `main`** — `get_file_contents(path: "docs/",
+     ref: "main")` (or the equivalent targeted path check), never the local
+     checkout and never the PR's own file list. *(round-4 finding 2)* Both
+     alternatives are wrong for the same reason: the doc is **deleted in a
+     later commit**, so the PR that added it always shows it present, and the
+     working branch may not be `main` at all.
 4. **Validate label invariants — before any write.** *(round-2 finding 10)*
    Missing or duplicated labels for **any** of `stage:`, `waiting:`, `mode:`
    is a report-only data error: report it, write nothing, stop. Rewriting
    stage/waiting while a duplicate `mode:` keeps the sync throwing would
    produce a "healed" run that leaves the board broken.
-5. **Terminal check — stored `stage:done` short-circuits before derivation.**
-   *(round-4 finding 1.)* If the **stored** stage is `done`: report `DONE`,
-   **write nothing**, stop. This must happen **before** the label matrix runs,
-   not after. A completed feature still has its durable UAT doc on `main`, so
-   running the matrix first would derive `uat`/`david` and **rewrite
-   `stage:done` back to `stage:uat`** — `/status` would reopen finished
-   workstreams and mutate their authoritative labels on every invocation. The
-   order-0 presentation short-circuit alone does **not** prevent this, because
-   by then the damage is in the derived labels the write step will apply.
+5. **Terminal check — stored `stage:done` short-circuits *label derivation*,
+   not the whole run.** *(round-4 finding 1, corrected in round 5.)* If the
+   **stored** stage is `done`:
+   - **Skip label derivation and all label writes entirely.** This must happen
+     **before** the label matrix runs. A completed feature still has its
+     durable UAT doc on `main`, so running the matrix would derive `uat`/`david`
+     and **rewrite `stage:done` back to `stage:uat`** — reopening finished
+     workstreams and mutating their authoritative labels on every invocation.
+     The order-0 *presentation* short-circuit does **not** prevent this: by
+     then the wrong labels are already in the derived set the write step
+     applies. **A presentation-layer guard cannot protect a write path.**
+   - **But still render and refresh the block**, with `DONE` taken from the
+     authoritative stored label, and still run the splice and disclosure
+     paths. *(round-5 finding.)* `stage:done` is David's own later manual
+     transition and **no writer updates the block at that moment**, so a
+     blanket "write nothing" would leave the public narrative saying UAT or
+     close-out **forever** — contradicting both the body/label coherence goal
+     and the every-invocation-refreshes rule. The right scope of the
+     short-circuit is *labels*, not *the run*.
 6. **Derive** the labels (matrix below), then the presentation state.
 7. **Render the candidate block in memory** — not yet written.
 8. **Disclosure gate, on the rendered candidate.** *(round-2 finding 4)* The
@@ -359,6 +403,22 @@ safe.)*
 
 *(round-2 findings 5 and 6.)*
 
+- **Re-read and revalidate immediately before the label write.** *(round-5
+  finding — this one falsifies a claim I made in R3.)* The terminal check and
+  the derivation happen several network calls before the write, and a full-set
+  replacement built from that older snapshot will happily clobber anything
+  that arrived in the gap. Two concrete losses: David sets `stage:done` mid-run
+  and the write replaces it with `stage:uat`; or another writer adds an
+  unrelated label and the replacement drops it. **The "next run resolves
+  toward truth" argument does not cover this** — it assumes the write only
+  ever *stales*, but here the write **erases the only authoritative
+  completion signal**, and no later run can recover what is gone. So:
+  re-read the labels immediately before mutating, and if **anything** in the
+  three tracked prefixes differs from the snapshot the derivation used,
+  **abort the label write** and report — recompute on the next invocation
+  rather than overwrite a change made by someone with better information.
+  Unrelated labels are carried through from the **fresh** read, never the
+  stale one.
 - **Each label mutation is a single atomic set-labels-style replacement** of
   the full label set, preserving unrelated labels — never add-then-remove.
   `labeled`/`unlabeled` fire as separate workflow runs, so `stage:uat` added
@@ -417,7 +477,19 @@ leak, but a skill that automatically writes session narrative into a **public**
 issue body can. `Overhypeme` is public; the Project is private, issue bodies
 are not.
 
-- **The disclosure gate runs on the rendered candidate** (step 7), before any
+**And a second, sharper risk found in round 5: attacker-controlled write
+targeting.** The repo is public, so a PR body — which this skill uses to
+decide *which issue to write to* — is attacker-controlled input. The trust
+check in step 2 (owner-authored **and** same-repo head, with the
+maintainer-controlled issue-side `### Artifacts` link overriding) is what
+stops an outsider steering a write into a maintainer's issue. The general
+lesson, worth carrying past this plan: **a matching heuristic that was safe
+while read-only is not automatically safe once it selects a write target.**
+
+- **PR-to-workstream associations are authenticated before they can influence
+  a write** (step 2); an untrusted match is ignored for derivation and
+  reported, never silently dropped.
+- **The disclosure gate runs on the rendered candidate** (step 8), before any
   write — not on session memory, and not before the text exists.
 - **The same check gates the Discovery-path issue *offer*** (round-2 finding
   12), so the skill never steers David toward creating a public issue for
@@ -502,6 +574,29 @@ mechanical checks plus live acceptance cases.
     `## State of Play` fixture from case 7 must still be a report-only,
     no-write stop after the `data error` category was narrowed — confirming
     the narrowing didn't delete the structural safety stop.
+13. **Forged workstream association — the security negative** *(round-5
+    finding)*. A PR authored by a **non-owner from a fork**, whose body says
+    `Workstream: #<N>` and which is the **most recently updated** match, must
+    **not** be used to derive or write anything for issue `#<N>`. The run
+    reports the untrusted match rather than silently ignoring it. This is the
+    case that proves the trust check is real rather than decorative — the
+    forged PR is deliberately the *newest*, so recency alone would select it.
+14. **Terminal block still refreshes** *(round-5 finding)*: a `stage:done`
+    workstream whose block still narrates UAT. The run must **refresh the
+    block** to `DONE` while performing **zero label writes** — proving the
+    short-circuit scopes to labels rather than aborting the run.
+15. **Activity-clock sources, one case per class** *(round-5 finding)*: an
+    aged workstream made fresh by (a) a human issue comment, (b) a label
+    change by another actor, (c) a PR commit. Each must report `WORKING`,
+    not `STALLED` — proving step 3 actually fetches every source the clock
+    names. Paired with case 11's negative, where the only recent event is
+    `/status`'s own write and the answer must stay `STALLED`.
+16. **Concurrent-write interleaving** *(round-5 finding)*: `stage:done` is
+    applied by another actor **between** derivation (step 6) and the write
+    (step 9). The run must **abort the label write** and report, leaving
+    `stage:done` intact. Reporting success here — or leaving `stage:uat`
+    behind — is the unrecoverable failure, since the completion signal has no
+    other source to be restored from.
 
 ## Implementation Steps
 
@@ -514,7 +609,7 @@ mechanical checks plus live acceptance cases.
    marked derived-never-stored.
 5. Add the **`/status` ownership row**; rewrite that doc's `## /status`
    section.
-6. Write `.claude/skills/status/SKILL.md` implementing the nine ordered steps,
+6. Write `.claude/skills/status/SKILL.md` implementing the ten ordered steps,
    including the explicit SoT prohibition ("never parse the block to derive
    state").
 7. Sweep remaining cross-references (`AGENTS.md` routing if enumerated).
@@ -523,7 +618,12 @@ mechanical checks plus live acceptance cases.
    and amend if the review loop moved anything; if #331 has not merged when
    this work lands, carry the entries here instead so the rationale is never
    only on a closed branch.
-9. Verify: `check:docs`, grep sweep, then acceptance cases 3–7.
+9. Verify: `check:docs`, the grep sweep, then **run every acceptance case,
+   3–16** — not just the original 3–7. *(round-5 finding: these are
+   manual-only checks, so a case the implementation step doesn't execute is a
+   case that never runs. Listing them elsewhere in the plan is not the same as
+   running them.)* Any case added by a later review round joins this range;
+   the step says "all of them", not a frozen list.
 
 Steps 1–5 are mechanical and independent; step 6 depends on 2–4.
 
@@ -577,12 +677,24 @@ gaps in this plan, resolved above without needing a product decision.
 - [ ] The five states are **total by construction** — the holder-coverage
       matrix passes for every `waiting:` value in both PR-present and no-PR
       forms, and **no legal label combination is ever reported as a data
-      error** (that is reserved for missing/duplicate labels alone).
+      error** — that category covers **only** malformed artifacts, in both its
+      forms: a missing/duplicated label on any of the three prefixes, **and**
+      an ambiguous State of Play structure (more than one matching heading).
 - [ ] `waiting:replit` reports `WAITING ON YOU`; `WATCHING` is never claimed
       without a live GitHub check.
-- [ ] **A stored `stage:done` workstream is never mutated** — verified with a
-      discovered merged PR and its durable UAT doc present, the case that
-      would otherwise reopen finished work on every invocation.
+- [ ] **A stored `stage:done` workstream never has its labels mutated** —
+      verified with a discovered merged PR and its durable UAT doc present,
+      the case that would otherwise reopen finished work on every invocation
+      — **while its block still refreshes**, so a terminal workstream's
+      narrative can't sit stale forever.
+- [ ] **Write targeting is authenticated** — a forged, newer, fork-authored
+      `Workstream: #N` PR body cannot influence what `/status` writes.
+- [ ] **The label write revalidates immediately before mutating** and aborts
+      on any concurrent change to the tracked prefixes, so a `stage:done` set
+      mid-run is never overwritten.
+- [ ] **Every source the activity clock names is actually fetched in step 3**
+      — issue comments and the label timeline included, proven by one
+      acceptance case per activity class.
 - [ ] The TEST_RUN signal comes from a **ref-qualified `main` lookup**, not the
       local checkout or the PR's file list.
 - [ ] **`STALLED` survives a `/status` run** — the activity clock excludes this
