@@ -70,20 +70,14 @@ made the abuse/cost surface concrete rather than theoretical.
 **Disposition: fixed, not dismissed** — added `checkSharedRateLimit`
 matching the `admin.queue-health` sibling's shape.
 
-**The corrected rule this establishes** now lives in
+**The triage rule this establishes** now lives in
 [`security-model.md`](../../docs/ai-context/security-model.md)'s CodeQL
-triage bullet, not only here — see that doc for the canonical statement;
-the case history above is what motivated it.
+bullet, not here — see that doc for the canonical statement; the case
+history above is what motivated it.
 
-**Rule:** when a new CodeQL alert of either kind appears on a route/file that
-already uses `checkSharedRateLimit` or sits behind the global CSRF middleware,
-**investigate before "fixing"** — confirm the real control is present (check
-this repo's established patterns above) rather than reflexively adding a
-second, redundant, inconsistent control (e.g. `express-rate-limit` bolted onto
-one route) just to satisfy the scanner's pattern-matcher. Once confirmed as a
-false positive, it needs a human with repo-admin access to dismiss it in
-GitHub's Security → Code scanning tab (mark "false positive") — no available
-MCP/GitHub tool can do this from the agent side.
+Once confirmed as a false positive, it needs a human with repo-admin access
+to dismiss it in GitHub's Security → Code scanning tab (mark "false
+positive") — no available MCP/GitHub tool can do this from the agent side.
 
 ## Resolution: `js/missing-rate-limiting` (213 alerts) — mount the recognized package, don't fight the model
 

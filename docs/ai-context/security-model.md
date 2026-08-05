@@ -59,14 +59,18 @@ preview and the Playwright e2e admin flows keep working; production
   `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
   see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
   before treating a new alert on either as a real gap. **The triage rule:** a
-  route with an existing control CodeQL merely fails to recognize (checked
-  against this repo's established patterns) is the false-positive case: fix
-  by confirming the control, not by adding a redundant one. A route with
-  **no** control at all is never eligible for that class on consistency
-  grounds alone — matching an unprotected sibling is not evidence of safety,
-  since the siblings may just share the same latent gap; route it to a real
-  cost/abuse assessment (or add the control, if cheap and pattern-matched)
-  instead. That memory doc also covers the **re-attribution trap**:
+  route with a workload-appropriate **narrow** control CodeQL merely fails to
+  recognize (checked against this repo's established patterns) is the
+  false-positive case: fix by confirming the control, not by adding a
+  redundant one. A route with **no narrow control** — including one that
+  relies on the global rate-limiter backstop below alone — is never eligible
+  for that class on consistency grounds; matching an unprotected sibling is
+  not evidence of safety, since the siblings may just share the same latent
+  gap, and the coarse per-instance backstop existing on every `/api` route
+  doesn't settle whether *this* route's own workload is cheap to hit
+  repeatedly. Route it to a real cost/abuse assessment (or add a narrow
+  control, if cheap and pattern-matched) instead. That memory doc also
+  covers the **re-attribution trap**:
   restructuring `app.ts` (e.g. wrapping it in a
   factory function) shifts every line number, and GitHub's diff-based
   code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
