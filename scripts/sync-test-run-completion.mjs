@@ -20,6 +20,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { fetchProject, syncIssue } from "./sync-project-fields.mjs";
 
 /** Extract the PR number from a deleted TEST_RUN doc's path, or null. */
 export function extractPrNumberFromTestRunPath(path) {
@@ -95,12 +96,31 @@ export function updateStateOfPlayBody(body, { stageDisplay, lastMovementLine }) 
     .replace(/\*\*Last movement:\*\*[^\n]*/, `**Last movement:** ${lastMovementLine}`);
 }
 
-/** Deleted file paths between two commits, via `git diff --name-status`. */
+/**
+ * True if the body's `**Stage:**` line already reads `stageDisplay` — lets a
+ * retry (after a partial prior run, e.g. labels wrote but the body PATCH
+ * failed) skip straight to whatever's actually still stale instead of
+ * re-deriving from scratch or silently no-op'ing on an already-correct body.
+ */
+export function bodyStageMatches(body, stageDisplay) {
+  const m = /\*\*Stage:\*\*([^\n]*)/.exec(body ?? "");
+  return m ? m[1].trim() === stageDisplay : false;
+}
+
+/**
+ * Deleted file paths between two commits, via `git diff --name-status`.
+ * `--no-renames` is deliberate: a TEST_RUN doc's deletion landing in the same
+ * push as an unrelated, content-similar Markdown add/move can otherwise be
+ * reported as a rename (`R…`) instead of a plain delete, which would hide
+ * the deletion from this filter entirely and leave that workstream stuck.
+ */
 function deletedPaths(before, after) {
   execFileSync("git", ["fetch", "--no-tags", "--depth=1", "origin", before], { stdio: "inherit" });
-  const out = execFileSync("git", ["diff", "--name-status", before, after, "--", "docs/"], {
-    encoding: "utf8",
-  });
+  const out = execFileSync(
+    "git",
+    ["diff", "--no-renames", "--name-status", before, after, "--", "docs/"],
+    { encoding: "utf8" },
+  );
   return out
     .split("\n")
     .filter((line) => line.startsWith("D\t"))
@@ -123,7 +143,15 @@ async function rest(method, path, token, body) {
   return res.status === 204 ? null : res.json();
 }
 
-async function processDeletedTestRunDoc(path, { repository, token }) {
+/**
+ * Transition one workstream, idempotently. Split into two independent
+ * halves — resolve the target stage, then reconcile whatever's still
+ * stale — so a retry after a partial prior run (labels wrote, board sync or
+ * body PATCH then failed) picks up exactly where it left off instead of
+ * either re-touching already-correct labels or leaving a stale body forever
+ * because "stage:test-run is already gone" looked like "already handled".
+ */
+async function processDeletedTestRunDoc(path, { repository, token, project, projectsToken }) {
   const prNumber = extractPrNumberFromTestRunPath(path);
   if (!prNumber) return;
 
@@ -136,40 +164,63 @@ async function processDeletedTestRunDoc(path, { repository, token }) {
 
   const issue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   const labels = issue.labels.map((l) => l.name);
-  if (!labels.includes("stage:test-run")) {
+  const currentStage = labels.find((l) => l.startsWith("stage:"))?.slice("stage:".length);
+
+  let targetStage;
+  let finalLabels = labels;
+
+  if (currentStage === "test-run") {
+    const docsListing = await rest("GET", `/repos/${repository}/contents/docs`, token);
+    const docsFilenames = docsListing.map((f) => f.name);
+    targetStage = computeTransition(hasUatDoc(docsFilenames, prNumber)).stage;
+    finalLabels = swapPrefixedLabel(swapPrefixedLabel(labels, "stage:", targetStage), "waiting:", "david");
+    await rest("PUT", `/repos/${repository}/issues/${issueNumber}/labels`, token, { labels: finalLabels });
+  } else if (currentStage === "uat" || currentStage === "close-out") {
+    // Labels already moved (this run or an earlier partial one) — reconcile
+    // the board/body against that, don't re-derive or re-write the label.
+    targetStage = currentStage;
+  } else {
     console.log(
       `  ~ issue #${issueNumber} (PR #${prNumber}): not at stage:test-run (current: ` +
-        `${labels.filter((l) => l.startsWith("stage:")).join(", ") || "none"}) — already handled, skipping`,
+        `${currentStage ? `stage:${currentStage}` : "none"}) — already handled elsewhere, skipping`,
     );
     return;
   }
 
-  const docsListing = await rest("GET", `/repos/${repository}/contents/docs`, token);
-  const docsFilenames = docsListing.map((f) => f.name);
-  const { stage, stageDisplay } = computeTransition(hasUatDoc(docsFilenames, prNumber));
+  const targetDisplay = STAGE_DISPLAY[targetStage];
 
-  const newLabels = swapPrefixedLabel(
-    swapPrefixedLabel(labels, "stage:", stage),
-    "waiting:",
-    "david",
-  );
-  await rest("PUT", `/repos/${repository}/issues/${issueNumber}/labels`, token, {
-    labels: newLabels,
-  });
+  // GITHUB_TOKEN-authored label writes don't trigger other workflows (GitHub
+  // suppresses that cascade to prevent infinite loops), so project-sync.yml's
+  // `issues: labeled`/`unlabeled` trigger never fires from this Action's own
+  // PUT — the private board would stay stuck at Test run/Replit forever even
+  // though the issue's labels moved. Call the same reconcile that trigger
+  // would have called, directly, so the board and the labels never diverge.
+  if (project) {
+    await syncIssue(
+      { node_id: issue.node_id, number: issueNumber, labels: finalLabels },
+      project,
+      projectsToken,
+    );
+  }
+
+  if (bodyStageMatches(issue.body, targetDisplay)) {
+    console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage} (body already reflects it)`);
+    return;
+  }
 
   const lastMovementLine =
     `${new Date().toISOString().slice(0, 10)} — TEST_RUN doc for PR #${prNumber} cleared ` +
-    `(Replit finished); auto-transitioned to ${stageDisplay} by sync-test-run-completion.mjs.`;
-  const updatedBody = updateStateOfPlayBody(issue.body ?? "", { stageDisplay, lastMovementLine });
+    `(Replit finished); auto-transitioned to ${targetDisplay} by sync-test-run-completion.mjs.`;
+  const updatedBody = updateStateOfPlayBody(issue.body ?? "", { stageDisplay: targetDisplay, lastMovementLine });
   if (updatedBody === null) {
     console.log(
-      `  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${stage}, waiting:david ` +
-        `(body's State of Play block wasn't in the expected shape — labels updated, body left as-is)`,
+      `  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david ` +
+        `(body's State of Play block wasn't in the expected shape — labels/board updated, body left as-is)`,
     );
     return;
   }
   await rest("PATCH", `/repos/${repository}/issues/${issueNumber}`, token, { body: updatedBody });
-  console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${stage}, waiting:david`);
+  console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david`);
 }
 
 async function main() {
@@ -177,8 +228,19 @@ async function main() {
   const repository = process.env.GITHUB_REPOSITORY;
   const before = process.env.BEFORE_SHA;
   const after = process.env.AFTER_SHA;
+  const projectsToken = process.env.PROJECTS_TOKEN;
+  const projectOwner = process.env.PROJECT_OWNER;
+  const projectNumber = Number(process.env.PROJECT_NUMBER);
 
-  const missing = Object.entries({ GITHUB_TOKEN: token, GITHUB_REPOSITORY: repository, BEFORE_SHA: before, AFTER_SHA: after })
+  const missing = Object.entries({
+    GITHUB_TOKEN: token,
+    GITHUB_REPOSITORY: repository,
+    BEFORE_SHA: before,
+    AFTER_SHA: after,
+    PROJECTS_TOKEN: projectsToken,
+    PROJECT_OWNER: projectOwner,
+    PROJECT_NUMBER: process.env.PROJECT_NUMBER,
+  })
     .filter(([, v]) => !v)
     .map(([k]) => k);
   if (missing.length) {
@@ -193,10 +255,14 @@ async function main() {
 
   console.log(`${testRunDeletions.length} deleted TEST_RUN doc(s): ${testRunDeletions.join(", ")}\n`);
 
+  // Fetched once and reused across every deletion in this push — the same
+  // board, looked up once, rather than once per issue.
+  const project = await fetchProject(projectOwner, projectNumber, projectsToken);
+
   const failures = [];
   for (const path of testRunDeletions) {
     try {
-      await processDeletedTestRunDoc(path, { repository, token });
+      await processDeletedTestRunDoc(path, { repository, token, project, projectsToken });
     } catch (err) {
       failures.push(`${path}: ${err.message}`);
       console.error(`  ✗ ${path} — ${err.message}`);

@@ -7,6 +7,7 @@ import {
   computeTransition,
   swapPrefixedLabel,
   updateStateOfPlayBody,
+  bodyStageMatches,
 } from "../sync-test-run-completion.mjs";
 
 test("extractPrNumberFromTestRunPath matches the documented naming convention", () => {
@@ -88,4 +89,15 @@ test("updateStateOfPlayBody rewrites Stage/Waiting on/Last movement in place", (
 
 test("updateStateOfPlayBody returns null when the block isn't in the expected shape", () => {
   assert.equal(updateStateOfPlayBody("no state of play block here", { stageDisplay: "🛑 UAT" }), null);
+});
+
+test("bodyStageMatches detects an already-reconciled Stage line", () => {
+  const body = "**Stage:** 🛑 UAT\n**Waiting on:** David\n";
+  assert.equal(bodyStageMatches(body, "🛑 UAT"), true);
+  assert.equal(bodyStageMatches(body, "Close-out"), false);
+});
+
+test("bodyStageMatches is false when there's no Stage line at all", () => {
+  assert.equal(bodyStageMatches("no state of play block here", "🛑 UAT"), false);
+  assert.equal(bodyStageMatches(undefined, "🛑 UAT"), false);
 });

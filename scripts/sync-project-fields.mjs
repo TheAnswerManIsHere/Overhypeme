@@ -133,7 +133,7 @@ async function graphql(query, variables, token) {
   return body.data;
 }
 
-async function fetchProject(owner, number, token) {
+export async function fetchProject(owner, number, token) {
   const data = await graphql(
     `query ($login: String!, $number: Int!) {
       user(login: $login) {
@@ -266,7 +266,7 @@ async function rest(path, token) {
  * exactly the stale-value bug this script exists to prevent, just for the
  * all-labels-removed case instead of the some-labels-removed case.
  */
-async function syncIssue(issue, project, token) {
+export async function syncIssue(issue, project, token) {
   const writes = labelsToFieldValues(issue.labels);
 
   // Resolve every option BEFORE writing anything, so a typo in one label can't

@@ -43,4 +43,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.event.after }}
+          # GITHUB_TOKEN-authored label writes don't trigger project-sync.yml
+          # (GitHub suppresses that cascade), so this script calls the same
+          # board reconcile directly — same PAT/owner/number as
+          # project-sync.yml itself.
+          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: "1"
         run: node scripts/sync-test-run-completion.mjs
