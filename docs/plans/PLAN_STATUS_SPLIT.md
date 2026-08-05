@@ -454,13 +454,15 @@ existing skills.
 | --- | --- |
 | Discovery, no issue exists, ordinary work | Report from session context; **offer** to open the issue; never auto-create. |
 | Discovery, no issue, **carve-out content** | *(round-2 finding 12)* Run the carve-out check **before offering**. On a hit, report "private tracking only" and do **not** offer a public issue — otherwise the skill steers David into creating exactly the issue the write gate would later refuse to edit. |
-| Issue exists, no PR found | Derive from labels + issue timestamps; leave labels unchanged; `WATCHING` unavailable, so the state falls to the `WORKING` residual (or `STALLED` if aged) — **not** a data error. |
+| Issue exists, no PR found | Derive from labels + **the activity clock** (never `issue.updated_at` — see that section); leave labels unchanged; `WATCHING` unavailable, so the state falls to the `WORKING` residual (or `STALLED` if aged) — **not** a data error. |
+| A `Workstream: #N` PR match fails the trust check | Ignore it for derivation entirely; **report** the untrusted match so a genuine mis-association is visible. Never let it influence a write. |
 | `waiting:replit` / `stage:test-run` | `WAITING ON YOU`, per David's 2026-08-05 call. The TEST_RUN doc's presence on `main` is the live signal that it hasn't been run yet. |
 | Missing/duplicate label on any of the three prefixes | Report-only data error; no write. |
 | Ambiguous workstream identity | Ask. Never write on a guess. |
 | PR merged while labels say code-review | The self-heal: correct labels, rewrite block, disclose both. |
 | Body write fails | Report; no label write attempted (body is first). |
 | Label write fails after body succeeded | Report the partial state explicitly; next run repairs. |
+| Labels changed concurrently between derivation and the write | **Abort the label write** and report; the concurrent writer had better information. The body write already happened and stands. Never merge-and-proceed — that would mean guessing whose intent wins. |
 | Carve-out content in the candidate | No write; chat only; say why. |
 | No change needed | Still disclose: "state confirmed, no change." Silence is indistinguishable from a skipped write. |
 
