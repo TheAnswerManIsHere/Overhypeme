@@ -637,9 +637,14 @@ Steps 1–5 are mechanical and independent; step 6 depends on 2–4.
   derive state. The prohibition matters more than the ordering: ordering
   survives only while someone remembers why.
 - **R3 — Self-healing labels fight a mid-transition writer.** `/status` writes
-  only where live evidence differs, reports rather than rewrites on a data
-  error, and writes what GitHub currently says — so a race resolves toward
-  truth on the next run rather than ping-ponging.
+  only where live evidence differs, and reports rather than rewrites on a data
+  error. **Corrected in round 5:** this risk previously claimed a race
+  "resolves toward truth on the next run rather than ping-ponging." That is
+  **false for the destructive case** and must not be restored — a full-set
+  label replacement built from a stale snapshot can *erase* a `stage:done`
+  set mid-run, and no later run can recover a signal that has no other
+  source. The actual mitigation is the **pre-write re-read and abort** (see
+  *Write ordering*), not eventual convergence.
 - **R4 — Invalid intermediate label states breaking the sync.** Atomic
   set-labels replacement; never add-then-remove.
 - **R5 — Partial write leaves board and narrative contradicting.** Body-first
