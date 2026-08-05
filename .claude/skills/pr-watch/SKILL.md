@@ -144,30 +144,23 @@ silently leaving the workstream unlabeled):
   between Merge and UAT, not a step to skip past. Per the `pr-docs`
   contract, the TEST_RUN doc is transient: David deletes it once Replit has
   actually run it, so its **absence on `main`** is the completion signal.
-  **There is no dedicated writable trigger for noticing this.**
-  `/workstream-status` is read-only by design and never applies this
-  transition itself — it only *flags* a workstream sitting at
-  `stage:test-run` with no TEST_RUN doc for more than a day. The actual
-  label move happens the next time an agent with write access (me, in a
-  fresh or resumed session, prompted by that flag or by David) is engaged
-  on that workstream and notices the doc is gone — apply the same
-  UAT-vs-close-out check as the next bullet at that point. This is
-  best-effort and can lag, not instantaneous; a stale `stage:test-run`
-  flagged by `/workstream-status` means the transition was simply never
-  made, not that the run is still in progress.
-- **The PR merges with no TEST_RUN doc, or a TEST_RUN doc that's since been
-  deleted (Replit finished)** → `stage:uat` **only if a UAT doc exists or is
-  actually due** — pure-docs/pure-devops PRs never have one, and neither
-  does a Tier A bugfix or a Tier B bugfix whose only surface is internal
-  (per `working-modes.md`'s Tier B exception): all three go straight to
-  `stage:close-out` instead, since holding them at `uat` would be a gate
-  with nothing to run against it. This applies identically whether the PR
-  never had a TEST_RUN doc or had one that Replit already cleared — an
-  internal-only Tier B fix that genuinely needed Replit verification still
-  gets no UAT, so its TEST_RUN doc's deletion goes straight to
-  `stage:close-out`, not `stage:uat`. "Has product-visible behavior" is
-  *not* the test by itself — a Tier A fix can be product-visible and still
-  ship no UAT doc, which is what makes checking for the doc the right
+  **The `test-run-completion.yml` Action owns what happens next** —
+  triggered on the push that deletes the doc, it applies the same
+  UAT-vs-close-out check as the next bullet and moves the label itself
+  (`scripts/sync-test-run-completion.mjs`), no agent session required. This
+  replaced an earlier best-effort "whoever notices next" design that Codex
+  correctly flagged twice as having no real owner (round-2 and round-3 of
+  PR #334's review). I don't need to do anything here beyond setting the
+  initial `stage:test-run` at merge — just know it's not a dead end if
+  `/workstream-status` later reports the issue already moved on its own.
+- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
+  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+  and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
+  internal (per `working-modes.md`'s Tier B exception): all three go
+  straight to `stage:close-out` instead, since holding them at `uat` would
+  be a gate with nothing to run against it. "Has product-visible behavior"
+  is *not* the test by itself — a Tier A fix can be product-visible and
+  still ship no UAT doc, which is what makes checking for the doc the right
   test, not the behavior. Never `stage:done` at merge — that's David's to
   set once he's actually verified it, the same reason the Project's
   built-in `PR merged → Done` workflow is off.

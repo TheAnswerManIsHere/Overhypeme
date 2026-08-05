@@ -83,6 +83,14 @@ jobs:
       - name: Check project-sync label mapping
         run: node --test scripts/__tests__/sync-project-fields.test.mjs
 
+      # A workstream stuck at stage:test-run after Replit actually finished is
+      # invisible in exactly the way the whole board exists to prevent — this
+      # script is the only writable trigger for that transition, so its
+      # filename parsing, UAT-doc detection, and label/body rewrites need to
+      # be provably right, not just plausible.
+      - name: Check TEST_RUN completion sync logic
+        run: node --test scripts/__tests__/sync-test-run-completion.test.mjs
+
       # The Bash guard decides which git commands this session may run. Its
       # previous version blocked `git push --force` and allowed `git push -f`,
       # so the one thing it existed to prevent was the one thing it let past —

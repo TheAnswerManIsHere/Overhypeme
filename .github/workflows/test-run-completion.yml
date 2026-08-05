@@ -1,0 +1,46 @@
+name: TEST_RUN completion sync
+
+# David deletes a docs/PR<N>_..._TEST_RUN.md doc once Replit has actually run
+# it — that deletion is the only signal that Test run stage finished, and
+# nothing else was guaranteed to notice it and move the workstream issue past
+# stage:test-run. This closes that gap the moment the deletion lands on main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/*_TEST_RUN.md"
+
+# One shared queue, not per-push — a workstream's issue must never see two
+# racing label writes from two pushes landing close together.
+concurrency:
+  group: test-run-completion
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  sync:
+    name: Transition completed Test-run workstreams
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync completed TEST_RUN transitions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: node scripts/sync-test-run-completion.mjs

@@ -103,7 +103,8 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting` toggling `claude`/`codex` each review round; `stage:plan-approval` + `waiting:david` at convergence/close-out |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:uat`/`stage:close-out` at merge |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when a TEST_RUN doc ships, else `stage:uat`/`stage:close-out` directly |
+| `test-run-completion.yml` (`scripts/sync-test-run-completion.mjs`) | The **only** automated (non-agent) label writer here: triggers on the push that deletes a `docs/PR<N>_..._TEST_RUN.md` doc and moves that PR's workstream from `stage:test-run` to `stage:uat`/`stage:close-out` itself — no agent session needs to be engaged for this one transition |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 
