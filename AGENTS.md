@@ -91,6 +91,13 @@ in a finished feature's learnings, follow
 [`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
 (distinct from a one-off "remember this," which is immediate targeted persistence).
 
+**Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
+has a GitHub issue as its spine, tracked on a private Project board and kept
+current via `stage:`/`waiting:`/`mode:` labels. Read
+[`docs/ai-context/workstream-tracking.md`](docs/ai-context/workstream-tracking.md)
+before opening or reviewing a PR — it covers the label conventions and what
+must never happen (e.g. `Closes #N` in a PR body, which would skip UAT).
+
 When asked to **plan**:
 1. Inspect the repo first.
 2. Identify source-of-truth boundaries.

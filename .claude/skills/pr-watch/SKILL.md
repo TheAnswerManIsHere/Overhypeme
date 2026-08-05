@@ -120,6 +120,31 @@ the diff *is* the plan. While watching an implementation PR:
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
+## Keeping the workstream issue's labels current
+
+Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
+`pr-watch` owns `stage:code-review` and everything downstream of it for the
+PR's workstream issue (found via `Workstream: #N` in the PR body — if it's
+missing, that PR skipped the tracking convention; flag it rather than
+silently leaving the workstream unlabeled):
+
+- **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex`.
+- **Codex posts findings, I start responding** → `waiting:claude`.
+- **I post the next round's `@codex review` trigger** → `waiting:codex`.
+- **A genuine design/architecture decision goes to David** (the escalate
+  rule above) → `waiting:david`; `stage:code-review` stays put — the stage
+  hasn't moved, but the turn has.
+- **The PR merges** → `stage:uat` if it has product-visible behavior (a
+  UAT doc exists or is due), otherwise `stage:close-out` for a pure-docs or
+  pure-devops PR with no product surface. Never `stage:done` at merge —
+  that's David's to set once he's actually verified it, the same reason
+  the Project's built-in `PR merged → Done` workflow is off.
+
+An echo of my own comment bouncing back as a webhook event still needs the
+silent live-state check like any other event, but never a label change on
+its own — only real state (a new commit, a new finding, an actual merge)
+moves a label.
+
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
 

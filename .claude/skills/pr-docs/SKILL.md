@@ -97,3 +97,10 @@ other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per the ship-the-UI-surface
 exception.)
 
+**Workstream label.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
+this skill owns no `stage:`/`waiting:` transition of its own — `pr-watch`
+already owns `stage:code-review` for the PR this pairing rides on. Just
+confirm the workstream issue's `mode:` label is `feature` (this pairing is
+feature-mode-only).
+
