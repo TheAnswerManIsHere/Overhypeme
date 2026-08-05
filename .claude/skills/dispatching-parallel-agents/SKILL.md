@@ -34,8 +34,8 @@ calls to do directly?** If no, do it yourself.
 - **Never more than 20 parallel subagents** unless David explicitly asks.
 - **Say what you're doing.** Announce a dispatch and why — especially a subagent
   pinned to a more expensive model (`fable`), which spends at double the Opus
-  rate with no action from David. See CLAUDE.md → *Reaching Fable 5 without a
-  session switch*.
+  rate with no action from David. See the `model-routing` skill → *Reaching
+  Fable 5 without a session switch*.
 
 ## When to Use
 

@@ -11,6 +11,7 @@ import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigString, getConfigFloat } from "./adminConfig";
 import { logger } from "./logger";
+import { effectiveTierExpr } from "./membershipState";
 
 export interface BudgetStatus {
   allowed: boolean;
@@ -76,7 +77,9 @@ export async function checkBudget(
 
     // Look up user tier and per-user override
     const [user] = await db
-      .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin, monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd })
+      // Effective tier: this decides which SPENDING limit applies, from its
+      // own select, so it bypasses the authMiddleware chokepoint too.
+      .select({ membershipTier: effectiveTierExpr(), isAdmin: usersTable.isAdmin, monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);

@@ -16,6 +16,11 @@ import { IMAGE_STYLES } from "@/config/imageStyles";
 import type { AiMemeImages } from "@/types/meme";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 import { uploadUserImage } from "@/lib/image-upload";
+import {
+  isRetryablePollError,
+  pollHttpErrorFromResponse,
+  retryDelayMsFor,
+} from "@/components/meme-builder/wizard/util/pollRetryClassification";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
 
@@ -618,7 +623,7 @@ export function AiBgPicker({
         let polls = 0;
         const poll = async () => {
           if (generationIdRef.current !== myId) return;
-          polls++;
+          let rateLimitDelay: number | null = null;
           try {
             const sres = await fetch(`/api/memes/ai/renders/${renderJobId}`, { credentials: "include", cache: "no-store" });
             if (sres.ok) {
@@ -663,18 +668,33 @@ export function AiBgPicker({
                 return;
               }
               // pending / prompt_ready → keep polling.
+            } else {
+              // Rate-limited, not broken: the render job is still running
+              // server-side. Back off and do NOT count this toward
+              // MAX_POLLS — a burst of 429s from the global limiter must
+              // never spend this poller's fixed budget and falsely report
+              // "taking longer than expected" on a job that's still working.
+              const err = pollHttpErrorFromResponse(sres);
+              if (isRetryablePollError(err)) {
+                rateLimitDelay = retryDelayMsFor(err, POLL_INTERVAL);
+              }
+              // Any other non-OK status: falls through, counts as an
+              // ordinary missed poll, same as before this fix.
             }
           } catch { /* keep polling */ }
-          if (polls >= MAX_POLLS) {
-            if (generationIdRef.current !== myId) return;
-            if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
-            setGenerationProgress(0);
-            setGenerationElapsed(0);
-            setAiGenerateError("Generation is taking longer than expected. Try again.");
-            setAiGenState("error");
-            return;
+          if (rateLimitDelay === null) {
+            polls++;
+            if (polls >= MAX_POLLS) {
+              if (generationIdRef.current !== myId) return;
+              if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+              setGenerationProgress(0);
+              setGenerationElapsed(0);
+              setAiGenerateError("Generation is taking longer than expected. Try again.");
+              setAiGenState("error");
+              return;
+            }
           }
-          setTimeout(() => void poll(), POLL_INTERVAL);
+          setTimeout(() => void poll(), rateLimitDelay ?? POLL_INTERVAL);
         };
         setTimeout(() => void poll(), POLL_INTERVAL);
       }
