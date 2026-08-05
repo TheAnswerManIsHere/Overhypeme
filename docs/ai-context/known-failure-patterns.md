@@ -757,15 +757,26 @@ human half, and this entry is the reminder that they exist.
 
 **The pattern generalizes past docs to code call sites (PR #308).** Mounting
 a new global rate limiter gave every `/api` poller its first-ever 429 path —
-a single new failure mode with **four independent call sites** across two
-components' worth of poll loops. The plan's own implementation fixed one
-(the video/PuLID pollers) up front; round 1 of review found a second
-(`AiBgPicker`'s render poller); round 2 found a third, in an entirely
-different component (`SourceImageConfirmModal`) that no earlier fix had
-touched, plus a fourth handler (`handleConfirmCancel`) left outside a
-sibling fix in the *same* file. Each fix was locally correct and each round
-looked like progress while the finding count didn't fall to zero until round
-3. Same avoidance: when a change introduces a new failure mode on a shared
+a new failure mode with **at least four independent call sites** (not a
+verified-exhaustive count, per the same undercounting this file's own
+"fixing the flagged site" lesson warns about) across two components' worth
+of poll loops. The plan's own implementation fixed one (the video/PuLID
+pollers) up front; round 1 of review found a second (`AiBgPicker`'s render
+poller); round 2 found a third, in an entirely different component
+(`SourceImageConfirmModal`) that no earlier fix had touched, plus a fourth
+handler (`handleConfirmCancel`) left outside a sibling fix in the *same*
+file. Each fix was locally correct and each round looked like progress while
+the finding count didn't fall to zero until round 3. **Not every poller of
+an endpoint the global limiter now covers was newly exposed** — a Codex
+round on this very `/document` harvest found a fifth poller
+(`useTaxonomyHealthActions.ts` → `/admin/taxonomy-health/job-status`) whose
+429 handling predates this PR entirely, because that route already had its
+own `checkSharedRateLimit` call (it's one of the pre-existing DB-backed
+limiters `adminTaxonomyHealth.ts` is documented as, elsewhere in this repo's
+docs) — a reminder that "every caller of a newly-changed resource" still
+needs checking against what was already true, not assumed to be uniformly
+new. Same avoidance: when a change introduces a new failure mode on a shared
 resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
-one a review comment or the plan happened to name.
+one a review comment or the plan happened to name, and not assuming the
+count found is the count that exists.

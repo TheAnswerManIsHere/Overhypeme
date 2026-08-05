@@ -83,11 +83,18 @@ preview and the Playwright e2e admin flows keep working; production
   `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
   npm packages, not `checkSharedRateLimit`) and does **not** replace or change
   any narrow, DB-backed limiter above — it is a blast-radius backstop layered
-  on top. Exactly two exemptions (`/api/healthz`, the Stripe webhook); backed
-  by a bounded in-memory store (`BoundedMemoryStore`, capped and FIFO-evicted,
-  not `checkSharedRateLimit`'s DB table), so it is **per-instance**, not
-  fleet-wide. See the 2026-08-04 `decisions.md` entry for why an in-memory
-  store was chosen over a DB-backed one.
+  on top. Exactly two **route/handler** exemptions (`/api/healthz`, the
+  Stripe webhook); backed by a bounded in-memory store (`BoundedMemoryStore`,
+  capped and FIFO-evicted, not `checkSharedRateLimit`'s DB table), so it is
+  **per-instance**, not fleet-wide. **Separately, CORS preflight (`OPTIONS`)
+  requests to any `/api` path bypass the limiter entirely** — `cors()` is
+  registered in `app.ts` before `createGlobalLimiter()` mounts, with no
+  `preflightContinue` override, so a preflight is answered and the request
+  cycle ends before it ever reaches the limiter. This is unmetered traffic
+  distinct from the two named exemptions, not a third named exemption — don't
+  assume preflight volume counts against the ceiling. See the 2026-08-04
+  `decisions.md` entry for why an in-memory store was chosen over a
+  DB-backed one.
 
 ## Authorization — objects, media, and memes
 

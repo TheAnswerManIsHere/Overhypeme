@@ -119,7 +119,11 @@ design; the essentials:
   (`storage.ts` → `checkUploadRateLimit` → `checkSharedRateLimit`; `memes.ts` →
   `createMemeRecord`'s DB-queried daily save cap) and misclassified `videos.ts`
   as an in-process bucket when it's actually a direct `videoJobsTable` query
-  (DB-backed, not in-process). See the 2026-08-04 `decisions.md` entry's
+  (DB-backed, not in-process — though a *third* round then caught that
+  `videos.ts`/`memes.ts`'s check-then-insert isn't atomic like
+  `checkSharedRateLimit`'s single `INSERT ... ON CONFLICT`, so "DB-backed"
+  here means DB-*observed*, not fleet-*correct* under a concurrent burst —
+  see `decisions.md`). See the 2026-08-04 `decisions.md` entry's
   "accepted trade-off" note for the full, hedged breakdown — **the "11"
   existing-limiter count is a lower bound, not a verified count**, since a
   route could still delegate to an unaudited rate-limiting helper through a

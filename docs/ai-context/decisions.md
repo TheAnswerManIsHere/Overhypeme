@@ -50,17 +50,23 @@
   this is a **per-instance** ceiling, not a bounded fleet-wide one — on
   autoscale infrastructure with no configured instance cap, the effective
   allowance is `instances × ceiling`. **At least 11 of 31 route files** had
-  some pre-existing rate limiting before this PR — 9 DB-backed/fleet-correct
-  (`facts.ts`, `reviews.ts`, `admin.ts`, `adminTaxonomyHealth.ts`, `ai.ts`,
-  `localAuth.ts` via `checkSharedRateLimit`/`createRateLimiter`; `storage.ts`
-  via `checkUploadRateLimit` → `checkSharedRateLimit`; `videos.ts` and
-  `memes.ts` via their own direct DB-table queries — `videoJobsTable` and
-  `memesTable` respectively, not `checkSharedRateLimit`, but still
-  DB-persisted and fleet-correct) and 2 in-process/per-instance only
-  (`share.ts`, `shareCopy.ts`, sharing this backstop's own per-instance
-  limitation). `render.ts`'s preview/download endpoints are separately
-  protected at the Cloudflare WAF edge layer (infrastructure, not application
-  code — not counted in this tally either way; see
+  some pre-existing rate limiting before this PR — 7 DB-backed with an
+  **atomic** guarantee (`facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` via
+  `checkSharedRateLimit`/`createRateLimiter`'s single
+  `INSERT ... ON CONFLICT ... DO UPDATE`; `storage.ts` via
+  `checkUploadRateLimit` → `checkSharedRateLimit`, same guarantee); 2
+  DB-*observed* but **not atomic** (`videos.ts` and `memes.ts`, which each
+  `SELECT count(...)` from `videoJobsTable`/`memesTable` and only *then*
+  `INSERT` the new row as a separate statement — under a genuinely
+  concurrent multi-instance burst, multiple requests can all pass the read
+  before any insert commits, a classic TOCTOU race; DB-persisted and
+  fleet-*visible*, but not fleet-*correct* the way the atomic family is); and
+  2 in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
+  backstop's own per-instance limitation). `render.ts`'s preview/download
+  endpoints are separately protected at the Cloudflare WAF edge layer
+  (infrastructure, not application code — not counted in this tally either
+  way; see
   `docs/cloudflare-rate-limits.md`). **The "11" count of pre-existing
   limiters is a lower bound, not a verified-exhaustive figure** — it comes
   from each route file's own code plus one level of delegation into `lib/`,
