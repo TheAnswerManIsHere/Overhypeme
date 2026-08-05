@@ -143,11 +143,37 @@ restatement.
   Match by normalized name, not exact string, for anything a human typed
   into a GitHub UI.
 
-## `/status`
+## `/status` and `/status-all`
 
-A **read-only** skill (`.claude/skills/status/SKILL.md`) that recomputes
-the board's view directly from issues + labels + PR state — it can't read
-the Project board either, for the same tooling gap above, so it doesn't
-try. Works from any session, including a fresh throwaway one; that's the
-intended usage. See the skill file for the stall-detection threshold and
-the plain-language-blocker rule.
+Two skills, two questions (split 2026-08-05):
+
+- **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the **fleet**
+  view, and the original skill unchanged: every open workstream, grouped
+  🛑 NEEDS YOU / ⚠️ STALLED / IN PROGRESS, recomputed directly from issues +
+  labels + PR state (it can't read the Project board either, per the tooling
+  gap above). **Read-only.** Works from any session, including a fresh
+  throwaway one; that's the intended usage. See the skill file for the
+  stall-detection threshold and the plain-language-blocker rule.
+- **`/status`** (`.claude/skills/status/SKILL.md`) — **one session's own**
+  workstream: what it's working on, which of five states it's in
+  (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
+  next, and how it fits the roadmap.
+
+**The five states are a derived presentation vocabulary — never stored.**
+They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
+They never become labels, never become board fields, and nothing reads them
+back. Labels remain the sole source of truth.
+
+**`/status` reports; it does not write unattended.** When stored labels or the
+issue's `## State of Play` block disagree with live GitHub, it says so and
+**offers** to correct them — David confirms, and only then does it write.
+That keeps the ownership model in the table above intact: `/status` is not a
+standing background writer, it is a David-confirmed correction at a moment he
+is already present for. (An unattended write-through version was designed and
+rejected — it needed conflict detection and write-target authentication the
+GitHub API can't cleanly provide, for a status check. See
+[`decisions.md`](./decisions.md).)
+
+**`WATCHING` may never be claimed from memory** — only after a live check in
+that same invocation. A session's belief that it is watching a PR goes stale
+exactly the way issue #328's did.
