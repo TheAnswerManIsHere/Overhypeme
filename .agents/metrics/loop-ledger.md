@@ -199,9 +199,9 @@ reasons are different and shouldn't be conflated. (#294's causal share is
 unresolved for a different reason than #290/#292's gate-tripping — see
 row 17's note — but the trend-exclusion result is the same.)
 
-**Of these six, three are confirmed pre-boundary, two are confirmed
+**Of these seven, three are confirmed pre-boundary, three are confirmed
 post-boundary, and one (#285) straddles the boundary — this is not a clean
-three/three split, and treating it as one would repeat the exact error
+split, and treating it as one would repeat the exact error
 corrected here previously.** David enabled Codex "Exhaustive code review"
 shortly after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent
 is timestamped then, and he confirmed the change in the same breath) — no
@@ -222,6 +222,11 @@ evidence, #288's review window (2026-07-30T02:03–03:20 UTC) and #289's
 (2026-07-30T02:17–03:10 UTC) both start well after 00:56Z, so both are
 confirmed post-boundary** — grounded in the repo's own commit evidence,
 not a "latest plausible timezone" argument that doesn't actually hold.
+**#308 is confirmed post-boundary too, with no timezone ambiguity to
+resolve at all**: its review window (2026-08-04T20:14–21:49 UTC, per row
+22's note) sits nearly a full week after even the `-06:00` reading of the
+2026-07-29 toggle, so it joins #288/#289 as the third confirmed
+post-boundary point.
 (#294's own window is unambiguously post-boundary too — starting nearly 21
 hours after even the `-04:00`-shifted commits begin on 2026-07-30 — but
 it's excluded from this population regardless, per its `unmeasured` status
@@ -247,53 +252,62 @@ section's straddle finding is the product of that later, more thoroughly
 checked analysis, not an equally-valid alternative reading.
 
 **The pre-boundary trend (n=3) stands as originally measured: 64.7% → 68.4%
-→ 72.1%, not falling.** **The confirmed post-boundary population is n=2
-(#285 excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289),
-declining slightly.** Two points is thinner evidence than the three-point
-reading this section previously reported, and shouldn't be overstated
-either way. #294 ran a genuinely large post-boundary loop (2026-07-30T21:23
+→ 72.1%, not falling.** **The confirmed post-boundary population is now n=3
+(#285 still excluded as a boundary straddle): 35.0% (#288) → 33.3% (#289) →
+14.3% (#308), still declining — and by a wider margin on the newest point
+than the first two showed between themselves.** Three points is still thin
+evidence and shouldn't be overstated, but it's a real addition, not a
+restatement: #308 is a full week later than #288/#289 (2026-08-04 vs.
+2026-07-30) and the first post-boundary point measured since. #294 ran a
+genuinely large post-boundary loop (2026-07-30T21:23
 to 2026-08-01T04:41, unambiguously post-boundary — more than a full day
 after the toggle, needing none of the timezone grounding #288/#289
 required) but its causal share is `unmeasured` (row 17's note), so it is
-not a third trend point here, the same way #290 and #292 aren't. **The
-confirmed post-boundary pair shares a script cohort
+still not a fourth trend point here, the same way #290 and #292 aren't. **The
+confirmed post-boundary trio shares a script cohort
 *label* but not a real shape, and that confound is not removed by
-excluding #285 — it's the same problem in a new place.** #288 and #289 are
-both classified `prose/contract` only because `classifyCohort` checks for
-any `.md` file before checking the PR's own fix-tier field, exactly the
+excluding #285 — it's the same problem in a new place.** #288, #289, and
+#308 are all classified `prose/contract` only because `classifyCohort` checks
+for any `.md` file before checking the PR's own fix-tier field, exactly the
 leakage this file already documents (see *The cohort rule leaks bugfix
 loops into prose/contract* below): row 12 describes #288 as a 21-file
 backend/frontend/migration/test **implementation** that happens to carry
-paired docs, while row 13 describes #289 as a **documentation-backfill**
-PR with no comparable code surface. So the n=2 post-boundary reading is
-**implementation-vs-docs confounded**, not a clean same-shape pair — #285
+paired docs, row 13 describes #289 as a **documentation-backfill**
+PR with no comparable code surface, and row 22 describes #308 as a
+22-file backend+frontend **feature implementation** with the same
+paired-docs leakage as #288 — closer in shape to #288 than to #289. So the
+n=3 post-boundary reading is
+**implementation-vs-docs confounded**, not a clean same-shape trio — #285
 was excluded for a real, different reason (the boundary straddle), and
 that exclusion neither creates nor removes this separate confound. With
-only two confirmed post-boundary points, already-thin evidence, that
+only three confirmed post-boundary points, still-thin evidence, that
 confound matters more, not less. #285 itself is not discarded as
 a data point: its 50.0% self-inflicted share still stands in the row 10 note
-and in the nine-row list above; it is excluded from this specific
+and in the ten-row list above; it is excluded from this specific
 pre/post-boundary comparison only, because its own rounds don't sit
 cleanly on one side of the line being compared. (#292's alternate n=3
 reading — #285 50.0%, #289 33.3%, #288 40.0%, all treated as cleanly
 post-boundary — is disclosed in row 12's own note rather than adopted; its
-#288 figure also differs from this row's 35.0%, per that same note.)
+#288 figure also differs from this row's 35.0%, per that same note. #292's
+reading predates #308 and so has no view on it either way.)
 
 **Two structural observations, both from counted data rather than
-impression, now checked against six loops instead of four:**
+impression, now checked against seven loops instead of four:**
 
 - **Round 1 is where new ground lives.** In #282, round 1 was 11/11 new
-  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6. Five of six
-  qualifying loops replicate this exactly (the sixth, #270, ran before this
+  ground; in #274, 5/5; in #285, 7/7; in #288, 5/5; in #289, 6/6; in #308,
+  3/3. Six of seven
+  qualifying loops replicate this exactly (the seventh, #270, ran before this
   ledger tracked per-round breakdowns finely enough to confirm or deny it) —
   this pattern is not an artifact of the pre-boundary reviewer, the
   plan-review cohort, or any single loop's shape. (#294's author
   classification separately shows 9/9 for its own round 1, but with the row's
   overall causal share `unmeasured`, it's noted in row 17 rather than added
   to this confirmed count.)
-- **Wrong fix dominates propagation in four of the six loops, not all six.**
-  #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs 6), and
-  #288 (4 vs 3) all show it. **#270 and #289 do not.** #270's reversal (18
+- **Wrong fix dominates propagation in five of the seven loops, not all seven.**
+  #274 (7 wrong-fix vs 6 propagation), #282 (38 vs 24), #285 (12 vs 6), #288
+  (4 vs 3), and #308 (1 wrong-fix vs 0 propagation) all show it. **#270 and
+  #289 do not.** #270's reversal (18
   propagation vs 4 wrong-fix) is already explained in row 3: this ledger's
   own bootstrapping loop, with propagation findings concentrated in
   subsystems built *mid-loop* (the MCP adapter, the rubric itself) rather
@@ -319,10 +333,10 @@ impression, now checked against six loops instead of four:**
   dominance despite the shape difference is a real replication, not a
   restatement of the plan-review case.
 
-This is a hypothesis at n=3 pre-boundary (not falling) and n=2 confirmed
+This is a hypothesis at n=3 pre-boundary (not falling) and n=3 confirmed
 post-boundary (declining; #285 excluded as a boundary straddle — a
 separate issue from, and not fixed by, the implementation-vs-docs cohort
-confound the remaining pair still carries), not a finding. It is recorded
+confound the remaining trio still carries), not a finding. It is recorded
 here so the next rows — on either side of the boundary — can confirm or
 kill it rather than re-deriving it.
 
