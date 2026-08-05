@@ -87,8 +87,9 @@ preview and the Playwright e2e admin flows keep working; production
   Stripe webhook); backed by a bounded in-memory store (`BoundedMemoryStore`,
   capped and FIFO-evicted, not `checkSharedRateLimit`'s DB table), so it is
   **per-instance**, not fleet-wide. **Separately, CORS preflight (`OPTIONS`)
-  requests bypass the limiter ONLY for a no-origin or allowed-origin
-  request** — `cors()` is registered in `app.ts` before
+  requests through the *global* CORS middleware bypass the limiter ONLY for
+  a no-origin or allowed-origin request** — `cors()` is registered in
+  `app.ts` before
   `createGlobalLimiter()` mounts, with no `preflightContinue` override, so an
   allowed preflight is answered and ends there. A **rejected-origin**
   preflight behaves differently: `cors@2.8.6`'s dynamic-origin callback path
@@ -98,7 +99,15 @@ preview and the Playwright e2e admin flows keep working; production
   `createGlobalLimiter`, so rejected-origin preflights ARE metered (verified
   against the installed package's source, not assumed). Don't treat "OPTIONS
   bypasses the limiter" as universally true — it depends on the origin
-  decision. See the 2026-08-04 `decisions.md` entry for why an in-memory
+  decision. **This qualification is scoped to the global CORS middleware
+  specifically — `/api/auth/dev-admin-login` has its own, more permissive
+  bypass** when `ENABLE_DEV_ADMIN_LOGIN=true` (never in production):
+  `app.ts` mounts `cors({ origin: true, credentials: true })` on that one
+  path, before both the global `cors()` and `createGlobalLimiter()`, and
+  `cors@2.8.6` answers OPTIONS preflights by default when
+  `preflightContinue` is unset — so a dev-admin-login preflight is answered
+  (and unmetered) regardless of origin, allowed or rejected, in a
+  non-production preview. See the 2026-08-04 `decisions.md` entry for why an in-memory
   store was chosen over a
   DB-backed one.
 

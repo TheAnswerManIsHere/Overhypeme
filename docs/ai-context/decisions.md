@@ -73,7 +73,19 @@
   — delegates to `startVideoJob()` in
   `artifacts/api-server/src/lib/videoPipelineRunner.ts`, whose pre-flight
   `checkBudget()` call throws the same 429 before a job is
-  created). **A fourth layer, not a fourth file:** `videos.ts` and
+  created). **This budget/quota-gate list is non-exhaustive on gates, even
+  though the file count isn't affected:** `memes.ts` (already counted above,
+  among the DB-*observed*-but-not-atomic pair) also rejects AI generation via
+  `isUserAtImageLimit()`/`BudgetExceededError`
+  (`artifacts/api-server/src/routes/memes.ts:1333-1452`), and `reviews.ts`
+  (already counted among the atomic DB-backed group) rejects fact
+  submissions once `FACT_SUBMIT_PENDING_CAP` is reached
+  (`artifacts/api-server/src/routes/reviews.ts:193-208`) — a quota gate
+  distinct from that same file's `checkSharedRateLimit`-backed rate limit.
+  Neither changes the 13/31 count (both files already counted), but a future
+  quota/budget hardening pass using this note as a source of truth would
+  miss both if it only read the three named files above. **A fourth layer,
+  not a fourth file:** `videos.ts` and
   `memes.ts` also call `enforceGovernance()`
   (`artifacts/api-server/src/lib/resourceGovernance.ts`) before generation,
   which 429s from its own process-local `usageEvents`/`inFlightByUser`

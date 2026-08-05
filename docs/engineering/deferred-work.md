@@ -62,8 +62,9 @@ we've sequenced for later.
   [Code-level tech debt](#code-level-tech-debt) entry below for the full
   detail: every row `checkSharedRateLimit` writes carries the raw IP, user
   id, and sometimes a normalized recipient email, with no purge ever wired
-  up — and for `createRateLimiter`-backed routes, "user id" is the actual
-  session token. Left in Code-level tech debt (grouped with the sibling
+  up — and for both `createRateLimiter`- and `createFactSubmitRateLimiter`-
+  backed routes (including fact submission in `reviews.ts`), "user id" is
+  the actual session token. Left in Code-level tech debt (grouped with the sibling
   `adminConfig`/`getStripeSync` entries from the same review), but flagged
   here so the quarterly `/security-review` — which otherwise only reads this
   section — doesn't miss it.
