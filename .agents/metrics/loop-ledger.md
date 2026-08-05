@@ -467,21 +467,24 @@ either a row above or an entry here, or CI fails.
 | [#300](https://github.com/TheAnswerManIsHere/Overhypeme/pull/300) | prose/contract | Docs-only — migrates procedural ceremony out of CLAUDE.md into `.claude/skills/*.md` and `lib/api-zod/CLAUDE.md`. No product/tooling code touched. Same reasoning as #301. |
 | [#295](https://github.com/TheAnswerManIsHere/Overhypeme/pull/295) | prose/contract | Docs-only — corrects `.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md` and `.agents/metrics/loop-ledger.md` itself. Same reasoning as #301. |
 | [#291](https://github.com/TheAnswerManIsHere/Overhypeme/pull/291) | prose/contract | Docs-only manual/architecture-map backfill (`docs/ai-context/architecture-map.md`, `decisions.md`, `docs/manual/README.md`, `background-work.md`). Same reasoning as #301. |
+| [#323](https://github.com/TheAnswerManIsHere/Overhypeme/pull/323) | prose/contract | Docs-only — adds `.claude/skills/status/SKILL.md`, a single new read-only skill file. No script, no workflow, no product code. Same reasoning as #301/#300. |
+| [#324](https://github.com/TheAnswerManIsHere/Overhypeme/pull/324) | prose/contract | Docs-only — wires workstream-label maintenance into four existing skill files plus two new `.agents/memory/` notes (9 files, all `.md`). No script or workflow touched. Same reasoning as #301/#300. PR body states explicitly: "Docs-only, no product surface." |
 
-**Why these nine and not others.** All nine are prose/contract loops, the
+**Why these eleven and not others.** All eleven are prose/contract loops, the
 cohort that already had measured rows (#268, #270, #276, and many since) at
 the time each was scoped out. Backfilling them would have re-confirmed a
 cohort we can already characterise while cohorts that could not be
 characterised at all (bugfix, plan-review) stayed empty or thin. That is a
 defensible trade, but it is a trade: the prose/contract sample stays smaller
 than it could be, and no claim about prose-loop trend should be made as
-though these nine were measured and clean. #301/#300/#295/#291 were added
+though these eleven were measured and clean. #301/#300/#295/#291 were added
 2026-08-04 while resolving PR #308's `check-ledger-coverage.mjs` failure — a
 gate failure surfaced on an unrelated PR, not a dedicated backfill session —
 applying the exact reasoning David already set for #272/#273/#275/#277/#278
-rather than a new decision. **Not exempted, deliberately:** the same session
-folded in real (not exempted) rows for #299 (plan-review), #297 (bugfix/
-dev-infra), and #287 (feature/code) — the two cohorts this table's own
+rather than a new decision. #323/#324 were added 2026-08-05 for the same
+reason, resolving PR #327's own coverage gate. **Not exempted, deliberately:**
+the same #327 fold-in added real (not exempted) rows for #318 (feature/code)
+and #322 (bugfix) — see rows 25/26 below — the two cohorts this table's own
 precedent says must be measured, not the cohort already well characterised.
 See row 6 (#279) and row 14 (#280)'s notes for why some of those rows are
 mechanical-only rather than fully causally classified: this table rejects
