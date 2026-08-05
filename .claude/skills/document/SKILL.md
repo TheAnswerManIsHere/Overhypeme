@@ -66,18 +66,15 @@ Decide by what "this" refers to (contract's trigger table):
 - **Manual is scaffolded, not backfilled here** — I create/update only the
   chapter for the area this feature touched, and only if it clears the quality
   bar. The one-time backfill of all existing areas is separate deferred work.
-- **The harvest gets its own sub-issue, not silence.** Per
-  [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
-  a `/document` harvest has its own branch, PR, and review loop, so it needs
-  its own board row — a **sub-issue** of the feature's workstream issue
-  (`sub_issue_write`, method `add`), never folded into the parent as a status
-  value. Open it once the harvest PR exists: `stage:code-review`,
-  `waiting:codex` (matching round 1's auto-trigger, same as any other PR),
-  `mode:docs`, with its own State of Play block. From there `pr-watch` owns
-  it exactly like any other PR's workstream. If the feature never got its own
-  workstream issue in the first place (a `/document` run against old,
-  pre-this-system work), there's no parent to nest under — note that in the
-  report rather than inventing one retroactively.
+- **The harvest is its own tracked workstream** — a shared-contract
+  requirement (`documentation-workflow.md`'s *The harvest itself is a
+  tracked workstream*), not Claude-specific, so I don't restate the *why*
+  here. My tooling specifics: `sub_issue_write` (method `add`) to parent the
+  new issue under the feature's workstream issue, then `issue_write` to
+  correct the harvest PR's `Workstream:` line once the sub-issue number
+  exists — I've hit this exact gap live (PR #325 initially cited its parent
+  #317 instead of its own sub-issue #326, caught by Codex round 3), so I
+  don't skip step 3 of the shared contract's checklist.
 
 ## Boundary
 

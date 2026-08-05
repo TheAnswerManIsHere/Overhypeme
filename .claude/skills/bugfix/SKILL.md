@@ -63,15 +63,26 @@ constraints*.)
 
 Then confirm: branch name + "bug-fixing mode is on."
 
-**Workstream issue.** Per
-[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md):
-bugfix mode branches straight from Discovery to Coding, skipping Planning
-and Plan approval. If David's bug report doesn't already have a workstream
-issue, open one now with `stage:coding`, `waiting:claude`, `mode:bugfix` —
-one per bug, matching the one-bug-per-branch-per-PR rule above — and give
-it a State of Play block (per `workstream-tracking.md`) at the same time,
-not just labels. From PR open onward, `pr-watch` owns the label
-transitions and the block's upkeep.
+**Workstream issue — disclosure check first.** Bugfix mode drops the plan
+and the plan-review loop, but not `plan-review-loop`'s disclosure check: a
+bug report can itself contain unpatched-vulnerability details,
+auth/authorization bypass specifics, secrets/credentials, payment-fraud
+abuse paths, or private customer/commercial data, and this repo is public.
+Before opening a workstream issue for the bug, confirm the report contains
+none of that. If it does, the bug does **not** get a public issue — it
+gets a private draft Project item instead, per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+sensitive-workstream carve-out, and I say so plainly rather than silently
+using the fast path a sensitive bug doesn't get.
+
+For everything else: per `workstream-tracking.md`, bugfix mode branches
+straight from Discovery to Coding, skipping Planning and Plan approval. If
+David's bug report doesn't already have a workstream issue, open one now
+with `stage:coding`, `waiting:claude`, `mode:bugfix` — one per bug, matching
+the one-bug-per-branch-per-PR rule above — and give it a State of Play
+block (per `workstream-tracking.md`) at the same time, not just labels.
+From PR open onward, `pr-watch` owns the label transitions and the block's
+upkeep.
 
 ## 2. Diagnose, classify, then fix
 
@@ -173,7 +184,11 @@ the PR back only delays the review that catches things.
    was retired). A `TEST_RUN` doc only if something
    genuinely needs Replit's environment — per
    [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md), it
-   is not a default. **This UAT commit lands after round 1 already fired on
+   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to the
+   workstream issue's State of Play `Artifacts` field once committed** — the
+   same instruction `pr-docs` follows for feature-mode UAT docs, so a
+   cold-resumed session finds the doc regardless of which path produced it.
+   **This UAT commit lands after round 1 already fired on
    PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
    so it needs its own explicit `@codex review` once it's pushed, the same as
    any other fix-round commit. Don't let the PR reach convergence with a

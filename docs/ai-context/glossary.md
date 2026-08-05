@@ -192,9 +192,12 @@
   harvest) tracked end-to-end by a single GitHub issue — except
   sensitive/disclosure-carve-out work, which is a private draft Project item
   instead, never a public issue. Runs through the full lifecycle
-  (Discovery→UAT) for product-visible work; a pure-docs/devops workstream
-  has no product surface to verify and closes out at merge instead, per
-  `pr-watch`'s merge rule. Deliberately **not** the same as a session or a
+  (Discovery→UAT) only when there's product-visible behavior to verify;
+  UAT is skipped for a pure-docs/devops workstream (closes out at merge, per
+  `pr-watch`'s merge rule), a Tier A bugfix (never ships a UAT doc), and a
+  Tier B bugfix whose only surface is internal (the infra-only exception —
+  see [working-modes.md](./working-modes.md#tier-b--elevated-fix)).
+  Deliberately **not** the same as a session or a
   PR: a workstream outlives both and can span several PRs, which is why it —
   not the PR number — is the stable thing to name and track against.
   → [workstream-tracking](./workstream-tracking.md)
