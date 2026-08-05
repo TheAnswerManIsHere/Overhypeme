@@ -329,6 +329,15 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
+- **`/status` split into a write-through per-session skill and a fleet-wide
+  `/status-all`.** Design settled 2026-08-05, not yet built. See the
+  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--status-splits-into-a-write-through-per-session-skill-and-a-fleet-wide-status-all)
+  for the full shape (write-through, the 5-state vocabulary, WATCHING only
+  from a live check).
+- **Phase-tracking for multi-PR features** — parent issue carries the plan,
+  each phase is a sub-issue with its own PR. Design settled 2026-08-05, not
+  yet built; #310 and #293 are named retrofit candidates. See the
+  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--multi-pr-features-get-parent-issue-plus-phase-sub-issue-tracking-and-i-ask-before-declaring-a-split).
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
   visual-review flow. **Needs David confirmation** on specifics.
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render

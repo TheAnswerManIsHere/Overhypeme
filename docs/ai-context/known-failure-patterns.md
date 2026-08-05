@@ -784,3 +784,36 @@ resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
+
+## Hand-rolled parser chasing full coverage of a real language's syntax
+
+**Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
+meant to catch **every** way a general-purpose scripting/shell language can
+express a specific dangerous operation ("does this Bash string, however
+written, ever run a force push?"). **Dangerous:** each review round finds a
+*new class* of bypass instead of a shrinking set, because the target
+language's "ways to dispatch a command" surface (wrapper commands, quoting
+forms, script-dispatch mechanisms, alias systems) is not practically
+enumerable — the same losing shape as blocklist-based XSS sanitization.
+Diligence cannot fix a wrong-shaped defense; more review rounds just find
+more gaps, and a shrinking-then-growing trend across rounds (see below) is
+the tell that the surface isn't converging. **Avoid:** before hand-rolling a
+parser for a general-purpose language's command-dispatch semantics, check
+whether the operation can instead be made correct **by construction**
+(an allowlist/encoder shape instead of a blocklist scanner) or whether a
+narrower control that doesn't need to parse intent at all — a server-side
+rule, a protocol-level restriction — already covers the actual risk. Size
+the defense to the *realistic* threat model (an honest mistake) rather than
+a fully adversarial one, when the two genuinely differ, and say so out loud
+rather than quietly absorbing round after round. **Overhype:**
+`.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
+rounds closed 9, then 11, then 12 parser gaps (looked convergent), then round
+4 found 19 (more than round 3, not fewer). David stopped the loop there
+rather than open a round 5: the hook was narrowed to "make the lease
+mandatory" and accepted as a best-effort local backstop behind GitHub's
+server-side ruleset on `main` (which needs no Bash parsing at all — it
+rejects the actual git protocol operation), not chased to full-coverage
+completeness. See the
+[2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
+and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
+docstring section.
