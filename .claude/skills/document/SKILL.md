@@ -69,12 +69,16 @@ Decide by what "this" refers to (contract's trigger table):
 - **The harvest is its own tracked workstream** — a shared-contract
   requirement (`documentation-workflow.md`'s *The harvest itself is a
   tracked workstream*), not Claude-specific, so I don't restate the *why*
-  here. My tooling specifics: `sub_issue_write` (method `add`) to parent the
-  new issue under the feature's workstream issue, then `issue_write` to
-  correct the harvest PR's `Workstream:` line once the sub-issue number
+  or the disclosure/parentless branching here. My tooling specifics:
+  `sub_issue_write` (method `add`) when a parent workstream issue exists;
+  plain `issue_write` (create) for the standalone-issue path when it
+  genuinely doesn't (legacy pre-tracking work — never for a parent missing
+  because of the disclosure carve-out, which gets a draft Project item, not
+  either kind of public issue). Either way, `issue_write` again afterward to
+  correct the harvest PR's `Workstream:` line once the real issue number
   exists — I've hit this exact gap live (PR #325 initially cited its parent
   #317 instead of its own sub-issue #326, caught by Codex round 3), so I
-  don't skip step 3 of the shared contract's checklist.
+  don't skip that step of the shared contract's checklist.
 
 ## Boundary
 

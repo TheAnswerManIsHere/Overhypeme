@@ -63,17 +63,11 @@ constraints*.)
 
 Then confirm: branch name + "bug-fixing mode is on."
 
-**Workstream issue — disclosure check first.** Bugfix mode drops the plan
-and the plan-review loop, but not `plan-review-loop`'s disclosure check: a
-bug report can itself contain unpatched-vulnerability details,
-auth/authorization bypass specifics, secrets/credentials, payment-fraud
-abuse paths, or private customer/commercial data, and this repo is public.
-Before opening a workstream issue for the bug, confirm the report contains
-none of that. If it does, the bug does **not** get a public issue — it
-gets a private draft Project item instead, per
-[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
-sensitive-workstream carve-out, and I say so plainly rather than silently
-using the fast path a sensitive bug doesn't get.
+**Workstream issue.** The disclosure check that gates opening it is a
+shared-contract requirement now
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#disclosure-check-before-the-workstream-issue-opens)'s
+*Disclosure check, before the workstream issue opens*), not Claude-specific
+— I run it, but I don't restate the *why* here.
 
 For everything else: per `workstream-tracking.md`, bugfix mode branches
 straight from Discovery to Coding, skipping Planning and Plan approval. If

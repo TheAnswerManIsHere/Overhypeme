@@ -134,6 +134,11 @@ silently leaving the workstream unlabeled):
 - **A genuine design/architecture decision goes to David** (the escalate
   rule above) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
+- **CI is green and Codex has converged, but the PR isn't merged yet** →
+  `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
+  the issue at `stage:code-review` here is exactly the kind of ready-to-go
+  workstream `/status` exists to surface, so don't let it sit unlabeled
+  just because nothing forced a transition.
 - **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
   due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
   bugfix or a Tier B bugfix whose only surface is internal (per

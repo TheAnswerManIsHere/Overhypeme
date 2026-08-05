@@ -197,28 +197,39 @@ row — a **sub-issue** of the feature's workstream issue, never folded into
 the parent as a status value. This applies to every agent running this
 ceremony, not just Claude's enactment of it:
 
-1. Open the harvest PR **as a draft.** Every non-draft PR is auto-reviewed
-   on open (per `CLAUDE.md`), and `pr-watch` reads `Workstream: #N` from the
-   PR body the moment it opens — so a non-draft PR here would get reviewed
-   and labeled against whatever the body says *before* the sub-issue exists
-   (nothing, or a placeholder). Draft defers both until the sub-issue is
-   real.
-2. Open the sub-issue: parented to the feature's workstream issue if one
-   exists (`stage:code-review`, `waiting:codex`, `mode:docs`, its own State
-   of Play block). **If the feature never got its own workstream issue** (a
-   `/document` run against pre-this-system work), open the harvest as a
-   **standalone** `mode:docs` workstream issue instead of skipping tracking
-   — `pr-watch` needs *some* issue to label regardless of whether a parent
-   exists, and an untracked harvest is invisible to `/status` and the board
-   despite having its own real review loop.
-3. Set the PR body's `Workstream:` line to the sub-issue (or standalone
+1. Open the harvest PR **as a draft, and do not subscribe or apply any
+   label yet.** Draft status only defers Codex's *auto*-review — it does
+   **not** defer the watching agent's own subscription (Claude always
+   subscribes to a PR it creates, draft or not) or any labeling that
+   subscription's own review-loop skill would otherwise do on PR-open.
+   Treat steps 2–3 as blocking: no subscribe, no `Workstream:`-line read,
+   no label write, until the sub-issue (or standalone issue) is real and
+   the line is corrected.
+2. **Disclosure check first**, same as the feature-level check the parent
+   went through: if the harvest itself is sensitive — most directly, if the
+   feature it documents was itself routed through the disclosure carve-out
+   and therefore has no public parent issue *for that reason* — it does
+   **not** get a public issue of any kind, sub- or standalone. Use a
+   private draft Project item instead. Don't assume every parentless
+   feature is simply pre-tracking legacy work; check why the parent is
+   missing before defaulting to the public path.
+3. For everything else: open the sub-issue, parented to the feature's
+   workstream issue if one exists (`stage:code-review`, `waiting:codex`,
+   `mode:docs`, its own State of Play block). **If the feature never got
+   its own workstream issue** for a genuinely legacy reason (a `/document`
+   run against pre-this-system work, not a disclosure carve-out) — open the
+   harvest as a **standalone** `mode:docs` workstream issue instead of
+   skipping tracking. `pr-watch` needs *some* issue to label regardless of
+   whether a parent exists, and an untracked harvest is invisible to
+   `/status` and the board despite having its own real review loop.
+4. Set the PR body's `Workstream:` line to the sub-issue (or standalone
    issue) just created — never the parent, which is typically already well
    past this harvest's own stage.
-4. **Mark the PR ready for review.** This is what actually triggers round 1
-   (per `CLAUDE.md`'s trigger list — open / mark-ready / `@codex review`),
-   so by the time any review or label transition happens, the `Workstream:`
-   line is already correct.
-5. From there the harvest is watched exactly like any other PR — the
+5. **Now subscribe, and mark the PR ready for review.** Marking ready is
+   what actually triggers round 1 (per `CLAUDE.md`'s trigger list — open /
+   mark-ready / `@codex review`). Subscribing only now, not at step 1, is
+   what actually defers labeling — draft status alone does not.
+6. From there the harvest is watched exactly like any other PR — the
    normal review-loop skill/process for that agent owns the label
    transitions and State of Play upkeep from this point on.
 

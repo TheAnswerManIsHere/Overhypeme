@@ -108,6 +108,21 @@ pick a disambiguated name on a clash, and **never** force/reset onto
 > guidance — merge, never rebase, on an already-pushed branch), then push;
 > the diff narrows to just the new bug once that lands.
 
+### Disclosure check, before the workstream issue opens
+
+Bugfix mode drops the plan and the plan-review loop, but not the
+plan-review loop's disclosure check — the same one applies here, for the
+same reason: this repo is public, and a bug report can itself contain
+unpatched-vulnerability details, auth/authorization bypass specifics,
+secrets/credentials, payment-fraud abuse paths, or private
+customer/commercial data. Before opening a workstream issue for the bug
+(per [`workstream-tracking.md`](./workstream-tracking.md)), confirm the
+report contains none of that. If it does, the bug does **not** get a
+public issue — it gets a private draft Project item instead, and the
+agent says so plainly rather than silently using the fast path a sensitive
+bug doesn't get. This applies to every agent entering bugfix mode, not
+just Claude's enactment of it.
+
 ### The tier is chosen after diagnosis, never at intake
 
 The old design picked its ceremony level at intake, from the **symptom**. That is
