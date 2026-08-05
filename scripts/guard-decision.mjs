@@ -109,6 +109,63 @@
  * accidental typo, produces -- and `main` is covered by GitHub's ruleset
  * regardless of whether this hook is evaded. A hook that blocks real work to
  * defeat a hypothetical gets turned off, which protects nothing at all.
+ *
+ * ROUND 4, AND THE DECISION TO STOP (David, 2026-08-05)
+ * -------------------------------------------------------
+ * Round 4 found nineteen more gaps -- MORE than round 3's twelve, reversing
+ * the direction the first three rounds seemed to be heading in. Rather than
+ * fix these piecemeal and start a round 5, David and I stopped here and
+ * documented them instead. The trend across rounds (9, 11, 12, 19) is the
+ * evidence: this is a hand-rolled recognizer chasing a language -- Bash --
+ * whose expressive surface for "run this program" is not enumerable in
+ * practice. Every round closes a class of gaps and a reviewer thinking
+ * adversarially about Bash finds another one, because Bash itself is a large
+ * language (wrapper commands, quoting forms, script-dispatch mechanisms, and
+ * git's own alias system all combine multiplicatively). That is not a
+ * diligence problem this hook can fix by trying harder; it is the same
+ * losing shape as blocklist-based XSS sanitization. The real control was
+ * never this file -- see the three-layer model at the top -- so the
+ * pragmatic stop is here, not at some hypothetical fully-enumerated end
+ * state that the data suggests does not exist.
+ *
+ * What round 4 found, left open:
+ * - Wrapper commands still missing bare/value-flag tables: `sudo -n`,
+ *   `time -p`, `timeout DURATION`, a named `coproc NAME { ... }`, and
+ *   `trap 'CMD' EXIT` (a command-string dispatcher this hook does not treat
+ *   as one).
+ * - `env`'s `-S`/`--split-string` (itself a second command-string
+ *   dispatcher) and its combined-form value flags (`--unset=NAME`,
+ *   `--chdir=DIR`), which the current value-flag table only recognizes in
+ *   separate-argument form.
+ * - `git --config-env`, both the separate-value form (missing from the
+ *   value-consuming global-option set) and the inline `NAME=ENVVAR` form
+ *   used to smuggle a `!`-prefixed shell-escape alias through an env var
+ *   this hook never inspects.
+ * - Numeric short options bundled with `-f`/`-d` (`-4f`, `-4d`) -- the
+ *   bundled-flag regexes only permit letters.
+ * - `$"..."` locale-translated double-quoted words (a second quoting form
+ *   alongside `$'...'` that the tokenizer does not decode) and a
+ *   backslash-newline continuation inside a double-quoted token (removed by
+ *   Bash before argv is built; this tokenizer keeps it as a literal
+ *   newline instead).
+ * - Redirections (`>file`) appearing before or in the middle of a simple
+ *   command rather than only after it, which the segmenter does not
+ *   currently expect.
+ * - Here-strings (`<<<`) as a second way (besides heredocs) to feed a bare
+ *   shell interpreter a script over stdin.
+ * - Two heredoc gaps: the opener-command lookup uses everything before `<<`
+ *   rather than the command actually attached to the redirection when the
+ *   opener is not the first command on its line; and the depth-cap
+ *   fail-closed rule (added in round 3 for `-c`/`eval` strings) does not
+ *   yet cover an uninspected heredoc body at the cap.
+ * - `npm exec --call`/`npx --call` as a second spelling of the command-string
+ *   flag alongside `-c`.
+ * - `git send-pack --force`/`--mirror`, a fourth remote-ref-update surface
+ *   alongside `push`, `update-ref`, and the direct `git-push` executable.
+ * - One false-positive risk, not a bypass: heredoc delimiters that are valid
+ *   in Bash but not identifier-shaped (`<<'MSG-1'`) are not recognized by
+ *   the stripping regex, so an ordinary commit-message heredoc using one
+ *   could be misclassified as a real command and over-blocked.
  */
 
 const ALLOW = 0;
