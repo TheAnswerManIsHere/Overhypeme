@@ -28,7 +28,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   (PR #308, implementing the plan approved after PR #299's 16-round review).
   Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
   per-instance, in-memory-backed ceiling — the first application-level rate
-  limiting for approximately 19 (upper-bound estimate, revised across four
+  limiting for approximately 18 (upper-bound estimate, revised across five
   review rounds — do not trust as final) of this API's 31 route
   files — without changing any existing narrow, DB-backed limiter. See
   [`security-model.md`](./security-model.md#authentication--sessions) and the

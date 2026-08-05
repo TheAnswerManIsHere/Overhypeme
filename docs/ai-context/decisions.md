@@ -49,7 +49,7 @@
   `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
   this is a **per-instance** ceiling, not a bounded fleet-wide one — on
   autoscale infrastructure with no configured instance cap, the effective
-  allowance is `instances × ceiling`. **At least 12 of 31 route files** had
+  allowance is `instances × ceiling`. **At least 13 of 31 route files** had
   some pre-existing rate/quota limiting before this PR — 7 DB-backed with an
   **atomic** guarantee (`facts.ts`, `reviews.ts`, `admin.ts`,
   `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` via
@@ -63,28 +63,34 @@
   before any insert commits, a classic TOCTOU race; DB-persisted and
   fleet-*visible*, but not fleet-*correct* the way the atomic family is); 2
   in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
-  backstop's own per-instance limitation); and 2 **budget/quota gates, a
+  backstop's own per-instance limitation); and 3 **budget/quota gates, a
   different protection class from rate-per-window** (`videos.ts` *also*
   returns 429 from `checkBudget()` — a per-user cost cap, a second,
   independent 429 source in the same file as its `videoJobsTable` check;
   `pulidJobs.ts` returns 429 from `isUserAtImageLimit()`, a per-user image-
-  count cap). `render.ts`'s preview/download endpoints are separately
+  count cap; `videoJobs.ts` — a *separate* route file from `videos.ts`,
+  mounted independently via `routes/index.ts`'s `router.use(videoJobsRouter)`
+  — delegates to `startVideoJob()` in
+  `artifacts/api-server/src/lib/videoPipelineRunner.ts`, whose pre-flight
+  `checkBudget()` call throws the same 429 before a job is
+  created). `render.ts`'s preview/download endpoints are separately
   protected at the Cloudflare WAF edge layer (infrastructure, not
   application code — not counted in this tally either way; see
   `docs/cloudflare-rate-limits.md`). **No single number in this note should
-  be trusted as final** — this count has been revised upward across four
-  separate Codex review rounds on the same PR (6 → 9 → 11 → 12), each
+  be trusted as final** — this count has been revised upward across five
+  separate Codex review rounds on the same PR (6 → 9 → 11 → 12 → 13), each
   finding a real case the previous pass missed (a route-file symbol grep,
   then `lib/`-delegated protection, then a non-`checkSharedRateLimit`
-  DB-backed check, then a budget/quota gate distinct from rate limiting).
-  Treat every count here as a lower bound on pre-existing protection and an
-  upper bound on "newly covered by this backstop," not a verified-exhaustive
-  audit — a further pass could plausibly find more. Since "existing" can
-  only grow as more are found, **"19 route files getting their first
-  application-level
-  rate limiting from this PR" (31 − 12) is correspondingly an upper bound,
-  not a lower one** — treat it as approximate, and as likely to shrink on
-  a future audit, not grow.
+  DB-backed check, then a budget/quota gate distinct from rate limiting,
+  then a same-topic sibling route file the grep never visited because it
+  isn't named `videos.ts`). Treat every count here as a lower bound on
+  pre-existing protection and an upper bound on "newly covered by this
+  backstop," not a verified-exhaustive audit — a further pass could
+  plausibly find more. Since "existing" can only grow as more are found,
+  **"18 route files getting their first application-level rate limiting
+  from this PR" (31 − 13) is correspondingly an upper bound, not a lower
+  one** — treat it as approximate, and as likely to shrink on a future
+  audit, not grow.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
   implementation PR #308. Full context:
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).

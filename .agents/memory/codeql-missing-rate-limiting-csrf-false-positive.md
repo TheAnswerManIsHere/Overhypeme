@@ -105,15 +105,15 @@ design; the essentials:
   bounded fleet-wide one — see the plan's "What per-instance counting means"
   section for the honest limitation statement, and §6 item 4 (the unenforced
   autoscale instance cap) for what would need to exist to make it fleet-wide.
-- **At least 12 of this API's 31 route files had some rate/quota limiting
+- **At least 13 of this API's 31 route files had some rate/quota limiting
   before this change** (`facts.ts`, `reviews.ts`, `admin.ts`,
   `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts`, `share.ts`,
-  `shareCopy.ts`, `videos.ts`, `storage.ts`, `memes.ts`, `pulidJobs.ts`) — a
-  round-16 finding that inverted the plan's original framing, and one this
-  repo's own docs have now undercounted across **four separate Codex review
-  rounds** on the same PR (#319's `/document` harvest): the plan's own text
-  said 6/31; round one raised it to 9/31 via a grep scoped only to literal
-  rate-limit symbol names inside route files (`rg
+  `shareCopy.ts`, `videos.ts`, `storage.ts`, `memes.ts`, `pulidJobs.ts`,
+  `videoJobs.ts`) — a round-16 finding that inverted the plan's original
+  framing, and one this repo's own docs have now undercounted across **five
+  separate Codex review rounds** on the same PR (#319's `/document`
+  harvest): the plan's own text said 6/31; round one raised it to 9/31 via a
+  grep scoped only to literal rate-limit symbol names inside route files (`rg
   'RATE_LIMIT|takeBucket|checkBucket|checkSharedRateLimit|createRateLimiter|createFactSubmitRateLimiter|requireRateLimit'
   artifacts/api-server/src/routes/*.ts`); round two caught protection
   delegated through a `lib/` helper (`storage.ts` → `checkUploadRateLimit` →
@@ -128,13 +128,18 @@ design; the essentials:
   never had a chance of finding: `videos.ts` *also* 429s from `checkBudget()`
   (a per-user cost cap, independent of its `videoJobsTable` rate check), and
   `pulidJobs.ts` 429s from `isUserAtImageLimit()` (a per-user image-count
-  cap), raising it to 12/31. See the 2026-08-04 `decisions.md` entry's
-  "accepted trade-off" note for the full, hedged breakdown. **No count in
-  this note should be trusted as final** — four consecutive corrections is a
-  track record, not a completed audit; a fifth review pass could plausibly
-  find more. `render.ts` has separate Cloudflare-WAF edge-level protection,
-  not application code, not counted in any of the above tallies.
-  For the other ~19 (approximate, upper bound, likely to shrink further),
+  cap), raising it to 12/31; round five caught that `videoJobs.ts` is a
+  *separate* route file from `videos.ts` (mounted independently via
+  `routes/index.ts`'s `router.use(videoJobsRouter)`) that also delegates to
+  `startVideoJob()` → `checkBudget()`, a same-topic sibling the earlier
+  passes never visited because it isn't named `videos.ts`, raising it to
+  13/31. See the 2026-08-04 `decisions.md` entry's "accepted trade-off" note
+  for the full, hedged breakdown. **No count in this note should be trusted
+  as final** — five consecutive corrections is a track record, not a
+  completed audit; a sixth review pass could plausibly find more.
+  `render.ts` has separate Cloudflare-WAF edge-level protection, not
+  application code, not counted in any of the above tallies.
+  For the other ~18 (approximate, upper bound, likely to shrink further),
   this middleware isn't a
   backstop behind real protection; it's the first application-level rate
   limiting those routes have ever had.

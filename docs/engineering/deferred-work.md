@@ -58,11 +58,12 @@ we've sequenced for later.
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
 
-- **`rate_limit_counters` has no production cleanup — PII-retention gap, not just table growth.** See the
+- **`rate_limit_counters` has no production cleanup — PII- and session-token-retention gap, not just table growth.** See the
   [Code-level tech debt](#code-level-tech-debt) entry below for the full
   detail: every row `checkSharedRateLimit` writes carries the raw IP, user
   id, and sometimes a normalized recipient email, with no purge ever wired
-  up. Left in Code-level tech debt (grouped with the sibling
+  up — and for `createRateLimiter`-backed routes, "user id" is the actual
+  session token. Left in Code-level tech debt (grouped with the sibling
   `adminConfig`/`getStripeSync` entries from the same review), but flagged
   here so the quarterly `/security-review` — which otherwise only reads this
   section — doesn't miss it.
@@ -465,12 +466,18 @@ re-gather it when the work is scheduled.
     (`sharedRateLimiter.ts`'s `normalizeRateLimitKey()`) stores the raw IP,
     user id, and — for endpoints scoped by `recipientEmail` — a normalized
     email address, per row, for every endpoint/IP/user/email key combination
-    ever seen. With no cleanup, this is an **unbounded PII-retention
-    backlog**, not merely inert counters — a privacy/security cost, not only
-    a query-latency one. This reframes the item: the quarterly
+    ever seen. **For `createRateLimiter`-backed routes specifically, the
+    "user id" is `getSessionId(req)`** (`rateLimit.ts`'s `rateLimitScope()`)
+    — this repo's 32-byte hex session cookie/Bearer token, not an opaque
+    account id — so those rows retain live/recent **session tokens**, a
+    materially higher-severity secret than an identifier. With no cleanup,
+    this is an **unbounded PII-and-session-token retention backlog**, not
+    merely inert counters — a privacy/security cost, not only a
+    query-latency one. This reframes the item: the quarterly
     `/security-review` should track it too, not just a maintenance pass, and
     a design that only addresses index/query cost (e.g. archiving instead of
-    deleting) would leave the retention problem unsolved.
+    deleting) would leave the retention problem unsolved — worse, archiving
+    would extend the retention window on live session tokens.
   - **Revisit trigger.** A scheduled maintenance pass, the quarterly security
     review, or observed table-size growth becoming a real query-latency
     concern — whichever fires first. Fix needs real retention (deletion, not
@@ -531,11 +538,20 @@ re-gather it when the work is scheduled.
     [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
     links a `docs/plans/*` GitHub blob URL (a legitimate historical
     citation, deliberately not a relative path — see that doc's own note on
-    why). The guard needs either an explicit exemption for these two files,
-    or — cleaner — to only flag a *relative* `docs/plans/*` reference (a
-    bare path, not a full `https://github.com/...` blob URL or a
-    `PLAN_*.md` glob/example used as prose), since a relative path is what's
-    actually dangling; a fully-qualified URL or a glob-marked example is not.
+    why).
+    **Retracted (Codex review, PR #319, fourth pass):** an earlier revision
+    of this note proposed "only flag a *relative* path, not a full URL" as a
+    cleaner alternative to an explicit file exemption — that does NOT work.
+    `plan-doc-path-never-cite-from-code.md`'s own teaching examples
+    (`docs/plans/PLAN_ASYNC_QUEUE_HARDENING*.md`,
+    `docs/plans/PLAN_CODEQL_RATE_LIMITER*.md`, both verified as literal text
+    in that file) are themselves bare relative paths used as historical
+    prose, not URLs and not asterisk-glob placeholders — a relative-path-only
+    regex would still flag them. The guard genuinely needs an **explicit
+    file-level exemption** for `plan-doc-path-never-cite-from-code.md`
+    specifically (its whole purpose is to name the dangling-path pattern in
+    prose); the relative-vs-URL distinction only correctly resolves the
+    *other* memory doc's citation, not this one.
 
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,

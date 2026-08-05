@@ -75,11 +75,11 @@ preview and the Playwright e2e admin flows keep working; production
   `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
   `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
   `/api` route — the first *application-level* rate limiting for
-  approximately 19 of this repo's 31 route files (an upper-bound estimate,
+  approximately 18 of this repo's 31 route files (an upper-bound estimate,
   not an exhaustive count — see the 2026-08-04 `decisions.md` entry's
   "accepted trade-off" note for the full breakdown and why the exact number
   can only shrink, not grow, on a future audit, and has already
-  been revised twice). This exists specifically to satisfy CodeQL's
+  been revised across five Codex review rounds). This exists specifically to satisfy CodeQL's
   `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
   npm packages, not `checkSharedRateLimit`) and does **not** replace or change
   any narrow, DB-backed limiter above — it is a blast-radius backstop layered
