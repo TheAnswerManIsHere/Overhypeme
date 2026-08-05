@@ -117,9 +117,17 @@ call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
 open threads, `get_comments` for top-level issue comments, **and
 `get_commits` for attributable push history**) — same discipline as
 `pr-watch`, minimal calls, no per-thread narration in the output.
-`get_comments` matters here, not just for completeness: this repo's Codex
-loop delivers some events — a clean re-review pass, an `@codex review`
-trigger — as plain issue comments rather than inline review threads
+**Page `get_commits`, `get_review_comments`, and `get_comments` to
+exhaustion**, the same way Step 1 pages through issues — a review loop
+that's gone several rounds can exceed one page of any of these (see
+`scripts/loop-metrics.mjs`'s own pagination for real examples), and a
+single capped call can silently return an incomplete prefix that's
+missing the most recent commit or reply. Since Step 4 picks the *latest*
+item across these three collections, an incomplete page doesn't just
+under-report — it can make an active workstream look stalled. `get_comments`
+matters here, not just for completeness: this repo's Codex loop delivers
+some events — a clean re-review pass, an `@codex review` trigger — as
+plain issue comments rather than inline review threads
 (`scripts/loop-metrics.mjs`'s own derivation has to handle this same
 shape). Skipping `get_comments` makes those events invisible, which can
 misreport who's actually holding a workstream. `get_commits` matters for
@@ -163,9 +171,13 @@ don't let his own activity mask a stale non-David handoff underneath it.
 **A workstream with no linked PR can stall too** — a Discovery/Planning-
 stage issue sitting at `waiting:claude`/`waiting:codex` with no repo
 activity for days is stalled the same way a quiet PR thread is, even
-though Step 3 found nothing to check. For these, use the issue's own
-`updated_at` and its comment history (`issue_read`) as the activity
-source instead of a PR's — don't let "no PR yet" mean "can't be stalled,"
+though Step 3 found nothing to check. For these, apply the **same
+attributable, non-David filtering as the PR path above** — the issue's
+own comment history (`issue_read`), filtered to exclude anything authored
+by David, not its raw `updated_at` alone. A David comment, label edit, or
+body edit advances `updated_at` the same actorless way a PR's does, and
+would reset this clock and hide the same stale handoff the PR path is
+designed to expose — don't let "no PR yet" mean "can't be stalled,"
 since a workstream that never gets a PR shape stalls in exactly the same
 way, just on a different object.
 
