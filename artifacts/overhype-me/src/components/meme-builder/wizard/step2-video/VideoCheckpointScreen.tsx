@@ -32,6 +32,8 @@ interface Props {
   onCancel: () => void;
   /** Disables every button while an API call is in flight. */
   busy?: boolean;
+  /** Shown when the last proceed/regenerate attempt failed (e.g. rate-limited). */
+  errorMessage?: string | null;
 }
 
 const ASPECT_CLASS: Record<AspectRatio, string> = {
@@ -53,6 +55,7 @@ export function VideoCheckpointScreen({
   onRegenerateWithStyle,
   onCancel,
   busy,
+  errorMessage,
 }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingLookStyleId, setPendingLookStyleId] = useState(currentLookStyleId);
@@ -86,6 +89,16 @@ export function VideoCheckpointScreen({
             </div>
           )}
         </div>
+
+        {errorMessage && (
+          <p
+            className="text-center text-sm text-destructive"
+            role="alert"
+            data-testid="video-checkpoint-error"
+          >
+            {errorMessage}
+          </p>
+        )}
 
         {(nextStepCost || remainingBudget) && (
           <p
