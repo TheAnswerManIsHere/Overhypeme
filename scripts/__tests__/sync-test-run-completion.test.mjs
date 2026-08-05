@@ -6,7 +6,6 @@ import {
   hasUatDoc,
   findUatDocFilename,
   computeTransition,
-  swapPrefixedLabel,
   updateStateOfPlayBody,
   bodyStageMatches,
   handoffText,
@@ -23,14 +22,26 @@ test("extractPrNumberFromTestRunPath rejects non-TEST_RUN docs", () => {
   assert.equal(extractPrNumberFromTestRunPath("docs/PR_TEST_RUN.md"), null);
 });
 
-test("extractWorkstreamIssueNumber reads the plain-text marker", () => {
+test("extractWorkstreamIssueNumber reads the plain-text marker at the start of a line", () => {
   assert.equal(extractWorkstreamIssueNumber("Workstream: #317\n\n## What & why"), 317);
+  assert.equal(extractWorkstreamIssueNumber("## What & why\nWorkstream: #42\nmore text"), 42);
 });
 
 test("extractWorkstreamIssueNumber returns null when the marker is absent or malformed", () => {
   assert.equal(extractWorkstreamIssueNumber("## What & why\nno marker here"), null);
   assert.equal(extractWorkstreamIssueNumber("**Workstream:** #317"), null);
   assert.equal(extractWorkstreamIssueNumber(undefined), null);
+});
+
+test("extractWorkstreamIssueNumber ignores a marker mid-line, not at line start", () => {
+  // e.g. an approved-plan oracle illustrating the convention with an example
+  assert.equal(extractWorkstreamIssueNumber("See the example: Workstream: #999 in the template."), null);
+});
+
+test("extractWorkstreamIssueNumber never crosses a line break to find a #", () => {
+  // \s* in an unanchored version of this regex would match the newline and
+  // grab #42 on the next line even though it belongs to unrelated prose
+  assert.equal(extractWorkstreamIssueNumber("Workstream:\nsome unrelated text #42"), null);
 });
 
 test("hasUatDoc finds a same-numbered UAT doc among mixed filenames", () => {
@@ -49,27 +60,6 @@ test("findUatDocFilename returns the exact matching filename, or null", () => {
 test("computeTransition routes to uat only when a UAT doc exists, else close-out", () => {
   assert.deepEqual(computeTransition(true), { stage: "uat", stageDisplay: "🛑 UAT" });
   assert.deepEqual(computeTransition(false), { stage: "close-out", stageDisplay: "Close-out" });
-});
-
-test("swapPrefixedLabel replaces the one matching label and leaves others untouched", () => {
-  assert.deepEqual(
-    swapPrefixedLabel(["stage:test-run", "waiting:replit", "mode:feature"], "stage:", "uat"),
-    ["waiting:replit", "mode:feature", "stage:uat"],
-  );
-});
-
-test("swapPrefixedLabel adds the label when none of that prefix exists", () => {
-  assert.deepEqual(swapPrefixedLabel(["mode:feature"], "waiting:", "david"), [
-    "mode:feature",
-    "waiting:david",
-  ]);
-});
-
-test("swapPrefixedLabel throws on more than one label sharing the prefix", () => {
-  assert.throws(
-    () => swapPrefixedLabel(["stage:test-run", "stage:uat"], "stage:", "close-out"),
-    /2 "stage:" labels/,
-  );
 });
 
 test("updateStateOfPlayBody rewrites Stage/Waiting on/Last movement in place", () => {

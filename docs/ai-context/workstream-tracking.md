@@ -60,7 +60,10 @@ in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
 (`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
-current at those same trigger points; there is no separate maintainer.
+current at those same trigger points, plus the one automated exception:
+`test-run-completion.yml` updates Stage/Waiting on/Last movement and the
+What's-blocking/What-you-need-to-do sections itself, at the one transition
+it owns. There is no separate maintainer beyond those five.
 
 ## Labels are the actual source of truth
 

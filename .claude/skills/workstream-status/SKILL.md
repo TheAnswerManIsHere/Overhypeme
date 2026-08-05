@@ -19,7 +19,9 @@ that name would make this skill unreachable through its intended trigger.
 
 **This is a read-only reporting skill.** It never writes labels, comments,
 or issue bodies — that's `pr-watch`, `plan-review-loop`, `bugfix`, and
-`pr-docs`'s job at the moments those already fire.
+`pr-docs`'s job at the moments those already fire, plus one automated
+exception outside any agent session: `test-run-completion.yml` writes the
+`stage:test-run` → `stage:uat`/`stage:close-out` transition itself.
 
 ## Why this reads issues + labels, not the Project board
 
@@ -105,10 +107,17 @@ list_pull_requests(owner, repo, state: all, sort: updated, direction: desc,
                              mergeable_state, html_url, updated_at])
 ```
 
-One call, not one per issue — regex `Workstream:\s*#(\d+)` out of each
-body to build the issue→PR map locally. Bounding to the most-recently-
-updated 50 is intentional for the common case: an *active* workstream's
-PR is recent by definition, so one batched call covers nearly everyone.
+One call, not one per issue — regex `^Workstream:[ \t]*#(\d+)` (multiline,
+anchored to the start of a line, matching `sync-test-run-completion.mjs`'s
+`extractWorkstreamIssueNumber`) out of each body to build the issue→PR map
+locally. The anchor matters: an unanchored `Workstream:\s*#(\d+)` can cross
+a line break (`\s` matches newlines) and grab an unrelated `#N` several
+lines later, or match an example embedded in prose (an approved-plan
+oracle illustrating the convention, say) as if it were the real marker —
+either misfire links the wrong PR to the wrong issue. Bounding to the
+most-recently-updated 50 is intentional for the common case: an *active*
+workstream's PR is recent by definition, so one batched call covers nearly
+everyone.
 
 **But recency isn't proof of "no PR" for a workstream at a long-lived
 gate.** An issue sitting at `stage:merge`/`stage:uat`/`stage:close-out`

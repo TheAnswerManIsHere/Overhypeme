@@ -33,9 +33,19 @@ export function extractPrNumberFromTestRunPath(path) {
  * in `.claude/skills/workstream-status/SKILL.md` and used by that skill's
  * issue<->PR mapping — kept in sync by hand since the two live in different
  * runtimes (a GitHub Action here, an agent's own instructions there).
+ *
+ * Anchored to the start of a line, with only horizontal whitespace before
+ * the `#` — not the bare `Workstream:\s*#(\d+)` this used to be. `\s`
+ * matches newlines too, so an unanchored search can cross a line break and
+ * grab an unrelated `#N` several lines later, and can match an example
+ * inside prose (an approved-plan oracle illustrating the convention, say)
+ * as if it were the real marker. Either misfire would point this Action at
+ * the wrong issue — including, worst case, mutating an unrelated public
+ * issue from a PR that was never meant to be linked at all (a sensitive/
+ * disclosure-carve-out PR deliberately has no marker).
  */
 export function extractWorkstreamIssueNumber(prBody) {
-  const m = /Workstream:\s*#(\d+)/.exec(prBody ?? "");
+  const m = /^Workstream:[ \t]*#(\d+)/m.exec(prBody ?? "");
   return m ? Number(m[1]) : null;
 }
 
@@ -66,21 +76,6 @@ const STAGE_DISPLAY = {
 export function computeTransition(hasUat) {
   const stage = hasUat ? "uat" : "close-out";
   return { stage, stageDisplay: STAGE_DISPLAY[stage] };
-}
-
-/**
- * Replace whichever label(s) share `prefix` with a single new one. Throws on
- * more than one existing label with that prefix — same "exactly one wins"
- * discipline as `sync-project-fields.mjs`'s `labelsToFieldValues`, since
- * guessing which stale label to keep is worse than failing loudly.
- */
-export function swapPrefixedLabel(labels, prefix, newValue) {
-  const others = labels.filter((l) => !l.startsWith(prefix));
-  const hits = labels.filter((l) => l.startsWith(prefix));
-  if (hits.length > 1) {
-    throw new Error(`${hits.length} "${prefix}" labels (${hits.join(", ")}) — exactly one expected`);
-  }
-  return [...others, `${prefix}${newValue}`];
 }
 
 /**
@@ -191,6 +186,43 @@ async function rest(method, path, token, body) {
 }
 
 /**
+ * Ensure exactly `stage:${targetStage}` and `waiting:david` are present on
+ * the issue and every other `stage:`/`waiting:` label is gone — converging
+ * to that state regardless of which step a previous, interrupted attempt
+ * got through. Add-then-clean, deliberately not delete-then-add: adding is
+ * idempotent (GitHub's add-labels endpoint no-ops on a label that's already
+ * there), so a failure partway through still leaves the issue correctly
+ * stage-labeled, merely with stale extras that this same call — or a later
+ * retry calling it again — removes. The opposite ordering (delete old,
+ * then add new) has a failure mode where a crash between the two leaves the
+ * issue with NO `stage:` label at all: invisible to the dispatch check
+ * below, which would then treat it as "nothing to do" and abandon it
+ * permanently instead of finishing the transition.
+ */
+async function ensureCleanLabels(repository, issueNumber, targetStage, token) {
+  const wantedStage = `stage:${targetStage}`;
+
+  const before = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+  const beforeNames = before.labels.map((l) => l.name);
+  if (!beforeNames.includes(wantedStage) || !beforeNames.includes("waiting:david")) {
+    await rest("POST", `/repos/${repository}/issues/${issueNumber}/labels`, token, {
+      labels: [wantedStage, "waiting:david"],
+    });
+  }
+
+  const after = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+  const afterNames = after.labels.map((l) => l.name);
+  const stale = afterNames.filter(
+    (l) => (l.startsWith("stage:") || l.startsWith("waiting:")) && l !== wantedStage && l !== "waiting:david",
+  );
+  for (const label of stale) {
+    await rest("DELETE", `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`, token);
+  }
+
+  return afterNames.filter((l) => !stale.includes(l));
+}
+
+/**
  * Transition one workstream, idempotently. Split into two independent
  * halves — resolve the target stage, then reconcile whatever's still
  * stale — so a retry after a partial prior run (labels wrote, board sync or
@@ -211,12 +243,20 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
 
   const issue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   const labels = issue.labels.map((l) => l.name);
-  const currentStage = labels.find((l) => l.startsWith("stage:"))?.slice("stage:".length);
+  const stageLabels = labels.filter((l) => l.startsWith("stage:"));
+  const mode = labels.find((l) => l.startsWith("mode:"))?.slice("mode:".length);
 
-  if (currentStage !== "test-run" && currentStage !== "uat" && currentStage !== "close-out") {
+  // Checked against the *set* of stage labels, not a single "the" stage —
+  // an interrupted prior run of this same function can leave an issue with
+  // stage:test-run alongside a stage it already added, and that state still
+  // needs finishing, not skipping.
+  const needsTransition = stageLabels.includes("stage:test-run");
+  const alreadyTransitioned =
+    !needsTransition && (stageLabels.includes("stage:uat") || stageLabels.includes("stage:close-out"));
+  if (!needsTransition && !alreadyTransitioned) {
     console.log(
       `  ~ issue #${issueNumber} (PR #${prNumber}): not at stage:test-run (current: ` +
-        `${currentStage ? `stage:${currentStage}` : "none"}) — already handled elsewhere, skipping`,
+        `${stageLabels.join(", ") || "none"}) — already handled elsewhere, skipping`,
     );
     return;
   }
@@ -231,55 +271,35 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   let targetStage;
   let finalLabels = labels;
 
-  if (currentStage === "test-run") {
+  if (needsTransition) {
     targetStage = computeTransition(uatFilename !== null).stage;
 
-    // Re-fetch immediately before mutating, rather than reusing the
-    // snapshot from the GET above, and bail if the stage moved on since —
-    // something else already handled this transition, so acting on our now-
-    // stale computation would clobber it.
-    const freshLabelsIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
-    const freshLabels = freshLabelsIssue.labels.map((l) => l.name);
-    if (!freshLabels.includes("stage:test-run")) {
-      console.log(
-        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed concurrently since the ` +
-          `first read — skipping this pass rather than overwriting it`,
-      );
-      return;
-    }
-
-    // Targeted delete-then-add, not a full-array PUT: a PUT replaces every
-    // label with whatever this process last read, so a label change landing
-    // in the gap between this GET and the write — even this narrowed one —
-    // would still be silently erased. Delete-by-name and add-by-name each
-    // touch only the specific label named, so an unrelated concurrent
-    // change (a new `mode:` label, say) survives regardless of timing.
-    const oldWaiting = freshLabels.find((l) => l.startsWith("waiting:"));
-    await rest(
-      "DELETE",
-      `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent("stage:test-run")}`,
-      token,
-    );
-    if (oldWaiting) {
-      await rest(
-        "DELETE",
-        `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent(oldWaiting)}`,
-        token,
+    // A feature-mode PR always ships a UAT doc (pr-docs' contract has no
+    // exception for it) — so a missing one here isn't "no UAT was due," the
+    // way it can legitimately be for a bugfix/docs/devops PR. It means the
+    // doc was deleted, renamed, or never created by mistake. Silently
+    // routing that to close-out would skip David's UAT gate without him
+    // ever knowing there was one to skip; leave the label untouched and
+    // surface it as a failed run instead.
+    if (targetStage === "close-out" && mode === "feature") {
+      throw new Error(
+        `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
+          `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
       );
     }
-    await rest("POST", `/repos/${repository}/issues/${issueNumber}/labels`, token, {
-      labels: [`stage:${targetStage}`, "waiting:david"],
-    });
 
-    finalLabels = swapPrefixedLabel(swapPrefixedLabel(freshLabels, "stage:", targetStage), "waiting:", "david");
+    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, token);
   } else {
     // Labels already moved (this run or an earlier partial one) — but don't
     // trust the top-of-function read for *which* stage it moved to; a retry
     // can start minutes after that read, plenty of time for David or another
-    // agent to have advanced it again since. Re-fetch and re-derive fresh,
-    // right before reconciling the board/body against it, and bail rather
-    // than reconciling against a stage that's no longer current if it moved
-    // somewhere this function doesn't own.
+    // agent to have advanced it again since. Re-derive fresh, right before
+    // reconciling the board/body against it, and bail rather than
+    // reconciling against a stage that's no longer current if it moved
+    // somewhere this function doesn't own. `ensureCleanLabels` is a no-op
+    // beyond returning the current set when nothing's actually stale, so
+    // this also mops up any leftover labels an earlier interrupted run of
+    // the branch above didn't get to.
     const freshStageIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
     const freshStage = freshStageIssue.labels
       .map((l) => l.name)
@@ -293,6 +313,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       return;
     }
     targetStage = freshStage;
+    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, token);
   }
 
   const targetDisplay = STAGE_DISPLAY[targetStage];
@@ -303,12 +324,24 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   // PUT — the private board would stay stuck at Test run/Replit forever even
   // though the issue's labels moved. Call the same reconcile that trigger
   // would have called, directly, so the board and the labels never diverge.
+  // Caught, not awaited-and-thrown: the authoritative labels above already
+  // moved, and a transient GraphQL failure here must not stop the body
+  // reconciliation below from happening too — same reasoning as `main()`
+  // catching `fetchProject`'s failure instead of letting it block the loop.
+  let boardSyncFailed = false;
   if (project) {
-    await syncIssue(
-      { node_id: issue.node_id, number: issueNumber, labels: finalLabels },
-      project,
-      projectsToken,
-    );
+    try {
+      await syncIssue(
+        { node_id: issue.node_id, number: issueNumber, labels: finalLabels },
+        project,
+        projectsToken,
+      );
+    } catch (err) {
+      boardSyncFailed = true;
+      console.error(
+        `  ✗ issue #${issueNumber}: board sync failed (${err.message}) — proceeding with body reconciliation.`,
+      );
+    }
   }
 
   // Re-fetch the body immediately before the mutating PATCH, rather than
@@ -319,7 +352,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   const freshIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   if (bodyStageMatches(freshIssue.body, targetDisplay)) {
     console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage} (body already reflects it)`);
-    return;
+    return boardSyncFailed;
   }
 
   const lastMovementLine =
@@ -335,10 +368,11 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       `  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david ` +
         `(body's State of Play block wasn't in the expected shape — labels/board updated, body left as-is)`,
     );
-    return;
+    return boardSyncFailed;
   }
   await rest("PATCH", `/repos/${repository}/issues/${issueNumber}`, token, { body: updatedBody });
   console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david`);
+  return boardSyncFailed;
 }
 
 async function main() {
@@ -350,14 +384,17 @@ async function main() {
   const projectOwner = process.env.PROJECT_OWNER;
   const projectNumber = Number(process.env.PROJECT_NUMBER);
 
+  // Only the issue-transition inputs are hard-required. PROJECTS_TOKEN/
+  // PROJECT_OWNER/PROJECT_NUMBER are the board-sync half — treated as
+  // optional here, not required, so a rotated-out or never-set
+  // PROJECTS_TOKEN degrades to "no board sync" (same as a rejected one)
+  // instead of throwing before deletion detection even starts and blocking
+  // the authoritative label transition along with it.
   const missing = Object.entries({
     GITHUB_TOKEN: token,
     GITHUB_REPOSITORY: repository,
     BEFORE_SHA: before,
     AFTER_SHA: after,
-    PROJECTS_TOKEN: projectsToken,
-    PROJECT_OWNER: projectOwner,
-    PROJECT_NUMBER: process.env.PROJECT_NUMBER,
   })
     .filter(([, v]) => !v)
     .map(([k]) => k);
@@ -375,39 +412,50 @@ async function main() {
 
   // Fetched once and reused across every deletion in this push — the same
   // board, looked up once, rather than once per issue. The board sync is a
-  // projection of the labels, not their source — an expired PROJECTS_TOKEN
-  // or a transient Projects GraphQL outage must never block the labels
-  // themselves from moving (labels are the authoritative half this whole
-  // Action exists to guarantee). So a failure here is caught, not thrown:
-  // `project` stays null, every `syncIssue` call below is already
-  // conditioned on `if (project)` and just skips, and the loop still runs.
+  // projection of the labels, not their source — a missing/expired
+  // PROJECTS_TOKEN or a transient Projects GraphQL outage must never block
+  // the labels themselves from moving (labels are the authoritative half
+  // this whole Action exists to guarantee). So this whole lookup is
+  // best-effort: `project` stays null on any failure (including simply not
+  // being configured), every `syncIssue` call below is already conditioned
+  // on `if (project)` and just skips, and the loop still runs.
   let project = null;
   let projectLookupFailed = false;
-  try {
-    project = await fetchProject(projectOwner, projectNumber, projectsToken);
-  } catch (err) {
-    projectLookupFailed = true;
+  if (!projectsToken || !projectOwner || !process.env.PROJECT_NUMBER) {
     console.error(
-      `✗ Project board lookup failed (${err.message}) — proceeding without board sync; ` +
-        `labels/body will still update.`,
+      "✗ PROJECTS_TOKEN/PROJECT_OWNER/PROJECT_NUMBER not fully configured — proceeding without board sync; " +
+        "labels/body will still update.",
     );
+    projectLookupFailed = true;
+  } else {
+    try {
+      project = await fetchProject(projectOwner, projectNumber, projectsToken);
+    } catch (err) {
+      projectLookupFailed = true;
+      console.error(
+        `✗ Project board lookup failed (${err.message}) — proceeding without board sync; ` +
+          `labels/body will still update.`,
+      );
+    }
   }
 
   const failures = [];
+  let anyBoardSyncFailed = projectLookupFailed;
   for (const path of testRunDeletions) {
     try {
-      await processDeletedTestRunDoc(path, { repository, token, project, projectsToken });
+      const boardSyncFailed = await processDeletedTestRunDoc(path, { repository, token, project, projectsToken });
+      if (boardSyncFailed) anyBoardSyncFailed = true;
     } catch (err) {
       failures.push(`${path}: ${err.message}`);
       console.error(`  ✗ ${path} — ${err.message}`);
     }
   }
 
-  // The board-sync failure doesn't block the loop above, but it should
-  // still turn this run red — someone needs to notice PROJECTS_TOKEN or the
+  // A board-sync failure doesn't block the loop above, but it should still
+  // turn this run red — someone needs to notice PROJECTS_TOKEN or the
   // Projects API needs attention, even though the authoritative labels went
   // through fine.
-  if (projectLookupFailed) {
+  if (anyBoardSyncFailed) {
     process.exitCode = 1;
   }
 
