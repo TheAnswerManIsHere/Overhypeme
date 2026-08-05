@@ -98,6 +98,13 @@ corrected for free.
    scanning ten workstreams, and `WATCHING` would force a live check per
    workstream.
 8. **Phases merge sequentially, never stacked.**
+9. **`waiting:replit` reports as `WAITING ON YOU`** — *David, 2026-08-05
+   (round 3).* Replit never acts autonomously; David runs the TEST_RUN and
+   relays the result. Rejected alternatives: `WATCHING` with an "unverified"
+   caveat (would carve an exception into the live-check rule, since a Replit
+   run has no GitHub surface) and a sixth state (breaks the settled 5-state
+   vocabulary). Keeps `WATCHING` meaning exactly one thing — external work
+   verifiable on GitHub right now.
 
 ## Repo Context Inspected
 
@@ -218,13 +225,21 @@ unchanged** — `/status` heals what it can prove and never invents a transition
 | PR open, CI green, open Codex threads with no reply after them | `code-review` | `claude` |
 | PR open, CI green, review requested and not yet landed | `code-review` | `codex` |
 | PR open, CI green, no open threads, no pending review | `merge` | `david` |
-| PR merged, a `docs/PR<N>_*_UAT.md` exists | `uat` | `david` |
-| PR merged, no UAT doc (e.g. `mode:docs` / `mode:devops`) | `close-out` | `david` |
+| PR merged, a `docs/PR<N>_*_TEST_RUN.md` still present on `main` | `test-run` | `replit` |
+| PR merged, no TEST_RUN doc, a `docs/PR<N>_*_UAT.md` exists | `uat` | `david` |
+| PR merged, neither doc (e.g. `mode:docs` / `mode:devops`) | `close-out` | `david` |
 | PR closed unmerged | unchanged | `david` (report — needs his decision) |
 
 `mode:` is never written (see *Must Not Change*). Where two rows could match,
 the **first** matching row wins, and the skill states the matched row in its
 disclosure so a wrong derivation is visible rather than silent.
+
+**On the `test-run` row** *(round-3 finding)*: a TEST_RUN doc is deliberately
+transient — David deletes it once Replit has run it, so *"present on `main`"*
+is a genuine live signal for "not yet run," and its absence is expected rather
+than a bug (`CLAUDE.md`, the `pr-docs` pairing). That makes the
+Merge → Test run → UAT progression derivable from repo evidence instead of
+from session memory.
 
 ### The 5-state derivation
 
@@ -233,15 +248,38 @@ Applied to the **derived** labels from the matrix above, not the stored ones.
 | Order | State | Condition |
 | --- | --- | --- |
 | 0 | `DONE` | `stage:done` — **short-circuits everything** *(round-2 finding 7)*, because a terminal workstream still carries a required `waiting:*` label and would otherwise report as WAITING ON YOU or STALLED forever |
-| 1 | `WAITING ON YOU` | `waiting:david` |
-| 2 | `STALLED` | `waiting` ≠ `david` and no relevant activity in > 48h |
-| 3 | `WATCHING` | `waiting:codex` or `waiting:ci`, **and** a live check *in this invocation* confirms an open PR with pending external work — CI in progress, an unanswered review thread, **or a requested review that has not landed** *(round-2 finding 8 — the normal post-trigger interval previously matched no state at all)* |
-| 4 | `WORKING` | `waiting:claude`, activity within 48h |
-| 5 | `DONE` | `stage:close-out` with PR merged and no open gate |
+| 1 | `WAITING ON YOU` | `waiting:david` **or `waiting:replit`** |
+| 2 | `STALLED` | `waiting` ∈ {`claude`, `codex`, `ci`} and no relevant activity in > 48h |
+| 3 | `WATCHING` | `waiting:codex` or `waiting:ci`, **and** a live check *in this invocation* confirms an open PR with pending external work — CI in progress, an unanswered review thread, **or a requested review that has not landed** |
+| 4 | `WORKING` | **the residual** — everything not caught above |
 
-**Totality is a requirement, not an aspiration** *(round-2 finding 8)*: these
-must be exhaustive. If a workstream matches none, that is a **data error to
-report**, never a silent fall-through or an invented sixth state.
+**Why `waiting:replit` is `WAITING ON YOU`** *(David, 2026-08-05, round-3
+finding)*: Replit never acts autonomously — David hands it the TEST_RUN doc and
+relays the result — so "waiting on Replit" is in practice "waiting on David to
+run it or report back." Considered and rejected: mapping it to `WATCHING` with
+an "unverified" caveat, which would have carved an exception into the
+live-check rule (a Replit run has **no GitHub surface** to check), and adding a
+sixth state, which breaks the settled 5-state vocabulary. This mapping keeps
+`WATCHING` meaning exactly one thing: *external work I can verify on GitHub,
+right now.*
+
+**Why `WORKING` is the residual** *(round-3 finding)*: it makes the table total
+by construction rather than by enumeration. Concretely it absorbs the case
+Codex found — `waiting:codex`/`waiting:ci` with **no PR discovered** — and the
+classification is honest rather than merely convenient: if no PR exists, there
+is nothing for Codex or CI to be working on, so the ball is genuinely back with
+me.
+
+**Totality — now by construction, not by assertion** *(round-3 finding
+supersedes round-2 finding 8's weaker version)*. Step 4 has already validated
+that exactly one `waiting:` label is present, so the five values partition
+cleanly: `david`/`replit` → order 1; `done` → order 0; `claude`/`codex`/`ci`
+→ order 2 if aged, order 3 if live-confirmed, order 4 otherwise. **A legal
+label combination is never reported as a data error.** That earlier framing
+was wrong: routing valid states to "data error" misclassifies them rather than
+covering them. `data error` is reserved **exclusively** for genuine invariant
+violations — a missing or duplicated label on any of the three prefixes —
+which step 4 catches before any derivation runs.
 
 **What makes `WATCHING` falsifiable:** if the live check shows the PR merged,
 closed, or idle with nothing pending, WATCHING is unavailable and the state is
@@ -301,7 +339,8 @@ existing skills.
 | --- | --- |
 | Discovery, no issue exists, ordinary work | Report from session context; **offer** to open the issue; never auto-create. |
 | Discovery, no issue, **carve-out content** | *(round-2 finding 12)* Run the carve-out check **before offering**. On a hit, report "private tracking only" and do **not** offer a public issue — otherwise the skill steers David into creating exactly the issue the write gate would later refuse to edit. |
-| Issue exists, no PR found | Derive from labels + issue timestamps; leave labels unchanged; `WATCHING` unavailable. |
+| Issue exists, no PR found | Derive from labels + issue timestamps; leave labels unchanged; `WATCHING` unavailable, so the state falls to the `WORKING` residual (or `STALLED` if aged) — **not** a data error. |
+| `waiting:replit` / `stage:test-run` | `WAITING ON YOU`, per David's 2026-08-05 call. The TEST_RUN doc's presence on `main` is the live signal that it hasn't been run yet. |
 | Missing/duplicate label on any of the three prefixes | Report-only data error; no write. |
 | Ambiguous workstream identity | Ask. Never write on a guess. |
 | PR merged while labels say code-review | The self-heal: correct labels, rewrite block, disclose both. |
@@ -371,6 +410,22 @@ mechanical checks plus live acceptance cases.
 7. **Splice negatives:** issue with no block → block inserted, existing content
    preserved; issue with two `## State of Play` headings → data error, no
    write.
+8. **Holder-coverage acceptance matrix** *(round-3 finding)*. Round 2 proved I
+   can't establish totality by inspection, so it gets asserted case by case —
+   **every** `waiting:` value, in both the PR-present and no-PR forms, must
+   produce exactly one of the five states and **never** a data error:
+
+   | `waiting:` | With a discovered PR | With no PR found |
+   | --- | --- | --- |
+   | `david` | `WAITING ON YOU` | `WAITING ON YOU` |
+   | `replit` (at `stage:test-run`) | `WAITING ON YOU` | `WAITING ON YOU` |
+   | `claude` | `WORKING` (fresh) / `STALLED` (> 48h) | `WORKING` / `STALLED` |
+   | `codex` | `WATCHING` if live-confirmed pending; else `WORKING` / `STALLED` | `WORKING` / `STALLED` — **never** `WATCHING` |
+   | `ci` | `WATCHING` if CI in progress; else `WORKING` / `STALLED` | `WORKING` / `STALLED` — **never** `WATCHING` |
+
+   Plus `stage:done` with **each** of the five `waiting:` values → `DONE` every
+   time, exercising the order-0 short-circuit against the exact combination
+   round 2 found reachable.
 
 ## Implementation Steps
 
@@ -441,8 +496,14 @@ gaps in this plan, resolved above without needing a product decision.
 - [ ] Label writes are atomic set-replacements preserving unrelated labels.
 - [ ] `WATCHING` is unreachable without a live check, proven by the
       **eligibility-preserving** negative case, not by a precedence artifact.
-- [ ] `stage:done` short-circuits to `DONE`; the five states are exhaustive and
-      a non-match is reported as a data error.
+- [ ] `stage:done` short-circuits to `DONE`, verified against **all five**
+      `waiting:` values.
+- [ ] The five states are **total by construction** — the holder-coverage
+      matrix passes for every `waiting:` value in both PR-present and no-PR
+      forms, and **no legal label combination is ever reported as a data
+      error** (that is reserved for missing/duplicate labels alone).
+- [ ] `waiting:replit` reports `WAITING ON YOU`; `WATCHING` is never claimed
+      without a live GitHub check.
 - [ ] The splice contract is documented and its absent/duplicate negatives
       pass.
 - [ ] Missing/duplicate labels on any of the three prefixes block writes.
