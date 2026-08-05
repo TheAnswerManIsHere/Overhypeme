@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { stripeProcessedEventsTable } from "@workspace/db/schema";
@@ -8,10 +8,15 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/healthz", (_req, res) => {
+// Exported so app.ts can re-register the same handler ahead of the global
+// rate limiter (see app.ts) — one implementation, so a future response-schema
+// change can't leave an early copy stale while the router's own tests pass.
+export function healthzHandler(_req: Request, res: Response): void {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
-});
+}
+
+router.get("/healthz", healthzHandler);
 
 // Richer health endpoint intended for external uptime monitors (UptimeRobot,
 // BetterStack, etc). Cheap: one indexed read against stripe_processed_events

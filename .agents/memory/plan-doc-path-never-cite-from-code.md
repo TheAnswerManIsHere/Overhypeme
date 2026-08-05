@@ -31,3 +31,15 @@ plan file genuinely existed and was read during the review loop. If the
 deferred item doesn't have a durable-doc entry yet, **add one in the same
 commit** as the code that cites it, rather than pointing at the transient plan
 artifact.
+
+**Second confirmed occurrence (PR #308).** The same mistake recurred: a code
+comment in `rateLimit.ts` cited `docs/plans/PLAN_CODEQL_RATE_LIMITER.md`
+(the plan-review-only branch for PR #299), and — not caught by Codex, found
+proactively while fixing the flagged instance — this memory doc's own
+"Resolution" section made the identical error with a plain relative link to
+the same nonexistent-on-`main` path. Both are fixed: the code comment now
+cites this memory doc, and the memory doc's own citation of the plan is a
+GitHub blob URL against the retained-but-never-merged branch, not a relative
+path. The rule surviving in this file didn't prevent a second instance —
+treat that as a standing reason to grep for `docs/plans/` citations in a new
+PR's diff before it ships, not just react when review catches one.

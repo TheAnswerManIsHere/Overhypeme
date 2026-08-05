@@ -87,3 +87,146 @@ one route) just to satisfy the scanner's pattern-matcher. Once confirmed as a
 false positive, it needs a human with repo-admin access to dismiss it in
 GitHub's Security → Code scanning tab (mark "false positive") — no available
 MCP/GitHub tool can do this from the agent side.
+
+## Resolution: `js/missing-rate-limiting` (213 alerts) — mount the recognized package, don't fight the model
+
+The rate-limiting half of this (not the CSRF half — that stayed a manual
+per-alert dismissal) was resolved differently: rather than getting CodeQL to
+recognize `checkSharedRateLimit`, or dismissing 213 alerts by hand, the fix
+mounts `express-rate-limit` itself as a genuine, API-wide backstop. See
+[`docs/plans/PLAN_CODEQL_RATE_LIMITER.md`](https://github.com/TheAnswerManIsHere/Overhypeme/blob/plan-review%2Fcodeql-rate-limiter/docs/plans/PLAN_CODEQL_RATE_LIMITER.md)
+(a GitHub blob link, not a relative path — the file lives only on the
+never-merged `plan-review/codeql-rate-limiter` branch, PR #299, converged
+after 16 Codex review rounds, and is not present in this tree) for the full
+design; the essentials:
+
+- **Confirmed empirically, not assumed:** building a local CodeQL database
+  against a copy of the repo with nothing but
+  `app.use("/api", rateLimit({...}), router)` took the alert count from
+  213 → 0. The query is pattern-sensitive on `rateLimit()` reaching
+  `app.use()` directly — it models the *import and mount shape* of a small
+  hardcoded package list, not the store implementation behind it. A custom
+  `Store` (below) is invisible to the query; only the middleware shape
+  matters.
+- **The store is a bounded in-memory `Store`, not the existing DB-backed
+  `checkSharedRateLimit`.** An earlier revision of this plan spent 14 Codex
+  review rounds (rounds 4-14) trying to make a DB-backed `Store` safe on the
+  hot path of every request, and each fix produced a new P1 on the same
+  boundary (what happens when a DB call doesn't complete) — round 14's
+  version was worse than the bug it replaced: hung queries would have wedged
+  an in-process counter and returned 503 to every request indefinitely. David
+  made the call to ship the package's proven in-memory shape instead:
+  `BoundedMemoryStore` (`artifacts/api-server/src/lib/globalRateLimitStore.ts`)
+  mirrors the package's own `MemoryStore` two-map rotation but adds a hard
+  cap (`MAX_TRACKED_KEYS`, spanning both maps combined) with oldest-first
+  eviction, closing an unbounded-peak-cardinality OOM path the stock store
+  has. No I/O, no pool, no failure-policy question — a map insert with an
+  eviction branch.
+- **This is a coarse, per-instance backstop layered ON TOP of the existing
+  narrow limiters, not a replacement for them.** `checkSharedRateLimit` /
+  `createRateLimiter` are completely untouched. The new limiter uses
+  `MemoryStore`'s own `localKeys = true` semantics (each autoscale instance
+  counts independently), so it provides a per-instance abuse ceiling, not a
+  bounded fleet-wide one — see the plan's "What per-instance counting means"
+  section for the honest limitation statement, and §6 item 4 (the unenforced
+  autoscale instance cap) for what would need to exist to make it fleet-wide.
+- **At least 13 of this API's 31 route files had some rate/quota limiting
+  before this change** (`facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts`, `share.ts`,
+  `shareCopy.ts`, `videos.ts`, `storage.ts`, `memes.ts`, `pulidJobs.ts`,
+  `videoJobs.ts`) — a round-16 finding that inverted the plan's original
+  framing, and one this repo's own docs have now undercounted across **five
+  separate Codex review rounds** on the same PR (#319's `/document`
+  harvest): the plan's own text said 6/31; round one raised it to 9/31 via a
+  grep scoped only to literal rate-limit symbol names inside route files (`rg
+  'RATE_LIMIT|takeBucket|checkBucket|checkSharedRateLimit|createRateLimiter|createFactSubmitRateLimiter|requireRateLimit'
+  artifacts/api-server/src/routes/*.ts`); round two caught protection
+  delegated through a `lib/` helper (`storage.ts` → `checkUploadRateLimit` →
+  `checkSharedRateLimit`; `memes.ts` → `createMemeRecord`'s DB-queried daily
+  save cap) and misclassified `videos.ts` as an in-process bucket when it's
+  actually a direct `videoJobsTable` query, raising it to 11/31; round three
+  caught that `videos.ts`/`memes.ts`'s check-then-insert isn't atomic like
+  `checkSharedRateLimit`'s single `INSERT ... ON CONFLICT`, so "DB-backed"
+  there means DB-*observed*, not fleet-*correct* under a concurrent burst;
+  round four caught a **different protection class entirely** — budget/quota
+  gates, not rate-per-window limiters — that the grep-based methodology
+  never had a chance of finding: `videos.ts` *also* 429s from `checkBudget()`
+  (a per-user cost cap, independent of its `videoJobsTable` rate check), and
+  `pulidJobs.ts` 429s from `isUserAtImageLimit()` (a per-user image-count
+  cap), raising it to 12/31; round five caught that `videoJobs.ts` is a
+  *separate* route file from `videos.ts` (mounted independently via
+  `routes/index.ts`'s `router.use(videoJobsRouter)`) that also delegates to
+  `startVideoJob()` → `checkBudget()`, a same-topic sibling the earlier
+  passes never visited because it isn't named `videos.ts`, raising it to
+  13/31. See the 2026-08-04 `decisions.md` entry's "accepted trade-off" note
+  for the full, hedged breakdown. **No count in this note should be trusted
+  as final** — five consecutive corrections is a track record, not a
+  completed audit; a sixth review pass could plausibly find more.
+  `render.ts` has separate Cloudflare-WAF edge-level protection, not
+  application code, not counted in any of the above tallies.
+  For the other ~18 (approximate, upper bound, likely to shrink further),
+  this middleware isn't a
+  backstop behind real protection; it's the first application-level rate
+  limiting those routes have ever had.
+- Because this mounts the API's first *global, API-wide* rate-limit 429 path
+  (narrow, pre-existing limiters like `localAuth.ts`/`facts.ts`/`reviews.ts`
+  already returned rate-limit 429s via `checkSharedRateLimit`/
+  `createRateLimiter` — this isn't the first rate-limit 429 anywhere in the
+  API, just the first one every `/api` route can now hit), it also
+  created a **new class** of 429 for the video/pulid job pollers to handle —
+  their *submission* endpoints already 429'd on budget/quota exhaustion
+  (`checkBudget()`, `isUserAtImageLimit()`), but the pollers themselves
+  (checking job status, not submitting) had never seen a 429 before this PR.
+  Fixed in the same change (`artifacts/overhype-me/.../util/pollRetryClassification.ts`):
+  a poll response is classified as retryable **only on status 429**, never on
+  `Retry-After` presence alone (a persistent generic 503 can also carry that
+  header), so a burst of rate-limiter 429s backs off instead of terminating a
+  still-running job.
+
+**Verify Codex plan-review PR #299's findings ledger** before assuming any of
+the numbers above (100,000-key cap, 12,000/min default ceiling) are still
+current — they're explicitly documented in the plan as placeholders pending
+production instrumentation, not derived from measured traffic.
+
+## Re-attribution: restructuring code can make CodeQL re-flag a dismissed alert as "new"
+
+**Confirmed on PR #308's own implementation commit.** After the rate-limiter
+feature landed, its follow-up commit refactored `app.ts` into a `createApp()`
+factory (fixing an unrelated eager-singleton bug — see
+[`app-ts-eager-singleton-test-isolation.md`](./app-ts-eager-singleton-test-isolation.md)).
+That refactor touched no CSRF/CORS logic at all, but CodeQL's PR check fired
+"2 new alerts including 1 high severity" on that commit anyway: `js/missing-
+token-validation` on the `cookieParser()` line, and a "permissive CORS
+configuration" alert on the dev-admin-login block's `cors({ origin: true, ...
+})` call (the second one not previously seen in this repo's CodeQL history at
+all, despite the code being untouched).
+
+**Root cause:** `git diff origin/main -- artifacts/api-server/src/app.ts`
+showed both flagged lines were **byte-identical** to `main` — only their line
+numbers changed, because
+wrapping the file body in a factory function reindented and shifted every
+line below it. GitHub's PR-diff-based code-scanning UI appears to attribute
+an alert to "new in this PR" partly by line position, so pre-existing,
+previously-dismissed-or-known alerts can resurface as apparently-new findings
+on a PR that only moved code, never changed its logic.
+
+**Rule:** before treating a CodeQL alert as real on a PR that restructures,
+reindents, or moves code (extracting a function, wrapping in a factory,
+reordering top-level statements), diff the flagged file against `main` first.
+Byte-identical flagged lines are a **necessary but not sufficient** check —
+in Express, the *relative order* of middleware registration is often the
+actual security behavior (e.g. CSRF/origin checks must run before the routes
+they protect), and a restructuring PR could leave the flagged
+`cookieParser()`/`cors(...)` line itself untouched while moving CSRF or
+origin-check middleware to run *after* the routes instead of before — a real
+regression that a line-content-only diff would miss entirely (Codex review
+finding on PR #319's `/document` harvest of this note, 2026-08-04). So:
+diff the flagged lines for byte-identity **and** separately confirm the
+surrounding middleware registration order — which check runs before which
+route/handler — is unchanged (e.g. `grep -n` each relevant `app.use(...)`
+call and compare the sequence, not just individual line contents) before
+calling it re-attribution. If either check fails, treat the alert as
+potentially real and investigate the security substance from scratch. Once
+confirmed as re-attribution by both checks, this still needs a human with
+repo-admin access to dismiss in the Security tab; no available tool lets the
+agent do it.

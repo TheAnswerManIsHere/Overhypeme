@@ -24,6 +24,67 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **CLAUDE.md cut roughly in half via skill migration + consolidation**
+  (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
+  tokens per session) — about half the file was procedural ceremony that
+  only matters at specific moments (the Codex plan-review loop, PR
+  watching, the paired TEST_RUN/UAT docs, model-routing detail), now
+  lazy-loaded as skills instead of resident every turn; trigger stubs for
+  the rules that must fire without the skill loaded stay resident. A
+  sentence-level audit confirmed no content was lost, only relocated or
+  (per a separate consolidation pass) genuinely superseded. Also fixed:
+  `check-docs-accuracy.mjs` didn't scan nested `CLAUDE.md` memory files
+  (e.g. `lib/api-zod/CLAUDE.md`), so a broken link in one had shipped
+  green; it now walks the whole repo for them. **Open gotcha, not yet a
+  guard:** moving a section between `CLAUDE.md` and a skill leaves *prose*
+  cross-references to the old heading (not markdown links) invisible to
+  the link checker — this PR's review loop found and fixed seven of them
+  one at a time across nine rounds before a systematic repo-wide sweep
+  caught the rest in one pass — see
+  [`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md).
+  The next migration of this shape should sweep first, not wait for review
+  to find them piecemeal.
+- **Global rate-limiter backstop for CodeQL's `js/missing-rate-limiting`**
+  (PR #308, implementing the plan approved after PR #299's 16-round review).
+  Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
+  per-instance, in-memory-backed ceiling — the first application-level rate
+  limiting for approximately 18 (upper-bound estimate, revised across five
+  review rounds — do not trust as final) of this API's 31 route
+  files — without changing any existing narrow, DB-backed limiter. See
+  [`security-model.md`](./security-model.md#authentication--sessions) and the
+  2026-08-04 [`decisions.md`](./decisions.md) entry for why an in-memory
+  store was chosen over a DB-backed one after a 14-round detour. Also fixed:
+  the video/PuLID/AI-render/reference-image job pollers now classify a 429
+  as retryable (status-429-only, never on `Retry-After` presence alone) so
+  the new global 429 path can't terminate a still-running, already-paid-for
+  generation job. Five pre-existing repo bugs the review loop surfaced along
+  the way are deliberately deferred to separate `/bugfix` PRs, not folded in
+  here. **Open next:** two CodeQL alerts re-fired on this PR's own
+  restructuring of `app.ts` (a re-attribution false positive, not a real
+  gap — see
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
+  and need a repo-admin to dismiss them in the Security tab.
+- **Workstream tracking: a GitHub Project board, label-driven, plus a
+  `/status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
+  unit of work now has a GitHub issue as its spine — except sensitive/
+  disclosure-carve-out work, which stays a private draft Project item, never
+  a public issue — carrying a **State of Play** block and
+  `stage:`/`waiting:`/`mode:` labels that a CI Action
+  mirrors onto a private Project board; `/status` reads those labels back
+  and adds what the board can't compute — stall detection and a
+  plain-language restatement of whatever a David-gate is actually asking.
+  Solves the problem that ~10 concurrent sessions gave David no way to tell
+  which needed him without opening each one. Labels are the source of truth
+  and the board is a projection, because **no MCP or REST tool can read or
+  write a Projects v2 item field** — the same constraint that keeps
+  `/status` reading labels rather than the board. Label maintenance is owned
+  by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
+  points they already hit, not by a standing habit. See
+  [`workstream-tracking.md`](./workstream-tracking.md) and
+  [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
+  **Open next:** the board's value depends on labels staying current now
+  that no human maintains them — worth a check after a few workstreams that
+  the four skills actually fire as intended.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
@@ -64,10 +125,18 @@ priorities (moderation speed, render/enrichment quality, video). See
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
   (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
-  into the Build job, fails CI when a loop that closed *before the current
-  PR opened* has neither a row nor a recorded exemption — a loop closing
-  while a PR is already in flight stays unenforced until the next one
-  opens. Also recorded in the same window: David enabled Codex
+  into the Build job, originally failed CI when a loop that closed *before
+  the current PR opened* had neither a row nor a recorded exemption — a
+  loop closing while a PR was already in flight stayed unenforced until the
+  next one opened. **Superseded 2026-08-02** (PR #304): rows now ship via a
+  dedicated `[LEDGER]`-titled PR rather than folding into whichever PR opens
+  next, so a regular PR's missing rows are a printed warning only, the
+  `[LEDGER]` PR carries them as a hard gate, and a push-to-`main` audit
+  closes the exact mid-flight gap described above — reporting pending debt
+  on every run and failing only once it goes overdue. See
+  [`working-modes.md`](./working-modes.md#the-loop-ledger) → *"A row ships
+  in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
+  enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
   mechanics, and the pre/post-boundary analysis all live in
@@ -330,15 +399,20 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Open product questions
 
-- **Should admin (`requireAdmin`) routes ever get rate limiting?** CodeQL
-  flagged the new `resubmit-for-moderation` route (PR #242) as high-severity
-  "missing rate limiting." Verified this matches ~30 existing `requireAdmin`
-  routes across `admin.ts`/`reviews.ts` — none are rate-limited; the two
-  rate-limiter factories in the repo are used exclusively on public/
-  authenticated-user-reachable routes (fact submission, AI generation). Pending
-  David's call: dismiss the alert as consistent with the existing admin trust
-  boundary (session + role, not per-request throttling), or start adding rate
-  limiting to admin routes as new policy.
+- **Should admin (`requireAdmin`) routes get their own *feature-specific* rate
+  limiting?** CodeQL flagged the new `resubmit-for-moderation` route (PR #242)
+  as high-severity "missing rate limiting," matching ~30 existing
+  `requireAdmin` routes across `admin.ts`/`reviews.ts` with no per-feature
+  throttle. **Partially resolved by PR #308** (2026-08-04): a global,
+  API-wide rate-limiter now sits in front of every `/api` route including
+  admin ones (a coarse per-IP ceiling — see
+  [`security-model.md`](./security-model.md) and the 2026-08-04
+  `decisions.md` entry), which clears the specific CodeQL alert class this
+  question was originally about. Still open: whether admin routes should get
+  their own **narrow, DB-backed** per-feature limiter on top of that coarse
+  backstop — the global one is a blast-radius ceiling, not a
+  per-endpoint-abuse control, so this is a genuinely separate question from
+  the one CodeQL was flagging.
 - Should any render scenario become a **hard** approval gate (today all waivable)?
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk

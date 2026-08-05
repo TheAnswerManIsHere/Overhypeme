@@ -120,6 +120,49 @@ the diff *is* the plan. While watching an implementation PR:
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
+## Keeping the workstream issue's labels current
+
+Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
+`pr-watch` owns `stage:code-review` and everything downstream of it for the
+PR's workstream issue (found via `Workstream: #N` in the PR body — if it's
+missing, that PR skipped the tracking convention; flag it rather than
+silently leaving the workstream unlabeled):
+
+- **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex`.
+- **Codex posts findings, I start responding** → `waiting:claude`.
+- **I post the next round's `@codex review` trigger** → `waiting:codex`.
+- **A genuine design/architecture decision goes to David** (the escalate
+  rule above) → `waiting:david`; `stage:code-review` stays put — the stage
+  hasn't moved, but the turn has.
+- **CI is green and Codex has converged, but the PR isn't merged yet** →
+  `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
+  the issue at `stage:code-review` here is exactly the kind of ready-to-go
+  workstream `/status` exists to surface, so don't let it sit unlabeled
+  just because nothing forced a transition.
+- **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
+  due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
+  bugfix or a Tier B bugfix whose only surface is internal (per
+  `working-modes.md`'s Tier B exception): all three go straight to
+  `stage:close-out` instead, since holding them at `uat` would be a gate
+  with nothing to run against it. "Has product-visible behavior" is *not*
+  the test by itself — a Tier A fix can be product-visible and still ship
+  no UAT doc, which is what makes checking for the doc the right test, not
+  the behavior. Never `stage:done` at merge — that's David's to set once
+  he's actually verified it, the same reason the Project's built-in
+  `PR merged → Done` workflow is off.
+
+**Every transition above lands with a State of Play update in the same
+edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
+and `Where it actually stands`/`What's blocking` whenever there's real
+narrative to add (a round's findings, an escalation's actual question, what
+shipped at merge). Per `workstream-tracking.md`'s ownership rule: the skill
+that moves the label moves the block, in the same edit, every time.
+
+An echo of my own comment bouncing back as a webhook event still needs the
+silent live-state check like any other event, but never a label change on
+its own — only real state (a new commit, a new finding, an actual merge)
+moves a label.
+
 Codex (and other AI reviewers) remain the independent reviewers; my job while
 watching is to *respond* — fix the mechanical, escalate the substantive.
 

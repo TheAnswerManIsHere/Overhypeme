@@ -18,6 +18,10 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/Button";
+import {
+  isRetryablePollError,
+  pollHttpErrorFromResponse,
+} from "@/components/meme-builder/wizard/util/pollRetryClassification";
 
 // Subset of @workspace/api-zod types — duplicated narrowly so this component
 // can compile without pulling the entire taxonomy package into the frontend.
@@ -280,7 +284,17 @@ export function SourceImageConfirmModal({
           }
           try {
             const pollRes = await fetch(`/api/memes/ai/renders/${data.renderJobId}`, { credentials: "include" });
-            if (!pollRes.ok) return;
+            if (!pollRes.ok) {
+              const err = pollHttpErrorFromResponse(pollRes);
+              if (isRetryablePollError(err)) {
+                // Rate-limited, not broken: the render job is still running
+                // server-side, so this tick must not spend a slot in the
+                // MAX_POLLS budget — a burst of 429s must never falsely
+                // report a still-running job as timed out.
+                polls--;
+              }
+              return;
+            }
             const status = (await pollRes.json()) as {
               status: "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
               generatedImageObjectPath: string | null;
