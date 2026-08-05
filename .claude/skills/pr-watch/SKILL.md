@@ -134,11 +134,29 @@ silently leaving the workstream unlabeled):
 - **A genuine design/architecture decision goes to David** (the escalate
   rule above) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **The PR merges** → `stage:uat` if it has product-visible behavior (a
-  UAT doc exists or is due), otherwise `stage:close-out` for a pure-docs or
-  pure-devops PR with no product surface. Never `stage:done` at merge —
-  that's David's to set once he's actually verified it, the same reason
-  the Project's built-in `PR merged → Done` workflow is off.
+- **CI is green and Codex has converged, but the PR isn't merged yet** →
+  `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
+  the issue at `stage:code-review` here is exactly the kind of ready-to-go
+  workstream `/status` exists to surface, so don't let it sit unlabeled
+  just because nothing forced a transition.
+- **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
+  due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
+  bugfix or a Tier B bugfix whose only surface is internal (per
+  `working-modes.md`'s Tier B exception): all three go straight to
+  `stage:close-out` instead, since holding them at `uat` would be a gate
+  with nothing to run against it. "Has product-visible behavior" is *not*
+  the test by itself — a Tier A fix can be product-visible and still ship
+  no UAT doc, which is what makes checking for the doc the right test, not
+  the behavior. Never `stage:done` at merge — that's David's to set once
+  he's actually verified it, the same reason the Project's built-in
+  `PR merged → Done` workflow is off.
+
+**Every transition above lands with a State of Play update in the same
+edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
+and `Where it actually stands`/`What's blocking` whenever there's real
+narrative to add (a round's findings, an escalation's actual question, what
+shipped at merge). Per `workstream-tracking.md`'s ownership rule: the skill
+that moves the label moves the block, in the same edit, every time.
 
 An echo of my own comment bouncing back as a webhook event still needs the
 silent live-state check like any other event, but never a label change on

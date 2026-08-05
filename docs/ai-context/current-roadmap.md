@@ -24,6 +24,42 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **`/status` split into a per-session skill and a fleet-wide `/status-all`**
+  (PR #336). `/status-all` is the original fleet skill, renamed, behavior
+  unchanged. `/status` is new: one session's own workstream, the 5-state
+  vocabulary (WORKING / WAITING ON YOU / WATCHING / STALLED / DONE), WATCHING
+  only from a live GitHub check. **Ships as report-and-offer, not
+  write-through** — the originally-approved write-through design didn't
+  survive Codex plan review (PR #333, closed unmerged at round 6): the repo
+  is public and PR bodies are attacker-controlled, so the write-target
+  discovery rule could be steered by a forged fork PR, and GitHub's label API
+  has no compare-and-swap, so an unattended write could race a stage change
+  and erase it with no recovery. `/status` now reports what's stale and
+  offers to fix it; David confirms before anything is written. See the
+  2026-08-05 `decisions.md` entries (the report-and-offer supersession, and
+  the superseded write-through design below it) and
+  [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05)
+  for the ceremony-tiering rule this loop's overrun prompted.
+- **CLAUDE.md cut roughly in half via skill migration + consolidation**
+  (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
+  tokens per session) — about half the file was procedural ceremony that
+  only matters at specific moments (the Codex plan-review loop, PR
+  watching, the paired TEST_RUN/UAT docs, model-routing detail), now
+  lazy-loaded as skills instead of resident every turn; trigger stubs for
+  the rules that must fire without the skill loaded stay resident. A
+  sentence-level audit confirmed no content was lost, only relocated or
+  (per a separate consolidation pass) genuinely superseded. Also fixed:
+  `check-docs-accuracy.mjs` didn't scan nested `CLAUDE.md` memory files
+  (e.g. `lib/api-zod/CLAUDE.md`), so a broken link in one had shipped
+  green; it now walks the whole repo for them. **Open gotcha, not yet a
+  guard:** moving a section between `CLAUDE.md` and a skill leaves *prose*
+  cross-references to the old heading (not markdown links) invisible to
+  the link checker — this PR's review loop found and fixed seven of them
+  one at a time across nine rounds before a systematic repo-wide sweep
+  caught the rest in one pass — see
+  [`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md).
+  The next migration of this shape should sweep first, not wait for review
+  to find them piecemeal.
 - **Global rate-limiter backstop for CodeQL's `js/missing-rate-limiting`**
   (PR #308, implementing the plan approved after PR #299's 16-round review).
   Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
@@ -44,6 +80,27 @@ priorities (moderation speed, render/enrichment quality, video). See
   gap — see
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
   and need a repo-admin to dismiss them in the Security tab.
+- **Workstream tracking: a GitHub Project board, label-driven, plus a
+  `/status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
+  unit of work now has a GitHub issue as its spine — except sensitive/
+  disclosure-carve-out work, which stays a private draft Project item, never
+  a public issue — carrying a **State of Play** block and
+  `stage:`/`waiting:`/`mode:` labels that a CI Action
+  mirrors onto a private Project board; `/status` reads those labels back
+  and adds what the board can't compute — stall detection and a
+  plain-language restatement of whatever a David-gate is actually asking.
+  Solves the problem that ~10 concurrent sessions gave David no way to tell
+  which needed him without opening each one. Labels are the source of truth
+  and the board is a projection, because **no MCP or REST tool can read or
+  write a Projects v2 item field** — the same constraint that keeps
+  `/status` reading labels rather than the board. Label maintenance is owned
+  by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
+  points they already hit, not by a standing habit. See
+  [`workstream-tracking.md`](./workstream-tracking.md) and
+  [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
+  **Open next:** the board's value depends on labels staying current now
+  that no human maintains them — worth a check after a few workstreams that
+  the four skills actually fire as intended.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
@@ -329,11 +386,6 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
-- **`/status` split into a write-through per-session skill and a fleet-wide
-  `/status-all`.** Design settled 2026-08-05, not yet built. See the
-  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--status-splits-into-a-write-through-per-session-skill-and-a-fleet-wide-status-all)
-  for the full shape (write-through, the 5-state vocabulary, WATCHING only
-  from a live check).
 - **Phase-tracking for multi-PR features** — parent issue carries the plan,
   each phase is a sub-issue with its own PR. Design settled 2026-08-05, not
   yet built; #310 and #293 are named retrofit candidates. See the

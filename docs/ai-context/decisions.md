@@ -90,7 +90,40 @@
 - **Revisit if:** the ask-before-splitting step becomes friction in practice
   (David's own stated condition for revisiting).
 
-### 2026-08-05 · `/status` splits into a write-through per-session skill and a fleet-wide `/status-all`
+### 2026-08-05 · `/status` ships as report-and-offer, superseding the write-through design below
+- **Decision:** Per-session `/status` **reports** the workstream's state and,
+  when stored `stage:`/`waiting:` labels or the `## State of Play` block
+  disagree with live GitHub, **offers** to correct them — David confirms,
+  then it writes. It does **not** write unattended on every invocation, which
+  is what the entry immediately below this one originally specified and
+  approved.
+- **Why:** The write-through design went through a Codex plan-review loop
+  (PR #333) that reached round 6 before two findings showed the unattended
+  write couldn't be made safe on this platform: (1) this repo is public and
+  PR bodies are attacker-controlled, so the write-target discovery rule
+  (`Workstream: #N` in a PR body) could be steered by a forged fork PR into
+  rewriting a maintainer's issue; (2) GitHub's label API has no
+  compare-and-swap, so a race between `/status`'s read and its write could
+  silently erase a `stage:done` David had just set, with no way to recover
+  it. Both are fixable *in principle* with enough specification, but round 6
+  was already specifying acceptance cases with no harness to execute them —
+  the guarantee had outrun what a status check justifies building. David's
+  call: make the write **confirmed, not unattended** — a single "want me to
+  fix this?" in a session already open — which removes both findings at the
+  root instead of patching around them, and costs one tap.
+  This also closed PR #333 unmerged and prompted the shared **ceremony
+  scales to blast radius** rule in
+  [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05):
+  the six-round loop was ceremony mismatched to two markdown files, not a
+  defect in the design being reviewed.
+- **Reference:** PR #333 (plan review, closed unmerged); PR #336 (shipped
+  implementation, `.claude/skills/status/SKILL.md`); the
+  [known-failure-patterns entry](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk).
+- **Revisit if:** a GitHub API adds conditional/CAS-style label updates, which
+  would remove the race that made unattended writes unsafe and reopen
+  write-through as an option.
+
+### 2026-08-05 · `/status` splits into a write-through per-session skill and a fleet-wide `/status-all` — superseded by the entry above
 - **Decision:** The existing fleet-wide `/status` skill (cold-open summary of
   every open workstream) becomes **`/status-all`**, unchanged in behavior.
   A new, separate **per-session `/status`** answers the narrower "what am I
@@ -115,10 +148,77 @@
   subscription silently dropped) in exactly the way CLAUDE.md's PR-watch
   rules already warn against for webhook events — "never judge from text
   alone" applies to self-reporting status too.
-- **Reference:** Design settled in conversation 2026-08-05. **Not yet
-  built** — see [`current-roadmap.md`](./current-roadmap.md).
-- **Revisit if:** the 5-state vocabulary proves too coarse, or write-through-
-  every-invocation proves too noisy against the issue's history.
+- **Superseded 2026-08-05** (same day, entry above): the write-through half
+  did not survive plan review. The 5-state vocabulary, the WATCHING-only-
+  from-live-check rule, and the `/status-all` split all shipped unchanged.
+- **Reference:** Design settled in conversation 2026-08-05.
+- **Revisit if:** n/a — superseded.
+
+### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
+- **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
+  **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out
+  work, which never becomes a public issue and instead lives as a private
+  draft Project item, per `plan-review-loop`'s existing disclosure check
+  (this repo is public, so an issue body is public even though the Project
+  itself is private). For everything else, the issue is opened from
+  Discovery onward — before any branch exists — carrying a **State of Play**
+  block (defined in the routed contract below) and exactly one label
+  from each of three prefixes: `stage:` (the ten lifecycle stages),
+  `waiting:` (david/claude/codex/replit/ci), and `mode:`. Those issues are
+  tracked on a private Project board whose `Status`/`Waiting On`/`Mode`
+  fields are populated from the labels by a CI Action
+  (`.github/workflows/project-sync.yml` → `scripts/sync-project-fields.mjs`),
+  and read back by a `/status` skill. **Labels are the writable truth; the
+  board is a projection of them.** Four skills — `plan-review-loop`,
+  `bugfix`, `pr-watch`, `pr-docs` — each own a specific label transition at
+  a trigger point they already hit, rather than any agent carrying a
+  standing "go check the board" habit. The full contract is
+  [`workstream-tracking.md`](./workstream-tracking.md).
+- **Why:** David runs ~10 concurrent Claude Code sessions and could not tell
+  which needed him without opening each one; the session list shows a name
+  and a timestamp, and has no field for stage or whose-turn, so it cannot
+  answer that question no matter how sessions are named. Three alternatives
+  were considered and rejected. **A status file in the repo:** the session
+  container is ephemeral, so a local file dies with the session; committing
+  one requires a branch (which a pure Discovery conversation doesn't have),
+  and a *shared* board file written by many concurrent squash-merged
+  branches is the worst possible git shape — a failure this repo has already
+  recorded once in
+  [`document-ceremony-concurrent-docs-pr-conflict.md`](../../.agents/memory/document-ceremony-concurrent-docs-pr-conflict.md).
+  **A second Project for `/document` harvests:** fragments exactly what this
+  exists to unfragment; harvests are **sub-issues** of their parent
+  workstream instead, since each has its own branch, PR, and review loop and
+  therefore needs its own row rather than a status value on the parent.
+  **Reading the board directly:** no available MCP or REST tool can read
+  *or* write a Projects v2 item field — confirmed twice independently — so
+  labels are not a stylistic choice but the only writable surface an agent
+  has, and `/status` recomputes the board's view from them rather than
+  querying the board. `Waiting On` is deliberately a field **separate from**
+  `Status` because the two diverge: a blocking question mid-build leaves
+  `stage` at `coding` while the turn passes to David, and that divergence
+  *is* the interruption that was being lost. The Project's built-in
+  `PR merged → Done` workflow stays **off** because a merge is followed by
+  TEST_RUN and UAT — proven correct in practice by #311, which merged and
+  correctly stayed at `🛑 UAT` rather than claiming verified work. For the
+  same reason PR bodies link with `Workstream: #N`, never `Closes #N`.
+  A downstream consequence worth stating: because the State of Play block
+  now holds a workstream's context durably *outside* any session, **sessions
+  became disposable** — resuming cold in a fresh session is the intended
+  path, not a loss, which is what makes the "ran out of tokens, come back
+  tomorrow" case cheap instead of requiring an old transcript to be re-read
+  uncached.
+- **Reference:** PRs #318 (sync mechanism), #322 (field-name matching fix),
+  #323 (`/status` skill), #324 (label maintenance wired into the four
+  skills + the shared contract); workstream #317;
+  [`workstream-tracking.md`](./workstream-tracking.md). Board:
+  *Overhype.me Workstreams* (private, user-owned project 1).
+- **Revisit if:** a tool appears that can read or write Projects v2 item
+  fields directly — that would let `/status` read the board and could retire
+  the sync Action entirely, collapsing labels and fields into one surface.
+  Also revisit if the number of genuinely concurrent workstreams drops far
+  enough that the board costs more ceremony than it saves.
+
+---
 
 ### 2026-08-04 · Global CodeQL rate-limiter backstop ships on a custom bounded in-memory store, not a DB-backed `Store`
 - **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
@@ -1535,3 +1635,18 @@
   proven with invariant tests.
 - **Reference:** [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
 - **Revisit if:** never, unless the token model changes fundamentally.
+
+### 2026-08 · Codex boots without a database; CI owns the integration suite
+- **Decision:** Codex's container provisions no Postgres. `scripts/codex-setup.sh`
+  installs, generates the API client, and builds `lib/**` — nothing else — and
+  the database is opt-in behind `CODEX_SETUP_DB=1` for the exceptional task.
+- **Why:** Boot cost is paid on *every* Codex task, and provisioning a database
+  is the expensive part of it; the api-server suite is the minority need. Codex
+  reviews by reading, and GitHub's required `Test` check already runs that suite
+  against a real database before anything merges — so the capability lost in
+  Codex is still covered at the gate that decides.
+- **Reference:** PR #332; see [`codex-environment.md`](./codex-environment.md)
+  for the verified capability matrix (codegen, typecheck, production build, and
+  the frontend suite all pass DB-less).
+- **Revisit if:** Codex starts driving backend implementation rather than review,
+  or the api-server suite becomes something a reviewer must execute to trust.

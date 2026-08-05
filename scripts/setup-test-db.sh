@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Idempotent test DB setup for Claude Code on the web sandbox.
+# Idempotent test DB setup for an agent sandbox.
 #
-# This is NOT used by the production app or by Replit. It exists solely to
-# give Claude a working Postgres so it can run integration tests in its own
-# sandbox before pushing code. Reads/writes nothing outside the sandbox.
+# This is NOT used by the production app or by Replit. It exists solely to give
+# an agent a working Postgres so it can run integration tests in its own sandbox
+# before pushing code. Reads/writes nothing outside the sandbox.
 #
-# Wired to .claude/settings.json SessionStart hook so it runs on every new
-# session automatically.
+# Two callers:
+#   * Claude — .claude/settings.json SessionStart hook, every session.
+#   * Codex — scripts/codex-setup.sh, only when CODEX_SETUP_DB=1, since Codex
+#     defaults to a DB-less fast boot (docs/ai-context/codex-environment.md).
 
 set -euo pipefail
 
