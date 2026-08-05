@@ -277,6 +277,23 @@ have a draft plan, and the disclosure check passes:
     implementation PR's **Approved-plan source** line cites, which the
     per-subsystem branches cannot supply.
 
+## Keeping the workstream issue's labels current
+
+Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
+this loop is `plan-review-loop`'s slice of label ownership for a workstream
+already at `stage:planning`:
+
+- The moment I post a round's `@codex review` trigger (step 3, and each
+  round of step 4) → `waiting:codex`.
+- The moment Codex's findings land and I start working the reply →
+  `waiting:claude`.
+- At close-out (step 11) → `stage:plan-approval`, `waiting:david` — the
+  loop's actual handoff, since only David approves.
+
+If the workstream issue doesn't exist yet when the review PR opens (a
+Discovery conversation that went straight to a plan without ever getting
+its own issue), open it now rather than leaving this loop untracked.
+
 **Reviewer efficacy is measured by the loop ledger**
 (`.agents/metrics/loop-ledger.md`): every loop's rounds, findings, and
 self-inflicted share get a permanent row, which is the evidence base for
