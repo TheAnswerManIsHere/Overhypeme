@@ -41,24 +41,44 @@
  *
  * KNOWN LIMITS, stated rather than hidden
  * -----------------------------------------
- * Codex's rounds 1 and 2 of this module (PR #329) found twenty concrete
- * parser gaps across two passes, eighteen now fixed: transparent wrappers,
- * including past their own bare flags (`env -i`/`command -p`), a leading
- * `NAME=value` environment-assignment prefix, unique long-option
- * abbreviations, a backslash-newline line continuation splitting a bundled
- * short flag, an inline git alias -- including one whose EXPANSION itself
- * carries the dangerous flags, not just a renamed subcommand -- shell
- * grouping/control keywords (including `coproc`) hiding the real command,
- * ANSI-C `$'...'` quoting with its full escape set (octal/hex/unicode/
- * control-character, not just the single-letter forms), brace expansion
- * (`-{f,u}` is two arguments), an empty-source or short `-d` refspec
- * deleting the destination, a heredoc chained with a real command on its
- * opener line, a root-only glob using dot/bracket syntax (`/.*`, `/[be]*`),
- * case- and long-flag-insensitive recursive+force detection on `rm`, a
- * versioned `drizzle-kit@<version>` package spec, and a nested shell
- * invocation (`bash -c '...'`) whose `-c` argument is recursively judged by
- * this same pipeline. Each has its own comment at the fix site and its own
- * pinning test.
+ * Codex's rounds 1-3 of this module (PR #329) found thirty-six concrete
+ * parser gaps across three passes, thirty-three now fixed. Round 1 and round 2
+ * closed the first twenty (see git history / PR #329 for the full list:
+ * transparent wrappers, environment-assignment prefixes, abbreviated long
+ * options, a backslash-newline continuation, an inline git alias, shell
+ * grouping keywords including `coproc`, ANSI-C quoting, brace expansion, an
+ * empty-source/short `-d` delete refspec, a chained heredoc command, a
+ * dot/bracket root glob, case-insensitive `rm` flag detection, a versioned
+ * `drizzle-kit@` spec, and a first pass at nested `bash -c` recursion).
+ * Round 3 found thirteen more, mostly extending or hardening that round-2
+ * work rather than opening new categories: bundled shell option letters
+ * (`bash -lc '...'`, not just exact `-c`), a wrapper's KNOWN value-taking
+ * flags (`env -u NAME`) skipped together with their value rather than
+ * stopping the unwrap, a bundled short `-d` (`-qd`), an alias expansion that
+ * leads with further git options before `push`, a `!`-prefixed alias (Git's
+ * own literal-shell-command alias form, recursed into exactly like `bash
+ * -c`), `eval` as a second command-string dispatcher alongside shell `-c`,
+ * `npx -c`/`npm exec -c` as a third, the direct `git-push`/`git-update-ref`
+ * executables (no leading subcommand word to skip), `git --exec-path`'s
+ * separate-value form, a heredoc feeding a bare shell interpreter's STDIN
+ * (script, not inert data, when the interpreter has no `-c` of its own),
+ * `..` parent-directory traversal climbing back out of an apparently scoped
+ * `rm` target, and the nested-shell depth cap now FAILS CLOSED on an
+ * uninspected command string instead of silently allowing it once reached.
+ * Each has its own comment at the fix site and its own pinning test.
+ *
+ * One round-3 finding is a genuine POLICY question, not a parser bug, and is
+ * deliberately left as-is pending a decision: brace expansion can produce a
+ * root-anchored target naming specific system directories
+ * (`rm -rf /{bin,etc}` -> `/bin` and `/etc`), but this guard ALREADY allows
+ * the byte-for-byte-equivalent non-brace spelling (`rm -rf /bin /etc`) under
+ * its own twice-stated policy that a literal, named absolute path is scoped,
+ * not root-shaped. Blocking only the brace-expanded spelling would be
+ * cosmetic, not a real fix, without also deciding whether specific
+ * catastrophic system directories should be denied by name regardless of
+ * spelling -- a broader policy call this hook has deliberately avoided,
+ * since enumerating "dangerous directory names" is the same allowlist-rot
+ * this module's own design already argues against for push options.
  *
  * Two classes remain open, deliberately, for the same reason as before:
  *
@@ -110,8 +130,13 @@ const WIDE_PUSH_OPTS = new Set(["--all", "--delete", "--prune", "--tags", "--mir
 const OPERATORS = new Set(["&&", "||", ";", "|", "&", "(", ")", "<", ">", ">>", "<<", "\n"]);
 const OPERATOR_CHARS = new Set(["&", "|", ";", "(", ")", "<", ">"]);
 
-/** git global options that consume a following value, e.g. `git -C /path push`. */
-const GIT_GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
+/**
+ * git global options that consume a following value, e.g. `git -C /path push`.
+ * `--exec-path` reaches this set alongside `-C`/`-c`: its separate-value form
+ * (`git --exec-path /usr/lib/git-core push -f ...`) left the path swallowed as
+ * the "subcommand" and the real `push` word past it invisible.
+ */
+const GIT_GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
 
 /**
  * Shell reserved words that always precede another command rather than being
@@ -168,16 +193,30 @@ const WRAPPER_BARE_FLAGS = {
 };
 
 /**
+ * Per-wrapper flags known to take exactly ONE following value -- safe to
+ * skip past (both the flag and its value) while still looking for the real
+ * command. `env --help` lists `-u, --unset=NAME` and `-C, --chdir=DIR` as
+ * separate-value forms alongside their `=value` combined forms; the combined
+ * form needs no special handling here since it is already one token.
+ */
+const WRAPPER_VALUE_FLAGS = {
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+};
+
+/**
  * Peel off constructs Bash resolves before dispatching to a program: leading
  * `NAME=value` environment assignments, and a transparent wrapper in front
  * of the real command, skipping past any of that wrapper's KNOWN bare
  * (non-value-taking) flags -- `env -i git push -f ...` and
- * `command -p git push -f ...` still run `git`, and Bash resolves that
- * regardless of how many bare flags sit between the wrapper and it.
+ * `command -p git push -f ...` still run `git` -- and any KNOWN value-taking
+ * flag together with its value -- `env -u GIT_CONFIG git push -f ...` skips
+ * both `-u` and `GIT_CONFIG` as a pair, not just the flag, since Bash still
+ * resolves `git` as the command regardless of how many recognised flags (bare
+ * or value-taking) sit between the wrapper and it.
  *
- * Deliberately narrow: an UNRECOGNISED or value-taking flag stops the
- * unwrap rather than guessing past it -- misreading a flag's value as the
- * real command would be worse than not unwrapping at all.
+ * Deliberately narrow: an UNRECOGNISED flag still stops the unwrap rather
+ * than guessing past it -- misreading a flag's value as the real command
+ * would be worse than not unwrapping at all.
  */
 function resolveRealCommand(argv) {
   let i = 0;
@@ -189,14 +228,25 @@ function resolveRealCommand(argv) {
     const bare = argv[i].split("/").pop();
     if (TRANSPARENT_WRAPPERS.has(bare)) {
       const bareFlags = WRAPPER_BARE_FLAGS[bare] ?? new Set();
+      const valueFlags = WRAPPER_VALUE_FLAGS[bare] ?? new Set();
       let next = i + 1;
-      while (next < argv.length && bareFlags.has(argv[next])) next += 1;
+      while (next < argv.length) {
+        if (bareFlags.has(argv[next])) {
+          next += 1;
+          continue;
+        }
+        if (valueFlags.has(argv[next])) {
+          next += 2;
+          continue;
+        }
+        break;
+      }
       if (argv[next] === "--") next += 1;
       if (next < argv.length && !argv[next].startsWith("-")) {
         i = next;
         continue;
       }
-      break; // an unrecognised or value-taking flag: give up, judge the wrapper itself
+      break; // an unrecognised flag: give up, judge the wrapper itself
     }
     break;
   }
@@ -251,16 +301,39 @@ function expandAbbreviatedLongOption(flag) {
 }
 
 /**
- * True for an `rm` target whose FIRST path component (right after the
- * leading `/`) is composed entirely of glob syntax with no literal name in
- * it -- `/`, `/*`, `/**`, `//`, `/.*`, `/[be]*`. Such a target can match
- * many or all top-level entries, which is the shape this guard treats as
- * root-equivalent. A scoped absolute path (`/tmp/x`, `/tmp/*`) has a real
- * literal first component and is left alone, matching this guard's
- * narrowing philosophy: block the catastrophic case, not every absolute
- * path (the pre-narrowing guard's un-anchored regex matched the latter too,
- * which was almost certainly incidental breadth, not an intentional policy
- * -- it would have caught routine scratch cleanup like `rm -rf /tmp/x`).
+ * Resolve `..`/`.`/empty path segments the way the filesystem would, without
+ * touching the disk. `/tmp/../*` LOOKS scoped by its first segment ("tmp"),
+ * but `..` climbs back out of it -- verified directly that Bash expands
+ * `/tmp/../*` to root's own children (`/bin`, `/etc`, ...), making it exactly
+ * as dangerous as `/*` despite the "tmp" text sitting right there in the
+ * token. Popping `..` against an already-empty stack is a no-op, matching
+ * how `/../etc` resolves to `/etc` -- you cannot climb above root.
+ */
+function normalizeAbsolutePathSegments(token) {
+  const stack = [];
+  for (const part of token.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return stack;
+}
+
+/**
+ * True for an `rm` target that, once `..`/`.` are resolved, has a FIRST path
+ * component composed entirely of glob syntax with no literal name in it --
+ * `/`, `/*`, `/**`, `//`, `/.*`, `/[be]*`, `/tmp/../*`. Such a target can
+ * match many or all top-level entries, which is the shape this guard treats
+ * as root-equivalent. A scoped absolute path (`/tmp/x`, `/tmp/*`) has a real
+ * literal first component after normalization and is left alone, matching
+ * this guard's narrowing philosophy: block the catastrophic case, not every
+ * absolute path (the pre-narrowing guard's un-anchored regex matched the
+ * latter too, which was almost certainly incidental breadth, not an
+ * intentional policy -- it would have caught routine scratch cleanup like
+ * `rm -rf /tmp/x`).
  *
  * A bracket expression (`[be]`) is stripped as ONE unit, not character by
  * character: `[be]` is a character CLASS matching a single `b` or `e`, not
@@ -272,25 +345,28 @@ function expandAbbreviatedLongOption(flag) {
  * leading dot from ".git" still leaves "git", a real component.
  */
 function isRootShaped(token) {
-  if (token === "/" || token === "//") return true;
   if (!token.startsWith("/")) return false;
-  const firstSegment = token.slice(1).split("/")[0];
-  if (firstSegment === "") return true;
-  const stripped = firstSegment.replace(/\[[^\]]*\]/g, "").replace(/[*?.]/g, "");
+  const segments = normalizeAbsolutePathSegments(token);
+  if (segments.length === 0) return true; // resolves to root itself
+  const stripped = segments[0].replace(/\[[^\]]*\]/g, "").replace(/[*?.]/g, "");
   return stripped === "";
 }
 
+const isBundledShortDelete = (flag) => /^-[A-Za-z]*d[A-Za-z]*$/.test(flag);
+
 /**
  * True when the push's own arguments (i.e. everything after `push`) name or
- * imply deletion: an explicit `--delete`, or a refspec with an empty
- * `<src>` (`:claude/x`), which Git's own refspec rules define as deleting
- * the remote `<dst>`. Checked independently of `forcing` below so a
- * deletion is refused even without an accompanying force flag -- the
- * concern this closes is specifically a delete-shaped push slipping past
- * because it does not use the word "force" at all.
+ * imply deletion: an explicit `--delete`/`-d` (bundled with other short
+ * flags or alone -- `git push -qd origin claude/x` bundles quiet with
+ * delete, and Git accepts that), or a refspec with an empty `<src>`
+ * (`:claude/x`), which Git's own refspec rules define as deleting the
+ * remote `<dst>`. Checked independently of `forcing` below so a deletion is
+ * refused even without an accompanying force flag -- the concern this
+ * closes is specifically a delete-shaped push slipping past because it does
+ * not use the word "force" at all.
  */
 function looksLikeDeletion(pushArgs) {
-  if (pushArgs.includes("--delete") || pushArgs.includes("-d")) return true;
+  if (pushArgs.some((t) => t === "--delete" || isBundledShortDelete(t))) return true;
   const positionals = pushArgs.filter((t) => !t.startsWith("-"));
   const refspecs = positionals.slice(1); // positionals[0] is the remote
   return refspecs.some((r) => r.startsWith(":"));
@@ -529,17 +605,68 @@ export function segments(tokens) {
 }
 
 /**
+ * Where an inline alias's expansion actually leads. Git's alias docs specify
+ * two shapes: a `!`-prefixed value is a literal SHELL command (run via the
+ * shell, not interpreted as more git arguments at all), while anything else
+ * is prepended to the command line as if the user had typed it after `git ` --
+ * meaning it can itself start with further git OPTIONS (`-c core.pager=cat
+ * push --force`) before the real subcommand word appears. Checking only
+ * whether the raw value starts with the literal text "push" misses both: an
+ * option-prefixed expansion, and a `!` escape that reaches `push` (or
+ * anything else) via an arbitrary shell command this function cannot
+ * interpret without recursing into it as a script.
+ *
+ * Returns { shell } for a `!`-prefixed value (with `!` stripped), or
+ * { tokens, index } pointing at the effective subcommand word within the
+ * tokenized expansion, or { tokens: null } if the expansion could not be
+ * tokenized at all.
+ */
+function resolveAliasTarget(rawValue) {
+  const trimmed = rawValue.trim();
+  if (trimmed.startsWith("!")) return { shell: trimmed.slice(1) };
+
+  let tokens;
+  try {
+    tokens = tokenize(trimmed);
+  } catch {
+    return { tokens: null };
+  }
+
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (GIT_GLOBAL_WITH_VALUE.has(token)) {
+      i += 2;
+      continue;
+    }
+    if (token.startsWith("-")) {
+      i += 1;
+      continue;
+    }
+    return { tokens, index: i };
+  }
+  return { tokens, index: -1 };
+}
+
+/**
  * Locate the subcommand in `git [global opts] <subcommand>`, expanding an
  * inline alias (`-c alias.<name>=<expansion>`) invoked in the same command.
  *
- * Returns { name, index, argv }. `argv` is normally the input unchanged, but
- * an alias invocation returns a NEW argv with the alias token spliced out
- * and the FULL tokenized expansion spliced in -- `index` then points at
- * "push" within that new array. Splicing the whole expansion, not just its
- * first word, matters: `git -c alias.p='push --force' p origin claude/x`
- * carries the force flag inside the alias value itself, not just a renamed
- * subcommand, so dropping everything after the alias's own first word would
- * silently discard the part that makes the push dangerous.
+ * Returns { name, index, argv }, where `name` can be the sentinel
+ * `"SHELL_ESCAPE"` alongside a `shellText` field -- `checkCommand` recurses
+ * into that text through the same nested-shell machinery as `bash -c`,
+ * since a `!`-prefixed alias runs exactly like one.
+ *
+ * For a non-`!` alias, `argv` is normally the input unchanged, but an alias
+ * whose EFFECTIVE subcommand (after skipping any leading git options inside
+ * the expansion itself) is "push" returns a NEW argv with the alias token
+ * spliced out and the full tokenized expansion spliced in -- `index` then
+ * points at "push" within that new array. Splicing the whole expansion, not
+ * just its subcommand word, matters: `git -c alias.p='push --force' p
+ * origin claude/x` carries the force flag inside the alias value itself,
+ * not just a renamed subcommand, so dropping everything after the
+ * subcommand word would silently discard the part that makes the push
+ * dangerous.
  *
  * `index` alone (without a new argv) is what lets a caller parse the
  * subcommand's own arguments without the global options bleeding in -- that
@@ -571,15 +698,19 @@ function gitSubcommand(argv) {
       i += 1;
       continue;
     }
-    if (aliases.has(token) && /^\s*push\b/.test(aliases.get(token))) {
-      let expansion;
-      try {
-        expansion = tokenize(aliases.get(token).trim());
-      } catch {
+    if (aliases.has(token)) {
+      const target = resolveAliasTarget(aliases.get(token));
+      if (target.shell !== undefined) {
+        return { name: "SHELL_ESCAPE", index: i, argv, shellText: target.shell };
+      }
+      if (target.tokens === null) {
         return { name: "push", index: i, argv }; // unparseable expansion: still flag it as push
       }
-      const spliced = [...argv.slice(0, i), ...expansion, ...argv.slice(i + 1)];
-      return { name: "push", index: i, argv: spliced };
+      if (target.index !== -1 && target.tokens[target.index] === "push") {
+        const spliced = [...argv.slice(0, i), ...target.tokens, ...argv.slice(i + 1)];
+        return { name: "push", index: i + target.index, argv: spliced };
+      }
+      return { name: target.index === -1 ? null : target.tokens[target.index], index: i, argv };
     }
     return { name: token, index: i, argv };
   }
@@ -655,6 +786,74 @@ function isDrizzleKitToken(token) {
   return base === "drizzle-kit" || base.startsWith("drizzle-kit@") || base.includes("drizzle-kit");
 }
 
+const isShortFlagBundleContaining = (letter) => (t) => /^-[A-Za-z]+$/.test(t) && t.includes(letter);
+
+/**
+ * Find the text a program will hand off to be executed as a full command
+ * line, if `program`/`rest` shows one of the recognised dispatch shapes:
+ *
+ * - A shell interpreter (`bash`/`sh`/`zsh`/`dash`/`ksh`) with a `-c` flag --
+ *   possibly BUNDLED with other short options (`-lc`, `-ec`), which the
+ *   previous exact `indexOf("-c")` lookup missed. Bash resolves the bundle
+ *   the same way regardless of what else rides along in it.
+ * - `eval`, which the Bash manual describes as concatenating ALL of its
+ *   arguments with spaces and executing the result as one command -- so
+ *   `eval git push -f origin claude/x` (unquoted, four separate argv
+ *   entries) and `eval 'git push -f origin claude/x'` (one quoted string)
+ *   are the same dispatch, closed by the same `rest.join(" ")`.
+ * - `npx -c '<cmd>'` / `npm exec -c '<cmd>'`, which `npm exec --help`
+ *   documents as running `<cmd>` as a shell command line, the same
+ *   contract as a shell's own `-c`.
+ *
+ * Returns null when `program`/`rest` shows none of these shapes.
+ */
+function findCommandStringDispatch(program, rest) {
+  if (SHELL_INTERPRETERS.has(program)) {
+    const cIndex = rest.findIndex(isShortFlagBundleContaining("c"));
+    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+  }
+  if (program === "eval") {
+    return rest.length ? rest.join(" ") : null;
+  }
+  if (program === "npx" || (program === "npm" && rest[0] === "exec")) {
+    const cIndex = rest.indexOf("-c");
+    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+  }
+  return null;
+}
+
+/**
+ * Judge a `git push`-shaped argv (subcommand already located at
+ * `subcommandIndex` within `gitArgv`) and return a denial reason, or null.
+ * Shared by the normal `git push ...` dispatch and the direct
+ * `git-push`/`git-update-ref` executable dispatch below, which present
+ * identically once the subcommand word itself is accounted for.
+ */
+function checkGitPush(gitArgv, subcommandIndex) {
+  // Abbreviations are expanded to canonical spellings before anything
+  // downstream compares against exact strings -- `--m` reads as `--mirror`
+  // from here on, `--force-with` as `--force-with-lease`.
+  const pushArgs = gitArgv
+    .slice(subcommandIndex + 1)
+    .map((t) => (t.startsWith("-") ? expandAbbreviatedLongOption(t) : t));
+  const pushArgv = [...gitArgv.slice(0, subcommandIndex + 1), ...pushArgs];
+
+  const forcing =
+    pushArgs.some((t) => t.startsWith("-") && (BARE_FORCE.has(t) || isLease(t) || isBundledShortForce(t))) ||
+    pushArgs.some((t) => !t.startsWith("-") && t.startsWith("+"));
+  const deleting = looksLikeDeletion(pushArgs);
+
+  if ((forcing || deleting) && !pushIsSafe(pushArgv, subcommandIndex)) {
+    return [
+      "force push or remote branch deletion outside the permitted shape.",
+      "Only `git push --force-with-lease <remote> <claude/...|plan-review/...>`",
+      "is allowed: main belongs to GitHub's ruleset, and the lease is mandatory",
+      "so a push can never discard work this session has not seen.",
+    ].join(" ");
+  }
+  return null;
+}
+
 /**
  * Return a denial reason for one command, or null to allow it.
  *
@@ -680,12 +879,18 @@ export function checkCommand(argv, depth = 0) {
   const program = resolved[0].split("/").pop();
   const rest = resolved.slice(1);
 
-  if (SHELL_INTERPRETERS.has(program) && depth < MAX_NESTED_SHELL_DEPTH) {
-    const cIndex = rest.indexOf("-c");
-    if (cIndex !== -1 && typeof rest[cIndex + 1] === "string") {
-      const nested = evaluateScript(rest[cIndex + 1], depth + 1);
-      if (nested) return nested;
+  const dispatchText = findCommandStringDispatch(program, rest);
+  if (dispatchText !== null) {
+    // The cap is a safety BOUND, not a permission slip: reaching it with
+    // another command string still to inspect means failing closed, not
+    // silently falling through to "the outer command isn't git/rm, so
+    // allow" -- an uninspected `-c`/`eval` argument is not evidence of
+    // safety, only of unexamined text.
+    if (depth >= MAX_NESTED_SHELL_DEPTH) {
+      return "nested shell/eval command depth limit reached -- refusing rather than allowing an uninspected command string";
     }
+    const nested = evaluateScript(dispatchText, depth + 1);
+    if (nested) return nested;
   }
 
   if (program === "rm") {
@@ -698,39 +903,45 @@ export function checkCommand(argv, depth = 0) {
     return "drizzle-kit push -- schema changes go through a migration, never a push";
   }
 
+  // `git-push`/`git-update-ref` are the actual executables `git push`/
+  // `git update-ref` dispatch to (`$(git --exec-path)/git-push`) and take
+  // the identical flags with no leading subcommand word to skip -- so a
+  // hardcoded path to one bypasses the `program === "git"` branch below
+  // entirely unless handled here directly.
+  if (program === "git-push") {
+    const reason = checkGitPush(resolved, 0);
+    if (reason) return reason;
+  }
+  if (program === "git-update-ref") {
+    return "git update-ref -- moves a ref with no safety net";
+  }
+
   if (program === "git") {
     // gitSubcommand may return a NEW argv with an inline alias's full
     // expansion spliced in -- e.g. `-c alias.p='push --force'` -- so every
     // reference to the git command from here on uses ITS returned argv, not
     // `resolved`.
-    const { name: subcommand, index: subcommandIndex, argv: gitArgv } = gitSubcommand(resolved);
+    const { name: subcommand, index: subcommandIndex, argv: gitArgv, shellText } = gitSubcommand(resolved);
+
+    if (subcommand === "SHELL_ESCAPE") {
+      // A `!`-prefixed alias runs as a literal shell command -- Git's own
+      // alias docs, not this hook's invention -- so it is judged exactly
+      // like a `bash -c` argument, sharing the same depth cap and the same
+      // fail-closed behaviour when that cap is reached.
+      if (depth >= MAX_NESTED_SHELL_DEPTH) {
+        return "nested shell/eval command depth limit reached -- refusing rather than allowing an uninspected command string";
+      }
+      const nested = evaluateScript(shellText, depth + 1);
+      if (nested) return nested;
+    }
 
     if (subcommand === "update-ref") {
       return "git update-ref -- moves a ref with no safety net";
     }
 
     if (subcommand === "push") {
-      // Abbreviations are expanded to canonical spellings before anything
-      // downstream compares against exact strings -- `--m` reads as
-      // `--mirror` from here on, `--force-with` as `--force-with-lease`.
-      const pushArgs = gitArgv
-        .slice(subcommandIndex + 1)
-        .map((t) => (t.startsWith("-") ? expandAbbreviatedLongOption(t) : t));
-      const pushArgv = [...gitArgv.slice(0, subcommandIndex + 1), ...pushArgs];
-
-      const forcing =
-        pushArgs.some((t) => t.startsWith("-") && (BARE_FORCE.has(t) || isLease(t) || isBundledShortForce(t))) ||
-        pushArgs.some((t) => !t.startsWith("-") && t.startsWith("+"));
-      const deleting = looksLikeDeletion(pushArgs);
-
-      if ((forcing || deleting) && !pushIsSafe(pushArgv, subcommandIndex)) {
-        return [
-          "force push or remote branch deletion outside the permitted shape.",
-          "Only `git push --force-with-lease <remote> <claude/...|plan-review/...>`",
-          "is allowed: main belongs to GitHub's ruleset, and the lease is mandatory",
-          "so a push can never discard work this session has not seen.",
-        ].join(" ");
-      }
+      const reason = checkGitPush(gitArgv, subcommandIndex);
+      if (reason) return reason;
     }
   }
 
@@ -766,6 +977,16 @@ const LOOKS_DESTRUCTIVE =
   /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push/;
 
 /**
+ * Matches one heredoc block: group 1 is the opener token plus anything
+ * chained after it on the SAME line, group 2 the optional quote, group 3 the
+ * delimiter word, group 4 the body (everything between the opener line and
+ * the terminator line). Shared by `stripHeredocs` (which discards group 4)
+ * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
+ * sync by construction rather than by two hand-maintained copies.
+ */
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+
+/**
  * Remove heredoc BODIES before tokenising.
  *
  * A heredoc body is data being fed to a program -- a commit message, a file --
@@ -785,21 +1006,61 @@ const LOOKS_DESTRUCTIVE =
  * (by-then-orphaned) `<<DELIM` token itself erased.
  */
 export function stripHeredocs(input) {
-  const withoutBodies = input.replace(
-    /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n[\s\S]*?^[ \t]*\3[ \t]*$/gm,
-    "$1",
-  );
+  const withoutBodies = input.replace(HEREDOC_RE, "$1");
   return withoutBodies.replace(/<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g, " ");
 }
 
 /**
+ * A heredoc body is inert data -- UNLESS the command it is redirected into
+ * is itself a shell interpreter reading from stdin, in which case the body
+ * IS the script Bash runs: `bash <<'EOF' ... git push -f ... EOF` feeds the
+ * whole body to `bash` the same way `bash -c '...'` feeds it a string, just
+ * over stdin instead of an argument. `stripHeredocs` above would discard
+ * that body as if it were a commit message, which is why this runs FIRST
+ * and independently, recursing into any such body through the same
+ * judgement pipeline before the body is ever stripped.
+ *
+ * Only fires when the opener command has no `-c` (or bundled `-lc`, etc.):
+ * a shell given `-c` ignores stdin for its script and this heredoc really
+ * is inert, feeding whatever the `-c` command itself reads, not commands.
+ */
+function checkShellStdinHeredocs(text, depth) {
+  if (depth >= MAX_NESTED_SHELL_DEPTH) return null;
+  for (const match of text.matchAll(HEREDOC_RE)) {
+    const lineStart = text.lastIndexOf("\n", match.index) + 1;
+    const prefix = text.slice(lineStart, match.index).trim();
+    const body = match[4];
+
+    let tokens;
+    try {
+      tokens = tokenize(prefix);
+    } catch {
+      continue;
+    }
+    if (!tokens.length) continue;
+
+    const argv = resolveRealCommand(tokens);
+    const program = argv[0]?.split("/").pop();
+    if (program && SHELL_INTERPRETERS.has(program) && !argv.some(isShortFlagBundleContaining("c"))) {
+      const reason = evaluateScript(body, depth + 1);
+      if (reason) return reason;
+    }
+  }
+  return null;
+}
+
+/**
  * Parse `text` into commands and judge each one, at the given nesting depth.
- * The top level (`decide`, depth 0) and a recursed-into `bash -c STRING`
- * (depth 1+, from `checkCommand` above) share this exact pipeline -- a
- * nested shell script is not a different kind of input, it is more text to
- * run the same judgement over.
+ * The top level (`decide`, depth 0) and a recursed-into command string
+ * (depth 1+, from `checkCommand`'s `-c`/`eval`/`!`-alias dispatch, or from
+ * `checkShellStdinHeredocs` above) share this exact pipeline -- a nested
+ * shell script is not a different kind of input, it is more text to run the
+ * same judgement over.
  */
 function evaluateScript(text, depth) {
+  const heredocReason = checkShellStdinHeredocs(text, depth);
+  if (heredocReason) return heredocReason;
+
   let parsed;
   try {
     parsed = segments(tokenize(stripHeredocs(text)));

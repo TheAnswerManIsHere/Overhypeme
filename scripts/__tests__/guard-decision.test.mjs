@@ -100,6 +100,23 @@ const MUST_BLOCK = [
   ["ANSI-C hex escapes decode to the program name", "$'\\x67\\x69\\x74' push -f origin claude/x"],
   ["brace expansion turns one token into two force-shaped flags", "git push -{f,u} origin claude/x"],
   ["a versioned drizzle-kit package spec is still drizzle-kit", "npx drizzle-kit@latest push"],
+
+  // --- round-3 review findings (PR #329) ---
+  ["a bundled shell option (-lc) still carries the -c argument", "bash -lc 'git push -f origin claude/x'"],
+  ["another bundled form (-ec)", "sh -ec 'rm -rf /'"],
+  ["a known value-taking wrapper flag is skipped with its value", "env -u GIT_CONFIG git push -f origin claude/x"],
+  ["a bundled short delete flag is still a deletion", "git push -qd origin claude/x"],
+  ["an alias expansion can lead with a git option before push", "git -c alias.p='-c core.pager=cat push --force' p origin claude/x"],
+  ["a bang-prefixed alias is a literal shell command, per git's own docs", "git -c alias.p='!git push -f origin claude/x' p"],
+  ["eval joins a quoted command string and runs it", "eval 'git push -f origin claude/x'"],
+  ["eval joins unquoted words into the same command", "eval git push -f origin claude/x"],
+  ["the git-push executable itself takes push's own flags directly", "/usr/lib/git-core/git-push -f origin claude/x"],
+  ["the git-update-ref executable is update-ref with no subcommand word", "/usr/lib/git-core/git-update-ref refs/heads/main abc1234"],
+  ["--exec-path's separate-value form does not hide the subcommand", "git --exec-path /usr/lib/git-core push -f origin claude/x"],
+  ["a heredoc feeding a bare shell interpreter's stdin is not inert data", "bash <<'EOF'\ngit push -f origin claude/x\nEOF"],
+  ["npx -c joins its command string the same way a shell's -c does", "npx -c 'drizzle-kit push'"],
+  ["npm exec -c is the same interface npx uses", "npm exec -c 'drizzle-kit push'"],
+  ["parent-directory traversal climbs back out of an apparently scoped path", "rm -rf /tmp/../*"],
 ];
 
 const MUST_ALLOW = [
@@ -151,6 +168,19 @@ const MUST_ALLOW = [
   ["a bracket glob confined to a scoped directory stays scoped", "rm -rf /tmp/[ab]*"],
   ["a brace with no comma is literal text, not expansion", 'echo "hi{there}"'],
   ["an ordinary drizzle-kit command other than push is untouched", "npx drizzle-kit generate"],
+
+  // --- round-3 review findings (PR #329): the same constructs, permitted shape ---
+  ["a bundled shell option around a permitted push", "bash -lc 'git push --force-with-lease origin claude/x'"],
+  ["a known value-taking wrapper flag around a permitted push", "env -u GIT_CONFIG git push --force-with-lease origin claude/x"],
+  ["an alias leading with a git option, permitted shape", "git -c alias.p='-c core.pager=cat push --force-with-lease' p origin claude/x"],
+  ["a bang alias running something harmless", "git -c alias.p='!echo hi' p"],
+  ["eval running something harmless", "eval 'echo hi'"],
+  ["the git-push executable, permitted shape", "/usr/lib/git-core/git-push --force-with-lease origin claude/x"],
+  ["--exec-path's separate-value form around a permitted push", "git --exec-path /usr/lib/git-core push --force-with-lease origin claude/x"],
+  ["a heredoc feeding a bare shell interpreter something harmless", "bash <<'EOF'\necho hi\nEOF"],
+  ["a heredoc feeding a shell that HAS -c is genuinely inert data", "bash -c 'echo hi' <<'EOF'\ngit push -f origin claude/x\nEOF"],
+  ["npx -c running something harmless", "npx -c 'echo hi'"],
+  ["parent traversal that still lands on a real scoped name", "rm -rf /tmp/sub/../scratch-xyz"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -371,3 +401,40 @@ test("hook exits 0 on a leased force push to an owned branch", () => {
 test("hook exits 0 on ordinary work", () => {
   assert.equal(runHook("git status --short"), 0);
 });
+
+// ---------------------------------------------------------------------------
+// Round-3 (PR #329): the nested-shell depth cap fails CLOSED, not open.
+// Verified against real bash first that this construction is valid shell
+// (bash -c "$CMD" actually runs it) before trusting it as a test fixture --
+// naive alternating-quote nesting looked plausible but was syntactically
+// invalid and would have silently tested nothing.
+// ---------------------------------------------------------------------------
+
+function shQuote(s) {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+function nestBashC(inner, depth) {
+  return depth === 0 ? inner : nestBashC(`bash -c ${shQuote(inner)}`, depth - 1);
+}
+
+for (const depth of [1, 2, 3, 4]) {
+  test(`depth ${depth} (within the cap): a real push still blocks`, () => {
+    assert.equal(blocked(nestBashC("git push -f origin claude/x", depth)), true);
+  });
+  test(`depth ${depth} (within the cap): harmless work is still allowed`, () => {
+    assert.equal(blocked(nestBashC("echo hi", depth)), false);
+  });
+}
+
+for (const depth of [5, 6]) {
+  test(`depth ${depth} (past the cap): a real push still blocks`, () => {
+    assert.equal(blocked(nestBashC("git push -f origin claude/x", depth)), true);
+  });
+  test(`depth ${depth} (past the cap): harmless work FAILS CLOSED, not silently allowed`, () => {
+    // This is the point of the fail-closed fix: reaching the cap with an
+    // uninspected -c argument still present is not evidence of safety, so
+    // it denies even though the actual inner command is harmless.
+    assert.equal(blocked(nestBashC("echo hi", depth)), true);
+  });
+}
