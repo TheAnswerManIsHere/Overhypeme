@@ -102,5 +102,8 @@ exception.)
 this skill owns no `stage:`/`waiting:` transition of its own — `pr-watch`
 already owns `stage:code-review` for the PR this pairing rides on. Just
 confirm the workstream issue's `mode:` label is `feature` (this pairing is
-feature-mode-only).
+feature-mode-only), and once both docs are committed, add them to the
+workstream issue's State of Play `Artifacts` field — the TEST_RUN/UAT links
+are exactly the kind of thing a cold-resumed session needs and won't find
+by re-deriving it from the PR alone.
 

@@ -189,10 +189,14 @@
   → [architecture-map](./architecture-map.md)
 
 - **Workstream** — one unit of work (a feature, a bugfix, a `/document`
-  harvest) tracked end-to-end by a single GitHub issue, from Discovery
-  through UAT. Deliberately **not** the same as a session or a PR: a
-  workstream outlives both and can span several PRs, which is why it — not
-  the PR number — is the stable thing to name and track against.
+  harvest) tracked end-to-end by a single GitHub issue — except
+  sensitive/disclosure-carve-out work, which is a private draft Project item
+  instead, never a public issue. Runs through the full lifecycle
+  (Discovery→UAT) for product-visible work; a pure-docs/devops workstream
+  has no product surface to verify and closes out at merge instead, per
+  `pr-watch`'s merge rule. Deliberately **not** the same as a session or a
+  PR: a workstream outlives both and can span several PRs, which is why it —
+  not the PR number — is the stable thing to name and track against.
   → [workstream-tracking](./workstream-tracking.md)
 
 - **State of Play block** — the standard block maintained in a workstream

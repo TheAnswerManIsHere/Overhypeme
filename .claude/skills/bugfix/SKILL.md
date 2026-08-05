@@ -68,8 +68,10 @@ Then confirm: branch name + "bug-fixing mode is on."
 bugfix mode branches straight from Discovery to Coding, skipping Planning
 and Plan approval. If David's bug report doesn't already have a workstream
 issue, open one now with `stage:coding`, `waiting:claude`, `mode:bugfix` —
-one per bug, matching the one-bug-per-branch-per-PR rule above. From PR
-open onward, `pr-watch` owns the label transitions.
+one per bug, matching the one-bug-per-branch-per-PR rule above — and give
+it a State of Play block (per `workstream-tracking.md`) at the same time,
+not just labels. From PR open onward, `pr-watch` owns the label
+transitions and the block's upkeep.
 
 ## 2. Diagnose, classify, then fix
 

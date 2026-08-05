@@ -294,6 +294,11 @@ If the workstream issue doesn't exist yet when the review PR opens (a
 Discovery conversation that went straight to a plan without ever getting
 its own issue), open it now rather than leaving this loop untracked.
 
+**Every label change above lands with a State of Play update in the same
+edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per
+`workstream-tracking.md`'s ownership rule. A label change with no matching
+narrative update is the exact drift that rule exists to prevent.
+
 **Reviewer efficacy is measured by the loop ledger**
 (`.agents/metrics/loop-ledger.md`): every loop's rounds, findings, and
 self-inflicted share get a permanent row, which is the evidence base for
