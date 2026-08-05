@@ -58,6 +58,15 @@ we've sequenced for later.
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
 
+- **`rate_limit_counters` has no production cleanup — PII-retention gap, not just table growth.** See the
+  [Code-level tech debt](#code-level-tech-debt) entry below for the full
+  detail: every row `checkSharedRateLimit` writes carries the raw IP, user
+  id, and sometimes a normalized recipient email, with no purge ever wired
+  up. Left in Code-level tech debt (grouped with the sibling
+  `adminConfig`/`getStripeSync` entries from the same review), but flagged
+  here so the quarterly `/security-review` — which otherwise only reads this
+  section — doesn't miss it.
+
 - **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
   - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
     maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19
@@ -452,13 +461,22 @@ re-gather it when the work is scheduled.
     so it doesn't touch this gap. Ordered **last** of these five by David's
     2026-08-04 decision, but flagged as the one that **worsens with time**
     rather than staying static, so it shouldn't sit indefinitely.
-  - **Cost of waiting.** Unbounded row growth in `rate_limit_counters`,
-    worsening query/index cost over time. No data-correctness risk — expired
-    rows are just inert until purged.
-  - **Revisit trigger.** A scheduled maintenance pass, or observed table-size
-    growth becoming a real query-latency concern. Fix needs real retention: a
-    bounded per-run delete statement plus a bounded whole-run budget with
-    rescheduling (not a single unbounded `DELETE`), verified against a
+  - **Cost of waiting.** Not just table growth: `key_raw`
+    (`sharedRateLimiter.ts`'s `normalizeRateLimitKey()`) stores the raw IP,
+    user id, and — for endpoints scoped by `recipientEmail` — a normalized
+    email address, per row, for every endpoint/IP/user/email key combination
+    ever seen. With no cleanup, this is an **unbounded PII-retention
+    backlog**, not merely inert counters — a privacy/security cost, not only
+    a query-latency one. This reframes the item: the quarterly
+    `/security-review` should track it too, not just a maintenance pass, and
+    a design that only addresses index/query cost (e.g. archiving instead of
+    deleting) would leave the retention problem unsolved.
+  - **Revisit trigger.** A scheduled maintenance pass, the quarterly security
+    review, or observed table-size growth becoming a real query-latency
+    concern — whichever fires first. Fix needs real retention (deletion, not
+    archiving, given the PII content): a bounded per-run delete statement
+    plus a bounded whole-run budget with rescheduling (not a single
+    unbounded `DELETE`), verified against a
     high-cardinality backlog so no single run monopolizes the pool.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
@@ -487,9 +505,12 @@ re-gather it when the work is scheduled.
     (`docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md` cites a `docs/plans/*`
     file for the async-queue-hardening plan, long since gone from `main`, as
     a "not built in this PR" note). A guard scoped only to implementation
-    code comments (`artifacts/*/src/`) and `.agents/memory/` catches the
-    actual failure mode (a docstring pointing readers at a plan that won't
-    exist on `main`)
+    code comments (`artifacts/*/src/` **and** `lib/*/src/` — this repo ships
+    real implementation source under both roots, e.g. `lib/db/src` and
+    `lib/api-zod/src`, either of which could carry the same dangling
+    citation and merge green under an `artifacts/`-only guard) and
+    `.agents/memory/` catches the actual failure mode (a docstring pointing
+    readers at a plan that won't exist on `main`)
     without breaking on transient docs that are allowed to reference a
     plan-review PR they're paired with. Whitelisting after the fact, rather
     than scoping correctly from the start, would recreate exactly the kind

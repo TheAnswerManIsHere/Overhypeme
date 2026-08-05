@@ -49,8 +49,8 @@
   `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
   this is a **per-instance** ceiling, not a bounded fleet-wide one — on
   autoscale infrastructure with no configured instance cap, the effective
-  allowance is `instances × ceiling`. **At least 11 of 31 route files** had
-  some pre-existing rate limiting before this PR — 7 DB-backed with an
+  allowance is `instances × ceiling`. **At least 12 of 31 route files** had
+  some pre-existing rate/quota limiting before this PR — 7 DB-backed with an
   **atomic** guarantee (`facts.ts`, `reviews.ts`, `admin.ts`,
   `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` via
   `checkSharedRateLimit`/`createRateLimiter`'s single
@@ -61,20 +61,28 @@
   `INSERT` the new row as a separate statement — under a genuinely
   concurrent multi-instance burst, multiple requests can all pass the read
   before any insert commits, a classic TOCTOU race; DB-persisted and
-  fleet-*visible*, but not fleet-*correct* the way the atomic family is); and
-  2 in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
-  backstop's own per-instance limitation). `render.ts`'s preview/download
-  endpoints are separately protected at the Cloudflare WAF edge layer
-  (infrastructure, not application code — not counted in this tally either
-  way; see
-  `docs/cloudflare-rate-limits.md`). **The "11" count of pre-existing
-  limiters is a lower bound, not a verified-exhaustive figure** — it comes
-  from each route file's own code plus one level of delegation into `lib/`,
-  found only after two earlier passes at this same count (6, then 9) each
-  missed a real case; a route could still reach an unaudited rate-limiting
-  helper through a path not yet checked. Since "existing" can only grow as
-  more are found, **"20 route files getting their first application-level
-  rate limiting from this PR" (31 − 11) is correspondingly an upper bound,
+  fleet-*visible*, but not fleet-*correct* the way the atomic family is); 2
+  in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
+  backstop's own per-instance limitation); and 2 **budget/quota gates, a
+  different protection class from rate-per-window** (`videos.ts` *also*
+  returns 429 from `checkBudget()` — a per-user cost cap, a second,
+  independent 429 source in the same file as its `videoJobsTable` check;
+  `pulidJobs.ts` returns 429 from `isUserAtImageLimit()`, a per-user image-
+  count cap). `render.ts`'s preview/download endpoints are separately
+  protected at the Cloudflare WAF edge layer (infrastructure, not
+  application code — not counted in this tally either way; see
+  `docs/cloudflare-rate-limits.md`). **No single number in this note should
+  be trusted as final** — this count has been revised upward across four
+  separate Codex review rounds on the same PR (6 → 9 → 11 → 12), each
+  finding a real case the previous pass missed (a route-file symbol grep,
+  then `lib/`-delegated protection, then a non-`checkSharedRateLimit`
+  DB-backed check, then a budget/quota gate distinct from rate limiting).
+  Treat every count here as a lower bound on pre-existing protection and an
+  upper bound on "newly covered by this backstop," not a verified-exhaustive
+  audit — a further pass could plausibly find more. Since "existing" can
+  only grow as more are found, **"19 route files getting their first
+  application-level
+  rate limiting from this PR" (31 − 12) is correspondingly an upper bound,
   not a lower one** — treat it as approximate, and as likely to shrink on
   a future audit, not grow.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),

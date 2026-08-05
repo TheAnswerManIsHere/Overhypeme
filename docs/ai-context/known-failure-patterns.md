@@ -756,8 +756,10 @@ with two homes, a paraphrased spec section, or a false claim. Those remain the
 human half, and this entry is the reminder that they exist.
 
 **The pattern generalizes past docs to code call sites (PR #308).** Mounting
-a new global rate limiter gave every `/api` poller its first-ever 429 path —
-a new failure mode with **at least four independent call sites** (not a
+a new global rate limiter gave several `/api` pollers their first-ever
+rate-limit 429 path to handle — **not every poller**, since some endpoints
+already had their own pre-existing 429 (see below) — a new failure mode with
+**at least four independent call sites** (not a
 verified-exhaustive count, per the same undercounting this file's own
 "fixing the flagged site" lesson warns about) across two components' worth
 of poll loops. The plan's own implementation fixed one (the video/PuLID

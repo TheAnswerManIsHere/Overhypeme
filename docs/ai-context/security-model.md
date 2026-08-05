@@ -75,7 +75,7 @@ preview and the Playwright e2e admin flows keep working; production
   `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
   `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
   `/api` route — the first *application-level* rate limiting for
-  approximately 20 of this repo's 31 route files (an upper-bound estimate,
+  approximately 19 of this repo's 31 route files (an upper-bound estimate,
   not an exhaustive count — see the 2026-08-04 `decisions.md` entry's
   "accepted trade-off" note for the full breakdown and why the exact number
   can only shrink, not grow, on a future audit, and has already

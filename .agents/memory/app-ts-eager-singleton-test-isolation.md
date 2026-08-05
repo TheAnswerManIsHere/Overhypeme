@@ -21,7 +21,9 @@ imported, regardless of which binding the importer actually asks for. So
 merely importing `createApp` also ran `const app = createApp();`, which reads
 `process.env.ALLOWED_ORIGINS` at that moment and bakes it into the singleton.
 
-This repo's test runner (`bash scripts/run-test.sh`) uses
+This repo's test runner (`bash artifacts/api-server/scripts/run-test.sh`, run
+from the repo root — the shorter `scripts/run-test.sh` form only resolves
+after `cd`-ing into `artifacts/api-server` first) uses
 `--test-isolation=none`: multiple test files share one process and one module
 registry. `csrf.integration.test.ts` sets `ALLOWED_ORIGINS` in its own
 `beforeEach` and expects a fresh app per test via a `getApp()` helper that
