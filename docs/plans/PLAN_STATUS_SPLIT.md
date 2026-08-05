@@ -185,24 +185,40 @@ changes.**
    exact failure that leaves `code-review`/`codex` standing.
 3. **Gather live evidence, batched, read-only.** One `issue_read` (labels,
    body, `has_children`); where a PR was discovered, one `pull_request_read`
-   covering `get` + `get_status` + `get_review_comments`.
+   covering `get` + `get_status` + `get_review_comments`. **Plus, when the
+   discovered PR is merged, a ref-qualified lookup of the TEST_RUN document
+   against `main`** — `get_file_contents(path: "docs/", ref: "main")` (or the
+   equivalent targeted path check), never the local checkout and never the
+   PR's own file list. *(round-4 finding 2)* Both of those alternatives are
+   wrong for the same reason: the doc is **deleted in a later commit**, so the
+   PR that added it always shows it present, and the working branch may not be
+   `main` at all. Only a live `main` lookup answers "is it still there?"
 4. **Validate label invariants — before any write.** *(round-2 finding 10)*
    Missing or duplicated labels for **any** of `stage:`, `waiting:`, `mode:`
    is a report-only data error: report it, write nothing, stop. Rewriting
    stage/waiting while a duplicate `mode:` keeps the sync throwing would
    produce a "healed" run that leaves the board broken.
-5. **Derive** the labels (matrix below), then the presentation state.
-6. **Render the candidate block in memory** — not yet written.
-7. **Disclosure gate, on the rendered candidate.** *(round-2 finding 4)* The
+5. **Terminal check — stored `stage:done` short-circuits before derivation.**
+   *(round-4 finding 1.)* If the **stored** stage is `done`: report `DONE`,
+   **write nothing**, stop. This must happen **before** the label matrix runs,
+   not after. A completed feature still has its durable UAT doc on `main`, so
+   running the matrix first would derive `uat`/`david` and **rewrite
+   `stage:done` back to `stage:uat`** — `/status` would reopen finished
+   workstreams and mutate their authoritative labels on every invocation. The
+   order-0 presentation short-circuit alone does **not** prevent this, because
+   by then the damage is in the derived labels the write step will apply.
+6. **Derive** the labels (matrix below), then the presentation state.
+7. **Render the candidate block in memory** — not yet written.
+8. **Disclosure gate, on the rendered candidate.** *(round-2 finding 4)* The
    gate runs **here**, after the candidate text exists and before any write,
    because classifying whether a write discloses carve-out content requires
    seeing the actual text. Running it earlier would mean classifying from
    session memory. On a hit: **write nothing**, report in chat, say plainly
    the write was withheld and why.
-8. **Write — body first, then labels, atomically per mutation.**
+9. **Write — body first, then labels, atomically per mutation.**
    *(round-2 findings 5 and 6; ordering rationale below.)*
-9. **Report in chat**, sparse, disclosing the write and every label changed —
-   including the no-change and partial-failure cases.
+10. **Report in chat**, sparse, disclosing the write and every label changed —
+    including the no-change and partial-failure cases.
 
 ### The label-derivation matrix
 
@@ -277,9 +293,48 @@ cleanly: `david`/`replit` → order 1; `done` → order 0; `claude`/`codex`/`ci`
 → order 2 if aged, order 3 if live-confirmed, order 4 otherwise. **A legal
 label combination is never reported as a data error.** That earlier framing
 was wrong: routing valid states to "data error" misclassifies them rather than
-covering them. `data error` is reserved **exclusively** for genuine invariant
-violations — a missing or duplicated label on any of the three prefixes —
-which step 4 catches before any derivation runs.
+covering them.
+
+**What `data error` does cover** *(round-4 finding 3 — round 3 over-narrowed
+this and contradicted the splice contract)*. It is a **report-only, no-write
+stop** in exactly two structural cases, both of which make a *correct* write
+impossible rather than merely unusual:
+
+1. **Label-invariant violation** — a missing or duplicated label on any of the
+   three prefixes (step 4).
+2. **Ambiguous block structure** — more than one `## State of Play` heading,
+   where no splice boundary can be chosen without risking content loss
+   (splice contract).
+
+What it does **not** cover is any legal `stage:`/`waiting:` combination. The
+distinction is *"the artifact is malformed"* versus *"the state is unusual"* —
+only the former is an error.
+
+### The activity clock — what counts as "relevant activity"
+
+*(round-4 finding 4. This is the subtlest failure in the plan so far and it is
+self-inflicted by write-through itself.)*
+
+`STALLED` depends on "no relevant activity in > 48h." The obvious source —
+the issue's `updated_at` — is **disqualified**, because `/status` rewrites the
+State of Play body on **every** invocation, which advances that very
+timestamp. On a no-PR workstream the loop is closed and vicious: one `/status`
+run makes the next run see "fresh," so an aged workstream reports `WORKING`
+forever, and `STALLED` can never fire again for anyone who checks status more
+often than every 48 hours. The skill would permanently mask the exact
+condition it exists to surface.
+
+**Relevant activity is therefore defined as events `/status` cannot itself
+produce:**
+
+- PR commits, comments, reviews, review threads, and CI runs;
+- issue **comments** by any author;
+- label changes attributable to another writer.
+
+**Explicitly excluded:** the issue's `updated_at`, and any issue-body revision
+whose only change is the State of Play block. When no qualifying event exists
+at all, the anchor is the issue's **creation** time — never the last
+`/status` touch.
 
 **What makes `WATCHING` falsifiable:** if the live check shows the PR merged,
 closed, or idle with nothing pending, WATCHING is unavailable and the state is
@@ -426,6 +481,27 @@ mechanical checks plus live acceptance cases.
    Plus `stage:done` with **each** of the five `waiting:` values → `DONE` every
    time, exercising the order-0 short-circuit against the exact combination
    round 2 found reachable.
+9. **Terminal-`done` non-mutation** *(round-4 finding 1 — the round-3
+   acceptance case above could pass on a no-PR fixture while the real path
+   reopened completed work).* Three fixtures, each `stage:done` **with a
+   discovered merged PR**: (a) TEST_RUN doc still on `main`, (b) UAT doc only,
+   (c) neither doc. All three must report `DONE` and perform **zero writes** —
+   specifically, `stage:done` must not be rewritten to `uat` or `test-run`.
+   A fixture without a merged PR does **not** satisfy this case.
+10. **TEST_RUN `main` lookup** *(round-4 finding 2)*: a fixture where the local
+    branch and current `main` **disagree** about the TEST_RUN doc's existence
+    — the doc present locally, deleted on `main`. The derivation must follow
+    `main` (→ `uat`/`david`), proving the signal came from a ref-qualified
+    live lookup rather than the checkout or the PR's file list.
+11. **Activity clock excludes self-writes** *(round-4 finding 4)*: an aged
+    (> 48h) no-PR workstream at `waiting:claude`. Run `/status` twice. The
+    **second** run must still report `STALLED`. Reporting `WORKING` proves the
+    freshness came from the first run's own body write — the self-invalidating
+    loop.
+12. **Splice-error preservation** *(round-4 finding 3)*: the duplicate
+    `## State of Play` fixture from case 7 must still be a report-only,
+    no-write stop after the `data error` category was narrowed — confirming
+    the narrowing didn't delete the structural safety stop.
 
 ## Implementation Steps
 
@@ -504,6 +580,13 @@ gaps in this plan, resolved above without needing a product decision.
       error** (that is reserved for missing/duplicate labels alone).
 - [ ] `waiting:replit` reports `WAITING ON YOU`; `WATCHING` is never claimed
       without a live GitHub check.
+- [ ] **A stored `stage:done` workstream is never mutated** — verified with a
+      discovered merged PR and its durable UAT doc present, the case that
+      would otherwise reopen finished work on every invocation.
+- [ ] The TEST_RUN signal comes from a **ref-qualified `main` lookup**, not the
+      local checkout or the PR's file list.
+- [ ] **`STALLED` survives a `/status` run** — the activity clock excludes this
+      skill's own body writes, proven by the two-run aged-workstream case.
 - [ ] The splice contract is documented and its absent/duplicate negatives
       pass.
 - [ ] Missing/duplicate labels on any of the three prefixes block writes.
