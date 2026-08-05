@@ -143,7 +143,11 @@ design; the essentials:
   this middleware isn't a
   backstop behind real protection; it's the first application-level rate
   limiting those routes have ever had.
-- Because this mounts the API's first-ever *rate-limit* 429 path, it also
+- Because this mounts the API's first *global, API-wide* rate-limit 429 path
+  (narrow, pre-existing limiters like `localAuth.ts`/`facts.ts`/`reviews.ts`
+  already returned rate-limit 429s via `checkSharedRateLimit`/
+  `createRateLimiter` — this isn't the first rate-limit 429 anywhere in the
+  API, just the first one every `/api` route can now hit), it also
   created a **new class** of 429 for the video/pulid job pollers to handle —
   their *submission* endpoints already 429'd on budget/quota exhaustion
   (`checkBudget()`, `isUserAtImageLimit()`), but the pollers themselves

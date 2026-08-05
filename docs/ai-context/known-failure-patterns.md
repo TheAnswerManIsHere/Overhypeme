@@ -771,7 +771,9 @@ file. Each fix was locally correct and each round looked like progress while
 the finding count didn't fall to zero until round 3. **Not every poller of
 an endpoint the global limiter now covers was newly exposed** — a Codex
 round on this very `/document` harvest found a fifth poller
-(`useTaxonomyHealthActions.ts` → `/admin/taxonomy-health/job-status`) whose
+(`useTaxonomyHealthActions.ts` → `/api/admin/taxonomy-health/job-status` —
+the client-visible path; `/admin/...` is only the router-local path before
+`app.use("/api", router)` mounts it) whose
 429 handling predates this PR entirely, because that route already had its
 own `checkSharedRateLimit` call (it's one of the pre-existing DB-backed
 limiters `adminTaxonomyHealth.ts` is documented as, elsewhere in this repo's

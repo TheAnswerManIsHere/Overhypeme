@@ -73,7 +73,16 @@
   — delegates to `startVideoJob()` in
   `artifacts/api-server/src/lib/videoPipelineRunner.ts`, whose pre-flight
   `checkBudget()` call throws the same 429 before a job is
-  created). `render.ts`'s preview/download endpoints are separately
+  created). **A fourth layer, not a fourth file:** `videos.ts` and
+  `memes.ts` also call `enforceGovernance()`
+  (`artifacts/api-server/src/lib/resourceGovernance.ts`) before generation,
+  which 429s from its own process-local `usageEvents`/`inFlightByUser`
+  in-memory counters (requests/spend/concurrency caps) — a third protection
+  layer on top of those two files' existing DB-observed and budget-gate
+  429s, sharing this backstop's own per-instance limitation. Doesn't change
+  the 13/31 file count (both files are already counted), but a future audit
+  hardening per-instance controls specifically would miss this layer if it
+  only looked at the `share.ts`/`shareCopy.ts` in-process bucket. `render.ts`'s preview/download endpoints are separately
   protected at the Cloudflare WAF edge layer (infrastructure, not
   application code — not counted in this tally either way; see
   `docs/cloudflare-rate-limits.md`). **No single number in this note should

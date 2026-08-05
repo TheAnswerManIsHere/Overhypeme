@@ -466,11 +466,14 @@ re-gather it when the work is scheduled.
     (`sharedRateLimiter.ts`'s `normalizeRateLimitKey()`) stores the raw IP,
     user id, and — for endpoints scoped by `recipientEmail` — a normalized
     email address, per row, for every endpoint/IP/user/email key combination
-    ever seen. **For `createRateLimiter`-backed routes specifically, the
-    "user id" is `getSessionId(req)`** (`rateLimit.ts`'s `rateLimitScope()`)
-    — this repo's 32-byte hex session cookie/Bearer token, not an opaque
-    account id — so those rows retain live/recent **session tokens**, a
-    materially higher-severity secret than an identifier. With no cleanup,
+    ever seen. **For both `createRateLimiter`- and `createFactSubmitRateLimiter`-
+    backed routes, the "user id" is `getSessionId(req)`** (both factories call
+    the same `rateLimitScope()` in `rateLimit.ts` — `createFactSubmitRateLimiter`
+    passes `scope.userId` into its own `checkSharedRateLimit` call for the
+    `fact_submit` endpoint, mounted on fact submission in `reviews.ts`) — this
+    repo's 32-byte hex session cookie/Bearer token, not an opaque account id —
+    so those rows, across both factories, retain live/recent **session
+    tokens**, a materially higher-severity secret than an identifier. With no cleanup,
     this is an **unbounded PII-and-session-token retention backlog**, not
     merely inert counters — a privacy/security cost, not only a
     query-latency one. This reframes the item: the quarterly
@@ -551,7 +554,11 @@ re-gather it when the work is scheduled.
     file-level exemption** for `plan-doc-path-never-cite-from-code.md`
     specifically (its whole purpose is to name the dangling-path pattern in
     prose); the relative-vs-URL distinction only correctly resolves the
-    *other* memory doc's citation, not this one.
+    *other* memory doc's citation, not this one. **The exemption list also
+    needs `MEMORY.md`** (Codex review, PR #319, fifth pass): its own one-line
+    index summary of the "never cite a `docs/plans/*` path from code" lesson
+    (`MEMORY.md:23`) repeats the same bare `docs/plans/PLAN_*.md` teaching
+    text, a third file the guard would need to know about before it can ship.
 
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
