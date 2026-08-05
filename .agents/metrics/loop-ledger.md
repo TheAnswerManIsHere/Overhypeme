@@ -205,10 +205,10 @@ reasons are different and shouldn't be conflated. (#294's causal share is
 unresolved for a different reason than #290/#292's gate-tripping — see
 row 17's note — but the trend-exclusion result is the same.)
 
-**Of these six, three are confirmed pre-boundary, two are confirmed
+**Of these eight, three are confirmed pre-boundary, four are confirmed
 post-boundary, and one (#285) straddles the boundary — this is not a clean
-three/three split, and treating it as one would repeat the exact error
-corrected here previously.** David enabled Codex "Exhaustive code review"
+split, and treating it as one would repeat the exact error corrected here
+previously.** David enabled Codex "Exhaustive code review"
 shortly after 6:56 PM on 2026-07-29 (the ChatGPT settings screenshot he sent
 is timestamped then, and he confirmed the change in the same breath) — no
 timezone was recorded alongside that timestamp. #270, #274, and #282 all ran
@@ -231,7 +231,9 @@ not a "latest plausible timezone" argument that doesn't actually hold.
 (#294's own window is unambiguously post-boundary too — starting nearly 21
 hours after even the `-04:00`-shifted commits begin on 2026-07-30 — but
 it's excluded from this population regardless, per its `unmeasured` status
-above.)
+above.) **#304 and #308 need none of this timezone grounding either**: both
+loops' review windows fall on 2026-08-04, nearly a week after the toggle,
+so they're confirmed post-boundary the same unambiguous way #294 is.
 **#285 is different**: its review window is
 2026-07-29T22:39Z–2026-07-30T02:09Z, and 00:56Z falls **inside** that
 window, not before it, so #285 straddles the boundary: its earlier
@@ -261,19 +263,23 @@ checked analysis, not an equally-valid alternative reading.
 not survive two more points: the four-point sequence drops from a
 near-plateau to a genuine, non-structural zero (#308 — see the note above
 distinguishing this from the single-round structural floor) and then back
-up to this ledger's second-highest recorded share (#304, driven by a loop
-that spent five rounds hardening code it had itself written mid-loop — see
-row 23). Four points remains thin evidence for a trend in either direction;
+up to the fourth-highest recorded share in the ledger (#304, 61.1%, behind
+only #282's 72.1%, #274's 68.4%, and #270's 64.7% — driven by a loop that
+spent five rounds hardening code it had itself written mid-loop — see row
+23). Four points remains thin evidence for a trend in either direction;
 the honest read is that post-boundary self-inflicted share varies loop to
 loop with what each loop actually asked of the workflow (novel mid-loop
 machinery vs. a well-scoped feature with clean seams), not that review
 quality is trending up or down since the toggle. #294 ran a genuinely large
 post-boundary loop (2026-07-30T21:23 to 2026-08-01T04:41, unambiguously
 post-boundary) but its causal share is `unmeasured` (row 17's note), so it
-is not a trend point here, the same way #290 and #292 aren't. **The
-confirmed post-boundary population no longer shares one script-cohort
-shape, which dilutes but doesn't remove the earlier implementation-vs-docs
-confound.** #288 and #289 are both classified `prose/contract` only because
+is not a trend point here, the same way #290 and #292 aren't. **All four
+confirmed post-boundary rows still carry the same `prose/contract` cohort
+*label*, but that label was never evidence of a shared underlying PR
+shape — and with two more rows now sharing it, that gap is harder to miss,
+not easier, which dilutes but doesn't remove the earlier
+implementation-vs-docs confound.** #288 and #289 are both classified
+`prose/contract` only because
 `classifyCohort` checks for any `.md` file before checking the PR's own
 fix-tier field (row 12 describes #288 as a 21-file backend/frontend
 implementation that happens to carry paired docs; row 13 describes #289 as
