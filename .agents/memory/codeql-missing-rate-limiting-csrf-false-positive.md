@@ -105,16 +105,29 @@ design; the essentials:
   bounded fleet-wide one — see the plan's "What per-instance counting means"
   section for the honest limitation statement, and §6 item 4 (the unenforced
   autoscale instance cap) for what would need to exist to make it fleet-wide.
-- **Only 9 of this API's 31 route files had any rate limiter before this
-  change** (`facts.ts`, `reviews.ts`, `admin.ts`, `adminTaxonomyHealth.ts`,
-  `ai.ts`, `localAuth.ts`, `share.ts`, `shareCopy.ts`, `videos.ts`) — a
-  round-16 finding that inverted the plan's original framing (the plan's own
-  text undercounted this as 6/31; corrected 2026-08-04 after Codex's review of
-  the `/document` harvest for this PR caught the same undercount propagated
-  into `security-model.md`/`current-roadmap.md`/`decisions.md`, verified by
-  `rg 'RATE_LIMIT|takeBucket|checkBucket|checkSharedRateLimit|createRateLimiter|createFactSubmitRateLimiter|requireRateLimit' artifacts/api-server/src/routes/*.ts`).
-  For the other 22, this middleware isn't a backstop behind real protection;
-  it's the first rate limiting those routes have ever had.
+- **At least 11 of this API's 31 route files had some rate limiting before
+  this change** (`facts.ts`, `reviews.ts`, `admin.ts`, `adminTaxonomyHealth.ts`,
+  `ai.ts`, `localAuth.ts`, `share.ts`, `shareCopy.ts`, `videos.ts`, `storage.ts`,
+  `memes.ts`) — a round-16 finding that inverted the plan's original framing,
+  and one this repo's own docs have now undercounted **twice**: the plan's own
+  text said 6/31; a 2026-08-04 `/document`-harvest correction (Codex review of
+  PR #319) raised it to 9/31 via a grep scoped only to literal rate-limit
+  symbol names inside route files (`rg
+  'RATE_LIMIT|takeBucket|checkBucket|checkSharedRateLimit|createRateLimiter|createFactSubmitRateLimiter|requireRateLimit'
+  artifacts/api-server/src/routes/*.ts`); a second Codex round on the same PR
+  caught that this missed protection delegated through a `lib/` helper
+  (`storage.ts` → `checkUploadRateLimit` → `checkSharedRateLimit`; `memes.ts` →
+  `createMemeRecord`'s DB-queried daily save cap) and misclassified `videos.ts`
+  as an in-process bucket when it's actually a direct `videoJobsTable` query
+  (DB-backed, not in-process). See the 2026-08-04 `decisions.md` entry's
+  "accepted trade-off" note for the full, hedged breakdown — **treat any
+  single number here as a lower bound, not a verified count**; a route could
+  still delegate to an unaudited rate-limiting helper through a path not yet
+  checked. `render.ts` has separate Cloudflare-WAF edge-level protection, not
+  application code, not counted in any of the above tallies.
+  For the other ~20 (approximate), this middleware isn't a backstop behind
+  real protection; it's the first application-level rate limiting those
+  routes have ever had.
 - Because this mounts the API's first-ever global 429 path, it also created a
   429 path for the video/pulid job pollers, which previously had none — fixed
   in the same change (`artifacts/overhype-me/.../util/pollRetryClassification.ts`):

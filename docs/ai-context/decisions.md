@@ -49,15 +49,25 @@
   `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
   this is a **per-instance** ceiling, not a bounded fleet-wide one — on
   autoscale infrastructure with no configured instance cap, the effective
-  allowance is `instances × ceiling`. Of the 9 of 31 route files with prior
-  rate limiting, only 6 (`facts.ts`, `reviews.ts`, `admin.ts`,
-  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts`) use the DB-backed
-  `checkSharedRateLimit` / `createRateLimiter` and are genuinely fleet-correct;
-  the other 3 (`share.ts`, `shareCopy.ts`, `videos.ts`) use their own
-  in-process `Map`-bucket limiters, which share this backstop's same
-  per-instance limitation. For the remaining 22 route files this backstop is
-  the first rate limiting they have ever had, at a coarse per-instance
-  ceiling only.
+  allowance is `instances × ceiling`. **At least 11 of 31 route files** had
+  some pre-existing rate limiting before this PR — 9 DB-backed/fleet-correct
+  (`facts.ts`, `reviews.ts`, `admin.ts`, `adminTaxonomyHealth.ts`, `ai.ts`,
+  `localAuth.ts` via `checkSharedRateLimit`/`createRateLimiter`; `storage.ts`
+  via `checkUploadRateLimit` → `checkSharedRateLimit`; `videos.ts` and
+  `memes.ts` via their own direct DB-table queries — `videoJobsTable` and
+  `memesTable` respectively, not `checkSharedRateLimit`, but still
+  DB-persisted and fleet-correct) and 2 in-process/per-instance only
+  (`share.ts`, `shareCopy.ts`, sharing this backstop's own per-instance
+  limitation). `render.ts`'s preview/download endpoints are separately
+  protected at the Cloudflare WAF edge layer (infrastructure, not application
+  code — not counted in this tally either way; see
+  `docs/cloudflare-rate-limits.md`). **This count is a lower bound, not a
+  verified-exhaustive figure** — it comes from each route file's own code
+  plus one level of delegation into `lib/`, found only after two earlier
+  passes at this same count (6, then 9) each missed a real case; a route
+  could still reach an unaudited rate-limiting helper through a path not yet
+  checked. Treat "20 route files getting their first application-level rate
+  limiting from this PR" as approximate, not exact.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
   implementation PR #308. Full context:
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).

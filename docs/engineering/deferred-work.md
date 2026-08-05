@@ -459,6 +459,33 @@ re-gather it when the work is scheduled.
     rescheduling (not a single unbounded `DELETE`), verified against a
     high-cardinality backlog so no single run monopolizes the pool.
 
+- **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
+  - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
+    documents the rule — plan-review branches are never merged, so a code
+    comment or docstring citing a `docs/plans/*` path is dangling from
+    the moment it's written — and records **two** confirmed occurrences (PR
+    #256, PR #308) despite the rule already existing after the first one.
+    `scripts/check-docs-accuracy.mjs` only link/path-checks the shared docs
+    set (`docs/ai-context/`, the manual, etc.); it does not scan implementation
+    code comments or `.agents/memory/` for this specific pattern, so a third
+    occurrence can still merge green.
+  - **Why deferred now.** This repo's own rule is that a recurring failure
+    pattern becomes a deterministic CI guard, not a reviewer-memory ask — this
+    item is the queued acknowledgment of that rule firing, not a decision to
+    skip it. Not implemented in the PR that raised it (#319) because that PR
+    is a docs-only `/document` harvest; adding a new guard script + build.yml
+    wiring is a code change outside that ceremony's boundary (see
+    `docs/ai-context/documentation-workflow.md`'s "Docs-only" boundary).
+  - **Cost of waiting.** A third dangling-citation instance stays possible
+    and undetected by CI until this ships — the exact gap that let occurrence
+    #2 slip through despite the rule already being documented from #1.
+  - **Revisit trigger.** Next dev-infra/tooling pass, or the next time this
+    exact mistake recurs a third time. Fix is a small regex/grep-based check
+    (relative `docs/plans/*` path references appearing outside that directory
+    itself)
+    added to `check-docs-accuracy.mjs` or a sibling script, wired into the
+    Build job like the other content guards.
+
 ---
 
 ## Product deferrals live elsewhere

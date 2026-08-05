@@ -27,9 +27,9 @@ priorities (moderation speed, render/enrichment quality, video). See
 - **Global rate-limiter backstop for CodeQL's `js/missing-rate-limiting`**
   (PR #308, implementing the plan approved after PR #299's 16-round review).
   Mounts `express-rate-limit` API-wide (`app.use("/api", ...)`) as a coarse,
-  per-instance, in-memory-backed ceiling — the first rate limiting of any
-  kind for 22 of this API's 31 route files — without changing any existing
-  narrow, DB-backed limiter. See
+  per-instance, in-memory-backed ceiling — the first application-level rate
+  limiting for approximately 20 (lower-bound estimate) of this API's 31 route
+  files — without changing any existing narrow, DB-backed limiter. See
   [`security-model.md`](./security-model.md#authentication--sessions) and the
   2026-08-04 [`decisions.md`](./decisions.md) entry for why an in-memory
   store was chosen over a DB-backed one after a 14-round detour. Also fixed:
