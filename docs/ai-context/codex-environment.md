@@ -51,10 +51,16 @@ against real Postgres + pgvector (see
 database the runner dies before the first test, so the suite that backs CI's
 `Test` job is unavailable to Codex on the fast path.
 
+**David settled this on 2026-08-05: the fast boot wins.** A DB-less container is
+the standing default for every Codex task. Codex reviews by reading, GitHub CI
+owns the integration suite, and paying database provisioning on every boot to
+serve the minority of tasks that could use it is the wrong trade. Do not flip
+the default back without David.
+
 ## The DB is opt-in, and it has to be opt-in *at setup time*
 
-Set `CODEX_SETUP_DB=1` in the Codex environment when a task needs the
-integration suite. It cannot be deferred to a lazily-invoked helper: Codex
+Set `CODEX_SETUP_DB=1` in the Codex environment for the exceptional task that
+needs the integration suite, then unset it. It cannot be deferred to a lazily-invoked helper: Codex
 disables network access for the task phase, and provisioning needs
 `postgresql-16-pgvector` from apt. Setup is the only phase that can install it.
 
