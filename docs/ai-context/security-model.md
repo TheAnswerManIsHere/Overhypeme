@@ -62,17 +62,23 @@ preview and the Playwright e2e admin flows keep working; production
   the **re-attribution trap**: restructuring `app.ts` (e.g. wrapping it in a
   factory function) shifts every line number, and GitHub's diff-based
   code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
-  this PR" — verify with `git diff origin/main -- artifacts/api-server/src/app.ts`
-  before assuming a fresh alert on a restructuring-only PR is real (there is no
-  `app.ts` at the repo root; a bare-path diff silently produces an empty,
-  falsely-reassuring result).
+  this PR." Byte-identical flagged lines are necessary but **not sufficient**
+  to dismiss it — in Express the *relative order* middleware registers in is
+  often the actual security behavior, so also confirm the surrounding
+  `app.use(...)` sequence is unchanged, not just the flagged line's content.
+  `git diff origin/main -- artifacts/api-server/src/app.ts` is the starting
+  check (there is no `app.ts` at the repo root; a bare-path diff silently
+  produces an empty, falsely-reassuring result) — see the memory doc for the
+  full two-part rule before assuming a fresh alert on a restructuring-only PR
+  is real.
 - **Global rate-limiter backstop** (`artifacts/api-server/src/lib/rateLimit.ts`'s
   `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
   `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
   `/api` route — the first *application-level* rate limiting for
-  approximately 20 of this repo's 31 route files (a lower-bound estimate, not
-  an exhaustive count — see the 2026-08-04 `decisions.md` entry's "accepted
-  trade-off" note for the full breakdown and why the exact number has already
+  approximately 20 of this repo's 31 route files (an upper-bound estimate,
+  not an exhaustive count — see the 2026-08-04 `decisions.md` entry's
+  "accepted trade-off" note for the full breakdown and why the exact number
+  can only shrink, not grow, on a future audit, and has already
   been revised twice). This exists specifically to satisfy CodeQL's
   `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
   npm packages, not `checkSharedRateLimit`) and does **not** replace or change

@@ -61,13 +61,16 @@
   limitation). `render.ts`'s preview/download endpoints are separately
   protected at the Cloudflare WAF edge layer (infrastructure, not application
   code — not counted in this tally either way; see
-  `docs/cloudflare-rate-limits.md`). **This count is a lower bound, not a
-  verified-exhaustive figure** — it comes from each route file's own code
-  plus one level of delegation into `lib/`, found only after two earlier
-  passes at this same count (6, then 9) each missed a real case; a route
-  could still reach an unaudited rate-limiting helper through a path not yet
-  checked. Treat "20 route files getting their first application-level rate
-  limiting from this PR" as approximate, not exact.
+  `docs/cloudflare-rate-limits.md`). **The "11" count of pre-existing
+  limiters is a lower bound, not a verified-exhaustive figure** — it comes
+  from each route file's own code plus one level of delegation into `lib/`,
+  found only after two earlier passes at this same count (6, then 9) each
+  missed a real case; a route could still reach an unaudited rate-limiting
+  helper through a path not yet checked. Since "existing" can only grow as
+  more are found, **"20 route files getting their first application-level
+  rate limiting from this PR" (31 − 11) is correspondingly an upper bound,
+  not a lower one** — treat it as approximate, and as likely to shrink on
+  a future audit, not grow.
 - **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
   implementation PR #308. Full context:
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).

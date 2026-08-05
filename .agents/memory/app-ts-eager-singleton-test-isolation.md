@@ -40,10 +40,18 @@ isn't a theoretical concern; it's load-bearing for this specific
 `--test-isolation=none` runner.
 
 **Fix — remove the singleton, don't just work around it in one test file:**
-`app.ts` no longer default-exports (or constructs) anything at module level.
-Every caller — the production entrypoint (`index.ts`) and every test file —
-calls `createApp()` itself and gets an independent instance reading
-whatever env is current *at that call*, not at first-import time.
+`app.ts` no longer default-exports (or eagerly constructs) an **Express app
+instance** at module level. Every caller — the production entrypoint
+(`index.ts`) and every test file — calls `createApp()` itself and gets an
+independent instance reading whatever env is current *at that call*, not at
+first-import time. **Scoped claim, not absolute:** `app.ts` still has other
+top-level, env-reading state unrelated to this bug — `ORIGIN_EXEMPT_PATHS`
+(built at module scope, calling `isDevAdminLoginEnabled()` which reads an env
+var) — because that state is a `Set`, not a stateful *app instance* built
+from request-serving middleware; it doesn't recreate the caching/leak
+mechanism this note is about. The rule below is specifically about
+constructing a full app/server/client instance eagerly, not a blanket ban on
+any top-level state.
 
 **Rule:** a module meant to be imported by tests under a shared-process
 runner (`--test-isolation=none`, or any setup where import order across

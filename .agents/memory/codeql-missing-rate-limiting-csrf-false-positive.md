@@ -120,14 +120,17 @@ design; the essentials:
   `createMemeRecord`'s DB-queried daily save cap) and misclassified `videos.ts`
   as an in-process bucket when it's actually a direct `videoJobsTable` query
   (DB-backed, not in-process). See the 2026-08-04 `decisions.md` entry's
-  "accepted trade-off" note for the full, hedged breakdown — **treat any
-  single number here as a lower bound, not a verified count**; a route could
-  still delegate to an unaudited rate-limiting helper through a path not yet
-  checked. `render.ts` has separate Cloudflare-WAF edge-level protection, not
-  application code, not counted in any of the above tallies.
-  For the other ~20 (approximate), this middleware isn't a backstop behind
-  real protection; it's the first application-level rate limiting those
-  routes have ever had.
+  "accepted trade-off" note for the full, hedged breakdown — **the "11"
+  existing-limiter count is a lower bound, not a verified count**, since a
+  route could still delegate to an unaudited rate-limiting helper through a
+  path not yet checked; correspondingly, **"~20 newly-covered routes" is an
+  upper bound**, not a lower one — it can only shrink as more pre-existing
+  limiters are found, never grow. `render.ts` has separate Cloudflare-WAF
+  edge-level protection, not application code, not counted in any of the
+  above tallies.
+  For the other ~20 (approximate, upper bound), this middleware isn't a
+  backstop behind real protection; it's the first application-level rate
+  limiting those routes have ever had.
 - Because this mounts the API's first-ever global 429 path, it also created a
   429 path for the video/pulid job pollers, which previously had none — fixed
   in the same change (`artifacts/overhype-me/.../util/pollRetryClassification.ts`):
