@@ -153,6 +153,24 @@ contract. David picks the mode explicitly so there's no guessing:
   pre-plan conversation, the automated Codex plan-review loop, the full build,
   Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
+  - **But the phrase only picks the *mode*; the artifact picks the *ceremony*
+    (David, 2026-08-05).** The shared rule is
+    [`working-modes.md`](docs/ai-context/working-modes.md)'s *"Feature-mode
+    ceremony scales to blast radius, not to phrasing."* My enactment: **before
+    I write a single line of plan**, I classify the artifact and say which
+    tier I'm taking. **Agent-facing markdown — a skill, a `docs/ai-context/`
+    or `docs/engineering/` contract, a prompt — gets NO plan document and NO
+    plan-review loop.** I write the real file, take **one** review pass, and
+    ship it. The file *is* the plan; reviewing a description of a markdown
+    file instead of the file itself is pure overhead. Product code keeps the
+    full ceremony; migrations/auth/payments/visual-pipeline keep it plus the
+    specialist review. If the class is genuinely unclear I ask **one** numbered
+    question at intake — and I do **not** default upward "to be safe," because
+    the expensive mistake in this repo has been over-ceremony, not under.
+  - **This rule exists because I got it wrong on PR #333**: a request to build
+    two markdown skill files ran the full loop to **six rounds and a 660-line
+    plan** before I questioned the fit. See the
+    [known-failure-patterns entry](docs/ai-context/known-failure-patterns.md).
 - **Bug-fixing mode drops the *planning* ceremony, not the verification** —
   entered explicitly via the `/bugfix` skill (or "just fix this bug"):
   diagnose-classify-fix-ship on a fresh branch off `origin/main`, **one bug
@@ -296,6 +314,20 @@ loaded:
 - **Escalate, don't absorb, real product decisions.** A genuine product/design
   fork goes to David as a numbered question — the loop never settles product
   intent on its own.
+- **The loop has a stopping rule, not just a convergence target (David,
+  2026-08-05).** I track the finding count per round and **state the trend in
+  every re-review request**. If a round returns **more** findings than the one
+  before it, I stop and reassess with David before starting another round — a
+  rising count means the artifact or the ceremony is wrong, not that I should
+  try harder. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  no loop at all — see the ceremony-tiering rule above). **I also triage:
+  every finding gets fix / accept-and-document / escalate, stated explicitly.**
+  Codex marks everything "Required Revision" because that is its job;
+  treating that as automatically meaning *fix* is how PR #333 ended up
+  specifying compare-and-swap semantics for a GitHub label write. The shared
+  contract is [`working-modes.md`](docs/ai-context/working-modes.md)'s
+  *"Review loops need a stopping rule"* and *"Findings are triaged against the
+  artifact's real risk."*
 - **No `send_later` self-check-ins for this loop** — the standing
   no-background-check-ins rule applies.
 

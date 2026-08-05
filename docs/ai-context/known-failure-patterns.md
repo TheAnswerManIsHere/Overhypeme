@@ -785,7 +785,32 @@ caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
 
-## Hand-rolled parser chasing full coverage of a real language's syntax
+## Chasing completeness against an adversarial reviewer past the artifact's real risk
+
+**Looks like:** a review loop where every finding is correct, every fix is
+sound, and the finding count **stops falling** — often while the artifact grows
+and the later fixes start specifying guarantees the platform cannot actually
+provide. **Dangerous:** each round is individually justified, so there is no
+natural stopping point, and the cost is invisible because the work looks like
+diligence. It ends with a large over-specified artifact and real time gone. The
+tell is never a single finding — they're usually right — it is the **trend**,
+plus the shape of the late-round fixes. **Avoid:** size ceremony to blast radius
+at intake, not to how the request was phrased
+([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
+require findings to fall round over round or stop and reassess with David; and
+triage every finding into **fix / accept-and-document / escalate** rather than
+reading "Required Revision" as automatically meaning fix. **Overhype:** twice
+in one day, 2026-08-05 — PR #329's Bash guard (9 → 11 → 12 → 19 findings, an
+unbounded parsing surface; see the sub-pattern below) and PR #333's `/status`
+plan (12 → 1 → 4 → 6 → 12 findings, **six review rounds and a 660-line plan for
+two markdown skill files**, with round 6 specifying compare-and-swap semantics
+GitHub's label API does not offer and acceptance cases with no way to run
+them). **The second happened hours after the first was written up**, because
+the first was recorded narrowly as a *parser* problem and the lesson did not
+transfer — which is exactly why this entry states it at the general level and
+demotes the parser case to a sub-pattern.
+
+### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
 **Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
 meant to catch **every** way a general-purpose scripting/shell language can

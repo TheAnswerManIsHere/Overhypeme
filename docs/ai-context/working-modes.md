@@ -37,6 +37,70 @@ not the generated Zod API-validation schemas under `lib/api-zod`/
 `lib/api-spec`, which have their own explicit Tier B routing; see *Tier C*
 below.)
 
+### Feature-mode ceremony scales to blast radius, not to phrasing (David, 2026-08-05)
+
+**The trigger for feature mode is a phrase ("let's build X"). The amount of
+ceremony it earns is decided by the artifact, not the phrase.** Getting this
+backwards is what produced PR #333: a request to build a `/status` skill —
+two markdown files — went through the full plan + convergence loop and reached
+**six review rounds and a 660-line plan** before anyone asked whether the
+ceremony fit the thing being built.
+
+The deciding question is the one already used for model routing in
+[`CLAUDE.md`](../../CLAUDE.md): **if this goes subtly wrong, will code review or
+David's product-testing catch it before it does damage?** Where the answer is
+"immediately and obviously," heavy ceremony buys nothing and actively costs —
+every round of adversarial review on a low-risk artifact generates new surface
+to review.
+
+| Artifact class | Ceremony | Why |
+| --- | --- | --- |
+| **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
+| **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
+| **Migrations, backfills, auth, payments, the visual pipeline** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
+
+**A plan document is for work whose *approach* could be wrong in a way David
+can't see from the result.** A skill file's approach is legible from the file
+itself, so the file *is* the plan — write it and review the real artifact
+rather than reviewing a description of it.
+
+**When the class is genuinely unclear, ask** — one numbered question at intake,
+before any plan is written. Do not default to the heavier path "to be safe":
+this failure mode has a real cost and it is the one that has actually happened.
+
+### Review loops need a stopping rule, not just a convergence target
+
+A review loop's exit condition cannot be "keep going until the reviewer stops
+finding things." An adversarial reviewer on a sufficiently detailed artifact
+will keep finding things, and each fix adds surface for the next round.
+
+- **Findings must fall round over round.** If a round produces **more** findings
+  than the one before it, stop and reassess **with David** before starting
+  another round. Report the count trend plainly.
+- **Cap by artifact class.** Agent-facing markdown: **1–2 rounds.** Product
+  code: the existing soft cap, and the ~20-round figure is a backstop, not a
+  budget.
+- **A rising count is a signal about the artifact or the process, not a reason
+  to try harder.** Two live examples, both 2026-08-05: PR #329's guard (9, 11,
+  12, 19 — an unbounded parsing surface) and PR #333's plan (12, 1, 4, 6, 12 —
+  ceremony mismatched to a markdown file, with later rounds specifying
+  guarantees the platform could not provide).
+
+### Findings are triaged against the artifact's real risk
+
+Codex labels findings "Required Revision" — that is its job, and it is
+correct to. **Accepting that framing wholesale is not.** Every finding gets
+one of three responses, stated explicitly:
+
+1. **Fix it** — the defect matters for this artifact.
+2. **Accept and document it** — the finding is correct, and the cost of fixing
+   exceeds the risk *for this artifact*. Say so, in the thread and in the file.
+3. **Escalate it** — it's a genuine product or design decision. That's David's.
+
+Response 2 is legitimate and under-used. Specifying compare-and-swap semantics
+for a GitHub label write, in a solo-operator repo, because a reviewer correctly
+noted a race, is response 1 applied where response 2 was right.
+
 ## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
 A focused fix-and-ship loop for a bug — restoring behavior that was already
