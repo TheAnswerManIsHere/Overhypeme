@@ -289,11 +289,18 @@ actorless way a PR's does, and would reset this clock and hide the same
 stale handoff the PR path is designed to expose — don't let "no PR yet"
 mean "can't be stalled," since a workstream that never gets a PR shape
 stalls in exactly the same way, just on a different object. **If the
-paged comment history is empty** (an issue freshly opened with nothing
-posted since), fall back to the issue's own `created_at` as the baseline
-activity event — otherwise there's no timestamp to measure the 48-hour
-threshold against at all, and a workstream that's sat untouched since
-creation could never be flagged.
+*filtered, attributable* comment set is empty** — either because the
+paged history has nothing at all (an issue freshly opened with nothing
+posted since), or because every comment in it is David's own (per the
+signature-based filter above, with nothing left once his items are
+excluded) — fall back to the issue's own `created_at` as the baseline
+activity event. Both cases leave this algorithm with no non-David
+timestamp to measure the 48-hour threshold against, and treating only
+the empty-history case as the trigger would let a `waiting:claude`/
+`waiting:codex` issue containing nothing but David's own unanswered
+prompts evade the stalled bucket indefinitely — the same failure mode
+the signature-filter fix above exists to close, just one step later in
+the pipeline.
 
 This catches both directions: `waiting:codex` with no Codex response
 (review hasn't landed) *and* `waiting:claude`/`waiting:codex` with a

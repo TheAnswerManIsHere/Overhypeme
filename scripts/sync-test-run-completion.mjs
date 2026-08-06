@@ -175,17 +175,6 @@ export function handoffText(targetStage, uatFilename) {
 }
 
 /**
- * True if the body's `**Stage:**` line already reads `stageDisplay` — lets a
- * retry (after a partial prior run, e.g. labels wrote but the body PATCH
- * failed) skip straight to whatever's actually still stale instead of
- * re-deriving from scratch or silently no-op'ing on an already-correct body.
- */
-export function bodyStageMatches(body, stageDisplay) {
-  const m = /\*\*Stage:\*\*([^\n]*)/.exec(body ?? "");
-  return m ? m[1].trim() === stageDisplay : false;
-}
-
-/**
  * Deleted file paths between two commits, via `git diff --name-status`.
  * `--no-renames` is deliberate: a TEST_RUN doc's deletion landing in the same
  * push as an unrelated, content-similar Markdown add/move can otherwise be
@@ -372,8 +361,13 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     // or misspelled mode: label is not evidence of anything and must not be
     // read as "not feature, safe to close out."
     if (targetStage === "close-out") {
-      const recognized = modeLabels.filter((l) => RECOGNIZED_MODES.has(l.slice("mode:".length)));
-      if (recognized.length !== 1) {
+      // Exactly one mode: label, full stop — not "at least one recognized
+      // one among however many are present." A duplicate like mode:bugfix +
+      // a stray mode:bugfx must reject too: it's still evidence the mode
+      // labeling on this issue is broken, and letting a coincidentally-
+      // recognized label among the extras through would silently trust
+      // corrupted state.
+      if (modeLabels.length !== 1 || !RECOGNIZED_MODES.has(modeLabels[0].slice("mode:".length))) {
         throw new Error(
           `issue #${issueNumber} doesn't have exactly one recognized mode: label ` +
             `(found: ${modeLabels.join(", ") || "none"}) and has no UAT doc for PR #${prNumber} — mode is the ` +
@@ -388,7 +382,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       // Silently routing that to close-out would skip David's UAT gate
       // without him ever knowing there was one to skip; leave the label
       // untouched and surface it as a failed run instead.
-      if (recognized[0].slice("mode:".length) === "feature") {
+      if (modeLabels[0].slice("mode:".length) === "feature") {
         throw new Error(
           `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
             `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
@@ -472,11 +466,6 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   // David/agent body edit, made after that first GET but before now, would
   // otherwise be silently overwritten by a stale full-body PATCH.
   const freshIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
-  if (bodyStageMatches(freshIssue.body, targetDisplay)) {
-    console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage} (body already reflects it)`);
-    return degraded;
-  }
-
   const lastMovementLine =
     `${new Date().toISOString().slice(0, 10)} — TEST_RUN doc for PR #${prNumber} cleared ` +
     `(Replit finished); auto-transitioned to ${targetDisplay} by sync-test-run-completion.mjs.`;
@@ -497,6 +486,18 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       `  ✗ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david ` +
         `(body's State of Play block wasn't in the expected shape — labels/board updated, body left as-is; ` +
         `this needs a human to fix the body manually, nothing will retry it)`,
+    );
+    return degraded;
+  }
+  // Comparing the *fully computed* replacement against the current body,
+  // not just a Stage-line check — a retry can land with Stage already
+  // correct but Waiting on/Last movement/blocking/todo still describing
+  // the old handoff (a prior run's PATCH partly landed, say), and a
+  // Stage-only shortcut would report that partial state as done instead
+  // of finishing the reconciliation.
+  if (updatedBody === freshIssue.body) {
+    console.log(
+      `  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage} (body already fully reflects it)`,
     );
     return degraded;
   }

@@ -8,7 +8,6 @@ import {
   stillHasTestRunDoc,
   computeTransition,
   updateStateOfPlayBody,
-  bodyStageMatches,
   handoffText,
 } from "../sync-test-run-completion.mjs";
 
@@ -163,13 +162,3 @@ test("handoffText gives close-out text with no UAT reference for close-out", () 
   assert.match(todoText, /Nothing right now/);
 });
 
-test("bodyStageMatches detects an already-reconciled Stage line", () => {
-  const body = "**Stage:** 🛑 UAT\n**Waiting on:** David\n";
-  assert.equal(bodyStageMatches(body, "🛑 UAT"), true);
-  assert.equal(bodyStageMatches(body, "Close-out"), false);
-});
-
-test("bodyStageMatches is false when there's no Stage line at all", () => {
-  assert.equal(bodyStageMatches("no state of play block here", "🛑 UAT"), false);
-  assert.equal(bodyStageMatches(undefined, "🛑 UAT"), false);
-});
