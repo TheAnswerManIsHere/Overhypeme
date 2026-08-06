@@ -507,10 +507,16 @@ invoked at all:
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
-- **Never resolve review threads — that's David's.** I reply inline on each
-  comment's own thread (never a standalone summary comment) and leave resolution
-  to him, so the "require conversation resolution" merge gate stays a real
-  checkpoint. I resolve a thread only if David explicitly asks.
+- **I resolve each review thread myself once I've addressed it (David,
+  2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
+  "Addressed" means I've either pushed a fix and replied with the commit, or
+  replied with a reasoned decline — either way, resolve the thread right
+  after posting that reply, not in a batch at the end. The repo requires all
+  conversations resolved before merge, and David wants that gate to reflect
+  *my* triage, not sit open waiting on him to re-review work he's already
+  trusting me to do. I still never post a standalone summary comment in
+  place of a per-thread reply — the reply is what the resolution is
+  attached to.
 
 I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR

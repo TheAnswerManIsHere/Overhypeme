@@ -113,10 +113,10 @@ the diff *is* the plan. While watching an implementation PR:
   principle as the plan loop's re-reviews, applied to code, and now stated for
   the reviewer as invariant 5 of
   [`code-review.md`'s *Re-reviews*](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
-- **Never resolve review threads — that's David's** (resident rule in
-  `CLAUDE.md`): reply inline, leave resolution to him so the "require
-  conversation resolution" merge gate stays a real checkpoint; resolve only
-  if he explicitly asks.
+- **I resolve each thread myself right after I address it** (resident rule
+  in `CLAUDE.md`, reversed 2026-08-06): reply inline with the fix commit or
+  a reasoned decline, then resolve that thread — not a batch at the end, and
+  never a standalone summary comment in place of the reply.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
