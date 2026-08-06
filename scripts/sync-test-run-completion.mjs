@@ -90,6 +90,37 @@ const STAGE_DISPLAY = {
 /** The `mode:` values `pr-docs`/`working-modes.md` actually define. */
 const RECOGNIZED_MODES = new Set(["feature", "bugfix", "docs", "devops"]);
 
+/**
+ * mode is the ONLY evidence this script has for distinguishing "no UAT doc
+ * because none was due" (bugfix/docs/devops) from "no UAT doc because a
+ * feature-mode PR's got deleted/renamed/never created by mistake" — so
+ * before trusting a `close-out` target to wave a missing UAT doc through,
+ * require exactly one recognized mode label, and reject `mode:feature`
+ * outright. Called from BOTH the fresh-transition and the retry branch:
+ * the retry branch's own stage-match guard only proves the current stage
+ * agrees with what this deletion's UAT doc implies, it says nothing about
+ * *how* the issue got there — a `mode:feature` issue that reached
+ * `stage:close-out` some other way (a bad manual relabel, a bug elsewhere)
+ * would otherwise sail through the retry path's matching-stage check and
+ * get a false "no UAT was due" narrative written over it.
+ */
+function assertModeAllowsCloseOut(issueNumber, prNumber, modeLabels) {
+  if (modeLabels.length !== 1 || !RECOGNIZED_MODES.has(modeLabels[0].slice("mode:".length))) {
+    throw new Error(
+      `issue #${issueNumber} doesn't have exactly one recognized mode: label ` +
+        `(found: ${modeLabels.join(", ") || "none"}) and has no UAT doc for PR #${prNumber} — mode is the ` +
+        `only evidence distinguishing a required UAT from a legitimate exemption, so this can't be safely ` +
+        `routed to close-out; leaving stage:test-run untouched.`,
+    );
+  }
+  if (modeLabels[0].slice("mode:".length) === "feature") {
+    throw new Error(
+      `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
+        `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
+    );
+  }
+}
+
 /** Decide the destination stage: UAT only if a UAT doc genuinely exists. */
 export function computeTransition(hasUat) {
   const stage = hasUat ? "uat" : "close-out";
@@ -293,6 +324,27 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   if (!prNumber) return;
 
   const pr = await rest("GET", `/repos/${repository}/pulls/${prNumber}`, token);
+
+  // The anchor check inside extractWorkstreamIssueNumber validates *where*
+  // in the body the marker sits, not *who wrote* the body. This repo is
+  // public, and the PR being merged is the untrusted input here — not the
+  // (unrelated, arbitrary) issue this marker claims to point at. Requiring
+  // Test-run/UAT review before merge doesn't close this: a reviewer scrutinizes
+  // the code diff, not an anchored marker line buried in prose, so a
+  // forged `Workstream: #N` pointing at someone else's real, currently
+  // active workstream can still slip through review and then mutate that
+  // issue's authoritative labels/body the moment this PR's TEST_RUN doc
+  // gets deleted. Same posture `/status` (`.claude/skills/status/SKILL.md`)
+  // already takes for read-only reporting — here the stakes are higher
+  // (a write, not a report), so the check is not optional.
+  if (pr.author_association !== "OWNER") {
+    console.log(
+      `  ~ PR #${prNumber}: author_association is ${pr.author_association ?? "unknown"}, not OWNER — its ` +
+        `"Workstream: #N" marker is untrusted; nothing to transition`,
+    );
+    return;
+  }
+
   const issueNumber = extractWorkstreamIssueNumber(pr.body);
   if (!issueNumber) {
     console.log(`  ~ PR #${prNumber}: no "Workstream: #N" marker in body, nothing to transition`);
@@ -352,42 +404,8 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       return;
     }
     targetStage = computeTransition(uatFilename !== null).stage;
-
-    // mode is the ONLY evidence this function has for distinguishing "no UAT
-    // doc because none was due" (bugfix/docs/devops) from "no UAT doc
-    // because a feature-mode PR's got deleted/renamed/never created by
-    // mistake" — so before trusting it to wave a missing UAT doc through to
-    // close-out, require exactly one recognized mode: a missing, duplicate,
-    // or misspelled mode: label is not evidence of anything and must not be
-    // read as "not feature, safe to close out."
     if (targetStage === "close-out") {
-      // Exactly one mode: label, full stop — not "at least one recognized
-      // one among however many are present." A duplicate like mode:bugfix +
-      // a stray mode:bugfx must reject too: it's still evidence the mode
-      // labeling on this issue is broken, and letting a coincidentally-
-      // recognized label among the extras through would silently trust
-      // corrupted state.
-      if (modeLabels.length !== 1 || !RECOGNIZED_MODES.has(modeLabels[0].slice("mode:".length))) {
-        throw new Error(
-          `issue #${issueNumber} doesn't have exactly one recognized mode: label ` +
-            `(found: ${modeLabels.join(", ") || "none"}) and has no UAT doc for PR #${prNumber} — mode is the ` +
-            `only evidence distinguishing a required UAT from a legitimate exemption, so this can't be safely ` +
-            `routed to close-out; leaving stage:test-run untouched.`,
-        );
-      }
-      // A feature-mode PR always ships a UAT doc (pr-docs' contract has no
-      // exception for it) — so a missing one here isn't "no UAT was due,"
-      // the way it can legitimately be for a bugfix/docs/devops PR. It
-      // means the doc was deleted, renamed, or never created by mistake.
-      // Silently routing that to close-out would skip David's UAT gate
-      // without him ever knowing there was one to skip; leave the label
-      // untouched and surface it as a failed run instead.
-      if (modeLabels[0].slice("mode:".length) === "feature") {
-        throw new Error(
-          `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
-            `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
-        );
-      }
+      assertModeAllowsCloseOut(issueNumber, prNumber, modeLabels);
     }
 
     finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, "test-run", token);
@@ -421,10 +439,8 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     // would be a false, backdated narrative, not a legitimate reconciliation.
     const expectedTargetStage = computeTransition(uatFilename !== null).stage;
     const freshStageIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
-    const freshStage = freshStageIssue.labels
-      .map((l) => l.name)
-      .find((l) => l.startsWith("stage:"))
-      ?.slice("stage:".length);
+    const freshLabels = freshStageIssue.labels.map((l) => l.name);
+    const freshStage = freshLabels.find((l) => l.startsWith("stage:"))?.slice("stage:".length);
     if (freshStage !== expectedTargetStage) {
       console.log(
         `  ~ issue #${issueNumber} (PR #${prNumber}): current stage (${freshStage ? `stage:${freshStage}` : "none"}) ` +
@@ -432,6 +448,16 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
           `moved on for a reason unrelated to this retry; skipping rather than backdating a false transition`,
       );
       return;
+    }
+    // The stage-match check above only proves the issue is CURRENTLY at the
+    // stage this deletion's UAT doc implies — it says nothing about how it
+    // got there. A mode:feature issue with no UAT doc that reached
+    // stage:close-out some other way (a bad manual relabel, a bug in
+    // whatever moved it) would otherwise pass that check and get a false
+    // "no UAT was due" narrative written by this retry.
+    if (expectedTargetStage === "close-out") {
+      const freshModeLabels = freshLabels.filter((l) => l.startsWith("mode:"));
+      assertModeAllowsCloseOut(issueNumber, prNumber, freshModeLabels);
     }
     targetStage = freshStage;
     finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, targetStage, token);
