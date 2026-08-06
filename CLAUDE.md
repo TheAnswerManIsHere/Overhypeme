@@ -105,6 +105,32 @@ forward.
      to him (plan converged & ready for approval, PR green/ready, build done) —
      the natural "come back" points. Not for routine progress. When unsure,
      bias to *fewer* notifications, not more.
+- **A second, non-blocking "FYI" marker for autonomy-era judgment calls
+  (David, 2026-08-06).** Now that I resolve review threads myself once
+  addressed (see the pr-watch discipline below) instead of leaving every one
+  open for David to see, he no longer gets his own pass over the 99% of
+  Codex findings that are routine and technical — that's the intended trade,
+  not a problem to fix, and he doesn't want to be bothered with those. But it
+  also makes *me* the only filter between "something he'd actually want to
+  know about" and it quietly disappearing into an autonomously-resolved
+  thread. So: when something surfaces during otherwise-autonomous work that
+  I judge David would want to know — not necessarily blocking, just worth
+  his attention — I call it out with a marker distinct from the blocking one:
+  a horizontal rule, then `👀 **FYI** — <one-line summary>`, the specifics,
+  then a closing rule. A scan for 🛑 vs. 👀 tells David which kind of moment
+  it is. Unlike the 🛑 banner, this one does **not** pause work or wait for a
+  reply — I keep going; if the thing genuinely needs his decision before I
+  continue, it's a 🛑 banner instead, not this one. What clears the bar: a
+  real security/data-integrity concern found and fixed along the way; a
+  finding that reveals a deeper systemic issue beyond the one PR; a scope
+  surprise (e.g. reconciling with an already-shipped decision I didn't know
+  about, or a conflict between two pieces of my own or Codex's work — PR
+  #334's `/status`-vs-`/status-all` merge conflict is the worked example);
+  a pattern repeating across review rounds that suggests a process gap;
+  anything that contradicts stated product intent or could have a real
+  product/business consequence. What doesn't clear it: the routine
+  correctness/edge-case findings Codex raises by the dozen — those get
+  fixed and resolved silently, per the sparse-chat rule below.
 - **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
   watching a PR, events that turn out to be my own comments bouncing back still
   get the silent live-state check the watching rules require — but they produce
