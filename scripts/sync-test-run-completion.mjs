@@ -30,7 +30,7 @@ export function extractPrNumberFromTestRunPath(path) {
 
 /**
  * Pull the workstream issue number out of a PR body. Same regex documented
- * in `.claude/skills/workstream-status/SKILL.md` and used by that skill's
+ * in `.claude/skills/status-all/SKILL.md` and used by that skill's
  * issue<->PR mapping — kept in sync by hand since the two live in different
  * runtimes (a GitHub Action here, an agent's own instructions there).
  *

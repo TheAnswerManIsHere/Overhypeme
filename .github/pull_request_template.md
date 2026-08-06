@@ -12,7 +12,7 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      Project item instead of a public issue — leave this line blank/deleted
      only for that case. Keep "Workstream: #N" as the very first thing on its
      own line, plain text, no markdown bold, nothing before it on that line —
-     /workstream-status and scripts/sync-test-run-completion.mjs both parse
+     /status-all and scripts/sync-test-run-completion.mjs both parse
      it with the anchored regex `^Workstream:[ \t]*#(\d+)` (multiline,
      line-start only), which bold formatting (`**Workstream:**`), leading
      text, or a line break between the colon and the number all break. -->

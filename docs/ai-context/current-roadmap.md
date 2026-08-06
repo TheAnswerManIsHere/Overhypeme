@@ -65,19 +65,19 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md))
   and need a repo-admin to dismiss them in the Security tab.
 - **Workstream tracking: a GitHub Project board, label-driven, plus a
-  `/workstream-status` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
+  `/status-all` skill** (PRs #318, #322, #323, #324 — workstream #317). Every
   unit of work now has a GitHub issue as its spine — except sensitive/
   disclosure-carve-out work, which stays a private draft Project item, never
   a public issue — carrying a **State of Play** block and
   `stage:`/`waiting:`/`mode:` labels that a CI Action
-  mirrors onto a private Project board; `/workstream-status` reads those labels back
+  mirrors onto a private Project board; `/status-all` reads those labels back
   and adds what the board can't compute — stall detection and a
   plain-language restatement of whatever a David-gate is actually asking.
   Solves the problem that ~10 concurrent sessions gave David no way to tell
   which needed him without opening each one. Labels are the source of truth
   and the board is a projection, because **no MCP or REST tool can read or
   write a Projects v2 item field** — the same constraint that keeps
-  `/workstream-status` reading labels rather than the board. Label maintenance is owned
+  `/status-all` reading labels rather than the board. Label maintenance is owned
   by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
   points they already hit, not by a standing habit — plus one automated
   exception: the `test-run-completion.yml` Action (PR #334) is the sole

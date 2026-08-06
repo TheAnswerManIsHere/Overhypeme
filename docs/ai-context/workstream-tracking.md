@@ -14,7 +14,7 @@ or which need him, without opening each one. This closes that gap using
 GitHub's own project management rather than a bespoke tracker: **one issue
 per workstream**, a private Project board
 ([Overhype.me Workstreams](https://github.com/users/TheAnswerManIsHere/projects/1))
-for visual scanning, and a `/workstream-status` skill for the judgment the board can't
+for visual scanning, and a `/status-all` skill for the judgment the board can't
 compute on its own (stall detection, plain-language restatement of what a
 David-gate is actually asking).
 
@@ -48,7 +48,7 @@ of the workstream issue's body, with these fields:
   own sake — enough that a cold reader understands the current shape.
 - **What's blocking** — if `waiting` is `david`, the actual question,
   restated in plain language from the real thread, not inferred from the
-  stage name alone (the same accuracy bar `/workstream-status` applies). If nothing's
+  stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
 - **Artifacts** — PR numbers, branch names, key file paths, the Project link.
@@ -71,7 +71,7 @@ The Project board's `Status`/`Waiting On`/`Mode` fields are the *display*;
 the issue's labels are what's actually true. **No available tool (MCP or
 REST) can read or write a Projects v2 item field directly** — confirmed
 twice, independently, building the sync mechanism (PR #318) and again
-confirming `/workstream-status` has to read labels rather than the board (PR #323). A
+confirming `/status-all` has to read labels rather than the board (PR #323). A
 `.github/workflows/project-sync.yml` Action
 (`scripts/sync-project-fields.mjs`) mirrors labels onto the board's fields
 on every label change. One deliberate exception: `test-run-completion.yml`
@@ -152,11 +152,37 @@ restatement.
   Match by normalized name, not exact string, for anything a human typed
   into a GitHub UI.
 
-## `/workstream-status`
+## `/status` and `/status-all`
 
-A **read-only** skill (`.claude/skills/workstream-status/SKILL.md`) that recomputes
-the board's view directly from issues + labels + PR state — it can't read
-the Project board either, for the same tooling gap above, so it doesn't
-try. Works from any session, including a fresh throwaway one; that's the
-intended usage. See the skill file for the stall-detection threshold and
-the plain-language-blocker rule.
+Two skills, two questions (split 2026-08-05):
+
+- **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the **fleet**
+  view, and the original skill unchanged: every open workstream, grouped
+  🛑 NEEDS YOU / ⚠️ STALLED / IN PROGRESS, recomputed directly from issues +
+  labels + PR state (it can't read the Project board either, per the tooling
+  gap above). **Read-only.** Works from any session, including a fresh
+  throwaway one; that's the intended usage. See the skill file for the
+  stall-detection threshold and the plain-language-blocker rule.
+- **`/status`** (`.claude/skills/status/SKILL.md`) — **one session's own**
+  workstream: what it's working on, which of five states it's in
+  (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
+  next, and how it fits the roadmap.
+
+**The five states are a derived presentation vocabulary — never stored.**
+They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
+They never become labels, never become board fields, and nothing reads them
+back. Labels remain the sole source of truth.
+
+**`/status` reports; it does not write unattended.** When stored labels or the
+issue's `## State of Play` block disagree with live GitHub, it says so and
+**offers** to correct them — David confirms, and only then does it write.
+That keeps the ownership model in the table above intact: `/status` is not a
+standing background writer, it is a David-confirmed correction at a moment he
+is already present for. (An unattended write-through version was designed and
+rejected — it needed conflict detection and write-target authentication the
+GitHub API can't cleanly provide, for a status check. See
+[`decisions.md`](./decisions.md).)
+
+**`WATCHING` may never be claimed from memory** — only after a live check in
+that same invocation. A session's belief that it is watching a PR goes stale
+exactly the way issue #328's did.

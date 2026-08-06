@@ -137,7 +137,7 @@ silently leaving the workstream unlabeled):
 - **CI is green and Codex has converged, but the PR isn't merged yet** →
   `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
   the issue at `stage:code-review` here is exactly the kind of ready-to-go
-  workstream `/workstream-status` exists to surface, so don't let it sit
+  workstream `/status-all` exists to surface, so don't let it sit
   unlabeled just because nothing forced a transition.
 - **The PR merges with a TEST_RUN doc** (`docs/PR<N>_..._TEST_RUN.md`) →
   `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
@@ -152,7 +152,7 @@ silently leaving the workstream unlabeled):
   correctly flagged twice as having no real owner (round-2 and round-3 of
   PR #334's review). I don't need to do anything here beyond setting the
   initial `stage:test-run` at merge — just know it's not a dead end if
-  `/workstream-status` later reports the issue already moved on its own.
+  `/status-all` later reports the issue already moved on its own.
 - **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
   exists or is actually due** — pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is

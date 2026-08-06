@@ -300,7 +300,7 @@ with the full initial label set (`stage:planning`, `waiting:codex` if the
 first `@codex review` trigger is about to post or `waiting:claude` if not
 yet, `mode:feature`) and a State of Play block, not just the issue itself.
 An issue opened without these three labels is invisible to
-`/workstream-status` (it filters to issues carrying a `stage:` label) and
+`/status-all` (it filters to issues carrying a `stage:` label) and
 to the board's sync Action, so skipping them isn't a smaller version of
 tracking this workstream — it's not tracking it at all.
 
@@ -309,8 +309,8 @@ with the issue's real number.** The PR opened before the issue existed, so
 its body was created from the template with that field blank or absent —
 the issue's number literally didn't exist yet to fill it in. Nothing
 backfills this automatically: `pr-watch` can't find an issue-less PR to
-label, and `/workstream-status`'s targeted Planning-stage search
-(`workstream-status/SKILL.md`'s Step 3) can't find a PR with no
+label, and `/status-all`'s targeted Planning-stage search
+(`status-all/SKILL.md`'s Step 3) can't find a PR with no
 `Workstream:` marker in its body either — so without this edit, the PR
 stays permanently unlinked to the issue that now exists for it, in both
 directions, for the rest of its life.

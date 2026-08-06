@@ -1,9 +1,14 @@
 ---
-name: workstream-status
-description: Give David a cold-open summary of every open workstream — where each stands in the lifecycle, who's holding it, and which ones are stalled or need his input. Use when David says /workstream-status, "what's the state of things", "what needs me", or is picking a session back up after time away and doesn't remember where he left off. Best run from a fresh, cheap session rather than an existing long thread.
+name: status-all
+description: Give David a cold-open summary of EVERY open workstream across all sessions — where each stands in the lifecycle, who's holding it, and which ones are stalled or need his input. Use when David says /status-all, "what's the state of everything", "what needs me across the board", or is picking work back up after time away and doesn't remember where he left off. This is the FLEET view; for "what is THIS session working on", use /status instead. Best run from a fresh, cheap session rather than an existing long thread.
 ---
 
-# /workstream-status — the workstream board, read cold
+# /status-all — the workstream board, read cold
+
+**Fleet view.** For one session's own state — "what am I working on right now
+and how does it fit" — that's [`/status`](../status/SKILL.md), which is a
+different job: cheaper, scoped to one workstream, and able to offer to fix
+stale tracking. This skill answers "across everything, what needs me?"
 
 David runs ~10 concurrent sessions across Discovery → Planning →
 🛑 Plan approval → Coding → Code review → 🛑 Merge → Test run →
@@ -12,10 +17,6 @@ each one. This skill answers that from **outside** any of them, using
 GitHub as the shared substrate — no session memory required, which is why
 it works cold in a brand-new session and shouldn't be run inside a long
 existing thread (that burns the wrong session's context for no benefit).
-
-**Named `/workstream-status`, not `/status`**, because `/status` is
-Claude Code's own built-in command (opens the Settings Status tab) — using
-that name would make this skill unreachable through its intended trigger.
 
 **This is a read-only reporting skill.** It never writes labels, comments,
 or issue bodies — that's `pr-watch`, `plan-review-loop`, `bugfix`, and
@@ -38,7 +39,7 @@ right (or the sync Action needs a look).
 
 **Work with no issue yet.** A pure Discovery conversation that hasn't
 produced an issue is invisible to GitHub entirely — this is a structural
-gap, not a bug in this skill. If a `/workstream-status` run feels like
+gap, not a bug in this skill. If a `/status-all` run feels like
 it's missing a session David knows is active, that session hasn't opened
 its workstream issue yet. Mention this possibility in the report if the
 count looks low relative to what David expects.
@@ -311,7 +312,7 @@ how long ago, who was last to act) and let David or the resuming session
 draw the conclusion.
 
 48 hours is a default, not a hard rule — if David asks for a tighter or
-looser window in the invocation (e.g. "/workstream-status stalled=24h"),
+looser window in the invocation (e.g. "/status-all stalled=24h"),
 honor it.
 
 ### Plain-language blockers for anything `waiting:david`
@@ -362,7 +363,7 @@ banner's structure here.
 No item anywhere gets silently dropped to keep the report short — if
 something doesn't fit a bucket cleanly, say so rather than omitting it.
 
-## Drill-down: `/workstream-status <issue-number>`
+## Drill-down: `/status-all <issue-number>`
 
 Skip the fleet view. Fetch that one issue's full body (its State of Play
 block), its linked PR's live CI + all open threads, and its sub-issues if
