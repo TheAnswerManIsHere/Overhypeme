@@ -88,7 +88,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
   **Open next:** the board's value depends on labels staying current now
   that no human maintains them — worth a check after a few workstreams that
-  the four skills actually fire as intended.
+  the four skills *and* `test-run-completion.yml` all actually fire as
+  intended, since the Action is the one owner with no agent session
+  watching over it.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —

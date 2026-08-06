@@ -119,6 +119,17 @@ most-recently-updated 50 is intentional for the common case: an *active*
 workstream's PR is recent by definition, so one batched call covers nearly
 everyone.
 
+**More than one PR can carry the same marker for one issue over its
+lifetime** — most commonly a closed `[PLAN REVIEW]` draft PR from Planning
+alongside the later, real implementation PR once Coding opens. When the
+map-building finds multiple matches for one issue number, don't take
+whichever came first or last in the list: prefer an **open** PR over a
+closed one (a closed plan-review PR is superseded evidence, not the
+current state — its CI/comments/activity belong to a phase that's over),
+and if more than one is open, the most recently updated. Only fall back to
+a closed PR if it's the *sole* match — that's the honest signal for an
+issue still in Planning with no implementation PR yet, not a stale one.
+
 **But recency isn't proof of "no PR" for a workstream at a long-lived
 gate.** An issue sitting at `stage:merge`/`stage:uat`/`stage:close-out`
 for a while is exactly the kind of thing that stops generating new PR

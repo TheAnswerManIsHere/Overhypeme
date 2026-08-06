@@ -10,9 +10,12 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      issue at merge and skips Test run/UAT. The ONLY exemption is a
      sensitive/disclosure-carve-out workstream, tracked as a private draft
      Project item instead of a public issue — leave this line blank/deleted
-     only for that case. Plain text, no markdown bold — /workstream-status
-     parses this line with the regex `Workstream:\s*#(\d+)`, which bold
-     formatting (`**Workstream:**`) breaks. -->
+     only for that case. Keep "Workstream: #N" as the very first thing on its
+     own line, plain text, no markdown bold, nothing before it on that line —
+     /workstream-status and scripts/sync-test-run-completion.mjs both parse
+     it with the anchored regex `^Workstream:[ \t]*#(\d+)` (multiline,
+     line-start only), which bold formatting (`**Workstream:**`), leading
+     text, or a line break between the colon and the number all break. -->
 
 ## What & why
 

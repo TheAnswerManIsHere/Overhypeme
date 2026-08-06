@@ -198,12 +198,24 @@ async function rest(method, path, token, body) {
  * issue with NO `stage:` label at all: invisible to the dispatch check
  * below, which would then treat it as "nothing to do" and abandon it
  * permanently instead of finishing the transition.
+ *
+ * Revalidates ownership before touching anything: only proceeds if the
+ * issue's current stage is `expectedFromStage` (a fresh transition) or
+ * already `targetStage` (a resumed/no-op cleanup pass) — anything else
+ * means a human or another agent moved the issue somewhere this call
+ * doesn't own since the caller last checked, and blindly cleaning up would
+ * silently roll that back. Returns `null` in that case instead of mutating.
  */
-async function ensureCleanLabels(repository, issueNumber, targetStage, token) {
+async function ensureCleanLabels(repository, issueNumber, targetStage, expectedFromStage, token) {
   const wantedStage = `stage:${targetStage}`;
 
   const before = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   const beforeNames = before.labels.map((l) => l.name);
+  const beforeStages = beforeNames.filter((l) => l.startsWith("stage:")).map((l) => l.slice("stage:".length));
+  if (!beforeStages.includes(targetStage) && !beforeStages.includes(expectedFromStage)) {
+    return null;
+  }
+
   if (!beforeNames.includes(wantedStage) || !beforeNames.includes("waiting:david")) {
     await rest("POST", `/repos/${repository}/issues/${issueNumber}/labels`, token, {
       labels: [wantedStage, "waiting:david"],
@@ -288,7 +300,14 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       );
     }
 
-    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, token);
+    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, "test-run", token);
+    if (finalLabels === null) {
+      console.log(
+        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed concurrently since the ` +
+          `dispatch read — skipping this pass rather than overwriting it`,
+      );
+      return;
+    }
   } else {
     // Labels already moved (this run or an earlier partial one) — but don't
     // trust the top-of-function read for *which* stage it moved to; a retry
@@ -313,7 +332,14 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
       return;
     }
     targetStage = freshStage;
-    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, token);
+    finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, targetStage, token);
+    if (finalLabels === null) {
+      console.log(
+        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed again since the retry read ` +
+          `— skipping this pass rather than overwriting it`,
+      );
+      return;
+    }
   }
 
   const targetDisplay = STAGE_DISPLAY[targetStage];
