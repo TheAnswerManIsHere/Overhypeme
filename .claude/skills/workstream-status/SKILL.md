@@ -74,16 +74,26 @@ does:
 
 ## Step 2 — Fetch sub-issues, then deduplicate the top-level set
 
-For every workstream issue, call `issue_read` (`method: get`) and check
-`has_children`. Where true, `get_sub_issues` to pull the children (e.g. a
-`/document` harvest nested under its parent feature). **Filter the
-returned children to `state: OPEN` before rendering** — `get_sub_issues`
-returns closed children too (e.g. a harvest sub-issue that finished and
-closed while its parent stayed open through UAT), and this is a report of
-*open* work, so a closed child should render as neither a nested row nor
-inflate any count. An open sub-issue is its own row with its own
-`stage:`/`waiting:` labels — render it nested under its parent, not
-flattened into the top-level list.
+For every workstream issue, call `issue_read` (`method: get`) — this same
+call already returns `has_children` **and** `has_parent`/`parent`, so check
+both, not just the downward direction. Where `has_children` is true,
+`get_sub_issues` to pull the children (e.g. a `/document` harvest nested
+under its parent feature). **Filter the returned children to `state: OPEN`
+before rendering** — `get_sub_issues` returns closed children too (e.g. a
+harvest sub-issue that finished and closed while its parent stayed open
+through UAT), and this is a report of *open* work, so a closed child
+should render as neither a nested row nor inflate any count. An open
+sub-issue is its own row with its own `stage:`/`waiting:` labels — render
+it nested under its parent, not flattened into the top-level list.
+
+**An open issue can have a parent that's already closed** — a
+documentation-harvest sub-issue can outlive its feature (the parent closes
+first, the harvest lags a little). Downward traversal alone misses this:
+Step 1 only fetched *open* issues, so a closed parent was never in that
+set for `get_sub_issues` to be called on. Use `has_parent`/`parent` from
+this same call instead — if an open issue has a parent not present in the
+Step 1 set, render it nested under a note naming that closed parent rather
+than as an unrelated top-level workstream.
 
 **Remove every issue returned by `get_sub_issues` (open or closed) from
 the Step 1 set** before rendering the top-level fleet view. Step 1 fetches
@@ -129,6 +139,15 @@ current state — its CI/comments/activity belong to a phase that's over),
 and if more than one is open, the most recently updated. Only fall back to
 a closed PR if it's the *sole* match — that's the honest signal for an
 issue still in Planning with no implementation PR yet, not a stale one.
+
+**Once the implementation PR itself merges, both matches are closed** — the
+plan-review PR (never merged, per `plan-review-loop`'s own contract) and
+the now-merged implementation PR. A closed `[PLAN REVIEW]` PR is
+definitionally unmerged, so among multiple closed matches prefer the
+**merged** one; it's the real implementation history (UAT status, CI,
+comments) an issue at Merge/Test run/UAT/Close-out needs, not the
+plan-review artifact. Most recently merged/updated among ties, same as the
+open case.
 
 **But recency isn't proof of "no PR" for a workstream at a long-lived
 gate.** An issue sitting at `stage:merge`/`stage:uat`/`stage:close-out`

@@ -200,19 +200,29 @@ async function rest(method, path, token, body) {
  * permanently instead of finishing the transition.
  *
  * Revalidates ownership before touching anything: only proceeds if the
- * issue's current stage is `expectedFromStage` (a fresh transition) or
- * already `targetStage` (a resumed/no-op cleanup pass) — anything else
- * means a human or another agent moved the issue somewhere this call
- * doesn't own since the caller last checked, and blindly cleaning up would
- * silently roll that back. Returns `null` in that case instead of mutating.
+ * issue's current stage labels are a subset of {`expectedFromStage`,
+ * `targetStage`} — a fresh transition, a resumed/no-op cleanup pass, or an
+ * interrupted one caught mid-way with both present. Anything else — INCLUDING
+ * one of those two alongside a third, unexpected stage — means a human or
+ * another agent moved the issue somewhere this call doesn't own since the
+ * caller last checked, and blindly cleaning up would delete that stage as
+ * "stale" and silently roll it back. A membership check alone (does the set
+ * contain an allowed stage) isn't enough for this: a non-atomic concurrent
+ * swap can leave the actor's genuinely-new stage sitting alongside
+ * `expectedFromStage` for a moment, and that combination must also reject,
+ * not just an allowed stage's mere presence. Returns `null` instead of
+ * mutating whenever the check fails.
  */
 async function ensureCleanLabels(repository, issueNumber, targetStage, expectedFromStage, token) {
   const wantedStage = `stage:${targetStage}`;
+  const allowedStages = new Set([targetStage, expectedFromStage]);
 
   const before = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   const beforeNames = before.labels.map((l) => l.name);
   const beforeStages = beforeNames.filter((l) => l.startsWith("stage:")).map((l) => l.slice("stage:".length));
-  if (!beforeStages.includes(targetStage) && !beforeStages.includes(expectedFromStage)) {
+  const hasAllowedStage = beforeStages.some((s) => allowedStages.has(s));
+  const hasUnexpectedStage = beforeStages.some((s) => !allowedStages.has(s));
+  if (!hasAllowedStage || hasUnexpectedStage) {
     return null;
   }
 
@@ -242,7 +252,7 @@ async function ensureCleanLabels(repository, issueNumber, targetStage, expectedF
  * either re-touching already-correct labels or leaving a stale body forever
  * because "stage:test-run is already gone" looked like "already handled".
  */
-async function processDeletedTestRunDoc(path, { repository, token, project, projectsToken }) {
+async function processDeletedTestRunDoc(path, { repository, token, project, projectsToken, commitRef }) {
   const prNumber = extractPrNumberFromTestRunPath(path);
   if (!prNumber) return;
 
@@ -275,8 +285,17 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
 
   // Fetched unconditionally: needed to derive the target stage on a fresh
   // transition, and needed either way for the UAT doc's exact filename in
-  // the "What you need to do" text below.
-  const docsListing = await rest("GET", `/repos/${repository}/contents/docs`, token);
+  // the "What you need to do" text below. Pinned to the triggering commit
+  // (`?ref=`), not the unqualified default-branch tip — a later push can
+  // land on main before this queued run reaches this call (the workflow's
+  // own `queue: max` concurrency setting allows runs to queue up), and an
+  // unqualified Contents API request would then read that later tree
+  // instead of the one this specific TEST_RUN deletion actually belongs to.
+  const docsListing = await rest(
+    "GET",
+    `/repos/${repository}/contents/docs?ref=${encodeURIComponent(commitRef)}`,
+    token,
+  );
   const docsFilenames = docsListing.map((f) => f.name);
   const uatFilename = findUatDocFilename(docsFilenames, prNumber);
 
@@ -469,7 +488,13 @@ async function main() {
   let anyBoardSyncFailed = projectLookupFailed;
   for (const path of testRunDeletions) {
     try {
-      const boardSyncFailed = await processDeletedTestRunDoc(path, { repository, token, project, projectsToken });
+      const boardSyncFailed = await processDeletedTestRunDoc(path, {
+        repository,
+        token,
+        project,
+        projectsToken,
+        commitRef: after,
+      });
       if (boardSyncFailed) anyBoardSyncFailed = true;
     } catch (err) {
       failures.push(`${path}: ${err.message}`);
