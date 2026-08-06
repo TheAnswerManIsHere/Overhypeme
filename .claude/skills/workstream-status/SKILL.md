@@ -141,14 +141,20 @@ whichever came first or last in the list: prefer an **open** PR over a
 closed one (a closed plan-review PR is superseded evidence, not the
 current state — its CI/comments/activity belong to a phase that's over),
 and if more than one is open, the most recently updated. Only fall back to
-a closed PR if it's the *sole* match **and the issue is at `stage:planning`
-or `stage:plan-approval`** — that's the honest signal for an issue still
-in Planning with no implementation PR yet, not a stale one. At
-`stage:coding` or later, a sole match that's closed and unmerged is the
-*obsolete* plan-review PR outliving its usefulness, not the current
-state — treat the issue as having no linked PR instead (Step 4's no-PR
-path, using its own comment history) rather than computing status from a
-thread that belongs to a phase that's already over.
+a closed PR if it's the *sole* match — and then check `merged_at` before
+looking at stage at all: a non-null `merged_at` means it's the genuine
+implementation history (a `[PLAN REVIEW]` PR is never merged, per
+`plan-review-loop`'s own contract), so a sole *merged* match is trustworthy
+regardless of what stage the issue is at now — accept it, including at
+`stage:test-run`/`stage:uat`/`stage:close-out`, where discarding it would
+lose exactly the CI/comments/activity those later stages need most. A sole
+match with a **null** `merged_at` (closed-unmerged) is honest evidence of
+"no implementation PR yet" only while the issue is still at
+`stage:planning` or `stage:plan-approval`; at `stage:coding` or later
+that's the *obsolete* plan-review PR outliving its usefulness, not the
+current state — treat the issue as having no linked PR instead (Step 4's
+no-PR path, using its own comment history) rather than computing status
+from a thread that belongs to a phase that's already over.
 
 **Once the implementation PR itself merges, both matches are closed** — the
 plan-review PR (never merged, per `plan-review-loop`'s own contract) and
@@ -181,27 +187,36 @@ common case while closing the gap for long-lived gates.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
-open threads, `get_comments` for top-level issue comments, **and
-`get_commits` for attributable push history**) — same discipline as
-`pr-watch`, minimal calls, no per-thread narration in the output.
-**Page `get_commits`, `get_review_comments`, and `get_comments` to
-exhaustion**, the same way Step 1 pages through issues — a review loop
-that's gone several rounds can exceed one page of any of these (see
-`scripts/loop-metrics.mjs`'s own pagination for real examples), and a
-single capped call can silently return an incomplete prefix that's
-missing the most recent commit or reply. Since Step 4 picks the *latest*
-item across these three collections, an incomplete page doesn't just
+open threads, `get_comments` for top-level issue comments, `get_commits`
+for attributable push history, **and `get_reviews` for formal review
+submissions**) — same discipline as `pr-watch`, minimal calls, no
+per-thread narration in the output.
+**Page `get_commits`, `get_review_comments`, `get_comments`, and
+`get_reviews` to exhaustion**, the same way Step 1 pages through issues —
+a review loop that's gone several rounds can exceed one page of any of
+these (see `scripts/loop-metrics.mjs`'s own pagination for real examples),
+and a single capped call can silently return an incomplete prefix that's
+missing the most recent commit, reply, or review. Since Step 4 picks the
+*latest* item across these collections, an incomplete page doesn't just
 under-report — it can make an active workstream look stalled. `get_comments`
 matters here, not just for completeness: this repo's Codex loop delivers
 some events — a clean re-review pass, an `@codex review` trigger — as
 plain issue comments rather than inline review threads
 (`scripts/loop-metrics.mjs`'s own derivation has to handle this same
 shape). Skipping `get_comments` makes those events invisible, which can
-misreport who's actually holding a workstream. `get_commits` matters for
-Step 4's stall detection: a PR's raw `updated_at` advances on *any*
-update — including a relabel or a David edit with no comment — but
-carries no actor, so it can't tell you who moved it last. Commit
-authorship can.
+misreport who's actually holding a workstream. `get_reviews` matters for
+the other direction: a clean Codex pass delivered as a normal
+`pull_request_review` with **no** inline findings shows up in neither
+`get_review_comments` (empty — no threads) nor necessarily as a top-level
+issue comment (`docs/ai-context/working-modes.md`'s own account of this
+shape) — it's only visible as a review object, with its own actor and
+submission timestamp. Skipping `get_reviews` means this specific "Codex
+converged, nothing left to fix" event is invisible to this report,
+which can leave a `waiting:codex` workstream looking falsely stalled or
+its activity timestamp falsely stale. `get_commits` matters for Step 4's
+stall detection: a PR's raw `updated_at` advances on *any* update —
+including a relabel or a David edit with no comment — but carries no
+actor, so it can't tell you who moved it last. Commit authorship can.
 
 ## Step 4 — The judgment layer (this is the actual point)
 
@@ -237,8 +252,13 @@ This applies everywhere "exclude David" appears below.
 **Compute the activity timestamp from the latest *attributable, non-David*
 action** (per the distinction above) — the newest of: the latest commit's
 author + date (`get_commits`), the latest review comment's author +
-timestamp (`get_review_comments`), and the latest issue comment's author +
-timestamp (`get_comments`), all from step 3. **Never use the PR's raw
+timestamp (`get_review_comments`), the latest issue comment's author +
+timestamp (`get_comments`), and **the latest formal review's actor +
+submission timestamp (`get_reviews`)**, all from step 3. A clean Codex
+convergence pass with no inline findings only shows up in this last
+collection — omitting it is exactly the gap that makes a genuinely
+converged, `waiting:codex` workstream look stalled or under-timestamped.
+**Never use the PR's raw
 `updated_at` as an activity signal on its own** — it advances on any
 update (a relabel, a David edit with no comment) but carries no author, so
 it can't be attributed to "David" or "not David" at all; treat it only as

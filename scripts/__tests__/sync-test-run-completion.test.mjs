@@ -129,15 +129,26 @@ test("updateStateOfPlayBody also rewrites What's blocking / What you need to do 
   assert.match(updated, /PR #308/); // untouched trailing section survives
 });
 
-test("updateStateOfPlayBody leaves blocking/todo sections alone when their headings are absent", () => {
+test("updateStateOfPlayBody returns null rather than silently no-op'ing when blocking/todo headings are absent", () => {
   const body = "**Stage:** Test run (Replit)\n**Waiting on:** Replit\n**Last movement:** x\n";
   const updated = updateStateOfPlayBody(body, {
     stageDisplay: "🛑 UAT",
     lastMovementLine: "y",
-    blockingText: "should not appear",
-    todoText: "should not appear either",
+    blockingText: "should not silently vanish",
+    todoText: "should not silently vanish either",
   });
-  assert.doesNotMatch(updated, /should not appear/);
+  assert.equal(updated, null);
+});
+
+test("updateStateOfPlayBody returns null when Last movement is missing, even with Stage/Waiting on present", () => {
+  const body = "**Stage:** Test run (Replit)\n**Waiting on:** Replit\n";
+  assert.equal(updateStateOfPlayBody(body, { stageDisplay: "🛑 UAT", lastMovementLine: "y" }), null);
+});
+
+test("updateStateOfPlayBody still succeeds without blocking/todo text when it isn't requested", () => {
+  const body = "**Stage:** Test run (Replit)\n**Waiting on:** Replit\n**Last movement:** x\n";
+  const updated = updateStateOfPlayBody(body, { stageDisplay: "🛑 UAT", lastMovementLine: "y" });
+  assert.match(updated, /\*\*Stage:\*\* 🛑 UAT/);
 });
 
 test("handoffText gives UAT-routing text referencing the exact filename for uat", () => {

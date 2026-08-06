@@ -87,6 +87,9 @@ const STAGE_DISPLAY = {
   "close-out": "Close-out",
 };
 
+/** The `mode:` values `pr-docs`/`working-modes.md` actually define. */
+const RECOGNIZED_MODES = new Set(["feature", "bugfix", "docs", "devops"]);
+
 /** Decide the destination stage: UAT only if a UAT doc genuinely exists. */
 export function computeTransition(hasUat) {
   const stage = hasUat ? "uat" : "close-out";
@@ -120,16 +123,34 @@ function replaceSection(body, heading, text) {
  * is deliberately left untouched — its full history is too free-form for a
  * script to safely rewrite without risking losing real narrative.
  *
- * Returns the updated body, or null if the Stage/Waiting-on block isn't in
- * the expected `**Field:** value` shape this script can safely rewrite —
- * callers must still apply the label change in that case (labels are the
- * actual source of truth; the block is the narrative projection of them),
- * just log that the body needs a human's eyes.
+ * Returns the updated body, or null if the block isn't in the expected
+ * shape this script can safely rewrite — callers must still apply the
+ * label change in that case (labels are the actual source of truth; the
+ * block is the narrative projection of them), just log that the body needs
+ * a human's eyes. "Expected shape" means every field/section this call is
+ * actually asked to update is present to update: `**Stage:**`,
+ * `**Waiting on:**`, and `**Last movement:**` always (this function always
+ * rewrites all three), plus each of `### What's blocking`/`### What you
+ * need to do` whenever the caller passes `blockingText`/`todoText` for it.
+ * A field silently missing here used to mean `replaceSection`/the line
+ * regexes no-op'd on it and the caller reported success anyway — the PATCH
+ * would go through and the run would look clean while that one field stayed
+ * stuck describing the old stage forever, with nothing left to ever retry
+ * it. Rejecting the whole update (not just the missing piece) keeps this
+ * script's two failure modes exactly two: fully reconciled, or flagged
+ * `degraded` for a human — never silently partial.
  */
 export function updateStateOfPlayBody(body, { stageDisplay, lastMovementLine, blockingText, todoText }) {
-  if (!/\*\*Stage:\*\*/.test(body) || !/\*\*Waiting on:\*\*/.test(body)) {
+  if (
+    !/\*\*Stage:\*\*/.test(body) ||
+    !/\*\*Waiting on:\*\*/.test(body) ||
+    !/\*\*Last movement:\*\*/.test(body)
+  ) {
     return null;
   }
+  if (blockingText && !body.includes("### What's blocking")) return null;
+  if (todoText && !body.includes("### What you need to do")) return null;
+
   let updated = body
     .replace(/\*\*Stage:\*\*[^\n]*/, `**Stage:** ${stageDisplay}`)
     .replace(/\*\*Waiting on:\*\*[^\n]*/, "**Waiting on:** David")
@@ -292,7 +313,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   const issue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   const labels = issue.labels.map((l) => l.name);
   const stageLabels = labels.filter((l) => l.startsWith("stage:"));
-  const mode = labels.find((l) => l.startsWith("mode:"))?.slice("mode:".length);
+  const modeLabels = labels.filter((l) => l.startsWith("mode:"));
 
   // Checked against the *set* of stage labels, not a single "the" stage —
   // an interrupted prior run of this same function can leave an issue with
@@ -343,18 +364,36 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     }
     targetStage = computeTransition(uatFilename !== null).stage;
 
-    // A feature-mode PR always ships a UAT doc (pr-docs' contract has no
-    // exception for it) — so a missing one here isn't "no UAT was due," the
-    // way it can legitimately be for a bugfix/docs/devops PR. It means the
-    // doc was deleted, renamed, or never created by mistake. Silently
-    // routing that to close-out would skip David's UAT gate without him
-    // ever knowing there was one to skip; leave the label untouched and
-    // surface it as a failed run instead.
-    if (targetStage === "close-out" && mode === "feature") {
-      throw new Error(
-        `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
-          `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
-      );
+    // mode is the ONLY evidence this function has for distinguishing "no UAT
+    // doc because none was due" (bugfix/docs/devops) from "no UAT doc
+    // because a feature-mode PR's got deleted/renamed/never created by
+    // mistake" — so before trusting it to wave a missing UAT doc through to
+    // close-out, require exactly one recognized mode: a missing, duplicate,
+    // or misspelled mode: label is not evidence of anything and must not be
+    // read as "not feature, safe to close out."
+    if (targetStage === "close-out") {
+      const recognized = modeLabels.filter((l) => RECOGNIZED_MODES.has(l.slice("mode:".length)));
+      if (recognized.length !== 1) {
+        throw new Error(
+          `issue #${issueNumber} doesn't have exactly one recognized mode: label ` +
+            `(found: ${modeLabels.join(", ") || "none"}) and has no UAT doc for PR #${prNumber} — mode is the ` +
+            `only evidence distinguishing a required UAT from a legitimate exemption, so this can't be safely ` +
+            `routed to close-out; leaving stage:test-run untouched.`,
+        );
+      }
+      // A feature-mode PR always ships a UAT doc (pr-docs' contract has no
+      // exception for it) — so a missing one here isn't "no UAT was due,"
+      // the way it can legitimately be for a bugfix/docs/devops PR. It
+      // means the doc was deleted, renamed, or never created by mistake.
+      // Silently routing that to close-out would skip David's UAT gate
+      // without him ever knowing there was one to skip; leave the label
+      // untouched and surface it as a failed run instead.
+      if (recognized[0].slice("mode:".length) === "feature") {
+        throw new Error(
+          `issue #${issueNumber} (mode:feature) has no UAT doc for PR #${prNumber} — feature-mode PRs always ` +
+            `require one; leaving stage:test-run untouched rather than silently bypassing the UAT gate`,
+        );
+      }
     }
 
     finalLabels = await ensureCleanLabels(repository, issueNumber, targetStage, "test-run", token);
