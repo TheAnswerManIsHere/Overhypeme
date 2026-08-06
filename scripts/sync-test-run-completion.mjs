@@ -61,6 +61,21 @@ export function hasUatDoc(docsFilenames, prNumber) {
 }
 
 /**
+ * True if `docs/` still has a TEST_RUN doc for `prNumber` at the triggering
+ * commit. `--no-renames` stops a genuine deletion from being hidden as a
+ * rename, but the inverse still needs catching: David correcting a TEST_RUN
+ * doc's filename (a typo in the slug, say) without actually running the
+ * checklist is *also* a delete-then-add under `--no-renames`, and would
+ * otherwise be read as "Replit finished" purely because the old path
+ * disappeared — even though a same-numbered TEST_RUN doc still exists right
+ * next to it.
+ */
+export function stillHasTestRunDoc(docsFilenames, prNumber) {
+  const re = new RegExp(`^PR${prNumber}_.+_TEST_RUN\\.md$`);
+  return docsFilenames.some((name) => re.test(name));
+}
+
+/**
  * The lifecycle's own display names for the board/State-of-Play block,
  * matching `scripts/__tests__/sync-project-fields.test.mjs`'s Status option
  * list verbatim — this script writes labels (source of truth) AND, best
@@ -232,11 +247,22 @@ async function ensureCleanLabels(repository, issueNumber, targetStage, expectedF
     });
   }
 
-  const after = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
-  const afterNames = after.labels.map((l) => l.name);
-  const stale = afterNames.filter(
+  // "Stale" is computed from what the `before` snapshot already knew to be
+  // old — never from whatever's merely absent-from-wanted in the `after`
+  // snapshot. The two GETs bracket a real network gap (the POST above), and
+  // deriving deletions straight from `after` would delete anything a
+  // concurrent actor added in that gap too — including a `waiting:` label
+  // the earlier check never validated at all. Intersecting with `after`
+  // only drops a candidate if the concurrent actor already removed it
+  // themselves; it never adds a new deletion target the `before` read
+  // didn't already justify.
+  const beforeStale = beforeNames.filter(
     (l) => (l.startsWith("stage:") || l.startsWith("waiting:")) && l !== wantedStage && l !== "waiting:david",
   );
+
+  const after = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+  const afterNames = after.labels.map((l) => l.name);
+  const stale = beforeStale.filter((l) => afterNames.includes(l));
   for (const label of stale) {
     await rest("DELETE", `/repos/${repository}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`, token);
   }
@@ -303,6 +329,18 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   let finalLabels = labels;
 
   if (needsTransition) {
+    // A same-numbered TEST_RUN doc still present at this commit means the
+    // deletion this run is reacting to was a rename/replacement (a slug
+    // typo fixed, say), not Replit actually finishing — `--no-renames`
+    // reports that as a plain delete of the old path, same as a real
+    // completion, so this is the only way to tell the two apart.
+    if (stillHasTestRunDoc(docsFilenames, prNumber)) {
+      console.log(
+        `  ~ issue #${issueNumber} (PR #${prNumber}): a TEST_RUN doc for this PR still exists at ` +
+          `${commitRef} — this was a rename, not completion; skipping`,
+      );
+      return;
+    }
     targetStage = computeTransition(uatFilename !== null).stage;
 
     // A feature-mode PR always ships a UAT doc (pr-docs' contract has no
@@ -373,7 +411,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   // moved, and a transient GraphQL failure here must not stop the body
   // reconciliation below from happening too — same reasoning as `main()`
   // catching `fetchProject`'s failure instead of letting it block the loop.
-  let boardSyncFailed = false;
+  let degraded = false;
   if (project) {
     try {
       await syncIssue(
@@ -382,7 +420,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
         projectsToken,
       );
     } catch (err) {
-      boardSyncFailed = true;
+      degraded = true;
       console.error(
         `  ✗ issue #${issueNumber}: board sync failed (${err.message}) — proceeding with body reconciliation.`,
       );
@@ -397,7 +435,7 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   const freshIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
   if (bodyStageMatches(freshIssue.body, targetDisplay)) {
     console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage} (body already reflects it)`);
-    return boardSyncFailed;
+    return degraded;
   }
 
   const lastMovementLine =
@@ -409,15 +447,23 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     ...handoffText(targetStage, uatFilename),
   });
   if (updatedBody === null) {
-    console.log(
-      `  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david ` +
-        `(body's State of Play block wasn't in the expected shape — labels/board updated, body left as-is)`,
+    // The authoritative labels (and board, if that succeeded) did move —
+    // but the narrative is now permanently stuck describing the old stage
+    // with nothing that will ever retry it (a future run only fires on
+    // another TEST_RUN deletion, which won't happen again for this PR).
+    // Surface this as a failed run rather than a quiet success so it gets
+    // an actual human's attention instead of staying wrong indefinitely.
+    degraded = true;
+    console.error(
+      `  ✗ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david ` +
+        `(body's State of Play block wasn't in the expected shape — labels/board updated, body left as-is; ` +
+        `this needs a human to fix the body manually, nothing will retry it)`,
     );
-    return boardSyncFailed;
+    return degraded;
   }
   await rest("PATCH", `/repos/${repository}/issues/${issueNumber}`, token, { body: updatedBody });
   console.log(`  ✓ issue #${issueNumber} (PR #${prNumber}) -> stage:${targetStage}, waiting:david`);
-  return boardSyncFailed;
+  return degraded;
 }
 
 async function main() {
@@ -485,28 +531,29 @@ async function main() {
   }
 
   const failures = [];
-  let anyBoardSyncFailed = projectLookupFailed;
+  let anyDegraded = projectLookupFailed;
   for (const path of testRunDeletions) {
     try {
-      const boardSyncFailed = await processDeletedTestRunDoc(path, {
+      const degraded = await processDeletedTestRunDoc(path, {
         repository,
         token,
         project,
         projectsToken,
         commitRef: after,
       });
-      if (boardSyncFailed) anyBoardSyncFailed = true;
+      if (degraded) anyDegraded = true;
     } catch (err) {
       failures.push(`${path}: ${err.message}`);
       console.error(`  ✗ ${path} — ${err.message}`);
     }
   }
 
-  // A board-sync failure doesn't block the loop above, but it should still
-  // turn this run red — someone needs to notice PROJECTS_TOKEN or the
-  // Projects API needs attention, even though the authoritative labels went
+  // A board-sync or body-reconciliation failure doesn't block the loop
+  // above, but it should still turn this run red — someone needs to notice
+  // (PROJECTS_TOKEN, the Projects API, or a State of Play block that didn't
+  // match the expected shape), even though the authoritative labels went
   // through fine.
-  if (anyBoardSyncFailed) {
+  if (anyDegraded) {
     process.exitCode = 1;
   }
 

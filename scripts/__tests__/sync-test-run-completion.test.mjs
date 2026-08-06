@@ -5,6 +5,7 @@ import {
   extractWorkstreamIssueNumber,
   hasUatDoc,
   findUatDocFilename,
+  stillHasTestRunDoc,
   computeTransition,
   updateStateOfPlayBody,
   bodyStageMatches,
@@ -42,6 +43,13 @@ test("extractWorkstreamIssueNumber never crosses a line break to find a #", () =
   // \s* in an unanchored version of this regex would match the newline and
   // grab #42 on the next line even though it belongs to unrelated prose
   assert.equal(extractWorkstreamIssueNumber("Workstream:\nsome unrelated text #42"), null);
+});
+
+test("stillHasTestRunDoc detects a surviving same-numbered TEST_RUN doc", () => {
+  const files = ["PR308_codeql-rate-limiter_TEST_RUN.md", "PR309_other_UAT.md", "decisions.md"];
+  assert.equal(stillHasTestRunDoc(files, 308), true);
+  assert.equal(stillHasTestRunDoc(files, 309), false);
+  assert.equal(stillHasTestRunDoc(files, 999), false);
 });
 
 test("hasUatDoc finds a same-numbered UAT doc among mixed filenames", () => {

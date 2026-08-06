@@ -95,14 +95,18 @@ this same call instead — if an open issue has a parent not present in the
 Step 1 set, render it nested under a note naming that closed parent rather
 than as an unrelated top-level workstream.
 
-**Remove every issue returned by `get_sub_issues` (open or closed) from
+**Remove every issue returned by `get_sub_issues` (open or closed), and
+every issue nested under a closed parent via `has_parent`/`parent`, from
 the Step 1 set** before rendering the top-level fleet view. Step 1 fetches
 *every* open issue with a `stage:` label, which already includes labeled
-sub-issues — without this removal, an open child appears twice (once
-nested under its parent, once again as its own top-level row) and the
-section counts are wrong. (A closed child was never in the Step 1 set to
-begin with, since Step 1 only fetches open issues — this removal matters
-only for open children.)
+sub-issues — without this removal, a nested-either-way open child appears
+twice (once nested, once again as its own top-level row) and the section
+counts are wrong. The closed-parent path needs this exact same removal:
+it's still an open issue nested by the paragraph above, just discovered
+upward instead of downward, and the dedup rule applies to it identically.
+(A closed child of an open parent was never in the Step 1 set to begin
+with, since Step 1 only fetches open issues — that specific case needs no
+removal, but every other nested case does.)
 
 ## Step 3 — Find each workstream's PR(s) and its full activity
 
@@ -114,7 +118,7 @@ auto-close the issue at merge and skip UAT). So:
 list_pull_requests(owner, repo, state: all, sort: updated, direction: desc,
                     perPage: 50,
                     fields: [number, title, body, state, draft,
-                             mergeable_state, html_url, updated_at])
+                             mergeable_state, html_url, updated_at, merged_at])
 ```
 
 One call, not one per issue — regex `^Workstream:[ \t]*#(\d+)` (multiline,
@@ -137,16 +141,25 @@ whichever came first or last in the list: prefer an **open** PR over a
 closed one (a closed plan-review PR is superseded evidence, not the
 current state — its CI/comments/activity belong to a phase that's over),
 and if more than one is open, the most recently updated. Only fall back to
-a closed PR if it's the *sole* match — that's the honest signal for an
-issue still in Planning with no implementation PR yet, not a stale one.
+a closed PR if it's the *sole* match **and the issue is at `stage:planning`
+or `stage:plan-approval`** — that's the honest signal for an issue still
+in Planning with no implementation PR yet, not a stale one. At
+`stage:coding` or later, a sole match that's closed and unmerged is the
+*obsolete* plan-review PR outliving its usefulness, not the current
+state — treat the issue as having no linked PR instead (Step 4's no-PR
+path, using its own comment history) rather than computing status from a
+thread that belongs to a phase that's already over.
 
 **Once the implementation PR itself merges, both matches are closed** — the
 plan-review PR (never merged, per `plan-review-loop`'s own contract) and
-the now-merged implementation PR. A closed `[PLAN REVIEW]` PR is
-definitionally unmerged, so among multiple closed matches prefer the
-**merged** one; it's the real implementation history (UAT status, CI,
-comments) an issue at Merge/Test run/UAT/Close-out needs, not the
-plan-review artifact. Most recently merged/updated among ties, same as the
+the now-merged implementation PR. Both show `state: closed` alone, so tell
+them apart by `merged_at` (non-null only for the real implementation PR) —
+this is exactly why the batched call above requests it. A closed
+`[PLAN REVIEW]` PR is definitionally unmerged, so among multiple closed
+matches prefer the one with a non-null `merged_at`; it's the real
+implementation history (UAT status, CI, comments) an issue at Merge/Test
+run/UAT/Close-out needs, not the plan-review artifact. Most recently
+merged/updated among ties, same as the
 open case.
 
 **But recency isn't proof of "no PR" for a workstream at a long-lived
