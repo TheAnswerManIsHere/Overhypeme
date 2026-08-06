@@ -288,7 +288,7 @@ async function ensureCleanLabels(repository, issueNumber, targetStage, expectedF
  * either re-touching already-correct labels or leaving a stale body forever
  * because "stage:test-run is already gone" looked like "already handled".
  */
-async function processDeletedTestRunDoc(path, { repository, token, project, projectsToken, commitRef }) {
+async function processDeletedTestRunDoc(path, { repository, token, project, projectsToken, commitRef, commitDate }) {
   const prNumber = extractPrNumberFromTestRunPath(path);
   if (!prNumber) return;
 
@@ -409,15 +409,27 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     // beyond returning the current set when nothing's actually stale, so
     // this also mops up any leftover labels an earlier interrupted run of
     // the branch above didn't get to.
+    // "Retry" means retry of *this deletion's own* transition, not "adopt
+    // whatever the issue happens to be at now" — those are different things.
+    // computeTransition is a pure function of the UAT doc's presence at the
+    // pinned `commitRef`, so it always names the one stage this specific
+    // deletion is entitled to reconcile toward. If the issue has genuinely
+    // moved past that since (David finished UAT and something else advanced
+    // it to close-out, say), that later move already has its own correct
+    // narrative from whatever actor caused it — this retry rewriting the
+    // body to claim *this* TEST_RUN deletion auto-transitioned it there
+    // would be a false, backdated narrative, not a legitimate reconciliation.
+    const expectedTargetStage = computeTransition(uatFilename !== null).stage;
     const freshStageIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
     const freshStage = freshStageIssue.labels
       .map((l) => l.name)
       .find((l) => l.startsWith("stage:"))
       ?.slice("stage:".length);
-    if (freshStage !== "uat" && freshStage !== "close-out") {
+    if (freshStage !== expectedTargetStage) {
       console.log(
-        `  ~ issue #${issueNumber} (PR #${prNumber}): stage changed since the first read ` +
-          `(now: ${freshStage ? `stage:${freshStage}` : "none"}) — skipping this pass`,
+        `  ~ issue #${issueNumber} (PR #${prNumber}): current stage (${freshStage ? `stage:${freshStage}` : "none"}) ` +
+          `no longer matches what this deletion's UAT doc implies (stage:${expectedTargetStage}) — the issue has ` +
+          `moved on for a reason unrelated to this retry; skipping rather than backdating a false transition`,
       );
       return;
     }
@@ -466,8 +478,14 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   // David/agent body edit, made after that first GET but before now, would
   // otherwise be silently overwritten by a stale full-body PATCH.
   const freshIssue = await rest("GET", `/repos/${repository}/issues/${issueNumber}`, token);
+  // Dated from the triggering push's own commit, not wall-clock "now" — a
+  // manual re-run of a failed job replays the same event date, so a retry
+  // landing on a later UTC date doesn't produce a `Last movement` line that
+  // disagrees with itself (and, per the Round 14 full-body comparison,
+  // doesn't spuriously fail to match an already-reconciled body purely
+  // because the date moved).
   const lastMovementLine =
-    `${new Date().toISOString().slice(0, 10)} — TEST_RUN doc for PR #${prNumber} cleared ` +
+    `${commitDate.slice(0, 10)} — TEST_RUN doc for PR #${prNumber} cleared ` +
     `(Replit finished); auto-transitioned to ${targetDisplay} by sync-test-run-completion.mjs.`;
   const updatedBody = updateStateOfPlayBody(freshIssue.body ?? "", {
     stageDisplay: targetDisplay,
@@ -511,6 +529,7 @@ async function main() {
   const repository = process.env.GITHUB_REPOSITORY;
   const before = process.env.BEFORE_SHA;
   const after = process.env.AFTER_SHA;
+  const commitDate = process.env.EVENT_COMMIT_DATE;
   const projectsToken = process.env.PROJECTS_TOKEN;
   const projectOwner = process.env.PROJECT_OWNER;
   const projectNumber = Number(process.env.PROJECT_NUMBER);
@@ -526,6 +545,7 @@ async function main() {
     GITHUB_REPOSITORY: repository,
     BEFORE_SHA: before,
     AFTER_SHA: after,
+    EVENT_COMMIT_DATE: commitDate,
   })
     .filter(([, v]) => !v)
     .map(([k]) => k);
@@ -580,6 +600,7 @@ async function main() {
         project,
         projectsToken,
         commitRef: after,
+        commitDate,
       });
       if (degraded) anyDegraded = true;
     } catch (err) {
