@@ -182,9 +182,16 @@ should already exist — **`planning` onward**, not just `coding` onward: a
 not PR-less by default either — with no match in the map, do one targeted
 lookup instead of assuming — search for `"Workstream: #<N>"` in PR bodies
 (`search_pull_requests`, query `"Workstream: #<N>" in:body
-repo:<owner>/<repo>`) before concluding it's actually unlinked. This only
-fires for the rare case the batched scan missed, so it stays cheap in the
-common case while closing the gap for long-lived gates.
+repo:<owner>/<repo>`) before concluding it's actually unlinked. **Run every
+hit through the same anchored `^Workstream:[ \t]*#(\d+)` check before
+trusting it** — GitHub's text search matches the phrase anywhere in the
+body, including inside an approved-plan oracle's illustrative example or
+prose mentioning the convention, not just on the canonical marker line. A
+search hit that doesn't pass the anchor is exactly the false-link risk the
+anchor exists to prevent, so it's not the workstream's PR — treat the
+workstream as still unlinked, the same as no hit at all. This only fires
+for the rare case the batched scan missed, so it stays cheap in the common
+case while closing the gap for long-lived gates.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
