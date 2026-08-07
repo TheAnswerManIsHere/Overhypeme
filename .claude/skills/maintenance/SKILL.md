@@ -96,9 +96,38 @@ and re-check **each entry's revisit trigger**:
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
+## 6. Loop-efficacy digest
+
+Run `node scripts/loop-report.mjs` (add `--inventory <file>` with a closed-PR
+list when one is available, or the section will say completeness wasn't
+checked) and **narrate the result to David in plain language** — a few
+sentences, not the raw tables. The script computes; this step interprets;
+David decides.
+
+This section exists because the measurement half shipped in PR #270 and the
+delivery half never did: for a year the answers sat in a file David doesn't
+open, and he discovered the records were duplicating by stumbling into it.
+**The digest is the product** — if it isn't narrated, the whole system is
+back to where it was.
+
+What to actually say:
+
+- **The headline, if there is one.** Churn moving, an unusually expensive
+  loop, a run of clean ones. If nothing moved, say that in one line.
+- **Anything actionable.** A deferral that has been open for weeks, a loop
+  whose adjudication tripped the disagreement gate, missing records piling
+  up. These are named individually in the digest precisely so they can be
+  acted on rather than counted.
+- **Honest uncertainty.** Below three qualifying loops the digest says "not
+  yet informative" — pass that through rather than dressing two data points
+  as a trend. The frozen ledger withdrew two such readings already.
+
+Skip the section entirely on a week where nothing closed; don't manufacture
+commentary about an empty window.
+
 ## Report delivery
 
-Single message, five short sections, worst news first. When something needs
+Single message, six short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat

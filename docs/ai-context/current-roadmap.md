@@ -171,7 +171,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   append-when-a-loop-closes obligation had nowhere to fail, so it was
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
-  (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
+  (this backfill's own PR). New ledger-coverage guard (since retired), wired
   into the Build job, originally failed CI when a loop that closed *before
   the current PR opened* had neither a row nor a recorded exemption — a
   loop closing while a PR was already in flight stayed unenforced until the
@@ -185,8 +185,21 @@ priorities (moderation speed, render/enrichment quality, video). See
   in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
+  **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
+  is **frozen** at rows 1–42 and the `[LEDGER]` PR type is retired. New
+  loops are recorded one JSON file per loop in
+  [`.agents/metrics/loops/`](../../.agents/metrics/loops/), blind
+  adjudication now runs on a deterministic **sample of loops** (each still
+  adjudicated over its full finding population), and the answers reach David
+  through a digest (`scripts/loop-report.mjs`, narrated by `/maintenance`)
+  rather than sitting in a file he never opens. Coverage and permanence
+  stopped being CI gates and became accepted, documented risks. Rationale,
+  including why the sampling reversal does not reintroduce the bias defects
+  that removed the original within-loop sample, is in
+  [`decisions.md`](./decisions.md).
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
-  mechanics, and the pre/post-boundary analysis all live in
+  mechanics, and the pre/post-boundary analysis for the first 42 loops all
+  live in
   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
   — read there, not here.** Duplicating that analysis into this file was
   the original design of this bullet and it went stale twice across PR

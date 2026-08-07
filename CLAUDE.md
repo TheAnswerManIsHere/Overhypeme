@@ -608,38 +608,41 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
-## I append to the loop ledger when a loop closes
+## I record a loop when it closes
 
 The obligation itself is **shared and lives in
 [`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
 binds Codex too, so it is not restated here. What is mine is only the
 enactment:
 
-- **When a PR I own merges or closes, its row is owed** before I consider the
-  work finished — and it ships via a **dedicated `[LEDGER]`-titled PR whose
-  only change is `.agents/metrics/loop-ledger.md`**, batching every row
-  currently owed (David, 2026-08-02, replacing the old fold-into-next-PR
-  rule; the shared contract is `working-modes.md`'s *"A row ships in a
-  dedicated `[LEDGER]` PR"*). A `[LEDGER]` PR owes no row of its own — the
-  policy exclusion that terminates the recursion — and CI enforces both its
-  file constraint and its carry-everything-owed gate, so the exemption can't
-  be borrowed or half-done. Codex still reviews it; I drive that review to
-  resolution like any other before merging.
-- **David granted standing authorization (2026-08-02) for me to squash-merge
-  a green `[LEDGER]` PR myself** — CI green, Codex review resolved, both
-  ledger gates passed. Same shape as the Dependabot authorization under
-  `/maintenance`; the structural file-constraint gate is what makes it safe.
-  On a regular PR, pending rows are a printed CI warning only, never a red
-  check — the debt is paid through the next `[LEDGER]` PR, not by whatever
-  PR happens to be in flight.
-- **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
-  columns and never type them from memory** — or `--mcp-snapshot <file>` in
+- **When a PR I own reaches its terminal point, its record is owed** before I
+  consider the work finished. Terminal point is: closed or merged, **and** no
+  reviewer pass for a full digest window — reviews land after merge, so
+  recording at close would persist zeroes and look healthy. The record is one
+  file, `.agents/metrics/loops/<pr>.json`, and it **rides any PR of mine
+  except the one it measures** (adding it there changes the diff it
+  describes). No dedicated PR type, no batching, no title prefix — the
+  `[LEDGER]` PR is retired (David, 2026-08-07), and with it the
+  squash-merge-it-myself authorization that existed for that PR type.
+- **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
+  type the mechanical values from memory** — or `--mcp-snapshot <file>` in
   this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
-  real API (my working GitHub access here is the MCP integration). Recalled
-  numbers in this repo have been wrong three times out of three; counted
-  ones have all held.
-- **I classify the judgment columns myself and say so**, including when the
-  causes are my own errors. Ambiguous causes go to self-inflicted.
+  real API (my working GitHub access here is the MCP integration). The
+  snapshot must carry `closed_at` and a complete issue-comment collection;
+  `--write` refuses without them, because a record that understates rounds
+  would land as measured data. Recalled numbers in this repo have been wrong
+  three times out of three; counted ones have all held.
+- **I fill the judgment myself and say so**, including when the causes are my
+  own errors. Ambiguous causes go to self-inflicted. Unknown preflight is
+  recorded as `null` with a reason, never fabricated as zero.
+- **Adjudication is sampled, so most loops legitimately record
+  `never-run`** — `pr % 5 === 0` or `findings >= 30` are the only loops that
+  get the blind pass, and each of those is still adjudicated over its full
+  finding population. A sampled loop I skip fails CI.
+- **Missing records are not a CI failure any more.** They surface in the
+  digest at `/maintenance`. That means *I* am the one who notices them
+  between runs — if I close a loop and don't record it, nothing stops me
+  except this rule.
 - **I dispatch the blind adjudication subagent** — this is a named exception to
   the subagent-delegation rules below, for the same reason the fresh-context
   preflight would be: its value is the *absence* of my context, which my main

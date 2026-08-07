@@ -452,24 +452,49 @@ which it is, **ask.**
 
 ## The loop ledger
 
-**Every review loop gets one row in
-[`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md), appended
-when the loop closes. This applies to every agent and every mode** — plan
-review, feature/code review, bugfix review, and any ad-hoc thread that
-escalated into a reviewed change.
+**Every review loop gets one record at
+`.agents/metrics/loops/<pr>.json`. This applies to every agent and every
+mode** — plan review, feature/code review, bugfix review, and any ad-hoc
+thread that escalated into a reviewed change.
+
+> **Changed 2026-08-07.** The markdown table at
+> [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md) is
+> **frozen** at rows 1–42 and is never appended to again — it is the archive
+> of what those loops showed, pinned by a `sha256` baseline. The `[LEDGER]`
+> PR type is retired: a record rides any PR except the one it measures. Blind
+> adjudication now runs on a **sample of loops** (each still adjudicated over
+> its full finding population). And the answers now reach David through a
+> digest rather than sitting in a file. Rationale — including why sampling
+> loops does not reintroduce the bias defects that removed the original
+> within-loop sample — is in [`decisions.md`](./decisions.md). The rubric
+> below is unchanged.
 
 **It is here, in the shared contract, rather than in one agent's private
 instructions, for a specific reason:** Codex runs feature and bugfix workflows
 independently of Claude's ceremony (see *How each agent enters / exits a mode*
 above), so an obligation living only in `CLAUDE.md` would silently omit every
-Codex-driven loop. The resulting ledger would look complete while being wrong
-about the thing it exists to measure — worse than no ledger, because it would
-be trusted.
+Codex-driven loop. The resulting record set would look complete while being
+wrong about the thing it exists to measure — worse than none, because it
+would be trusted.
+
+**Record at the loop's terminal point, not at PR close.** A loop is ready to
+record when its PR is closed or merged **and** no reviewer pass has landed
+for a full digest window (14 days). Reviews land after merge — frozen-ledger
+rows #323 and #324 are observed cases — so recording at closure would persist
+zero rounds and zero findings and look healthy doing it. If a late review
+arrives after a record exists, re-derive and edit the record; that is an
+ordinary commit.
+
+**Commit the record on any open PR except the one being measured.** Adding a
+metrics file to the PR it describes changes that PR's diff, which can trigger
+a further reviewer pass *after* the rounds and interval were derived — the
+record would then omit the round its own addition caused.
 
 **At loop close:**
 
-1. Run `node scripts/loop-metrics.mjs --pr <number>` and paste the mechanical
-   columns. **Do not type these by hand.** Rounds, findings and elapsed time
+1. Run `node scripts/loop-metrics.mjs --pr <number> --write`, which lands a
+   record with a `judgment: null` scaffold. **Do not type the mechanical
+   values by hand.** Rounds, findings and elapsed time
    are countable, and figures produced here by recollection have a poor track
    record — two were withdrawn as wrong during the work that created this file.
    No direct `api.github.com` credential in your environment? The script also
@@ -481,7 +506,17 @@ be trusted.
    yourself before calling the script** — it cannot page through the MCP tool
    on its own — and must set
    `complete: {reviews: true, files: true, reviewThreads: true, issueComments: true}`
-   only once every page is concatenated in. `get_comments` (issue comments, not
+   only once every page is concatenated in. **The snapshot's `pr` object must
+   also carry `closed_at` (and `merged_at` when merged)** — capture them from
+   `pull_request_read` method `"get"`. The digest windows on the closure
+   timestamp, and neither the coarse state nor the review interval can supply
+   it: the interval is null for a loop with no reviews, and it ends at the
+   *last review*, which for a post-merge review is after the merge.
+   `assertMcpSnapshotShape` rejects a snapshot that omits the key, and
+   **`--write` refuses an input with no issue-comment collection at all** —
+   plain derivation stays lenient there for older read-only snapshots, but a
+   record understating rounds and review time must never land as measured
+   data. `get_comments` (issue comments, not
    review comments) is what a clean reviewer pass can post through instead of a
    formal review — see *Rounds undercounted when a re-review is clean* in the
    ledger itself — so omitting it understates `rounds` and `review hrs` on
@@ -536,16 +571,33 @@ be trusted.
    [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)'s
    *Rounds undercounted when a re-review is clean* note (row 11, #286) for
    the first sighting and its own concrete `rounds`/`review hrs` impact.
-2. Add the judgment columns yourself: cause per finding (new ground /
+2. Fill the record's `judgment` yourself: cause per finding (new ground /
    propagation / wrong fix / re-raised / invalid), pre-open preflight
    minutes, breakers fired. **Ambiguous causes default to self-inflicted**,
-   so classification drift cannot quietly flatter the workflow.
-3. Adjudicate **every finding** blind — a fresh-context reader (in practice a
-   subagent with no access to the original classifications) is given the
-   round history and **the rubric below**, and re-classifies the full
-   population independently. At `findings = 0` there is nothing to
-   adjudicate, and the causal share is recorded as `n/a — clean loop` (see
-   the ledger's own note on this), not `0%`. Above **20% disagreement**
+   so classification drift cannot quietly flatter the workflow. Preflight
+   minutes may be `null` **with a stated `preOpenPreflightReason`** when the
+   figure genuinely cannot be isolated (a branch carrying unrelated earlier
+   work — the frozen ledger's `—` convention). Null-with-a-reason is a
+   measurement, distinct from a measured `0` and never summed as zero; do
+   not fabricate a zero, and do not defer the whole classification over this
+   one field. **Do not compute or store the self-inflicted share** — the
+   digest derives it from the causes, and two copies of one number can
+   disagree.
+3. **Adjudicate only if the loop is sampled**: `pr % 5 === 0` **or**
+   `findings >= 30`. Otherwise record `adjudication: {"status": "never-run"}`
+   — that is the settled state for roughly four-fifths of loops, and their
+   author classification still counts toward churn and the trend. A sampled
+   loop that skips adjudication fails the guard, and an unsampled loop must
+   not claim `completed`; the state matrix is enforced in both directions.
+
+   When it *is* sampled, adjudicate **every finding** blind — a fresh-context
+   reader (in practice a subagent with no access to the original
+   classifications) is given the round history and **the rubric below**, and
+   re-classifies the full population independently. Record only
+   `population` and `disagreements`; the percentage and the verdict are
+   derived at read time. At `findings = 0`, or when every finding is
+   `invalid`, there is nothing to adjudicate: record `"n/a"` and the causal
+   share is reported as `n/a` (see the ledger's own note on this), not `0%`. Above **20% disagreement**
    across the full set, record that loop's causal figure as `unmeasured` and
    exclude it from the trend rather than counting it as a pass.
    **"Disagreement" means an exact finding-by-finding comparison over a
@@ -650,135 +702,84 @@ it (see the ledger's row-provenance notes) — if that pass surfaces a rubric
 gap, fix the rubric here rather than making a one-off judgment call on #268
 alone.*
 
-**A row ships in a dedicated `[LEDGER]` PR (David, 2026-08-02 — replacing
-the earlier "a row is never its own dedicated PR" rule).** The old rule
-folded a closed loop's row into whichever PR opened next, on any subject.
-That kept the ledger obligation satisfiable, but in practice it muddied every
-carrier PR's diff with content unrelated to its purpose, and it made the
-ledger file the repo's single worst merge-conflict magnet — three concurrent
-sessions collided on it in one week (#285/#286, #290/#294, #292/#295), each
-collision costing a hand reconciliation of judgment-column prose. The
-replacement:
+**A record rides any PR except the one it measures (David, 2026-08-07 —
+retiring the `[LEDGER]` PR type).** Two rules preceded this one, and the
+history explains why the third is different in kind rather than just in
+detail:
 
-- **At loop close, open a PR whose title starts with `[LEDGER]` and whose
-  only change is `.agents/metrics/loop-ledger.md`**, carrying a row for every
-  loop currently owed. One `[LEDGER]` PR batches all outstanding rows (and
-  may also add *Deliberately not measured* entries — same file). Never fold
-  a row into a PR that exists for any other purpose.
-- **A `[LEDGER]` PR does not itself owe a row.** This is what terminates the
-  recursion the old rule was built around ("its own close would owe another
-  row, forever"). It is a policy exclusion exactly like the Dependabot one —
-  applied by the guard and *reported* on every run, never silent. It is also
-  empirically grounded rather than merely convenient: the ledger's own rows
-  15 and 16 — the two most self-referential ledger-editing loops ever
-  recorded — are the only rows to land `unmeasured` (>20% adjudication
-  disagreement), so the loops this exclusion stops measuring are precisely
-  the ones whose measurements were already the least reliable in the table.
-- **The marker is structurally enforced, not honor-system.** CI fails any
-  `[LEDGER]`-titled PR whose diff touches anything besides the ledger file,
-  so the exclusion cannot be borrowed by substantive work riding in under
-  the prefix. A misused code word would otherwise be the guard's one
-  invisible hole; the file constraint makes misuse impossible rather than
-  discouraged, per the repo's standing make-the-mistake-impossible rule.
-- **Codex still reviews `[LEDGER]` PRs.** The connector auto-reviews every
-  non-draft PR on open, and its review of ledger appends has caught real
-  classification errors (five rounds of them on #292's fold-in alone).
-  Findings get fixed like any others — the loop is simply not *measured*.
-  Excluded from measurement is not excluded from scrutiny.
+- The **original** rule folded a closed loop's row into whichever PR opened
+  next, on any subject. It muddied every carrier's diff and made the ledger
+  file the repo's worst merge-conflict magnet — three collisions in one week
+  (#285/#286, #290/#294, #292/#295).
+- The **2026-08-02** rule moved rows into dedicated `[LEDGER]`-titled PRs
+  carrying every row currently owed. That fixed the muddied diffs but made
+  collisions *mandatory*: any two concurrent `[LEDGER]` PRs were required by
+  CI to contain overlapping rows and to hand-assign the same ordinals. PRs
+  #327 and #335 both claimed rows 24–26 with different contents and each made
+  the other un-mergeable.
+- **The current rule fixes the cause instead of the symptom.** One file per
+  loop, named for its PR number, means two sessions recording *different*
+  loops touch different paths and cannot conflict at all. There is nothing
+  to batch, nothing to carry, and no ordinal to assign — so there is also no
+  recursion to terminate, and the `[LEDGER]` exclusion that existed to
+  terminate it is gone with the PR type.
 
-**CI enforces this — the backstop is no longer memory.**
-`scripts/check-ledger-coverage.mjs` runs in the Build job, with behavior
-split by PR kind (David, 2026-08-02):
+What remains:
 
-- **On a regular PR**, loops missing a row are printed as a **warning**,
-  never a failure. A regular PR is no longer anyone's designated carrier, so
-  failing it for ledger state would hold unrelated work hostage — the exact
-  mess the dedicated-PR rule exists to end. The offline arithmetic check
-  (each row's five causal counts sum to its findings) still **fails** on
-  every PR — that is data corruption, not pending debt. **A regular PR
-  touching the ledger file at all is a hard failure** (fixed on PR #304,
-  Codex round 2) — without this, a PR could still carry a row exactly like
-  the old rule and stay green, since missing rows are only a warning and a
-  well-formed row still passes arithmetic; nothing else would ever flag that
-  the new contract was quietly bypassed.
-- **On a `[LEDGER]` PR**, three checks are hard gates: its diff must touch
-  only the ledger file — an empty diff fails too, not just a stray one (added
-  PR #304 round 2, second pass: a PR reverted back to its base and then
-  retitled `[LEDGER]` would otherwise pass this vacuously and permanently
-  escape ever owing a row it never carried), and a renamed-in file from
-  elsewhere counts as touching something else (per PR #304 round 2 —
-  `filename` is always the destination path, so a rename *into* the ledger
-  path would pass a filename-only check while still deleting whatever lived
-  at the source); no row or exemption present on live `main` may be missing
-  from its own copy (added PR #304 round 2 — the structural and arithmetic
-  checks alone don't catch a botched merge-conflict resolution silently
-  dropping a row, and a row is added once and never removed); and it must
-  carry every row owed at the time it opened.
-- **On push to `main`**, the audit reports pending debt on every run and
-  fails only when debt goes **overdue**: a `[LEDGER]` PR opened after the
-  loop closed and merged without carrying its row (the designated carrier
-  skipped it), or two-plus PRs of any kind have merged since the loop closed
-  with the row still missing and no `[LEDGER]` PR open **whose own current
-  head actually, deliverably carries that row**. "Deliverably" is doing real
-  work here (fixed across PR #304 round 2's second pass, round 3, round 5,
-  and round 6): the open PR must target `main` itself, not a stacked branch
-  (a `[LEDGER]` PR based on another PR's head, per working-modes.md's own
-  *Dependent bugs* pattern, cannot pay `main`'s debt no matter how clean its
-  diff is); it must not be a **draft** (round 6 — a draft can't be merged
-  regardless of content, and this repo's Codex connector only auto-reviews
-  non-draft PRs); its WHOLE ledger must pass the same arithmetic gate
-  `main()` enforces (round 5 — `main()` fails the whole build on any one
-  broken row, so a candidate with a valid row for the loop in question and a
-  broken row for some other, unrelated loop still can't merge at all; round
-  2's second-pass fix checked only the row in question, which missed exactly
-  that case); it must not itself still **owe** any other row at its own
-  opening time (round 6 — `main()`'s own `[LEDGER]`-PR gate hard-fails on
-  missing *any* owed row, not just the one under audit here, so the same
-  `owedRows` check the live gate runs is what this mirrors); and the
-  candidate as a whole must pass its own permanence check against live
-  `main` (round 3) — a concurrent `[LEDGER]` PR can land a row this
-  candidate's head doesn't have yet, making it just as unmergeable as a
-  broken-arithmetic row would. Content is read ONLY at the candidate's
-  precomputed test-merge commit (round 5, hardened round 6) — this repo's
-  Build workflow checks out the default `pull_request` ref, which for a PR
-  event already IS that merge tree, so judging another open candidate by its
-  raw head instead would hold it to a different tree than its own CI run
-  does. A missing test-merge commit (not yet computed, or the PR has real
-  conflicts with `main`) means mergeability was never established, so that
-  candidate carries nothing — no falling back to the raw head, which could
-  contain row prose that passes the identity-only checks here while sitting
-  on a tree that can never actually land. None of these may be trusted to
-  defer a backstop indefinitely just by sitting in an open, permanently-red
-  PR. Verified by content, not inferred from timing alone (round 2's first
-  pass) — a stalled or incomplete `[LEDGER]` PR
-  sitting open doesn't by itself mean it's paying any particular loop's
-  debt. Even a content-perfect carrier's own AGE is bounded (round 7): a
-  `[LEDGER]` PR can be permanently blocked from merging by something no
-  content check can see — this repo's required-conversation-resolution
-  merge gate stuck on an unresolved Codex thread, a required review nobody
-  answers, plain abandonment — so once as many other PRs have merged since
-  *that carrier itself* opened as the backstop's own threshold, it stops
-  counting as an active deferral, on the same yardstick a carrierless debt
-  is held to. A verified-carrying, not-yet-stale open `[LEDGER]` PR defers
-  the second trigger — the debt is visibly being paid — but never the
-  first.
+- **Commit the record on any open PR of yours, except the PR being
+  measured** (adding it there would change the diff it describes and can
+  trigger another reviewer pass after the numbers were derived). A small
+  standalone PR is fine when nothing else is in flight.
+- **Recording the same loop twice, sequentially, is a no-op** —
+  `--write` checks the working tree and `origin/main`. Any overlap *before*
+  a record lands (two sessions at once, or a second session starting while
+  the first record sits on an unmerged PR) is an ordinary git add/add
+  conflict: keep either copy. That is an accepted outcome, not a protocol to
+  build; this is a tracking tool.
+- **Coverage is not a CI gate.** A closed loop with no record is named in
+  the digest `/maintenance` narrates — the surface David actually reads —
+  rather than failing an unrelated PR's build. Accepted risk: tracking can
+  lapse for a week.
+- **Records are not append-only.** A record can be edited or deleted in an
+  ordinary commit; PR review is the control. Enforcing immutability required
+  a corrections-overlay system whose own review produced more defects than it
+  prevented.
+- **Codex still reviews the PRs that carry records.** Its review of ledger
+  appends has caught real classification errors (five rounds of them on
+  #292's fold-in alone). Not gated by CI is not unreviewed.
 
-The guard exists because the obligation met its first fast build run and
-lost: by 2026-07-29 the ledger held 2 rows against 13 closed loops, with
-zero rows in the feature/code and bugfix cohorts, and nothing had gone wrong
-mechanically — the rule simply had nowhere to fail, so every PR stayed green
-while coverage collapsed. That is the repo's standing "a recurring failure
-pattern becomes a CI guard" rule applied to our own ceremony rather than to
-product code.
+**CI enforces record validity, and nothing else (David, 2026-08-07).**
+`scripts/check-loop-metrics.mjs` runs in the Build job on every PR and on
+push-to-`main`. It is fully offline (no token, no PR context, no base diff),
+so it behaves identically in both, and it checks only whether a record is
+internally coherent:
 
-Two things the guard deliberately does **not** do. It does not demand a row
-for a loop that closed *after* the current `[LEDGER]` PR opened — that row
-belongs to the next `[LEDGER]` PR, and failing an in-flight one for it would
-be unsatisfiable. And it excludes Dependabot PRs by policy rather than by
-hand-written exemption, since those carry no plan, fix tier, or review loop;
-it reports the count it skipped on every run, so the exclusion is visible
-rather than silent — the same reporting discipline the `[LEDGER]` exclusion
-above follows.
+- Schema (both the measured and exempt branches), filename/`pr` agreement,
+  and the `mechanical` **allowlist** — an unknown key there is a failure,
+  because `derive()` returns more than the store keeps and a stored copy of
+  something authoritative goes stale on the next refresh.
+- The five causal counts sum exactly to `findings` — data corruption, not
+  pending debt.
+- Judgment completeness: a committed `--write` scaffold with a null judgment
+  and no stated deferral **fails**, which is how an interrupted session is
+  stopped from leaving a valid-looking hole. Null preflight *with a reason*
+  is complete.
+- The adjudication state matrix, **enforced in both directions**: a loop
+  meeting the sampling predicate may not claim `never-run`, and a loop that
+  does not meet it may not claim `completed`. A `completed` record stores
+  only `population` and `disagreements`, bounded and equal to the full
+  finding count; storing a percentage or a verdict is rejected as a second
+  representation of one number.
+- The frozen ledger still matches its `sha256` baseline.
+
+**What CI deliberately does not check** — both accepted risks, recorded in
+[`decisions.md`](./decisions.md) rather than discovered later:
+
+- **Coverage.** A closed loop with no record is named in the digest that
+  `/maintenance` narrates, not by failing an unrelated PR's build. The
+  predecessor guard did fail builds over this, and it still did not put the
+  gap in front of the person who could act on it.
+- **Permanence.** Records are not append-only; PR review is the control.
 
 **What it is for.** The primary question is whether the **self-inflicted
 finding share** — findings that exist only because an earlier fix in the same

@@ -13,6 +13,82 @@
 
 ---
 
+### 2026-08-07 · Loop metrics move to one record per loop, adjudication samples *loops*, and the insight is delivered by a digest — superseding the 2026-07-27 ledger decision
+- **Decision:** Three changes to how review-loop efficacy is recorded, all
+  superseding parts of *2026-07-27 · The loop ledger* below (which stays in
+  place as history):
+  1. **Storage.** One JSON record per loop at
+     `.agents/metrics/loops/<pr>.json`, keyed by PR number, written by
+     `scripts/loop-metrics.mjs --pr <n> --write`. The markdown table is
+     **frozen** at rows 1–42, pinned by `loop-ledger.sha256`, and never
+     appended to again. **There was no migration** — the old rows stay
+     exactly as written, and the analysis in *What the ledger's adjudicated
+     rows now show* remains the record of what those 42 loops showed.
+  2. **Adjudication scope.** Blind adjudication now runs on a deterministic
+     **sample of loops** — `pr % 5 === 0` or `findings >= 30` — instead of on
+     every loop. **Every adjudication that runs still covers that loop's full
+     finding population.**
+  3. **Delivery.** `scripts/loop-report.mjs` renders a digest that
+     `/maintenance` narrates to David in plain language. The `[LEDGER]` PR
+     type is retired; a record rides any PR except the one it measures.
+- **Why:** Three failures, all observed. **(a)** The single-table design
+  forced concurrent sessions to collide: PRs #327 and #335 both claimed rows
+  24–26 with different contents and each made the other un-mergeable, because
+  CI *required* every `[LEDGER]` PR to carry every owed row. **(b)** The
+  guard had grown to ~970 lines, almost all of it policing problems that
+  design created — and its own PR (#304, 61.1% self-inflicted over 7 rounds)
+  and the ledger's bootstrap (#270, 64.7% over 16 rounds) are two of the four
+  worst loops in the dataset, making the measurement system a top generator
+  of the pathology it measures. **(c)** The insight never reached its
+  consumer: it lived in a ~2,500-word analysis section inside a file David
+  does not open, and he learned the rows were duplicating by stumbling into
+  it. The measurement half had shipped; the delivery half never had.
+- **On the sampling reversal specifically** — the 2026-07-27 entry removed
+  sampling, so this needs to answer it directly rather than quietly differ:
+  - That entry's sample was **within a loop** (30% of one loop's findings),
+    and the two bias defects that killed it were *selection* defects — an
+    id-sort that oversampled round 1's disproportionately-new-ground
+    findings, then a round-robin that silently dropped the latest rounds,
+    where the self-inflicted numerator lives. **This samples loops, not
+    findings.** Each sampled loop is adjudicated in full, so the
+    disagreement gate stays exact and neither defect can recur.
+  - That entry's stated rationale was **cost** ("full coverage costs tokens
+    once per loop close, not anyone's time"). That reasoning still holds and
+    is **not** why this changed.
+  - What changed is the **observed outcome**, which did not exist as evidence
+    in July: roughly 40% of adjudicated rows landed `unmeasured` and were
+    discarded by the >20% disagreement gate. The repo was paying full
+    dual-classification cost on every loop and throwing away two rows in
+    five. Sampling loops keeps a recurring calibration signal at a fraction
+    of that cost.
+  - David's 2026-08-07 scope directive — *"this is an internal tool that has
+    a simple task of tracking how effective our loops are… We're not curing
+    cancer"* — is the authority for accepting a slightly weaker guarantee in
+    exchange for a much simpler system.
+  - The old entry's **"Revisit if"** clause is unaffected and still stands:
+    if the blind adjudicator ever becomes a human rather than a subagent, the
+    cost calculus flips again and this should be reconsidered.
+- **Two guarantees were deliberately dropped**, both recorded as accepted
+  risks rather than solved: records are **no longer append-only** (they can
+  be edited or deleted in an ordinary commit; PR review is the control), and
+  **coverage is no longer a CI gate** (missing records are named in the
+  weekly digest instead of failing an unrelated PR's build). Enforcing the
+  first required a corrections-overlay system whose own review produced more
+  defects than it prevented.
+- **Reference:** the approved plan, committed as `PLAN_LOOP_METRICS_STORE.md`
+  under the plans directory on the never-merged `plan-review/loop-metrics-store`
+  branch (commit `6a15e9d`; plan files never land on `main`), reviewed across four
+  Codex rounds on the closed plan-review PR #340 (14 → 14 → 12 → 12 findings,
+  48 fixed, 2 declined with recorded reasoning). Contract in
+  [`working-modes.md`](./working-modes.md#the-loop-ledger).
+- **Revisit if:** the digest goes unread for a month (the delivery half would
+  have failed the same way the ledger's did, and the answer is a different
+  surface, not more data); or missing records accumulate past a handful,
+  which would mean the no-CI-gate trade was wrong and coverage needs teeth
+  again.
+
+---
+
 ### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
 - **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
   newer push lands on the *same PR* (never a push-to-main or the weekly

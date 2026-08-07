@@ -320,10 +320,15 @@ edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per
 `workstream-tracking.md`'s ownership rule. A label change with no matching
 narrative update is the exact drift that rule exists to prevent.
 
-**Reviewer efficacy is measured by the loop ledger**
-(`.agents/metrics/loop-ledger.md`): every loop's rounds, findings, and
-self-inflicted share get a permanent row, which is the evidence base for
-changing the reviewer or the ceremony. (This supersedes the original
+**Reviewer efficacy is measured by the loop-metrics store**
+(`.agents/metrics/loops/<pr>.json`, one record per loop, written with
+`node scripts/loop-metrics.mjs --pr <n> --write`): every loop's rounds,
+findings, and self-inflicted share are recorded permanently, which is the
+evidence base for changing the reviewer or the ceremony. The answers reach
+David through the digest (`node scripts/loop-report.mjs`, narrated by
+`/maintenance`), not by anyone reading records. `.agents/metrics/loop-ledger.md`
+is the frozen archive of the first 42 loops and is never appended to again.
+(This supersedes the original
 "first ~3 plans" calibration pilot — a dozen loops have run and the ledger
 measures them better than a one-time comparison would have.)
 
