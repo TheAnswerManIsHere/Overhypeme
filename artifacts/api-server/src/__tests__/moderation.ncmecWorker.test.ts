@@ -5,13 +5,18 @@
  * reconciler to this file's suite; what is here now is the pair of predicates those
  * components and the admin surface will share.
  *
+ * There is deliberately no backlog-audit coverage here. The ceremony was dropped on
+ * 2026-08-07 (pre-activation rows are test artifacts the activation runbook deletes, not
+ * a backlog to review), so a test that exercised an `unaudited_backlog` branch would be
+ * asserting behavior the product must not have.
+ *
  * The two properties worth more than any individual case are asserted as invariants over
  * a generated matrix rather than as hand-picked examples:
  *
  *   1. `classifyWaitingState` is **exhaustive and disjoint** over non-final rows — it
- *      returns exactly one of the eight labels for every combination, including the
- *      overlapping ones (disabled *and* test; identity-unresolved *and* unaudited) that
- *      made an earlier independent-predicate design unsatisfiable.
+ *      returns exactly one of the seven labels for every combination, including the
+ *      overlapping ones (disabled *and* test mode) that made an earlier
+ *      independent-predicate design unsatisfiable.
  *   2. The classifier and `isSubmittable` **agree**: a row is classified as active work
  *      (`in_flight` / `awaiting_reconciliation`) if and only if `isSubmittable` accepts
  *      it. Two functions encoding the same eligibility, drifting apart silently, is the
@@ -36,7 +41,6 @@ import {
   classifyWaitingState,
   isIdentityUnresolved,
   isSubmittable,
-  isUnauditedBacklog,
 } from "../lib/moderation/ncmecWorker.js";
 
 /** A zeroed tally over every declared waiting state, so a missed branch shows as 0. */
@@ -49,29 +53,18 @@ function zeroedCounts(): Record<NcmecWaitingState, number> {
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-const CUTOFF = new Date("2026-07-01T00:00:00.000Z");
-const BEFORE_CUTOFF = new Date("2026-06-01T00:00:00.000Z");
-const AFTER_CUTOFF = new Date("2026-08-01T00:00:00.000Z");
-
-/** Enabled, production, audit scoped — the configuration in which reports actually file. */
+/** Enabled, production — the configuration in which reports actually file. */
 const LIVE: NcmecEligibilityConfig = {
   submissionEnabled: true,
   environment: "production",
-  backlogAuditCutoff: CUTOFF,
 };
 
-/**
- * A row with nothing standing in its way: created after the cutoff so it needs no audit,
- * with an uploader snapshot, and no test attempt.
- */
+/** A row with nothing standing in its way: an uploader snapshot, no test attempt. */
 function eligibleRow(overrides: Partial<NcmecWaitingStateRow> = {}): NcmecWaitingStateRow {
   return {
     submissionStatus: "pending",
-    createdAt: AFTER_CUTOFF,
-    backlogAuditedAt: null,
     reporterSnapshot: { userId: "u_1", email: "someone@example.com" },
     userId: "u_1",
-    identityOmissionApprovedAt: null,
     testSubmissionStartedAt: null,
     testReportId: null,
     testSubmittedAt: null,
@@ -79,75 +72,39 @@ function eligibleRow(overrides: Partial<NcmecWaitingStateRow> = {}): NcmecWaitin
   };
 }
 
-const LIVE_JOB = { status: "pending" } as const;
-
-// ─── isUnauditedBacklog ─────────────────────────────────────────────────────
-
-describe("isUnauditedBacklog", () => {
-  it("matches a row created before the cutoff that has not been audited", () => {
-    assert.equal(
-      isUnauditedBacklog({ createdAt: BEFORE_CUTOFF, backlogAuditedAt: null }, LIVE),
-      true,
-    );
-  });
-
-  it("releases the row once it carries an audit stamp", () => {
-    assert.equal(
-      isUnauditedBacklog(
-        { createdAt: BEFORE_CUTOFF, backlogAuditedAt: new Date("2026-07-15T00:00:00.000Z") },
-        LIVE,
-      ),
-      false,
-    );
-  });
-
-  it("does not match a row created at or after the cutoff — those are new-code rows", () => {
-    assert.equal(isUnauditedBacklog({ createdAt: AFTER_CUTOFF, backlogAuditedAt: null }, LIVE), false);
-    // Strictly `<`, so a row created exactly at the boundary is out of scope.
-    assert.equal(isUnauditedBacklog({ createdAt: CUTOFF, backlogAuditedAt: null }, LIVE), false);
-  });
-
-  it("matches nothing when the cutoff is unset, mirroring SQL's three-valued logic", () => {
-    // `created_at < NULL` is unknown in Postgres, so the reconciler's WHERE clause excludes
-    // the row. A JavaScript comparison against null would coerce to 0 and include every
-    // row instead — the two evaluations of this predicate have to agree, or rows appear in
-    // a count that the query draining them cannot see.
-    const unscoped: NcmecEligibilityConfig = { ...LIVE, backlogAuditCutoff: null };
-    assert.equal(isUnauditedBacklog({ createdAt: BEFORE_CUTOFF, backlogAuditedAt: null }, unscoped), false);
-    assert.equal(isUnauditedBacklog({ createdAt: new Date(0), backlogAuditedAt: null }, unscoped), false);
-  });
-});
+const LIVE_JOB: NcmecSubmitJobState = { status: "pending" };
 
 // ─── isIdentityUnresolved ───────────────────────────────────────────────────
 
 describe("isIdentityUnresolved", () => {
-  const legacy = { reporterSnapshot: null, userId: "u_1", identityOmissionApprovedAt: null };
-
-  it("matches a row with an account attached but no snapshot", () => {
-    assert.equal(isIdentityUnresolved(legacy), true);
+  it("matches a row with an account attached but no snapshot — a capture defect", () => {
+    assert.equal(isIdentityUnresolved({ reporterSnapshot: null, userId: "u_1" }), true);
   });
 
-  it("is released by the omission approval stamp, not by an audit note", () => {
-    assert.equal(
-      isIdentityUnresolved({ ...legacy, identityOmissionApprovedAt: new Date() }),
-      false,
-    );
-  });
-
-  it("does not match an anonymous row — there is no identity to resolve", () => {
-    assert.equal(isIdentityUnresolved({ ...legacy, userId: null }), false);
+  it("does not match an anonymous row — there is no identity to capture", () => {
+    assert.equal(isIdentityUnresolved({ reporterSnapshot: null, userId: null }), false);
   });
 
   it("does not match a row that has a snapshot", () => {
-    assert.equal(isIdentityUnresolved({ ...legacy, reporterSnapshot: { userId: "u_1" } }), false);
+    assert.equal(
+      isIdentityUnresolved({ reporterSnapshot: { userId: "u_1" }, userId: "u_1" }),
+      false,
+    );
   });
 });
 
 // ─── isSubmittable ──────────────────────────────────────────────────────────
 
 describe("isSubmittable", () => {
-  it("accepts an audited, identity-resolved row in enabled production", () => {
+  it("accepts an identity-resolved row in enabled production", () => {
     assert.deepEqual(isSubmittable(eligibleRow(), LIVE), { submittable: true });
+  });
+
+  it("accepts an anonymous row — honest omission is the correct filing for it", () => {
+    assert.deepEqual(
+      isSubmittable(eligibleRow({ reporterSnapshot: null, userId: null }), LIVE),
+      { submittable: true },
+    );
   });
 
   it("refuses a disabled deployment reversibly, so the row keeps its place", () => {
@@ -164,27 +121,13 @@ describe("isSubmittable", () => {
     assert.equal(result.refusal.code, "environment_not_production");
   });
 
-  it("refuses an unaudited backlog row REVERSIBLY — it is parked, not failed (G5)", () => {
-    // Classed terminal, this row would be finalized `failed` instead of parked, destroying
-    // the operator's pending audit decision and alerting on a report never in trouble.
-    const result = isSubmittable(eligibleRow({ createdAt: BEFORE_CUTOFF }), LIVE);
+  it("refuses a capture-defect row REVERSIBLY — parked for a human, never auto-filed (G5)", () => {
+    // Classed terminal, phase 5's worker would finalize this row `failed` — an alert fired
+    // for a report that was never in trouble, over a defect in our own capture code.
+    const result = isSubmittable(eligibleRow({ reporterSnapshot: null }), LIVE);
     assert.equal(result.submittable, false);
     assert.equal(result.refusal.class, "reversible");
-    assert.equal(result.refusal.code, "unaudited_backlog");
-  });
-
-  it("refuses an identity-unresolved row REVERSIBLY, and accepts it once omission is approved (G5)", () => {
-    const unresolved = eligibleRow({ reporterSnapshot: null });
-    const refused = isSubmittable(unresolved, LIVE);
-    assert.equal(refused.submittable, false);
-    assert.equal(refused.refusal.class, "reversible");
-    assert.equal(refused.refusal.code, "identity_unresolved");
-
-    const approved = eligibleRow({
-      reporterSnapshot: null,
-      identityOmissionApprovedAt: new Date("2026-07-20T00:00:00.000Z"),
-    });
-    assert.deepEqual(isSubmittable(approved, LIVE), { submittable: true });
+    assert.equal(result.refusal.code, "identity_unresolved");
   });
 
   it("refuses every final status terminally, each with its own code", () => {
@@ -224,13 +167,13 @@ describe("isSubmittable", () => {
   });
 
   /**
-   * Known gap G5, as a property rather than a pair of examples.
+   * Known gap G5, as a property rather than an example.
    *
    * A terminal refusal is the answer that says "this row's future is spent". If any refusal
    * that a later action could clear were classed terminal, phase 5's worker would finalize
-   * a row `failed` that an audit, an identity approval, or a config flip would have
-   * rescued — and invariant 8's promise that such rows are parked and counted would be
-   * false exactly for the rows it was written to protect.
+   * a row `failed` that a config flip or an operator action would have rescued — and
+   * invariant 8's promise that such rows are parked and counted would be false exactly for
+   * the rows it was written to protect.
    */
   it("classes a refusal terminal only when the row is already final (G5)", () => {
     for (const { row, config } of matrix()) {
@@ -252,18 +195,14 @@ describe("isSubmittable", () => {
     }
   });
 
-  it("reports a per-row blocker ahead of a config switch, matching the waiting-state order", () => {
+  it("reports the per-row blocker ahead of a config switch, matching the waiting-state order", () => {
     // The two functions must tell an operator the same story about the same row: a retry
-    // refused as `unaudited_backlog` is the row the admin table counts under
-    // `unaudited_backlog`, not one it counts under `submission_disabled`.
-    const off: NcmecEligibilityConfig = { ...LIVE, submissionEnabled: false, environment: "test" };
-    const unaudited = isSubmittable(eligibleRow({ createdAt: BEFORE_CUTOFF }), off);
-    assert.equal(unaudited.submittable, false);
-    assert.equal(unaudited.refusal.code, "unaudited_backlog");
-
-    const unresolved = isSubmittable(eligibleRow({ reporterSnapshot: null }), off);
-    assert.equal(unresolved.submittable, false);
-    assert.equal(unresolved.refusal.code, "identity_unresolved");
+    // refused as `identity_unresolved` is the row the admin table counts under
+    // `identity_unresolved`, not one it counts under `submission_disabled`.
+    const off: NcmecEligibilityConfig = { submissionEnabled: false, environment: "test" };
+    const result = isSubmittable(eligibleRow({ reporterSnapshot: null }), off);
+    assert.equal(result.submittable, false);
+    assert.equal(result.refusal.code, "identity_unresolved");
   });
 });
 
@@ -274,21 +213,13 @@ const REFUSAL_CASES: ReadonlyArray<[NcmecWaitingStateRow, NcmecEligibilityConfig
   [eligibleRow({ submissionStatus: "filed_manually" }), LIVE],
   [eligibleRow({ submissionStatus: "not_reportable" }), LIVE],
   [eligibleRow({ submissionStatus: "failed" }), LIVE],
-  [eligibleRow({ createdAt: BEFORE_CUTOFF }), LIVE],
   [eligibleRow({ reporterSnapshot: null }), LIVE],
 ];
 
 // ─── classifyWaitingState ───────────────────────────────────────────────────
 
 describe("classifyWaitingState", () => {
-  it("reports the pre-activation audit for an unaudited backlog row", () => {
-    assert.equal(
-      classifyWaitingState(eligibleRow({ createdAt: BEFORE_CUTOFF }), null, LIVE),
-      "unaudited_backlog",
-    );
-  });
-
-  it("reports the identity disposition for a legacy row with no snapshot", () => {
+  it("reports the capture defect for a snapshot-less row with an account attached", () => {
     assert.equal(
       classifyWaitingState(eligibleRow({ reporterSnapshot: null }), null, LIVE),
       "identity_unresolved",
@@ -296,13 +227,17 @@ describe("classifyWaitingState", () => {
   });
 
   it("reports portal inspection for a crashed send-to-test, above both test-mode branches", () => {
-    // A crashed `send-to-test` leaves the start stamp with no id. Absorbed into branch 5 it
-    // would read as "waiting for a send-to-test" — inviting exactly the blind re-submission
-    // the admin surface must not encourage. It is waiting on somebody looking at exttest.
+    // A crashed `send-to-test` leaves the start stamp with no id. Absorbed into the
+    // test-mode branch it would read as "waiting for a send-to-test" — inviting exactly the
+    // blind re-submission the admin surface must not encourage. It is waiting on somebody
+    // looking at exttest.
     const crashed = eligibleRow({ testSubmissionStartedAt: new Date("2026-08-02T00:00:00.000Z") });
-    assert.equal(classifyWaitingState(crashed, null, { ...LIVE, environment: "test" }), "test_attempt_uncertain");
     assert.equal(
-      classifyWaitingState(crashed, null, { ...LIVE, environment: "test", submissionEnabled: false }),
+      classifyWaitingState(crashed, null, { ...LIVE, environment: "test" }),
+      "test_attempt_uncertain",
+    );
+    assert.equal(
+      classifyWaitingState(crashed, null, { environment: "test", submissionEnabled: false }),
       "test_attempt_uncertain",
     );
   });
@@ -332,17 +267,13 @@ describe("classifyWaitingState", () => {
     );
   });
 
-  it("reports the master switch only once the per-row blockers are clear", () => {
+  it("reports the master switch only once the per-row blocker is clear", () => {
     const off: NcmecEligibilityConfig = { ...LIVE, submissionEnabled: false };
     assert.equal(classifyWaitingState(eligibleRow(), null, off), "submission_disabled");
 
     // Turning submission on does not release a per-row blocker, so a row that has one is
     // never reported as waiting on activation. Telling an operator a row waits on a switch
-    // when it waits on their own unmade decision is the misdirection this ordering prevents.
-    assert.equal(
-      classifyWaitingState(eligibleRow({ createdAt: BEFORE_CUTOFF }), null, off),
-      "unaudited_backlog",
-    );
+    // when it waits on a capture defect is the misdirection this ordering prevents.
     assert.equal(
       classifyWaitingState(eligibleRow({ reporterSnapshot: null }), null, off),
       "identity_unresolved",
@@ -388,28 +319,18 @@ describe("classifyWaitingState", () => {
 
 /**
  * Every combination of the inputs the classification depends on, over both non-final
- * statuses. 2 statuses × 2 audit states × 2 identity states × 3 test-attempt states ×
- * 2 switch states × 2 environments × 3 job states.
+ * statuses: 2 statuses × 3 identity states × 3 test-attempt states × 2 switch states ×
+ * 2 environments × 3 job states.
  */
 function* matrix(): Generator<{
   row: NcmecWaitingStateRow;
   job: NcmecSubmitJobState | null;
   config: NcmecEligibilityConfig;
 }> {
-  const audits: Partial<NcmecWaitingStateRow>[] = [
-    { createdAt: AFTER_CUTOFF },
-    { createdAt: BEFORE_CUTOFF, backlogAuditedAt: null },
-    { createdAt: BEFORE_CUTOFF, backlogAuditedAt: new Date("2026-07-10T00:00:00.000Z") },
-  ];
   const identities: Partial<NcmecWaitingStateRow>[] = [
     { reporterSnapshot: { userId: "u_1" }, userId: "u_1" },
     { reporterSnapshot: null, userId: "u_1" },
     { reporterSnapshot: null, userId: null },
-    {
-      reporterSnapshot: null,
-      userId: "u_1",
-      identityOmissionApprovedAt: new Date("2026-07-20T00:00:00.000Z"),
-    },
   ];
   const testAttempts: Partial<NcmecWaitingStateRow>[] = [
     { testSubmissionStartedAt: null, testReportId: null, testSubmittedAt: null },
@@ -421,28 +342,18 @@ function* matrix(): Generator<{
     },
   ];
   const jobs: (NcmecSubmitJobState | null)[] = [null, { status: "pending" }, { status: "done" }];
-  const cutoffs = [CUTOFF, null];
 
   for (const status of ["pending", "in_progress"] as const) {
-    for (const audit of audits) {
-      for (const identity of identities) {
-        for (const testAttempt of testAttempts) {
-          for (const submissionEnabled of [true, false]) {
-            for (const environment of ["production", "test"] as const) {
-              for (const backlogAuditCutoff of cutoffs) {
-                for (const job of jobs) {
-                  yield {
-                    row: eligibleRow({
-                      submissionStatus: status,
-                      ...audit,
-                      ...identity,
-                      ...testAttempt,
-                    }),
-                    job,
-                    config: { submissionEnabled, environment, backlogAuditCutoff },
-                  };
-                }
-              }
+    for (const identity of identities) {
+      for (const testAttempt of testAttempts) {
+        for (const submissionEnabled of [true, false]) {
+          for (const environment of ["production", "test"] as const) {
+            for (const job of jobs) {
+              yield {
+                row: eligibleRow({ submissionStatus: status, ...identity, ...testAttempt }),
+                job,
+                config: { submissionEnabled, environment },
+              };
             }
           }
         }
@@ -487,7 +398,6 @@ describe("waiting-state invariants", () => {
     // it is a fact about a past test attempt, not about eligibility, so a row can sit in
     // it while being perfectly submittable.
     const EXPECTED_REFUSAL: Partial<Record<NcmecWaitingState, string>> = {
-      unaudited_backlog: "unaudited_backlog",
       identity_unresolved: "identity_unresolved",
       submission_disabled: "submission_disabled",
       test_mode_not_submitted: "environment_not_production",
@@ -537,9 +447,6 @@ describe("waiting-state invariants", () => {
       );
     }
   });
-
-
-
 });
 
 // ─── Known gap G11 — the sequence deadline's coupling to the queue ──────────

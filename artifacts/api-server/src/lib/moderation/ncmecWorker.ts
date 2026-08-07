@@ -21,6 +21,18 @@
  * site, where the caller knows which read it performed, instead of burying a cache policy
  * inside a predicate.
  *
+ * **The plan's backlog-audit ceremony is gone (David, 2026-08-07).** The plan predates
+ * the decision that pre-activation rows need no review pipeline: the platform has never
+ * been live, so every `ncmec_reports` / `quarantined_memes` row in the database today is
+ * a test artifact, not evidence — there is no backlog, only leftovers. The activation
+ * runbook deletes them before the switch is thrown; nothing ships tooling to audit,
+ * disposition, or individually release them. Consequently there is no
+ * `ncmec_backlog_audit_cutoff` in the config tuple, no `unaudited_backlog` refusal or
+ * waiting state, and the 0097 columns and config keys that served the ceremony
+ * (`backlog_audited_at`, `backlog_audit_note`, `identity_omission_approved_at`, the two
+ * cutoff keys) are vestigial pending a cleanup migration. Do not reintroduce the branch:
+ * a row predating activation is deleted, not classified.
+ *
  * The module also lands `NCMEC_SEQUENCE_DEADLINE_MS` and the test that guards its coupling
  * to the queue's reclaim cutoff, so phase 5 can only consume a constant whose safety
  * inequality is already enforced. That is the plan's known gap G11; G5 is discharged by
@@ -34,45 +46,13 @@ import type { NcmecEnvironment } from "./ncmecClient.js";
 
 // ─── The authoritative configuration tuple ──────────────────────────────────
 
-/**
- * The configuration both functions judge a row against.
- *
- * `backlogAuditCutoff` is `null` until §7 step 2 sets it. That is not a missing value to
- * be defaulted — see {@link isUnauditedBacklog}.
- */
+/** The configuration both functions judge a row against. */
 export interface NcmecEligibilityConfig {
   /** `ncmec_submission_enabled` — the master switch. */
   submissionEnabled: boolean;
   /** `ncmec_ispws_environment` — `test` reaches exttest, where nothing is really filed. */
   environment: NcmecEnvironment;
-  /** `ncmec_backlog_audit_cutoff` — the audit scope boundary. Write-once, `null` until set. */
-  backlogAuditCutoff: Date | null;
 }
-
-// ─── The ISPWS sequence deadline (known gap G11) ────────────────────────────
-
-/**
- * How long the whole `/submit` → `/upload` → `/fileinfo` → `/finish` sequence may run
- * inside one job execution before the worker aborts it.
- *
- * **This is not derived from the queue's reclaim cutoff, and it must not be.** Three
- * minutes is an ISPWS-facing timeout, chosen for how long NCMEC's endpoints may reasonably
- * take; the queue's `RECOVER_STUCK_CUTOFF_MIN` is an unrelated backstop that happens to
- * bound it. Computing one from the other would make an NCMEC timeout move whenever the
- * queue is retuned, which is a worse coupling than the one G11 is about.
- *
- * What G11 requires is that the *inequality* stop being an unwritten assumption. The
- * deadline is only safe while it stays **strictly below** the reclaim cutoff: if the queue
- * could reclaim a row mid-sequence, two workers could run the same sequence and file the
- * same report twice. That cutoff has already moved once (10 → 30 by PR #283) and is slated
- * to stop being load-bearing when async-queue Phase 3a lands fenced finalizes, so a future
- * *lowering* is entirely plausible and nothing today would notice.
- *
- * `moderation.ncmecWorker.test.ts` therefore asserts the inequality against the imported
- * constant. Lowering `RECOVER_STUCK_CUTOFF_MIN` below this deadline fails CI with the
- * reason attached, which is what G11 asks for and what a comment alone could not do.
- */
-export const NCMEC_SEQUENCE_DEADLINE_MS = 3 * 60_000;
 
 // ─── isSubmittable ──────────────────────────────────────────────────────────
 
@@ -86,15 +66,12 @@ export const NCMEC_SEQUENCE_DEADLINE_MS = 3 * 60_000;
  *   and there is nothing to record.
  *
  * **A refusal never *makes* a row final, and that is the plan's known gap G5 discharged.**
- * An earlier form of this design classed the unaudited-backlog and unresolved-identity
- * refusals as terminal, which contradicted invariant 8: those rows are precisely the ones
- * being parked for a human, each with its own count on `/admin/safety`. A row enqueued
- * before the backlog cutoff was set would then have been finalized `failed` instead of
- * parked — the operator's pending decision destroyed by the machine, and an alert fired for
- * a report that was never in trouble. Both are now reversible: a per-row operator action
- * releases them exactly as a config flip releases the other two.
+ * An earlier form of this design classed the unresolved-identity refusal as terminal,
+ * which contradicted invariant 8: a snapshot-less row is precisely one being parked for a
+ * human, with its own count. Classed terminal, phase 5's worker would have finalized it
+ * `failed` — an alert fired for a report that was never in trouble. It is reversible.
  *
- * So the two classes now answer one question cleanly — *does this row still have a future?*
+ * So the two classes answer one question cleanly — *does this row still have a future?*
  * `terminal` is reserved for rows whose future is already spent, which means **phase 5's
  * worker must treat a terminal refusal as "nothing to do", never as a failure to record.**
  * Genuine failure finalization belongs to the ISPWS error paths, which are the only things
@@ -110,7 +87,6 @@ export type NcmecRefusalCode =
   | "filed_manually"
   | "not_reportable"
   | "already_failed"
-  | "unaudited_backlog"
   | "identity_unresolved";
 
 export interface NcmecRefusal {
@@ -139,12 +115,7 @@ function isFinalStatus(status: NcmecSubmissionStatus): status is NcmecFinalStatu
 /** The row fields eligibility is decided from. A real `NcmecReport` satisfies this. */
 export type NcmecEligibilityRow = Pick<
   NcmecReport,
-  | "submissionStatus"
-  | "createdAt"
-  | "backlogAuditedAt"
-  | "reporterSnapshot"
-  | "userId"
-  | "identityOmissionApprovedAt"
+  "submissionStatus" | "reporterSnapshot" | "userId"
 >;
 
 /**
@@ -187,8 +158,8 @@ const FINAL_STATUS_REFUSALS: Record<
  *
  * **No ordering here is load-bearing for safety, because no refusal finalizes a row.** The
  * order is chosen for legibility instead: it mirrors `classifyWaitingState`'s branches, so
- * a row refused as `unaudited_backlog` is the same row the admin table counts under
- * `unaudited_backlog`.
+ * a row refused as `identity_unresolved` is the same row the admin table counts under
+ * `identity_unresolved`.
  *
  * A `failed` row is refused terminally, which is deliberate and constrains phase 6: the
  * admin retry endpoint must apply its reset to `pending` **before** evaluating this
@@ -207,20 +178,13 @@ export function isSubmittable(
     return { submittable: false, refusal: { class: "terminal", code, reason } };
   }
 
-  // The four reversible blockers, in the same order `classifyWaitingState` takes them, so
-  // the refusal an operator reads on a retry and the waiting state they see in the table
-  // are two views of one answer rather than two answers.
-  if (isUnauditedBacklog(row, config)) {
-    return reversible(
-      "unaudited_backlog",
-      "This row predates the backlog-audit cutoff and has not been audited. It keeps its place until an operator audits it.",
-    );
-  }
-
+  // The three reversible blockers, in the same order `classifyWaitingState` takes them,
+  // so the refusal an operator reads on a retry and the waiting state they see in the
+  // table are two views of one answer rather than two answers.
   if (isIdentityUnresolved(row)) {
     return reversible(
       "identity_unresolved",
-      "This row has no uploader snapshot but does have an account attached. It keeps its place until an operator either resolves the identity or approves filing it with the uploader omitted.",
+      "This row has an account attached but no uploader snapshot, which means identity capture failed at quarantine time. Fix the capture defect; file this row manually or mark it not reportable — it will not be filed automatically with the uploader silently omitted.",
     );
   }
 
@@ -241,52 +205,32 @@ export function isSubmittable(
   return { submittable: true };
 }
 
-// ─── The two shared row predicates ──────────────────────────────────────────
+// ─── The shared row predicate ───────────────────────────────────────────────
 
 /**
- * `created_at < cutoff AND backlog_audited_at IS NULL`.
+ * `reporter_snapshot IS NULL AND user_id IS NOT NULL` — the capture-defect guard.
  *
- * **A `null` cutoff matches nothing, mirroring SQL's three-valued logic exactly.** In
- * Postgres `created_at < NULL` is unknown, so the reconciler's WHERE clause excludes the
- * row; a JavaScript comparison against `null` would coerce and could include it. The two
- * evaluations of this predicate — this one and the reconciler's SQL — must agree, or rows
- * appear in a count that the query that drains them cannot see.
+ * The snapshot is written once, at quarantine time, and never re-derived; a row that has
+ * an account attached but no snapshot means a call site failed to capture identity when
+ * it could have. Filing that row automatically would send a federal report with the
+ * uploader silently omitted — visibly incomplete is recoverable, silently incomplete is
+ * not — so the row parks in its own waiting-state count until an operator either files it
+ * manually or marks it not reportable, and the capture bug gets fixed.
  *
- * Before the cutoff is set, therefore, no row is unaudited backlog. That is safe rather
- * than lucky: submission is seeded off, and the activation gate refuses production until
- * the audit is both scoped and complete, so the window in which an unset cutoff could
- * matter is one in which nothing files.
- */
-export function isUnauditedBacklog(
-  row: Pick<NcmecEligibilityRow, "createdAt" | "backlogAuditedAt">,
-  config: Pick<NcmecEligibilityConfig, "backlogAuditCutoff">,
-): boolean {
-  if (config.backlogAuditCutoff === null) return false;
-  if (row.backlogAuditedAt !== null) return false;
-  return row.createdAt.getTime() < config.backlogAuditCutoff.getTime();
-}
-
-/**
- * `reporter_snapshot IS NULL AND user_id IS NOT NULL AND identity_omission_approved_at IS NULL`.
+ * This is deliberately **not** a legacy-row mechanism. The plan's backlog-audit ceremony
+ * (cutoff-scoped legacy review, `identity_omission_approved_at` release stamps) was
+ * dropped on 2026-08-07: pre-activation rows are test artifacts that the activation
+ * runbook deletes, so the only way a row can reach this state is a defect in live code —
+ * which is exactly when auto-filing must not proceed. The vestigial approval column is
+ * not consulted; a snapshot-less row has no automatic release path by design.
  *
- * The stamp is what releases the row — a free-text audit note would leave this predicate
- * unchanged and the row ineligible forever, which is why the disposition needed its own
- * column.
- *
- * Note that this predicate says the snapshot is *absent*, not that the row is *legacy*. A
- * current row can satisfy it through a capture defect, and such a row is a bug to fix
- * rather than a row to file anonymously. The cutoff clause that draws that line lives on
- * the identity-omission endpoint (phase 6), which is where the operator action is; here
- * the row simply stays ineligible until somebody dispositions it.
+ * An anonymous row (`user_id IS NULL`) does not match: there is no identity to capture,
+ * and honest omission is the correct filing for it.
  */
 export function isIdentityUnresolved(
-  row: Pick<NcmecEligibilityRow, "reporterSnapshot" | "userId" | "identityOmissionApprovedAt">,
+  row: Pick<NcmecEligibilityRow, "reporterSnapshot" | "userId">,
 ): boolean {
-  return (
-    row.reporterSnapshot === null &&
-    row.userId !== null &&
-    row.identityOmissionApprovedAt === null
-  );
+  return row.reporterSnapshot === null && row.userId !== null;
 }
 
 // ─── classifyWaitingState ───────────────────────────────────────────────────
@@ -294,12 +238,11 @@ export function isIdentityUnresolved(
 /**
  * The branches of one ordered classifier, in evaluation order.
  *
- * Branches 1–6 are things awaiting a person. Branch 7 is a short-lived transitional state
- * the reconciler drains. Branch 8 is not waiting on anybody at all — it is active work,
+ * Branches 1–5 are things awaiting a person. Branch 6 is a short-lived transitional state
+ * the reconciler drains. Branch 7 is not waiting on anybody at all — it is active work,
  * and `/admin/safety` renders it as such.
  */
 export const NCMEC_WAITING_STATES = [
-  "unaudited_backlog",
   "identity_unresolved",
   "test_attempt_uncertain",
   "submission_disabled",
@@ -313,7 +256,6 @@ export type NcmecWaitingState = (typeof NCMEC_WAITING_STATES)[number];
 
 /** The states in which the row is not progressing without somebody doing something. */
 export const NCMEC_WAITING_ON_A_PERSON = [
-  "unaudited_backlog",
   "identity_unresolved",
   "test_attempt_uncertain",
   "submission_disabled",
@@ -338,28 +280,27 @@ export type NcmecWaitingStateRow = NcmecEligibilityRow &
  * **One function, returning exactly one label, taking the first matching branch.** A row
  * genuinely satisfies several conditions at once — a disabled deployment sits in the
  * default `test` environment, so every waiting row matches both "submission disabled" and
- * a test-mode branch, and an identity-unresolved legacy row is usually also unaudited.
- * Evaluating the conditions independently and counting each would double-count rows and
- * make "every non-final row appears in exactly one count" unsatisfiable. Three
- * implementations of six overlapping predicates would drift, and the drift would be
- * invisible: the counts would still add up to something.
+ * a test-mode branch. Evaluating the conditions independently and counting each would
+ * double-count rows and make "every non-final row appears in exactly one count"
+ * unsatisfiable. Three implementations of overlapping predicates would drift, and the
+ * drift would be invisible: the counts would still add up to something.
  *
  * **The order runs from the most specific blocker the operator must personally resolve to
- * the most general state of the deployment.** The per-row blockers outrank the global
- * switches because turning submission on does not release them — telling an operator a row
- * is "waiting on activation" when it is really waiting on their own unmade decision is the
- * specific misdirection this ordering prevents. Branch 3 sits above both test-mode
- * branches for the same reason: a crashed `send-to-test` is waiting on portal inspection,
- * not on another `send-to-test`, and reporting it as the latter invites exactly the blind
- * re-submission the admin surface must not encourage.
+ * the most general state of the deployment.** The per-row blocker outranks the global
+ * switches because turning submission on does not release it — telling an operator a row
+ * is "waiting on activation" when it is really waiting on a capture defect being dealt
+ * with is the specific misdirection this ordering prevents. Branch 2 sits above both
+ * test-mode branches for the same reason: a crashed `send-to-test` is waiting on portal
+ * inspection, not on another `send-to-test`, and reporting it as the latter invites
+ * exactly the blind re-submission the admin surface must not encourage.
  *
- * **`job` is a parameter because the row alone cannot distinguish branches 7 and 8.** The
+ * **`job` is a parameter because the row alone cannot distinguish branches 6 and 7.** The
  * tempting simplification — an `in_flight` fallback computed from the row — is total but
- * factually wrong: an eligible row whose job is missing (just released by an audit or an
- * identity approval and not yet swept, or stranded by queue loss) would be reported as
- * queued or running, which is precisely the condition the reconciler exists to detect,
- * displayed as though the system were already working on it. Pass the row's non-terminal
- * `ncmec_submit` job, or `null` if it has none; a terminal job is treated as no job.
+ * factually wrong: an eligible row whose job is missing (just released by a config change
+ * and not yet swept, or stranded by queue loss) would be reported as queued or running,
+ * which is precisely the condition the reconciler exists to detect, displayed as though
+ * the system were already working on it. Pass the row's non-terminal `ncmec_submit` job,
+ * or `null` if it has none; a terminal job is treated as no job.
  *
  * @throws if `row` is in a final status. Final rows are resolved and nobody is waiting on
  * anything, so they have no waiting state — the caller's query is expected to have
@@ -379,26 +320,23 @@ export function classifyWaitingState(
     );
   }
 
-  // 1. Waiting on the pre-activation audit.
-  if (isUnauditedBacklog(row, config)) return "unaudited_backlog";
-
-  // 2. Waiting on an operator dispositioning a legacy row's missing uploader.
+  // 1. Waiting on an operator dealing with a row whose identity capture failed.
   if (isIdentityUnresolved(row)) return "identity_unresolved";
 
-  // 3. Waiting on portal inspection: exttest may hold a submission whose id was lost.
+  // 2. Waiting on portal inspection: exttest may hold a submission whose id was lost.
   if (row.testSubmissionStartedAt !== null && row.testReportId === null) {
     return "test_attempt_uncertain";
   }
 
-  // 4. Waiting on the operator turning submission on.
+  // 3. Waiting on the operator turning submission on.
   if (!config.submissionEnabled) return "submission_disabled";
 
-  // 5/6. Waiting on the production transition — a test submission is not a filing.
+  // 4/5. Waiting on the production transition — a test submission is not a filing.
   if (config.environment !== "production") {
     return row.testSubmittedAt === null ? "test_mode_not_submitted" : "test_mode_submitted";
   }
 
-  // 7/8. Eligible. Either the reconciler owes it a job, or one already exists.
+  // 6/7. Eligible. Either the reconciler owes it a job, or one already exists.
   //
   // Reaching here means every branch above declined, which is exactly the complement of
   // `isSubmittable`'s refusals over a non-final row — so an eligible row can never be
@@ -409,3 +347,27 @@ export function classifyWaitingState(
   return jobIsLive ? "in_flight" : "awaiting_reconciliation";
 }
 
+// ─── The ISPWS sequence deadline (known gap G11) ────────────────────────────
+
+/**
+ * How long the whole `/submit` → `/upload` → `/fileinfo` → `/finish` sequence may run
+ * inside one job execution before the worker aborts it.
+ *
+ * **This is not derived from the queue's reclaim cutoff, and it must not be.** Three
+ * minutes is an ISPWS-facing timeout, chosen for how long NCMEC's endpoints may reasonably
+ * take; the queue's `RECOVER_STUCK_CUTOFF_MIN` is an unrelated backstop that happens to
+ * bound it. Computing one from the other would make an NCMEC timeout move whenever the
+ * queue is retuned, which is a worse coupling than the one G11 is about.
+ *
+ * What G11 requires is that the *inequality* stop being an unwritten assumption. The
+ * deadline is only safe while it stays **strictly below** the reclaim cutoff: if the queue
+ * could reclaim a row mid-sequence, two workers could run the same sequence and file the
+ * same report twice. That cutoff has already moved once (10 → 30 by PR #283) and is slated
+ * to stop being load-bearing when async-queue Phase 3a lands fenced finalizes, so a future
+ * *lowering* is entirely plausible and nothing today would notice.
+ *
+ * `moderation.ncmecWorker.test.ts` therefore asserts the inequality against the imported
+ * constant. Lowering `RECOVER_STUCK_CUTOFF_MIN` below this deadline fails CI with the
+ * reason attached, which is what G11 asks for and what a comment alone could not do.
+ */
+export const NCMEC_SEQUENCE_DEADLINE_MS = 3 * 60_000;
