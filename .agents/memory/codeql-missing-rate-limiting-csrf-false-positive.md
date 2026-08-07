@@ -53,15 +53,31 @@ information. Two independent confirmations is enough to stop treating this as
 a one-off and start treating a fresh alert on an already-protected route as
 the expected, not the surprising, outcome.
 
-**Rule:** when a new CodeQL alert of either kind appears on a route/file that
-already uses `checkSharedRateLimit` or sits behind the global CSRF middleware,
-**investigate before "fixing"** — confirm the real control is present (check
-this repo's established patterns above) rather than reflexively adding a
-second, redundant, inconsistent control (e.g. `express-rate-limit` bolted onto
-one route) just to satisfy the scanner's pattern-matcher. Once confirmed as a
-false positive, it needs a human with repo-admin access to dismiss it in
-GitHub's Security → Code scanning tab (mark "false positive") — no available
-MCP/GitHub tool can do this from the agent side.
+**A third variant on PR #287 — initially misclassified as a false positive,
+corrected by Codex review.** The alert fired on
+`GET /admin/membership/grace-sweep`, a brand-new route with **no rate-limit
+call of any kind** — not even the "protected but unrecognized" shape the two
+confirmed cases above have. The first pass here reasoned by consistency: ~50
+other `requireAdmin`-only routes in `admin.ts` also skip
+`checkSharedRateLimit` and aren't flagged, so this looked like the same "new
+code, old pattern" noise. **That reasoning is wrong, and Codex caught it on
+review:** `requireAdmin` bounds *who* can call a route, not *how often* —
+sibling routes going unflagged only explains why *this* route's alert is
+new, it says nothing about whether unbounded repeat calls are actually
+cheap. This route's own earlier review round had already flagged
+`driftedMembershipUsers()` as an unbounded scan over active users, which
+made the abuse/cost surface concrete rather than theoretical.
+**Disposition: fixed, not dismissed** — added `checkSharedRateLimit`
+matching the `admin.queue-health` sibling's shape.
+
+**The triage rule this establishes** now lives in
+[`security-model.md`](../../docs/ai-context/security-model.md)'s CodeQL
+bullet, not here — see that doc for the canonical statement; the case
+history above is what motivated it.
+
+Once confirmed as a false positive, it needs a human with repo-admin access
+to dismiss it in GitHub's Security → Code scanning tab (mark "false
+positive") — no available MCP/GitHub tool can do this from the agent side.
 
 ## Resolution: `js/missing-rate-limiting` (213 alerts) — mount the recognized package, don't fight the model
 

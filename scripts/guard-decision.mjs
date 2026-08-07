@@ -112,11 +112,14 @@
  *
  * ROUND 4, AND THE DECISION TO STOP (David, 2026-08-05)
  * -------------------------------------------------------
- * Round 4 found nineteen more gaps -- MORE than round 3's twelve, reversing
- * the direction the first three rounds seemed to be heading in. Rather than
- * fix these piecemeal and start a round 5, David and I stopped here and
- * documented them instead. The trend across rounds (9, 11, 12, 19) is the
- * evidence: this is a hand-rolled recognizer chasing a language -- Bash --
+ * Round 4 found nineteen more gaps -- MORE than round 3's twelve. Rather
+ * than fix these piecemeal and start a round 5, David and I stopped here and
+ * documented them instead. The per-round count of NEWLY FOUND gaps is the
+ * evidence, and it never fell: 11, 11, 12, 19. (Fixes per round were 9, 11,
+ * 11, 0 -- the gap between the two columns is the disclosed-not-fixed items
+ * above.) Each round's fixes were real, but flat-then-rising discovery is
+ * what says the defense is the wrong SHAPE rather than merely unfinished:
+ * this is a hand-rolled recognizer chasing a language -- Bash --
  * whose expressive surface for "run this program" is not enumerable in
  * practice. Every round closes a class of gaps and a reviewer thinking
  * adversarially about Bash finds another one, because Bash itself is a large

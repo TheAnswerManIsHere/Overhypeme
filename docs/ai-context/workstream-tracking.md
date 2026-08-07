@@ -14,7 +14,7 @@ or which need him, without opening each one. This closes that gap using
 GitHub's own project management rather than a bespoke tracker: **one issue
 per workstream**, a private Project board
 ([Overhype.me Workstreams](https://github.com/users/TheAnswerManIsHere/projects/1))
-for visual scanning, and a `/status` skill for the judgment the board can't
+for visual scanning, and a `/status-all` skill for the judgment the board can't
 compute on its own (stall detection, plain-language restatement of what a
 David-gate is actually asking).
 
@@ -48,7 +48,7 @@ of the workstream issue's body, with these fields:
   own sake — enough that a cold reader understands the current shape.
 - **What's blocking** — if `waiting` is `david`, the actual question,
   restated in plain language from the real thread, not inferred from the
-  stage name alone (the same accuracy bar `/status` applies). If nothing's
+  stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
 - **Artifacts** — PR numbers, branch names, key file paths, the Project link.
@@ -60,7 +60,10 @@ in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
 (`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
-current at those same trigger points; there is no separate maintainer.
+current at those same trigger points, plus the one automated exception:
+`test-run-completion.yml` updates Stage/Waiting on/Last movement and the
+What's-blocking/What-you-need-to-do sections itself, at the one transition
+it owns. There is no separate maintainer beyond those five.
 
 ## Labels are the actual source of truth
 
@@ -68,10 +71,15 @@ The Project board's `Status`/`Waiting On`/`Mode` fields are the *display*;
 the issue's labels are what's actually true. **No available tool (MCP or
 REST) can read or write a Projects v2 item field directly** — confirmed
 twice, independently, building the sync mechanism (PR #318) and again
-confirming `/status` has to read labels rather than the board (PR #323). A
+confirming `/status-all` has to read labels rather than the board (PR #323). A
 `.github/workflows/project-sync.yml` Action
 (`scripts/sync-project-fields.mjs`) mirrors labels onto the board's fields
-on every label change; nothing else writes to the board, and nothing should.
+on every label change. One deliberate exception: `test-run-completion.yml`
+(`scripts/sync-test-run-completion.mjs`) writes labels with `GITHUB_TOKEN`,
+whose events GitHub does not cascade to other workflows — so
+`project-sync.yml`'s own `issues:labeled` trigger would never fire from
+that write — and calls `sync-project-fields.mjs`'s `syncIssue` directly
+instead of relying on the event chain. Nothing else writes to the board.
 
 Every workstream issue carries exactly one label from each of three
 prefixes:
@@ -103,7 +111,8 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting` toggling `claude`/`codex` each review round; `stage:plan-approval` + `waiting:david` at convergence/close-out |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:uat`/`stage:close-out` at merge |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when a TEST_RUN doc ships, else `stage:uat`/`stage:close-out` directly |
+| `test-run-completion.yml` (`scripts/sync-test-run-completion.mjs`) | The **only** automated (non-agent) label writer here: triggers on the push that deletes a `docs/PR<N>_..._TEST_RUN.md` doc and moves that PR's workstream from `stage:test-run` to `stage:uat`/`stage:close-out` itself — no agent session needs to be engaged for this one transition |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 
@@ -143,11 +152,37 @@ restatement.
   Match by normalized name, not exact string, for anything a human typed
   into a GitHub UI.
 
-## `/status`
+## `/status` and `/status-all`
 
-A **read-only** skill (`.claude/skills/status/SKILL.md`) that recomputes
-the board's view directly from issues + labels + PR state — it can't read
-the Project board either, for the same tooling gap above, so it doesn't
-try. Works from any session, including a fresh throwaway one; that's the
-intended usage. See the skill file for the stall-detection threshold and
-the plain-language-blocker rule.
+Two skills, two questions (split 2026-08-05):
+
+- **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the **fleet**
+  view, and the original skill unchanged: every open workstream, grouped
+  🛑 NEEDS YOU / ⚠️ STALLED / IN PROGRESS, recomputed directly from issues +
+  labels + PR state (it can't read the Project board either, per the tooling
+  gap above). **Read-only.** Works from any session, including a fresh
+  throwaway one; that's the intended usage. See the skill file for the
+  stall-detection threshold and the plain-language-blocker rule.
+- **`/status`** (`.claude/skills/status/SKILL.md`) — **one session's own**
+  workstream: what it's working on, which of five states it's in
+  (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
+  next, and how it fits the roadmap.
+
+**The five states are a derived presentation vocabulary — never stored.**
+They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
+They never become labels, never become board fields, and nothing reads them
+back. Labels remain the sole source of truth.
+
+**`/status` reports; it does not write unattended.** When stored labels or the
+issue's `## State of Play` block disagree with live GitHub, it says so and
+**offers** to correct them — David confirms, and only then does it write.
+That keeps the ownership model in the table above intact: `/status` is not a
+standing background writer, it is a David-confirmed correction at a moment he
+is already present for. (An unattended write-through version was designed and
+rejected — it needed conflict detection and write-target authentication the
+GitHub API can't cleanly provide, for a status check. See
+[`decisions.md`](./decisions.md).)
+
+**`WATCHING` may never be claimed from memory** — only after a live check in
+that same invocation. A session's belief that it is watching a PR goes stale
+exactly the way issue #328's did.

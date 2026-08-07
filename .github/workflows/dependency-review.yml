@@ -12,6 +12,13 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# This workflow only ever triggers on pull_request, so a superseding push to
+# the same PR always makes the in-flight run obsolete — safe to cancel
+# unconditionally, unlike build.yml/codeql.yml which also run on push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # If using a dependency submission action in this workflow this permission will need to be set to:
 #
 # permissions:

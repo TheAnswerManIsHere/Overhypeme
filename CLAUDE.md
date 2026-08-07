@@ -105,6 +105,32 @@ forward.
      to him (plan converged & ready for approval, PR green/ready, build done) —
      the natural "come back" points. Not for routine progress. When unsure,
      bias to *fewer* notifications, not more.
+- **A second, non-blocking "FYI" marker for autonomy-era judgment calls
+  (David, 2026-08-06).** Now that I resolve review threads myself once
+  addressed (see the pr-watch discipline below) instead of leaving every one
+  open for David to see, he no longer gets his own pass over the 99% of
+  Codex findings that are routine and technical — that's the intended trade,
+  not a problem to fix, and he doesn't want to be bothered with those. But it
+  also makes *me* the only filter between "something he'd actually want to
+  know about" and it quietly disappearing into an autonomously-resolved
+  thread. So: when something surfaces during otherwise-autonomous work that
+  I judge David would want to know — not necessarily blocking, just worth
+  his attention — I call it out with a marker distinct from the blocking one:
+  a horizontal rule, then `👀 **FYI** — <one-line summary>`, the specifics,
+  then a closing rule. A scan for 🛑 vs. 👀 tells David which kind of moment
+  it is. Unlike the 🛑 banner, this one does **not** pause work or wait for a
+  reply — I keep going; if the thing genuinely needs his decision before I
+  continue, it's a 🛑 banner instead, not this one. What clears the bar: a
+  real security/data-integrity concern found and fixed along the way; a
+  finding that reveals a deeper systemic issue beyond the one PR; a scope
+  surprise (e.g. reconciling with an already-shipped decision I didn't know
+  about, or a conflict between two pieces of my own or Codex's work — PR
+  #334's `/status`-vs-`/status-all` merge conflict is the worked example);
+  a pattern repeating across review rounds that suggests a process gap;
+  anything that contradicts stated product intent or could have a real
+  product/business consequence. What doesn't clear it: the routine
+  correctness/edge-case findings Codex raises by the dozen — those get
+  fixed and resolved silently, per the sparse-chat rule below.
 - **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
   watching a PR, events that turn out to be my own comments bouncing back still
   get the silent live-state check the watching rules require — but they produce
@@ -153,6 +179,24 @@ contract. David picks the mode explicitly so there's no guessing:
   pre-plan conversation, the automated Codex plan-review loop, the full build,
   Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
+  - **But the phrase only picks the *mode*; the artifact picks the *ceremony*
+    (David, 2026-08-05).** The shared rule is
+    [`working-modes.md`](docs/ai-context/working-modes.md)'s *"Feature-mode
+    ceremony scales to blast radius, not to phrasing."* My enactment: **before
+    I write a single line of plan**, I classify the artifact and say which
+    tier I'm taking. **Agent-facing markdown — a skill, a `docs/ai-context/`
+    or `docs/engineering/` contract, a prompt — gets NO plan document and NO
+    plan-review loop.** I write the real file, take **one** review pass, and
+    ship it. The file *is* the plan; reviewing a description of a markdown
+    file instead of the file itself is pure overhead. Product code keeps the
+    full ceremony; migrations/auth/payments/visual-pipeline keep it plus the
+    specialist review. If the class is genuinely unclear I ask **one** numbered
+    question at intake — and I do **not** default upward "to be safe," because
+    the expensive mistake in this repo has been over-ceremony, not under.
+  - **This rule exists because I got it wrong on PR #333**: a request to build
+    two markdown skill files ran the full loop to **six rounds and a 660-line
+    plan** before I questioned the fit. See the
+    [known-failure-patterns entry](docs/ai-context/known-failure-patterns.md).
 - **Bug-fixing mode drops the *planning* ceremony, not the verification** —
   entered explicitly via the `/bugfix` skill (or "just fix this bug"):
   diagnose-classify-fix-ship on a fresh branch off `origin/main`, **one bug
@@ -296,6 +340,20 @@ loaded:
 - **Escalate, don't absorb, real product decisions.** A genuine product/design
   fork goes to David as a numbered question — the loop never settles product
   intent on its own.
+- **The loop has a stopping rule, not just a convergence target (David,
+  2026-08-05).** I track the finding count per round and **state the trend in
+  every re-review request**. If a round returns **more** findings than the one
+  before it, I stop and reassess with David before starting another round — a
+  rising count means the artifact or the ceremony is wrong, not that I should
+  try harder. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  no loop at all — see the ceremony-tiering rule above). **I also triage:
+  every finding gets fix / accept-and-document / escalate, stated explicitly.**
+  Codex marks everything "Required Revision" because that is its job;
+  treating that as automatically meaning *fix* is how PR #333 ended up
+  specifying compare-and-swap semantics for a GitHub label write. The shared
+  contract is [`working-modes.md`](docs/ai-context/working-modes.md)'s
+  *"Review loops need a stopping rule"* and *"Findings are triaged against the
+  artifact's real risk."*
 - **No `send_later` self-check-ins for this loop** — the standing
   no-background-check-ins rule applies.
 
@@ -507,10 +565,16 @@ invoked at all:
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
-- **Never resolve review threads — that's David's.** I reply inline on each
-  comment's own thread (never a standalone summary comment) and leave resolution
-  to him, so the "require conversation resolution" merge gate stays a real
-  checkpoint. I resolve a thread only if David explicitly asks.
+- **I resolve each review thread myself once I've addressed it (David,
+  2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
+  "Addressed" means I've either pushed a fix and replied with the commit, or
+  replied with a reasoned decline — either way, resolve the thread right
+  after posting that reply, not in a batch at the end. The repo requires all
+  conversations resolved before merge, and David wants that gate to reflect
+  *my* triage, not sit open waiting on him to re-review work he's already
+  trusting me to do. I still never post a standalone summary comment in
+  place of a per-thread reply — the reply is what the resolution is
+  attached to.
 
 I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR

@@ -113,10 +113,10 @@ the diff *is* the plan. While watching an implementation PR:
   principle as the plan loop's re-reviews, applied to code, and now stated for
   the reviewer as invariant 5 of
   [`code-review.md`'s *Re-reviews*](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
-- **Never resolve review threads — that's David's** (resident rule in
-  `CLAUDE.md`): reply inline, leave resolution to him so the "require
-  conversation resolution" merge gate stays a real checkpoint; resolve only
-  if he explicitly asks.
+- **I resolve each thread myself right after I address it** (resident rule
+  in `CLAUDE.md`, reversed 2026-08-06): reply inline with the fix commit or
+  a reasoned decline, then resolve that thread — not a batch at the end, and
+  never a standalone summary comment in place of the reply.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
@@ -137,19 +137,33 @@ silently leaving the workstream unlabeled):
 - **CI is green and Codex has converged, but the PR isn't merged yet** →
   `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
   the issue at `stage:code-review` here is exactly the kind of ready-to-go
-  workstream `/status` exists to surface, so don't let it sit unlabeled
-  just because nothing forced a transition.
-- **The PR merges** → `stage:uat` **only if a UAT doc exists or is actually
-  due** — pure-docs/pure-devops PRs never have one, and neither does a Tier A
-  bugfix or a Tier B bugfix whose only surface is internal (per
-  `working-modes.md`'s Tier B exception): all three go straight to
-  `stage:close-out` instead, since holding them at `uat` would be a gate
-  with nothing to run against it. "Has product-visible behavior" is *not*
-  the test by itself — a Tier A fix can be product-visible and still ship
-  no UAT doc, which is what makes checking for the doc the right test, not
-  the behavior. Never `stage:done` at merge — that's David's to set once
-  he's actually verified it, the same reason the Project's built-in
-  `PR merged → Done` workflow is off.
+  workstream `/status-all` exists to surface, so don't let it sit
+  unlabeled just because nothing forced a transition.
+- **The PR merges with a TEST_RUN doc** (`docs/PR<N>_..._TEST_RUN.md`) →
+  `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
+  between Merge and UAT, not a step to skip past. Per the `pr-docs`
+  contract, the TEST_RUN doc is transient: David deletes it once Replit has
+  actually run it, so its **absence on `main`** is the completion signal.
+  **The `test-run-completion.yml` Action owns what happens next** —
+  triggered on the push that deletes the doc, it applies the same
+  UAT-vs-close-out check as the next bullet and moves the label itself
+  (`scripts/sync-test-run-completion.mjs`), no agent session required. This
+  replaced an earlier best-effort "whoever notices next" design that Codex
+  correctly flagged twice as having no real owner (round-2 and round-3 of
+  PR #334's review). I don't need to do anything here beyond setting the
+  initial `stage:test-run` at merge — just know it's not a dead end if
+  `/status-all` later reports the issue already moved on its own.
+- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
+  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+  and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
+  internal (per `working-modes.md`'s Tier B exception): all three go
+  straight to `stage:close-out` instead, since holding them at `uat` would
+  be a gate with nothing to run against it. "Has product-visible behavior"
+  is *not* the test by itself — a Tier A fix can be product-visible and
+  still ship no UAT doc, which is what makes checking for the doc the right
+  test, not the behavior. Never `stage:done` at merge — that's David's to
+  set once he's actually verified it, the same reason the Project's
+  built-in `PR merged → Done` workflow is off.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
