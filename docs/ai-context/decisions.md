@@ -76,6 +76,147 @@
 
 ---
 
+### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
+- **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
+  from a single inverted grep — it blocked `git push --force` while waving
+  through the equivalent `git push -f` — into a token-level parser, then
+  deliberately **narrowed in scope rather than removed**, after David supplied
+  a screenshot proving GitHub's ruleset on `main` (Block force pushes, Restrict
+  deletions, Require linear history, Require a pull request before merging,
+  Require status checks to pass — verified ON 2026-08-05) already blocks force
+  pushes server-side, for every actor, regardless of this hook. That reframed
+  the hook as the **third** line of defense (behind the harness classifier,
+  which still refuses to let this session edit its own guardrails without
+  David approving the write, and GitHub's ruleset), whose only real job left is
+  making `--force-with-lease` **mandatory** on the branches this session owns
+  (`claude/*`, `plan-review/*`) — the container is ephemeral, so an
+  overwritten remote branch has no local reflog to recover from. Three Codex
+  review rounds on PR #329 then found 36 concrete parser gaps and fixed 33
+  (round 1: 11 found / 9 fixed, 2 disclosed as known limits; round 2: 11 / 11;
+  round 3: 14 / 13, 1 disclosed as a policy question). Round 4 found **19**.
+  Rather than open a round 5, David stopped the loop there; round 4's gaps are
+  recorded in `guard-decision.mjs`'s docstring (`ROUND 4, AND THE DECISION TO
+  STOP`) as accepted, not fixed.
+- **The finding counts never fell — 11, 11, 14, 19 across four rounds.** Worth
+  stating precisely, because the intuition that a review loop is "converging"
+  is exactly what this decision is a correction to. Each round's *fixes*
+  landed and were real, but the number of newly-discovered gaps was flat and
+  then rising, which is the falsifiable signal that the defense was the wrong
+  shape rather than merely unfinished.
+- **Why:** A hand-rolled recognizer trying to prove "no way this string
+  executes a force push" is effectively reimplementing Bash's own parser and
+  expander, and Bash's surface for "ways to dispatch a command" (wrapper
+  commands like `sudo`/`time`/`timeout`/`coproc`/`env -S`, alternate quoting
+  forms, script-dispatch mechanisms like heredocs/here-strings/`eval`, git's
+  own alias system) is not practically enumerable — every round a reviewer
+  thinking adversarially about Bash found a new class, not a shrinking one.
+  The guard was never the actual protection for `main`; continuing would have
+  kept spending review rounds hardening a backstop against a threat model
+  (deliberate adversarial evasion) that does not match how the hook is
+  actually exercised — an honest agent mistake in a normal-shaped command,
+  which the shipped version already reliably catches.
+- **Reference:** PR #329. `scripts/guard-decision.mjs`'s docstring carries the
+  full three-layer model and the itemized list of round 4's 19 documented (not
+  fixed) gaps.
+- **Revisit if:** a real incident shows the guard misses a normal, non-adversarial
+  command shape (not one of the documented edge cases); or GitHub's ruleset on
+  `main` is ever weakened or removed, at which point this hook stops being a
+  backstop and the cost/benefit of closing the remaining gaps changes.
+
+### 2026-08-05 · Multi-PR features get parent-issue-plus-phase-sub-issue tracking, and I ask before declaring a split
+- **Decision:** When a feature is too large for one PR (the pattern PR #293
+  hit, self-documented mid-flight as "phase 1 of 8"), the **parent issue**
+  carries the plan and the checkpoints that only make sense once — 🛑 Plan
+  approval, 🛑 UAT, close-out — while each **phase** becomes its own
+  **sub-issue** with its own PR, carrying only 🛑 Merge. A phase PR's oracle
+  section gets an added **scope line** naming which of the parent plan's
+  sections that phase delivers vs. defers, so a reviewer isn't left guessing
+  whether a missing piece is out-of-scope-for-this-phase or dropped. UAT is
+  **per-phase**, wherever a phase is itself product-visible, rather than one
+  UAT deferred to the last phase. Phases **merge sequentially, never
+  stacked** — no phase PR bases on another still-open phase PR. Splitting a
+  feature into phases is something I **propose to David**, not something I
+  declare silently mid-build. #310 and #293 are named retrofit candidates for
+  this structure once it's built.
+- **Why:** Without sub-issue tracking, a multi-PR feature's per-phase state
+  (which phases are done, which is active, what the next one still owes)
+  lived only in PR titles and chat memory, with no structural place to see it
+  at a glance. Sequential-only merging matches this session's guard-work
+  finding that force-push/stacking tooling isn't something to reach for
+  routinely — phases don't need stacked-branch mechanics if they land one at
+  a time. David chose "ask before declaring a split" over "split silently
+  when a plan looks too big," revisitable if it becomes cumbersome in
+  practice.
+- **Reference:** Design settled in conversation 2026-08-05, alongside the
+  `/status` redesign below. **Not yet built** — see
+  [`current-roadmap.md`](./current-roadmap.md).
+- **Revisit if:** the ask-before-splitting step becomes friction in practice
+  (David's own stated condition for revisiting).
+
+### 2026-08-05 · `/status` ships as report-and-offer, superseding the write-through design below
+- **Decision:** Per-session `/status` **reports** the workstream's state and,
+  when stored `stage:`/`waiting:` labels or the `## State of Play` block
+  disagree with live GitHub, **offers** to correct them — David confirms,
+  then it writes. It does **not** write unattended on every invocation, which
+  is what the entry immediately below this one originally specified and
+  approved.
+- **Why:** The write-through design went through a Codex plan-review loop
+  (PR #333) that reached round 6 before two findings showed the unattended
+  write couldn't be made safe on this platform: (1) this repo is public and
+  PR bodies are attacker-controlled, so the write-target discovery rule
+  (`Workstream: #N` in a PR body) could be steered by a forged fork PR into
+  rewriting a maintainer's issue; (2) GitHub's label API has no
+  compare-and-swap, so a race between `/status`'s read and its write could
+  silently erase a `stage:done` David had just set, with no way to recover
+  it. Both are fixable *in principle* with enough specification, but round 6
+  was already specifying acceptance cases with no harness to execute them —
+  the guarantee had outrun what a status check justifies building. David's
+  call: make the write **confirmed, not unattended** — a single "want me to
+  fix this?" in a session already open — which removes both findings at the
+  root instead of patching around them, and costs one tap.
+  This also closed PR #333 unmerged and prompted the shared **ceremony
+  scales to blast radius** rule in
+  [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05):
+  the six-round loop was ceremony mismatched to two markdown files, not a
+  defect in the design being reviewed.
+- **Reference:** PR #333 (plan review, closed unmerged); PR #336 (shipped
+  implementation, `.claude/skills/status/SKILL.md`); the
+  [known-failure-patterns entry](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk).
+- **Revisit if:** a GitHub API adds conditional/CAS-style label updates, which
+  would remove the race that made unattended writes unsafe and reopen
+  write-through as an option.
+
+### 2026-08-05 · `/status` splits into a write-through per-session skill and a fleet-wide `/status-all` — superseded by the entry above
+- **Decision:** The existing fleet-wide `/status` skill (cold-open summary of
+  every open workstream) becomes **`/status-all`**, unchanged in behavior.
+  A new, separate **per-session `/status`** answers the narrower "what am I
+  working on right now and how does it fit the bigger picture" question, and
+  is **write-through**: every invocation refreshes the workstream issue's
+  State of Play block and discloses that write each time (never a silent,
+  read-only summary). It reports state using a fixed 5-state vocabulary —
+  **WORKING / WAITING ON YOU / WATCHING / STALLED / DONE** — where **WATCHING
+  may never be claimed from memory**, only after an actual live GitHub check
+  in that invocation (stale memory of "I was watching PR #X" is not enough to
+  report WATCHING). In a Discovery-stage session that has no workstream issue
+  yet, `/status` offers to open one rather than reporting "nothing to show."
+- **Why:** The single fleet-wide `/status` conflated two different questions
+  a session needs answered — "what's the state of everything" (David's,
+  cross-session) vs. "what am I doing right now" (a session's own, cheap,
+  frequent check) — forcing the cheap question through the expensive
+  fleet-wide scan every time. The write-through design keeps the workstream
+  issue as the durable source of truth for session state rather than letting
+  it drift out of sync with what the session actually believes about itself.
+  The WATCHING-only-from-live-check rule exists because a session's memory of
+  "I subscribed to that PR" can go stale (the PR merged, closed, or the
+  subscription silently dropped) in exactly the way CLAUDE.md's PR-watch
+  rules already warn against for webhook events — "never judge from text
+  alone" applies to self-reporting status too.
+- **Superseded 2026-08-05** (same day, entry above): the write-through half
+  did not survive plan review. The 5-state vocabulary, the WATCHING-only-
+  from-live-check rule, and the `/status-all` split all shipped unchanged.
+- **Reference:** Design settled in conversation 2026-08-05.
+- **Revisit if:** n/a — superseded.
+
 ### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
 - **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
   **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out

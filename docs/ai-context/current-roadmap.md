@@ -24,6 +24,22 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **`/status` split into a per-session skill and a fleet-wide `/status-all`**
+  (PR #336). `/status-all` is the original fleet skill, renamed, behavior
+  unchanged. `/status` is new: one session's own workstream, the 5-state
+  vocabulary (WORKING / WAITING ON YOU / WATCHING / STALLED / DONE), WATCHING
+  only from a live GitHub check. **Ships as report-and-offer, not
+  write-through** — the originally-approved write-through design didn't
+  survive Codex plan review (PR #333, closed unmerged at round 6): the repo
+  is public and PR bodies are attacker-controlled, so the write-target
+  discovery rule could be steered by a forged fork PR, and GitHub's label API
+  has no compare-and-swap, so an unattended write could race a stage change
+  and erase it with no recovery. `/status` now reports what's stale and
+  offers to fix it; David confirms before anything is written. See the
+  2026-08-05 `decisions.md` entries (the report-and-offer supersession, and
+  the superseded write-through design below it) and
+  [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05)
+  for the ceremony-tiering rule this loop's overrun prompted.
 - **CLAUDE.md cut roughly in half via skill migration + consolidation**
   (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
   tokens per session) — about half the file was procedural ceremony that
@@ -401,6 +417,10 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
+- **Phase-tracking for multi-PR features** — parent issue carries the plan,
+  each phase is a sub-issue with its own PR. Design settled 2026-08-05, not
+  yet built; #310 and #293 are named retrofit candidates. See the
+  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--multi-pr-features-get-parent-issue-plus-phase-sub-issue-tracking-and-i-ask-before-declaring-a-split).
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
   visual-review flow. **Needs David confirmation** on specifics.
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
