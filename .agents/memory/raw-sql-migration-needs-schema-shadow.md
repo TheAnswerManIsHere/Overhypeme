@@ -59,10 +59,13 @@ has a matching `pgTable` declaration, `push` reconciles the database to
 that declared state and won't drop it — the shadow prevents the loss
 outright, not just the unrecoverability. The exposure is real whenever
 that shadow is missing or doesn't match (a stale index predicate, a CHECK
-whose Drizzle-rendered form diverges from the migration's), and it fires
-on the SECOND `push` against an already-`migrate`d database regardless of
-what triggers that second push — not only across sandbox sessions, and not
-only in this repo's specific CI shape.
+whose Drizzle-rendered form diverges from the migration's), and it fires on
+**any** `push` run against a database where an unshadowed migration has
+already applied — not specifically a *second* push. A database built by
+`migrate` alone, with no prior `push` at all, is just as exposed on its
+very first `push` afterward; the mechanism only needs `migrate` then
+`push`, in that order, once. Not only across sandbox sessions, and not only
+in this repo's specific CI shape.
 2. **`pending_reviews.parent_fact_id`'s index.** Migration `0091` creates
    `idx_pending_reviews_parent_fact` via `CREATE INDEX`, but `schema.ts`'s
    `pgTable` never declared a matching `index(...)` entry — caught by Codex

@@ -888,9 +888,18 @@ the specific fixes named below over re-deriving them.
 - **`pg_has_role(role, target, 'member')` is not "can this role act as
   target."** It is true for a grant with `INHERIT FALSE, SET FALSE` — a
   membership that confers no actual capability. **Use `'usage'`** (ambient,
-  inherited privileges) or `'set'` (can `SET ROLE` to it on demand),
-  whichever the check actually needs; never `'member'` for an authorization
-  decision.
+  inherited privileges) or `'set'` (can `SET ROLE` to it on demand) for a
+  narrowly defined, single-grant-shape question — never `'member'` for an
+  authorization decision. **Neither `'usage'` nor `'set'` alone answers the
+  broader "can this role EFFECTIVELY reach target at all" question** —
+  `'usage'` misses a SET-only grant, `'set'` misses an INHERIT-only one, and
+  both miss an admin-option chain that lets the role grant itself the
+  target on demand. This repo already implements and tests that full union
+  (`usage OR set OR a transitive admin-option chain`) in
+  `canEffectivelyAssumeRole()` (`lib/db/src/index.ts`) — route an
+  effective-reachability decision through that helper rather than a bare
+  `pg_has_role` call, or risk reintroducing the exact under-reporting this
+  entry's own history is about.
 - **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
   the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
   superuser, not the creator.** The creator therefore cannot revoke its own

@@ -23,8 +23,11 @@
   [`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md),
   a runbook run by a superuser after the migration applies.
   `ncmecAuditBoundaryStatus()` (`lib/db/src/index.ts`) is unchanged and still
-  reports the residual state, which is what phase 6's activation gate reads
-  before allowing production filing.
+  reports the residual state, which phase 6's activation gate **will** read
+  before allowing production filing — phase 6 hasn't shipped yet, so no
+  caller reads it today. Until then, production filing stays blocked by the
+  seeded-off `ncmec_submission_enabled`/`ncmec_ispws_environment` switches
+  alone.
 - **Why:** the migration runs *as the application role*, so it owns
   everything it creates — a migration cannot grant itself a boundary it
   cannot already cross. Every path toward one collapsed to the same shape:
@@ -37,10 +40,12 @@
   role is auto-granted it **WITH ADMIN OPTION**, grantor the bootstrap
   superuser — so the migration was handing the application a membership in
   the very role its own trigger gates on, and then trying (and failing) to
-  revoke it. `REVOKE` issued by anyone but the grantor doesn't raise; it
-  emits a `WARNING` and changes nothing — so five rounds of "revoke the
-  automatic grant" fixes were each individually correct and none of them
-  worked, because the actor allowed to fix it was never in the room.
+  revoke it. `REVOKE` issued by a non-superuser who isn't the grantor doesn't
+  raise; it emits a `WARNING` and changes nothing — only the grantor itself
+  or **any** superuser (not necessarily the specific bootstrap one) can
+  actually remove the row — so five rounds of "revoke the automatic grant"
+  fixes were each individually correct and none of them worked, because the
+  migration runs as the application role, which is neither.
   Nine review rounds spent refining exactly this reachability model
   (`usage` → `member` → `SET` → `ADMIN OPTION` → an inherited admin-option
   chain → schema ownership → guard-function schema ownership) accounted for

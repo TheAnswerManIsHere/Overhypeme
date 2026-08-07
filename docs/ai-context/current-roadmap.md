@@ -371,8 +371,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   yet — both filing switches are seeded off — but only phase 2 (the client
   and builders) is callerless; phase 1 is already live in existing paths
   (`submitNcmecReport()` writes `ncmec_reports`, `quarantineImage()` invokes
-  that stub, and migration `0097`'s triggers and reserved-config guard run
-  against those writes today). Phases 3–8
+  that stub, and migration `0097`'s `ncmec_reports_link_quarantine_trg` and
+  reserved-config guard run against those writes today — the append-only
+  triggers on `ncmec_safety_audit_log` are separate infrastructure for
+  later phases; the stub never writes to that table). Phases 3–8
   (the submission worker, the reconciler, admin routes, the `/admin/safety`
   page, alerting, and the production-activation gate) remain. See
   [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
