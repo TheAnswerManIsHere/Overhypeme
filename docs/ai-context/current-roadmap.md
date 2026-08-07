@@ -102,11 +102,36 @@ priorities (moderation speed, render/enrichment quality, video). See
   since nothing else was guaranteed to notice that event. See
   [`workstream-tracking.md`](./workstream-tracking.md) and
   [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
-  **Open next:** the board's value depends on labels staying current now
-  that no human maintains them — worth a check after a few workstreams that
-  the four skills *and* `test-run-completion.yml` all actually fire as
-  intended, since the Action is the one owner with no agent session
-  watching over it.
+- **`test-run-completion.yml` hardened to convergence; `/status` naming
+  reconciled with a concurrently-landed rename; CI cuts superseded/
+  docs-only runs** (PR #334, workstream #317, 20 review rounds). The
+  TEST_RUN-completion Action introduced above went through the concurrent-
+  label-mutation pattern's full hardening arc — see
+  [`github-actions-concurrent-label-mutation-pattern.md`](../../.agents/memory/github-actions-concurrent-label-mutation-pattern.md)
+  for the settled add-then-clean/revalidate/stale-intersection shape, not
+  restated here. Mid-loop, `main` independently merged #336 (splitting the
+  original `/status` skill into a new per-session `/status` plus a renamed
+  `/status-all` fleet skill) while this branch had its own, different
+  rename of the same skill in flight; reconciled by dropping this branch's
+  rename and porting its fixes onto `.claude/skills/status-all/SKILL.md` —
+  see [`workstream-tracking.md`](./workstream-tracking.md#status-and-status-all).
+  Also shipped: CI now cancels superseded PR runs and skips the heavy test
+  suites on provably docs-only PRs — see the
+  [2026-08-07 `decisions.md` entry](./decisions.md#2026-08-07--ci-cancels-superseded-pr-runs-and-skips-the-heavy-suites-on-provably-docs-only-changes)
+  and the two GitHub Actions gotchas it links from `.agents/memory/`.
+  **Open next — still genuinely open, not resolved by the hardening above:**
+  the 20 rounds validated the 8 pure parsing/routing/body-transformation
+  helpers `sync-test-run-completion.mjs` exports (`extractPrNumberFromTestRunPath`,
+  `extractWorkstreamIssueNumber`, `hasUatDoc`, `findUatDocFilename`,
+  `stillHasTestRunDoc`, `computeTransition`, `updateStateOfPlayBody`,
+  `handoffText`) against unit tests; `ensureCleanLabels()`,
+  `processDeletedTestRunDoc()`, every REST call, retry orchestration, and
+  board synchronization are validated by code review only, never executed by
+  a test. Nothing yet has exercised the deployed Action itself either — the
+  actual `push`-to-`main` trigger, its permissions,
+  `PROJECTS_TOKEN`/`GITHUB_TOKEN` scoping, and a real label/board write —
+  since no push since it landed has deleted a matching TEST_RUN doc. Worth a
+  check once a real TEST_RUN doc deletion has gone through it live.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —

@@ -13,6 +13,69 @@
 
 ---
 
+### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
+- **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
+  newer push lands on the *same PR* (never a push-to-main or the weekly
+  CodeQL schedule run — those always run to completion), using a group key
+  that falls back to `github.run_id` for those non-PR events so they can
+  never collide with each other. `dependency-review.yml` gets the same
+  cancellation unconditionally — it only ever triggers on `pull_request`, so
+  there's no push/schedule case to protect. Separately, `Test` / `Frontend
+  Test` / `E2E Smoke` skip entirely on a PR whose full changed-file list is
+  provably inert for those suites, via a fail-safe allowlist classifier
+  (`scripts/classify-ci-paths.mjs`) gated with **job-level `if:`**, not
+  workflow-level `paths:` filtering. `codeql.yml`'s `python` matrix entry
+  was also dropped: the repo has exactly two `.py` files, both tooling
+  helpers under `.claude/skills/` (semgrep, sarif-parsing), no product
+  Python — that job scanned nothing that ships, on every single push.
+- **Why:** A fast-iterating, Codex-driven review loop can push many times to
+  one PR in a single day (PR #334: 11 pushes in one day, ~8–9 parallel jobs
+  each) and every prior push's CI was obsolete the moment the next one
+  landed but still ran to completion. Separately, this repo's PR mix
+  includes a lot of genuinely docs-only work — `/document` harvests,
+  `[LEDGER]` PRs, UAT/TEST_RUN docs, skill and `CLAUDE.md` edits — that
+  provably cannot change the integration/e2e suites' outcome, and each was
+  still booting Postgres twice, downloading Chromium, and running the full
+  suites. **This is a wall-clock/queue-pressure optimization, not a cost
+  one** — Actions on standard runners is free/unmetered for this repo since
+  it's public; see
+  [`github-actions-outage-mimics-quota.md`](../../.agents/memory/github-actions-outage-mimics-quota.md)
+  for how that got misdiagnosed as a billing problem along the way. The
+  classifier is deliberately an allowlist (not a heavy-path denylist): its
+  failure mode on an **unrecognized** path is wasted minutes, never a skipped
+  regression, since anything it doesn't recognize defaults to heavy. That
+  guarantee does **not** extend to a path that's already on the allowlist
+  when a heavy suite later starts depending on it — a PR touching only that
+  path would still skip the suite that could have caught the regression,
+  exactly the shrink case the `Revisit if` line below exists to name. A
+  generated artifact living inside an otherwise-inert directory
+  (`docs/ADMIN_FIELD_REFERENCE.md`, whose byte-parity with
+  `renderAdminFieldReference()` is asserted by `Frontend Test`) is carved out
+  as an explicit exception rather than weakening the directory-level rule —
+  it's the first instance of exactly this shrink case, caught before merge
+  only because a reviewer happened to know the test existed.
+- **Reference:** PR #334 (rounds 17–20 of its review loop).
+  `scripts/classify-ci-paths.mjs` +
+  `scripts/__tests__/classify-ci-paths.test.mjs`. Two GitHub Actions
+  mechanics this hit along the way, now recorded so they aren't
+  rediscovered:
+  [`github-actions-required-checks-job-if-vs-paths-filter.md`](../../.agents/memory/github-actions-required-checks-job-if-vs-paths-filter.md)
+  (a `paths`-filtered workflow that never triggers leaves a required check
+  stuck at "Expected" forever) and
+  [`github-actions-concurrency-group-key-and-queue-max.md`](../../.agents/memory/github-actions-concurrency-group-key-and-queue-max.md)
+  (`github.ref` collides across every push to the same branch; `queue: max`
+  can't combine with a `cancel-in-progress` that can evaluate `true`).
+- **Revisit if:** the classifier's allowlist needs to grow (a new top-level
+  directory that's genuinely inert for the heavy suites) or shrink (a new
+  test starts reading something currently allowlisted, the way
+  `fieldDocs.test.ts` already forced the field-reference exception).
+  Separately: if this repo ever gains genuine product Python (not just a
+  tooling script under `.claude/skills/`), restore the `python` entry to
+  `codeql.yml`'s language matrix — its removal was scoped to "nothing that
+  ships," not "Python is out of scope forever."
+
+---
+
 ### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
 - **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
   from a single inverted grep — it blocked `git push --force` while waving
