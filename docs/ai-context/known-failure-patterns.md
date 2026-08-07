@@ -737,8 +737,12 @@ Verify against the *fact*, not the string you happened to delete: a paraphrase
 forks exactly as well as a quotation, so a grep for the removed wording can
 pass while the claim survives three lines away in different words.
 
-**Overhype:** PR #291 (the async-lane de-fork) ran six review rounds and this
-pattern accounted for a finding in five of them. The clearest instance: a claim
+**Overhype:** PR #291 (the async-lane de-fork) narrated six review rounds in
+its own body, but the loop ledger's fully-paginated, mechanically-derived
+count (row 23 of `.agents/metrics/loop-ledger.md`) is seven — that figure is
+the one of record, per this file's own reason to exist, and the "six" here is
+superseded by it rather than reconciled against it. This pattern accounted
+for a finding in five of the narrated rounds. The clearest instance: a claim
 equating async-jobs handler concurrency with database pool occupancy was
 corrected in `architecture-map.md` in round 4, which left `background-work.md`
 and `deferred-work.md` asserting the disproved version — so the repo
@@ -784,6 +788,54 @@ resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
+
+## Satisfying a lexical guard by changing a value's form, not its meaning
+
+**Looks like:** a CI text guard flags a stated value in prose. The fix changes
+*how* the value is written — a digit becomes a spelled-out word, a cardinal
+becomes an ordinal, a bare value gets wrapped in markdown emphasis or a link,
+a phrase gets reflowed across a line break — without changing what the
+sentence actually asserts. The guard goes green; the value it exists to keep
+out of that document is still fully present, just spelled differently.
+
+**Dangerous:** a green check reads as "compliant," so the sentence doesn't get
+looked at again — but the source-of-truth risk the rule exists to prevent (the
+same fact living in two places, able to drift independently) is completely
+intact. Because each round of this only narrows the *specific* form just
+caught, not the general risk, a review loop chasing it can run for many
+rounds, one surface form at a time, and look like slow but real progress the
+whole way.
+
+**Avoid:** when a value is flagged, ask "does this sentence's truth depend on
+the number, in *any* form?" — not "does it still contain the literal string
+the rule matched." Removing the concept (say that something exists or is
+true, not how much) is the fix; rewording the same count in a different part
+of speech is not, and is usually just as fast to write, which is what makes it
+tempting. Authoring or extending a guard like this has the mirror-image
+discipline: after closing one evasion, actively probe for the *next* form of
+the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
+markdown markup, a hard-wrapped line split) instead of declaring the class
+closed after the one instance found.
+
+**Overhype:** PR #298 (the manual tuning-language guard) went through six
+finding-bearing Codex review rounds, and this exact pattern recurred inside
+its own fix history — round 5 found "a simpler 2-lane split ... in favor of
+3" and fixed
+it by spelling the count out ("a simpler two-way split ... in favor of a
+third, separate lane"), which round 6 caught as the same lane count restated
+as an ordinal instead of removed; the round-6 fix describes the split
+qualitatively with no number in any form, which is what a genuine fix looks
+like for this pattern — but that fix was never independently re-reviewed
+before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+row 22), so its correctness is this PR's own claim, not a confirmed close.
+Separately, the guard's own detection had to grow across rounds to
+cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
+phrase split across two physical lines, and a spelled-out-number extension
+whose digit-derived "attached s" shorthand accidentally matched an ordinary
+English word ("hundred" + "s" = "hundreds," not a duration). The full list of
+evasions the guard now covers, and why each was needed, lives in
+`scripts/check-manual-tuning-language.mjs`'s own header and rule comments —
+not duplicated here.
 
 ## Chasing completeness against an adversarial reviewer past the artifact's real risk
 
