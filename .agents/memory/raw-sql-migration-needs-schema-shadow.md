@@ -9,9 +9,11 @@ This repo has two ways a database's shape gets built: `drizzle-kit push`
 (diffs the live DB against `lib/db/src/schema/*.ts`'s `pgTable` definitions) and
 `pnpm --filter @workspace/db run migrate` (replays the hand-authored SQL files
 in `lib/db/migrations/`, via the hash-tracking runner in `lib/db/src/migrate.ts`).
-Anything a migration creates in raw SQL — a `CHECK` constraint, a `CREATE INDEX`
-— that ISN'T also declared as a matching `pgTable` option (a `check()` builder,
-an `index()` entry) is invisible to `push`. A `push`-only environment (or one
+Anything a migration creates in raw SQL — a `CHECK` constraint, a `CREATE INDEX`,
+a standalone `CREATE SEQUENCE` — that ISN'T also declared with a matching
+schema.ts declaration (a `check()` builder or `index()` entry on the owning
+`pgTable` for the first two, a `pgSequence` for the third — no `pgTable` can
+shadow a sequence) is invisible to `push`. A `push`-only environment (or one
 where `push` runs again after `migrate` already ran) can end up missing it
 entirely, or — worse — `push --force` can *drop* a constraint/index that
 `migrate` already added, since `push` reconciles the DB to match schema.ts and
@@ -46,8 +48,10 @@ same database api-server's sharded tests clone *from*. api-server's own
 second `push` reconciled an already-migrated database to the Drizzle
 snapshot and silently dropped every object that exists only in raw migration
 SQL and has no `schema.ts` shadow (in this case, `facts_active_requires_concept`
-and the membership-entitlement objects from migrations that had landed on
-`main` first) — and the `migrate` that followed could not repair it, because
+and migration `0095`'s two standalone sequences, `membership_source_state_seq`
+and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, but
+`membershipEntitlements.ts` declares neither as a `pgSequence`, so `push` has
+never known either one is supposed to exist) — and the `migrate` that followed could not repair it, because
 its hash-based tracking already recorded those migrations as applied. 19
 unrelated test failures across four suites resulted, with no schema-shadow
 gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
@@ -55,7 +59,9 @@ gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
 touches the database api-server's tests are cloned from. **The lesson
 generalizes beyond CI, but only for migrations without a complete,
 accurate `schema.ts` shadow.** If every raw-SQL object a migration creates
-has a matching `pgTable` declaration, `push` reconciles the database to
+has a matching schema.ts declaration (a `pgTable` option for a
+table-scoped index/constraint, a `pgSequence` for a standalone sequence),
+`push` reconciles the database to
 that declared state and won't drop it — the shadow prevents the loss
 outright, not just the unrecoverability. The exposure is real whenever
 that shadow is missing or doesn't match (a stale index predicate, a CHECK
@@ -76,6 +82,8 @@ in this repo's specific CI shape.
 `ALTER TABLE ADD CONSTRAINT`, add the equivalent declaration to the table's
 `pgTable(...)` definition in the same commit — `index("name").on(table.col)` for
 indexes, a `check()` builder for constraints (or a documented note if Drizzle's
-`check()` can't express it). `pnpm --filter @workspace/db run validate-snapshots`
-does NOT catch this (migrations are snapshot-exempt by convention) — this is a
-manual discipline, not something CI currently guards.
+`check()` can't express it). A standalone `CREATE SEQUENCE` needs its own
+`pgSequence(...)` declaration instead — no `pgTable` option can shadow an
+object that isn't scoped to a table. `pnpm --filter @workspace/db run validate-snapshots`
+does NOT catch either shape (migrations are snapshot-exempt by convention) —
+this is a manual discipline, not something CI currently guards.

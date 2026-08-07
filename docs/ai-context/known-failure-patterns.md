@@ -903,8 +903,11 @@ the specific fixes named below over re-deriving them.
 - **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
   the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
   superuser, not the creator.** The creator therefore cannot revoke its own
-  new membership: `REVOKE x FROM <creator>` run by anyone but the grantor
-  does not raise an error. It emits a `WARNING` and changes nothing. Code
+  new membership: `REVOKE x FROM <creator>` run by a non-superuser who
+  isn't the grantor does not raise an error. It emits a `WARNING` and changes nothing — a
+  superuser other than the grantor CAN still remove it, bypassing the
+  grantor check entirely; only a non-superuser lacking the grantor's
+  authority is stuck. Code
   that creates a role and then tries to revoke its own automatic membership
   needs to verify the revoke actually happened (re-read
   `pg_auth_members`), not trust the absence of an exception. There is no
@@ -934,7 +937,15 @@ the specific fixes named below over re-deriving them.
   the array. **The fix that actually converged was to stop verifying and
   rebuild the constraint unconditionally** (`DROP CONSTRAINT IF EXISTS` +
   `ADD CONSTRAINT`) wherever the role has permission, so the post-condition
-  holds by construction instead of by inspection — safe here because the
-  constraint gates an append-only ledger already enforcing the same
-  vocabulary on every prior row. See the 2026-08-07 `decisions.md` entry and
+  holds by construction instead of by inspection — but unconditional
+  replacement is only safe when no row can already violate the *new*
+  constraint: append-only triggers stop later mutation, not an `INSERT`
+  the *currently drifted* CHECK still admits, so a row a prior drifted
+  predicate let through would make the replacement `ADD CONSTRAINT` raise
+  a violation and roll back the whole migration. Safe here specifically
+  because phase 1 has no ledger writers yet (the table is empty at replay
+  time) — reusing this "just rebuild it" move against a table that already
+  has rows needs a preflight check (or an owner-run repair of nonconforming
+  rows) first, not an assumption that unconditional replacement is
+  generally replay-safe. See the 2026-08-07 `decisions.md` entry and
   `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.
