@@ -28,13 +28,19 @@
   making `--force-with-lease` **mandatory** on the branches this session owns
   (`claude/*`, `plan-review/*`) — the container is ephemeral, so an
   overwritten remote branch has no local reflog to recover from. Three Codex
-  review rounds on PR #329 then found 36 concrete parser gaps and fixed 33
+  review rounds on PR #329 then found 34 concrete parser gaps and fixed 31
   (round 1: 11 found / 9 fixed, 2 disclosed as known limits; round 2: 11 / 11;
-  round 3: 14 / 13, 1 disclosed as a policy question). Round 4 found **19**.
+  round 3: 12 / 11, 1 disclosed as a policy question). Round 4 found **19**.
   Rather than open a round 5, David stopped the loop there; round 4's gaps are
   recorded in `guard-decision.mjs`'s docstring (`ROUND 4, AND THE DECISION TO
-  STOP`) as accepted, not fixed.
-- **The finding counts never fell — 11, 11, 14, 19 across four rounds.** Worth
+  STOP`) as accepted, not fixed. **Corrected 2026-08-07** (loop-ledger row 35,
+  built from a fully-paginated live re-check of PR #329's actual review
+  threads): this entry originally said round 3 found 14, itself an error —
+  re-derived from commit `d3bbe54a`'s own miscounted commit message rather
+  than live GitHub data, and caught only after PR #331's first attempt to fix
+  a *different* wrong figure ("9, 11, 12") landed on this equally wrong one.
+  The true count is 12.
+- **The finding counts never fell — 11, 11, 12, 19 across four rounds.** Worth
   stating precisely, because the intuition that a review loop is "converging"
   is exactly what this decision is a correction to. Each round's *fixes*
   landed and were real, but the number of newly-discovered gaps was flat and

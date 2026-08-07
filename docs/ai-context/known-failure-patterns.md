@@ -832,7 +832,7 @@ the defense to the *realistic* threat model (an honest mistake) rather than
 a fully adversarial one, when the two genuinely differ, and say so out loud
 rather than quietly absorbing round after round. **Overhype:**
 `.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
-rounds found 11, then 11, then 14, then 19 parser gaps (fixing 9, 11, 13, 0).
+rounds found 11, then 11, then 12, then 19 parser gaps (fixing 9, 11, 11, 0).
 The count of newly-found gaps never fell across four rounds, even as each
 round's fixes landed. David stopped the loop there
 rather than open a round 5: the hook was narrowed to "make the lease
