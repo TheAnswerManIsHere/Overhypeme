@@ -13,6 +13,51 @@
 
 ---
 
+### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
+- **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
+  newer push lands on the *same PR* (never a push-to-main or the weekly
+  CodeQL schedule run — those always run to completion). Separately, `Test`
+  / `Frontend Test` / `E2E Smoke` skip entirely on a PR whose full
+  changed-file list is provably inert for those suites, via a fail-safe
+  allowlist classifier (`scripts/classify-ci-paths.mjs`) gated with
+  **job-level `if:`**, not workflow-level `paths:` filtering.
+- **Why:** A fast-iterating, Codex-driven review loop can push many times to
+  one PR in a single day (PR #334: 11 pushes in one day, ~8–9 parallel jobs
+  each) and every prior push's CI was obsolete the moment the next one
+  landed but still ran to completion. Separately, this repo's PR mix
+  includes a lot of genuinely docs-only work — `/document` harvests,
+  `[LEDGER]` PRs, UAT/TEST_RUN docs, skill and `CLAUDE.md` edits — that
+  provably cannot change the integration/e2e suites' outcome, and each was
+  still booting Postgres twice, downloading Chromium, and running the full
+  suites. **This is a wall-clock/queue-pressure optimization, not a cost
+  one** — Actions on standard runners is free/unmetered for this repo since
+  it's public; see
+  [`github-actions-outage-mimics-quota.md`](../../.agents/memory/github-actions-outage-mimics-quota.md)
+  for how that got misdiagnosed as a billing problem along the way. The
+  classifier is deliberately an allowlist (not a heavy-path denylist): its
+  failure mode is wasted minutes on a stale allowlist entry, never a skipped
+  regression. A generated artifact living inside an otherwise-inert
+  directory (`docs/ADMIN_FIELD_REFERENCE.md`, whose byte-parity with
+  `renderAdminFieldReference()` is asserted by `Frontend Test`) is carved out
+  as an explicit exception rather than weakening the directory-level rule.
+- **Reference:** PR #334 (rounds 17–20 of its review loop).
+  `scripts/classify-ci-paths.mjs` +
+  `scripts/__tests__/classify-ci-paths.test.mjs`. Two GitHub Actions
+  mechanics this hit along the way, now recorded so they aren't
+  rediscovered:
+  [`github-actions-required-checks-job-if-vs-paths-filter.md`](../../.agents/memory/github-actions-required-checks-job-if-vs-paths-filter.md)
+  (a `paths`-filtered workflow that never triggers leaves a required check
+  stuck at "Expected" forever) and
+  [`github-actions-concurrency-group-key-and-queue-max.md`](../../.agents/memory/github-actions-concurrency-group-key-and-queue-max.md)
+  (`github.ref` collides across every push to the same branch; `queue: max`
+  can't combine with a `cancel-in-progress` that can evaluate `true`).
+- **Revisit if:** the classifier's allowlist needs to grow (a new top-level
+  directory that's genuinely inert for the heavy suites) or shrink (a new
+  test starts reading something currently allowlisted, the way
+  `fieldDocs.test.ts` already forced the field-reference exception).
+
+---
+
 ### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
 - **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
   **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out
