@@ -85,6 +85,406 @@
   no explaining event, or before scaling paid signups materially — whichever
   comes first (same trigger recorded in `deferred-work.md`).
 
+---
+
+### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
+- **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
+  newer push lands on the *same PR* (never a push-to-main or the weekly
+  CodeQL schedule run — those always run to completion), using a group key
+  that falls back to `github.run_id` for those non-PR events so they can
+  never collide with each other. `dependency-review.yml` gets the same
+  cancellation unconditionally — it only ever triggers on `pull_request`, so
+  there's no push/schedule case to protect. Separately, `Test` / `Frontend
+  Test` / `E2E Smoke` skip entirely on a PR whose full changed-file list is
+  provably inert for those suites, via a fail-safe allowlist classifier
+  (`scripts/classify-ci-paths.mjs`) gated with **job-level `if:`**, not
+  workflow-level `paths:` filtering. `codeql.yml`'s `python` matrix entry
+  was also dropped: the repo has exactly two `.py` files, both tooling
+  helpers under `.claude/skills/` (semgrep, sarif-parsing), no product
+  Python — that job scanned nothing that ships, on every single push.
+- **Why:** A fast-iterating, Codex-driven review loop can push many times to
+  one PR in a single day (PR #334: 11 pushes in one day, ~8–9 parallel jobs
+  each) and every prior push's CI was obsolete the moment the next one
+  landed but still ran to completion. Separately, this repo's PR mix
+  includes a lot of genuinely docs-only work — `/document` harvests,
+  `[LEDGER]` PRs, UAT/TEST_RUN docs, skill and `CLAUDE.md` edits — that
+  provably cannot change the integration/e2e suites' outcome, and each was
+  still booting Postgres twice, downloading Chromium, and running the full
+  suites. **This is a wall-clock/queue-pressure optimization, not a cost
+  one** — Actions on standard runners is free/unmetered for this repo since
+  it's public; see
+  [`github-actions-outage-mimics-quota.md`](../../.agents/memory/github-actions-outage-mimics-quota.md)
+  for how that got misdiagnosed as a billing problem along the way. The
+  classifier is deliberately an allowlist (not a heavy-path denylist): its
+  failure mode on an **unrecognized** path is wasted minutes, never a skipped
+  regression, since anything it doesn't recognize defaults to heavy. That
+  guarantee does **not** extend to a path that's already on the allowlist
+  when a heavy suite later starts depending on it — a PR touching only that
+  path would still skip the suite that could have caught the regression,
+  exactly the shrink case the `Revisit if` line below exists to name. A
+  generated artifact living inside an otherwise-inert directory
+  (`docs/ADMIN_FIELD_REFERENCE.md`, whose byte-parity with
+  `renderAdminFieldReference()` is asserted by `Frontend Test`) is carved out
+  as an explicit exception rather than weakening the directory-level rule —
+  it's the first instance of exactly this shrink case, caught before merge
+  only because a reviewer happened to know the test existed.
+- **Reference:** PR #334 (rounds 17–20 of its review loop).
+  `scripts/classify-ci-paths.mjs` +
+  `scripts/__tests__/classify-ci-paths.test.mjs`. Two GitHub Actions
+  mechanics this hit along the way, now recorded so they aren't
+  rediscovered:
+  [`github-actions-required-checks-job-if-vs-paths-filter.md`](../../.agents/memory/github-actions-required-checks-job-if-vs-paths-filter.md)
+  (a `paths`-filtered workflow that never triggers leaves a required check
+  stuck at "Expected" forever) and
+  [`github-actions-concurrency-group-key-and-queue-max.md`](../../.agents/memory/github-actions-concurrency-group-key-and-queue-max.md)
+  (`github.ref` collides across every push to the same branch; `queue: max`
+  can't combine with a `cancel-in-progress` that can evaluate `true`).
+- **Revisit if:** the classifier's allowlist needs to grow (a new top-level
+  directory that's genuinely inert for the heavy suites) or shrink (a new
+  test starts reading something currently allowlisted, the way
+  `fieldDocs.test.ts` already forced the field-reference exception).
+  Separately: if this repo ever gains genuine product Python (not just a
+  tooling script under `.claude/skills/`), restore the `python` entry to
+  `codeql.yml`'s language matrix — its removal was scoped to "nothing that
+  ships," not "Python is out of scope forever."
+
+---
+
+### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
+- **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
+  from a single inverted grep — it blocked `git push --force` while waving
+  through the equivalent `git push -f` — into a token-level parser, then
+  deliberately **narrowed in scope rather than removed**, after David supplied
+  a screenshot proving GitHub's ruleset on `main` (Block force pushes, Restrict
+  deletions, Require linear history, Require a pull request before merging,
+  Require status checks to pass — verified ON 2026-08-05) already blocks force
+  pushes server-side, for every actor, regardless of this hook. That reframed
+  the hook as the **third** line of defense (behind the harness classifier,
+  which still refuses to let this session edit its own guardrails without
+  David approving the write, and GitHub's ruleset), whose only real job left is
+  making `--force-with-lease` **mandatory** on the branches this session owns
+  (`claude/*`, `plan-review/*`) — the container is ephemeral, so an
+  overwritten remote branch has no local reflog to recover from. Three Codex
+  review rounds on PR #329 then found 34 concrete parser gaps and fixed 31
+  (round 1: 11 found / 9 fixed, 2 disclosed as known limits; round 2: 11 / 11;
+  round 3: 12 / 11, 1 disclosed as a policy question). Round 4 found **19**.
+  Rather than open a round 5, David stopped the loop there; round 4's gaps are
+  recorded in `guard-decision.mjs`'s docstring (`ROUND 4, AND THE DECISION TO
+  STOP`) as accepted, not fixed. **Corrected 2026-08-07** (loop-ledger row 35,
+  built from a fully-paginated live re-check of PR #329's actual review
+  threads): this entry originally said round 3 found 14, itself an error —
+  re-derived from commit `d3bbe54a`'s own miscounted commit message rather
+  than live GitHub data, and caught only after PR #331's first attempt to fix
+  a *different* wrong figure ("9, 11, 12") landed on this equally wrong one.
+  The true count is 12.
+- **The finding counts never fell — 11, 11, 12, 19 across four rounds.** Worth
+  stating precisely, because the intuition that a review loop is "converging"
+  is exactly what this decision is a correction to. Each round's *fixes*
+  landed and were real, but the number of newly-discovered gaps was flat and
+  then rising, which is the falsifiable signal that the defense was the wrong
+  shape rather than merely unfinished.
+- **Why:** A hand-rolled recognizer trying to prove "no way this string
+  executes a force push" is effectively reimplementing Bash's own parser and
+  expander, and Bash's surface for "ways to dispatch a command" (wrapper
+  commands like `sudo`/`time`/`timeout`/`coproc`/`env -S`, alternate quoting
+  forms, script-dispatch mechanisms like heredocs/here-strings/`eval`, git's
+  own alias system) is not practically enumerable — every round a reviewer
+  thinking adversarially about Bash found a new class, not a shrinking one.
+  The guard was never the actual protection for `main`; continuing would have
+  kept spending review rounds hardening a backstop against a threat model
+  (deliberate adversarial evasion) that does not match how the hook is
+  actually exercised — an honest agent mistake in a normal-shaped command,
+  which the shipped version already reliably catches.
+- **Reference:** PR #329. `scripts/guard-decision.mjs`'s docstring carries the
+  full three-layer model and the itemized list of round 4's 19 documented (not
+  fixed) gaps.
+- **Revisit if:** a real incident shows the guard misses a normal, non-adversarial
+  command shape (not one of the documented edge cases); or GitHub's ruleset on
+  `main` is ever weakened or removed, at which point this hook stops being a
+  backstop and the cost/benefit of closing the remaining gaps changes.
+
+### 2026-08-05 · Multi-PR features get parent-issue-plus-phase-sub-issue tracking, and I ask before declaring a split
+- **Decision:** When a feature is too large for one PR (the pattern PR #293
+  hit, self-documented mid-flight as "phase 1 of 8"), the **parent issue**
+  carries the plan and the checkpoints that only make sense once — 🛑 Plan
+  approval, 🛑 UAT, close-out — while each **phase** becomes its own
+  **sub-issue** with its own PR, carrying only 🛑 Merge. A phase PR's oracle
+  section gets an added **scope line** naming which of the parent plan's
+  sections that phase delivers vs. defers, so a reviewer isn't left guessing
+  whether a missing piece is out-of-scope-for-this-phase or dropped. UAT is
+  **per-phase**, wherever a phase is itself product-visible, rather than one
+  UAT deferred to the last phase. Phases **merge sequentially, never
+  stacked** — no phase PR bases on another still-open phase PR. Splitting a
+  feature into phases is something I **propose to David**, not something I
+  declare silently mid-build. #310 and #293 are named retrofit candidates for
+  this structure once it's built.
+- **Why:** Without sub-issue tracking, a multi-PR feature's per-phase state
+  (which phases are done, which is active, what the next one still owes)
+  lived only in PR titles and chat memory, with no structural place to see it
+  at a glance. Sequential-only merging matches this session's guard-work
+  finding that force-push/stacking tooling isn't something to reach for
+  routinely — phases don't need stacked-branch mechanics if they land one at
+  a time. David chose "ask before declaring a split" over "split silently
+  when a plan looks too big," revisitable if it becomes cumbersome in
+  practice.
+- **Reference:** Design settled in conversation 2026-08-05, alongside the
+  `/status` redesign below. **Not yet built** — see
+  [`current-roadmap.md`](./current-roadmap.md).
+- **Revisit if:** the ask-before-splitting step becomes friction in practice
+  (David's own stated condition for revisiting).
+
+### 2026-08-05 · `/status` ships as report-and-offer, superseding the write-through design below
+- **Decision:** Per-session `/status` **reports** the workstream's state and,
+  when stored `stage:`/`waiting:` labels or the `## State of Play` block
+  disagree with live GitHub, **offers** to correct them — David confirms,
+  then it writes. It does **not** write unattended on every invocation, which
+  is what the entry immediately below this one originally specified and
+  approved.
+- **Why:** The write-through design went through a Codex plan-review loop
+  (PR #333) that reached round 6 before two findings showed the unattended
+  write couldn't be made safe on this platform: (1) this repo is public and
+  PR bodies are attacker-controlled, so the write-target discovery rule
+  (`Workstream: #N` in a PR body) could be steered by a forged fork PR into
+  rewriting a maintainer's issue; (2) GitHub's label API has no
+  compare-and-swap, so a race between `/status`'s read and its write could
+  silently erase a `stage:done` David had just set, with no way to recover
+  it. Both are fixable *in principle* with enough specification, but round 6
+  was already specifying acceptance cases with no harness to execute them —
+  the guarantee had outrun what a status check justifies building. David's
+  call: make the write **confirmed, not unattended** — a single "want me to
+  fix this?" in a session already open — which removes both findings at the
+  root instead of patching around them, and costs one tap.
+  This also closed PR #333 unmerged and prompted the shared **ceremony
+  scales to blast radius** rule in
+  [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05):
+  the six-round loop was ceremony mismatched to two markdown files, not a
+  defect in the design being reviewed.
+- **Reference:** PR #333 (plan review, closed unmerged); PR #336 (shipped
+  implementation, `.claude/skills/status/SKILL.md`); the
+  [known-failure-patterns entry](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk).
+- **Revisit if:** a GitHub API adds conditional/CAS-style label updates, which
+  would remove the race that made unattended writes unsafe and reopen
+  write-through as an option.
+
+### 2026-08-05 · `/status` splits into a write-through per-session skill and a fleet-wide `/status-all` — superseded by the entry above
+- **Decision:** The existing fleet-wide `/status` skill (cold-open summary of
+  every open workstream) becomes **`/status-all`**, unchanged in behavior.
+  A new, separate **per-session `/status`** answers the narrower "what am I
+  working on right now and how does it fit the bigger picture" question, and
+  is **write-through**: every invocation refreshes the workstream issue's
+  State of Play block and discloses that write each time (never a silent,
+  read-only summary). It reports state using a fixed 5-state vocabulary —
+  **WORKING / WAITING ON YOU / WATCHING / STALLED / DONE** — where **WATCHING
+  may never be claimed from memory**, only after an actual live GitHub check
+  in that invocation (stale memory of "I was watching PR #X" is not enough to
+  report WATCHING). In a Discovery-stage session that has no workstream issue
+  yet, `/status` offers to open one rather than reporting "nothing to show."
+- **Why:** The single fleet-wide `/status` conflated two different questions
+  a session needs answered — "what's the state of everything" (David's,
+  cross-session) vs. "what am I doing right now" (a session's own, cheap,
+  frequent check) — forcing the cheap question through the expensive
+  fleet-wide scan every time. The write-through design keeps the workstream
+  issue as the durable source of truth for session state rather than letting
+  it drift out of sync with what the session actually believes about itself.
+  The WATCHING-only-from-live-check rule exists because a session's memory of
+  "I subscribed to that PR" can go stale (the PR merged, closed, or the
+  subscription silently dropped) in exactly the way CLAUDE.md's PR-watch
+  rules already warn against for webhook events — "never judge from text
+  alone" applies to self-reporting status too.
+- **Superseded 2026-08-05** (same day, entry above): the write-through half
+  did not survive plan review. The 5-state vocabulary, the WATCHING-only-
+  from-live-check rule, and the `/status-all` split all shipped unchanged.
+- **Reference:** Design settled in conversation 2026-08-05.
+- **Revisit if:** n/a — superseded.
+
+### 2026-08-05 · Workstream tracking runs on GitHub's own project management, with labels — not the board — as the source of truth
+- **Decision:** Every unit of work (feature, bugfix, docs harvest) gets a
+  **GitHub issue as its spine** — *except* sensitive/disclosure-carve-out
+  work, which never becomes a public issue and instead lives as a private
+  draft Project item, per `plan-review-loop`'s existing disclosure check
+  (this repo is public, so an issue body is public even though the Project
+  itself is private). For everything else, the issue is opened from
+  Discovery onward — before any branch exists — carrying a **State of Play**
+  block (defined in the routed contract below) and exactly one label
+  from each of three prefixes: `stage:` (the ten lifecycle stages),
+  `waiting:` (david/claude/codex/replit/ci), and `mode:`. Those issues are
+  tracked on a private Project board whose `Status`/`Waiting On`/`Mode`
+  fields are populated from the labels by a CI Action
+  (`.github/workflows/project-sync.yml` → `scripts/sync-project-fields.mjs`),
+  and read back by a `/status-all` skill. **Labels are the writable truth; the
+  board is a projection of them.** Four skills — `plan-review-loop`,
+  `bugfix`, `pr-watch`, `pr-docs` — each own a specific label transition at
+  a trigger point they already hit, rather than any agent carrying a
+  standing "go check the board" habit, plus one automated exception: the
+  `test-run-completion.yml` Action (PR #334) is the sole non-agent label
+  writer, moving `stage:test-run` to `stage:uat`/`stage:close-out` the
+  moment a PR's TEST_RUN doc is deleted — nothing with write access was
+  otherwise guaranteed to ever notice that event. Because that Action
+  writes labels with `GITHUB_TOKEN`, whose events GitHub deliberately does
+  not cascade to other workflows, it cannot rely on `project-sync.yml`'s
+  own `issues:labeled` trigger firing from its write — it calls the same
+  reconcile function directly instead. The full contract is
+  [`workstream-tracking.md`](./workstream-tracking.md).
+- **Why:** David runs ~10 concurrent Claude Code sessions and could not tell
+  which needed him without opening each one; the session list shows a name
+  and a timestamp, and has no field for stage or whose-turn, so it cannot
+  answer that question no matter how sessions are named. Three alternatives
+  were considered and rejected. **A status file in the repo:** the session
+  container is ephemeral, so a local file dies with the session; committing
+  one requires a branch (which a pure Discovery conversation doesn't have),
+  and a *shared* board file written by many concurrent squash-merged
+  branches is the worst possible git shape — a failure this repo has already
+  recorded once in
+  [`document-ceremony-concurrent-docs-pr-conflict.md`](../../.agents/memory/document-ceremony-concurrent-docs-pr-conflict.md).
+  **A second Project for `/document` harvests:** fragments exactly what this
+  exists to unfragment; harvests are **sub-issues** of their parent
+  workstream instead, since each has its own branch, PR, and review loop and
+  therefore needs its own row rather than a status value on the parent.
+  **Reading the board directly:** no available MCP or REST tool can read
+  *or* write a Projects v2 item field — confirmed twice independently — so
+  labels are not a stylistic choice but the only writable surface an agent
+  has, and `/status-all` recomputes the board's view from them rather than
+  querying the board. `Waiting On` is deliberately a field **separate from**
+  `Status` because the two diverge: a blocking question mid-build leaves
+  `stage` at `coding` while the turn passes to David, and that divergence
+  *is* the interruption that was being lost. The Project's built-in
+  `PR merged → Done` workflow stays **off** because a merge is followed by
+  TEST_RUN and UAT — proven correct in practice by #311, which merged and
+  correctly stayed at `🛑 UAT` rather than claiming verified work. For the
+  same reason PR bodies link with `Workstream: #N`, never `Closes #N`.
+  A downstream consequence worth stating: because the State of Play block
+  now holds a workstream's context durably *outside* any session, **sessions
+  became disposable** — resuming cold in a fresh session is the intended
+  path, not a loss, which is what makes the "ran out of tokens, come back
+  tomorrow" case cheap instead of requiring an old transcript to be re-read
+  uncached.
+- **Reference:** PRs #318 (sync mechanism), #322 (field-name matching fix),
+  #323 (`/status` skill, later split by #336 into per-session `/status` and
+  fleet-wide `/status-all` once those turned out to be two different jobs at
+  two different costs), #324 (label maintenance wired into the four
+  skills + the shared contract), #334 (`test-run-completion.yml` — the
+  automated TEST_RUN-completion trigger, added after Codex flagged that
+  transition's missing owner twice reviewing that PR); workstream #317;
+  [`workstream-tracking.md`](./workstream-tracking.md). Board:
+  *Overhype.me Workstreams* (private, user-owned project 1).
+- **Revisit if:** a tool appears that can read or write Projects v2 item
+  fields directly — that would let `/status-all` read the board and could retire
+  the sync Action entirely, collapsing labels and fields into one surface.
+  Also revisit if the number of genuinely concurrent workstreams drops far
+  enough that the board costs more ceremony than it saves.
+
+---
+
+### 2026-08-04 · Global CodeQL rate-limiter backstop ships on a custom bounded in-memory store, not a DB-backed `Store`
+- **Decision:** The global, API-wide rate-limiter mounted to satisfy CodeQL's
+  `js/missing-rate-limiting` query (`artifacts/api-server/src/lib/rateLimit.ts`'s
+  `createGlobalLimiter`) is backed by `globalRateLimitStore.ts`'s
+  `BoundedMemoryStore` — a **custom** class mirroring `express-rate-limit`'s
+  own stock `MemoryStore` two-map rotation, but with a hard cardinality cap
+  (`MAX_TRACKED_KEYS`, spanning both maps combined) and FIFO eviction added —
+  instead of a store backed by the existing `rate_limit_counters` Postgres
+  table. The stock, unbounded `MemoryStore` is what the original 213→0
+  CodeQL-clearing proof used and is **not** what ships to production; the
+  cardinality cap is the security-relevant difference and must not be dropped
+  in a future cleanup that "simplifies" back to the stock store.
+- **Why:** The original plan (`plan-review/codeql-rate-limiter`, PR #299)
+  spent review rounds 4–14 building a DB-backed `Store`, and each attempt
+  produced a new P1 on the same boundary — what the store does when a
+  database call doesn't complete — across rounds 9, 11, 12, 13, and 14, with
+  P1 counts going 8 → 6 → 6 → 10 (worsening, not converging). Round 14's
+  version was worse than the bug it replaced: a hung query would wedge the
+  in-process admission counter and 503 every request indefinitely, turning a
+  database stall into a total outage. The CodeQL alert itself only requires
+  the package to be mounted in the recognized shape — the original 213→0
+  local-scan proof used the stock `MemoryStore` and needed none of the DB
+  machinery; production adds the bounded-cardinality hardening the stock
+  store lacks. David's call: ship the proven-shape store (bounded, not stock),
+  and route the genuine repository bugs the 14-round detour surfaced to their
+  own `/bugfix` PRs rather than lose them with the code they were found in —
+  see [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt)
+  for the `adminConfig` stampede, `getStripeSync` pool-leak-on-disposal, and
+  `rate_limit_counters` cleanup entries, and its
+  [Security & patching](../engineering/deferred-work.md#security--patching)
+  section for the autoscale instance cap and `IP_HASH_SALT` production
+  fallback.
+- **Accepted trade-off, stated rather than smoothed over:** `MemoryStore`'s
+  `localKeys = true` semantics (which `BoundedMemoryStore` inherits) means
+  this is a **per-instance** ceiling, not a bounded fleet-wide one — on
+  autoscale infrastructure with no configured instance cap, the effective
+  allowance is `instances × ceiling`. **At least 13 of 31 route files** had
+  some pre-existing rate/quota limiting before this PR — 7 DB-backed with an
+  **atomic** guarantee (`facts.ts`, `reviews.ts`, `admin.ts`,
+  `adminTaxonomyHealth.ts`, `ai.ts`, `localAuth.ts` via
+  `checkSharedRateLimit`/`createRateLimiter`'s single
+  `INSERT ... ON CONFLICT ... DO UPDATE`; `storage.ts` via
+  `checkUploadRateLimit` → `checkSharedRateLimit`, same guarantee); 2
+  DB-*observed* but **not atomic** (`videos.ts` and `memes.ts`, which each
+  `SELECT count(...)` from `videoJobsTable`/`memesTable` and only *then*
+  `INSERT` the new row as a separate statement — under a genuinely
+  concurrent multi-instance burst, multiple requests can all pass the read
+  before any insert commits, a classic TOCTOU race; DB-persisted and
+  fleet-*visible*, but not fleet-*correct* the way the atomic family is); 2
+  in-process/per-instance only (`share.ts`, `shareCopy.ts`, sharing this
+  backstop's own per-instance limitation); and 3 **budget/quota gates, a
+  different protection class from rate-per-window** (`videos.ts` *also*
+  returns 429 from `checkBudget()` — a per-user cost cap, a second,
+  independent 429 source in the same file as its `videoJobsTable` check;
+  `pulidJobs.ts` returns 429 from `isUserAtImageLimit()`, a per-user image-
+  count cap; `videoJobs.ts` — a *separate* route file from `videos.ts`,
+  mounted independently via `routes/index.ts`'s `router.use(videoJobsRouter)`
+  — delegates to `startVideoJob()` in
+  `artifacts/api-server/src/lib/videoPipelineRunner.ts`, whose pre-flight
+  `checkBudget()` call throws the same 429 before a job is
+  created). **This budget/quota-gate list is non-exhaustive on gates, even
+  though the file count isn't affected:** `memes.ts` (already counted above,
+  among the DB-*observed*-but-not-atomic pair) also rejects AI generation via
+  `isUserAtImageLimit()`/`BudgetExceededError`
+  (`artifacts/api-server/src/routes/memes.ts:1333-1452`), and `reviews.ts`
+  (already counted among the atomic DB-backed group) rejects fact
+  submissions once `FACT_SUBMIT_PENDING_CAP` is reached
+  (`artifacts/api-server/src/routes/reviews.ts:193-208`) — a quota gate
+  distinct from that same file's `checkSharedRateLimit`-backed rate limit.
+  Neither changes the 13/31 count (both files already counted), but a future
+  quota/budget hardening pass using this note as a source of truth would
+  miss both if it only read the three named files above. **A fourth layer,
+  not a fourth file:** `videos.ts` and
+  `memes.ts` also call `enforceGovernance()`
+  (`artifacts/api-server/src/lib/resourceGovernance.ts`) before generation,
+  which 429s from its own process-local `usageEvents`/`inFlightByUser`
+  in-memory counters (requests/spend/concurrency caps) — a third protection
+  layer on top of those two files' existing DB-observed and budget-gate
+  429s, sharing this backstop's own per-instance limitation. Doesn't change
+  the 13/31 file count (both files are already counted), but a future audit
+  hardening per-instance controls specifically would miss this layer if it
+  only looked at the `share.ts`/`shareCopy.ts` in-process bucket. `render.ts`'s preview/download endpoints are separately
+  protected at the Cloudflare WAF edge layer (infrastructure, not
+  application code — not counted in this tally either way; see
+  `docs/cloudflare-rate-limits.md`). **No single number in this note should
+  be trusted as final** — this count has been revised upward across five
+  separate Codex review rounds on the same PR (6 → 9 → 11 → 12 → 13), each
+  finding a real case the previous pass missed (a route-file symbol grep,
+  then `lib/`-delegated protection, then a non-`checkSharedRateLimit`
+  DB-backed check, then a budget/quota gate distinct from rate limiting,
+  then a same-topic sibling route file the grep never visited because it
+  isn't named `videos.ts`). Treat every count here as a lower bound on
+  pre-existing protection and an upper bound on "newly covered by this
+  backstop," not a verified-exhaustive audit — a further pass could
+  plausibly find more. Since "existing" can only grow as more are found,
+  **"18 route files getting their first application-level rate limiting
+  from this PR" (31 − 13) is correspondingly an upper bound, not a lower
+  one** — treat it as approximate, and as likely to shrink on a future
+  audit, not grow.
+- **Reference:** Plan-review PR #299 (16 rounds, approved 2026-08-04),
+  implementation PR #308. Full context:
+  [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md).
+- **Revisit if:** the per-instance ceiling proves too permissive under real
+  multi-instance autoscale traffic (would need either an enforced instance
+  cap or a return to a fleet-wide store design — this time scoped to avoid
+  the hot-path DB-failure boundary that sank the first attempt), or CodeQL's
+  query model changes to recognize custom stores/controls directly.
+
+---
+
 ### 2026-07-30 · Queue-health classification persists the retry ceiling at finalization instead of re-deriving it live
 - **Decision:** When an `async_jobs` row transitions to `failed` (either
   exhausting retries or hitting a `terminalFailure()`), `processClaimedJob`
@@ -880,9 +1280,11 @@
 - **Doc-routing principle applied:** the *review contract Codex executes* is
   **shared** ([`plan-review-contract.md`](./plan-review-contract.md), routed
   from [`AGENTS.md`](../../AGENTS.md)); the *workflow ceremony Claude drives* stays
-  **Claude-specific** (`CLAUDE.md`). Instructions live where the agent that runs
-  them reads — a narrower, correct split than mirroring one agent's whole
-  workflow into the shared docs.
+  **Claude-specific** — detailed in the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`), with only the guardrails that
+  must fire without the skill loaded resident in `CLAUDE.md`. Instructions
+  live where the agent that runs them reads — a narrower, correct split than
+  mirroring one agent's whole workflow into the shared docs.
 - **Guardrails (each a deliberate why):** a **public-repo disclosure check**
   keeps security-sensitive/confidential plans off the public PR channel (a
   closed-unmerged PR is still public history — see
@@ -892,14 +1294,15 @@
   network-restricted; **model tier** — the whole plan-review loop is *planning*
   and stays on Opus, the only downshift to Sonnet being execution of a *simple*
   approved plan.
-- **Reference:** PR #226. Operational contract: `CLAUDE.md` → *Automated plan
-  review: the Codex draft-PR loop*; reviewer contract:
+- **Reference:** PR #226. Operational contract: the `plan-review-loop` skill
+  (`.claude/skills/plan-review-loop/SKILL.md`); reviewer contract:
   [`plan-review-contract.md`](./plan-review-contract.md).
-- **Revisit if:** the calibration pilot (first ~3 real plans — Codex's review vs.
-  what the manual ChatGPT pass would have caught) shows Codex's plan reviews are
-  too shallow. The PR **transport** stays good regardless; the fix would be to
-  swap the **reviewer** (a dedicated Codex task/Action, or manual review for the
-  substance) while keeping the draft-PR channel.
+- **Revisit if:** the loop ledger (`.agents/metrics/loop-ledger.md`) shows
+  Codex's plan reviews are too shallow — e.g. a self-inflicted share that
+  climbs without bound, or rounds converging on zero findings that a manual
+  read would have caught. The PR **transport** stays good regardless; the fix
+  would be to swap the **reviewer** (a dedicated Codex task/Action, or manual
+  review for the substance) while keeping the draft-PR channel.
 
 ### 2026-07 · NB2 render pipeline hardened: terminal async failures, a measured prompt budget, 6000-char ceiling
 - **Decision:** three coordinated hardening changes to the Nano Banana 2 render
@@ -1387,3 +1790,18 @@
   proven with invariant tests.
 - **Reference:** [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md).
 - **Revisit if:** never, unless the token model changes fundamentally.
+
+### 2026-08 · Codex boots without a database; CI owns the integration suite
+- **Decision:** Codex's container provisions no Postgres. `scripts/codex-setup.sh`
+  installs, generates the API client, and builds `lib/**` — nothing else — and
+  the database is opt-in behind `CODEX_SETUP_DB=1` for the exceptional task.
+- **Why:** Boot cost is paid on *every* Codex task, and provisioning a database
+  is the expensive part of it; the api-server suite is the minority need. Codex
+  reviews by reading, and GitHub's required `Test` check already runs that suite
+  against a real database before anything merges — so the capability lost in
+  Codex is still covered at the gate that decides.
+- **Reference:** PR #332; see [`codex-environment.md`](./codex-environment.md)
+  for the verified capability matrix (codegen, typecheck, production build, and
+  the frontend suite all pass DB-less).
+- **Revisit if:** Codex starts driving backend implementation rather than review,
+  or the api-server suite becomes something a reviewer must execute to trust.

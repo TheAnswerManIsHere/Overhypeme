@@ -78,6 +78,12 @@ live DB),
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.
 
+Agent sandboxes:
+[`docs/ai-context/codex-environment.md`](docs/ai-context/codex-environment.md) —
+what Codex's container can and cannot do (it boots without a database by
+default, so the api-server integration suite is unavailable there unless
+`CODEX_SETUP_DB=1`).
+
 ## Working agreement with David
 
 David is the product owner. **Do not implement major changes from a non-trivial
@@ -96,6 +102,15 @@ contract of each and how to switch between them.
 in a finished feature's learnings, follow
 [`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
 (distinct from a one-off "remember this," which is immediate targeted persistence).
+
+**Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
+has a GitHub issue as its spine, tracked on a private Project board and kept
+current via `stage:`/`waiting:`/`mode:` labels — *except* sensitive/
+disclosure-carve-out work, which never becomes a public issue and is a
+private draft Project item instead. Read
+[`docs/ai-context/workstream-tracking.md`](docs/ai-context/workstream-tracking.md)
+before opening or reviewing a PR — it covers the label conventions and what
+must never happen (e.g. `Closes #N` in a PR body, which would skip UAT).
 
 When asked to **plan**:
 1. Inspect the repo first.

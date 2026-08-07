@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { LoadingHero } from "@/components/ui/LoadingHero";
+import {
+  isRetryablePollError,
+  pollHttpErrorFromResponse,
+  retryDelayMsFor,
+} from "../util/pollRetryClassification";
 
 interface JobStatus {
   phase: "queued" | "in_progress" | "no_face_review" | "completed" | "failed";
@@ -61,7 +66,7 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
         const res = await fetch(`/api/memes/pulid-jobs/${encodeURIComponent(jobId)}`, {
           credentials: "include",
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw pollHttpErrorFromResponse(res);
         const status = (await res.json()) as JobStatus;
         consecutiveErrors = 0;
         lastServerUpdateAtRef.current = Date.now();
@@ -84,7 +89,19 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
           onNoFaceReview?.();
           return;
         }
-      } catch {
+      } catch (err) {
+        if (isRetryablePollError(err)) {
+          // Rate-limited, not broken. This poller already retries forever and
+          // has no terminal counter to protect, so the classification is used
+          // purely for pacing: wait out the server's Retry-After when it sent
+          // one (the global limiter always does), otherwise keep the normal
+          // cadence. It also keeps a 429 out of the consecutive-error count
+          // that drives the stale-progress fallback estimator.
+          if (!cancelled && !terminatedRef.current) {
+            window.setTimeout(poll, retryDelayMsFor(err, POLL_INTERVAL_MS));
+          }
+          return;
+        }
         consecutiveErrors += 1;
         // After 2 consecutive failures the fallback estimator takes over
         // (see the rAF loop below). We keep polling so we can recover.

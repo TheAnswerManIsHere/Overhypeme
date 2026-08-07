@@ -64,6 +64,7 @@ quality bar. So chapters may cross the line in exactly one direction
   see it take effect; another for batches nobody is watching."* Audience and
   consequence are what a reader needs to follow the story, and they change
   only when the **product** changes.
+<!-- tuning-ok:start -->
 - **Not allowed — how it is configured.** Not a number, and **not a
   qualitative stand-in for one**: *fast*, *frequently*, *serialized*, *a few
   at a time*, *capped*, *about half an hour* are all values wearing prose.
@@ -89,6 +90,7 @@ the line too. It sounds qualitative but it is a claim about magnitude, and
 shrinking the delay would falsify it. *"On a deliberate delay"* says the thing
 a reader actually needs — recovery is not instant, and that is a choice, not a
 bug — without betting on how long.
+<!-- tuning-ok:end -->
 
 **There is no "but the product changed" escape.** An earlier draft of this
 rule said that if a constant change would falsify the narrative phrasing, the
@@ -100,6 +102,19 @@ it belongs in the spec** — no matter how the change is characterised.
 This is an exception, not a general licence — it applies to the narrative
 sections of a chapter whose subject is machinery, and it never extends to
 restating a whole spec section.
+
+**Part of this boundary is CI-enforced, not just reviewer-enforced.**
+`scripts/check-manual-tuning-language.mjs` fails the build on the value forms
+it's taught to detect anywhere in `docs/manual/` (the `<!-- tuning-ok -->`
+escape hatch above is how this section's own deliberate quotations pass it).
+It is lexical and deliberately narrow, not a semantic or exhaustive check: it
+cannot catch a fact with two homes, a paraphrased spec section, or a value
+phrased in a form its rules don't yet cover — only the specific value and
+stand-in shapes named in the script's own comments. A green run means no
+*detected* violation, never that the chapter is fully compliant, so it
+doesn't replace review, only automates part of it. See
+[`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#fixing-the-flagged-site-and-leaving-its-siblings)
+for what it still can't do.
 
 ## How the manual grows
 

@@ -819,3 +819,183 @@ prepare — a real failure — and the broad test called it a duplicate, silentl
 acking an event whose purchase was never granted (PR #287, review round 9).
 Fixed by matching `err.constraint === "stripe_processed_events_pkey"`
 specifically.
+
+## Fixing the flagged site and leaving its siblings
+
+**Symptom:** a reviewer names one place a fact is wrong or duplicated. You fix
+exactly that place, push, and the next review round names the next copy. Repeat
+for as many rounds as the fact has homes. Each round looks like progress and
+the finding count never falls.
+
+**Why it happens:** review comments are anchored to a *line*, so they arrive
+scoped to one site even when the defect is repo-wide. Fixing what was pointed
+at feels complete and is locally verifiable — the flagged line is now correct —
+so nothing prompts the wider search. Worse, correcting one copy can *create* a
+contradiction, because the other copies now disagree with a document that was
+previously consistent with them.
+
+**Avoid:** treat a finding as naming a **fact**, not a line. Before pushing the
+fix, grep the whole repo for every other site asserting that fact — including
+docs the PR does not otherwise touch — and fix or explicitly qualify each one.
+Verify against the *fact*, not the string you happened to delete: a paraphrase
+forks exactly as well as a quotation, so a grep for the removed wording can
+pass while the claim survives three lines away in different words.
+
+**Overhype:** PR #291 (the async-lane de-fork) narrated six review rounds in
+its own body, but the loop ledger's fully-paginated, mechanically-derived
+count (row 23 of `.agents/metrics/loop-ledger.md`) is seven — that figure is
+the one of record, per this file's own reason to exist, and the "six" here is
+superseded by it rather than reconciled against it. This pattern accounted
+for a finding in five of the narrated rounds. The clearest instance: a claim
+equating async-jobs handler concurrency with database pool occupancy was
+corrected in `architecture-map.md` in round 4, which left `background-work.md`
+and `deferred-work.md` asserting the disproved version — so the repo
+contradicted itself in three places *because* one site had been fixed, and
+`decisions.md` turned out to be a fourth. In another instance the round-1 fix
+deleted the offending sentences and left paraphrases of the same two facts
+inside the very sentence that linked to the spec; the author's own verification
+grepped for the deleted strings, passed, and missed it.
+
+**The lexical half of this is now a CI guard** —
+`scripts/check-manual-tuning-language.mjs` fails the build on values and their
+prose stand-ins in `docs/manual/`, which is what most of those rounds were
+actually about. The guard is deliberately narrow and **cannot** detect a fact
+with two homes, a paraphrased spec section, or a false claim. Those remain the
+human half, and this entry is the reminder that they exist.
+
+**The pattern generalizes past docs to code call sites (PR #308).** Mounting
+a new global rate limiter gave several `/api` pollers their first-ever
+rate-limit 429 path to handle — **not every poller**, since some endpoints
+already had their own pre-existing 429 (see below) — a new failure mode with
+**at least four independent call sites** (not a
+verified-exhaustive count, per the same undercounting this file's own
+"fixing the flagged site" lesson warns about) across two components' worth
+of poll loops. The plan's own implementation fixed one (the video/PuLID
+pollers) up front; round 1 of review found a second (`AiBgPicker`'s render
+poller); round 2 found a third, in an entirely different component
+(`SourceImageConfirmModal`) that no earlier fix had touched, plus a fourth
+handler (`handleConfirmCancel`) left outside a sibling fix in the *same*
+file. Each fix was locally correct and each round looked like progress while
+the finding count didn't fall to zero until round 3. **Not every poller of
+an endpoint the global limiter now covers was newly exposed** — a Codex
+round on this very `/document` harvest found a fifth poller
+(`useTaxonomyHealthActions.ts` → `/api/admin/taxonomy-health/job-status` —
+the client-visible path; `/admin/...` is only the router-local path before
+`app.use("/api", router)` mounts it) whose
+429 handling predates this PR entirely, because that route already had its
+own `checkSharedRateLimit` call (it's one of the pre-existing DB-backed
+limiters `adminTaxonomyHealth.ts` is documented as, elsewhere in this repo's
+docs) — a reminder that "every caller of a newly-changed resource" still
+needs checking against what was already true, not assumed to be uniformly
+new. Same avoidance: when a change introduces a new failure mode on a shared
+resource (an endpoint, a response shape, an error code), grep for **every**
+caller of that resource before considering the fix complete — not just the
+one a review comment or the plan happened to name, and not assuming the
+count found is the count that exists.
+
+## Satisfying a lexical guard by changing a value's form, not its meaning
+
+**Looks like:** a CI text guard flags a stated value in prose. The fix changes
+*how* the value is written — a digit becomes a spelled-out word, a cardinal
+becomes an ordinal, a bare value gets wrapped in markdown emphasis or a link,
+a phrase gets reflowed across a line break — without changing what the
+sentence actually asserts. The guard goes green; the value it exists to keep
+out of that document is still fully present, just spelled differently.
+
+**Dangerous:** a green check reads as "compliant," so the sentence doesn't get
+looked at again — but the source-of-truth risk the rule exists to prevent (the
+same fact living in two places, able to drift independently) is completely
+intact. Because each round of this only narrows the *specific* form just
+caught, not the general risk, a review loop chasing it can run for many
+rounds, one surface form at a time, and look like slow but real progress the
+whole way.
+
+**Avoid:** when a value is flagged, ask "does this sentence's truth depend on
+the number, in *any* form?" — not "does it still contain the literal string
+the rule matched." Removing the concept (say that something exists or is
+true, not how much) is the fix; rewording the same count in a different part
+of speech is not, and is usually just as fast to write, which is what makes it
+tempting. Authoring or extending a guard like this has the mirror-image
+discipline: after closing one evasion, actively probe for the *next* form of
+the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
+markdown markup, a hard-wrapped line split) instead of declaring the class
+closed after the one instance found.
+
+**Overhype:** PR #298 (the manual tuning-language guard) went through six
+finding-bearing Codex review rounds, and this exact pattern recurred inside
+its own fix history — round 5 found "a simpler 2-lane split ... in favor of
+3" and fixed
+it by spelling the count out ("a simpler two-way split ... in favor of a
+third, separate lane"), which round 6 caught as the same lane count restated
+as an ordinal instead of removed; the round-6 fix describes the split
+qualitatively with no number in any form, which is what a genuine fix looks
+like for this pattern — but that fix was never independently re-reviewed
+before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+row 22), so its correctness is this PR's own claim, not a confirmed close.
+Separately, the guard's own detection had to grow across rounds to
+cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
+phrase split across two physical lines, and a spelled-out-number extension
+whose digit-derived "attached s" shorthand accidentally matched an ordinary
+English word ("hundred" + "s" = "hundreds," not a duration). The full list of
+evasions the guard now covers, and why each was needed, lives in
+`scripts/check-manual-tuning-language.mjs`'s own header and rule comments —
+not duplicated here.
+
+## Chasing completeness against an adversarial reviewer past the artifact's real risk
+
+**Looks like:** a review loop where every finding is correct, every fix is
+sound, and the finding count **stops falling** — often while the artifact grows
+and the later fixes start specifying guarantees the platform cannot actually
+provide. **Dangerous:** each round is individually justified, so there is no
+natural stopping point, and the cost is invisible because the work looks like
+diligence. It ends with a large over-specified artifact and real time gone. The
+tell is never a single finding — they're usually right — it is the **trend**,
+plus the shape of the late-round fixes. **Avoid:** size ceremony to blast radius
+at intake, not to how the request was phrased
+([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
+require findings to fall round over round or stop and reassess with David; and
+triage every finding into **fix / accept-and-document / escalate** rather than
+reading "Required Revision" as automatically meaning fix. **Overhype:** twice
+in one day, 2026-08-05 — PR #329's Bash guard (9 → 11 → 12 → 19 findings, an
+unbounded parsing surface; see the sub-pattern below) and PR #333's `/status`
+plan (12 → 1 → 4 → 6 → 12 findings, **six review rounds and a 660-line plan for
+two markdown skill files**, with round 6 specifying compare-and-swap semantics
+GitHub's label API does not offer and acceptance cases with no way to run
+them). **The second happened hours after the first was written up**, because
+the first was recorded narrowly as a *parser* problem and the lesson did not
+transfer — which is exactly why this entry states it at the general level and
+demotes the parser case to a sub-pattern.
+
+### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
+
+**Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
+meant to catch **every** way a general-purpose scripting/shell language can
+express a specific dangerous operation ("does this Bash string, however
+written, ever run a force push?"). **Dangerous:** each review round finds a
+*new class* of bypass instead of a shrinking set, because the target
+language's "ways to dispatch a command" surface (wrapper commands, quoting
+forms, script-dispatch mechanisms, alias systems) is not practically
+enumerable — the same losing shape as blocklist-based XSS sanitization.
+Diligence cannot fix a wrong-shaped defense; more review rounds just find
+more gaps, and a shrinking-then-growing trend across rounds (see below) is
+the tell that the surface isn't converging. **Avoid:** before hand-rolling a
+parser for a general-purpose language's command-dispatch semantics, check
+whether the operation can instead be made correct **by construction**
+(an allowlist/encoder shape instead of a blocklist scanner) or whether a
+narrower control that doesn't need to parse intent at all — a server-side
+rule, a protocol-level restriction — already covers the actual risk. Size
+the defense to the *realistic* threat model (an honest mistake) rather than
+a fully adversarial one, when the two genuinely differ, and say so out loud
+rather than quietly absorbing round after round. **Overhype:**
+`.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
+rounds found 11, then 11, then 12, then 19 parser gaps (fixing 9, 11, 11, 0).
+The count of newly-found gaps never fell across four rounds, even as each
+round's fixes landed. David stopped the loop there
+rather than open a round 5: the hook was narrowed to "make the lease
+mandatory" and accepted as a best-effort local backstop behind GitHub's
+server-side ruleset on `main` (which needs no Bash parsing at all — it
+rejects the actual git protocol operation), not chased to full-coverage
+completeness. See the
+[2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
+and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
+docstring section.

@@ -411,12 +411,16 @@ function featureOracleIsPopulated(body) {
  * `prose/contract` because that is where the stricter obligations and the
  * measured risk are.
  */
-// Excluded from prose-cohort detection: per working-modes.md's "a row is
-// never its own dedicated PR," a closed loop's row is folded into whichever
-// PR is opened next, on ANY subject — meaning nearly every future feature or
-// bugfix PR will carry an incidental edit to this file. Counting it as
-// prose-cohort evidence would misclassify almost every PR going forward as
-// prose/contract regardless of its actual substance.
+// Excluded from prose-cohort detection. Historically (until 2026-08-02) a
+// closed loop's row was folded into whichever PR opened next, on ANY subject,
+// so most feature/bugfix PRs carried an incidental edit to this file —
+// counting it as prose-cohort evidence would have misclassified nearly every
+// PR as prose/contract. Rows now ship via dedicated [LEDGER] PRs
+// (working-modes.md → "A row ships in a dedicated [LEDGER] PR"), which never
+// get rows and are never run through this classifier — but the exclusion
+// stays, both for re-deriving the historical rows that DO carry incidental
+// ledger edits and as a guard against the file appearing in any future mixed
+// diff.
 const LEDGER_PATH = ".agents/metrics/loop-ledger.md";
 
 export function classifyCohort(pr, files) {

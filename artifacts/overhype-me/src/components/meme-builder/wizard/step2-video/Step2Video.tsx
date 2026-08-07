@@ -30,6 +30,7 @@ import {
   storageUrlFor,
 } from "./util/resolveSourceImagePath";
 import { DEFAULT_LOOK_STYLE_ID } from "./aiStylePresets";
+import { pollHttpErrorFromResponse } from "../util/pollRetryClassification";
 
 interface Step2VideoProps {
   factId: string;
@@ -517,7 +518,7 @@ function makeDefaultVideoJobApi(): VideoJobApi {
       const res = await fetch(`/api/memes/video-jobs/${jobId}`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error(`poll: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
       return (await res.json()) as VideoJobStatus;
     },
     async proceed(jobId) {
@@ -525,7 +526,7 @@ function makeDefaultVideoJobApi(): VideoJobApi {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) throw new Error(`proceed: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async regenerate(jobId, lookStyleId) {
       const res = await fetch(`/api/memes/video-jobs/${jobId}/regenerate`, {
@@ -534,14 +535,14 @@ function makeDefaultVideoJobApi(): VideoJobApi {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(lookStyleId ? { lookStyleId } : {}),
       });
-      if (!res.ok) throw new Error(`regenerate: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async proceedWithNoFaceFallback(jobId) {
       const res = await fetch(
         `/api/memes/video-jobs/${jobId}/proceed-with-no-face-fallback`,
         { method: "POST", credentials: "include" },
       );
-      if (!res.ok) throw new Error(`proceed-no-face: ${res.status}`);
+      if (!res.ok) throw pollHttpErrorFromResponse(res);
     },
     async cancel(jobId) {
       const res = await fetch(`/api/memes/video-jobs/${jobId}`, {
