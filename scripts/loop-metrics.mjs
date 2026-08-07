@@ -423,11 +423,37 @@ function featureOracleIsPopulated(body) {
 // diff.
 const LEDGER_PATH = ".agents/metrics/loop-ledger.md";
 
+/**
+ * The per-loop metrics store. Excluded from cohort weighting for the same
+ * reason `LEDGER_PATH` is: a record rides an ordinary PR, so counting its own
+ * bookkeeping as evidence about that PR's shape is circular.
+ */
+const METRICS_STORE_PREFIX = ".agents/metrics/loops/";
+
+/**
+ * One record per filename. A repeated file record (a bad fixture, or two
+ * concatenated pages that overlap) would otherwise double-count that file in
+ * every dimension derived from it.
+ */
+function dedupeByFilename(files) {
+  const seen = new Set();
+  return files.filter((f) => (seen.has(f.filename) ? false : seen.add(f.filename)));
+}
+
 export function classifyCohort(pr, files) {
   if (/^\[PLAN REVIEW\]/.test(pr.title ?? "")) return "plan-review";
-  const paths = files.map((f) => f.filename);
-  const isProse = (p) => p !== LEDGER_PATH && (/\.(md|mdx)$/.test(p) || p.startsWith(".claude/skills/"));
-  if (paths.some(isProse)) return "prose/contract";
+  // Cohort order is plan-review → bugfix → code-majority → prose/contract.
+  //
+  // Until 2026-08-07 a bare "any prose path present" check ran FIRST and
+  // returned `prose/contract` immediately, which is why five structurally
+  // different PR shapes all carry that label in the frozen ledger — a 21-file
+  // backend/frontend/migration PR (#288), a pure docs backfill (#289), a
+  // skills migration (#301), a devops guard (#304), and a 22-file feature
+  // (#308). The label was never evidence of a shared shape, so every
+  // cross-cohort comparison built on it was reading noise. Checking the
+  // bugfix tier before shape, and weighing code against docs instead of
+  // treating one `.md` as decisive, is what makes the column mean something.
+  //
   // The primary signal is the bugfix workflow's own required PR-body field —
   // "**Fix tier:**", per .github/pull_request_template.md, present on every
   // Tier A/B/C bugfix PR by contract. working-modes.md never requires a
@@ -469,7 +495,57 @@ export function classifyCohort(pr, files) {
     (pr.labels ?? []).some((l) => l.name === "bugfix")
   )
     return "bugfix";
-  return "feature/code";
+
+  const { code, docs, codeFiles, docsFiles } = cohortWeights(files);
+  // Presence decides when only one side is represented; weight decides only
+  // when the PR is genuinely mixed. Going straight to the weights would make
+  // a pure-code PR whose file records carry no line counts (weight 0 on both
+  // sides) fall to `prose/contract` on the tie rule — classifying "no data"
+  // as "prose", which is exactly the kind of quiet miscount this column is
+  // being fixed to stop.
+  if (codeFiles === 0) return "prose/contract";
+  if (docsFiles === 0) return "feature/code";
+  return code > docs ? "feature/code" : "prose/contract";
+}
+
+/**
+ * Changed-line weight on each side of the code-majority rule.
+ *
+ * A file's weight is `additions + deletions` — neither alone is size, and a
+ * deletion-heavy refactor is still code work. Ties and all-docs both fall to
+ * `prose/contract` (the caller's `code > docs`), matching the bias the old
+ * prose-first rule had: when a PR is genuinely balanced, the stricter
+ * obligations are the safer label.
+ *
+ * Everything under `.agents/metrics/` contributes to NEITHER side. That is
+ * the same reasoning the `LEDGER_PATH` exclusion has always had, extended to
+ * the new per-loop store: a record now rides an ordinary PR, so without this
+ * a docs-only PR that happens to carry a large metrics record would be
+ * reclassified `feature/code` by its own bookkeeping — recreating the exact
+ * leak this rule exists to close.
+ *
+ * A rename arrives as a single file record at its destination path with its
+ * own additions/deletions, so it is counted once, on whichever side that
+ * destination falls.
+ */
+export function cohortWeights(files) {
+  let code = 0;
+  let docs = 0;
+  let codeFiles = 0;
+  let docsFiles = 0;
+  for (const f of dedupeByFilename(files)) {
+    const p = f.filename;
+    if (p === LEDGER_PATH || p.startsWith(METRICS_STORE_PREFIX)) continue;
+    const weight = (f.additions ?? 0) + (f.deletions ?? 0);
+    if (/\.(md|mdx)$/.test(p) || p.startsWith("docs/") || p.startsWith(".claude/skills/")) {
+      docs += weight;
+      docsFiles++;
+    } else {
+      code += weight;
+      codeFiles++;
+    }
+  }
+  return { code, docs, codeFiles, docsFiles };
 }
 
 /**
@@ -575,6 +651,13 @@ export function derive({ pr, reviews, comments, files, issueComments }) {
     adjudication_sample: adjudicationSample(findings),
     warnings,
     state: pr.merged_at ? "merged" : pr.closed_at ? "closed" : "open",
+    // Closure timestamps, not just the coarse `state`. The digest windows on
+    // `closedAt`, and neither `state` nor `review_interval` can supply it:
+    // `review_interval` is null for a loop with no reviews at all, and it
+    // ends at the LAST REVIEW, which for a post-merge review (frozen-ledger
+    // rows #323 and #324) is after the merge rather than at it.
+    closedAt: pr.closed_at ?? null,
+    mergedAt: pr.merged_at ?? null,
     // Judgment columns — appended by hand at loop close, never guessed here.
     judgment: {
       new_ground: null,
@@ -742,6 +825,21 @@ export function assertMcpSnapshotShape(snapshot) {
     throw new Error(
       `MCP snapshot malformed: "pr" must have a numeric number, a string title, and a parseable created_at ` +
         `(got number=${JSON.stringify(pr.number)}, title=${JSON.stringify(pr.title)}, created_at=${JSON.stringify(pr.created_at)}).`,
+    );
+  }
+  // `closed_at` is required whenever the PR is closed, because the digest
+  // windows on it and a record without one cannot be placed in time. It is
+  // deliberately NOT required to be non-null: an open PR has no closure
+  // timestamp, and `--write` (which is the only consumer that needs one)
+  // rejects that case on its own with a clearer message than a shape error.
+  // What is rejected here is a snapshot that omits the KEY entirely — the
+  // pre-2026-08-07 shape — since silently defaulting it to null would put an
+  // unplaceable record in the store and call it complete.
+  if (!("closed_at" in pr)) {
+    throw new Error(
+      `MCP snapshot malformed: "pr" is missing "closed_at". Capture it alongside number/title/created_at ` +
+        `(pull_request_read method:"get" returns it); use null for a PR that is still open. ` +
+        `The digest windows on the closure timestamp and cannot place a record without it.`,
     );
   }
   for (const key of ["reviews", "files", "reviewThreads"]) {
@@ -974,6 +1072,7 @@ export function parseArgs(argv) {
     return value;
   };
 
+  const write = argv.includes("--write");
   const fixture = arg("fixture");
   const mcpSnapshot = arg("mcp-snapshot");
   const prNumber = arg("pr");
@@ -989,13 +1088,72 @@ export function parseArgs(argv) {
 
   const saveTo = arg("save-fixture");
 
-  return { fixture, mcpSnapshot, prNumber, saveTo };
+  return { fixture, mcpSnapshot, prNumber, saveTo, write };
 }
 
-async function main() {
-  const { fixture, mcpSnapshot, prNumber, saveTo } = parseArgs(process.argv);
+// ---------------------------------------------------------------------------
+// The per-loop metrics store — `--write`
+// ---------------------------------------------------------------------------
 
-  const { readFile, writeFile } = await import("node:fs/promises");
+/**
+ * The ONLY keys a stored `mechanical` block may carry. An allowlist, not a
+ * blocklist, and not a spread of `derive()`'s output.
+ *
+ * `derive()` returns more than this: its own `pr`, a `judgment` block of
+ * nulls, `adjudication_sample`, and a coarse `state`. Persisting any of them
+ * would put a second representation of something authoritative into the
+ * record — identity beside the top-level `pr`, an empty judgment beside the
+ * real one, a sampling verdict beside the real `adjudication`, a state beside
+ * `closedAt` — and a later refresh would leave that copy stale while every
+ * other check still passed. The guard rejects unknown keys for the same
+ * reason, so the shape cannot drift back.
+ */
+export const MECHANICAL_KEYS = [
+  "title",
+  "cohort",
+  "size",
+  "rounds",
+  "findings",
+  "perRound",
+  "reviewInterval",
+  "warnings",
+];
+
+/** `derive()` output → the stored `mechanical` block, built key by key. */
+export function mechanicalProjection(derived) {
+  return {
+    title: derived.title,
+    cohort: derived.cohort,
+    size: derived.size,
+    rounds: derived.rounds,
+    findings: derived.findings,
+    perRound: derived.per_round,
+    reviewInterval: derived.review_interval,
+    warnings: derived.warnings,
+  };
+}
+
+/** The scaffold `--write` lays down. `judgment` is deliberately null: the
+ * closing session fills it, and the guard fails any record that lands
+ * without it, so an interrupted session cannot leave a valid-looking hole. */
+export function scaffoldRecord(derived) {
+  return {
+    schemaVersion: 1,
+    pr: derived.pr,
+    closedAt: derived.closedAt,
+    mechanical: mechanicalProjection(derived),
+    judgment: null,
+    adjudication: null,
+    notes: "",
+  };
+}
+
+export const recordPath = (pr) => `${METRICS_STORE_PREFIX}${pr}.json`;
+
+async function main() {
+  const { fixture, mcpSnapshot, prNumber, saveTo, write } = parseArgs(process.argv);
+
+  const { readFile, writeFile, mkdir } = await import("node:fs/promises");
   const raw = fixture
     ? JSON.parse(await readFile(fixture, "utf8"))
     : mcpSnapshot
@@ -1004,7 +1162,87 @@ async function main() {
 
   if (saveTo) await writeFile(saveTo, JSON.stringify(raw, null, 2));
 
-  console.log(JSON.stringify(derive(raw), null, 2));
+  const derived = derive(raw);
+  if (!write) {
+    console.log(JSON.stringify(derived, null, 2));
+    return;
+  }
+
+  // ── --write: land a record in the store ────────────────────────────────
+  //
+  // Plain derivation stays lenient about a missing issue-comment collection
+  // (older read-only snapshots predate it, and `derive()` warns). Writing is
+  // different: a reviewer pass delivered as a plain issue comment is
+  // invisible without that collection, so `rounds` and `review_interval`
+  // come out understated — and the digest would then aggregate them as
+  // measured. "Counted, never recalled" has to mean counted *completely*, so
+  // this is the one place the leniency stops.
+  if (raw.issueComments === undefined) {
+    throw new Error(
+      `Refusing to write a record for PR #${derived.pr}: the input has no issue-comment collection, so ` +
+        `rounds and review time are understated (a clean reviewer pass often posts as a plain issue ` +
+        `comment).\n  Re-derive with that collection — REST /issues/<n>/comments, or MCP ` +
+        `pull_request_read method:"get_comments", paged to completion — then --write again.\n` +
+        `  Plain derivation (without --write) still works on an incomplete input; it just warns.`,
+    );
+  }
+  if (!derived.closedAt) {
+    throw new Error(
+      `Refusing to write a record for PR #${derived.pr}: it has no closure timestamp, so the loop is not ` +
+        `over and the digest could not place it in a window. Record at the loop's terminal point.`,
+    );
+  }
+
+  const path = recordPath(derived.pr);
+  const existing = await existingRecord(path);
+  if (existing) {
+    console.log(`already recorded: ${path} (${existing})`);
+    return;
+  }
+
+  await mkdir(METRICS_STORE_PREFIX, { recursive: true });
+  await writeFile(path, `${JSON.stringify(scaffoldRecord(derived), null, 2)}\n`);
+  console.log(
+    `wrote ${path}\n` +
+      `  Next: fill "judgment" (causes, preOpenPreflightMin, breakersFired), then set "adjudication".\n` +
+      `  Sampling predicate: pr % 5 === 0 (${derived.pr % 5 === 0 ? "yes" : "no"}) or findings >= 30 ` +
+      `(${derived.findings} findings) → ${derived.pr % 5 === 0 || derived.findings >= 30 ? "ADJUDICATE" : "never-run"}.\n` +
+      `  Commit it on any open PR EXCEPT #${derived.pr} itself.`,
+  );
+}
+
+/**
+ * Where a record for this loop already exists, or null.
+ *
+ * Checks the working tree AND `origin/main`, because a record that landed on
+ * `main` is invisible to a branch cut before it — without the remote check,
+ * "recording the same loop twice in sequence is a no-op" would hold only for
+ * a fresh checkout.
+ *
+ * It deliberately does NOT look at other open branches. A record sitting on
+ * someone's unmerged PR is not discoverable without an authoritative
+ * open-branch lookup, and per the design that whole class — every overlap
+ * before a record lands — is the accepted git-conflict case rather than a
+ * promise this function pretends to keep.
+ */
+async function existingRecord(path) {
+  const { access } = await import("node:fs/promises");
+  try {
+    await access(path);
+    return "working tree";
+  } catch {
+    /* not present locally — fall through to the remote check */
+  }
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+  try {
+    await run("git", ["fetch", "--quiet", "origin", "main"]);
+    await run("git", ["cat-file", "-e", `origin/main:${path}`]);
+    return "origin/main";
+  } catch {
+    return null;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
