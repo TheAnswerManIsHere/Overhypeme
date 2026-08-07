@@ -31,10 +31,36 @@ closure):**
    already recorded) and skips re-applying it — the constraint never comes
    back. Hit 3 times in one PR-review session; diagnosed via `\d+ facts` /
    `pg_constraint` showing it genuinely absent, fixed by manually re-running the
-   `ALTER TABLE ADD CONSTRAINT` each time. This exact failure mode is sandbox-only
-   (Replit and prod never run `push`), but it wastes real debugging time whenever
-   it recurs — verify with `pg_constraint`/`\d+ <table>` directly before assuming
-   "flaky," and just re-run the `ALTER TABLE` to unblock local verification.
+   `ALTER TABLE ADD CONSTRAINT` each time. Verify with `pg_constraint`/`\d+
+   <table>` directly before assuming "flaky," and just re-run the
+   `ALTER TABLE` to unblock local verification.
+
+**Not sandbox-only — confirmed in GitHub Actions CI too (PR #293).** The
+original version of this note scoped the failure mode to the sandbox
+("Replit and prod never run `push`"), reasoning that only a sandbox session
+runs `push` a second time against an already-migrated database. That scoping
+was wrong: `build.yml`'s `Test` job ran `push-force` + `migrate` for
+`@workspace/db`'s **own** test suite directly against `overhype_test` — the
+same database api-server's sharded tests clone *from*. api-server's own
+`pretest` then runs `push-force` **again** as part of its normal setup. The
+second `push` reconciled an already-migrated database to the Drizzle
+snapshot and silently dropped every object that exists only in raw migration
+SQL and has no `schema.ts` shadow (in this case, `facts_active_requires_concept`
+and the membership-entitlement objects from migrations that had landed on
+`main` first) — and the `migrate` that followed could not repair it, because
+its hash-based tracking already recorded those migrations as applied. 19
+unrelated test failures across four suites resulted, with no schema-shadow
+gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
+**separate** database (`overhype_db_test`) so its push+migrate cycle never
+touches the database api-server's tests are cloned from. **The lesson
+generalizes beyond CI**: this failure mode fires whenever `push` runs a
+second time against a database that has already been `migrate`d — not only
+across sandbox sessions, and not only in this repo's specific CI shape. Any
+pipeline that runs `push-force` more than once per environment, or shares
+one database between two independent push+migrate cycles, is exposed to it
+regardless of whether every migration has a complete `schema.ts` shadow —
+the shadow prevents the object from being unrecoverable, it does not prevent
+the drop.
 2. **`pending_reviews.parent_fact_id`'s index.** Migration `0091` creates
    `idx_pending_reviews_parent_fact` via `CREATE INDEX`, but `schema.ts`'s
    `pgTable` never declared a matching `index(...)` entry — caught by Codex

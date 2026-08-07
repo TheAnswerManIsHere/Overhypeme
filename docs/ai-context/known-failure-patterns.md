@@ -810,6 +810,30 @@ the first was recorded narrowly as a *parser* problem and the lesson did not
 transfer — which is exactly why this entry states it at the general level and
 demotes the parser case to a sub-pattern.
 
+**A third instance, two days later, on a different kind of unachievable
+guarantee (PR #293).** Migration `0097`'s attempt to make the NCMEC
+audit-ledger's append-only guarantee a real PostgreSQL privilege boundary ran
+17 review rounds and accounted for roughly 65 of the PR's 90-plus findings —
+not by finding fewer bugs each round, but by refining the same reachability
+model past what the platform can support: `pg_has_role(...,'usage')` →
+`'member'` → literal `SET ROLE` success → `ADMIN OPTION` → an *inherited*
+admin-option chain → containing-schema ownership → the guard function's own
+schema ownership. Each fix was a real, verified correction — and each one
+sat on the same unfixable foundation: a migration running as the application
+role cannot grant that role a privilege boundary the role cannot already
+cross (see the 2026-08-07 `decisions.md` entry). The late-round shape
+matches the general pattern exactly — fixes that specify guarantees
+(`CREATE ROLE` without conferring membership, a `REVOKE` the current role
+cannot execute) the actor available to the migration cannot actually
+provide. David cut the scope after the concentration became visible: the
+migration now creates the objects and reports the residual state; closing
+the boundary moved to a superuser runbook
+([`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)).
+The tell was available well before round 17 — a scope-vs-blast-radius check
+at round 5 or so, once "every fix targets the same reachability model,"
+would have caught it much earlier than a David-initiated review of the
+finding distribution did.
+
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
 **Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
@@ -843,3 +867,65 @@ completeness. See the
 [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
 and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
 docstring section.
+
+## PostgreSQL role/constraint verification traps that look safe and aren't
+
+**Looks like:** code (application, migration, or test) that infers a
+PostgreSQL privilege or constraint's real behavior from a surface signal that
+seems like it should imply it — a role membership check, a rendered
+`pg_get_constraintdef()` string — rather than the thing that actually governs
+behavior. **Dangerous:** each trap fails silently in the safe-looking
+direction (permission appears absent when it is present, or a constraint
+appears correct when it accepts values it shouldn't), so it surfaces as a
+production security gap or a migration that "passed" over an unenforced
+guarantee, not as a crash. All three below were verified empirically against
+this repository's own PostgreSQL 16 target, not taken from documentation —
+each contradicted the intuitive reading. **Avoid:** treat every PostgreSQL
+privilege/constraint check in migration or authorization code as needing
+direct verification against a live instance before trusting it, and prefer
+the specific fixes named below over re-deriving them.
+
+- **`pg_has_role(role, target, 'member')` is not "can this role act as
+  target."** It is true for a grant with `INHERIT FALSE, SET FALSE` — a
+  membership that confers no actual capability. **Use `'usage'`** (ambient,
+  inherited privileges) or `'set'` (can `SET ROLE` to it on demand),
+  whichever the check actually needs; never `'member'` for an authorization
+  decision.
+- **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
+  the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
+  superuser, not the creator.** The creator therefore cannot revoke its own
+  new membership: `REVOKE x FROM <creator>` run by anyone but the grantor
+  does not raise an error. It emits a `WARNING` and changes nothing. Code
+  that creates a role and then tries to revoke its own automatic membership
+  needs to verify the revoke actually happened (re-read
+  `pg_auth_members`), not trust the absence of an exception. There is no
+  privileged path around this available to the creator; only the grantor —
+  here, a real superuser — or a superuser can remove the row. (PR #293,
+  `lib/db/migrations/0097_ncmec_submission.sql`'s original `overhype_audit_maintenance`
+  provisioning, later removed entirely — see the 2026-08-07 `decisions.md`
+  entry.)
+- **`pg_get_constraintdef()` is not a fixed point.** Feeding its own output
+  back into `ADD CONSTRAINT` for the identical predicate produces a
+  *different* string: `"action" IN (...)` renders as
+  `ANY ((ARRAY['x'::varchar, ...])::text[])`, but re-applying that rendered
+  text moves the cast onto each array element —
+  `ANY (ARRAY[('x'::varchar)::text, ...])`. Any code that round-trips a
+  constraint through its rendered text (a migration verifying a constraint
+  by comparing `pg_get_constraintdef()` output, `pg_dump`/restore, or
+  `drizzle-kit push` reconciling against a Drizzle-rendered snapshot) can
+  land in either form for a semantically identical constraint. Worse: no
+  amount of pattern-matching on the rendered text can soundly verify a
+  CHECK constraint's *meaning* at all — five successive attempts in PR #293
+  (a literal string match, matching the mentioned literal set, an anchored
+  shape, evaluating the predicate against probe values, then widening the
+  anchored shape for both renderings above) were each defeated by a
+  predicate that rendered acceptably while enforcing something else, most
+  recently one accepting all nine intended literals plus any 13-character
+  string via a `CASE WHEN length(action) = 13 ...` disjunct hidden inside
+  the array. **The fix that actually converged was to stop verifying and
+  rebuild the constraint unconditionally** (`DROP CONSTRAINT IF EXISTS` +
+  `ADD CONSTRAINT`) wherever the role has permission, so the post-condition
+  holds by construction instead of by inspection — safe here because the
+  constraint gates an append-only ledger already enforcing the same
+  vocabulary on every prior row. See the 2026-08-07 `decisions.md` entry and
+  `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.

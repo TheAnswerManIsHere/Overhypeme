@@ -363,6 +363,17 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## In-progress slices
 
+- **NCMEC CyberTipline reporting** (PR #293, merged 2026-08-07) — real
+  automated submission to NCMEC for reportable moderation hits, replacing
+  today's stub (`submitNcmecReport()` writes a DB row + admin email; it has
+  never contacted NCMEC). **Phases 1–2 of 8 shipped**: the schema/migration
+  and the ISPWS HTTP client + XML builders, both callerless — nothing can
+  file a report yet, and both filing switches are seeded off. Phases 3–8
+  (the submission worker, the reconciler, admin routes, the `/admin/safety`
+  page, alerting, and the production-activation gate) remain. See
+  [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
+  and the 2026-08-07 `decisions.md` entry for what changed mid-PR (the
+  audit-ledger privilege-boundary scope cut).
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
 - **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
@@ -469,4 +480,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in
   [`decisions.md`](./decisions.md).
+- **NCMEC CyberTipline reporting (PR #293), two open items carried from the
+  plan's known-gaps list, both explicitly needing David:**
+  - Does a **credential-gated NCMEC artifact** (the ISPWS XSD schema —
+    `GET /ispws/xsd` 401s without ESP credentials) belong in this **public**
+    repo if someone with credentials fetches it? Until answered, the XML
+    builders are asserted against exact expected documents and NCMEC's public
+    documentation rather than schema-validated offline.
+  - Where does the **ESP reporting contact email** live? NCMEC requires it on
+    every report (`<reportingContact>` or equivalent) and it must match
+    Availeron Consulting's registration exactly; `buildReportXml` currently
+    takes it as a required argument and throws without one rather than
+    inventing a placeholder. Needs a configured home before phase 5 (the
+    worker) can call it for real.
 - *(Add here when a real product decision is pending — don't guess.)*
