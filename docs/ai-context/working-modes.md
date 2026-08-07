@@ -126,7 +126,13 @@ report.** The check-in carries:
 2. **Per finding** (grouped where natural): what it is, which part of the
    feature or fix it affects, and the triage verdict — fix /
    accept-and-document / escalate / decline — with a plain statement of
-   whether it is critical to delivering the feature or fix.
+   whether it is critical to delivering the feature or fix. **Decline** is
+   distinct from *accept-and-document*: accept-and-document concedes the
+   finding is a correct, real defect not worth fixing here; decline says the
+   finding is not a defect at all, and it is only ever used with the same
+   evidence bar the loop ledger's *Invalid* category requires — refuted with
+   repository or platform evidence, or settled by an explicit prior product
+   decision from David. A bare disagreement is neither; it's escalated.
 3. **The causal flag, explicitly.** Is the finding **new ground**, or is it
    **repairing something an earlier round's fix introduced** (propagation /
    wrong-fix, in the loop ledger's rubric vocabulary), or is it **demanding a
