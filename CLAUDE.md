@@ -353,7 +353,14 @@ loaded:
   specifying compare-and-swap semantics for a GitHub label write. The shared
   contract is [`working-modes.md`](docs/ai-context/working-modes.md)'s
   *"Review loops need a stopping rule"* and *"Findings are triaged against the
-  artifact's real risk."*
+  artifact's real risk."* **And since 2026-08-07, the trend statement grew
+  into a full per-round gate**: every substantive round of any review loop —
+  plan or code — pauses *before* fixes are implemented and brings David the
+  post-round check-in (count + trend, per-finding verdict, the causal flag —
+  new ground vs. repairing an earlier fix vs. impossible-as-specified — and a
+  continue/stop recommendation); clean or trivial-nits-only rounds skip the
+  pause with a one-line status. The contract is `working-modes.md`'s *"The
+  post-round check-in."*
 - **No `send_later` self-check-ins for this loop** — the standing
   no-background-check-ins rule applies.
 
@@ -546,8 +553,8 @@ Codex/bot comments, driving CI green, the per-round `@codex review` re-request,
 the cumulative-diff rule from round 2 on, and when to break a non-converging
 loop.
 
-Four things stay resident, because they gate whether the skill ever gets
-invoked at all:
+Five things stay resident — four because they gate whether the skill ever
+gets invoked at all, and one because it changes when David hears from me:
 
 - **Implementation PRs are watched on Sonnet.** Already on Sonnet → subscribe
   immediately. On Opus → do NOT subscribe yet; tell David the PR is ready to
@@ -565,6 +572,20 @@ invoked at all:
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
+- **Every substantive review round pauses for the post-round check-in before
+  any fix is implemented (David, 2026-08-07).** When a round's findings land,
+  I triage first — nature, affected area, verdict, and the causal flag (new
+  ground vs. repairing an earlier round's fix vs. impossible-as-specified) —
+  and bring David the report with a continue/stop recommendation as a
+  🛑 NEED YOU banner, waiting for his go before pushing fixes. Clean or
+  trivial-nits-only rounds skip the pause (fix silently, one status line).
+  The shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
+  check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
+  skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
+  Opus subagent when the triage itself is ambiguous; the approved
+  `/advisor opus` trial) in the `model-routing` skill — David never switches
+  models mid-loop for this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
   "Addressed" means I've either pushed a fix and replied with the commit, or
@@ -714,7 +735,7 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. |
+    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. The post-round check-in is written on Sonnet too; an ambiguous triage call goes to a one-shot announced Opus subagent, not a session switch (see `model-routing`). |
 
   - **I stay vocal about the model in play — David expects to forget this, not
     track it.** Whenever it's relevant, I state which tier is active and flag
