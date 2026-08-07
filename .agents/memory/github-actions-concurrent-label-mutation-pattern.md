@@ -20,12 +20,20 @@ fix didn't close. The settled pattern, in order of what actually broke:
    for a moment; a presence-only check passes right through that and the
    cleanup then deletes the new stage as "stale."
 3. **"Stale" is the intersection of a `before` snapshot with a fresh `after`
-   read — never derived from `after` alone.** Two GETs bracket every
-   mutating call; deriving deletions straight from the second GET treats
-   anything a concurrent actor added in that gap as fair game to delete,
-   including a label your own `before` read never even knew to flag.
-   Intersecting only ever *drops* a stale candidate (if the other actor
-   already removed it themselves) — it never invents a new one.
+   read — never derived from `after` alone.** The two GETs bracket the
+   mutating **POST** (the add call) that sits between them; deriving
+   deletions straight from the second GET would treat anything a concurrent
+   actor added in that gap as fair game to delete, including a label your
+   own `before` read never even knew to flag. Intersecting only ever *drops*
+   a stale candidate (if the other actor already removed it themselves) — it
+   never invents a new one. **This does NOT bracket the DELETE calls that
+   follow** — they run sequentially after the single `after` GET, so a race
+   in that narrower window (a concurrent actor removes, then re-adds, the
+   same-named label between the `after` read and this loop's own DELETE of
+   it) still deletes the actor's newly-asserted label; a name-based
+   intersection can't tell "still the original stale instance" from "a fresh
+   instance that happens to share the name." Left as an accepted residual
+   per point 5 below, not a claim that every mutation is race-free.
 4. **A retry must re-derive its target from scratch, not trust the
    dispatch-time read.** A retry (of a partially-completed prior run) can
    start minutes after the read that decided "this needs a UAT transition."

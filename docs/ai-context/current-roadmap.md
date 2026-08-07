@@ -103,6 +103,13 @@ priorities (moderation speed, render/enrichment quality, video). See
   suites on provably docs-only PRs — see the
   [2026-08-07 `decisions.md` entry](./decisions.md#2026-08-07--ci-cancels-superseded-pr-runs-and-skips-the-heavy-suites-on-provably-docs-only-changes)
   and the two GitHub Actions gotchas it links from `.agents/memory/`.
+  **Open next — still genuinely open, not resolved by the hardening above:**
+  the 20 rounds validated `sync-test-run-completion.mjs`'s *script logic*
+  against unit tests and code review; nothing yet has exercised the deployed
+  Action itself — the actual `push`-to-`main` trigger, its permissions,
+  `PROJECTS_TOKEN`/`GITHUB_TOKEN` scoping, and a real label/board write —
+  since no push since it landed has deleted a matching TEST_RUN doc. Worth a
+  check once a real TEST_RUN doc deletion has gone through it live.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
