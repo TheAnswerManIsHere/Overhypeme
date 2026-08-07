@@ -19,6 +19,17 @@ on:
     branches:
       - main
 
+# A PR-triggered run is obsolete the moment another push lands on the same
+# PR — cancelling it loses no signal, just wall-clock and Actions minutes.
+# A push-to-main run is never superseded this way (pushes to main are
+# sequential, one squash-merge at a time) and must always run to completion,
+# especially the ledger-debt audit — so cancellation only applies when
+# github.event.pull_request.number is set, and the group falls back to
+# github.ref (main) for push events, which never collide with a PR group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build

@@ -19,6 +19,14 @@ on:
   schedule:
     - cron: '23 18 * * 0'
 
+# Same reasoning as build.yml: a PR-triggered run is obsolete the moment
+# another push lands on the same PR, so it's safe to cancel. Push-to-main and
+# the weekly schedule both fall back to github.ref for the group key (which
+# never collides with a PR's group) and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -47,8 +55,10 @@ jobs:
           build-mode: none
         - language: javascript-typescript
           build-mode: none
-        - language: python
-          build-mode: none
+        # 'python' deliberately excluded: the only .py files in this repo are
+        # two helper scripts under .claude/skills/ (semgrep, sarif-parsing) —
+        # tooling, not product code — so this matrix entry scanned nothing
+        # that ships while still paying for a full job on every push.
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
         # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
