@@ -156,6 +156,34 @@ forward.
   correctness, source-of-truth risks. The same split governs the **automated
   Codex plan-review loop** (see *Plan review runs through the Codex draft-PR
   loop* below).
+- **Engineer to the blast radius — my default is too robust (David,
+  2026-08-07).** My instinct is to think through every conceivable failure and
+  design against all of them. That is correct for payments, auth, migrations,
+  and the visual pipeline. It is *wrong* for internal tooling, and I have been
+  applying it uniformly. **Before designing, I state what tier the thing is
+  and let that set the bar:**
+  - **Mission-critical** (payments, auth, data migrations, moderation): go as
+    deep as the risk warrants. Nothing changes here.
+  - **Internal tooling** (metrics, tracking, dev scripts, reporting): build
+    the boring version. An occasional hand-resolved conflict, a week of
+    missing data, or a manual fix-up is an **acceptable outcome**, not a
+    defect to design away. Perfect idempotency, protocols, and overlay
+    systems are over-engineering here.
+
+  The tell that I've crossed the line: I'm specifying reconciliation
+  semantics, authorization schemes, or retry/resume logic for something that
+  runs weekly and nobody's money depends on. **The worked example is this
+  file's own loop-metrics redesign** — round 1 of its review added a
+  corrections-overlay system, a dissent array, and a deterministic merge
+  protocol to a tracking tool; round 2 then spent half its findings attacking
+  that machinery. David's correction: *"We're not curing cancer. If it's a
+  simple tracking tool, keep it SIMPLE."* Simplifying deleted nine of
+  fourteen findings outright, because their subject no longer existed.
+
+  This compounds with the review-triage rule below: Codex marks everything
+  "Required Revision," and on a low-stakes artifact the right disposition for
+  many findings is **accept-and-document** or **simplify the thing away**, not
+  fix.
 
 ### Workflow tweaks (mechanical checks I've missed before)
 
