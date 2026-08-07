@@ -104,9 +104,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   [2026-08-07 `decisions.md` entry](./decisions.md#2026-08-07--ci-cancels-superseded-pr-runs-and-skips-the-heavy-suites-on-provably-docs-only-changes)
   and the two GitHub Actions gotchas it links from `.agents/memory/`.
   **Open next — still genuinely open, not resolved by the hardening above:**
-  the 20 rounds validated `sync-test-run-completion.mjs`'s *script logic*
-  against unit tests and code review; nothing yet has exercised the deployed
-  Action itself — the actual `push`-to-`main` trigger, its permissions,
+  the 20 rounds validated the 8 pure parsing/routing/body-transformation
+  helpers `sync-test-run-completion.mjs` exports (`extractPrNumberFromTestRunPath`,
+  `extractWorkstreamIssueNumber`, `hasUatDoc`, `findUatDocFilename`,
+  `stillHasTestRunDoc`, `computeTransition`, `updateStateOfPlayBody`,
+  `handoffText`) against unit tests; `ensureCleanLabels()`,
+  `processDeletedTestRunDoc()`, every REST call, retry orchestration, and
+  board synchronization are validated by code review only, never executed by
+  a test. Nothing yet has exercised the deployed Action itself either — the
+  actual `push`-to-`main` trigger, its permissions,
   `PROJECTS_TOKEN`/`GITHUB_TOKEN` scoping, and a real label/board write —
   since no push since it landed has deleted a matching TEST_RUN doc. Worth a
   check once a real TEST_RUN doc deletion has gone through it live.

@@ -14,11 +14,19 @@ fix didn't close. The settled pattern, in order of what actually broke:
    instead of resumed.
 2. **Revalidate ownership before mutating, not just before dispatching.**
    Re-fetch immediately before writing, and only proceed if the current
-   label set is a **subset** of `{expectedFromStage, targetStage}` — not
-   just "contains an allowed stage." A non-atomic concurrent swap can leave
-   the actor's genuinely-new stage sitting *alongside* the expected old one
-   for a moment; a presence-only check passes right through that and the
-   cleanup then deletes the new stage as "stale."
+   **stage** label set is a **subset** of `{expectedFromStage, targetStage}`
+   — not just "contains an allowed stage." A non-atomic concurrent swap can
+   leave the actor's genuinely-new stage sitting *alongside* the expected
+   old one for a moment; a presence-only check passes right through that
+   and the cleanup then deletes the new stage as "stale." **This
+   revalidation covers `stage:` labels only — it does not extend to
+   `waiting:` labels.** A concurrent actor that changes only the `waiting:`
+   label (stage unchanged) passes the check undetected, and that
+   newly-asserted `waiting:` label is then classified stale by point 3
+   below and deleted, the same way the DELETE-loop race in point 3
+   deletes a freshly-asserted label. Left as an accepted residual per
+   point 5, not a claim that ownership is validated for every label this
+   pattern touches.
 3. **"Stale" is the intersection of a `before` snapshot with a fresh `after`
    read — never derived from `after` alone.** The two GETs bracket the
    mutating **POST** (the add call) that sits between them; deriving
@@ -52,6 +60,14 @@ fix didn't close. The settled pattern, in order of what actually broke:
    self-healing best-effort — a rare race leaving a projection briefly
    stale corrects itself the next time anything touches the issue, rather
    than being a silent permanent rollback of someone else's real work.
+   **The body PATCH is the one exception this "self-healing" framing does
+   not cover.** The script re-fetches the body immediately before the PATCH
+   to narrow (not eliminate) the window, but it is explicitly not a
+   conditional/CAS write — a concurrent body edit landing in that narrower
+   window is silently overwritten, permanently, since this script only
+   fires again on a future TEST_RUN-doc deletion for that *same* PR, which
+   won't happen twice. Don't assume a lost body edit here self-corrects;
+   it needs a human to notice and fix it manually.
 
 See `docs/ai-context/workstream-tracking.md` for what this Action owns; see
 the script's own comments for the current, load-bearing implementation of
