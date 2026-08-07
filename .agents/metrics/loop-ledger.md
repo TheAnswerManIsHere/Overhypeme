@@ -150,7 +150,7 @@ failure. Its **mechanical** columns are fully derived and sound on their own.
 
 ### What the ledger's adjudicated rows now show
 
-**Sixteen rows carry a real adjudicated self-inflicted-share percentage** —
+**Seventeen rows carry a real adjudicated self-inflicted-share percentage** —
 every adjudicated row except #284 (adjudicated but with nothing to report:
 its one finding is `invalid`, so the denominator is zero; see its own row
 note), #290 (adjudicated on both sides, but the two readings disagreed by
@@ -164,35 +164,37 @@ that reconciliation, not because a gate fired; see row 17's note), #298
 22's note), #291 (28.1% exact disagreement, also over the gate, also
 `unmeasured`; see row 23's note), and #287 (a population mismatch between
 the two classifications — 101 findings vs. 105 — rather than a disagreement
-count at all; see row 24's note). Naming all sixteen, not a subset, matters:
+count at all; see row 24's note). Naming all seventeen, not a subset, matters:
 #270 64.7%, #274 68.4%, #276 0%, #282 72.1%, #283 0%, #285 50.0%, #286 0%,
 #288 35.0%, #289 33.3%, #301 42.1%, #304 61.1%, #308 0%, #323 0%, #324 0%,
-#334 73.5%, #337 12.5%. (A concurrent PR — #292 — independently derived
+#334 73.5%, #337 12.5%, #339 0%. (A concurrent PR — #292 — independently derived
 #288 at 40.0% instead of 35.0%; row 12's own note discloses both readings
 rather than picking one silently. #292's #289 figure agrees exactly at
 33.3%. #304's figure is the blind adjudicator's reading, the more
 self-critical of two that disagreed by 13.6% — row 27's own note discloses
 the author's dissenting 55.6%, per the same disclose-don't-silently-pick
-convention. #323 and #324 are structural-floor 0% instances confirmed by a
-full-population blind adjudication (rows 31, 32) — see the next paragraph
-for why they, like #276/#283/#286, aren't trend points despite carrying a
-real percentage. #334's figure is the *highest* in the ledger, surpassing
+convention. #323, #324, and #339 are structural-floor 0% instances confirmed
+by a full-population blind adjudication (rows 31, 32, 42) — see the next
+paragraph for why they, like #276/#283/#286, aren't trend points despite
+carrying a real percentage. #334's figure is the *highest* in the ledger, surpassing
 #282's prior-max 72.1%, and is a rare case where the author's and the blind
 adjudicator's independently-derived category splits disagree on 10 of 69
 individual findings yet land on the exact same share, 50/68 — see row 37's
 correction addendum for both readings' component counts.)
 
-**The five 0% rows are not evidence the workflow is clean — they are a
+**The six 0% rows are not evidence the workflow is clean — they are a
 structural floor, not a measurement.** The precise criterion is **rounds that
 surfaced findings**, not raw round count — that distinction matters
 specifically for #286, whose true engagement was two rounds (see *Rounds
 undercounted when a re-review is clean* above) but whose second round found
-**nothing**. #276, #283, #323, and #324 each had exactly one round, full
-stop (#323 and #324's single rounds each carried findings — 6 and 5
-respectively, all `new_ground` — unlike #286's finding-free second round;
-the two arrive at "exactly one finding-bearing round" by different paths).
-All five had exactly one round that raised any finding at all, and none of
-the five self-inflicted categories can occur on a loop's first finding-bearing round —
+**nothing**. #276, #283, #323, #324, and #339 each had exactly one round,
+full stop (#323, #324, and #339's single rounds each carried findings — 6,
+5, and 2 respectively, all `new_ground` — unlike #286's finding-free second
+round; the four arrive at "exactly one finding-bearing round" by a
+different path than #286's). All six had exactly one round that raised any
+finding at all, and none of
+the three self-inflicted categories (propagation, wrong fix, re-raised) can
+occur on a loop's first finding-bearing round —
 for two distinct reasons, not one shared one. **Propagation and wrong fix**
 require an **earlier fix within the same loop** that the later finding
 responds to; a loop with only one finding-bearing round has no earlier fix to
@@ -210,8 +212,8 @@ precondition when only two of them do. **Every valid finding** on a
 one-finding-round loop is new ground by construction, every time — "valid"
 matters here: `invalid` remains possible on a first occurrence regardless of
 round count, and row 9 (#284) is exactly that case, which is why it's
-recorded as `n/a` rather than folded into this 0% group at all. For the five
-loops that do have a real 0% (#276, #283, #323, #324, #286), that share is independent of
+recorded as `n/a` rather than folded into this 0% group at all. For the six
+loops that do have a real 0% (#276, #283, #323, #324, #339, #286), that share is independent of
 the loop's real quality. Mixing these into a trend with multi-finding-round
 loops would understate the real number, exactly the failure mode this
 backfill exists to prevent in the other direction.
@@ -325,7 +327,7 @@ machinery" pattern #304 represents at smaller scale — see row 27), then
 back down to the second-lowest of these seven points (#337, 12.5% — a
 small, well-scoped `/document` harvest with clean seams, the opposite pole
 of the same axis; below every point but #308's genuine zero, and above the
-five structural-floor 0% rows, which aren't real measurements per the note
+six structural-floor 0% rows, which aren't real measurements per the note
 above). The
 "declining slightly" reading this section reported from n=2, and the "not a
 clean decline" reading it reported from n=3, both fail to survive four more
@@ -360,16 +362,16 @@ its most extreme yet — 9 of its 20 files are code/workflow, including an
 entire new GitHub Action, not an incidental doc alongside a code change.
 **#337 is the one genuine exception**: a pure `/document` harvest, 7
 markdown files, zero code — the label is accurate for once, not a leak.
-With seven different underlying shapes (six leaks — #288, #289/#301 as one
-shape, #304, #308, #334 — plus #337's one genuine case) now sharing this
-label family, the cohort column is even
+With six different underlying shapes (five leaked shapes — #288, the
+combined #289/#301 shape, #304, #308, #334 — plus #337's one genuine case)
+now sharing this label family, the cohort column is even
 less informative for this comparison than the original n=2 confound
 already made it, not more — the shared label was never evidence of a
 shared shape, and adding rows doesn't fix that, it just makes it more
 visible, except for the single row where the label happens to be true.
 #285 itself is not discarded as a data point: its 50.0%
 self-inflicted share still stands in the row 10 note and in the
-sixteen-row list above; it is excluded from this specific pre/post-boundary
+seventeen-row list above; it is excluded from this specific pre/post-boundary
 comparison only, because its own rounds don't sit cleanly on one side of
 the line being compared. (#292's alternate n=3 reading — #285 50.0%, #289
 33.3%, #288 40.0%, all treated as cleanly post-boundary — is a different
