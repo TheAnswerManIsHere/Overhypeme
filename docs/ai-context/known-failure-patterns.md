@@ -784,3 +784,62 @@ resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
+
+## Chasing completeness against an adversarial reviewer past the artifact's real risk
+
+**Looks like:** a review loop where every finding is correct, every fix is
+sound, and the finding count **stops falling** — often while the artifact grows
+and the later fixes start specifying guarantees the platform cannot actually
+provide. **Dangerous:** each round is individually justified, so there is no
+natural stopping point, and the cost is invisible because the work looks like
+diligence. It ends with a large over-specified artifact and real time gone. The
+tell is never a single finding — they're usually right — it is the **trend**,
+plus the shape of the late-round fixes. **Avoid:** size ceremony to blast radius
+at intake, not to how the request was phrased
+([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
+require findings to fall round over round or stop and reassess with David; and
+triage every finding into **fix / accept-and-document / escalate** rather than
+reading "Required Revision" as automatically meaning fix. **Overhype:** twice
+in one day, 2026-08-05 — PR #329's Bash guard (9 → 11 → 12 → 19 findings, an
+unbounded parsing surface; see the sub-pattern below) and PR #333's `/status`
+plan (12 → 1 → 4 → 6 → 12 findings, **six review rounds and a 660-line plan for
+two markdown skill files**, with round 6 specifying compare-and-swap semantics
+GitHub's label API does not offer and acceptance cases with no way to run
+them). **The second happened hours after the first was written up**, because
+the first was recorded narrowly as a *parser* problem and the lesson did not
+transfer — which is exactly why this entry states it at the general level and
+demotes the parser case to a sub-pattern.
+
+### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
+
+**Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
+meant to catch **every** way a general-purpose scripting/shell language can
+express a specific dangerous operation ("does this Bash string, however
+written, ever run a force push?"). **Dangerous:** each review round finds a
+*new class* of bypass instead of a shrinking set, because the target
+language's "ways to dispatch a command" surface (wrapper commands, quoting
+forms, script-dispatch mechanisms, alias systems) is not practically
+enumerable — the same losing shape as blocklist-based XSS sanitization.
+Diligence cannot fix a wrong-shaped defense; more review rounds just find
+more gaps, and a shrinking-then-growing trend across rounds (see below) is
+the tell that the surface isn't converging. **Avoid:** before hand-rolling a
+parser for a general-purpose language's command-dispatch semantics, check
+whether the operation can instead be made correct **by construction**
+(an allowlist/encoder shape instead of a blocklist scanner) or whether a
+narrower control that doesn't need to parse intent at all — a server-side
+rule, a protocol-level restriction — already covers the actual risk. Size
+the defense to the *realistic* threat model (an honest mistake) rather than
+a fully adversarial one, when the two genuinely differ, and say so out loud
+rather than quietly absorbing round after round. **Overhype:**
+`.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
+rounds found 11, then 11, then 14, then 19 parser gaps (fixing 9, 11, 13, 0).
+The count of newly-found gaps never fell across four rounds, even as each
+round's fixes landed. David stopped the loop there
+rather than open a round 5: the hook was narrowed to "make the lease
+mandatory" and accepted as a best-effort local backstop behind GitHub's
+server-side ruleset on `main` (which needs no Bash parsing at all — it
+rejects the actual git protocol operation), not chased to full-coverage
+completeness. See the
+[2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
+and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
+docstring section.
