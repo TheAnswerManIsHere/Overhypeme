@@ -586,191 +586,48 @@ CREATE TABLE IF NOT EXISTS "ncmec_safety_audit_log" (
 -- >>> ncmec-0097 action check block (start)
 DO $$
 DECLARE
-  expected  text[] := ARRAY['retry','send_to_test_started','send_to_test_completed','backlog_audit',
-                            'approve_identity_omission','mark_manually_filed','correct_manual_filing',
-                            'reopen','config_write'];
-  con_oid   oid;
-  con_def   text;
-  con_valid boolean;
-  predicate text;
-  probe     text;
-  probe_result boolean;
-  con_semantics_ok boolean := false;
-  con_canonical_ok boolean := false;
   ledger_schema text;
 BEGIN
   SELECT n.nspname INTO ledger_schema
     FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
    WHERE c.oid = to_regclass('ncmec_safety_audit_log');
-  SELECT c.oid, pg_catalog.pg_get_constraintdef(c.oid)
-    INTO con_oid, con_def
-    FROM pg_catalog.pg_constraint c
-   WHERE c.conname = 'ncmec_safety_audit_log_action_check'
-     AND c.conrelid = to_regclass('ncmec_safety_audit_log')
-     AND c.contype = 'c';
 
-  IF con_oid IS NOT NULL THEN
-    -- The constraint is verified by EVALUATING IT, not by comparing how it renders.
-    --
-    -- Three text-based approaches were tried here across earlier rounds and each was defeated
-    -- by a predicate that renders acceptably while enforcing something else:
-    --
-    --   * a hardcoded expected string        — version-fragile; casts and parenthesization
-    --                                          are not this migration's to control.
-    --   * the set of literals it mentions    — `CHECK (action IN (...) OR true)` enforces
-    --                                          nothing and `NOT IN` inverts the vocabulary,
-    --                                          and both mention exactly the right literals.
-    --   * an anchored shape + literal set    — defeated by
-    --                                          `action = ANY (expected || ARRAY[action])`,
-    --                                          which renders with the same outer shape and the
-    --                                          same literals while accepting EVERY value.
-    --                                          Reproduced directly on this repository's
-    --                                          PostgreSQL 16 target.
-    --
-    -- Rendering is simply not a sound proxy for meaning: for any pattern, a predicate can be
-    -- written that matches it and permits arbitrary actions. So the predicate is pulled out of
-    -- pg_get_constraintdef and evaluated against probe values, which answers the question this
-    -- block actually cares about — does this constraint accept exactly the intended vocabulary
-    -- and nothing else — rather than a proxy for it.
-    --
-    -- This also removes the TEMP dependency the generated-reference approach introduced: no
-    -- DDL of any kind is performed, so a locked-down role with TEMP revoked verifies the
-    -- constraint just as strictly as a privileged one. There is no degraded mode left to
-    -- disagree about.
-    --
-    -- Evaluating catalog-derived SQL is safe here in a way it would not be for user input:
-    -- the text comes from this database's own pg_constraint, it is already being enforced on
-    -- every write to this table, and the probe values are passed through %L rather than
-    -- interpolated.
-    predicate := regexp_replace(con_def, '^CHECK \s*\((.*)\)\s*$', '\1');
-
-    con_semantics_ok := true;
-
-    -- Every value the vocabulary is supposed to permit must be ACCEPTED. This is what catches
-    -- an inverted (`NOT IN`) or narrowed constraint.
-    FOREACH probe IN ARRAY expected LOOP
-      BEGIN
-        EXECUTE format('SELECT COALESCE((%s), false) FROM (SELECT %L::varchar(40) AS action) AS t',
-                       predicate, probe)
-          INTO probe_result;
-      EXCEPTION WHEN OTHERS THEN
-        -- A predicate referencing other columns, or otherwise not evaluable in isolation, is
-        -- not one this migration wrote. Fail closed rather than guessing.
-        probe_result := false;
-      END;
-      IF NOT COALESCE(probe_result, false) THEN
-        con_semantics_ok := false;
-        EXIT;
-      END IF;
-    END LOOP;
-
-    -- And every value OUTSIDE it must be REJECTED. This is what catches `OR true`, the
-    -- `|| ARRAY[action]` disguise, and any other predicate that renders plausibly while
-    -- admitting arbitrary actions. The probes are deliberately varied in shape — a bare
-    -- unknown word, a near-miss of a real action, an empty string, and a case variant — so a
-    -- constraint that happens to be permissive in only one direction is still caught.
-    IF con_semantics_ok THEN
-      FOREACH probe IN ARRAY ARRAY['zzz_not_a_real_action', 'retry_', '_retry', '', 'RETRY'] LOOP
-        BEGIN
-          EXECUTE format('SELECT COALESCE((%s), false) FROM (SELECT %L::varchar(40) AS action) AS t',
-                         predicate, probe)
-            INTO probe_result;
-        EXCEPTION WHEN OTHERS THEN
-          probe_result := true;  -- unevaluable: fail closed
-        END;
-        IF COALESCE(probe_result, true) THEN
-          con_semantics_ok := false;
-          EXIT;
-        END IF;
-      END LOOP;
-    END IF;
-
-    -- convalidated matters alongside the predicate: a constraint added NOT VALID evaluates
-    -- exactly the same way while leaving pre-existing rows unchecked.
-    SELECT c.convalidated INTO con_valid
-      FROM pg_catalog.pg_constraint c WHERE c.oid = con_oid;
-
-    -- The probes above are a finite sample, and a finite sample cannot establish a CLOSED
-    -- vocabulary. `CHECK (action IN (...) OR action = 'legacy_action')` accepts all nine
-    -- expected values, rejects all five probes, and still leaves `legacy_action` writable —
-    -- reproduced directly against this repository's PostgreSQL 16 target, where the block
-    -- announced "already present and correct" and an insert using the extra action succeeded.
-    -- No enlargement of the probe set fixes this; the next drift just picks a different value.
-    --
-    -- So the predicate must ALSO have the canonical structure this migration itself writes:
-    -- exactly one `= ANY (ARRAY[...]::text[])` comparison on `action`, anchored at both ends,
-    -- with no additional disjunct and no nested array. `[^][]*` is what forbids the nesting,
-    -- which is how `|| ARRAY[action]` is excluded; the anchors are what forbid an appended
-    -- `OR ...`. Given that structure, the literals ARE the vocabulary, so comparing the
-    -- extracted set against `expected` is exhaustive rather than sampled.
-    --
-    -- Failing closed on an unrecognised structure costs nothing: this migration only ever
-    -- writes the canonical form, so anything else is drift by definition, and "repair" means
-    -- rebuilding a constraint that is already supposed to be identical. A future PostgreSQL
-    -- that renders this differently would cause a harmless rebuild rather than a wrong answer
-    -- — which is the correct direction for a check that gates an append-only ledger.
-    --
-    -- The semantic probes are kept alongside rather than replaced: structure alone would
-    -- accept a canonical-looking predicate whose literals somehow do not behave as written,
-    -- and the two together are what make the check both exhaustive and grounded.
-    -- TWO renderings are accepted, and that is not laxity — it is the direct consequence of a
-    -- property verified against this repository's PostgreSQL 16 target: `pg_get_constraintdef`
-    -- is NOT a fixed point. Feeding its own output back into `ADD CONSTRAINT` produces a
-    -- DIFFERENT string for the identical predicate:
-    --
-    --   written as `"action" IN (...)`           -> ANY ((ARRAY['retry'::character varying, …])::text[])
-    --   the above re-applied verbatim            -> ANY (ARRAY[('retry'::character varying)::text, …])
-    --
-    -- The cast migrates from the array to its elements. Anything that round-trips a constraint
-    -- through its rendered text lands in the second form — `pg_dump` of an already-round-tripped
-    -- schema, a DBA pasting the recovery command this block itself prints, and `drizzle-kit push`
-    -- reconciling against the Drizzle snapshot, which is how CI hit it: the api-server suite runs
-    -- push AFTER the migration has applied, so by the time this block replays, the constraint it
-    -- wrote has been re-parsed into a form its own gate rejected. Accepting only the first form
-    -- meant a correct, semantically identical constraint was reported as drift, and on the
-    -- not-the-owner replay path that is FATAL rather than merely a rebuild.
-    --
-    -- Both alternatives keep the two properties the structure gate exists for: `[^][]*` forbids
-    -- a nested `ARRAY[...]` (the `|| ARRAY[action]` disguise) and the anchors forbid an appended
-    -- `OR ...`. So under either rendering the literals ARE the vocabulary.
-    con_canonical_ok :=
-      con_def ~ '^CHECK \(\(\(action\)::text = ANY \((?:\(ARRAY\[[^][]*\]\)::text\[\]|ARRAY\[[^][]*\])\)\)\)$'
-      AND (SELECT array(SELECT DISTINCT m[1]
-                          FROM pg_catalog.regexp_matches(con_def, $re$'([^']*)'$re$, 'g') AS m
-                         WHERE m[1] <> ''
-                         ORDER BY 1))
-          = array(SELECT DISTINCT unnest(expected) ORDER BY 1);
-
-    IF con_canonical_ok AND con_semantics_ok AND COALESCE(con_valid, false) THEN
-      RAISE NOTICE '0097: ncmec_safety_audit_log_action_check is already present and correct — its predicate has the canonical single-comparison structure (so its literals are exhaustively the vocabulary) and evaluates correctly against every expected value and against values outside it. Left untouched, so this migration can be replayed against a ledger whose ownership a DBA has already transferred.';
-      RETURN;
-    END IF;
-  END IF;
-
+  -- Unconditional DROP + ADD, deliberately. Earlier revisions inspected an existing
+  -- constraint and skipped the rebuild when it looked correct, which required deciding
+  -- whether a predicate pulled out of pg_get_constraintdef enforces the intended closed
+  -- vocabulary. That question cannot be answered soundly from the rendered text — five
+  -- successive attempts (a literal string, the mentioned literal set, an anchored shape, an
+  -- anchored shape plus literal set, and that widened for PostgreSQL's two renderings) were
+  -- each defeated by a predicate matching the check while admitting values outside the
+  -- vocabulary, most recently
+  -- `ARRAY[<the nine literals>, CASE WHEN length(action) = 13 THEN action ELSE 'retry' END]`.
+  --
+  -- Rebuilding unconditionally makes the question unnecessary: whatever was there is
+  -- replaced by the constraint this migration writes, so the post-condition holds by
+  -- construction rather than by inspection. The rebuild is safe because the ledger is
+  -- append-only over this same vocabulary — every row already in it satisfied this
+  -- constraint when written — and cheap because the table is small by design.
   BEGIN
-    IF con_oid IS NOT NULL THEN
-      EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" DROP CONSTRAINT "ncmec_safety_audit_log_action_check"';
-    END IF;
+    EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check"';
     EXECUTE $stmt$ALTER TABLE "ncmec_safety_audit_log" ADD CONSTRAINT "ncmec_safety_audit_log_action_check"
   CHECK ("action" IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write'))$stmt$;
   EXCEPTION WHEN insufficient_privilege THEN
-    -- Deliberately fatal rather than a warning. Unlike the "already correct" case above, the
-    -- constraint genuinely is missing or wrong here, and this ledger is database-enforced
-    -- append-only: a row written with an action outside the vocabulary could never afterwards
-    -- be corrected through ordinary application access. Finishing quietly would record 0097 as
-    -- applied over a ledger that does not actually constrain what it accepts.
-    -- `RAISE EXCEPTION '%', format(...)`, never RAISE's own directives. RAISE understands
-    -- only bare `%` — it does NOT implement format()'s `%I`/`%L`/`%s`, so writing those here
-    -- emits the literal letter (`public` + `I`) and silently corrupts every identifier in the
-    -- printed recovery commands. Caught by this block's own regression test, which asserted on
-    -- the message text.
-    RAISE EXCEPTION '%', format(
-      '0097: ncmec_safety_audit_log_action_check is missing or has drifted (found: %s), and this role does not own %I.%I, so it cannot be repaired here. A DBA must run, as the table''s owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check"; ALTER TABLE %I.%I ADD CONSTRAINT "ncmec_safety_audit_log_action_check" CHECK ("action" IN (%s));',
-      COALESCE(con_def, '<absent>'),
+    -- Reached only on a ledger a DBA has already hardened, where this role no longer owns the
+    -- table. Reported rather than fatal: the hardening runbook is what put ownership out of
+    -- reach, and the same runbook carries this command, so aborting here would block every
+    -- other reconciliation this file performs on precisely the databases that followed the
+    -- documented procedure.
+    -- `RAISE EXCEPTION '%', format(...)`, never RAISE's own directives: RAISE understands only
+    -- bare `%` and would emit the literal letter for `%I`/`%L`/`%s`.
+    RAISE WARNING '%', format(
+      '0097: could not rebuild ncmec_safety_audit_log_action_check — this role does not own %I.%I. Run, as the table''s owner: ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS "ncmec_safety_audit_log_action_check"; ALTER TABLE %I.%I ADD CONSTRAINT "ncmec_safety_audit_log_action_check" CHECK ("action" IN (%s));',
       ledger_schema, 'ncmec_safety_audit_log',
       ledger_schema, 'ncmec_safety_audit_log',
       ledger_schema, 'ncmec_safety_audit_log',
-      (SELECT string_agg(quote_literal(v), ',' ORDER BY v) FROM unnest(expected) AS v)
+      (SELECT string_agg(quote_literal(v), ',' ORDER BY v)
+         FROM unnest(ARRAY['retry','send_to_test_started','send_to_test_completed','backlog_audit',
+                           'approve_identity_omission','mark_manually_filed','correct_manual_filing',
+                           'reopen','config_write']) AS v)
     );
   END;
 END $$;
@@ -892,108 +749,24 @@ CREATE INDEX IF NOT EXISTS "IDX_ncmec_audit_created"
   ON "ncmec_safety_audit_log" ("created_at" DESC);
 --> statement-breakpoint
 
--- The maintenance role. Granted to NOBODY by default; a deliberate correction
--- means a DBA granting it, which is auditable outside this database.
+-- The maintenance role, `overhype_audit_maintenance`, is NOT created here.
 --
--- The bypass is ROLE MEMBERSHIP, not a settable GUC. `SET LOCAL
--- app.audit_maintenance = 'on'` would be available to the same application role
--- whose raw UPDATE/DELETE/TRUNCATE this trigger exists to block — an
--- application convention wearing a database guarantee's clothes, which is the
--- exact criticism that produced this trigger.
+-- It used to be, best-effort, and that was the single largest source of defects in this
+-- file. On PostgreSQL 16 a non-superuser CREATEROLE role that runs `CREATE ROLE x` is
+-- automatically granted x WITH ADMIN OPTION, with the BOOTSTRAP SUPERUSER as grantor — so
+-- the application ended up holding a membership it could re-grant to itself at will, and
+-- could not revoke, because a REVOKE by anyone other than the grantor warns and changes
+-- nothing rather than failing. The migration was creating the bypass it existed to prevent,
+-- and then reporting that it had closed it.
 --
--- Best-effort: a deployment whose application role lacks CREATEROLE must not
--- fail its deploy here. The trigger function fails CLOSED when the role is
--- absent (see below), so a skipped creation makes the ledger stricter, never
--- looser.
--- **Creating the role also grants it to the creator, and that had to be undone.**
--- On PostgreSQL 16 a role with CREATEROLE that runs `CREATE ROLE x` is automatically
--- granted membership of `x` WITH ADMIN OPTION (`inherit_option = f`, `set_option = f`).
--- Verified directly against this repository's PostgreSQL 16 target:
--- `pg_has_role(creator, x, 'member')` comes back TRUE. So "granted to nobody" would have
--- been false the instant this block succeeded, the trigger would have waved the application
--- role straight through, and no DBA hardening step would have fixed it — the printed
--- instructions transfer ownership, they do not revoke a membership nobody knew existed.
+-- Creating the role belongs to the hardening runbook, run by a superuser, which is the only
+-- actor that can create it without conferring that membership. See
+-- docs/engineering/ncmec-audit-ledger-hardening.md.
 --
--- Two changes close it, and both are needed:
---   1. The automatic grant is revoked here, immediately, using the ADMIN OPTION the
---      creation itself conferred.
---   2. The trigger checks `USAGE`, not `MEMBER`. `MEMBER` is true for any path to the role
---      including one that cannot be exercised; `USAGE` is true only when the session
---      actually holds the role's privileges right now, which is the property the gate is
---      about. A maintenance session reaches it by `SET ROLE`, under which `current_user`
---      *is* the maintenance role and `USAGE` is trivially true.
---
--- Best-effort creation: a deployment whose application role lacks CREATEROLE must not fail
--- its deploy here. The trigger fails CLOSED when the role is absent, so a skipped creation
--- makes the ledger stricter, never looser.
--- >>> ncmec-0097 maintenance role block (start)
-DO $$
-DECLARE
-  residual_grantor text;
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance') THEN
-    BEGIN
-      CREATE ROLE overhype_audit_maintenance NOLOGIN;
-    EXCEPTION
-      WHEN insufficient_privilege THEN
-        RAISE WARNING '0097: could not create role overhype_audit_maintenance (insufficient privilege). The append-only trigger fails closed without it: no session can UPDATE, DELETE or TRUNCATE ncmec_safety_audit_log until a DBA creates the role. Create it with: CREATE ROLE overhype_audit_maintenance NOLOGIN;';
-    END;
-  END IF;
+-- Until then the trigger fails CLOSED: its guard checks `pg_catalog.pg_roles` first, so with
+-- the role absent NO session can UPDATE, DELETE or TRUNCATE this ledger. That is strictly
+-- stricter than the previous behaviour, not weaker.
 
-  -- Unconditional, not only on the branch that created it: a previous run of this
-  -- migration may have created the role and left the automatic grant behind.
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'overhype_audit_maintenance')
-     AND EXISTS (
-       SELECT 1 FROM pg_auth_members m
-        WHERE pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'
-          AND pg_get_userbyid(m.member) = current_user
-     ) THEN
-    BEGIN
-      EXECUTE format('REVOKE overhype_audit_maintenance FROM %I', current_user);
-    EXCEPTION
-      WHEN OTHERS THEN
-        RAISE WARNING '0097: REVOKE overhype_audit_maintenance FROM % raised % — see the follow-up notice for the residual state.', current_user, SQLERRM;
-    END;
-
-    -- The REVOKE is VERIFIED, never assumed, because on this repository's PostgreSQL 16 target
-    -- it does not fail loudly when it cannot do its job. Reproduced directly: when a
-    -- non-superuser CREATEROLE role runs `CREATE ROLE overhype_audit_maintenance`, PostgreSQL
-    -- records the automatic membership with the BOOTSTRAP SUPERUSER as grantor
-    -- (admin_option = t, inherit_option = f, set_option = f). A later
-    -- `REVOKE overhype_audit_maintenance FROM <that role>`, run as that role, does not raise
-    -- insufficient_privilege — it emits `WARNING: role ... has not been granted membership in
-    -- role ... by role ...` and returns successfully having changed nothing. So the EXCEPTION
-    -- handler above never fired, and this block used to print "revoked the automatic creator
-    -- membership" over a database where the membership was still there. A migration that
-    -- reports a security boundary closed when it is open is worse than one that reports
-    -- nothing, so the claim is now conditioned on re-reading pg_auth_members.
-    SELECT pg_catalog.pg_get_userbyid(m.grantor) INTO residual_grantor
-      FROM pg_catalog.pg_auth_members m
-     WHERE pg_catalog.pg_get_userbyid(m.roleid) = 'overhype_audit_maintenance'
-       AND m.member = pg_catalog.to_regrole(current_user);
-
-    IF residual_grantor IS NULL THEN
-      RAISE NOTICE '0097: revoked the automatic creator membership of overhype_audit_maintenance from %', current_user;
-    ELSE
-      -- The command is named WITH the role that must run it. Naming the REVOKE alone — which
-      -- is what this warning and the DBA guidance below both used to do — hands the operator a
-      -- statement that silently no-ops for them, so they see it succeed and believe the
-      -- boundary is closed. Only the grantor (or a superuser) can remove this row; ADMIN
-      -- OPTION on the role is NOT sufficient.
-      --
-      -- The residual grant carries inherit_option = f and set_option = f, so it does not by
-      -- itself let the application pass the trigger's `pg_has_role(..., 'usage')` gate. It
-      -- carries ADMIN OPTION, though, which lets the application grant itself the role WITH
-      -- INHERIT TRUE at any moment — verified, usage flips from false to true in one
-      -- statement. That is why ncmecAuditBoundaryStatus() counts an admin-option chain as
-      -- reachability and keeps reporting the bypass until this row is gone.
-      RAISE WARNING '0097: the automatic creator membership of overhype_audit_maintenance in % is STILL PRESENT — it was granted by %, and only % (or a superuser) can remove it; ADMIN OPTION is not enough. Until then the application can grant itself the role WITH INHERIT TRUE and bypass the append-only trigger. Run, AS %: REVOKE overhype_audit_maintenance FROM %; The supported alternative is to have overhype_audit_maintenance created by a superuser instead, which leaves the application no membership at all.',
-        current_user, residual_grantor, residual_grantor, residual_grantor, current_user;
-    END IF;
-  END IF;
-END $$;
--- <<< ncmec-0097 maintenance role block (end)
---> statement-breakpoint
 
 -- The audit-log guard objects are created only when the current role is able to. After the
 -- DBA hardening step below, `ncmec_safety_audit_log` and this function belong to
@@ -1007,14 +780,6 @@ END $$;
 DO $outer$
 DECLARE
   -- Captured on entry and restored explicitly at every probe below, instead of RESET ROLE.
-  -- RESET ROLE returns the session to `session_user`, NOT to whichever role was current when
-  -- this block was entered — verified directly against this repository's PostgreSQL 16 target.
-  -- A DBA replaying the migration as the application role (`SET ROLE <app>; \i 0097.sql`)
-  -- would otherwise be silently switched to their own login role by the FIRST probe here, and
-  -- every ownership check afterwards — including the whole ownership-hardening block further
-  -- down, which runs later in the same session — would then be answered for, and grant
-  -- against, the wrong role.
-  entry_role     text := current_user;
   fn_owner       oid;
   tbl_owner      oid;
   can_fn         boolean := false;
@@ -1072,34 +837,19 @@ BEGIN
   -- database it could actually service. Tested by attempting the SET, not by asking a
   -- catalog function that does not answer this question. If the object does not exist
   -- yet, or this session already IS the owner, no role switch is needed at all.
-  IF fn_owner IS NULL OR fn_owner = to_regrole(current_user) THEN
-    can_fn := true;
-  ELSE
-    BEGIN
-      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(fn_owner));
-      can_fn := true;
-    EXCEPTION WHEN OTHERS THEN
-      can_fn := false;
-    END;
-    EXECUTE format('SET LOCAL ROLE %I', entry_role);
-  END IF;
-
-  IF tbl_owner IS NOT NULL AND tbl_owner = to_regrole(current_user) THEN
-    can_tbl := true;
-  ELSIF tbl_owner IS NOT NULL THEN
-    BEGIN
-      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(tbl_owner));
-      can_tbl := true;
-    EXCEPTION WHEN OTHERS THEN
-      can_tbl := false;
-    END;
-    EXECUTE format('SET LOCAL ROLE %I', entry_role);
-  END IF;
+  -- "Can this role act on the object?" is now exactly "does it own the object (or does the
+  -- object not exist yet)". Earlier revisions ANSWERED IT BY ATTEMPTING `SET LOCAL ROLE` to
+  -- the owner, and that probe has been removed along with every other role-switching path in
+  -- this migration. The reason is the same one that removed the ownership transfer: the probe
+  -- can only succeed where the application can already become the ledger's owner, which is
+  -- precisely the state the hardening runbook exists to eliminate. On a correctly hardened
+  -- database it always failed; on an incorrectly hardened one it silently exercised the
+  -- bypass instead of reporting it. Owning the object is the honest question, it needs one
+  -- catalog read, and it carries none of the restore hazard a nested SET ROLE does.
+  can_fn  := fn_owner IS NULL OR fn_owner = to_regrole(current_user);
+  can_tbl := tbl_owner IS NULL OR tbl_owner = to_regrole(current_user);
 
   IF can_fn THEN
-    IF fn_owner IS NOT NULL AND fn_owner <> to_regrole(current_user) THEN
-      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(fn_owner));
-    END IF;
     -- The EXISTS guard inside fn_body is not defensive noise: pg_has_role RAISES on a role
     -- that does not exist, so without it a deployment that could not create the role would
     -- block every operation with a confusing "role does not exist" error instead of this
@@ -1119,13 +869,9 @@ BEGIN
       'CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger AS %L LANGUAGE plpgsql',
       fn_body
     );
-    EXECUTE format('SET LOCAL ROLE %I', entry_role);
   END IF;
 
   IF can_tbl THEN
-    IF tbl_owner IS NOT NULL AND tbl_owner <> to_regrole(current_user) THEN
-      EXECUTE format('SET LOCAL ROLE %I', pg_get_userbyid(tbl_owner));
-    END IF;
     -- DROP IF EXISTS before each CREATE, because this migration is required to be
     -- rerunnable and an unguarded CREATE TRIGGER fails on the second pass.
     EXECUTE 'DROP TRIGGER IF EXISTS ncmec_safety_audit_log_no_mutate ON "ncmec_safety_audit_log"';
@@ -1151,7 +897,6 @@ BEGIN
                BEFORE TRUNCATE ON "ncmec_safety_audit_log"
                FOR EACH STATEMENT EXECUTE FUNCTION ncmec_safety_audit_log_append_only()';
     EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" ENABLE ALWAYS TRIGGER ncmec_safety_audit_log_no_truncate';
-    EXECUTE format('SET LOCAL ROLE %I', entry_role);
   ELSE
     -- Verified with the SAME rigor as ncmecAuditBoundaryStatus() (lib/db/src/index.ts) —
     -- name and tgenabled alone are not enough. A same-named trigger recreated wrong during
@@ -1210,679 +955,46 @@ END $outer$;
 -- <<< ncmec-0097 audit guard block (end)
 --> statement-breakpoint
 
--- Ownership hardening, when a DBA has pre-provisioned the owner role.
---
--- The trigger blocks row mutation, but `ALTER TABLE ... DISABLE TRIGGER`
--- requires only OWNERSHIP — and this migration runs as the application role,
--- which therefore owns everything it creates. A migration cannot manufacture a
--- privilege boundary above itself: transferring ownership requires membership
--- of the target role, and membership is exactly what would let the application
--- role SET ROLE back and disable the trigger anyway.
---
--- So the boundary is completed OUTSIDE this migration, by a DBA who creates
--- `overhype_audit_owner` and grants the application role no membership in it.
--- This block picks that up when it is present and is a no-op when it is not.
--- The residual state is queryable — see ncmecAuditBoundaryStatus() in
--- lib/db — and the phase 6 activation gate refuses production while the
--- boundary is unenforced, which blocks the dangerous STATE rather than one
--- path into it.
 -- >>> ncmec-0097 ownership hardening block (start)
 --
--- Mirrors lib/db/src/index.ts's canEffectivelyAssumeRole (usage, SET ROLE, or admin option —
--- including a further, nested admin option — checked recursively through admin-option
--- grantees), but this migration cannot literally share that TypeScript code, so this is a
--- PL/pgSQL reimplementation. Scoped to pg_temp deliberately: it exists only to answer "can
--- THIS migration-running session effectively become role X" for the DBA-facing status
--- messages below, not as a persistent part of the schema, so it lives in the session-local,
--- auto-dropped pg_temp schema rather than becoming a permanent database object. Every
--- catalog reference inside is pg_catalog-qualified for the same reason the runtime version
--- is: a session that controls its own search_path could otherwise shadow pg_has_role to
--- misreport its own effective access (see lib/db/src/index.ts's canEffectivelyAssumeRole
--- doc comment). Used below in place of the earlier SET-ROLE-attempt-only checks, which
--- missed INHERIT-only and ADMIN-only grant shapes the same way canAssumeRole alone did
--- before canEffectivelyAssumeRole existed.
--- Can role `subject` effectively BECOME role `target`? Pure catalog reads — no role
--- mutation at all, which is a deliberate change from the earlier version: this is asked
--- recursively, and a recursive function that issues SET ROLE has to get the restore right at
--- every level (see the RESET ROLE hazard documented on ncmec_can_set_role below). Verified
--- directly against this repository's PostgreSQL 16 target that `pg_has_role(..., 'set')`
--- answers the SET-ROLE question exactly, so the probe was never necessary here.
+-- This migration does NOT attempt to harden the ledger's ownership, and that is the
+-- deliberate scope of phase 1.
 --
--- The predicate is `usage OR set OR admin-option-chain`, and each disjunct is load-bearing:
+-- The append-only triggers stop row mutation, but `ALTER TABLE ... DISABLE TRIGGER` needs
+-- only OWNERSHIP — and this migration runs as the application role, so it owns everything it
+-- just created. A migration cannot manufacture a privilege boundary above itself: handing
+-- ownership to `overhype_audit_owner` requires the ability to SET ROLE to that role, which is
+-- exactly the access that would let the application take it back and disable the trigger.
 --
---   usage  — INHERIT membership: the target's privileges are ambiently available.
---   set    — SET-ROLE membership: assumable on demand.
---   admin  — the subject can reach some role holding ADMIN OPTION on the target, and can
---            therefore grant the target to itself whenever it likes.
+-- Earlier revisions tried anyway — resolving role reachability through inherit, set and
+-- admin-option chains, attempting the transfer when it looked possible, and printing repair
+-- commands when it did not. Every one of those paths was either a no-op (the transfer only
+-- succeeded where it bought nothing) or wrong in a way that reported success over an open
+-- boundary. So the attempt is gone; what remains is the honest half.
 --
--- `member` is deliberately NOT used, though it looks like the obvious primitive. Verified
--- directly: an `INHERIT FALSE, SET FALSE` grant reports member = true while usage and set are
--- both false — membership the holder cannot actually exercise. Using `member` would report a
--- bypass that does not exist and, through the activation gate, block production on a boundary
--- that is in fact closed.
-CREATE OR REPLACE FUNCTION pg_temp.ncmec_role_reaches(
-  subject text,
-  target  text,
-  visited text[] DEFAULT ARRAY[]::text[]
-) RETURNS boolean AS $role_reaches$
-DECLARE
-  admin_holder text;
-BEGIN
-  IF subject = target THEN RETURN true; END IF;
-  IF target = ANY(visited) THEN RETURN false; END IF;
-  visited := visited || target;
-
-  IF pg_catalog.pg_has_role(subject, target, 'usage')
-     OR pg_catalog.pg_has_role(subject, target, 'set') THEN
-    RETURN true;
-  END IF;
-
-  FOR admin_holder IN
-    SELECT pg_catalog.pg_get_userbyid(m.member)
-      FROM pg_catalog.pg_auth_members m
-     WHERE pg_catalog.pg_get_userbyid(m.roleid) = target
-       AND m.admin_option
-  LOOP
-    IF pg_temp.ncmec_role_reaches(subject, admin_holder, visited) THEN
-      RETURN true;
-    END IF;
-  END LOOP;
-
-  RETURN false;
-END;
-$role_reaches$ LANGUAGE plpgsql;
---> statement-breakpoint
--- The roles granted DIRECTLY to the invoking role — real `pg_auth_members` rows with
--- `member = current_user` — from which `target` is reachable. Each one is therefore a grant a
--- DBA can actually revoke, and revoking all of them severs every path the application has.
---
--- Returning direct edges rather than a reachability chain is the correction to the previous
--- version. That one returned `ARRAY[target]` as soon as `pg_has_role(current_user, target,
--- 'usage')` was true — but that function is TRANSITIVE, so a true answer does not mean a
--- direct grant exists. With the application a member of an intermediate role that is itself a
--- member of the target (or of an ADMIN OPTION holder), the guidance emitted
--- `REVOKE <target> FROM <app>` for a grant that was never there: it succeeds, changes nothing,
--- and the next rerun prints it again — the exact loop the path was introduced to escape,
--- surviving one level further out.
---
--- Empty (not NULL) when the target is unreachable, and empty ALSO when it is reachable only
--- through something other than a direct grant to the application — a role the application logs
--- in as by another mechanism, say. Callers must treat "reachable but no revocable edge" as a
--- state needing a human, never as "nothing to do": ncmec_role_reaches stays the authority on
--- WHETHER a bypass exists, and this function only answers HOW to cut it.
-CREATE OR REPLACE FUNCTION pg_temp.ncmec_revocable_edges(target text) RETURNS text[] AS $rev_edges$
-  SELECT COALESCE(array_agg(DISTINCT edge ORDER BY edge), ARRAY[]::text[])
-    FROM (
-      SELECT pg_catalog.pg_get_userbyid(m.roleid) AS edge
-        FROM pg_catalog.pg_auth_members m
-       WHERE m.member = pg_catalog.to_regrole(current_user)
-    ) direct
-   WHERE pg_temp.ncmec_role_reaches(direct.edge, target);
-$rev_edges$ LANGUAGE sql;
---> statement-breakpoint
-CREATE OR REPLACE FUNCTION pg_temp.ncmec_can_effectively_assume(role_name text) RETURNS boolean AS $can_assume$
-  SELECT pg_temp.ncmec_role_reaches(current_user, role_name);
-$can_assume$ LANGUAGE sql;
---> statement-breakpoint
--- Deliberately NARROWER than ncmec_can_effectively_assume: whether this role can literally
--- `SET ROLE` to `role_name` right now, with no inheritance path and no admin-option reasoning.
---
--- The two answer different questions and both are needed. Effective assumption is the SECURITY
--- question — can the application reach a role that lets it bypass the append-only guarantee —
--- and it is deliberately generous. Whether this migration can itself perform the ownership
--- TRANSFER is a narrower CAPABILITY question: `ALTER TABLE ... OWNER TO` fails with "must be
--- able to SET ROLE" without SET access, and the subsequent `SET LOCAL ROLE` obviously does
--- too. Verified directly against this repository's PostgreSQL 16 target that an
--- `INHERIT TRUE, SET FALSE` grant reports pg_has_role(...,'usage') = true while BOTH of those
--- statements fail — so gating the transfer on the security predicate would abort the migration
--- outright on precisely the grant shapes the broader check was widened to recognize, instead of
--- falling through to the DBA guidance that can actually resolve them.
-CREATE OR REPLACE FUNCTION pg_temp.ncmec_can_set_role(role_name text) RETURNS boolean AS $can_set_role$
-DECLARE
-  prior_role text := current_user;  -- same RESET ROLE hazard as above
-  ok         boolean := false;
-BEGIN
-  BEGIN
-    EXECUTE format('SET LOCAL ROLE %I', role_name);
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN
-    ok := false;
-  END;
-  EXECUTE format('SET LOCAL ROLE %I', prior_role);
-  RETURN ok;
-END;
-$can_set_role$ LANGUAGE plpgsql;
---> statement-breakpoint
+-- The boundary is closed OUTSIDE this migration, by a superuser, following
+-- docs/engineering/ncmec-audit-ledger-hardening.md. The residual state is queryable at
+-- runtime — `ncmecAuditBoundaryStatus()` in lib/db — and phase 6's activation gate refuses
+-- production filing while `boundaryEnforced` is false, which blocks the dangerous STATE
+-- rather than any one path into it.
 DO $$
 DECLARE
-  app_role          text := current_user;
-  -- The SECURITY question: can the application reach overhype_audit_owner by ANY effective
-  -- route (inheritance, SET ROLE, or an admin-option chain)? Governs every claim this block
-  -- makes about whether the boundary is closed.
-  can_own           boolean := false;
-  -- The CAPABILITY question, and deliberately not the same one: can this session literally
-  -- SET ROLE to overhype_audit_owner? Only this one may gate the transfer branch below.
-  -- `ALTER TABLE ... OWNER TO` fails with "must be able to SET ROLE" and the branch's own
-  -- `SET LOCAL ROLE` fails outright without it, so gating the transfer on `can_own` aborted
-  -- the migration on exactly the INHERIT-only and admin-option grant shapes that check was
-  -- widened to detect — instead of leaving them to the DBA guidance that can resolve them.
-  can_set_own       boolean := false;
-  -- The DIRECT grants (see pg_temp.ncmec_revocable_edges) through which the application
-  -- reaches overhype_audit_owner. Each is a real pg_auth_members row a DBA can revoke; for an
-  -- admin-option or transitive chain none of them is overhype_audit_owner itself, and telling
-  -- a DBA to revoke THAT would be a no-op they could repeat forever.
-  owner_edges       text[];
-  -- The append-only triggers gate on an effective grant of overhype_audit_maintenance, so
-  -- reaching that role bypasses the ledger just as owning the table does — and the earlier
-  -- maintenance block revokes only a DIRECT membership. Checked with the same reachability
-  -- predicate as the owner role, and folded into every completion claim below: without it this
-  -- block could announce "fully hardened" while ncmecAuditBoundaryStatus() correctly reports
-  -- applicationCanBypassTrigger and the activation gate keeps refusing production — two
-  -- implementations of one question disagreeing, with this one being the optimistic side.
-  can_maintenance   boolean := false;
-  maintenance_edges text[];
-  -- The REVOKE that actually breaks `owner_path`, rendered once and reused by every branch
-  -- that has to tell a DBA how to finish. Built from the path rather than hardcoded, which is
-  -- the whole point of resolving the path at all.
-  revoke_hint       text;
-  maintenance_hint  text;
-  maintenance_note  text := '';
-  owner_role_exists boolean := false;
-  tbl_done          boolean;
-  fn_done           boolean;
-  grants_done       boolean;
-  -- Resolved once, used only in the printed DBA instructions below. Hardcoding "public"
-  -- there was wrong under this repo's own isolated-test-schema tooling, and would be wrong
-  -- for any real deployment whose search_path doesn't put public first: PostgreSQL requires
-  -- the NEW owner to hold CREATE on the SCHEMA THE TABLE ACTUALLY LIVES IN, not on public
-  -- specifically — a DBA following a hardcoded "public" instruction to the letter on such a
-  -- database would still hit "permission denied for schema <real schema>" on the transfer.
-  ledger_schema     text;
-  -- The role that owns ledger_schema itself, and whether the application can become it —
-  -- checked with the SAME technique as overhype_audit_owner below, and independently of
-  -- table/function ownership. Transferring the TABLE and FUNCTION alone does not close the
-  -- boundary if the application (or a role it can become) still effectively owns the
-  -- CONTAINING SCHEMA: a schema owner can DROP TABLE/DROP FUNCTION any object inside it
-  -- regardless of that object's own relowner/proowner. Verified directly against this
-  -- repository's PostgreSQL 16 target. This matters even on a totally default deployment:
-  -- PostgreSQL 15+ makes `public`'s owner the `pg_database_owner` pseudo-role, which
-  -- automatically includes the database's actual owner as an implicit member — so the
-  -- application effectively owns `public` (and can `SET ROLE pg_database_owner`, verified
-  -- directly) whenever it also happens to be the database owner, with no explicit grant at
-  -- all. This block cannot reconcile schema ownership the way it reconciles table/function
-  -- ownership — there is no per-schema equivalent of "transfer to overhype_audit_owner" for
-  -- `public` specifically, short of either changing the DATABASE's own owner (a
-  -- cluster-level operation far outside migration scope) or moving the ledger into a
-  -- dedicated schema (a structural change this migration does not make) — so the fix here is
-  -- detection and DBA guidance, not automatic remediation.
-  schema_owner_role text;
-  can_own_schema    boolean := false;
-  -- The guard FUNCTION's own containing schema, checked independently of ledger_schema —
-  -- mirrors lib/db/src/index.ts's functionSchemaOwner/applicationOwnsFunctionSchema. Both
-  -- land in the same schema today (both are created via unqualified statements resolving
-  -- through the same search_path), but nothing pins that relationship: a DBA who later moved
-  -- just the function to a different schema (ALTER FUNCTION ... SET SCHEMA) would leave a
-  -- schema owner of THAT schema free to DROP FUNCTION ... CASCADE (dropping both dependent
-  -- triggers too) regardless of the function's own proowner — the runtime status already
-  -- catches this independently, so this migration's own guidance must not fall out of sync
-  -- with it.
-  function_schema            text;
-  function_schema_owner_role text;
-  can_own_function_schema    boolean := false;
-  recovery_cmds     text;
-  -- Accumulates whatever remains open (owner-role revocation, schema ownership, function-
-  -- schema ownership) for the branches that need to describe a PARTIAL bypass rather than
-  -- either full success or the single "still fully application-owned" case the final ELSE
-  -- branch already covers.
-  boundary_note     text;
+  ledger_schema   text;
+  function_schema text;
 BEGIN
   SELECT n.nspname INTO ledger_schema
-    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
    WHERE c.oid = to_regclass('ncmec_safety_audit_log');
-  SELECT n2.nspname INTO function_schema
-    FROM pg_proc p JOIN pg_namespace n2 ON n2.oid = p.pronamespace
-   WHERE p.oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
+  SELECT n.nspname INTO function_schema
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE p.proname = 'ncmec_safety_audit_log_append_only'
+   LIMIT 1;
 
-  -- Same defect, same fix as the rerun guard above used to have: `usage` alone answers only
-  -- whether a role's privileges are INHERITED, not whether this role can effectively become
-  -- it — and completing the transfer, or recognizing that it's already unassumable, requires
-  -- the fuller usage/SET-ROLE/admin-option union pg_temp.ncmec_can_effectively_assume
-  -- implements above. Round 10 finding: the previous SET-ROLE-attempt-only version here
-  -- missed INHERIT-only and ADMIN-only grant shapes, the same class of gap
-  -- canEffectivelyAssumeRole was written to close on the runtime side.
-  owner_role_exists := EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_owner');
-  IF owner_role_exists THEN
-    can_own     := pg_temp.ncmec_can_effectively_assume('overhype_audit_owner');
-    owner_edges := pg_temp.ncmec_revocable_edges('overhype_audit_owner');
-    -- Asked separately, never derived from can_own — see both declarations above.
-    can_set_own := pg_temp.ncmec_can_set_role('overhype_audit_owner');
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'overhype_audit_maintenance') THEN
-    can_maintenance   := pg_temp.ncmec_can_effectively_assume('overhype_audit_maintenance');
-    maintenance_edges := pg_temp.ncmec_revocable_edges('overhype_audit_maintenance');
-  END IF;
-
-  -- `owner_edges` naming exactly overhype_audit_owner is the ordinary case: the application
-  -- holds it directly and revoking that is precisely right. Anything else is the case this
-  -- exists for — the application reaches it through OTHER roles it holds (transitively, or via
-  -- an ADMIN OPTION holder that can re-grant at will), so `REVOKE overhype_audit_owner FROM
-  -- <app>` removes a membership that was never there: it succeeds, changes nothing, and leaves
-  -- 0097 emitting this same warning on every subsequent rerun.
-  --
-  -- Every edge is listed, not just one. Severing a single path when several exist would leave
-  -- the boundary open while looking resolved on the next rerun's first check.
-  IF can_own THEN
-    IF owner_edges = ARRAY['overhype_audit_owner'] THEN
-      revoke_hint := format('REVOKE overhype_audit_owner FROM %I;', app_role);
-    ELSIF COALESCE(array_length(owner_edges, 1), 0) > 0 THEN
-      revoke_hint := (
-        SELECT string_agg(format('REVOKE %I FROM %I;', e, app_role), ' ' ORDER BY e)
-          FROM unnest(owner_edges) AS e
-      ) || format(
-        ' (the application does NOT hold overhype_audit_owner directly — it reaches it through the role(s) above, each of which either carries ADMIN OPTION on it or leads to a role that does, so revoking overhype_audit_owner from %I would change nothing.)',
-        app_role);
-    ELSE
-      -- Reachable, but through nothing this role holds by a direct grant — so there is no
-      -- command this migration can name. Said plainly rather than omitted: silence here would
-      -- read as "no action needed" on a database whose boundary is genuinely open.
-      revoke_hint := format(
-        '-- MANUAL: the application (%I) can reach overhype_audit_owner, but through no grant held directly by it, so no single REVOKE can be named here. Inspect with: SELECT roleid::regrole, member::regrole, admin_option FROM pg_auth_members;',
-        app_role);
-    END IF;
-  END IF;
-
-  -- The same treatment for the maintenance role, whose reachability bypasses the append-only
-  -- triggers outright — the guard function admits any caller with an effective grant of it.
-  IF can_maintenance THEN
-    IF COALESCE(array_length(maintenance_edges, 1), 0) > 0 THEN
-      -- Each REVOKE is printed together with the role that must RUN it. A membership created
-      -- by `CREATE ROLE` from a non-superuser CREATEROLE role has the bootstrap superuser as
-      -- its grantor, and PostgreSQL 16 lets anyone else run the REVOKE to no effect: it warns
-      -- and returns success. An operator handed the bare command therefore watches it succeed
-      -- and concludes the bypass is closed, while ncmecAuditBoundaryStatus() goes on reporting
-      -- it — the same false-success this migration's own maintenance block was corrected for.
-      -- Only the grantor or a superuser can remove the row; ADMIN OPTION cannot.
-      maintenance_hint := (
-        SELECT string_agg(
-                 format('REVOKE %I FROM %I;  -- must be run AS %I (the grantor of this membership) or a superuser; running it as any other role warns and changes nothing',
-                        e, app_role,
-                        COALESCE((SELECT pg_catalog.pg_get_userbyid(m.grantor)
-                                    FROM pg_catalog.pg_auth_members m
-                                   WHERE pg_catalog.pg_get_userbyid(m.roleid) = e
-                                     AND pg_catalog.pg_get_userbyid(m.member) = app_role
-                                   LIMIT 1), app_role)),
-                 ' ' ORDER BY e)
-          FROM unnest(maintenance_edges) AS e
-      );
-    ELSE
-      maintenance_hint := format(
-        '-- MANUAL: the application (%I) can reach overhype_audit_maintenance through no directly-held grant; inspect pg_auth_members.',
-        app_role);
-    END IF;
-    maintenance_note :=
-      ' The application can still effectively assume overhype_audit_maintenance, which the append-only triggers accept as authorization to UPDATE, DELETE or TRUNCATE the ledger — so the guarantee is bypassable regardless of who owns the table. To close it: '
-      || maintenance_hint;
-  END IF;
-
-  SELECT pg_get_userbyid(n.nspowner) INTO schema_owner_role
-    FROM pg_namespace n WHERE n.nspname = ledger_schema;
-  IF schema_owner_role IS NOT NULL THEN
-    can_own_schema := pg_temp.ncmec_can_effectively_assume(schema_owner_role);
-  END IF;
-
-  SELECT pg_get_userbyid(n2.nspowner) INTO function_schema_owner_role
-    FROM pg_namespace n2 WHERE n2.nspname = function_schema;
-  IF function_schema_owner_role IS NOT NULL THEN
-    can_own_function_schema := pg_temp.ncmec_can_effectively_assume(function_schema_owner_role);
-  END IF;
-
-  -- Each of the three things this block is responsible for — table ownership, function
-  -- ownership, and the two application grants — is checked INDEPENDENTLY, not inferred from
-  -- table ownership alone. A DBA sequence interrupted after `ALTER TABLE ... OWNER TO` but
-  -- before the function transfer and the GRANTs would otherwise read as "already done" on
-  -- the next rerun: the application permanently short of its SELECT/INSERT grants, the guard
-  -- function possibly still application-owned, and ncmecAuditBoundaryStatus() free to report
-  -- the boundary enforced on a database that was never actually finished hardening.
-  -- Unqualified `to_regclass`/`to_regprocedure` resolve via search_path, the same path this
-  -- migration's own (also unqualified) statements used to place these objects — hardcoding
-  -- `nspname = 'public'` here would look in the wrong schema under any search_path that
-  -- doesn't put `public` first.
-  SELECT pg_get_userbyid(relowner) = 'overhype_audit_owner' INTO tbl_done
-    FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log');
-  tbl_done := COALESCE(tbl_done, false);
-
-  SELECT pg_get_userbyid(proowner) = 'overhype_audit_owner' INTO fn_done
-    FROM pg_proc WHERE oid = to_regprocedure('ncmec_safety_audit_log_append_only()');
-  fn_done := COALESCE(fn_done, false);
-
-  -- has_table_privilege()/has_sequence_privilege() answer "does app_role have this privilege
-  -- right now", which is exactly wrong here: on the very first hardening run app_role still
-  -- OWNS both objects, so both would report true before a single explicit GRANT has ever been
-  -- issued. That stale true then skips the GRANT block below, and once ownership moves to
-  -- overhype_audit_owner the application is left with nothing durable — masked only for as
-  -- long as it still inherits overhype_audit_owner's membership, until the DBA runs the
-  -- (non-optional) REVOKE. aclexplode() reads the literal ACL entries instead — but is only a
-  -- RELIABLE signal for app_role once app_role is confirmed NOT to be the current owner
-  -- (tbl_done): verified directly against this repository's PostgreSQL 16 target that once an
-  -- object's ACL is non-NULL for any reason (its own history, not just this block), `ALTER
-  -- ... OWNER TO` materializes the NEW owner's full implicit privilege set as an EXPLICIT ACL
-  -- entry — indistinguishable, from aclexplode() alone, from a genuinely narrow explicit
-  -- GRANT. So this value is used ONLY for the "already fully done, nothing to do" fast path
-  -- below (safe: reachable only when tbl_done/fn_done are already true, at which point
-  -- app_role cannot be the owner and any entry naming it is necessarily a real grant) — never
-  -- to gate whether the GRANT statements themselves run, which are unconditional and
-  -- idempotent instead.
-  grants_done :=
-    EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log'))) a
-             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'SELECT')
-    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log'))) a
-             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'INSERT')
-    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log_id_seq'))) a
-             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'USAGE')
-    AND EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = to_regclass('ncmec_safety_audit_log_id_seq'))) a
-             WHERE a.grantee = to_regrole(app_role) AND a.privilege_type = 'SELECT');
-
-  IF tbl_done AND fn_done AND grants_done
-     AND NOT can_own_schema AND NOT can_own_function_schema AND NOT can_own
-     AND NOT can_maintenance THEN
-    RAISE NOTICE '0097: ncmec_safety_audit_log is already fully hardened — owned by overhype_audit_owner, with the application role''s grants in place, and neither the containing schema, the guard function''s own schema, nor overhype_audit_owner itself is assumable by the application, and the application cannot assume overhype_audit_maintenance either.';
-  ELSIF tbl_done AND fn_done AND grants_done THEN
-    -- Table ownership, function ownership, and the application's grants are all correctly
-    -- done — but at least one of three things is still true: the application can become
-    -- overhype_audit_owner itself (the final REVOKE was never run), the ledger's containing
-    -- schema is still assumable, or the guard function's own containing schema (if it
-    -- differs from the ledger's) is still assumable. Any one of these lets the application
-    -- disable the triggers or drop-and-recreate the ledger/guard regardless of who owns them
-    -- individually; ncmecAuditBoundaryStatus().boundaryEnforced correctly stays false in
-    -- this state, and this migration must not claim hardening complete over it.
-    boundary_note := '';
-    IF can_own THEN
-      boundary_note := boundary_note
-        || ' The application can still become overhype_audit_owner itself — the final revocation has not been run. As a role with ADMIN OPTION on it: ' || revoke_hint;
-    END IF;
-    IF can_own_schema THEN
-      boundary_note := boundary_note
-        || ' The containing schema (' || quote_ident(ledger_schema) || ') is owned by ' || quote_ident(schema_owner_role)
-        || ', a role the application can also become — this migration cannot reconcile schema ownership automatically (see this block''s other branches for what closing it requires).';
-    END IF;
-    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
-      boundary_note := boundary_note
-        || ' The guard function''s own containing schema (' || quote_ident(function_schema) || ') is owned by ' || quote_ident(function_schema_owner_role)
-        || ', a role the application can also become — the same reconciliation gap applies to it independently of the table''s schema.';
-    END IF;
-    boundary_note := boundary_note || maintenance_note;
-    RAISE WARNING '0097: ncmec_safety_audit_log, its guard function, and the application''s grants are all correctly hardened, but the application can still bypass the append-only guarantee through a role it can become.%', boundary_note;
-  ELSIF can_set_own THEN
-    -- `can_set_own`, NOT `can_own`. Both statements this branch opens with require the ability
-    -- to SET ROLE to overhype_audit_owner specifically: `ALTER TABLE ... OWNER TO` fails with
-    -- "must be able to SET ROLE" without it, and the `SET LOCAL ROLE` below fails outright.
-    -- `can_own` is deliberately broader — it also counts INHERIT-only membership and
-    -- admin-option chains, neither of which can execute either statement — so entering here on
-    -- `can_own` aborted the entire migration on precisely the grant shapes the effective-access
-    -- check was widened to recognize. Those now fall through to the DBA recovery branch below,
-    -- which can actually describe how to resolve them.
-    --
-    -- The OWNER TO statements must run as the CURRENT owner (app_role, no role switch) —
-    -- Postgres's special-case rule for ALTER ... OWNER TO lets an owning role with only
-    -- SET-capability (no INHERIT) on the target reassign ownership directly, but the
-    -- executing role still has to actually own the object being altered. Only ONCE both
-    -- objects belong to overhype_audit_owner do the GRANTs below need to run AS it: if
-    -- app_role has SET but not INHERIT on overhype_audit_owner — the exact grant shape the
-    -- SET ROLE fix above exists to accept — its ambient privileges do not extend to an
-    -- object it just gave away, and an unguarded GRANT here fails with "permission denied
-    -- for table ncmec_safety_audit_log". Verified directly against this repository's
-    -- PostgreSQL 16 target while adding test coverage for this block: switching role BEFORE
-    -- the OWNER TO statements instead fails with "must be owner of table" — that ordering
-    -- is not interchangeable, both directions were confirmed to break it.
-    IF NOT tbl_done THEN
-      EXECUTE 'ALTER TABLE "ncmec_safety_audit_log" OWNER TO overhype_audit_owner';
-    END IF;
-    IF NOT fn_done THEN
-      EXECUTE 'ALTER FUNCTION ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner';
-    END IF;
-    IF to_regrole('overhype_audit_owner') <> to_regrole(current_user) THEN
-      EXECUTE 'SET LOCAL ROLE overhype_audit_owner';
-    END IF;
-    -- The application role keeps exactly what it needs to append and read. Unconditional
-    -- rather than gated on grants_done: GRANT is idempotent (re-granting an already-held
-    -- privilege is a no-op), and grants_done is not a trustworthy signal at this specific
-    -- point — see the comment on its computation above for why.
-    EXECUTE format('GRANT SELECT, INSERT ON TABLE "ncmec_safety_audit_log" TO %I', app_role);
-    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE "ncmec_safety_audit_log_id_seq" TO %I', app_role);
-    -- Restores the role this block was ENTERED under, which is not what RESET ROLE does: it
-    -- returns to `session_user`, verified directly against this repository's PostgreSQL 16
-    -- target. Same hazard, same fix as pg_temp.ncmec_assume_path's — a DBA replaying the
-    -- migration with `SET ROLE <app>; \i 0097.sql` would otherwise have every statement after
-    -- this line run as their own login role instead of the application role.
-    EXECUTE format('SET LOCAL ROLE %I', app_role);
-    -- can_set_own is this branch's entry condition, and it implies can_own (a role that can SET
-    -- ROLE to overhype_audit_owner trivially satisfies the effective-access check), so the
-    -- transfer just performed is NEVER the final state on its own: the application can still
-    -- become overhype_audit_owner until a DBA runs the revocation. Round 10 finding: this used
-    -- to unconditionally claim "now complete" the moment tbl_done/fn_done/grants_done were
-    -- all true, which was never actually true in this branch specifically.
-    boundary_note :=
-      ' The application can still become overhype_audit_owner itself — to finish, a DBA must run, as a role with ADMIN OPTION on it: ' || revoke_hint;
-    IF can_own_schema THEN
-      boundary_note := boundary_note
-        || ' The containing schema (' || quote_ident(ledger_schema) || ') is owned by ' || quote_ident(schema_owner_role)
-        || ', a role the application can also become — see this block''s other branches for what closing that requires.';
-    END IF;
-    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
-      boundary_note := boundary_note
-        || ' The guard function''s own containing schema (' || quote_ident(function_schema) || ') is owned by ' || quote_ident(function_schema_owner_role)
-        || ', a role the application can also become.';
-    END IF;
-    boundary_note := boundary_note || maintenance_note;
-    RAISE WARNING '0097: ncmec_safety_audit_log ownership hardening reconciled (table was already done: %, function was already done: %, grants were already done: %), but the boundary is not yet complete.%',
-      tbl_done, fn_done, grants_done, boundary_note;
-  ELSIF tbl_done AND fn_done AND NOT grants_done THEN
-    -- Hardened but incomplete, and the sharpest of the end states this block can leave a
-    -- database in: ownership of both objects has already moved to overhype_audit_owner, but
-    -- the application was never granted SELECT/INSERT on the table or USAGE/SELECT on the
-    -- sequence, so every single audit-log write fails. Unlike the ownership-incomplete case
-    -- below (which the runtime boundary status already surfaces and the activation gate
-    -- already blocks on), nothing else in this system detects a missing grant — it is a
-    -- functional break, not a security one, so it would only surface as a production failure
-    -- the first time anything tries to write to the ledger. This migration cannot fix it
-    -- itself (that is precisely the access it no longer has), so it refuses to be recorded as
-    -- successful rather than let the deploy proceed silently broken.
-    --
-    -- What this branch may NOT do is claim the security boundary is closed. It used to say
-    -- "the application role cannot assume it", which was true only while the branch above it
-    -- was `ELSIF can_own`: every reachable-owner case was caught there first. That branch is
-    -- now `ELSIF can_set_own` (an INHERIT-only or admin-option grant cannot execute the
-    -- transfer), so a database where the application still REACHES overhype_audit_owner but
-    -- cannot SET ROLE to it now lands here — and following only the two GRANTs below would
-    -- leave that bypass wide open while this message asserted it was closed.
-    -- Same for the maintenance role, which was never considered here at all.
-    --
-    -- The printed recovery commands are schema-qualified (via ledger_schema, resolved above)
-    -- and identifier-quoted (via format()'s %I), not bare names — a DBA who ran these literally
-    -- under a search_path that doesn't put the ledger's actual schema first would hit
-    -- "relation does not exist", and app_role could in principle need quoting too.
-    boundary_note := '';
-    IF can_own THEN
-      boundary_note := boundary_note
-        || ' The application can ALSO still effectively assume overhype_audit_owner, so the boundary is not closed even once the grants above are in place. To close it, as a role with ADMIN OPTION on it: '
-        || revoke_hint;
-    END IF;
-    boundary_note := boundary_note || maintenance_note;
-    RAISE EXCEPTION '%', format(
-      '0097: ncmec_safety_audit_log and its guard function are both owned by overhype_audit_owner, but the application was never granted SELECT/INSERT on ncmec_safety_audit_log or USAGE/SELECT on ncmec_safety_audit_log_id_seq. Every audit-log write will fail until a DBA runs, as overhype_audit_owner or a role that can SET ROLE to it: '
-      'GRANT SELECT, INSERT ON %I.%I TO %I; '
-      'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I;%s',
-      ledger_schema, 'ncmec_safety_audit_log', app_role,
-      ledger_schema, 'ncmec_safety_audit_log_id_seq', app_role,
-      boundary_note
-    );
-  ELSE
-    -- The last clause of the instruction is the one that actually matters, and it is why
-    -- the transfer cannot be completed from inside this migration: transferring ownership
-    -- needs membership of the target role, and that membership is precisely what would let
-    -- the application role SET ROLE back and disable the trigger. Someone with higher
-    -- privilege has to do it and then step away.
-    -- GRANT CREATE ON SCHEMA is not optional either, and is easy to miss: verified directly
-    -- against this repository's PostgreSQL 16 target that `ALTER TABLE ... OWNER TO` fails
-    -- with "permission denied for schema ..." without it, because Postgres requires the NEW
-    -- owner (not the executing role) to hold CREATE on the object's schema — and PostgreSQL
-    -- 15+ no longer grants that to every role by default the way pre-15 did. Discovered by
-    -- direct experiment while adding test coverage for this block, not by reading the
-    -- manual: the block's own transfer attempt below raised exactly this error against a
-    -- freshly `CREATE ROLE`'d owner with no other grants.
-    --
-    -- The schema named is `ledger_schema` (resolved above), never hardcoded "public": under
-    -- any search_path that doesn't put public first — including this repo's own
-    -- isolated-test-schema tooling, or a real deployment with a non-default search_path — a
-    -- DBA who followed a hardcoded "public" instruction to the letter would still hit
-    -- "permission denied for schema <real schema>" on the OWNER TO below.
-    --
-    -- Every object reference below is schema-qualified (via ledger_schema) and
-    -- identifier-quoted (via format()'s %I), not just the GRANT CREATE ON SCHEMA line — a
-    -- DBA running these commands under a search_path that doesn't put ledger_schema first
-    -- would otherwise hit "relation does not exist" on the unqualified ALTER TABLE/FUNCTION
-    -- and GRANT statements too, exactly the same class of failure the GRANT CREATE ON SCHEMA
-    -- qualification above already exists to avoid.
-    --
-    -- Assembled statement by statement rather than from one of N fixed templates. Three
-    -- independent conditions each add or change a line — whether overhype_audit_owner already
-    -- exists, whether the guard function lives in its own schema, and which grant actually has
-    -- to be revoked — and a template per combination is both unreadable and exactly the shape
-    -- that lets a positional format() argument silently drift out of alignment with its
-    -- directive. Every object reference is still schema-qualified and identifier-quoted via
-    -- format()'s %I, per the comment above.
-    --
-    -- The CREATE ROLE line is included only when overhype_audit_owner does not exist yet.
-    -- Reaching this branch does NOT mean the role is missing: it means the migration could not
-    -- perform the transfer itself, which is equally true when the role exists but the
-    -- application cannot SET ROLE to it — either because it genuinely cannot become it at all
-    -- (the correctly-hardened end state) or because it holds only INHERIT-only/admin-option
-    -- access, which the effective-access check counts as a bypass but which cannot execute
-    -- ALTER ... OWNER TO. Printing CREATE ROLE unconditionally would make a DBA's literal
-    -- copy-paste fail on "role already exists" before any of the transfer or grants ran, in
-    -- exactly those states. PostgreSQL has no CREATE ROLE IF NOT EXISTS form (unlike CREATE
-    -- TABLE, verified directly against this repository's PostgreSQL 16 target), so this is
-    -- constructed conditionally rather than made idempotent syntactically.
-    recovery_cmds :=
-      '0097: ncmec_safety_audit_log is owned by the application role, so ALTER TABLE ... DISABLE TRIGGER can still bypass the append-only guarantee. To complete the boundary a DBA must run, as a role the application is not a member of: ';
-    IF NOT owner_role_exists THEN
-      -- The self-grant is not redundant with the CREATE, and omitting it made this whole
-      -- sequence fail for exactly the audience it is written for. Verified directly against
-      -- this repository's PostgreSQL 16 target: when a non-superuser CREATEROLE role creates
-      -- another, the automatic membership it receives is `admin_option = t, inherit_option = f,
-      -- set_option = f` — ADMIN OPTION but NOT SET. `ALTER TABLE ... OWNER TO` requires the
-      -- executor to be able to SET ROLE to the new owner, so the very next line failed with
-      -- "must be able to SET ROLE" for any DBA who was not a superuser. Confirmed in both
-      -- directions: the transfer fails before this GRANT and succeeds after it. The ADMIN
-      -- OPTION the creator already holds is what makes the role able to issue this grant to
-      -- itself. The REVOKE at the end of the sequence removes it again, so the SET access
-      -- exists only for the span of the transfer.
-      recovery_cmds := recovery_cmds
-        || 'CREATE ROLE overhype_audit_owner NOLOGIN; '
-        || 'GRANT overhype_audit_owner TO CURRENT_USER WITH SET TRUE; ';
-    END IF;
-    recovery_cmds := recovery_cmds || format('GRANT CREATE ON SCHEMA %I TO overhype_audit_owner; ', ledger_schema);
-    -- A SECOND GRANT CREATE, on the guard function's own schema, whenever it differs from the
-    -- table's. PostgreSQL requires the new owner to hold CREATE on the schema containing the
-    -- object being reassigned — the table's schema is not that schema for the ALTER FUNCTION
-    -- line below, so without this a DBA following these instructions in order still fails on
-    -- "permission denied for schema <function_schema>" at the function transfer, having
-    -- already completed the table's. Emitted conditionally because in the ordinary case the
-    -- two schemas are identical and a duplicate GRANT would just be noise.
-    IF function_schema IS DISTINCT FROM ledger_schema THEN
-      recovery_cmds := recovery_cmds || format('GRANT CREATE ON SCHEMA %I TO overhype_audit_owner; ', function_schema);
-    END IF;
-    recovery_cmds := recovery_cmds
-      || format('ALTER TABLE %I.%I OWNER TO overhype_audit_owner; ', ledger_schema, 'ncmec_safety_audit_log')
-      -- ALTER FUNCTION targets function_schema, not ledger_schema — round 10 finding: the
-      -- guard function's own containing schema is resolved and checked independently of the
-      -- table's, and this printed command must target the schema the function ACTUALLY lives
-      -- in, not assume it matches the table's.
-      || format('ALTER FUNCTION %I.ncmec_safety_audit_log_append_only() OWNER TO overhype_audit_owner; ', function_schema)
-      || format('GRANT SELECT, INSERT ON %I.%I TO %I; ', ledger_schema, 'ncmec_safety_audit_log', app_role)
-      || format('GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I; ', ledger_schema, 'ncmec_safety_audit_log_id_seq', app_role)
-      ;
-    -- The maintenance role is deliberately NOT revoked here. It used to be, unconditionally,
-    -- and that was both unnecessary and un-runnable: the migration already revokes its own
-    -- automatic creator membership, so in the ordinary case the command is a no-op — and
-    -- REVOKE requires ADMIN OPTION on the role being revoked, which after that self-revoke
-    -- nobody but a superuser holds. A non-superuser DBA pasting this sequence hit
-    -- `permission denied to revoke role "overhype_audit_maintenance"` AFTER the ownership
-    -- transfers had already succeeded. Where the application genuinely can still reach that
-    -- role, `maintenance_note` (appended below) names the specific grants to cut instead.
-    -- The owner-role revocation names the grant that actually breaks the path (see revoke_hint
-    -- above), which is only `REVOKE overhype_audit_owner FROM <app>` when the application holds
-    -- it directly. When it does not — an admin-option chain — that command removes a membership
-    -- that was never there: the DBA sees it succeed, the bypass stays open, and the next rerun
-    -- of 0097 prints this same instruction again, indefinitely. `revoke_hint` is NULL only when
-    -- can_own is false, i.e. there is no path left to break, in which case nothing is appended.
-    IF revoke_hint IS NOT NULL THEN
-      recovery_cmds := recovery_cmds || revoke_hint;
-    ELSIF NOT owner_role_exists THEN
-      -- The role does not exist yet, so the application holds no path to it and revoke_hint is
-      -- NULL — but the DBA is being told to CREATE it two lines up, and on PostgreSQL 16 a
-      -- CREATEROLE role that creates another is automatically granted it. The membership that
-      -- has to go therefore belongs to whoever runs these commands, a name this migration
-      -- cannot know, so the instruction names the creator rather than app_role. The old
-      -- unconditional `REVOKE overhype_audit_owner FROM <app>` pointed at the wrong role here:
-      -- it succeeds, changes nothing, and leaves the creator's membership in place.
-      -- `CURRENT_USER`, not a prose placeholder. This sequence is meant to be pasted and run
-      -- verbatim, and `REVOKE ... FROM <the role that runs the CREATE ROLE above>` is a syntax
-      -- error — under fail-fast tooling it aborts AFTER the ownership transfers and grants have
-      -- already succeeded, leaving exactly the temporary membership this line exists to remove.
-      -- CURRENT_USER is correct and self-describing here: the grant being revoked is the one
-      -- the CREATE ROLE above conferred on whoever is running the sequence, plus the SET access
-      -- they self-granted for the transfer.
-      -- Two memberships exist by this point and only one of them is revocable here. Verified
-      -- directly against this repository's PostgreSQL 16 target: `CREATE ROLE` by a
-      -- non-superuser CREATEROLE role produces an automatic membership whose GRANTOR is the
-      -- bootstrap superuser (admin_option = t, set_option = f), and the self-grant above adds a
-      -- second row granted by the DBA itself. `REVOKE ... FROM CURRENT_USER` removes only the
-      -- latter; attempting the former fails with "permission denied to revoke privileges
-      -- granted by role ...", because only a role with the grantor's privileges may revoke it —
-      -- and holding ADMIN OPTION is not enough.
-      --
-      -- The residual row still confers ADMIN OPTION, so the DBA can re-grant itself the role at
-      -- will: by this migration's own reachability definition the boundary is NOT closed, and
-      -- ncmecAuditBoundaryStatus() will keep reporting a bypass. Saying so plainly is the only
-      -- honest option — the alternative is a sequence that reports success while leaving the
-      -- guarantee open. The supported path is to have the role created by a superuser (or any
-      -- role whose own grant can afterwards be revoked), which is why this note names it.
-      recovery_cmds := recovery_cmds
-        || 'REVOKE overhype_audit_owner FROM CURRENT_USER; '
-        || '-- NOTE: creating overhype_audit_owner as a non-superuser CREATEROLE role leaves that '
-        || 'role an automatic membership, granted by the bootstrap superuser and carrying ADMIN '
-        || 'OPTION, which only that superuser can revoke. This is the DBA''s own retained '
-        || 'authority over a role it created, NOT a path from the application: '
-        || 'ncmecAuditBoundaryStatus() asks whether the APPLICATION can reach overhype_audit_owner, '
-        || 'so this membership does not by itself keep boundaryEnforced false or block activation. '
-        || 'It is worth removing anyway if the DBA account is not meant to retain standing access '
-        || 'to the ledger''s owner — have a superuser run the CREATE ROLE above instead, or have '
-        || 'one run: REVOKE overhype_audit_owner FROM <the creating role> GRANTED BY <the grantor>;';
-    END IF;
-
-    -- The REVOKEs above are not optional: on PostgreSQL 16 creating a role auto-grants it to
-    -- the creator, and any membership left in place keeps the trigger bypassable and
-    -- ncmecAuditBoundaryStatus().boundaryEnforced false. quote_ident(), not another format()
-    -- call, builds the schema-ownership note: nesting format() calls would let a literal '%'
-    -- inside a resolved role/schema name corrupt the OUTER format() call's own directive
-    -- parsing, however unlikely that is to occur in practice.
-    boundary_note := ' -- the REVOKEs are not optional: on PostgreSQL 16 creating a role auto-grants it to the creator, and any membership left in place keeps the trigger bypassable and ncmecAuditBoundaryStatus().boundaryEnforced false.';
-    IF can_own_schema THEN
-      boundary_note := boundary_note
-        || ' Once that is done, the containing schema (' || quote_ident(ledger_schema)
-        || ') is STILL owned by ' || quote_ident(schema_owner_role)
-        || ', a role the application can also become — closing the table/function bypass alone leaves a DROP TABLE/DROP FUNCTION bypass open via the schema; see this migration''s ownership-hardening comments for what closing it requires.';
-    END IF;
-    IF can_own_function_schema AND function_schema IS DISTINCT FROM ledger_schema THEN
-      boundary_note := boundary_note
-        || ' The guard function''s own containing schema (' || quote_ident(function_schema)
-        || ') is STILL owned by ' || quote_ident(function_schema_owner_role)
-        || ', a role the application can also become — the same reconciliation gap applies to it independently of the table''s schema.';
-    END IF;
-    RAISE WARNING '%', recovery_cmds || boundary_note || maintenance_note;
-  END IF;
+  RAISE WARNING '%', format(
+    '0097: the append-only guarantee on %I.%I is NOT yet a privilege boundary. This migration ran as %I, which therefore owns the ledger (schema %I) and its guard function (schema %I) and can disable its own triggers. Closing the boundary requires a superuser and is documented in docs/engineering/ncmec-audit-ledger-hardening.md. Until it is run, ncmecAuditBoundaryStatus() reports boundaryEnforced = false and NCMEC production filing stays blocked.',
+    ledger_schema, 'ncmec_safety_audit_log',
+    current_user, ledger_schema, COALESCE(function_schema, ledger_schema)
+  );
 END $$;
 -- <<< ncmec-0097 ownership hardening block (end)
 --> statement-breakpoint

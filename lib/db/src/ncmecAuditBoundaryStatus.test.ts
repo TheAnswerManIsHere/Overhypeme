@@ -211,6 +211,48 @@ describe("ncmecAuditBoundaryStatus — pool injection", () => {
     assert.equal(status.applicationCanBypassTrigger, false);
   });
 
+  it("reports a TRANSITIVE path to overhype_audit_maintenance as a live trigger bypass", async () => {
+    // The append-only triggers admit any caller with an effective grant of
+    // overhype_audit_maintenance, so reaching that role bypasses the ledger regardless of who
+    // owns the table — and reaching it INDIRECTLY, through an intermediate role, is the shape
+    // a direct-membership check misses. This property gates production filing through
+    // boundaryEnforced, and it used to be covered by an assertion against a reachability
+    // reimplementation inside migration 0097. That reimplementation is gone (the migration no
+    // longer decides anything about roles — see
+    // docs/engineering/ncmec-audit-ledger-hardening.md), so the coverage belongs here, against
+    // the one implementation that survives and that phase 6 actually calls.
+    //
+    // The role is created here rather than by the migration for the same reason the runbook
+    // creates it: a superuser's CREATE ROLE confers no membership on anyone else.
+    const mid = `nab_mid_${runId}`;
+    let created = false;
+    try {
+      const { rows } = await sharedPool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_roles WHERE rolname = 'overhype_audit_maintenance'`,
+      );
+      if (rows[0]!.n === 0) {
+        await sharedPool.query(`CREATE ROLE overhype_audit_maintenance NOLOGIN`);
+        created = true;
+      }
+      await sharedPool.query(`CREATE ROLE "${mid}" NOLOGIN`);
+      await sharedPool.query(`GRANT overhype_audit_maintenance TO "${mid}" WITH INHERIT TRUE, SET TRUE`);
+      await sharedPool.query(`GRANT "${mid}" TO "${loginRole}" WITH INHERIT TRUE, SET TRUE`);
+
+      const status = await ncmecAuditBoundaryStatus(loginPool);
+      assert.equal(status.maintenanceRoleExists, true);
+      assert.equal(
+        status.applicationCanBypassTrigger,
+        true,
+        "a two-hop grant chain to the maintenance role must count as reachability",
+      );
+      assert.equal(status.boundaryEnforced, false);
+    } finally {
+      await sharedPool.query(`REVOKE "${mid}" FROM "${loginRole}"`).catch(() => {});
+      await sharedPool.query(`DROP ROLE IF EXISTS "${mid}"`).catch(() => {});
+      if (created) await sharedPool.query(`DROP ROLE IF EXISTS overhype_audit_maintenance`).catch(() => {});
+    }
+  });
+
   it("the module's own (superuser) pool reports ownership-equivalent access unconditionally — the gap targetPool exists to bypass", async () => {
     // Same table, same function, same schema, same maintenance role, queried through the same
     // connection every real caller uses by default. A superuser satisfies
