@@ -371,10 +371,13 @@ priorities (moderation speed, render/enrichment quality, video). See
   yet — both filing switches are seeded off — but only phase 2 (the client
   and builders) is callerless; phase 1 is already live in existing paths
   (`submitNcmecReport()` writes `ncmec_reports`, `quarantineImage()` invokes
-  that stub, and migration `0097`'s `ncmec_reports_link_quarantine_trg` and
-  reserved-config guard run against those writes today — the append-only
-  triggers on `ncmec_safety_audit_log` are separate infrastructure for
-  later phases; the stub never writes to that table). Phases 3–8
+  that stub, and migration `0097`'s `ncmec_reports_link_quarantine_trg`
+  runs against those inserts today — the append-only triggers on
+  `ncmec_safety_audit_log` are separate infrastructure for later phases;
+  the stub never writes to that table. The reserved-config guard is a
+  separate protection: it runs in `PATCH /admin/config/:key`, not on
+  report inserts, rejecting writes to the five filing-capable NCMEC keys
+  regardless of whether a report was ever filed). Phases 3–8
   (the submission worker, the reconciler, admin routes, the `/admin/safety`
   page, alerting, and the production-activation gate) remain. See
   [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
@@ -494,8 +497,9 @@ priorities (moderation speed, render/enrichment quality, video). See
     builders are asserted against exact expected documents and NCMEC's public
     documentation rather than schema-validated offline.
   - Where does the **ESP reporting contact email** live? NCMEC requires it on
-    every report (`<reportingContact>` or equivalent) and it must match
-    Availeron Consulting's registration exactly; `buildReportXml` currently
+    every report, at `<reporter><reportingPerson><email>` in the shipped
+    XML builder, and it must match Availeron Consulting's registration
+    exactly; `buildReportXml` currently
     takes it as a required argument and throws without one rather than
     inventing a placeholder. Needs a configured home before phase 5 (the
     worker) can call it for real.
