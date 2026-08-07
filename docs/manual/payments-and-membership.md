@@ -149,15 +149,18 @@ a comp from a real sale.
   off someone who's still paying, so the normally-bounded window is
   unbounded until an authoritative refresh resolves it. The case is logged
   for follow-up rather than silently accepted.
-- **No repair for a webhook Stripe never successfully delivers.** Every event
-  Stripe *does* deliver is handled correctly, including duplicates and events
-  arriving out of order. But if Stripe's delivery attempts for one event all
-  fail — the endpoint down for its whole retry window, say — nothing
-  currently notices and fixes it afterward. In the direction that would cost
-  the business money (a cancellation or refund that never arrived), there's
-  also no way to fix it from the admin screen by hand; grant/revoke only
-  create and end admin grants. This is a known, accepted gap — not an
-  oversight — recorded in
+- **No repair for a webhook Stripe never successfully delivers, or for an
+  event type membership doesn't model.** Every event type this system
+  handles is applied correctly, including duplicates and events arriving out
+  of order. An event type it doesn't recognize is silently ignored rather
+  than acted on — not reachable in practice today (checkout only accepts
+  cards), but not actively prevented either. And if Stripe's delivery
+  attempts for a *handled* event all fail — the endpoint down for its whole
+  retry window, say — nothing currently notices and fixes it afterward. In
+  the direction that would cost the business money (a cancellation or refund
+  that never arrived), there's also no way to fix it from the admin screen by
+  hand; grant/revoke only create and end admin grants. This is a known,
+  accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
 - **The stored tier column itself can lag reality — normally by up to an hour,
   the sweep's default cadence, but nowhere a person actually looks shows that

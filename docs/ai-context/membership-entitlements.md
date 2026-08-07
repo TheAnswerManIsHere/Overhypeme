@@ -41,16 +41,18 @@ mechanics. Any *other* code writing the column directly is a regression.
 A user's tier is derived from their **entitlement sources** —
 `membership_entitlements` rows, one per durable candidate the user has ever
 held. A row is **not** necessarily currently granting anything: a cancelled
-subscription, a refunded purchase, a disputed source, or one on a
-non-membership price are all retained rows that no longer (or never did)
-qualify — retained deliberately, as the audit trail, and never turned into a
-bare existence check. Whether a given row currently grants access is answered
-separately, below. Three source types:
+subscription, a refunded purchase, a source with an open or lost dispute, or
+one on a non-membership price are all retained rows that no longer (or never
+did) qualify — retained deliberately, as the audit trail, and never turned
+into a bare existence check. A **won** dispute is the exception: it clears the
+hold and the underlying source re-qualifies, since the purchase was fine all
+along (see *Refunds and disputes* below). Whether a given row currently grants
+access is answered separately, below. Three source types:
 
 | Source type | Created by | Frozen identity | Verified against |
 |---|---|---|---|
 | `stripe_subscription` | a subscription webhook, a Stripe-mutating route, or a refresh | `provider_ref` = the subscription id | The retrieved live `Stripe.Subscription` |
-| `stripe_lifetime_payment` | `checkout.session.completed` (one-time) | `provider_ref` = the PaymentIntent id | The retrieved live `Stripe.PaymentIntent` / its charges |
+| `stripe_lifetime_payment` | `checkout.session.completed` (one-time), or synchronously by `POST /stripe/checkout/confirm` if the confirm route reaches it before the webhook does | `provider_ref` = the PaymentIntent id | The retrieved live `Stripe.PaymentIntent` / its charges |
 | `admin_grant` | `POST /admin/users/:id/grant-lifetime` | none (`provider_ref` is null) | Nothing — it *is* the authority |
 
 `user_id`, `source_type`, `provider_ref` and `created_at` are **frozen** after
@@ -104,11 +106,16 @@ being permanently acked on a transient failure.
 
 This section scopes to **Stripe-backed writes** — refreshes and webhook-driven
 updates to `stripe_subscription`/`stripe_lifetime_payment` sources. Admin
-grants and revocations (`writeAdminGrant`/`writeAdminRevocation`) write
-directly inside their own transaction, with no Stripe retrieval, no lease, and
-no fencing check — there is nothing to race against but another writer of the
-same admin action, and the admin *is* the authority for that source. Every
-Stripe-backed write path splits into two phases:
+grants and revocations (`writeAdminGrant`/`writeAdminRevocation`) skip the
+Stripe retrieval, the per-source lease, and the fencing check described below
+— the admin *is* the authority for that source, so there's no provider state
+to reconcile against. That doesn't mean nothing serializes them: both call
+`recomputeMembership` immediately afterward in the same transaction, which
+takes the user row `FOR UPDATE`, and a grant additionally waits on the partial
+unique index over active grants — so a grant/revoke racing a Stripe-backed
+recomputation for the same user still serializes cleanly, just via the user
+row lock and that index rather than a source lease. Every Stripe-backed write
+path splits into two phases:
 
 - **prepare** — every Stripe retrieval and the per-source lease, with **no
   transaction open**. Network calls inside a transaction is the invariant this
@@ -116,13 +123,21 @@ Stripe-backed write path splits into two phases:
 - **apply** — the domain writes, inside one transaction, with **no network
   call in it**.
 
-A **lease** is a row-locked scope per `(source_type, provider_ref)`, acquired
-with a wait timeout before prepare and released after apply. The lease alone
-doesn't make the write atomic — a lease can expire mid-refresh under load. What
-actually makes it safe is the **fencing token**: `apply` re-checks the lease is
-still held (`assertFenceHeld`, a `SELECT … FOR UPDATE` inside the write
-transaction) immediately before writing. A stale writer's fence check fails and
-its write never lands, even if its lease technically expired moments earlier.
+A **lease** is a row-locked scope per `(source_type, provider_ref)`, released
+after apply. For most prepare paths (`prepareSubscriptionRefresh`) it's
+acquired **before** the Stripe retrieval, with a wait timeout, because the
+provider reference that names its scope is already known going in. Two paths
+invert that: `prepareOneTimeCheckout` and `prepareDisputeEvent` don't know
+what to lease until they've retrieved and verified the object (a checkout
+session, a dispute) — the PaymentIntent or source id the lease would be scoped
+to is one of the things that retrieval discovers — so for those two, the lease
+is claimed **after** identity is known and carries no retrieval deadline; a
+slow read has nothing held to outlive. The lease alone doesn't make the write
+atomic — a lease can expire mid-refresh under load. What actually makes it
+safe is the **fencing token**: `apply` re-checks the lease is still held
+(`assertFenceHeld`, a `SELECT … FOR UPDATE` inside the write transaction)
+immediately before writing. A stale writer's fence check fails and its write
+never lands, even if its lease technically expired moments earlier.
 
 **Lock order matters.** Every apply path takes the **user row lock before**
 touching a source row, never after — a refund and a reinstatement racing for
@@ -251,16 +266,22 @@ couldn't stand behind are.
 Two are stated here rather than only in review threads, so a fresh reader finds
 them without archaeology:
 
-1. **No repair for an event Stripe never successfully delivers.** Every event
-   this system *does* receive is authoritative, fenced and idempotent. If
-   Stripe's whole retry window for one event fails, nothing sweeps up
-   afterward and finds the discrepancy — and in the direction that costs
+1. **No repair for an event Stripe never successfully delivers — and not
+   every delivered event type is modeled.** Every event type this system
+   handles is authoritative, fenced and idempotent. But `prepareDomainEvent`'s
+   `default: break` silently no-ops any event type it doesn't recognize,
+   while the event is still claimed as processed — currently reachable only
+   in theory (checkout is card-only, and a card checkout doesn't produce the
+   async-payment events this would matter for), but the handler doesn't
+   enforce that; enabling a delayed-payment method would open it for real. And
+   if Stripe's whole retry window for a *modeled* event fails, nothing sweeps
+   up afterward and finds the discrepancy — and in the direction that costs
    money, nothing on the admin surface can either (grant/revoke only touch
    admin grants). See "Stripe↔local membership reconciliation" in
    [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt)
-   for the design constraint that makes this harder than "write the job": it
-   can't enumerate from local rows, because a first purchase whose checkout
-   webhook never landed leaves no row to scan.
+   for the design constraint that makes the delivery-failure half harder than
+   "write the job": it can't enumerate from local rows, because a first
+   purchase whose checkout webhook never landed leaves no row to scan.
 2. **Entitlement sources don't record which Stripe mode created them.** A
    test-mode membership keeps granting Legendary after an operator flips
    `stripe_live_mode` to live. See
@@ -268,7 +289,8 @@ them without archaeology:
    for the fix shape and why the backfill semantics are a product decision,
    not a mechanic.
 
-The **grace sweep** (`membershipGraceSweep.ts`, hourly) is not a mitigation for
+The **grace sweep** (`membershipGraceSweep.ts`, hourly by default —
+`grace_sweep_interval_seconds`, operator-configurable) is not a mitigation for
 either gap — it converges the *stored* `membership_tier` toward what
 `effectiveTierExpr` already enforces on every read. If the sweep died
 entirely, nobody would keep access past their deadline; only the stored
