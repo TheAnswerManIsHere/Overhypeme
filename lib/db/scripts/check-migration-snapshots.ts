@@ -335,6 +335,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // can express against a snapshot chain it cannot regenerate. Source of truth:
   // lib/db/src/schema/memberships.ts (both tables removed).
   "0096_drop_legacy_membership_tables",
+
+  // Phase 1 of the NCMEC CyberTipline submission plan: additive columns on
+  // ncmec_reports + quarantined_memes, the widened submission_status CHECK, the
+  // append-only ncmec_safety_audit_log (table + role-gated triggers), three
+  // partial indexes, one classify-then-link backfill of quarantine_id, and
+  // eight seeded admin_config rows. Hand-authored idempotent DDL — drizzle-kit
+  // generate stays broken on the malformed 0063 snapshot.
+  // Source of truth: lib/db/src/schema/moderation.ts.
+  "0097_ncmec_submission",
 ]);
 
 interface JournalEntry {

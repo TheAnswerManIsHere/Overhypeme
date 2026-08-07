@@ -29,8 +29,13 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, factTextEditHistoryTable, pendingReviewsTable } from "@workspace/db/schema";
+import { adminConfigTable, usersTable, factsTable, factTextEditHistoryTable, pendingReviewsTable } from "@workspace/db/schema";
 import { like, eq, inArray } from "drizzle-orm";
+
+import {
+  NCMEC_RESERVED_CONFIG_KEYS,
+  NCMEC_RESERVED_KEY_REFUSAL,
+} from "../lib/moderation/ncmecConfig.js";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
@@ -837,6 +842,78 @@ describe("PATCH /admin/config/:key", () => {
       .send({ value: "test" });
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
+  });
+
+  // Migration 0097 seeds the NCMEC keys into admin_config, and this route
+  // writes any key that exists there after validating nothing but data type and
+  // min/max. Without the refusal below, an admin could set
+  // ncmec_submission_enabled = true and ncmec_ispws_environment = production
+  // through a route that knows nothing about backlog audits — and once the
+  // worker registers, that configuration files real reports with the activation
+  // gate bypassed.
+  it("refuses every reserved NCMEC key, even for an admin", async () => {
+    for (const key of NCMEC_RESERVED_CONFIG_KEYS) {
+      const res = await request(makeApp())
+        .patch(`/admin/config/${key}`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ value: "true" });
+      assert.equal(res.status, 403, `${key} was not refused`);
+      assert.equal(res.body.error, NCMEC_RESERVED_KEY_REFUSAL);
+    }
+  });
+
+  it("refuses a reserved key before it inspects the body", async () => {
+    // A 400 "value is required" would tell the caller the wrong thing about why
+    // the write failed — the key could never have been written here at all.
+    const res = await request(makeApp())
+      .patch("/admin/config/ncmec_submission_enabled")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, NCMEC_RESERVED_KEY_REFUSAL);
+  });
+
+  it("still writes ncmec_safety_alert_email, which is deliberately not reserved", async () => {
+    // It cannot cause a filing, and reserving it would make a routine
+    // operational edit need a bespoke endpoint. It is guarded by the activation
+    // gate instead — production is refused unless a recipient resolves.
+    //
+    // Seeded here rather than assumed present: the sharded test runner clones
+    // each worker database from a `pg_dump --schema-only` template, so 0097's
+    // seed INSERTs from the shared "pretest" migrate run never reach a worker's
+    // admin_config — only the schema does. Seeding it (idempotently, matching
+    // 0097's own row shape) makes this test self-contained regardless of which
+    // database state it runs against.
+    const [existing] = await db
+      .select({ value: adminConfigTable.value })
+      .from(adminConfigTable)
+      .where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+    if (!existing) {
+      await db.insert(adminConfigTable).values({
+        key: "ncmec_safety_alert_email",
+        value: "",
+        dataType: "text",
+        label: "NCMEC Safety Alert Email",
+        isPublic: false,
+      }).onConflictDoNothing();
+    }
+    const originalValue = existing?.value ?? "";
+    try {
+      const res = await request(makeApp())
+        .patch("/admin/config/ncmec_safety_alert_email")
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ value: "safety@example.test" });
+      assert.equal(res.status, 200);
+    } finally {
+      if (existing) {
+        await db
+          .update(adminConfigTable)
+          .set({ value: originalValue })
+          .where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+      } else {
+        await db.delete(adminConfigTable).where(eq(adminConfigTable.key, "ncmec_safety_alert_email"));
+      }
+    }
   });
 });
 
