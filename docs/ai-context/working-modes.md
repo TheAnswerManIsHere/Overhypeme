@@ -101,6 +101,58 @@ Response 2 is legitimate and under-used. Specifying compare-and-swap semantics
 for a GitHub label write, in a solo-operator repo, because a reviewer correctly
 noted a race, is response 1 applied where response 2 was right.
 
+### The post-round check-in (David, 2026-08-07)
+
+The stopping rule and the triage above were self-policed — the agent driving
+the loop classified, judged the trend, and decided to continue, all
+unilaterally. The NCMEC plan loop (PR #280 — 18 rounds, 180 findings, this
+repo's worst by finding count, ledger row 14) showed what that costs: rounds
+went into trying to make a migration block the application role from mutating
+objects that role *owns* — a boundary PostgreSQL structurally cannot enforce
+without a superuser, which is now exactly what
+[`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)
+documents ("where the transfer would buy something, it is not permitted;
+where it is permitted, it buys nothing"). One round of "impossible as
+specified — escalate" was the correct disposition; iterated fix attempts were
+not. The structural fix: **the continue/stop decision moves from the agent to
+David, every substantive round.**
+
+**When a review round's findings land: triage first, implement nothing,
+report.** The check-in carries:
+
+1. **Count + trend** — this round's finding count against the prior rounds'
+   ("round 3: 4 findings; 9 → 6 → 4"). A rising count is flagged as a stop
+   candidate in the same breath, per the stopping rule above.
+2. **Per finding** (grouped where natural): what it is, which part of the
+   feature or fix it affects, and the triage verdict — fix /
+   accept-and-document / escalate / decline — with a plain statement of
+   whether it is critical to delivering the feature or fix.
+3. **The causal flag, explicitly.** Is the finding **new ground**, or is it
+   **repairing something an earlier round's fix introduced** (propagation /
+   wrong-fix, in the loop ledger's rubric vocabulary), or is it **demanding a
+   guarantee the platform or configuration cannot provide** (the NCMEC case)?
+   An impossible-as-specified finding is named as such and never absorbed as
+   another fix attempt.
+4. **A recommendation** — continue / stop and ship / escalate — and then the
+   loop waits. David decides.
+
+**Fixes are implemented only after David's go.** The pause sits *before* the
+round's fix work, not after, because the waste in a runaway loop is
+*implementing* the chased fix — a report delivered afterwards would spend
+exactly the tokens the pause exists to save.
+
+**Skip-on-clean:** a round with zero findings, or only trivial mechanical
+nits (a typo, a dead import, lint), does not pause — handle it silently and
+report one status line so the discipline stays visible. The pause is for
+rounds with substantive findings; a hard stop on a clean round adds latency
+and notification noise with no decision attached.
+
+**Scope: every review loop — plan review and code review, feature and
+bugfix, whichever agent is driving it.** The per-round causal flags double as
+live ledger classification: they are the same categories the
+[loop ledger's](#the-loop-ledger) adjudication rubric applies at close,
+recorded while the loop runs instead of reconstructed afterwards.
+
 ## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
 A focused fix-and-ship loop for a bug — restoring behavior that was already

@@ -61,9 +61,27 @@ the diff *is* the plan. While watching an implementation PR:
   being re-engaged: per David's standing instruction above, he checks PR status
   manually and pings me if he needs me, so there is nothing for me to
   proactively poll for.
+- **Every substantive review round pauses for the post-round check-in before
+  any fix is implemented (David, 2026-08-07).** When a round's findings land,
+  I triage first and bring David the check-in defined in
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-check-in-david-2026-08-07):
+  count + trend against prior rounds, each finding's nature / affected area /
+  verdict (fix, accept-and-document, escalate, decline) with whether it's
+  critical to the delivery, the causal flag (new ground vs. repairing an
+  earlier round's fix vs. impossible-as-specified), and a continue/stop
+  recommendation — delivered as a 🛑 NEED YOU banner, then I wait for his go
+  before pushing fixes. **Skip-on-clean:** a round with zero findings or only
+  the unambiguous mechanical nits below doesn't pause — fix silently, one
+  status line. **Model mechanics:** the check-in is written on the session's
+  current tier (usually Sonnet); when the triage judgment itself is ambiguous
+  — propagation vs. new ground, impossible vs. merely hard — I dispatch a
+  one-shot **Opus subagent** for that call, announced when I do it, so David
+  never switches models mid-loop. Sonnet main + `/advisor opus` is the
+  approved automated alternative (see the `model-routing` skill).
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
-  brief note; I don't narrate every round.
+  brief note; I don't narrate every round. CI failures and nits of this class
+  are the skip-on-clean category — they don't wait on a check-in.
 - **Escalate anything that's a real decision.** A design / architecture /
   trade-off comment (which abstraction to use, whether to refactor more, a
   behavior change) goes to David via AskUserQuestion — I do **not** silently
