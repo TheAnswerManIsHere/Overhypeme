@@ -34,9 +34,38 @@
  * a row predating activation is deleted, not classified.
  *
  * The module also lands `NCMEC_SEQUENCE_DEADLINE_MS` and the test that guards its coupling
- * to the queue's reclaim cutoff, so phase 5 can only consume a constant whose safety
- * inequality is already enforced. That is the plan's known gap G11; G5 is discharged by
- * {@link NcmecRefusalClass}.
+ * to the queue's reclaim cutoff — the plan's known gap G11, **partially discharged**: the
+ * inequality this module owns (the constant vs. `RECOVER_STUCK_CUTOFF_MIN`) is enforced,
+ * but it is necessary, not sufficient. See {@link NCMEC_SEQUENCE_DEADLINE_MS} and G15
+ * below. G5 is discharged by {@link NcmecRefusalClass}.
+ *
+ * **Two gaps found in PR #349 review, tracked for the phases that create the exposure —
+ * neither is reachable today, because this module has zero callers.**
+ *
+ * - **G14 (phase 4/5).** `isIdentityUnresolved` infers "identity was never captured" from
+ *   `userId !== null` alone. But `ncmec_reports.user_id` has `onDelete: "set null"`
+ *   (`schema/moderation.ts`), and the existing account hard-delete admin action
+ *   (`routes/admin.ts`, unrelated to NCMEC) runs `db.delete(usersTable)`. So an admin
+ *   hard-deleting the uploader of a row correctly parked as `identity_unresolved` — a
+ *   capture defect, snapshot missing, account attached — silently cascades `user_id` to
+ *   `null`, and the row reads as "anonymous by design" instead of "identity was lost."
+ *   `isSubmittable` would then accept it, filing with the uploader omitted and nobody
+ *   having approved that. The fix needs an immutable fact captured once at quarantine time
+ *   — "an uploader existed" — that survives the live FK's cascade; phase 4 is where
+ *   quarantine-time provenance capture lands, and phase 5's worker is the first thing that
+ *   could actually reach this predicate with an enqueued row. Until then it is inert: no
+ *   caller, no exposure.
+ * - **G15 (phase 5).** `asyncJobsTick` (`lib/asyncJobs.ts`) stamps up to 10 claimed rows
+ *   `processing` in one transaction *before* dispatching any of them; `mapWithConcurrency`
+ *   then runs only `ASYNC_JOBS_MAX_CONCURRENCY` (default 3) at a time. A row claimed late
+ *   in a batch can sit `processing` for real minutes before its own ISPWS sequence even
+ *   starts, and `NCMEC_SEQUENCE_DEADLINE_MS`'s test only bounds *that* sequence against
+ *   `RECOVER_STUCK_CUTOFF_MIN` — it says nothing about the queueing delay before it. Under
+ *   today's defaults the total stays well inside the 30-minute cutoff, but the invariant as
+ *   written can pass while the mid-sequence reclaim race it exists to prevent is still
+ *   open. Phase 5's worker must bound elapsed time since *claim*, not since *handler
+ *   start* — by refreshing/fencing the lease immediately before the ISPWS sequence, or by
+ *   deriving the deadline from remaining time rather than a fixed constant.
  */
 
 import type { AsyncJobStatus, NcmecReport, NcmecSubmissionStatus } from "@workspace/db";
@@ -226,6 +255,14 @@ export function isSubmittable(
  *
  * An anonymous row (`user_id IS NULL`) does not match: there is no identity to capture,
  * and honest omission is the correct filing for it.
+ *
+ * **Known gap G14 (tracked, not fixed here — see the module header).** `user_id` is a live
+ * FK with `onDelete: "set null"`, so an unrelated admin action (account hard-delete)
+ * cascades a parked row's `user_id` to `null` and this predicate can no longer tell "never
+ * had an uploader" from "had one, now erased" — the row would then read as honestly
+ * anonymous and become submittable. Inert today: nothing calls this function in
+ * production. Needs an immutable snapshot-time fact that survives the cascade; phase 4
+ * (provenance capture) is the natural place to add it.
  */
 export function isIdentityUnresolved(
   row: Pick<NcmecEligibilityRow, "reporterSnapshot" | "userId">,
@@ -369,5 +406,14 @@ export function classifyWaitingState(
  * `moderation.ncmecWorker.test.ts` therefore asserts the inequality against the imported
  * constant. Lowering `RECOVER_STUCK_CUTOFF_MIN` below this deadline fails CI with the
  * reason attached, which is what G11 asks for and what a comment alone could not do.
+ *
+ * **This inequality is necessary but not sufficient — known gap G15 (tracked, not fixed
+ * here — see the module header).** `asyncJobsTick` stamps a whole claimed batch (up to 10
+ * rows) `processing` before `mapWithConcurrency` dispatches any of them at
+ * `ASYNC_JOBS_MAX_CONCURRENCY` (default 3) and a row claimed late in the batch can queue
+ * for real minutes before its own sequence starts — time this constant does not account
+ * for. Today's defaults keep the total comfortably inside `RECOVER_STUCK_CUTOFF_MIN`, but
+ * nothing enforces that margin. Phase 5's worker must bound elapsed time since *claim*, not
+ * since *handler start*.
  */
 export const NCMEC_SEQUENCE_DEADLINE_MS = 3 * 60_000;
