@@ -56,8 +56,13 @@ jobs:
   # Every failure path lands on "run everything": push-to-main skips the
   # classification entirely (main is the backstop — always full coverage), a
   # failed file-listing API call yields an empty list which classifies as
-  # heavy, and if this job itself errors, the gated jobs' `needs` dependency
-  # fails them visibly rather than skipping them silently.
+  # heavy, a file list whose entry count disagrees with the PR's own
+  # changed_files total (the API hard-caps at 3,000 files) forces heavy, and
+  # if this job itself fails outright, the gated jobs' `!cancelled()` +
+  # `needs.changes.result != 'success'` condition runs them anyway — a plain
+  # `needs` would have SKIPPED them on failure, and a skipped required check
+  # reports success, which is exactly the silent green this design must
+  # never produce.
   changes:
     name: Classify changed paths
     runs-on: ubuntu-latest
@@ -75,6 +80,14 @@ jobs:
       # for pull_request events, so a PR that touched code in commit 1 and
       # docs in commit 11 still runs the full suite on every push. Runner's
       # preinstalled node is fine: the classifier is dependency-free.
+      #
+      # Both sides of a rename are classified: a product file renamed INTO
+      # docs/ deletes its heavy source path, and judging only the
+      # destination would let that deletion skip the suites. And because the
+      # files API hard-caps at 3,000 entries, the collected entry count is
+      # checked against the PR's own changed_files total — any mismatch
+      # (truncation, API weirdness) forces the full suite rather than
+      # classifying a prefix as if it were the whole change set.
       - name: Classify
         id: classify
         env:
@@ -85,9 +98,17 @@ jobs:
             echo "push/schedule event — full suite unconditionally."
             exit 0
           fi
-          files=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '.[].filename') || files=""
-          result=$(printf '%s\n' "$files" | node scripts/classify-ci-paths.mjs) || result="run-heavy=true"
+          raw=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[] | [.filename, (.previous_filename // "")] | @tsv') || raw=""
+          entry_count=$(printf '%s' "$raw" | grep -c '^' || true)
+          expected='${{ github.event.pull_request.changed_files }}'
+          if [ -z "$raw" ] || [ "$entry_count" != "$expected" ]; then
+            echo "run-heavy=true" >> "$GITHUB_OUTPUT"
+            echo "collected $entry_count file entr(ies) but the PR reports $expected changed file(s) — treating as unreadable, full suite."
+            exit 0
+          fi
+          result=$(printf '%s\n' "$raw" | tr '\t' '\n' | grep -v '^$' | node scripts/classify-ci-paths.mjs) \
+            || result="run-heavy=true"
           echo "$result" >> "$GITHUB_OUTPUT"
           echo "$result"
 
@@ -239,7 +260,14 @@ jobs:
   test:
     name: Test
     needs: changes
-    if: needs.changes.outputs.run-heavy == 'true'
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -325,7 +353,14 @@ jobs:
   frontend-test:
     name: Frontend Test
     needs: changes
-    if: needs.changes.outputs.run-heavy == 'true'
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -363,7 +398,14 @@ jobs:
   e2e-smoke:
     name: E2E Smoke
     needs: changes
-    if: needs.changes.outputs.run-heavy == 'true'
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 

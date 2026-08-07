@@ -30,6 +30,15 @@
  *     when the API call that produced it failed or returned nothing —
  *     either way, "we don't know what changed" must mean "run everything,"
  *     not "nothing changed."
+ *
+ * Renames: the caller feeds BOTH sides of a renamed file as separate paths
+ * (the API's `filename` and `previous_filename`). A rename out of a heavy
+ * path into an inert one — product code moved under docs/, say — deletes
+ * the source path, which is a real code change; classifying only the
+ * destination would wave it through. This script just classifies whatever
+ * paths it's given; the both-sides contract is enforced where the file
+ * list is built (build.yml's `changes` job) and by the workflow-side count
+ * check against the PR's own changed_files total.
  */
 
 /**
@@ -48,6 +57,13 @@
  *     glue lives near enough to the suites that the conservative call wins.
  */
 export function isInertPath(path) {
+  // Generated artifact, not prose: fieldDocs.test.ts (Frontend Test suite)
+  // reads this exact committed file and asserts byte-parity with
+  // renderAdminFieldReference(). An edit to it is precisely the change the
+  // heavy suite exists to catch — a hand-edited or stale copy would merge
+  // green if this classified as inert, because the always-on Build job
+  // never enforces that parity.
+  if (path === "docs/ADMIN_FIELD_REFERENCE.md") return false;
   if (path.startsWith("docs/")) return true;
   if (path.startsWith(".agents/")) return true;
   if (path.startsWith(".claude/")) return true;

@@ -24,6 +24,15 @@ test("workflows, scripts, product code, and package configs are never inert", ()
   assert.equal(isInertPath("pnpm-lock.yaml"), false);
 });
 
+test("the generated admin field reference is heavy despite living in docs/", () => {
+  // fieldDocs.test.ts (Frontend Test) asserts byte-parity between this
+  // committed file and renderAdminFieldReference() — an edit to it is
+  // exactly what the heavy suite exists to catch, and Build never checks it.
+  assert.equal(isInertPath("docs/ADMIN_FIELD_REFERENCE.md"), false);
+  // ...while its neighbors stay inert.
+  assert.equal(isInertPath("docs/ADMIN_FIELD_REFERENCE_notes.md"), true);
+});
+
 test("a nested markdown file outside an inert directory is not inert", () => {
   // Only TOP-LEVEL prose gets the extension-based pass; a stray .md deep in
   // the tree rides with its directory's classification.
