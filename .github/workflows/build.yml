@@ -38,6 +38,59 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Classifies the change set so the heavy jobs (Test, Frontend Test,
+  # E2E Smoke) can skip docs-only PRs — /document harvests, [LEDGER] PRs,
+  # UAT/TEST_RUN docs, skill and CLAUDE.md edits — which provably cannot
+  # change those suites' outcomes. The Build job is NOT gated: it carries
+  # the docs-accuracy, ledger, and script-test gates that docs PRs exist to
+  # exercise.
+  #
+  # The skip happens via job-level `if:` on the jobs below, deliberately NOT
+  # via workflow-level `paths:`/`paths-ignore:` filtering. A required check
+  # whose workflow never triggers reports nothing, leaving the PR stuck at
+  # "Expected — waiting for status to be reported" forever. A job skipped by
+  # `if:` instead reports "Success" — GitHub's documented behavior: "A job
+  # that is skipped will report its status as 'Success'. It will not prevent
+  # a pull request from merging, even if it is a required check."
+  #
+  # Every failure path lands on "run everything": push-to-main skips the
+  # classification entirely (main is the backstop — always full coverage), a
+  # failed file-listing API call yields an empty list which classifies as
+  # heavy, and if this job itself errors, the gated jobs' `needs` dependency
+  # fails them visibly rather than skipping them silently.
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-heavy: ${{ steps.classify.outputs.run-heavy }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # The PR's full changed-file list (all commits, not just the latest
+      # push) via the API — same semantics GitHub's own paths filters use
+      # for pull_request events, so a PR that touched code in commit 1 and
+      # docs in commit 11 still runs the full suite on every push. Runner's
+      # preinstalled node is fine: the classifier is dependency-free.
+      - name: Classify
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run-heavy=true" >> "$GITHUB_OUTPUT"
+            echo "push/schedule event — full suite unconditionally."
+            exit 0
+          fi
+          files=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename') || files=""
+          result=$(printf '%s\n' "$files" | node scripts/classify-ci-paths.mjs) || result="run-heavy=true"
+          echo "$result" >> "$GITHUB_OUTPUT"
+          echo "$result"
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -109,6 +162,14 @@ jobs:
       - name: Check TEST_RUN completion sync logic
         run: node --test scripts/__tests__/sync-test-run-completion.test.mjs
 
+      # The classifier decides which PRs get to skip the Test/Frontend
+      # Test/E2E Smoke jobs entirely. A bug in its allowlist is the one way
+      # this workflow could silently wave a code change past the suites, so
+      # its inert/heavy matrix is asserted here — in the always-on job, which
+      # is exactly the job a misclassified PR can't skip.
+      - name: Check CI path classifier logic
+        run: node --test scripts/__tests__/classify-ci-paths.test.mjs
+
       # The Bash guard decides which git commands this session may run. Its
       # previous version blocked `git push --force` and allowed `git push -f`,
       # so the one thing it existed to prevent was the one thing it let past —
@@ -172,9 +233,13 @@ jobs:
 
   # Authoritative test gate: runs the api-server integration suite against a real
   # Postgres + pgvector. Phase 2's runner does all DB setup; CI just provides the
-  # database. Runs in parallel with `build` (no `needs:`) for fast feedback.
+  # database. Still parallel with `build` — the `changes` gate adds only its own
+  # ~seconds of latency, and skipping here reports "Success" to required checks
+  # (see the `changes` job's comment for why that's safe).
   test:
     name: Test
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -259,6 +324,8 @@ jobs:
   # the backend suite gated PRs and a frontend regression rode through green CI.
   frontend-test:
     name: Frontend Test
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -295,6 +362,8 @@ jobs:
   # env-gated E2E_API_PROXY_TARGET proxy plays that role here.
   e2e-smoke:
     name: E2E Smoke
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
