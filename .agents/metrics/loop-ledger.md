@@ -338,8 +338,11 @@ with what each loop actually asked of the workflow (novel mid-loop
 machinery vs. a well-scoped feature with clean seams), not that review
 quality is trending up or down since the toggle. **#334 and #337 are the
 clearest illustration of that axis the ledger has recorded yet** — the same
-week, the same session, the highest and second-lowest shares on record,
-purely as a function of what each PR actually built. #294 ran a
+week, the same session, the highest and second-lowest shares among these
+seven post-boundary points (not "on record" ledger-wide: #308 sits lower
+at a genuine 0%, and the six structural-floor 0% rows sit lower still,
+though those aren't real measurements per the note above), purely as a
+function of what each PR actually built. #294 ran a
 genuinely large post-boundary loop (2026-07-30T21:23 to 2026-08-01T04:41,
 unambiguously post-boundary) but its causal share is `unmeasured` (row 17's
 note), so it is not a trend point here, the same way #290, #292, #291,
@@ -369,7 +372,8 @@ sharing this label family, the cohort column is even
 less informative for this comparison than the original n=2 confound
 already made it, not more — the shared label was never evidence of a
 shared shape, and adding rows doesn't fix that, it just makes it more
-visible, except for the single row where the label happens to be true.
+visible, except for the three rows (#289, #301, #337) across the two
+genuine shapes where the label happens to be true.
 #285 itself is not discarded as a data point: its 50.0%
 self-inflicted share still stands in the row 10 note and in the
 seventeen-row list above; it is excluded from this specific pre/post-boundary
