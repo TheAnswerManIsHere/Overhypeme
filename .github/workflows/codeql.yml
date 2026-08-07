@@ -21,10 +21,16 @@ on:
 
 # Same reasoning as build.yml: a PR-triggered run is obsolete the moment
 # another push lands on the same PR, so it's safe to cancel. Push-to-main and
-# the weekly schedule both fall back to github.ref for the group key (which
-# never collides with a PR's group) and are never cancelled.
+# the weekly schedule fall back to github.run_id (unique per run), not
+# github.ref — the ref is identical across every push-to-main run, so that
+# fallback would still let GitHub's default single-pending-slot behavior
+# silently drop a queued run when merges land close together (queue: max
+# isn't an option here — GitHub disallows combining it with a
+# cancel-in-progress that can evaluate true, which ours does for PR events).
+# A per-run-unique fallback means push/schedule runs never share a group
+# with anything, so nothing is ever queued or cancelled for them.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

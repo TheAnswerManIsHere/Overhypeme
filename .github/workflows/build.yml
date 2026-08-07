@@ -21,13 +21,20 @@ on:
 
 # A PR-triggered run is obsolete the moment another push lands on the same
 # PR — cancelling it loses no signal, just wall-clock and Actions minutes.
-# A push-to-main run is never superseded this way (pushes to main are
-# sequential, one squash-merge at a time) and must always run to completion,
-# especially the ledger-debt audit — so cancellation only applies when
-# github.event.pull_request.number is set, and the group falls back to
-# github.ref (main) for push events, which never collide with a PR group.
+# Every push-to-main run must complete, no exceptions — the ledger-debt
+# audit step only runs there. That ruled out `queue: max` (GitHub disallows
+# combining it with a `cancel-in-progress` that can evaluate true, which
+# ours does for PR events) as a way to protect queued push runs. Falling
+# back to `github.ref` for the group key was tried first and was WRONG: every
+# push-to-main run shares that same ref, so a burst of quick merges would
+# still hit GitHub's default single-pending-slot behavior and silently drop
+# a queued run — cancel-in-progress: false only protects a run already
+# EXECUTING, not one waiting behind it. Falling back to `github.run_id`
+# instead (unique per run) means push/schedule runs never share a group
+# with each other at all, so nothing is ever queued or cancelled for them —
+# only same-PR runs share a group and race for cancellation.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
