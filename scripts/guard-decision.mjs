@@ -112,11 +112,11 @@
  *
  * ROUND 4, AND THE DECISION TO STOP (David, 2026-08-05)
  * -------------------------------------------------------
- * Round 4 found nineteen more gaps -- MORE than round 3's fourteen. Rather
+ * Round 4 found nineteen more gaps -- MORE than round 3's twelve. Rather
  * than fix these piecemeal and start a round 5, David and I stopped here and
  * documented them instead. The per-round count of NEWLY FOUND gaps is the
- * evidence, and it never fell: 11, 11, 14, 19. (Fixes per round were 9, 11,
- * 13, 0 -- the gap between the two columns is the disclosed-not-fixed items
+ * evidence, and it never fell: 11, 11, 12, 19. (Fixes per round were 9, 11,
+ * 11, 0 -- the gap between the two columns is the disclosed-not-fixed items
  * above.) Each round's fixes were real, but flat-then-rising discovery is
  * what says the defense is the wrong SHAPE rather than merely unfinished:
  * this is a hand-rolled recognizer chasing a language -- Bash --
