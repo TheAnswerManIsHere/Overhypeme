@@ -71,12 +71,16 @@ shared-contract requirement now
 
 For everything else: per `workstream-tracking.md`, bugfix mode branches
 straight from Discovery to Coding, skipping Planning and Plan approval. If
-David's bug report doesn't already have a workstream issue, open one now
-with `stage:coding`, `waiting:claude`, `mode:bugfix` — one per bug, matching
-the one-bug-per-branch-per-PR rule above — and give it a State of Play
-block (per `workstream-tracking.md`) at the same time, not just labels.
-From PR open onward, `pr-watch` owns the label transitions and the block's
-upkeep.
+David's bug report doesn't already have a workstream issue, open one now —
+**but only if the disclosure check above passed.** If it didn't, this is
+where that matters mechanically, not just as a stated rule: open a private
+draft Project item instead of a public issue, and say so plainly rather
+than silently taking the fast path. When the check passed, open the public
+issue with `stage:coding`, `waiting:claude`, `mode:bugfix` — one per bug,
+matching the one-bug-per-branch-per-PR rule above — and give it a State of
+Play block (per `workstream-tracking.md`) at the same time, not just
+labels. From PR open onward, `pr-watch` owns the label transitions and the
+block's upkeep.
 
 ## 2. Diagnose, classify, then fix
 

@@ -27,11 +27,19 @@
   tracked on a private Project board whose `Status`/`Waiting On`/`Mode`
   fields are populated from the labels by a CI Action
   (`.github/workflows/project-sync.yml` → `scripts/sync-project-fields.mjs`),
-  and read back by a `/status` skill. **Labels are the writable truth; the
+  and read back by a `/status-all` skill. **Labels are the writable truth; the
   board is a projection of them.** Four skills — `plan-review-loop`,
   `bugfix`, `pr-watch`, `pr-docs` — each own a specific label transition at
   a trigger point they already hit, rather than any agent carrying a
-  standing "go check the board" habit. The full contract is
+  standing "go check the board" habit, plus one automated exception: the
+  `test-run-completion.yml` Action (PR #334) is the sole non-agent label
+  writer, moving `stage:test-run` to `stage:uat`/`stage:close-out` the
+  moment a PR's TEST_RUN doc is deleted — nothing with write access was
+  otherwise guaranteed to ever notice that event. Because that Action
+  writes labels with `GITHUB_TOKEN`, whose events GitHub deliberately does
+  not cascade to other workflows, it cannot rely on `project-sync.yml`'s
+  own `issues:labeled` trigger firing from its write — it calls the same
+  reconcile function directly instead. The full contract is
   [`workstream-tracking.md`](./workstream-tracking.md).
 - **Why:** David runs ~10 concurrent Claude Code sessions and could not tell
   which needed him without opening each one; the session list shows a name
@@ -51,7 +59,7 @@
   **Reading the board directly:** no available MCP or REST tool can read
   *or* write a Projects v2 item field — confirmed twice independently — so
   labels are not a stylistic choice but the only writable surface an agent
-  has, and `/status` recomputes the board's view from them rather than
+  has, and `/status-all` recomputes the board's view from them rather than
   querying the board. `Waiting On` is deliberately a field **separate from**
   `Status` because the two diverge: a blocking question mid-build leaves
   `stage` at `coding` while the turn passes to David, and that divergence
@@ -67,12 +75,16 @@
   tomorrow" case cheap instead of requiring an old transcript to be re-read
   uncached.
 - **Reference:** PRs #318 (sync mechanism), #322 (field-name matching fix),
-  #323 (`/status` skill), #324 (label maintenance wired into the four
-  skills + the shared contract); workstream #317;
+  #323 (`/status` skill, later split by #336 into per-session `/status` and
+  fleet-wide `/status-all` once those turned out to be two different jobs at
+  two different costs), #324 (label maintenance wired into the four
+  skills + the shared contract), #334 (`test-run-completion.yml` — the
+  automated TEST_RUN-completion trigger, added after Codex flagged that
+  transition's missing owner twice reviewing that PR); workstream #317;
   [`workstream-tracking.md`](./workstream-tracking.md). Board:
   *Overhype.me Workstreams* (private, user-owned project 1).
 - **Revisit if:** a tool appears that can read or write Projects v2 item
-  fields directly — that would let `/status` read the board and could retire
+  fields directly — that would let `/status-all` read the board and could retire
   the sync Action entirely, collapsing labels and fields into one surface.
   Also revisit if the number of genuinely concurrent workstreams drops far
   enough that the board costs more ceremony than it saves.

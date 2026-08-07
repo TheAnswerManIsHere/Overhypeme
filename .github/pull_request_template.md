@@ -4,6 +4,19 @@
   strike through (~~…~~) what doesn't. Human and agent PRs both use this.
 -->
 
+Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
+     tracked (see docs/ai-context/workstream-tracking.md; AGENTS.md's
+     workstream-tracking contract). Never "Closes #N" — that auto-closes the
+     issue at merge and skips Test run/UAT. The ONLY exemption is a
+     sensitive/disclosure-carve-out workstream, tracked as a private draft
+     Project item instead of a public issue — leave this line blank/deleted
+     only for that case. Keep "Workstream: #N" as the very first thing on its
+     own line, plain text, no markdown bold, nothing before it on that line —
+     /status-all and scripts/sync-test-run-completion.mjs both parse
+     it with the anchored regex `^Workstream:[ \t]*#(\d+)` (multiline,
+     line-start only), which bold formatting (`**Workstream:**`), leading
+     text, or a line break between the colon and the number all break. -->
+
 ## What & why
 
 <!-- What changed and the intent it serves. Link the plan/issue if there is one. -->

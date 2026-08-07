@@ -1,0 +1,59 @@
+name: TEST_RUN completion sync
+
+# David deletes a docs/PR<N>_..._TEST_RUN.md doc once Replit has actually run
+# it — that deletion is the only signal that Test run stage finished, and
+# nothing else was guaranteed to notice it and move the workstream issue past
+# stage:test-run. This closes that gap the moment the deletion lands on main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/*_TEST_RUN.md"
+
+# One shared queue, not per-push — a workstream's issue must never see two
+# racing label writes from two pushes landing close together.
+concurrency:
+  group: test-run-completion
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  sync:
+    name: Transition completed Test-run workstreams
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync completed TEST_RUN transitions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+          # The triggering push's own commit date, not wall-clock "now" — a
+          # manual re-run of a failed job replays the same event payload, so
+          # this stays fixed across retries even when the retry happens on a
+          # later UTC date. Used for the "Last movement" line so a retry
+          # can't rewrite it to a date the deletion didn't actually happen on.
+          EVENT_COMMIT_DATE: ${{ github.event.head_commit.timestamp }}
+          # GITHUB_TOKEN-authored label writes don't trigger project-sync.yml
+          # (GitHub suppresses that cascade), so this script calls the same
+          # board reconcile directly — same PAT/owner/number as
+          # project-sync.yml itself.
+          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: "1"
+        run: node scripts/sync-test-run-completion.mjs

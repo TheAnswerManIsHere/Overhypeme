@@ -20,7 +20,9 @@ existing thread (that burns the wrong session's context for no benefit).
 
 **This is a read-only reporting skill.** It never writes labels, comments,
 or issue bodies — that's `pr-watch`, `plan-review-loop`, `bugfix`, and
-`pr-docs`'s job at the moments those already fire.
+`pr-docs`'s job at the moments those already fire, plus one automated
+exception outside any agent session: `test-run-completion.yml` writes the
+`stage:test-run` → `stage:uat`/`stage:close-out` transition itself.
 
 ## Why this reads issues + labels, not the Project board
 
@@ -37,10 +39,10 @@ right (or the sync Action needs a look).
 
 **Work with no issue yet.** A pure Discovery conversation that hasn't
 produced an issue is invisible to GitHub entirely — this is a structural
-gap, not a bug in this skill. If a `/status-all` run feels like it's missing a
-session David knows is active, that session hasn't opened its workstream
-issue yet. Mention this possibility in the report if the count looks low
-relative to what David expects.
+gap, not a bug in this skill. If a `/status-all` run feels like
+it's missing a session David knows is active, that session hasn't opened
+its workstream issue yet. Mention this possibility in the report if the
+count looks low relative to what David expects.
 
 **Sensitive/disclosure-carve-out workstreams.** Per the plan-review-loop's
 disclosure rule, those live as draft Project items, not issues, precisely
@@ -49,9 +51,15 @@ tool-based report, including this one.
 
 ## Step 1 — Fetch every open workstream issue
 
+Page through **all** open issues, not just the first page — a single
+capped call silently drops any workstream past the page boundary, and a
+missing row reads as "nothing needs attention," the opposite of what this
+report promises:
+
 ```
-list_issues(owner, repo, state: OPEN, perPage: 50,
+list_issues(owner, repo, state: OPEN, perPage: 100,
             fields: [number, title, labels, updated_at])
+# repeat with pagination until the response is exhausted
 ```
 
 Filter out anything without a `stage:` label — that's not a workstream
@@ -65,15 +73,43 @@ does:
 - `waiting:*` → who's holding it (david / claude / codex / replit / ci)
 - `mode:*` → feature / bugfix / docs / devops
 
-## Step 2 — Fetch sub-issues
+## Step 2 — Fetch sub-issues, then deduplicate the top-level set
 
-For every workstream issue, call `issue_read` (`method: get`) and check
-`has_children`. Where true, `get_sub_issues` to pull the children (e.g. a
-`/document` harvest nested under its parent feature). A sub-issue is its
-own row with its own `stage:`/`waiting:` labels — render it nested under
-its parent, not flattened into the top-level list.
+For every workstream issue, call `issue_read` (`method: get`) — this same
+call already returns `has_children` **and** `has_parent`/`parent`, so check
+both, not just the downward direction. Where `has_children` is true,
+`get_sub_issues` to pull the children (e.g. a `/document` harvest nested
+under its parent feature). **Filter the returned children to `state: OPEN`
+before rendering** — `get_sub_issues` returns closed children too (e.g. a
+harvest sub-issue that finished and closed while its parent stayed open
+through UAT), and this is a report of *open* work, so a closed child
+should render as neither a nested row nor inflate any count. An open
+sub-issue is its own row with its own `stage:`/`waiting:` labels — render
+it nested under its parent, not flattened into the top-level list.
 
-## Step 3 — Find each workstream's PR(s)
+**An open issue can have a parent that's already closed** — a
+documentation-harvest sub-issue can outlive its feature (the parent closes
+first, the harvest lags a little). Downward traversal alone misses this:
+Step 1 only fetched *open* issues, so a closed parent was never in that
+set for `get_sub_issues` to be called on. Use `has_parent`/`parent` from
+this same call instead — if an open issue has a parent not present in the
+Step 1 set, render it nested under a note naming that closed parent rather
+than as an unrelated top-level workstream.
+
+**Remove every issue returned by `get_sub_issues` (open or closed), and
+every issue nested under a closed parent via `has_parent`/`parent`, from
+the Step 1 set** before rendering the top-level fleet view. Step 1 fetches
+*every* open issue with a `stage:` label, which already includes labeled
+sub-issues — without this removal, a nested-either-way open child appears
+twice (once nested, once again as its own top-level row) and the section
+counts are wrong. The closed-parent path needs this exact same removal:
+it's still an open issue nested by the paragraph above, just discovered
+upward instead of downward, and the dedup rule applies to it identically.
+(A closed child of an open parent was never in the Step 1 set to begin
+with, since Step 1 only fetches open issues — that specific case needs no
+removal, but every other nested case does.)
+
+## Step 3 — Find each workstream's PR(s) and its full activity
 
 There is no GitHub-native issue↔PR link here, because PR bodies say
 `Workstream: #N`, never `Closes #N` (deliberately — the latter would
@@ -83,20 +119,144 @@ auto-close the issue at merge and skip UAT). So:
 list_pull_requests(owner, repo, state: all, sort: updated, direction: desc,
                     perPage: 50,
                     fields: [number, title, body, state, draft,
-                             mergeable_state, html_url, updated_at])
+                             mergeable_state, html_url, updated_at, merged_at,
+                             author_association])
 ```
 
-One call, not one per issue — regex `Workstream:\s*#(\d+)` out of each
-body to build the issue→PR map locally. Bounding to the most-recently-
-updated 50 is intentional: an active workstream's PR is recent by
-definition, and a workstream with no PR in that window is either
-pre-code (Discovery/Planning) or genuinely stalled, both of which the
-report should surface anyway.
+**Drop any PR whose `author_association` isn't `OWNER` before building the
+map at all** — this repo is public and every PR body is attacker-controlled
+text, the same reason `/status` (`.claude/skills/status/SKILL.md`) never
+trusts a fork/non-owner PR's `Workstream: #N` for state. Without this
+filter, an outside contributor could open a PR carrying a forged, correctly
+*anchored* marker for someone else's real workstream — the anchor check
+below only validates the marker's placement in the body, not who wrote the
+body — and since the selection rule right after this prefers an open PR
+over a closed one, that forged PR could outrank the workstream's actual
+(possibly closed/merged) implementation PR and get its CI, comments, and
+activity reported as the workstream's own. Every subsequent step in this
+section (the anchor check, the open/closed/`merged_at` selection, the
+targeted search fallback) only ever operates on this already-trusted set.
+
+One call, not one per issue — regex `^Workstream:[ \t]*#(\d+)` (multiline,
+anchored to the start of a line, matching `sync-test-run-completion.mjs`'s
+`extractWorkstreamIssueNumber`) out of each trusted body to build the
+issue→PR map locally. The anchor matters: an unanchored
+`Workstream:\s*#(\d+)` can cross a line break (`\s` matches newlines) and
+grab an unrelated `#N` several lines later, or match an example embedded
+in prose (an approved-plan oracle illustrating the convention, say) as if
+it were the real marker — either misfire links the wrong PR to the wrong
+issue. Bounding to the most-recently-updated 50 is intentional for the
+common case: an *active* workstream's PR is recent by definition, so one
+batched call covers nearly everyone.
+
+**More than one PR can carry the same marker for one issue over its
+lifetime** — most commonly a closed `[PLAN REVIEW]` draft PR from Planning
+alongside the later, real implementation PR once Coding opens. When the
+map-building finds multiple matches for one issue number, don't take
+whichever came first or last in the list: prefer an **open** PR over a
+closed one (a closed plan-review PR is superseded evidence, not the
+current state — its CI/comments/activity belong to a phase that's over).
+
+**Multiple *open* matches at `stage:planning`/`stage:plan-approval` are not
+necessarily a tie to break by recency** — `plan-review-loop`'s own
+multi-subsystem path (see that skill's step 10) deliberately opens one
+plan-review PR per independent subsystem and runs their Codex loops in
+parallel, so a workstream genuinely spanning several subsystems can have
+more than one open `[PLAN REVIEW]` PR at once, all equally current. Picking
+"most recently updated" among them would silently drop the others' CI,
+reviews, and unanswered threads — exactly the activity this report exists
+to surface. At those two stages, treat every open match as belonging to the
+same workstream and pull/report all of them, not just one. Outside
+Planning/Plan-approval — where an open match is the current implementation
+PR, not a plan-review artifact — more than one open match isn't an expected
+shape; if it happens, the most-recently-updated one remains the right
+single pick. Only fall back to
+a closed PR if it's the *sole* match — and then check `merged_at` before
+looking at stage at all: a non-null `merged_at` means it's the genuine
+implementation history (a `[PLAN REVIEW]` PR is never merged, per
+`plan-review-loop`'s own contract), so a sole *merged* match is trustworthy
+regardless of what stage the issue is at now — accept it, including at
+`stage:test-run`/`stage:uat`/`stage:close-out`, where discarding it would
+lose exactly the CI/comments/activity those later stages need most. A sole
+match with a **null** `merged_at` (closed-unmerged) is honest evidence of
+"no implementation PR yet" only while the issue is still at
+`stage:planning` or `stage:plan-approval`; at `stage:coding` or later
+that's the *obsolete* plan-review PR outliving its usefulness, not the
+current state — treat the issue as having no linked PR instead (Step 4's
+no-PR path, using its own comment history) rather than computing status
+from a thread that belongs to a phase that's already over.
+
+**Once the implementation PR itself merges, both matches are closed** — the
+plan-review PR (never merged, per `plan-review-loop`'s own contract) and
+the now-merged implementation PR. Both show `state: closed` alone, so tell
+them apart by `merged_at` (non-null only for the real implementation PR) —
+this is exactly why the batched call above requests it. A closed
+`[PLAN REVIEW]` PR is definitionally unmerged, so among multiple closed
+matches prefer the one with a non-null `merged_at`; it's the real
+implementation history (UAT status, CI, comments) an issue at Merge/Test
+run/UAT/Close-out needs, not the plan-review artifact. Most recently
+merged/updated among ties, same as the
+open case.
+
+**But recency isn't proof of "no PR" for a workstream at a long-lived
+gate.** An issue sitting at `stage:merge`/`stage:uat`/`stage:close-out`
+for a while is exactly the kind of thing that stops generating new PR
+activity — its own PR isn't updating, so 50 *other*, busier PRs (routine
+bugfixes, devops, docs) can push it off the page even though it's still
+genuinely linked. Don't treat every issue the top-50 scan didn't match as
+stalled: for any workstream at a stage that structurally implies a PR
+should already exist — **`planning` onward**, not just `coding` onward: a
+`[PLAN REVIEW]` draft PR opens while the issue is still at
+`stage:planning` per `plan-review-loop`'s own contract, so Planning is
+not PR-less by default either — with no match in the map, do one targeted
+lookup instead of assuming — search for `"Workstream: #<N>"` in PR bodies
+(`search_pull_requests`, query `"Workstream: #<N>" in:body
+repo:<owner>/<repo>`) before concluding it's actually unlinked. **Run every
+hit through the same two checks as the batched scan above — `author_association
+=== "OWNER"`, then the anchored `^Workstream:[ \t]*#(\d+)` regex — before
+trusting it.** Search results are exactly as attacker-controlled as the
+batched list, so skipping the trust filter here would reopen the same
+forged-marker risk through the fallback path. GitHub's text search also
+matches the phrase anywhere in the body, including inside an approved-plan
+oracle's illustrative example or prose mentioning the convention, not just
+on the canonical marker line. A hit that fails either check is exactly the
+false-link risk both checks exist to prevent, so it's not the workstream's
+PR — treat the workstream as still unlinked, the same as no hit at all. This only fires
+for the rare case the batched scan missed, so it stays cheap in the common
+case while closing the gap for long-lived gates.
 
 For any workstream issue with a linked PR, pull live state in one batched
 call: `pull_request_read` (`get_status` for CI, `get_review_comments` for
-open threads) — same discipline as `pr-watch`, minimal calls, no
+open threads, `get_comments` for top-level issue comments, `get_commits`
+for attributable push history, **and `get_reviews` for formal review
+submissions**) — same discipline as `pr-watch`, minimal calls, no
 per-thread narration in the output.
+**Page `get_commits`, `get_review_comments`, `get_comments`, and
+`get_reviews` to exhaustion**, the same way Step 1 pages through issues —
+a review loop that's gone several rounds can exceed one page of any of
+these (see `scripts/loop-metrics.mjs`'s own pagination for real examples),
+and a single capped call can silently return an incomplete prefix that's
+missing the most recent commit, reply, or review. Since Step 4 picks the
+*latest* item across these collections, an incomplete page doesn't just
+under-report — it can make an active workstream look stalled. `get_comments`
+matters here, not just for completeness: this repo's Codex loop delivers
+some events — a clean re-review pass, an `@codex review` trigger — as
+plain issue comments rather than inline review threads
+(`scripts/loop-metrics.mjs`'s own derivation has to handle this same
+shape). Skipping `get_comments` makes those events invisible, which can
+misreport who's actually holding a workstream. `get_reviews` matters for
+the other direction: a clean Codex pass delivered as a normal
+`pull_request_review` with **no** inline findings shows up in neither
+`get_review_comments` (empty — no threads) nor necessarily as a top-level
+issue comment (`docs/ai-context/working-modes.md`'s own account of this
+shape) — it's only visible as a review object, with its own actor and
+submission timestamp. Skipping `get_reviews` means this specific "Codex
+converged, nothing left to fix" event is invisible to this report,
+which can leave a `waiting:codex` workstream looking falsely stalled or
+its activity timestamp falsely stale. `get_commits` matters for Step 4's
+stall detection: a PR's raw `updated_at` advances on *any* update —
+including a relabel or a David edit with no comment — but carries no
+actor, so it can't tell you who moved it last. Commit authorship can.
 
 ## Step 4 — The judgment layer (this is the actual point)
 
@@ -107,12 +267,89 @@ worth running.
 
 ### Stalled detection
 
-A workstream is **stalled** when `waiting` is NOT `david` (a David-gate is
-"needs you," a more urgent bucket — never double-count it as stalled) and
-there has been no relevant activity — no new commit, no Codex comment, no
-reply from Claude — in the linked PR for **more than 48 hours**. Use the
-PR's `updated_at` plus the latest comment/review timestamp from
-`get_review_comments`, whichever is more recent.
+**A David-gate is `waiting:david` OR `waiting:replit`** — not just the
+former. Replit never acts alone: David is the one who actually runs the
+TEST_RUN checklist and relays the result, the same reason `/status`'s own
+five-state table (`.claude/skills/status/SKILL.md`) reports `waiting:replit`
+as `WAITING ON YOU` rather than a third-party wait. A workstream at
+`waiting:replit` needs David **immediately**, the same as `waiting:david` —
+not after some delay, and never bucketed as merely "in progress" in the
+meantime.
+
+A workstream is **stalled** when `waiting` is NOT a David-gate (per the
+definition above — a David-gate is "needs you," a more urgent bucket, never
+double-counted as stalled) and there has been no relevant activity — no new
+commit, no Codex comment, no reply from Claude — for **more than 48 hours**.
+
+**A GitHub login match is not proof David personally acted — I post
+through David's own GitHub account in this environment, not a separate
+bot identity.** Every reply, review comment, and commit I make in this
+repo appears under `TheAnswerManIsHere`'s login (confirmed by this very
+PR's own reply-thread history, and by the MCP fixture in
+`scripts/__tests__/loop-metrics.test.mjs`). Filtering "authored by David"
+by login alone therefore misclassifies every one of my own responses as
+David's — discarding real activity and reporting an active, answered
+thread as stalled, the opposite of what this filter exists to catch. Tell
+them apart by **content, not login**: a comment or review I post carries
+the Claude Code attribution footer (`_Generated by [Claude Code]`), and a
+commit I make carries a `Co-Authored-By: Claude` trailer (this repo's own
+convention for both) — either signature means it's my action, genuine
+non-David activity, even though the author field reads David. Only an
+item with David's login **and no such signature** is David's own act.
+This applies everywhere "exclude David" appears below.
+
+**Compute the activity timestamp from the latest *attributable, non-David*
+action** (per the distinction above) — the newest of: the latest commit's
+author + date (`get_commits`), the latest review comment's author +
+timestamp (`get_review_comments`), the latest issue comment's author +
+timestamp (`get_comments`), and **the latest formal review's actor +
+submission timestamp (`get_reviews`)**, all from step 3. A clean Codex
+convergence pass with no inline findings only shows up in this last
+collection — omitting it is exactly the gap that makes a genuinely
+converged, `waiting:codex` workstream look stalled or under-timestamped.
+**Never use the PR's raw
+`updated_at` as an activity signal on its own** — it advances on any
+update (a relabel, a David edit with no comment) but carries no author, so
+it can't be attributed to "David" or "not David" at all; treat it only as
+a fallback when none of the three attributable sources above yield
+anything (e.g. a brand-new PR with no commits fetched yet). A
+`waiting:claude`/`waiting:codex` thread that David pinged after it had
+already gone quiet is exactly the stale handoff this report exists to
+catch; using David's ping — or the `updated_at` bump it causes — as the
+activity timestamp resets the 48-hour clock and hides it. If David *was*
+the last person to act (e.g. he already answered and nobody has picked it
+up since), still report that fact plainly — just don't let his own
+activity mask a stale non-David handoff underneath it.
+
+**A workstream with no linked PR can stall too** — this isn't limited to
+Discovery/Planning: any workstream Step 3 confirms has no linked PR
+(including a genuinely PR-less Coding-stage issue, e.g. before its
+implementation PR has opened) sitting at `waiting:claude`/`waiting:codex`
+with no repo activity for days is stalled the same way a quiet PR thread
+is. For these, apply the **same attributable, non-David filtering as the
+PR path above** (the login-vs-signature distinction included) to the
+issue's own comment history (`issue_read`, **paged to exhaustion, same as
+the PR path's `get_commits`/`get_review_comments`/`get_comments`**), not
+its raw `updated_at` alone. A single capped page can omit the latest
+non-David reply the same way an unpaged PR call can, and mis-mark an
+active issue stalled or attribute the last move to the wrong actor. A
+David comment, label edit, or body edit advances `updated_at` the same
+actorless way a PR's does, and would reset this clock and hide the same
+stale handoff the PR path is designed to expose — don't let "no PR yet"
+mean "can't be stalled," since a workstream that never gets a PR shape
+stalls in exactly the same way, just on a different object. **If the
+*filtered, attributable* comment set is empty** — either because the
+paged history has nothing at all (an issue freshly opened with nothing
+posted since), or because every comment in it is David's own (per the
+signature-based filter above, with nothing left once his items are
+excluded) — fall back to the issue's own `created_at` as the baseline
+activity event. Both cases leave this algorithm with no non-David
+timestamp to measure the 48-hour threshold against, and treating only
+the empty-history case as the trigger would let a `waiting:claude`/
+`waiting:codex` issue containing nothing but David's own unanswered
+prompts evade the stalled bucket indefinitely — the same failure mode
+the signature-filter fix above exists to close, just one step later in
+the pipeline.
 
 This catches both directions: `waiting:codex` with no Codex response
 (review hasn't landed) *and* `waiting:claude`/`waiting:codex` with a
@@ -123,12 +360,14 @@ how long ago, who was last to act) and let David or the resuming session
 draw the conclusion.
 
 48 hours is a default, not a hard rule — if David asks for a tighter or
-looser window in the invocation (e.g. "/status-all stalled=24h"), honor it.
+looser window in the invocation (e.g. "/status-all stalled=24h"),
+honor it.
 
-### Plain-language blockers for anything `waiting:david`
+### Plain-language blockers for anything on a David-gate
 
 Don't just say "needs you" — say **what**, restated in one sentence from
-the actual source, not guessed from the stage name alone:
+the actual source, not guessed from the stage name alone. Applies to both
+David-gate values (`waiting:david` and `waiting:replit`):
 
 - If there's an open, unresolved review thread addressed to David → read
   it and restate the actual question in plain language.
@@ -136,6 +375,8 @@ the actual source, not guessed from the stage name alone:
   open question — say so plainly ("ready to merge, CI green, Codex
   converged" / "merged — UAT doc at `docs/PR<N>_..._UAT.md`, not yet run").
   Search for the UAT doc filename before claiming one doesn't exist.
+- If `waiting:replit`, say what's ready for him to run — e.g. "merged,
+  ready for the TEST_RUN checklist at `docs/PR<N>_..._TEST_RUN.md`."
 - Accuracy over cheapness here: a wrong restatement makes the whole report
   untrustworthy, which defeats the purpose. Read the actual comment/thread
   rather than inferring from labels alone.
@@ -150,6 +391,7 @@ found; don't pad empty sections):
 🛑 NEEDS YOU (n)
 #311 — CodeQL rate-limiter: merged, UAT doc ready at docs/PR308_..._UAT.md, not yet run
 #281 — Evidence retention plan: [specific restated question from the thread]
+#320 — Rate-limiter tuning: merged, ready for the TEST_RUN checklist at docs/PR320_..._TEST_RUN.md
 
 ⚠️ STALLED (n) — no activity >48h, nobody currently blocked on David
 #309 — Evidence retention: Codex posted round 2 findings 6d ago, unanswered

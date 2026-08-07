@@ -221,7 +221,7 @@ ceremony, not just Claude's enactment of it:
    harvest as a **standalone** `mode:docs` workstream issue instead of
    skipping tracking. `pr-watch` needs *some* issue to label regardless of
    whether a parent exists, and an untracked harvest is invisible to
-   `/status` and the board despite having its own real review loop.
+   `/status-all` and the board despite having its own real review loop.
 4. Set the PR body's `Workstream:` line to the sub-issue (or standalone
    issue) just created — never the parent, which is typically already well
    past this harvest's own stage.
