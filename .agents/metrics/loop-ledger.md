@@ -1,5 +1,18 @@
 # Loop ledger
 
+> **FROZEN 2026-08-07 — historical archive, rows 1–42.** New loops are
+> recorded one JSON file per loop in
+> [`.agents/metrics/loops/`](./loops/), and the answers they produce reach
+> David through the digest (`node scripts/loop-report.mjs`, narrated by
+> `/maintenance`) rather than through this file. **Nothing below is edited
+> again**: the contents are pinned by `loop-ledger.sha256` and
+> `scripts/check-loop-metrics.mjs` fails any change to them. There was no
+> migration — these rows stay exactly as written, and the analysis in *What
+> the ledger's adjudicated rows now show* remains the record of what the
+> first 42 loops showed. See
+> [`working-modes.md`](../../docs/ai-context/working-modes.md#the-loop-ledger)
+> for the current ceremony.
+
 Every review loop this repository runs, one row each, permanently.
 
 **Why this exists.** Until 2026-07-27 nothing here recorded a single review
