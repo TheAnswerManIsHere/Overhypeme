@@ -53,14 +53,16 @@ unrelated test failures across four suites resulted, with no schema-shadow
 gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
 **separate** database (`overhype_db_test`) so its push+migrate cycle never
 touches the database api-server's tests are cloned from. **The lesson
-generalizes beyond CI**: this failure mode fires whenever `push` runs a
-second time against a database that has already been `migrate`d — not only
-across sandbox sessions, and not only in this repo's specific CI shape. Any
-pipeline that runs `push-force` more than once per environment, or shares
-one database between two independent push+migrate cycles, is exposed to it
-regardless of whether every migration has a complete `schema.ts` shadow —
-the shadow prevents the object from being unrecoverable, it does not prevent
-the drop.
+generalizes beyond CI, but only for migrations without a complete,
+accurate `schema.ts` shadow.** If every raw-SQL object a migration creates
+has a matching `pgTable` declaration, `push` reconciles the database to
+that declared state and won't drop it — the shadow prevents the loss
+outright, not just the unrecoverability. The exposure is real whenever
+that shadow is missing or doesn't match (a stale index predicate, a CHECK
+whose Drizzle-rendered form diverges from the migration's), and it fires
+on the SECOND `push` against an already-`migrate`d database regardless of
+what triggers that second push — not only across sandbox sessions, and not
+only in this repo's specific CI shape.
 2. **`pending_reviews.parent_fact_id`'s index.** Migration `0091` creates
    `idx_pending_reviews_parent_fact` via `CREATE INDEX`, but `schema.ts`'s
    `pgTable` never declared a matching `index(...)` entry — caught by Codex

@@ -367,8 +367,12 @@ priorities (moderation speed, render/enrichment quality, video). See
   automated submission to NCMEC for reportable moderation hits, replacing
   today's stub (`submitNcmecReport()` writes a DB row + admin email; it has
   never contacted NCMEC). **Phases 1–2 of 8 shipped**: the schema/migration
-  and the ISPWS HTTP client + XML builders, both callerless — nothing can
-  file a report yet, and both filing switches are seeded off. Phases 3–8
+  and the ISPWS HTTP client + XML builders. Neither phase can file a report
+  yet — both filing switches are seeded off — but only phase 2 (the client
+  and builders) is callerless; phase 1 is already live in existing paths
+  (`submitNcmecReport()` writes `ncmec_reports`, `quarantineImage()` invokes
+  that stub, and migration `0097`'s triggers and reserved-config guard run
+  against those writes today). Phases 3–8
   (the submission worker, the reconciler, admin routes, the `/admin/safety`
   page, alerting, and the production-activation gate) remain. See
   [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
