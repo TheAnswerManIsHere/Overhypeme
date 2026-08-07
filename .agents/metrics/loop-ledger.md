@@ -190,7 +190,7 @@ undercounted when a re-review is clean* above) but whose second round found
 **nothing**. #276, #283, #323, #324, and #339 each had exactly one round,
 full stop (#323, #324, and #339's single rounds each carried findings — 6,
 5, and 2 respectively, all `new_ground` — unlike #286's finding-free second
-round; the four arrive at "exactly one finding-bearing round" by a
+round; the five arrive at "exactly one finding-bearing round" by a
 different path than #286's). All six had exactly one round that raised any
 finding at all, and none of
 the three self-inflicted categories (propagation, wrong fix, re-raised) can
@@ -218,7 +218,7 @@ the loop's real quality. Mixing these into a trend with multi-finding-round
 loops would understate the real number, exactly the failure mode this
 backfill exists to prevent in the other direction.
 
-**#308 (row 26) is a fourth 0% row, but not a fourth instance of the
+**#308 (row 26) is a seventh 0% row, but not a seventh instance of the
 structural floor above — it is a genuine measurement.** #308 had **two**
 finding-bearing rounds (round 1: 3 findings, round 2: 4 findings), so
 propagation and wrong-fix were structurally *possible* there in a way they
@@ -433,8 +433,11 @@ impression, now checked against eleven loops instead of six:**
   traces to `openLedgerPrCarries`/`confirmedLedgerPrNumbers`/
   `fetchFileAtRef`, code this same loop wrote mid-flight and then hardened
   across five more rounds, not pre-existing code a fix half-repaired.
-  **#334 reverses by the same mechanism at the largest scale yet** (38
-  propagation vs 12 wrong-fix): almost all of its propagation traces to
+  **#334 reverses by the same mechanism at the largest scale yet among the
+  nine measured/comparable loops** (38 propagation vs 12 wrong-fix — #287's
+  48-propagation author classification below is larger still, but stays
+  `unmeasured`, so it doesn't count against this scoped superlative): almost
+  all of its propagation traces to
   `sync-test-run-completion.mjs`/`test-run-completion.yml`, an entire Action
   this same loop wrote from scratch mid-flight (round 2's response to the
   "no writable trigger" finding) and then hardened across a dozen more
