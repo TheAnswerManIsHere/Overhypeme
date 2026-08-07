@@ -360,11 +360,12 @@ also cohorted `prose/contract` by the same `.md`-file leak, per row 26).
 #334 is cohorted `prose/contract (mixed)`, the row 12/#288-style leak at
 its most extreme yet — 9 of its 20 files are code/workflow, including an
 entire new GitHub Action, not an incidental doc alongside a code change.
-**#337 is the one genuine exception**: a pure `/document` harvest, 7
-markdown files, zero code — the label is accurate for once, not a leak.
-With six different underlying shapes (five leaked shapes — #288, the
-combined #289/#301 shape, #304, #308, #334 — plus #337's one genuine case)
-now sharing this label family, the cohort column is even
+**#337 is not the sole genuine case — the combined #289/#301 shape is
+too**: both are described above as pure documentation/skills work with no
+code surface at all, so `prose/contract` is accurate for them, not a leak.
+With six different underlying shapes (four leaked — #288, #304, #308,
+#334 — plus two genuine cases — the combined #289/#301 shape and #337) now
+sharing this label family, the cohort column is even
 less informative for this comparison than the original n=2 confound
 already made it, not more — the shared label was never evidence of a
 shared shape, and adding rows doesn't fix that, it just makes it more
