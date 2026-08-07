@@ -41,18 +41,21 @@ deliberately the boring version.
 
 ## Must Not Change
 
-- **Counted, never recalled.** Mechanical figures stay `loop-metrics.mjs`-derived.
+- **Counted, never recalled.** Mechanical figures stay `loop-metrics.mjs`-derived,
+  and **`--write` refuses a snapshot that is not fully attested** (see §2) so
+  a known-understated derivation never lands as measured data.
 - **The obligation stays shared and cross-agent** (both Claude and Codex
   record; contract in `working-modes.md`), and **`--mcp-snapshot` keeps
   working** — it is Claude's primary path in this container, whose
   `GITHUB_TOKEN` 401s against the real API.
-- **The existing ledger's contents are never edited or re-derived** — see
-  "History" below.
-- **The adjudication rubric** (five causes, precedence, exact
+- **The existing ledger's contents are never edited or re-derived** beyond
+  the single permitted header line.
+- **The adjudication rubric is unchanged** — five causes, precedence, exact
   finding-by-finding disagreement, ambiguous → self-inflicted, the
-  **strictly-greater-than-20%** gate, `unmeasured` loops excluded from the
-  trend, and `n/a` for a loop with no valid findings) is unchanged; only
-  *when* adjudication runs changes.
+  **strictly-greater-than-20%** gate, `unmeasured` excluded from the trend,
+  and `n/a` when there are no valid findings. **Every adjudication that runs
+  still covers the loop's full finding population.** What changes is only
+  *which loops* are adjudicated (see the supersession note in step 5).
 - Branch protection and the PR-required flow are untouched. Plan approval
   stays explicit-only.
 
@@ -70,63 +73,71 @@ a value changes and only git history shows it, which David does not read — is
 1. **One JSON file per loop**, `.agents/metrics/loops/<pr>.json`, keyed by PR
    number. Different loops never touch the same path, so the real collision —
    two sessions recording *different* loops — disappears entirely.
-2. **Record when the loop is done, not when the PR closes.** Reviews can land
-   after merge — frozen-ledger rows #323 and #324 are observed cases — so
-   recording at closure would persist zero rounds and zero findings. If a
-   late review arrives after a record exists, re-derive and edit the record;
-   that is an ordinary commit, permitted by the relaxation above.
-3. **Idempotent write:** `loop-metrics.mjs --write` no-ops if a record for
-   that PR exists in the working tree **or on `origin/main`** (fetched
-   first), so a stale branch cannot create a second copy. Two sessions
-   recording the same loop at the same instant still produces a git add/add
-   conflict; a human picks one. Accepted.
-4. **The `[LEDGER]` PR type is retired.** A record rides any PR. No
-   carry-everything gate, no title prefix, no dedicated-PR requirement — and
-   therefore no debt recursion to terminate.
+2. **Record at the loop's terminal point**, defined precisely as: the PR is
+   closed or merged **and** no reviewer pass has landed for at least one
+   full digest window (14 days), **and the record is committed on a PR other
+   than the one being measured.** Reviews can land after merge — frozen-ledger
+   rows #323 and #324 are observed cases — so recording at closure would
+   persist zero rounds and zero findings. And a record riding its own PR
+   changes that PR's diff, which can trigger a further reviewer pass *after*
+   the rounds and interval were derived, leaving a record that looks valid
+   while omitting the round its own addition caused. If a late review arrives
+   after a record exists, re-derive and edit it — an ordinary commit under the
+   relaxation above.
+3. **Idempotent write, narrowly claimed:** `loop-metrics.mjs --write` no-ops
+   if a record for that PR exists in the working tree **or on `origin/main`**
+   (fetched first). **Any overlap before a record lands** — two sessions at
+   once, or a second session starting while the first's record sits on an
+   unmerged PR — is the accepted git add/add conflict case; a human keeps
+   either copy. The design does not chase an authoritative open-branch
+   lookup, and the Definition of Done claims no more than this.
+4. **The `[LEDGER]` PR type is retired.** A record rides any PR (other than
+   its own, per decision 2). No carry-everything gate, no title prefix, no
+   dedicated-PR requirement — and therefore no debt recursion to terminate.
 5. **History stays exactly where it is.** `loop-ledger.md` is frozen as the
-   historical archive, contents untouched, with a one-line header pointing at
-   the new store. **There is no migration** — no conversion script, no parity
-   check, no reverse migration, no re-derivation from the API.
-6. **Adjudication is a deterministic sample**: run it iff `pr % 5 === 0`
-   **or** `findings >= 30`. Otherwise `never-run`. A loop with no valid
-   findings records `n/a` and never launches an adjudicator.
+   historical archive with a one-line header edit. **There is no migration.**
+6. **Adjudication is a deterministic sample across loops**: run it iff
+   `pr % 5 === 0` **or** `findings >= 30`. Every adjudication that runs still
+   covers that loop's **full** finding population — this samples *loops*, not
+   findings within a loop, which is what the 2026-07-27 decision removed
+   (step 5).
 7. **The digest is the product** — `scripts/loop-report.mjs`, narrated to
    David through `/maintenance` and on demand.
 8. **Nothing is enforced by a hard CI gate except record validity.** Missing
-   records are reported in the digest, which David actually reads, rather
-   than failing anyone's build. That removes the entire
-   coverage/carrier/backstop apparatus.
+   records and deferrals are reported in the digest, which David reads.
 9. **Derived values are never stored.** Self-inflicted share, adjudication
-   percentage, and adjudication verdict are all computed from their inputs at
+   percentage, and adjudication verdict are computed from their inputs at
    read time. Two representations of one number can disagree; one cannot.
 10. **PR #327 is simply closed.** All six rows it carried (#318, #319,
-    #322–#325) are already on `main` — verified against `origin/main`'s
-    ledger — so it has nothing left to contribute. #335 already merged
-    (`6417bf2`); main is at 42 rows.
+    #322–#325) are already on `main`. #335 already merged (`6417bf2`).
 
 ## Repo Context Inspected
 
 - `.agents/metrics/loop-ledger.md` on `origin/main` (42 rows; #318/#319/
-  #322–#325 all confirmed present; rows #323/#324 confirmed as post-merge
-  review cases; the `—` preflight convention and the `n/a` / trend-exclusion
-  rules in its header contract).
-- `scripts/check-ledger-coverage.mjs` (~970 lines), including
-  `auditLedgerDebt`'s `FIRST_ENFORCED_PR` cutoff pattern, and its test file.
-- `scripts/loop-metrics.mjs` — `derive()`'s exact return object (top-level
-  `pr`, `title`, `cohort`, `size`, `rounds`, `findings`, `per_round`,
-  `review_interval`, `adjudication_sample`, `warnings`, coarse `state`, and a
-  `judgment` block of nulls), `classifyCohort`'s `LEDGER_PATH` exclusion, and
-  **`assertMcpSnapshotShape`, which requires only `number`, `title`, and
-  `created_at` on the PR — no closure timestamp** (verified at
-  `scripts/loop-metrics.mjs:739-746`).
-- `.github/workflows/build.yml` — the two guard steps; no `fetch-depth` on
-  any checkout (no longer relevant: the new guard needs no base diff).
-- `package.json:17` — `check:ledger` points at the script being deleted.
-- `docs/ai-context/working-modes.md` → "The loop ledger" (rubric; gate worded
-  "Above 20%"; `unmeasured` excluded from the trend).
+  #322–#325 present; #323/#324 confirmed post-merge-review cases; the `—`
+  preflight convention and the `n/a` / trend-exclusion rules).
+- `scripts/check-ledger-coverage.mjs` — `FIRST_ENFORCED_PR`, the paginating
+  `gh` helper, and `NON_LOOP_AUTHORS` (Dependabot excluded because
+  `/maintenance` merges those without a review loop, `:52-64`).
+- `scripts/loop-metrics.mjs` — `derive()`'s exact return object (`pr`,
+  `title`, `cohort`, `size`, `rounds`, `findings`, `per_round`,
+  `review_interval`, **`adjudication_sample`**, `warnings`, coarse **`state`**,
+  and a null `judgment` block); `classifyCohort`, which **has no
+  code-majority rule today** — it returns `prose/contract` on any prose path;
+  `assertMcpSnapshotShape` (`:739-746`), which requires only `number`,
+  `title`, `created_at`; and `assertMcpSnapshotComplete`, which requires
+  `complete.issueComments` **only when `issueComments` is supplied**, with
+  `derive()` merely warning when it is absent.
+- `.github/workflows/build.yml`; `package.json:17` (`check:ledger`).
+- `docs/ai-context/working-modes.md` → "The loop ledger".
+- **`docs/ai-context/decisions.md:539-577`** — the 2026-07-27 decision
+  mandating the markdown ledger *and* full-population (non-sampled)
+  adjudication, including its rationale and its "Revisit if" clause.
+- **`docs/ai-context/current-roadmap.md:182-190`** — repeats that contract.
+- **`.claude/skills/plan-review-loop/SKILL.md:323-327`** — routes reviewer-
+  efficacy measurement to the old ledger path.
 - `.claude/skills/maintenance/SKILL.md` — the existing "what shipped" digest.
-- Live PR state: #335 merged as `6417bf2`; #327 still open; #337/#339/#342
-  landed after.
+- Live PR state: #335 merged as `6417bf2`; #327 still open.
 
 ## Current Behavior
 
@@ -139,15 +150,13 @@ disagreement. No delivery mechanism to David exists.
 ## Source-of-Truth Analysis
 
 - **New loops:** `.agents/metrics/loops/*.json` is the single source of truth.
-  Within a record each concept has one home: identity only in top-level `pr`,
-  judgment only in top-level `judgment`, and `mechanical` carries neither
-  (`derive()`'s output is projected, not stored raw — it contains its own `pr`
-  and a null `judgment` that would otherwise go stale).
+  Identity lives only in top-level `pr`, judgment only in top-level
+  `judgment`, and `mechanical` carries neither.
 - **Historical loops:** the frozen `loop-ledger.md` is the archive and remains
   their only source. Nothing reads it programmatically after the freeze.
-- **Derived, never stored** (decision 9): self-inflicted share,
-  `disagreementPct`, and the adjudication `verdict`.
-- The rubric's source of truth stays `working-modes.md`.
+- **Derived, never stored:** self-inflicted share, `disagreementPct`, verdict.
+- The rubric's source of truth stays `working-modes.md`; the *decision* record
+  is superseded in `decisions.md` (step 5), not left contradicting this plan.
 
 ## Proposed Design
 
@@ -188,65 +197,90 @@ from every metric aggregate, and is listed as exempt in the digest's data
 health. It carries no `closedAt` and no `mechanical`, and no report path may
 assume it does.
 
-Field rules:
+**`mechanical` is an allowlist, not a spread.** Exactly these keys, and no
+others: `title`, `cohort`, `size`, `rounds`, `findings`, `perRound`,
+`reviewInterval`, `warnings`. `mechanicalProjection()` builds that object
+field by field, and the guard **rejects any unknown key**. This matters
+because `derive()` also returns `adjudication_sample` and a coarse `state`; a
+rest/spread implementation would persist both beside the authoritative
+values, where a later refresh would leave them stale without failing any
+other check.
 
-- **`adjudication.status`** is `never-run`, `n/a` (no valid findings — see
-  the churn rule below), `deferred` (with a reason), or `completed`. A
-  `completed` adjudication stores **only** `population` and `disagreements`;
-  `disagreementPct` and `verdict` are computed from them at read time
-  (decision 9), so the four values cannot contradict each other.
+**Adjudication state matrix.** `adjudication.status` is exactly one of:
+
+| status | when it is correct | trend/churn treatment |
+|---|---|---|
+| `never-run` | the loop does **not** meet the sampling predicate and has ≥1 valid finding | **Included** — the author classification is the measurement |
+| `completed` | the loop **does** meet the predicate; stores `population` + `disagreements` only | Included if the derived verdict is `measured`; **excluded** if `unmeasured` |
+| `n/a` | the valid-finding denominator (`findings - invalid`) is zero — no findings, or none valid | **Excluded**, and never reported as 0% |
+| `deferred` | adjudication or judgment consciously skipped, with a reason | **Excluded**, and listed individually in data health |
+
+The guard enforces this **both ways**: a loop meeting the predicate may not
+be `never-run`, and a loop not meeting it may not be `completed`. `n/a` is
+accepted only when the denominator is genuinely zero. Roughly four-fifths of
+loops will be `never-run`, so their inclusion is the difference between a
+digest that says something and one that says almost nothing.
+
+**Other field rules:**
+
+- A `completed` adjudication stores **only** `population` and `disagreements`;
+  `disagreementPct` and the `verdict` are computed at read time (decision 9),
+  so they cannot contradict each other. The guard validates
+  `0 <= disagreements <= population` and that `population` equals the loop's
+  full finding count.
 - **`preOpenPreflightMin`** may be `null` with a stated reason, meaning
-  *genuinely unknown* — the frozen ledger's `—` convention, e.g. a branch
-  carrying unrelated earlier work. Null is distinct from a measured `0` and
-  is never treated as zero. An unknown preflight does **not** make the
+  *genuinely unknown* — the frozen ledger's `—` convention. Null is distinct
+  from a measured `0`, is never summed as zero, and does **not** make the
   judgment incomplete.
-- **`closedAt`** comes from `derive()` (which currently keeps only a coarse
-  `state`). Because `--mcp-snapshot` is a Must Not Change path and its shape
-  assertion does not require a closure timestamp, **the snapshot contract is
-  extended to carry `closed_at`/`merged_at`**, `assertMcpSnapshotShape`
-  validates it, and `working-modes.md`'s snapshot instructions say how to
-  obtain it.
+- **`closedAt`** comes from `derive()`. Because `--mcp-snapshot` is a Must Not
+  Change path whose shape assertion does not require a closure timestamp, the
+  snapshot contract is extended to carry `closed_at`/`merged_at`,
+  `assertMcpSnapshotShape` validates it, and `working-modes.md`'s snapshot
+  instructions say how to obtain it.
 
 ### 2. The writer
 
-`loop-metrics.mjs --pr N --write` (composes with `--mcp-snapshot`) derives the
-mechanical half and writes the file with a `judgment: null` scaffold. It
-fetches and checks `origin/main` as well as the working tree; if a record
-exists in either, it prints "already recorded" and exits 0. Filename and `pr`
-field are written together.
+`loop-metrics.mjs --pr N --write` derives the mechanical half and writes the
+file with a `judgment: null` scaffold. It fetches and checks `origin/main` as
+well as the working tree; if a record exists in either, it prints "already
+recorded" and exits 0. Filename and `pr` field are written together.
 
-Fixing a wrong value later, or refreshing a record after a late review, is an
-ordinary edit to the file, with the prior value noted in `notes` if it
-matters. No overlay system.
+**`--write` requires a fully attested snapshot.** `assertMcpSnapshotComplete`
+today requires `complete.issueComments` only when `issueComments` is present,
+and `derive()` merely warns when the collection is absent — correct for
+read-only derivation of older snapshots, but wrong for writing, because a
+missing issue-comment collection understates exactly the clean rounds and
+review time the digest then aggregates as measured. So `--write` **fails** on
+a snapshot lacking a complete `issueComments` attestation. Plain derivation
+keeps its current lenient behavior for backward compatibility.
+
+Fixing a wrong value later, or refreshing after a late review, is an ordinary
+edit to the file, with the prior value noted in `notes` if it matters.
 
 ### 3. Ceremony
 
-1. `--write`, once the loop is actually done (decision 2). 2. Fill
+1. `--write`, at the terminal point defined in decision 2. 2. Fill
 `judgment`. 3. If `pr % 5 === 0` or `findings >= 30`, run the blind
-adjudicator and record `population` + `disagreements`; if there are no valid
-findings, record `n/a`. 4. Commit the file on whatever PR you have open.
+adjudicator over the loop's full finding population and record `population` +
+`disagreements`; if the valid-finding denominator is zero, record `n/a`;
+otherwise `never-run`. 4. Commit the file on any open PR **except the one
+being measured**.
 
 ### 4. The guard: `scripts/check-loop-metrics.mjs`
 
 Offline, no token, no base diff, no API:
 
 - Every `loops/*.json` parses and matches one of the two schema branches;
-  filename equals `pr`; `mechanical` contains no `pr` or `judgment` key.
+  filename equals `pr`; `mechanical` contains **exactly** the allowlisted keys.
 - The five causes sum exactly to `mechanical.findings`.
-- **Every measured record has a complete `judgment`** (a null
-  `preOpenPreflightMin` with a reason still counts as complete) **or an
-  explicit `judgmentDeferred` reason** — so a `--write` scaffold committed
-  after an interrupted session fails here rather than sitting valid-looking
-  forever. An exempt record satisfies this branch by construction.
-- A loop meeting the sampling predicate carries an adjudication result, an
-  `n/a`, or a stated deferral.
-- **A `completed` adjudication is internally consistent**: `0 <=
-  disagreements <= population`, and `population` equals the full finding
-  population (no sampling within a loop).
+- Every measured record has a complete `judgment` (a null
+  `preOpenPreflightMin` with a reason still counts) or an explicit
+  `judgmentDeferred` reason. An exempt record satisfies this by construction.
+- The adjudication state matrix above, enforced in both directions, including
+  the `completed` internal-consistency bounds.
 - **The frozen ledger matches a checked-in `sha256` baseline**, recorded
-  after the one allowed header edit. Without a pinned baseline an offline
-  check cannot tell whether the current checkout differs from the cutover
-  version, so "any change fails" would not be an executable invariant.
+  **after** the permitted header edit (see step 3 — recording it before the
+  edit would invalidate it immediately and leave the guard permanently red).
 
 Deleting a record isn't gated by CI (see the relaxation under Must Not
 Change). Roughly 150 lines, replacing ~970. `package.json`'s `check:ledger`
@@ -257,62 +291,112 @@ is retargeted to the new script in the same PR.
 Reads the store and emits:
 
 - **Volume/cost** — loops closed in the window (`--since`, default 14 days,
-  keyed on `closedAt`): rounds, findings, **review time and pre-open
-  preflight time reported separately, and both included in any total-cost
-  figure**. Unknown preflight stays unknown; it is never summed as zero.
-- **Churn** — self-inflicted share per *qualifying* loop, plus the wrong-fix
+  keyed on `closedAt`): rounds, findings, and **review time and pre-open
+  preflight time as two separate figures**. When any loop in the window has
+  unknown preflight, the preflight total is reported as a **labeled
+  known-cost subtotal plus a count of unknowns** ("preflight: 3.2h across 4
+  loops; 2 loops unknown") — never a single number that silently treats
+  unknown as zero, and never suppressed entirely. Outlier ranking uses review
+  time, so an unknown-preflight loop still ranks, with its unknown noted
+  rather than being dropped from the ranking.
+- **Churn** — self-inflicted share per *qualifying* loop plus the wrong-fix
   vs. propagation split. Qualifying requires **both**: more than one
-  finding-bearing round (per `perRound` — the structural-floor rule from the
-  ledger's analysis, encoded rather than narrated), **and** an adjudication
-  verdict that is not `unmeasured`, which the rubric requires be excluded
-  from the trend. A loop whose denominator (`findings - invalid`) is zero —
-  zero findings, or every finding invalid — is reported `n/a` and excluded,
-  never 0% and never `NaN`.
+  finding-bearing round (per `perRound`), **and** an adjudication state whose
+  matrix row above says Included.
 - **Trend** — the qualifying sequence over time, always labeled with n.
-- **Outliers** — the most expensive loops in the window.
-- **Data health** — deferred / `never-run` / `unmeasured` / `n/a` / exempt
-  counts, and **missing records**, named from a closed-PR list.
-  **Completeness is scoped to post-cutover loops** via a `FIRST_RECORDED_PR`
-  cutoff set at cutover (the same shape as the existing guard's
-  `FIRST_ENFORCED_PR`); historical loops deliberately have no records and are
-  never reported missing. Without a token it says "completeness not checked"
-  rather than implying the directory is complete.
+- **Data health** — `never-run` / `unmeasured` / `n/a` / exempt counts;
+  **every deferred loop listed individually by PR number and reason** (a
+  count alone lets a deferral hide); and **missing records**.
 
-**Cold start is real and stated, not designed around.** Until several
-post-cutover loops exist, churn and trend will say "n = 0/1/2 — not yet
-informative," and the digest says exactly that rather than drawing a line
-through two points. Volume/cost and data health work from the first record.
-The frozen ledger's own analysis section remains the answer for what the
-first 42 loops showed; the digest does not restate or bridge to it, and
-`/maintenance` narrates the two eras separately when both are relevant.
+**Completeness input, specified.** Missing records are computed against a
+**fully paginated** closed-PR list (the same `Link`-header pagination the
+deleted guard's `gh` helper used — truncating at one page would silently
+under-report), filtered to: PR number `>= FIRST_RECORDED_PR` (the cutover
+cutoff — historical loops deliberately have no records and are never reported
+missing), **excluding Dependabot authors** (`NON_LOOP_AUTHORS` — `/maintenance`
+merges those without a review loop, so reporting every dependency bump as a
+missing loop would make the section useless), and excluding PRs that already
+have a record or an exempt record. Without a token, the section prints
+"inventory unavailable — completeness not checked" rather than implying the
+directory is complete. A snapshot file may be supplied instead of a token.
+
+**Cold start is real and stated.** Until several post-cutover loops exist,
+churn and trend say "n = 0/1/2 — not yet informative" rather than drawing a
+line through two points. Volume/cost and data health work from the first
+record. The frozen ledger's analysis section remains the answer for the first
+42 loops; `/maintenance` narrates the two eras separately.
 
 ### 6. Cohort fix
 
-`classifyCohort` is reordered — `plan-review` → `bugfix` (the body's
-`**Fix tier:**`) → code-majority → `prose/contract` — and
-`.agents/metrics/loops/` joins the existing `LEDGER_PATH` exclusion, so a
-docs-only PR carrying a large record isn't reclassified as `feature/code`.
+`classifyCohort` gains a code-majority rule it does not have today, evaluated
+first-match top-down: `plan-review` → `bugfix` (the body's `**Fix tier:**`) →
+**code-majority** → `prose/contract`.
+
+**Code-majority, exactly:** for each changed file, `additions + deletions` is
+its weight. Files under `.agents/metrics/` (both the frozen ledger and the
+new store) contribute to **neither** side — extending the existing
+`LEDGER_PATH` exclusion, so a docs-only PR carrying a large record isn't
+reclassified. Of the remainder, a file is *docs* if its path ends `.md` or
+sits under `docs/`; everything else is *code*. **Code weight strictly greater
+than docs weight → `feature/code`; otherwise `prose/contract`** — so ties and
+all-docs both land in `prose/contract`, matching today's bias. A rename
+counts once, at its destination path, with its own additions/deletions.
 The digest notes the boundary date rather than pooling across it.
+
+### 7. Contract updates (step 5 in detail)
+
+Four active sources currently mandate the old contract and must be updated in
+the same PR, or agents will be reading contradictory truth:
+
+- **`working-modes.md` → "The loop ledger"** — the new ceremony; rubric and
+  snapshot-completeness rules kept verbatim, plus the closure-timestamp
+  instruction for MCP snapshots.
+- **`CLAUDE.md`'s ledger section** — new ceremony; the `[LEDGER]`
+  squash-merge authorization retires with the PR type.
+- **`.claude/skills/plan-review-loop/SKILL.md:323-327`** — repoint
+  reviewer-efficacy measurement at the store and the digest.
+- **`docs/ai-context/decisions.md`** — the 2026-07-27 entry decided
+  full-population adjudication *and* the markdown ledger. This plan changes
+  the first only in *scope of application*, so the entry gets a **new dated
+  superseding decision**, not a silent edit. It must record: (a) that every
+  adjudication still covers the full finding population, so the two bias
+  defects that killed the original within-loop sample (an id-sort
+  oversampling round 1; a round-robin silently dropping the latest rounds)
+  **cannot recur** — this samples loops, not findings; (b) that the original
+  entry's cost rationale ("full coverage costs tokens, not human time") is
+  not the reason for the change; (c) that the actual reason is the observed
+  outcome — roughly 40% of adjudicated rows landed `unmeasured` and were
+  discarded — plus David's 2026-08-07 scope directive; and (d) that the
+  original "Revisit if" clause (adjudicator becomes human) is unaffected and
+  still stands.
+- **`docs/ai-context/current-roadmap.md:182-190`** — update the summary that
+  repeats the old contract.
 
 ## Data Model and Migration Impact
 
 **No migration.** No database or product schema change. The frozen ledger is
-edited once, in its header only. Rollback is `git revert` of the cutover PR:
-the archive is intact, and at worst a few new records need re-deriving, which
-`--write` does in seconds.
+edited once, in its header only.
+
+**Rollback, bounded honestly.** Reverting the cutover PR is a clean, complete
+rollback **only while no post-cutover record has landed**. After that, a
+revert restores the old markdown system while the JSON records remain on disk
+unreadable by it, and those loops become unrecorded in the restored ledger.
+The plan does **not** ship an export path for that case: it is an internal
+tracking tool, and the loss is a handful of loops' metrics, re-derivable by
+hand from the PRs themselves. That consequence is stated here rather than
+discovered later — the accepted-risk treatment, not a solved problem.
 
 ## Runtime Behavior
 
 - Two sessions, different loops: two files, no conflict, ever.
-- Two sessions, same loop, sequentially — including from a stale branch: the
-  second no-ops against `origin/main`.
-- Two sessions, same loop, simultaneously: a git add/add conflict; keep
-  either copy. Accepted.
-- A review lands after the PR merged: record once the loop is done, or edit
-  the existing record.
-- Nobody records a loop: it shows up as a missing record in the next digest.
-- A sampled loop trips the gate: `unmeasured`, flagged in data health, and
-  excluded from churn and trend.
+- Two sessions, same loop, where the first record has **landed on `main`**:
+  the second no-ops.
+- Any overlap **before** a record lands (simultaneous, or the first still on
+  an unmerged PR): git add/add conflict, keep either copy. Accepted.
+- A review lands after the PR merged: the terminal point in decision 2 hasn't
+  been reached yet, so no record exists to be wrong; if one does, edit it.
+- Nobody records a loop: it appears as a missing record in the next digest.
+- A sampled loop trips the gate: `unmeasured`, flagged, excluded from trend.
 
 ## Admin/User UX Impact
 
@@ -320,93 +404,104 @@ No product surface changes. David's surface is the digest, in chat.
 
 ## Security, Permissions, and Validation
 
-No new credentials. The guard needs none at all; the report uses the same
-read-only PR listing already available. Nothing here is a new class of public
+No new credentials. The guard needs none; the report uses the same read-only
+PR listing already available. Nothing here is a new class of public
 information — the current ledger is already public.
 
 ## Testing Plan
 
-`node --test scripts/__tests__/<file>`, wired into `build.yml` beside the
-existing script tests.
+`node --test scripts/__tests__/<file>`, wired into `build.yml`.
 
-- `check-loop-metrics.test.mjs`: schema pass/fail on both branches;
-  filename↔`pr` mismatch; `mechanical` containing `pr` or `judgment`;
-  arithmetic pass/fail; a committed `--write` scaffold with null judgment and
-  no deferral **fails**; null-with-reason preflight **passes** as complete;
-  sampling boundaries (`pr % 5`, findings 29 vs 30); a no-valid-findings
-  sampled PR passes with `n/a`; **contradictory `completed` adjudication
-  fixtures fail** (`disagreements > population`, negative, non-full
-  population); an exempt record passes completeness; frozen-ledger content
-  change **and** baseline mismatch both fail.
-- `loop-metrics.test.mjs` additions: `mechanicalProjection` strips `pr` and
-  `judgment`; `closedAt` present including a zero-review loop; **extended MCP
-  snapshot shape — `closed_at` required, and `--mcp-snapshot --write` end to
-  end**; `--write` idempotency against a working-tree record **and against an
-  `origin/main` record absent from a stale checkout**; cohort reordering
-  (bugfix-tier PR with docs → `bugfix`; code-majority with docs →
-  `feature/code`; docs-only → `prose/contract`; docs-only carrying a large
-  metrics record → still `prose/contract`).
-- `loop-report.test.mjs`: self-inflicted computed from causes, invalid
-  excluded from the denominator, rounding; **a qualifying all-invalid loop
-  reports `n/a`, not 0% or `NaN`**; `>20%` boundary (exactly 20% measured,
-  smallest fraction above not) computed from `population`/`disagreements`;
-  **an `unmeasured` multi-round loop is excluded from churn and trend**;
-  qualifying filter uses `perRound`; `closedAt` window boundaries; preflight
-  reported separately with unknown preserved as unknown; **a pre-cutover
-  absent record is ignored while the first post-cutover absent loop is named
-  by number**; exempt records excluded from aggregates and listed in data
-  health; no-token path prints "completeness not checked"; cold-start output
-  at n = 0/1/2; empty store.
+- `check-loop-metrics.test.mjs`: both schema branches; filename↔`pr` mismatch;
+  **`mechanical` carrying `adjudication_sample` or `state` fails** (allowlist);
+  arithmetic; a committed null-judgment scaffold fails; null-with-reason
+  preflight passes; **state matrix both directions** — a predicate-meeting
+  loop marked `never-run` fails, a non-predicate loop marked `completed`
+  fails, `n/a` with a non-zero valid denominator fails; contradictory
+  `completed` bounds fail; exempt passes; frozen-ledger content change and
+  baseline mismatch both fail.
+- `loop-metrics.test.mjs`: `mechanicalProjection` emits exactly the allowlist;
+  `closedAt` including a zero-review loop; extended MCP snapshot shape;
+  **`--mcp-snapshot --write` fails on a snapshot missing a complete
+  `issueComments` attestation, while plain derivation still warns and
+  succeeds**; `--write` idempotency against working tree and against
+  `origin/main` from a stale checkout; cohort **code-majority fixtures:
+  mixed, deletion-heavy, exact tie → `prose/contract`, docs-only carrying a
+  large metrics record → `prose/contract`, rename counted once**.
+- `loop-report.test.mjs`: self-inflicted from causes with invalid excluded;
+  **`never-run` loops included in churn/trend**; `unmeasured` excluded;
+  all-invalid → `n/a`; `>20%` boundary from `population`/`disagreements`;
+  `closedAt` window boundaries; **mixed known/unknown preflight — subtotal
+  plus unknown count, and the unknown loop still ranked**; **completeness
+  with a multi-page inventory and a Dependabot PR present** (paginates fully,
+  excludes the bump, names the real missing loop); pre-cutover absences
+  ignored; exempt excluded from aggregates and listed; no-token disclaimer;
+  cold-start at n = 0/1/2; empty store.
 
 ## Implementation Steps
 
-1. `loop-metrics.mjs`: `mechanicalProjection`, `closedAt`, extended MCP
-   snapshot shape, `--write` (with the `origin/main` check), cohort reorder +
-   store-path exclusion. Tests.
-2. `check-loop-metrics.mjs` + tests; record the frozen-ledger `sha256`
-   baseline; retarget `package.json`'s `check:ledger`; rewire `build.yml`;
-   delete `check-ledger-coverage.mjs` + its tests.
-3. `loop-report.mjs` + tests.
-4. Freeze `loop-ledger.md` (header line only).
-5. Update `working-modes.md` → "The loop ledger" (including the snapshot
-   instructions for closure time), `CLAUDE.md`'s ledger section, and
-   `/maintenance`.
+1. `loop-metrics.mjs`: `mechanicalProjection` (allowlist), `closedAt`,
+   extended MCP snapshot shape, `--write` (with the `origin/main` check and
+   the full-attestation requirement), cohort code-majority rule + store-path
+   exclusion. Tests.
+2. `loop-report.mjs` + tests.
+3. **Freeze `loop-ledger.md` (header edit) first, then compute and check in
+   its `sha256`** — recording the digest before the edit would invalidate it
+   immediately and leave the new guard red.
+4. `check-loop-metrics.mjs` + tests (consuming the baseline from step 3);
+   retarget `package.json`'s `check:ledger`; rewire `build.yml`; delete
+   `check-ledger-coverage.mjs` + its tests.
+5. Contract updates — all five sources in §7, including the superseding
+   `decisions.md` entry.
 6. Close PR #327 (its rows are all on `main` already).
 
 One PR. It is small enough not to need splitting.
 
 ## Risks and Mitigations
 
-- **Recording lapses without a hard gate.** Mitigated by the digest naming
-  missing records weekly, in front of David. Accepted risk: a week of gaps.
-- **Records can be edited or deleted with no CI check.** Explicitly accepted
-  (see Must Not Change); PR review is the control.
-- **Historical and new data live in two places, with no bridge.** Deliberate:
-  converting 42 rows was the largest source of risk and complexity in the
-  previous draft, for data that is already readable. `/maintenance` narrates
-  the two eras separately.
-- **Cold start.** The churn/trend sections say nothing useful for the first
-  few loops, and say so explicitly rather than implying a trend.
-- **Same-loop simultaneous write conflicts.** Accepted; hand-resolved.
+- **Recording lapses without a hard gate.** The digest names missing records
+  weekly, in front of David. Accepted: a week of gaps.
+- **Records can be edited or deleted with no CI check.** Explicitly accepted;
+  PR review is the control.
+- **A deferral can be used to skip both judgment layers.** Accepted rather
+  than gated: a self-asserted `authorizedBy` field would be authorization
+  theatre (round 2 established that the guard cannot verify such a claim).
+  The real control is visibility — every deferred loop is listed
+  individually, by PR number and reason, in every digest, so a standing
+  deferral stays in front of David until resolved.
+- **Rollback after records land is lossy.** Bounded and stated above.
+- **Cold start.** The digest says "not yet informative" rather than implying
+  a trend.
+- **Historical and new data live in two places, with no bridge.** Deliberate;
+  `/maintenance` narrates the two eras separately.
 
 ## Questions for David
 
-None.
+None blocking. One thing worth his awareness, recorded in the superseding
+decision rather than as an open question: this plan reverses part of a
+2026-07-27 decision whose stated rationale was that adjudication cost does
+not justify sampling. That rationale addressed *within-loop* sampling, which
+this plan does not reintroduce, and the new evidence (≈40% of adjudicated
+rows discarded as `unmeasured`) did not exist when it was written.
 
 ## Definition of Done
 
 - [ ] Two concurrent recordings of different loops merge with zero conflicts;
-      recording the same loop twice in sequence is a no-op, including from a
-      stale branch.
-- [ ] `check-loop-metrics.mjs` green; a committed null-judgment scaffold and a
-      contradictory adjudication both fail it; old guard and its tests
-      deleted; `pnpm run check:ledger` works.
-- [ ] `--mcp-snapshot --write` produces a schema-valid record with `closedAt`.
-- [ ] `loop-report.mjs` produces the digest, names only post-cutover missing
-      records, and excludes `unmeasured` loops from churn and trend;
-      `/maintenance` narrates it.
+      a second `--write` no-ops when the first record has **landed on `main`**,
+      including from a stale checkout. Pre-landing overlap is the accepted
+      conflict case and is not claimed otherwise.
+- [ ] `check-loop-metrics.mjs` green; allowlist, state-matrix (both
+      directions), scaffold, and contradictory-adjudication fixtures all fail
+      as intended; old guard and tests deleted; `pnpm run check:ledger` works.
+- [ ] `--mcp-snapshot --write` produces a schema-valid record with `closedAt`,
+      and **refuses** an unattested snapshot.
+- [ ] `loop-report.mjs` includes `never-run` loops in churn/trend, excludes
+      `unmeasured`, paginates the inventory, excludes Dependabot, names only
+      post-cutover missing records, lists deferrals individually, and reports
+      mixed known/unknown preflight without treating unknown as zero.
 - [ ] `loop-ledger.md` frozen, contents byte-identical apart from the header,
-      with its `sha256` baseline recorded.
-- [ ] `working-modes.md` and `CLAUDE.md` describe the new ceremony; no
-      `[LEDGER]` PR requirement survives.
+      with its `sha256` recorded **after** that edit and the guard green.
+- [ ] All five contract sources in §7 updated, including a dated superseding
+      entry in `decisions.md`; no reference to `[LEDGER]` PRs or to
+      markdown-row appending survives outside the frozen file.
 - [ ] PR #327 closed.
