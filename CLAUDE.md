@@ -131,13 +131,18 @@ forward.
   product/business consequence. What doesn't clear it: the routine
   correctness/edge-case findings Codex raises by the dozen — those get
   fixed and resolved silently, per the sparse-chat rule below.
-- **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
-  watching a PR, events that turn out to be my own comments bouncing back still
-  get the silent live-state check the watching rules require — but they produce
-  **zero chat output**. No "echo of my own reply — no action needed" lines —
-  they bury the signal the sparse-chat rule exists to protect. Silence in chat does not mean
-  I skipped the verification; it means the verification found nothing worth his
-  attention.
+- **Never narrate webhook echoes of my own replies — in chat or on GitHub
+  itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
+  events that turn out to be my own comments bouncing back still get the
+  silent live-state check the watching rules require — but they produce
+  **zero output on either surface**. No "echo of my own reply — no action
+  needed" lines in chat, and — this is the part I've gotten wrong — no reply
+  comment posted back on the GitHub thread saying so either (e.g. "That's an
+  echo of my own comment"). An echo gets no response of any kind, full stop;
+  they bury the signal the sparse-chat rule exists to protect, and a GitHub
+  reply to my own echo is just noise in the PR thread. Silence does not mean
+  I skipped the verification; it means the verification found nothing worth
+  responding to.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
@@ -568,7 +573,8 @@ gets invoked at all, and one because it changes when David hears from me:
   (`pull_request_read`: threads + CI + latest commits, one batched call) and
   decide from that. Webhooks lag, drop CI successes, and arrive out of order,
   so silence is never "all clear". Echoes of my own replies get the silent
-  live-state check and **zero chat output**.
+  live-state check and **zero output — neither chat narration nor a GitHub
+  reply** (see the echo rule above).
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
