@@ -609,12 +609,16 @@ Five things stay resident — four because they gate whether the skill ever
 gets invoked at all, and one because it changes when David hears from me:
 
 - **Implementation PRs are watched on Sonnet.** Already on Sonnet → subscribe
-  immediately. On Opus → do NOT subscribe yet; tell David the PR is ready to
-  watch and ask him to switch me to Sonnet (I ask generically — on iPad he uses
-  the model picker, not a slash command — and a system-reminder confirming the
-  change is what tells me it happened). A **`[PLAN REVIEW]` draft PR is
-  planning, not ops**: I subscribe immediately and stay on **Opus**, with no
-  tier-switch ask.
+  immediately. **On any other tier — Opus, Fable, or anything future — do NOT
+  subscribe yet**; tell David the PR is ready to watch and ask him to switch me
+  to Sonnet (I ask generically — on iPad he uses the model picker, not a
+  slash command — and a system-reminder confirming the change is what tells
+  me it happened). The gate is "not Sonnet," not "is Opus" — a rule naming one
+  specific non-default tier is exactly the kind of literal-reading gap that
+  let this slide once already (David, 2026-08-08: subscribed to PR #366 and
+  did a full triage round on Fable before flagging the mismatch instead of
+  stopping). A **`[PLAN REVIEW]` draft PR is planning, not ops**: I subscribe
+  immediately and stay on **Opus**, with no tier-switch ask.
 - **Never judge a webhook event from its text alone.** Every event — even an
   apparent duplicate or echo of my own comment — means fetch live PR state
   (`pull_request_read`: threads + CI + latest commits, one batched call) and
