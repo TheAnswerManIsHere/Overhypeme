@@ -13,6 +13,45 @@
 
 ---
 
+### 2026-08-08 · NCMEC backlog-audit ceremony dropped — pre-activation rows are test artifacts, not evidence
+- **Decision:** The approved plan's backlog-audit ceremony — a cutoff-scoped
+  human review of legacy `ncmec_reports` rows before automated filing could
+  activate, with `identity_omission_approved_at` release stamps, §7's audit
+  rollout step, §5.8's audit endpoints, and invariant 8's "unaudited backlog"
+  waiting branch — is dropped entirely, not deferred or descoped. Phase 3
+  (PR #349) ships `isSubmittable`/`classifyWaitingState` with no audit branch
+  at all: seven waiting states, not the plan's eight. The activation runbook
+  (not yet written — lands with phase 6/7) deletes every pre-activation
+  `ncmec_reports` / `quarantined_memes` row and its evidence bytes before the
+  filing switch is ever thrown; no tooling ships to audit, disposition, or
+  individually release such a row, and none should be built.
+- **Why:** the platform has never gone live, so every row in the database
+  today is a test artifact from development and QA, not an incident that
+  happened to a real user. The plan (approved 2026-07-30) predates this fact
+  being stated explicitly and assumed a live backlog might exist that a human
+  needed to review before automated filing could safely sweep it — a
+  reasonable assumption for a product that's shipped, wrong for one that
+  hasn't. Building a review pipeline for zero real rows is ceremony with no
+  referent; deleting the rows is simpler, correct, and removes an entire
+  class of surface (audit endpoints, release stamps, a waiting-state branch)
+  that would otherwise need building, testing, and reviewing for a case that
+  can't occur.
+- **Reference:** PR #349 (phase 3 of 8; the drop lands in its second commit,
+  `5ef0835`), superseding the plan sections listed above
+  (`plan-review/ncmec-cybertipline-submission`, approved 2026-07-30). The
+  code carries the same record: `ncmecWorker.ts`'s module header and
+  `isIdentityUnresolved`'s docstring both state "do not reintroduce the
+  branch — a row predating activation is deleted, not classified."
+- **Revisit if:** the product goes live before NCMEC phases 4–8 ship and real
+  quarantine rows start accumulating before the activation runbook's
+  pre-activation deletion step exists to clear them. At that point some rows
+  would be genuine evidence rather than test artifacts, and either the
+  runbook needs to exist and run before any further phase lands, or an
+  equivalent review gate needs designing from scratch — this decision does
+  not carry forward past the moment real usage begins.
+
+---
+
 ### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
 - **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
   newer push lands on the *same PR* (never a push-to-main or the weekly
