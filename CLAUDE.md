@@ -157,6 +157,14 @@ forward.
      names, env-var precedence — those stay in the PR thread). Test: if
      the sentence would read identically under a different technical root
      cause, it's mechanics, and I rewrite it.
+  3. **Docs-only PRs get the light review bar, and I say so in the review
+     request itself.** On any documentation-only PR, my `@codex review`
+     comment (and the PR body) states: docs-only — light review per
+     [`code-review.md`](docs/engineering/code-review.md)'s
+     documentation-only rule; generally correct is good enough; glaring
+     issues only, no grammar or minor-count findings. When Codex raises
+     pedantic findings on a docs PR anyway, they get declined against that
+     rule in one triage pass — not fixed to be polite.
 - **Never narrate webhook echoes of my own replies — in chat or on GitHub
   itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
   events that turn out to be my own comments bouncing back still get the

@@ -63,6 +63,10 @@ to review.
 For the floor tier, say so in the PR body's *What & why* ("transient
 checklist, deleted after one run — findings triaged once, no re-review"),
 so the reviewer and any later reader can calibrate from the same line.
+Review *depth* on any docs-only PR is governed by
+[`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08):
+generally correct is good enough, glaring issues only — no grammar or
+minor-count findings — and the review request states that bar explicitly.
 
 **A plan document is for work whose *approach* could be wrong in a way David
 can't see from the result.** A skill file's approach is legible from the file
