@@ -44,9 +44,12 @@ held. A row is **not** necessarily currently granting anything: a cancelled
 subscription, a refunded purchase, a source with an open or lost dispute, or
 one on a non-membership price are all retained rows that no longer (or never
 did) qualify — retained deliberately, as the audit trail, and never turned
-into a bare existence check. A **won** dispute is the exception: it clears the
-hold and the underlying source re-qualifies, since the purchase was fine all
-along (see *Refunds and disputes* below). Whether a given row currently grants
+into a bare existence check. A **won** dispute is a partial exception: it
+clears the access hold (step 2 of `qualifySource`), but the source still has
+to pass its own lifecycle check afterward like any other row — a subscription
+cancelled or a purchase refunded while its dispute was open stays
+disqualified on winning the dispute, since that's a separate, later fact (see
+*Refunds and disputes* below). Whether a given row currently grants
 access is answered separately, below. Three source types:
 
 | Source type | Created by | Frozen identity | Verified against |
@@ -185,8 +188,12 @@ status (i.e. cancellation), not a refund issued against one of its invoices.
 A **lost chargeback is permanent**:
 `dispute_loss_revoked_at` is set-once (the same `BEFORE UPDATE` trigger that
 freezes identity), so no later refresh reporting the subscription `active` can
-clear it. A **won** dispute restores access, because the underlying purchase
-was fine all along. Dispute terminality is absorbing — a fifth Stripe dispute
+clear it. A **won** dispute clears the access hold — `qualifySource` no
+longer disqualifies the source *for the dispute* — but access is only
+actually restored if the source's own lifecycle status still qualifies on
+its own terms; a cancellation or refund that happened while the dispute was
+open isn't undone by winning it. Dispute terminality is absorbing — a fifth
+Stripe dispute
 status the SDK might someday add gets `isRecognisedDisputeStatus` guarding it
 rather than silently matching nothing.
 
