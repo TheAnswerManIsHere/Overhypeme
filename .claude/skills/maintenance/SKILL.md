@@ -107,11 +107,12 @@ List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
 paginated in small batches) back through `FIRST_RECORDED_PR` in
 `loop-report.mjs` (read the constant rather than hardcoding it here — it moved
 once already when a late `[LEDGER]` PR landed rows during the cutover) —
-**not just the last maintenance window.**
-`missingRecords()` only flags a PR once it's been closed 14 days, so a
-normal 7-day-lookback inventory contains zero eligible entries every single
-run and the "every closed loop has a record" line would be true by
-construction, never by having actually checked. Keep
+**not just the last maintenance window.** `missingRecords()` has no settling
+window (David, 2026-08-08) — a loop closed seconds ago is eligible to be
+flagged — so the risk isn't recency, it's an inventory that only covers the
+last 7 days and silently drops an older gap that opened before the lookback
+started; the "every closed loop has a record" line would then read as
+checked when only the last week actually was. Keep
 `number`/`title`/`closed_at`/`user.login` for each PR — write the array to a
 scratch JSON file and pass it as `--inventory <file>`. If GitHub access
 genuinely isn't available this run, say so explicitly in the report

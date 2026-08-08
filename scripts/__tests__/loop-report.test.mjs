@@ -218,18 +218,13 @@ const inventoryEntry = (number, extra = {}) => ({
   ...extra,
 });
 
-// Comfortably past the 14-day settling window from the fixture's closed_at
-// above, so these tests exercise the missing/present logic on its own,
-// independent of the settling-window tests below.
-const SETTLED_NOW = new Date("2026-08-25T00:00:00Z");
-
 test("a pre-cutover loop is never reported missing", () => {
-  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR - 1)], [], SETTLED_NOW);
+  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR - 1)], []);
   assert.deepEqual(missing, []);
 });
 
 test("the first post-cutover loop with no record is named", () => {
-  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR)], [], SETTLED_NOW);
+  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR)], []);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].number, FIRST_RECORDED_PR);
 });
@@ -241,31 +236,23 @@ test("a Dependabot bump is excluded rather than reported as a missing loop", () 
     inventoryEntry(400, { user: { login: "dependabot[bot]" } }),
     inventoryEntry(401),
   ];
-  const missing = missingRecords(inventory, [], SETTLED_NOW);
+  const missing = missingRecords(inventory, []);
   assert.deepEqual(missing.map((m) => m.number), [401]);
 });
 
 test("an open PR is not a closed loop", () => {
-  assert.deepEqual(missingRecords([inventoryEntry(400, { closed_at: null })], [], SETTLED_NOW), []);
+  assert.deepEqual(missingRecords([inventoryEntry(400, { closed_at: null })], []), []);
 });
 
 test("a loop that has a record is not reported missing", () => {
   // Deliberately a POST-cutover number: using one below FIRST_RECORDED_PR
   // would pass because the cutoff filtered it, not because it has a record.
   const pr = FIRST_RECORDED_PR + 1;
-  assert.deepEqual(missingRecords([inventoryEntry(pr)], [record({ pr })], SETTLED_NOW), []);
+  assert.deepEqual(missingRecords([inventoryEntry(pr)], [record({ pr })]), []);
 });
 
-// ── The settling window: a loop isn't owed a record the moment it closes ──
-
-test("a loop closed less than 14 days ago is not yet reported missing", () => {
-  const now = new Date("2026-08-15T00:00:00Z"); // 9 days after the fixture's closed_at
-  assert.deepEqual(missingRecords([inventoryEntry(400)], [], now), []);
-});
-
-test("a loop closed exactly 14 days ago is reported missing", () => {
-  const now = new Date("2026-08-20T00:00:00Z"); // exactly 14 days after closed_at
-  const missing = missingRecords([inventoryEntry(400)], [], now);
+test("a loop closed seconds ago is reported missing immediately — no settling window", () => {
+  const missing = missingRecords([inventoryEntry(400)], []);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].number, 400);
 });

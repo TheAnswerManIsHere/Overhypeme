@@ -1153,40 +1153,6 @@ export function scaffoldRecord(derived) {
 
 export const recordPath = (pr) => `${METRICS_STORE_PREFIX}${pr}.json`;
 
-/** A full digest window — working-modes.md's terminal-point rule. */
-export const SETTLING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-
-/**
- * The later of closure and the last reviewer event, or null if the loop
- * isn't closed yet.
- *
- * `derived.closedAt` alone understates this: working-modes.md notes reviews
- * can land after merge (frozen-ledger rows #323/#324), so closing at PR-close
- * would persist a record before a real late pass, then never revisit it.
- * `review_interval.last_review_at` already carries that timestamp — derived
- * once, here, rather than a second pass over `reviews`/`issueComments`.
- */
-export function settledAt(derived) {
-  if (!derived.closedAt) return null;
-  const stamps = [new Date(derived.closedAt).getTime()];
-  if (derived.review_interval?.last_review_at) {
-    stamps.push(new Date(derived.review_interval.last_review_at).getTime());
-  }
-  return new Date(Math.max(...stamps));
-}
-
-/**
- * Days remaining before the loop reaches its terminal point, or 0 once it
- * has. `now` is a parameter (not `Date.now()` inline) so the boundary is
- * directly testable.
- */
-export function daysUntilTerminal(derived, now = new Date()) {
-  const settled = settledAt(derived);
-  if (!settled) return Infinity;
-  const elapsedDays = (now.getTime() - settled.getTime()) / 86400000;
-  return Math.max(0, 14 - elapsedDays);
-}
-
 async function main() {
   const { fixture, mcpSnapshot, prNumber, saveTo, write } = parseArgs(process.argv);
 
@@ -1227,16 +1193,6 @@ async function main() {
     throw new Error(
       `Refusing to write a record for PR #${derived.pr}: it has no closure timestamp, so the loop is not ` +
         `over and the digest could not place it in a window. Record at the loop's terminal point.`,
-    );
-  }
-  const remainingDays = daysUntilTerminal(derived);
-  if (remainingDays > 0) {
-    throw new Error(
-      `Refusing to write a record for PR #${derived.pr}: the loop is not yet terminal. ` +
-        `working-modes.md requires a full 14-day digest window with no reviewer pass, measured from the ` +
-        `later of closure and the last reviewer event (${settledAt(derived).toISOString().slice(0, 10)}). ` +
-        `${remainingDays.toFixed(1)} day(s) remain. If you're re-deriving after a late review landed on an ` +
-        `existing record, edit that record directly instead of writing a new one.`,
     );
   }
 

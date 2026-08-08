@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "pr": 337,
+  "closedAt": "2026-08-07T17:49:16Z",
+  "mechanical": {
+    "title": "docs: /document harvest for PR #334 (CI mechanics, label-mutation pattern, /status split reconciliation)",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 7,
+      "added": 262,
+      "removed": 5
+    },
+    "rounds": 3,
+    "findings": 8,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-07T17:21:18Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-07T17:29:20Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-07T17:37:51Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-07T17:14:10Z",
+      "last_review_at": "2026-08-07T17:37:51.000Z",
+      "hours": 0.4
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 7, "prop": 1, "wrong": 0, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "estimated ~15 minutes in the original ledger note (no exact timestamps available); recorded as unknown here rather than typing an admitted estimate as a measured figure",
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Backfilled from the frozen ledger (row 41), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment transcribed from the ledger's already-adjudicated figures. A full blind adjudication independently agreed on all 8 findings, 0% disagreement."
+}

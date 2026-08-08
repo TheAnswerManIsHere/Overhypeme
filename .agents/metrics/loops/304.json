@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "pr": 304,
+  "closedAt": "2026-08-04T23:20:01Z",
+  "mechanical": {
+    "title": "feat(ledger): rows ship via dedicated [LEDGER] PRs, not folded into the next PR",
+    "cohort": "feature/code",
+    "size": {
+      "files": 7,
+      "added": 1284,
+      "removed": 129
+    },
+    "rounds": 7,
+    "findings": 22,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-03T21:40:20Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-03T22:13:52Z",
+        "source": "review",
+        "findings": 8
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-03T22:27:12Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-04T02:51:39Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-04T03:10:59Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-08-04T03:29:39Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 7,
+        "submitted_at": "2026-08-04T22:06:48Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-03T21:35:18Z",
+      "last_review_at": "2026-08-04T22:06:48.000Z",
+      "hours": 24.5
+    },
+    "warnings": [
+      "1 reviewer pass(es) absorbed a bodiless inline-comment review record alongside their announcement (7a6a52ccb1×2). Counted as one round each, per reviewerPasses' announcement rule."
+    ]
+  },
+  "judgment": {
+    "causes": { "new": 6, "prop": 9, "wrong": 2, "reRaised": 1, "invalid": 4 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "branch carried unrelated prior-session commits predating this feature by several days, so pre-open history isn't cleanly isolable",
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Backfilled from the frozen ledger (row 27), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment transcribed from the ledger's already-adjudicated figures. These are the BLIND ADJUDICATOR's canonical counts (6 new/9 prop/2 wrong/1 re-raised/4 invalid, 61.1% self-inflicted), not the author's own first-pass classification (8/7/3/0/4, 55.6%) — per this ledger's bias-against-flattery convention, the more self-critical of two disagreeing readings is recorded."
+}
