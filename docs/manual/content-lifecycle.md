@@ -183,4 +183,4 @@ for the funnel itself.
 **Next:** chapter 3 — [`moderation.md`](./moderation.md), the three human
 gates a queued fact walks through before it can go live.
 
-*Verified against `b720d6f` (2026-08-08) · claim inventory in PR #<TBD>.*
+*Verified against `b720d6f` (2026-08-08) · claim inventory in PR #355.*
