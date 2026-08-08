@@ -40,13 +40,16 @@ as Legendary. From there:
   access continues until then, exactly as you'd expect.
 - **Reactivate** undoes a pending cancellation before it takes effect.
 - **Switch to Annual** moves a monthly subscriber to the annual plan with a
-  prorated charge shown before confirming.
+  prorated charge shown before confirming — reliably so for the common case
+  of a subscription with a single item. See *Boundaries & known limitations*
+  below for the multi-item edge case.
 - If a payment fails, the subscription enters a **bounded grace window**
   before access is actually lost — one missed card doesn't cut anyone off
   immediately, but it isn't meant to be indefinite either. (In the rare case
-  where the system can't pin down exactly when the failures started, it keeps
-  access rather than guessing at a deadline — see *Boundaries & known
-  limitations* below.)
+  where the system can't pin down exactly when a *fresh* failure run started,
+  it keeps access rather than guessing at a deadline; a run the system had
+  already pinned down before hitting this same ambiguity keeps its original
+  deadline instead — see *Boundaries & known limitations* below.)
 - A full refund of a **lifetime purchase** removes access; a **partial**
   refund does not. (A subscription refund doesn't drive this directly — a
   subscription's access follows its own cancellation, separately from any
@@ -59,11 +62,15 @@ Occasionally the subscription panel shows an amber notice saying its own
 records "haven't caught up yet" after a change. That's not an error — the
 change went through at Stripe — it's the panel being honest that its own copy
 of the state hasn't refreshed yet. No action is needed — a scheduled recheck
-clears it the moment it observes the local record has caught up, whichever
+clears it as soon as it observes the local record has caught up, whichever
 of two things gets there first: the refresh that was already running when
 the notice appeared (it isn't cancelled, just abandoned by the request that
 was waiting on it) finishing on its own, or a fresh webhook for the same
-change arriving. If neither ever lands, the notice can persist — the same
+change arriving. The rechecks run on a finite schedule and stop once
+exhausted, so if the record catches up only after the last one, the notice
+can outlive the actual fix until a remount or another mutation runs a fresh
+round of rechecks. If the record never catches up at all, the notice can
+persist — the same
 known gap described under *Boundaries & known limitations* below.
 
 ### For the admin
@@ -79,7 +86,9 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
   revoked — a revoke only ends it, never deletes it. History is retained for
   the lifetime of the account; a hard account deletion (a separate, rarer
   action from deactivation) removes the account's whole history along with
-  everything else.
+  everything else, when it completes successfully — the history is deleted
+  as an early step, so a hard deletion that fails partway through can leave
+  the account behind with its history already gone.
 - **Reinstating** a deactivated user re-checks their actual Stripe state
   before restoring their tier, rather than trusting whatever was last stored
   — so a subscription that quietly lapsed while the account was deactivated
@@ -164,6 +173,14 @@ a comp from a real sale.
   was — which demotes the user on schedule if it has already passed, same as
   any other stored deadline. Either way, the case is logged for follow-up
   rather than silently accepted.
+- **Switch to Annual assumes the membership item is the subscription's first
+  item.** For the ordinary case (one item) this is exact. If a subscription
+  carries a non-membership add-on listed before the membership item — a shape
+  the entitlement verifier explicitly supports and is tested against — the
+  switch routes inspect and mutate the *first* item rather than finding the
+  actual membership one, so the switch can be rejected based on the add-on's
+  interval, or can replace the add-on while leaving the membership item on
+  its original plan.
 - **No repair for a webhook Stripe never successfully delivers, or for an
   event type membership doesn't model.** Every event type this system
   handles is applied correctly, including duplicates and events arriving out
