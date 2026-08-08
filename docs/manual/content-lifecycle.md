@@ -15,9 +15,13 @@ A fact can enter Overhype.me exactly three ways — a signed-in user submits
 one, an admin or an external system imports a batch, or someone creates a
 variant of a fact that's already live — and all three land in the same
 place: a pending review, not the live catalogue. There is no fourth path and
-no shortcut; nothing anywhere in the codebase can create a fact directly.
-That single funnel is what lets [`moderation.md`](./moderation.md) describe
-one review process and mean it for every fact, regardless of how it arrived.
+no shortcut in the product itself: nothing in the running application can
+create a fact directly outside this funnel. (Offline dev/ops tooling — a
+database seed script, a reseed utility — can insert facts directly; that's
+maintenance tooling, not a product ingestion path, and this chapter doesn't
+cover it.) That single funnel is what lets [`moderation.md`](./moderation.md)
+describe one review process and mean it for every fact, regardless of how it
+arrived.
 
 This chapter covers the entrances themselves — what a submitter sees, what
 an importer sends, what a variant inherits from its parent — and the
@@ -31,20 +35,24 @@ this chapter links out rather than repeating it.
 ### For the submitter (writing a fact)
 
 Submitting is a two-step form: **write**, then **preview**. While the
-submitter is writing, two checks run automatically in the background,
-neither of which blocks anything:
+submitter is writing, a **duplicate check** runs automatically in the
+background — no button needed — comparing the draft against existing facts
+and, past a similarity threshold, showing the matching fact so the submitter
+can decide for themselves whether to continue. It's advisory only: nothing
+stops a submission that's flagged. It's also best-effort, not guaranteed —
+the check re-runs against the finished template on Preview, but Submit stays
+clickable while it's still in flight, so a fast submit can reach the server
+with no duplicate flag attached at all, even against a real match.
 
-- A **duplicate check** compares the draft against existing facts and
-  surfaces a possible match with a similarity score, so the submitter can
-  see it and decide for themselves whether to continue. Flagging isn't
-  refusing — the submission still goes through, just carrying a note that
-  it may be a near-duplicate, which a moderator weighs at Triage.
-- A **grammar preview** (tokenizing) shows how the fact's `{NAME}` and
-  pronoun placeholders will read once personalized, with a live preview
-  across a few example names and pronoun sets, so the submitter can catch
-  an awkward conjugation before sending it in.
+Moving from Write to Preview is a different kind of step — a **required,
+blocking** one. Clicking Continue sends the draft through a grammar pass that
+resolves the fact's `{NAME}` and pronoun placeholders into a preview across
+example names and pronoun sets, so the submitter can catch an awkward
+conjugation before sending it in. A failed pass leaves the submitter on
+Write with an error rather than letting them continue; only a successful one
+reaches Preview.
 
-Moving to Preview also fetches AI-suggested hashtags to pre-fill the
+Reaching Preview also fetches AI-suggested hashtags to pre-fill the
 (editable) hashtags field — a non-blocking suggestion the submitter can keep,
 edit, or clear.
 
@@ -54,13 +62,12 @@ Legendary member must complete onboarding (which includes a captcha check)
 first; admins and Legendary members skip it. On submit, the server
 re-normalizes the fact's grammar independently of what the client already
 checked — a submission that reached the server without going through the
-tokenize preview (an API client, a stale front-end) still gets the same
-cleanup applied, so every fact that reaches the review queue has been
-through the same grammar pass regardless of how it arrived. A submitter can
-only have a limited number of their own facts waiting for review at once;
-past that, new submissions are refused until earlier ones are resolved —
-the exact limit is a configured value, not a narrative fact (see
-`FACT_SUBMIT_PENDING_CAP` in `artifacts/api-server/src/lib/rateLimit.ts`).
+Write-to-Preview grammar pass (an API client, a stale front-end) still gets
+the same cleanup applied, so every fact that reaches the review queue has
+been through the same grammar pass regardless of how it arrived. A
+per-submitter cap also keeps one person's own pending facts from flooding
+the queue — see `FACT_SUBMIT_PENDING_CAP` in
+`artifacts/api-server/src/lib/rateLimit.ts` for the mechanics.
 
 Successful submission notifies admins and logs an activity-feed entry for
 the submitter, who is later notified again when their fact clears or is
@@ -78,15 +85,22 @@ of fact texts into pending reviews — with different callers in mind:
   writing anything.
 
 Both paths run every text through the same grammar normalizer a user
-submission uses, so an imported fact is indistinguishable in the queue from
-one a person typed in by hand. Both also **dedupe by exact text** against
-both the live catalogue and every review still waiting on a decision, before
-inserting anything — so re-running the same import twice, or importing a
-fact someone already submitted, queues nothing new for the ones that match.
-This is a narrower check than the submitter's duplicate warning: it catches
-identical text, not a reworded near-duplicate, and it silently skips rather
-than flagging for a human, because bulk import is explicitly meant to run
-unattended.
+submission uses, so an imported fact's stored text is cleaned up identically
+to a hand-submitted one — though the rows aren't otherwise identical: an
+admin-console import attributes the acting admin as submitter, an API-key
+import has no submitter at all, and only a user submission can carry
+duplicate-match metadata or submitter-chosen hashtags. Both import paths
+also **dedupe by exact (normalized) text** — against every existing fact row
+with that text, active or not, and against every review still waiting on a
+decision — before inserting anything, so re-running the same import twice,
+importing a fact someone already submitted, or importing a fact that used to
+be live and was later taken down, all queue nothing new for the ones that
+match. This is a narrower check than the submitter's duplicate warning: it
+catches identical (post-normalization) text, not a reworded near-duplicate,
+and it silently skips rather than flagging for a human — there's no
+moderator-style judgment call to make on an exact match. The admin-console
+path is interactive: the admin sees a skipped-as-duplicate count after each
+run. The API-key path is the one actually meant to run unattended.
 
 **Importing only loads the review queue — it never publishes anything.**
 An imported fact is exactly as unpublished as a hand-submitted one; it
@@ -104,9 +118,9 @@ a fresh fact, it enters at the same first review step as anything else, and
 it earns its own classification, its own Visual Concept, and its own
 images — none of that carries over from its parent. The only thing a
 variant inherits at creation is the link to its parent, which moderation
-uses later to keep the two facts grouped for show/hide and kinship, and
-which is re-checked at the moment the variant would go live (its parent has
-to still be an active root then, not just when the variant was created).
+uses later to keep the two facts grouped for show/hide and kinship — see
+[`moderation-workflow.md`'s activation chokepoint](../ai-context/moderation-workflow.md#the-activation-chokepoint--one-exit)
+for how that link is revalidated before the variant can actually go live.
 
 ### Underneath: one funnel, one cost gate
 
@@ -114,10 +128,15 @@ All three entrances — the submit route, both import routes, and variant
 creation — call the same function to create a pending review row, and
 nothing else in the codebase does. That row starts at the very first stage
 of the review pipeline; none of the entrances can hand a fact a head start.
-Nothing paid runs at intake — no AI classification, no image lookups, no
-renders — because that work only begins once a human moderator provisionally
-accepts a submission at Triage. Intake is deliberately just the cheap parts:
-normalize the grammar, check for a duplicate, queue the review, and stop.
+The **moderation-prep pipeline** — AI classification, image lookups, renders
+— never runs at intake; that work only begins once a human moderator
+provisionally accepts a submission at Triage. (The cheap pre-submit
+affordances a submitter already used on the way in — the grammar/tokenize
+pass, the duplicate check, hashtag suggestions — do call utility models;
+[`moderation.md`](./moderation.md) draws this same distinction. What's
+gated at Triage is the paid moderation-prep pipeline specifically, not every
+model call ever made about the fact.) Intake itself is just: normalize the
+grammar, check for a duplicate, queue the review, and stop.
 See [`moderation-workflow.md`](../ai-context/moderation-workflow.md#why-staged-moderation-exists)
 for what happens from there, and
 [`moderation-workflow.md`'s ingestion-funnel section](../ai-context/moderation-workflow.md#the-ingestion-funnel--one-entrance)
@@ -135,16 +154,22 @@ for the funnel itself.
   [Fact lifecycle closed: one entrance, one exit](../ai-context/decisions.md#2026-07-23--fact-lifecycle-closed-one-entrance-one-exit--activation-is-moderation-only-and-deactivation-is-reversible-through-moderation-not-a-direct-toggle).
 - **The duplicate check at submission warns; it doesn't refuse.** A
   same-meaning fact phrased differently is a legitimate call for a human to
-  make, not a machine — the submitter sees the possible match and decides
-  whether to send it anyway, and if they do, a moderator sees the same flag
-  at Triage. Blocking automatically would either reject real variants or
-  need the exact wording match bulk import uses, which is far too blunt for
-  something a human wrote from scratch.
-- **Bulk import's dedupe is exact-text and silent, because it's meant to run
-  unattended.** An automated import re-run, or two overlapping imports, is
-  the normal case this guards — not a judgment call, so there's nothing for
-  a human to weigh. A stricter, silent, exact match fits that job; a
-  softer semantic check that occasionally guesses wrong would not.
+  make, not a machine — if the check catches it and finishes in time, the
+  submitter sees the possible match and decides whether to send it anyway,
+  and a moderator sees the same flag at Triage. Blocking automatically would
+  either reject real variants or need the exact wording match bulk import
+  uses, which is far too blunt for something a human wrote from scratch. It
+  runs best-effort rather than being made to block Submit for the same
+  reason it isn't a hard gate at all — the cost of occasionally missing a
+  flag is lower than the cost of holding up every submission on an AI call
+  that isn't authoritative anyway.
+- **Bulk import's dedupe is exact-text and silent, because there's no
+  judgment call to make on an exact match.** An automated re-run of the same
+  import, or two overlapping imports, is the normal case this guards — the
+  match is unambiguous, so there's nothing for a human to weigh either way,
+  whether or not one is actually watching. A stricter, silent, exact match
+  fits that; a softer semantic check that occasionally guesses wrong would
+  not.
 - **Grammar normalization runs again at the server, even though the client
   already showed a preview of it.** The preview is for the submitter's
   benefit; the server-side pass is what actually determines what gets
@@ -154,18 +179,20 @@ for the funnel itself.
 
 ## Boundaries & known limitations
 
-- **Duplicate detection at submission is advisory, not a gate.** A
-  submitter can send a fact flagged as a likely duplicate; nothing stops
-  them, and nothing stops a moderator from approving it anyway if they
-  disagree with the flag.
-- **Bulk import's dedupe only catches exact text.** Two imports of the same
-  fact with even a single character different both queue.
+- **Duplicate detection at submission is advisory, not a gate — and not even
+  guaranteed to reach Triage.** A submitter can send a fact flagged as a
+  likely duplicate; nothing stops them, and nothing stops a moderator from
+  approving it anyway if they disagree with the flag. It's also racing the
+  submitter: hitting Submit before the check resolves reaches the server
+  with no flag at all, even against a genuine match.
+- **Bulk import's dedupe only catches exact, post-normalization text.** Two
+  imports of the same fact queue separately unless they normalize to
+  identical stored text — a trailing-space or grammar-cleanup difference can
+  still collapse to the same match and get caught; a difference that
+  survives normalization does not.
 - **A submitter's pending cap is per-user, not per-fact-type or global** —
   it counts every submission of theirs still waiting anywhere in the review
   pipeline, not just ones stuck at the first step.
-- **A rejected grammar template (422) tells the submitter what failed, but
-  there's no in-line fix-it flow** — they have to edit the raw text and
-  resubmit through the normal form.
 
 ## Going deeper
 
