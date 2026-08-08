@@ -37,12 +37,13 @@ this chapter links out rather than repeating it.
 Submitting is a two-step form: **write**, then **preview**. While the
 submitter is writing, a **duplicate check** runs automatically in the
 background — no button needed — comparing the draft against existing facts
-and, past a similarity threshold, showing the matching fact so the submitter
-can decide for themselves whether to continue. It's advisory only: nothing
-stops a submission that's flagged. It's also best-effort, not guaranteed —
-the check re-runs against the finished template on Preview, but Submit stays
-clickable while it's still in flight, so a fast submit can reach the server
-with no duplicate flag attached at all, even against a real match.
+and, if it finds a likely match, showing it so the submitter can decide for
+themselves whether to continue. It's advisory only: nothing stops a
+submission that's flagged. It's also best-effort, not guaranteed — the check
+re-runs against the finished template on Preview, but Submit stays clickable
+while it's still in flight, so submitting before the check resolves reaches
+the server with no duplicate flag attached at all, even against a real
+match.
 
 Moving from Write to Preview is a different kind of step — a **required,
 blocking** one. Clicking Continue sends the draft through a grammar pass that
@@ -64,10 +65,9 @@ re-normalizes the fact's grammar independently of what the client already
 checked — a submission that reached the server without going through the
 Write-to-Preview grammar pass (an API client, a stale front-end) still gets
 the same cleanup applied, so every fact that reaches the review queue has
-been through the same grammar pass regardless of how it arrived. A
-per-submitter cap also keeps one person's own pending facts from flooding
-the queue — see `FACT_SUBMIT_PENDING_CAP` in
-`artifacts/api-server/src/lib/rateLimit.ts` for the mechanics.
+been through the same grammar pass regardless of how it arrived. (One
+submitter's own pending facts are also protected from flooding the queue —
+see *Boundaries & known limitations* below.)
 
 Successful submission notifies admins and logs an activity-feed entry for
 the submitter, who is later notified again when their fact clears or is
@@ -87,9 +87,10 @@ of fact texts into pending reviews — with different callers in mind:
 Both paths run every text through the same grammar normalizer a user
 submission uses, so an imported fact's stored text is cleaned up identically
 to a hand-submitted one — though the rows aren't otherwise identical: an
-admin-console import attributes the acting admin as submitter, an API-key
-import has no submitter at all, and only a user submission can carry
-duplicate-match metadata or submitter-chosen hashtags. Both import paths
+admin-console import attributes the acting admin as submitter and always
+queues an empty hashtag list; an API-key import has no submitter at all but
+can carry caller-chosen hashtags; only a user submission carries
+duplicate-match metadata. Both import paths
 also **dedupe by exact (normalized) text** — against every existing fact row
 with that text, active or not, and against every review still waiting on a
 decision — before inserting anything, so re-running the same import twice,
@@ -99,8 +100,9 @@ match. This is a narrower check than the submitter's duplicate warning: it
 catches identical (post-normalization) text, not a reworded near-duplicate,
 and it silently skips rather than flagging for a human — there's no
 moderator-style judgment call to make on an exact match. The admin-console
-path is interactive: the admin sees a skipped-as-duplicate count after each
-run. The API-key path is the one actually meant to run unattended.
+path is interactive: the admin sees a skipped-as-duplicate count whenever a
+run actually skips any. The API-key path is the one actually meant to run
+unattended.
 
 **Importing only loads the review queue — it never publishes anything.**
 An imported fact is exactly as unpublished as a hand-submitted one; it
@@ -136,7 +138,9 @@ pass, the duplicate check, hashtag suggestions — do call utility models;
 [`moderation.md`](./moderation.md) draws this same distinction. What's
 gated at Triage is the paid moderation-prep pipeline specifically, not every
 model call ever made about the fact.) Intake itself is just: normalize the
-grammar, check for a duplicate, queue the review, and stop.
+grammar and queue the review — a duplicate check runs on some entrances (the
+submitter's own advisory check, the import routes' exact-text dedupe) but
+not all of them; variant creation, for one, does neither.
 See [`moderation-workflow.md`](../ai-context/moderation-workflow.md#why-staged-moderation-exists)
 for what happens from there, and
 [`moderation-workflow.md`'s ingestion-funnel section](../ai-context/moderation-workflow.md#the-ingestion-funnel--one-entrance)
@@ -165,11 +169,14 @@ for the funnel itself.
   that isn't authoritative anyway.
 - **Bulk import's dedupe is exact-text and silent, because there's no
   judgment call to make on an exact match.** An automated re-run of the same
-  import, or two overlapping imports, is the normal case this guards — the
-  match is unambiguous, so there's nothing for a human to weigh either way,
-  whether or not one is actually watching. A stricter, silent, exact match
-  fits that; a softer semantic check that occasionally guesses wrong would
-  not.
+  import, or a second import that overlaps with an earlier, already-finished
+  one, is the normal case this guards — the match is unambiguous, so there's
+  nothing for a human to weigh either way, whether or not one is actually
+  watching. A stricter, silent, exact match fits that; a softer semantic
+  check that occasionally guesses wrong would not. (The check happens before
+  the insert, not as a database constraint, so it guards sequential runs —
+  two imports racing at the exact same instant could each pass it before
+  either has written anything; see *Boundaries* below.)
 - **Grammar normalization runs again at the server, even though the client
   already showed a preview of it.** The preview is for the submitter's
   benefit; the server-side pass is what actually determines what gets
@@ -190,9 +197,14 @@ for the funnel itself.
   identical stored text — a trailing-space or grammar-cleanup difference can
   still collapse to the same match and get caught; a difference that
   survives normalization does not.
-- **A submitter's pending cap is per-user, not per-fact-type or global** —
-  it counts every submission of theirs still waiting anywhere in the review
-  pipeline, not just ones stuck at the first step.
+- **Bulk import's dedupe is a same-request guard, not a database
+  constraint.** It checks before it writes rather than relying on a
+  uniqueness rule the database itself enforces, so two imports that overlap
+  by coincidence — not one waiting for the other to finish — can each pass
+  the check before either has inserted, and both queue.
+- **A submitter's own pending facts are protected from flooding the review
+  queue** — see `FACT_SUBMIT_PENDING_CAP` in
+  `artifacts/api-server/src/lib/rateLimit.ts` for how.
 
 ## Going deeper
 

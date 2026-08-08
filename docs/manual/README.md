@@ -8,9 +8,10 @@
 >
 > **Read it front to back and you get the whole product.** The chapters below
 > are ordered to follow the core loop, not the codebase's module boundaries —
-> see *How to read this manual*. Three chapters are written today; the rest are
-> being filled in by the one-time backfill, and the table marks exactly which
-> is which.
+> see *How to read this manual*. Some chapters are written today, the rest are
+> being filled in by the one-time backfill, and the *Contents* table below is
+> the live record of exactly which is which — not restated here as a count
+> that would only go stale again.
 
 ## How to read this manual
 
