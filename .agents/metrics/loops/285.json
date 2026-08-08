@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "pr": 285,
+  "closedAt": "2026-07-30T02:09:08Z",
+  "mechanical": {
+    "title": "[PLAN REVIEW] Overhype.me Manual — the one-time documentation backfill — DO NOT MERGE",
+    "cohort": "plan-review",
+    "size": {
+      "files": 1,
+      "added": 1128,
+      "removed": 0
+    },
+    "rounds": 5,
+    "findings": 36,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-07-29T22:44:39Z",
+        "source": "review",
+        "findings": 7
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-07-29T22:57:52Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-07-29T23:06:44Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-07-29T23:23:24Z",
+        "source": "review",
+        "findings": 12
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-07-30T02:03:26Z",
+        "source": "review",
+        "findings": 8
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-07-29T22:39:46Z",
+      "last_review_at": "2026-07-30T02:03:26.000Z",
+      "hours": 3.4
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 18, "prop": 6, "wrong": 12, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "rode a pre-existing designated branch rather than a freshly cut plan-review branch, so branch-cut-to-open has no clean start point to measure from",
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "completed", "population": 36, "disagreements": 3 },
+  "notes": "Backfilled from the frozen ledger (row 10), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment/adjudication transcribed from the ledger's already-adjudicated figures (author's reading; an independent second backfill of this PR landed 44.4% instead of 50.0% — disclosed in the ledger's row 10 note, not adopted here)."
+}

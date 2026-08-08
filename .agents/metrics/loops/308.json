@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "pr": 308,
+  "closedAt": "2026-08-04T23:09:29Z",
+  "mechanical": {
+    "title": "Global rate-limit backstop for CodeQL js/missing-rate-limiting",
+    "cohort": "feature/code",
+    "size": {
+      "files": 22,
+      "added": 1694,
+      "removed": 264
+    },
+    "rounds": 3,
+    "findings": 7,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-04T22:05:52Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-04T22:35:11Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-04T22:57:53Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-04T21:49:02Z",
+      "last_review_at": "2026-08-04T22:57:53.000Z",
+      "hours": 1.1
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 7, "prop": 0, "wrong": 0, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": 95,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Backfilled from the frozen ledger (row 26), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment transcribed from the ledger's already-adjudicated figures. A genuine 0% measurement, not the structural floor: two finding-bearing rounds, propagation/wrong-fix were structurally possible and simply didn't occur (verified against each fix commit's actual diff). A full blind adjudication independently landed the identical 7/0/0/0/0 split, 0% disagreement."
+}
