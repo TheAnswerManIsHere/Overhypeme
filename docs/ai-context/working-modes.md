@@ -535,15 +535,20 @@ Codex-driven loop. The resulting record set would look complete while being
 wrong about the thing it exists to measure — worse than none, because it
 would be trusted.
 
-**Record at the loop's terminal point, not at PR close.** A loop is ready to
-record when its PR is closed or merged **and** no reviewer pass has landed
-for a full settling window — **1 hour** (David, 2026-08-08, shortened from
-14 days: Codex's review completes almost immediately in this repo, so a
-multi-day wait bought no real safety margin). Reviews land after merge —
-frozen-ledger rows #323 and #324 are observed cases — so recording at
-closure would persist zero rounds and zero findings and look healthy doing
-it. If a late review arrives after a record exists, re-derive and edit the
-record; that is an ordinary commit.
+**Record at the loop's terminal point — closed or merged.** There is no
+settling-window wait (David, 2026-08-08: first shortened from 14 days to 1
+hour, then removed outright — nothing in this pipeline runs automatically.
+`--write` needs an agent to run it in a live session, and the digest needs
+David to invoke `/maintenance`; a wait bought no real safety margin against
+that, only a window where a genuinely missing record went unreported. The
+duplication/collision problem the ledger actually had — PRs #327 and #335
+both claiming the same rows — was a different failure, already fixed
+structurally by one file per loop, not by a wait). Reviews can land after
+merge — frozen-ledger rows #323 and #324 are observed cases — so a record
+written right after close can understate rounds and findings if a pass is
+still in flight. If a late review arrives after a record exists, re-derive
+and edit the record; that is an ordinary commit, not a special case to
+detect automatically.
 
 **Commit the record on any open PR except the one being measured.** Adding a
 metrics file to the PR it describes changes that PR's diff, which can trigger

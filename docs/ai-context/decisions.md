@@ -13,6 +13,36 @@
 
 ---
 
+### 2026-08-08 · The loop-metrics settling window is removed outright — superseding its own same-day 14-day-to-1-hour shortening
+- **Decision:** `--write`'s terminal-point wait and `missingRecords()`'s
+  settling floor (added in PR #343, shortened from 14 days to 1 hour earlier
+  the same day in PR #358) are both removed entirely, not shortened further.
+  A loop is recordable the moment its PR closes; a closed PR with no record
+  is flagged as missing immediately, with no wait.
+- **Why:** David's instruction: "remove that guard entirely unless it
+  happens completely automatically without me needing to keep a session
+  open or do something special." Nothing in this pipeline is automatic —
+  `--write` requires an agent to run it in a live session, and the digest
+  requires David to invoke `/maintenance` — so a time-based wait was never
+  actually guarding against anything happening *too soon*; the only real
+  effect was a window during which a genuinely missing record went
+  unreported. The concrete problem that motivated recording discipline in
+  the first place — PRs #327 and #335 both claiming the same ledger rows —
+  was a collision from concurrent *writes to one shared file*, already
+  fixed structurally by one JSON record per loop (PR #343). The settling
+  window was solving a narrower, separate concern (a late reviewer pass
+  landing after a record already exists) that doesn't need a wait gate: the
+  documented recourse — re-derive and edit the record, an ordinary commit —
+  covers it without one.
+- **Reference:** PR #358 (this change); working-modes.md's terminal-point
+  rule, restated without a wait; `.claude/skills/maintenance/SKILL.md` §6.
+- **Revisit if:** a late review actually causes a recorded loop's numbers to
+  go unnoticed-stale in practice (not hypothetically) — the fix then is
+  making the re-derive-and-edit step something an agent reliably remembers
+  to do, not reintroducing a wait.
+
+---
+
 ### 2026-08-07 · Loop metrics move to one record per loop, adjudication samples *loops*, and the insight is delivered by a digest — superseding the 2026-07-27 ledger decision
 - **Decision:** Three changes to how review-loop efficacy is recorded, all
   superseding parts of *2026-07-27 · The loop ledger* below (which stays in

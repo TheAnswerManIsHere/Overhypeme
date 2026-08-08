@@ -1153,46 +1153,6 @@ export function scaffoldRecord(derived) {
 
 export const recordPath = (pr) => `${METRICS_STORE_PREFIX}${pr}.json`;
 
-/**
- * The settling window — working-modes.md's terminal-point rule (David,
- * 2026-08-08: shortened from 14 days to 1 hour. Codex's review completes
- * almost immediately in this repo, so a multi-day wait bought safety margin
- * this workflow doesn't need; a late reviewer pass after the window is still
- * an ordinary re-derive-and-edit, same as before).
- */
-export const SETTLING_WINDOW_MS = 60 * 60 * 1000;
-
-/**
- * The later of closure and the last reviewer event, or null if the loop
- * isn't closed yet.
- *
- * `derived.closedAt` alone understates this: working-modes.md notes reviews
- * can land after merge (frozen-ledger rows #323/#324), so closing at PR-close
- * would persist a record before a real late pass, then never revisit it.
- * `review_interval.last_review_at` already carries that timestamp — derived
- * once, here, rather than a second pass over `reviews`/`issueComments`.
- */
-export function settledAt(derived) {
-  if (!derived.closedAt) return null;
-  const stamps = [new Date(derived.closedAt).getTime()];
-  if (derived.review_interval?.last_review_at) {
-    stamps.push(new Date(derived.review_interval.last_review_at).getTime());
-  }
-  return new Date(Math.max(...stamps));
-}
-
-/**
- * Minutes remaining before the loop reaches its terminal point, or 0 once it
- * has. `now` is a parameter (not `Date.now()` inline) so the boundary is
- * directly testable.
- */
-export function minutesUntilTerminal(derived, now = new Date()) {
-  const settled = settledAt(derived);
-  if (!settled) return Infinity;
-  const elapsedMs = now.getTime() - settled.getTime();
-  return Math.max(0, (SETTLING_WINDOW_MS - elapsedMs) / 60000);
-}
-
 async function main() {
   const { fixture, mcpSnapshot, prNumber, saveTo, write } = parseArgs(process.argv);
 
@@ -1233,16 +1193,6 @@ async function main() {
     throw new Error(
       `Refusing to write a record for PR #${derived.pr}: it has no closure timestamp, so the loop is not ` +
         `over and the digest could not place it in a window. Record at the loop's terminal point.`,
-    );
-  }
-  const remainingMinutes = minutesUntilTerminal(derived);
-  if (remainingMinutes > 0) {
-    throw new Error(
-      `Refusing to write a record for PR #${derived.pr}: the loop is not yet terminal. ` +
-        `working-modes.md requires a 1-hour settling window with no reviewer pass, measured from the ` +
-        `later of closure and the last reviewer event (${settledAt(derived).toISOString()}). ` +
-        `${remainingMinutes.toFixed(1)} minute(s) remain. If you're re-deriving after a late review landed ` +
-        `on an existing record, edit that record directly instead of writing a new one.`,
     );
   }
 

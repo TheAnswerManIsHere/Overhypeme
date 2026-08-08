@@ -160,33 +160,23 @@ export function costTotals(records) {
 }
 
 /**
- * A closed PR is not owed a record until it has been closed for a full
- * settling window — working-modes.md's terminal-point rule (David,
- * 2026-08-08: shortened from 14 days to 1 hour, since Codex's review
- * completes almost immediately in this repo). Without this floor, a PR
- * closed seconds ago would report as an actionable data gap on every run.
- * The inventory (a plain PR listing) doesn't carry reviewer-event
- * timestamps, so this checks closure age only — the coarser half of the
- * terminal-point rule, not the full "no reviewer pass" refinement `--write`
- * enforces with the richer per-PR data it has access to.
- */
-const SETTLING_WINDOW_MS = 60 * 60 * 1000;
-
-/**
  * Closed loops with no record, from a paginated inventory.
  *
  * Absence leaves no artifact in the store, so completeness cannot be computed
  * from the store alone — the directory always looks complete to itself. The
  * inventory has to be paginated to exhaustion (truncating at one page would
  * silently under-report), filtered to post-cutover loops, and stripped of
- * non-loop authors.
+ * non-loop authors. No settling window (David, 2026-08-08): recording still
+ * requires a session to run `--write` and reviewing this digest still
+ * requires David to invoke `/maintenance` — neither happens automatically —
+ * so a wait before flagging a gap bought no real safety margin, only a
+ * window where a genuinely missing record went unreported.
  */
-export function missingRecords(inventory, records, now = new Date()) {
+export function missingRecords(inventory, records) {
   const have = new Set(records.map((r) => r.pr));
   return inventory
     .filter((pr) => pr.number >= FIRST_RECORDED_PR)
     .filter((pr) => pr.closed_at)
-    .filter((pr) => now.getTime() - new Date(pr.closed_at).getTime() >= SETTLING_WINDOW_MS)
     .filter((pr) => !NON_LOOP_AUTHORS.has(pr.user?.login))
     .filter((pr) => !have.has(pr.number))
     .map((pr) => ({ number: pr.number, title: pr.title, closedAt: pr.closed_at }));
