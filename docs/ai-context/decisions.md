@@ -13,6 +13,73 @@
 
 ---
 
+### 2026-08-08 · Review loops get a criticality gate; findings reported to David are product-English; documentation PRs get a light review
+- **Decision:** Three related rules governing how Codex/Claude review loops
+  run and report, all triggered by the same incident:
+  1. **Criticality gate.** Before requesting round 2 of any review loop, rate
+     the artifact 1–100 on "what breaks in production if this ships wrong,
+     and who would notice?" and say the number out loud in the check-in.
+     Single-digit artifacts never get a round 2. Transient single-use process
+     docs (TEST_RUN checklists) are a floor tier: Codex's automatic first
+     pass, one triage, no re-request — but the cap is on **rounds**, never on
+     **fixes**: that one triage still fixes anything that would let the doc
+     instruct a live-state mutation, since a TEST_RUN's criticality-1 rating
+     is conditional on staying read-only (see rule 3 below).
+  2. **Product-English finding reports.** Every finding put in front of
+     David — a post-round check-in, a 🛑 banner, an FYI — is run through his
+     own template ("what are you building, why do we need it, why does Codex
+     object, what's the production ramification") and written as an outcome,
+     never a mechanism. Self-test: a good sentence survives a change of
+     technical root cause unchanged (the failure "quietly wrote to your real
+     database" reads the same whether the cause is shell expansion, a
+     wrapper script, or env-var precedence); if the sentence would have to
+     change when the mechanism changes, it's mechanics, not meaning.
+  3. **Light review for documentation-only PRs.** The bar drops to
+     "generally correct, no glaring issues" — a glaring issue being a
+     misleading instruction, a contradiction with real behavior, or a
+     safety error. Grammar, phrasing, and minor numeric drift ("~25 lines,
+     file has 24") are explicitly not findings. Paired with a new
+     **TEST_RUN read-only contract**: these checklists may never instruct
+     re-running a suite CI already ran, or anything that mutates
+     cluster-global or live state — only read-only checks, plus a
+     rejected-request probe or a captured-before/restored-after write.
+- **Why:** PR #356's TEST_RUN doc for PR #293 — a checklist Replit runs once
+  and David deletes — absorbed five Codex review rounds and 36 findings,
+  almost all against instructions to re-run test suites that had already
+  passed in CI on the same code. Two of those suites create PostgreSQL
+  roles, which are cluster-global, so four successive attempts to write safe
+  isolation for a live Replit workspace each introduced a new defect; round
+  5 found the actual root cause (`pretest` and
+  `artifacts/api-server/scripts/lib/test-db.sh` silently override any
+  `DATABASE_URL` a doc tries to export with
+  `TEST_DATABASE_URL` when it's set — see
+  [`test-db-isolation.md`](../../.agents/memory/test-db-isolation.md)).
+  Every finding across all five rounds was individually correct; the loop
+  itself was the misallocation, since the worst case of shipping any of it
+  wrong was one confused Replit run, immediately self-catching. Separately,
+  a check-in in that same loop reported a finding to David as *"bash expands
+  `$DATABASE_URL` using the already-exported value before applying the
+  command-local assignment"* — technically accurate and meaningless to a
+  product manager who doesn't read shell semantics, prompting the
+  product-English rule.
+- **Reference:** PR #363 (all three rules; the canonical homes are
+  [`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
+  for the gate and the check-in contract,
+  [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08)
+  for the light-review bar, and
+  [`test-run-contract.md`](../engineering/test-run-contract.md) for the
+  read-only requirement); PR #356 (the incident); the fourth instance on
+  [`known-failure-patterns.md`](./known-failure-patterns.md)'s "chasing
+  completeness against an adversarial reviewer past the artifact's real
+  risk" entry — the first instance where the loop's subject was achievable
+  and simply not worth achieving, rather than an unachievable guarantee.
+- **Revisit if:** the light-review bar or the criticality floor tier lets a
+  real safety-relevant defect ship in a documentation PR — that would mean
+  the "glaring issue" bar itself is drawn wrong, not that the gate concept
+  is wrong.
+
+---
+
 ### 2026-08-08 · The loop-metrics settling window is removed outright — superseding its own same-day 14-day-to-1-hour shortening
 - **Decision:** `--write`'s terminal-point wait and `missingRecords()`'s
   settling floor (added in PR #343, shortened from 14 days to 1 hour earlier
