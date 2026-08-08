@@ -27,7 +27,12 @@
   an undefended chargeback. The advisory check still suppresses the common
   case (a sequential redelivery of an already-committed event), so this only
   costs a duplicate alert in the narrow concurrent-delivery window, never a
-  dropped one.
+  dropped one **through that specific race** — the alert call is separately
+  wrapped best-effort (`try`/`catch`, so a notify failure can't take the
+  entitlement write down with it), so an ordinary `sendEmail`/enqueue failure
+  after the webhook's idempotency claim has already committed still drops the
+  alert with no retry; that's a different, pre-existing failure mode this
+  decision doesn't cover.
 - **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
   before sending notifications"); mechanics in
   [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).
