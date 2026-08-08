@@ -474,6 +474,50 @@ lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
 
+**A related but distinct lesson from the same claim-then-dispatch shape,
+caught during NCMEC phase 3 review (PR #349, known gap G15, not yet built):**
+`asyncJobsTick` stamps a whole claimed batch `processing` in one transaction
+*before* `mapWithConcurrency` dispatches any row to a handler at limited
+concurrency — so a row claimed late in a same-queue batch can queue for real
+minutes before its own handler starts, even with no other queue involved at
+all. Lane-splitting doesn't fix this one; it's within-queue, not cross-queue.
+The lesson is narrower and specific to safety deadlines: **a wall-clock
+invariant meant to bound total elapsed risk must be measured from the true
+start of the risk window (claim time), not from a later sub-phase within it
+(handler start)** — a test that only checks the sub-phase's own constant
+against a cutoff can pass while the invariant it's protecting is still
+violable. Tracked, not yet exploitable (no caller exists for the NCMEC
+worker this would affect); phase 5's worker must bound elapsed time since
+claim.
+
+## A live FK's `ON DELETE SET NULL` can erase the fact an unrelated predicate depends on
+
+**Looks like:** a predicate infers a historical fact ("did this row ever have
+X") from a live column's *current* value ("is X currently non-null"), where
+that column is the target end of a foreign key declared `onDelete: "set
+null"`. **Dangerous:** an entirely unrelated action elsewhere in the app —
+deleting the referenced row for its own, unconnected reasons — silently nulls
+the column via the database's own cascade, with no application code path
+that notices or logs it happening. The predicate then reads the row as
+"never had X" instead of "had X, then lost it," and if the predicate gates a
+security- or compliance-relevant decision, the wrong branch fires with
+nobody having decided anything — it looks like normal operation from every
+surface. **Avoid:** don't infer an immutable historical fact from a column
+that participates in a live FK cascade; capture the fact separately, once,
+at the moment it's true, into a column nothing can silently null out from
+under it. **Overhype:** `isIdentityUnresolved` (NCMEC phase 3,
+`artifacts/api-server/src/lib/moderation/ncmecWorker.ts`) infers "this row's uploader identity was
+never captured" from `reporterSnapshot === null && userId !== null` — but
+`ncmec_reports.user_id` has `onDelete: "set null"`, and the pre-existing,
+unrelated account hard-delete admin action (`routes/admin.ts`) runs
+`db.delete(usersTable)`, which cascades. An admin hard-deleting the uploader
+of a row correctly parked as `identity_unresolved` (a capture defect) turns
+it into a row that reads as honestly anonymous and files automatically with
+the uploader silently omitted — nobody having approved that. Caught in PR
+#349's round-1 review before any caller existed to make it reachable;
+tracked as known gap G14, needing an immutable snapshot-time capture that
+the cascade can't touch (phase 4).
+
 ## Un-frozen input re-resolved live after its freeze point
 
 **Looks like:** a value (identity, config, a selected option) is fixed at one
