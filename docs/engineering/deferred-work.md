@@ -254,8 +254,18 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** Next time we do meaningful charts work, or a security
     advisory on recharts v2, or the weekly maintenance sweep judges it overdue.
 
-- **GitHub Actions still targeting Node 20 — READY, trigger fired.**
-  - **What.** Every `uses:` action across `.github/workflows/*.yml`
+- **GitHub Actions still targeting Node 20 — SHIPPED (PR #360).**
+  - **Resolution.** Surfaced as a decision item in the 2026-08-08
+    `/maintenance` pass; David approved the bump in that conversation.
+    `actions/checkout@v7`, `actions/setup-node@v7`,
+    `actions/dependency-review-action@v5`, `pnpm/action-setup@v6`,
+    `actions/cache@v6`, and `actions/upload-artifact@v6` shipped in PR #360.
+    `github/codeql-action/{init,analyze}@v4` was correctly left untouched
+    (already `using: node24` at that pin). Kept here, struck to `SHIPPED`
+    rather than deleted, for the traceability this doc's own rules ask for
+    ("items come off the list when done... a removed entry should be
+    traceable to shipped or decided against").
+  - **What (original).** Every `uses:` action across `.github/workflows/*.yml`
     (exhaustively enumerated via `grep -rhoE "uses: [a-zA-Z0-9._/-]+@v[0-9]+"
     .github/workflows/*.yml`, not a partial list from memory — an earlier
     draft of this entry missed two) targeting Node 20: `actions/checkout@v4`,
