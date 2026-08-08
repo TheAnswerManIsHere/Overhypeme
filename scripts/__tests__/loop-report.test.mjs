@@ -286,6 +286,28 @@ test("every deferral is listed individually by PR and reason", () => {
   assert.match(digest, /#346.*mechanical only/);
 });
 
+test("a judgmentDeferred record is counted in the deferred headline, not just listed", () => {
+  // The bug: the headline said "0 deferred" while the same record appeared
+  // under "Open deferrals" — an aggregate contradicting its own detail.
+  const records = [record({ pr: 346, judgment: null, judgmentDeferred: "mechanical only, per row 6 precedent" })];
+  const digest = renderDigest({ records, since: SINCE });
+  assert.match(digest, /1 deferred/);
+});
+
+test("a record deferred both ways is counted once, not twice", () => {
+  const records = [
+    record({
+      pr: 346,
+      judgment: null,
+      judgmentDeferred: "mechanical only",
+      adjudication: { status: "deferred", reason: "adjudicator unavailable" },
+    }),
+  ];
+  const digest = renderDigest({ records, since: SINCE });
+  assert.match(digest, /1 deferred/);
+  assert.doesNotMatch(digest, /2 deferred/);
+});
+
 // ── Cold start ─────────────────────────────────────────────────────────────
 
 test("the trend says 'not yet informative' rather than drawing a line through two points", () => {

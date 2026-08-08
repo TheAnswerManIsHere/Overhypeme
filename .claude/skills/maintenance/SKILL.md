@@ -98,11 +98,23 @@ and re-check **each entry's revisit trigger**:
 
 ## 6. Loop-efficacy digest
 
-Run `node scripts/loop-report.mjs` (add `--inventory <file>` with a closed-PR
-list when one is available, or the section will say completeness wasn't
-checked) and **narrate the result to David in plain language** — a few
-sentences, not the raw tables. The script computes; this step interprets;
-David decides.
+**Build the closed-PR inventory and pass it — this step is required, not
+optional.** Since this PR retired CI's coverage gate, the digest's
+`--inventory` completeness check is the *only* remaining mechanism that
+notices a missing record; skipping it every week means coverage can rot
+indefinitely while the report keeps saying "not checked" and nobody notices.
+List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
+paginated in small batches) back through at least the last maintenance
+window, keeping `number`/`title`/`closed_at`/`user.login` for each — write
+that array to a scratch JSON file and pass it as `--inventory <file>`. If
+GitHub access genuinely isn't available this run, say so explicitly in the
+report ("completeness not checked — GitHub access unavailable") rather than
+silently running without `--inventory` and letting the section read as
+routine.
+
+Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
+result to David in plain language** — a few sentences, not the raw tables.
+The script computes; this step interprets; David decides.
 
 This section exists because the measurement half shipped in PR #270 and the
 delivery half never did: for a year the answers sat in a file David doesn't

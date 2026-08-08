@@ -8,6 +8,7 @@ import {
   meetsSamplingPredicate,
   validFindings,
   ledgerBaselineProblem,
+  ledgerCheckProblem,
 } from "../check-loop-metrics.mjs";
 
 /** A valid measured record. PR 344 is not divisible by 5 and has < 30 findings,
@@ -324,4 +325,99 @@ test("mechanical.rounds must be an integer", () => {
   const r = record();
   r.mechanical.rounds = "3";
   failsWith(r, "mechanical.rounds must be an integer");
+});
+
+// ── reviewInterval must be usable by the digest's formatter ────────────────
+
+test("reviewInterval.hours must be a finite non-negative number", () => {
+  const r = record();
+  r.mechanical.reviewInterval = { hours: "24" }; // a string — h.toFixed(1) would throw
+  failsWith(r, "mechanical.reviewInterval must be null or have a finite, non-negative numeric hours");
+
+  const negative = record();
+  negative.mechanical.reviewInterval = { hours: -1 };
+  failsWith(negative, "mechanical.reviewInterval must be null or have a finite, non-negative numeric hours");
+
+  const infinite = record();
+  infinite.mechanical.reviewInterval = { hours: Infinity };
+  failsWith(infinite, "mechanical.reviewInterval must be null or have a finite, non-negative numeric hours");
+});
+
+test("reviewInterval is allowed to be null (a loop with no reviews)", () => {
+  ok(record({ mechanical: { ...record().mechanical, reviewInterval: null } }));
+});
+
+// ── The zero-denominator rule applies to every adjudication status ─────────
+
+test("a sampled, zero-finding loop may not claim completed — that's also n/a", () => {
+  // PR #345 is divisible by 5, so it meets the sampling predicate even with
+  // zero findings. The prior fix only checked this inside the never-run
+  // branch; completed needs the same rule.
+  const r = record({ pr: 345, adjudication: { status: "completed", population: 0, disagreements: 0 } });
+  r.mechanical.findings = 0;
+  r.mechanical.perRound = [];
+  r.mechanical.rounds = 0;
+  r.judgment.causes = { new: 0, prop: 0, wrong: 0, reRaised: 0, invalid: 0 };
+  failsWith(r, 'the settled state is "n/a", not "completed"', "345.json");
+});
+
+test("a sampled, all-invalid loop may not claim completed either", () => {
+  const r = record({ pr: 345, adjudication: { status: "completed", population: 3, disagreements: 0 } });
+  r.mechanical.findings = 3;
+  r.mechanical.perRound = [{ round: 1, findings: 3 }];
+  r.mechanical.rounds = 1;
+  r.judgment.causes = { new: 0, prop: 0, wrong: 0, reRaised: 0, invalid: 3 };
+  failsWith(r, 'the settled state is "n/a", not "completed"', "345.json");
+});
+
+// ── The frozen ledger: presence, not just content ───────────────────────────
+
+test("ledgerCheckProblem: neither file exists — nothing frozen yet", () => {
+  assert.equal(
+    ledgerCheckProblem({ ledgerExists: false, baselineExists: false, actualHash: null, expectedHash: null }),
+    null,
+  );
+});
+
+test("ledgerCheckProblem: the ledger is deleted while a baseline still expects it", () => {
+  const problem = ledgerCheckProblem({
+    ledgerExists: false,
+    baselineExists: true,
+    actualHash: null,
+    expectedHash: "somehash",
+  });
+  assert.match(problem, /loop-ledger\.md is missing/);
+  assert.match(problem, /must not be deleted/);
+});
+
+test("ledgerCheckProblem: ledger present with no baseline is the cutover-not-yet-recorded case", () => {
+  const problem = ledgerCheckProblem({
+    ledgerExists: true,
+    baselineExists: false,
+    actualHash: "abc123",
+    expectedHash: null,
+  });
+  assert.match(problem, /no frozen-ledger baseline/);
+});
+
+test("ledgerCheckProblem: matching hash passes", () => {
+  assert.equal(
+    ledgerCheckProblem({
+      ledgerExists: true,
+      baselineExists: true,
+      actualHash: "samehash",
+      expectedHash: "samehash",
+    }),
+    null,
+  );
+});
+
+test("ledgerCheckProblem: mismatched hash fails", () => {
+  const problem = ledgerCheckProblem({
+    ledgerExists: true,
+    baselineExists: true,
+    actualHash: "actual",
+    expectedHash: "expected",
+  });
+  assert.match(problem, /has changed since it was frozen/);
 });

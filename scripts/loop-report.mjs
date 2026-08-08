@@ -318,7 +318,13 @@ export function renderDigest({ records, since, inventory = null }) {
     } else if (status === "n/a") counts["n/a"]++;
     else if (status === "never-run") counts["never-run"]++;
     if (adjudicationVerdict(r) === "unmeasured") counts.unmeasured++;
-    if (r.judgmentDeferred) deferrals.push(r);
+    // A judgment deferral is a second, independent way a record can be
+    // "deferred" — a malformed record could in principle carry both, so this
+    // only counts it once.
+    if (r.judgmentDeferred && status !== "deferred") {
+      counts.deferred++;
+      deferrals.push(r);
+    }
   }
   out.push(
     `- ${counts["never-run"]} never-run, ${counts["n/a"]} n/a, ${counts.deferred} deferred, ` +

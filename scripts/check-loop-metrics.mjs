@@ -111,6 +111,18 @@ export function adjudicationProblems(record) {
   const denominator = validFindings(record);
   const problems = [];
 
+  // Checked once, ahead of the per-status switch, so it applies to every
+  // status a zero-denominator loop could claim — not just "never-run". A
+  // sampled loop with zero valid findings (e.g. `{status: "completed",
+  // population: 0}`) is just as much a nothing-to-adjudicate case as an
+  // unsampled one.
+  if (a.status !== "n/a" && denominator === 0) {
+    problems.push(
+      `denominator (valid findings) is 0, so the settled state is "n/a", not "${a.status}" — there is ` +
+        `nothing to adjudicate`,
+    );
+  }
+
   switch (a.status) {
     case "n/a":
       // Accepted only when there is genuinely nothing to adjudicate: no
@@ -130,12 +142,6 @@ export function adjudicationProblems(record) {
           `PR #${pr} meets the sampling predicate (pr % 5 === 0: ${pr % 5 === 0}; findings >= 30: ` +
             `${findings >= 30}) so it may not be "never-run" — run the blind adjudication, or record a ` +
             `deferral with a reason`,
-        );
-      }
-      if (denominator === 0) {
-        problems.push(
-          `denominator (valid findings) is 0, so the settled state is "n/a", not "never-run" — there is ` +
-            `nothing to adjudicate`,
         );
       }
       break;
@@ -261,6 +267,20 @@ export function recordProblems(record, filename) {
     }
   }
 
+  // reviewInterval.hours feeds the digest's `hours()` formatter directly
+  // (`h.toFixed(1)`), which throws on anything but a number — a record
+  // edited by hand (or after a late review) is exactly the case that could
+  // introduce a string or missing value here.
+  if (m.reviewInterval !== null && m.reviewInterval !== undefined) {
+    const h = m.reviewInterval?.hours;
+    if (typeof h !== "number" || !Number.isFinite(h) || h < 0) {
+      problems.push(
+        `mechanical.reviewInterval must be null or have a finite, non-negative numeric hours (got ` +
+          `${JSON.stringify(m.reviewInterval)})`,
+      );
+    }
+  }
+
   const deferred = record.judgmentDeferred;
   if (deferred) {
     if (record.judgment) problems.push("a record cannot both defer judgment and carry one");
@@ -315,16 +335,40 @@ export function ledgerBaselineProblem(actualHash, expectedHash) {
   return null;
 }
 
+/**
+ * Everything that can be wrong with the frozen ledger's presence, given what
+ * actually exists on disk — separated from `main()`'s file I/O so the
+ * deletion case is directly testable.
+ *
+ * A baseline existing means the ledger is supposed to be permanent, so the
+ * ledger going missing is a failure in its own right, not a skip — the
+ * archive of the first 42 loops disappearing is exactly the "any post-cutover
+ * change fails CI" case this whole mechanism exists for, deletion included.
+ */
+export function ledgerCheckProblem({ ledgerExists, baselineExists, actualHash, expectedHash }) {
+  if (baselineExists && !ledgerExists) {
+    return (
+      `.agents/metrics/loop-ledger.md is missing, but a baseline exists at ` +
+      `.agents/metrics/loop-ledger.sha256 — it is the permanent archive of the first 42 loops and must not ` +
+      `be deleted.`
+    );
+  }
+  if (!ledgerExists) return null; // nothing frozen yet, nothing to check
+  return ledgerBaselineProblem(actualHash, baselineExists ? expectedHash : null);
+}
+
 function main() {
   const failures = [];
 
   // ── The frozen archive ──────────────────────────────────────────────────
-  if (existsSync(LEDGER)) {
-    const actual = createHash("sha256").update(readFileSync(LEDGER)).digest("hex");
-    const expected = existsSync(LEDGER_BASELINE) ? readFileSync(LEDGER_BASELINE, "utf8").trim() : null;
-    const problem = ledgerBaselineProblem(actual, expected);
+  const ledgerExists = existsSync(LEDGER);
+  const baselineExists = existsSync(LEDGER_BASELINE);
+  if (ledgerExists || baselineExists) {
+    const actualHash = ledgerExists ? createHash("sha256").update(readFileSync(LEDGER)).digest("hex") : null;
+    const expectedHash = baselineExists ? readFileSync(LEDGER_BASELINE, "utf8").trim() : null;
+    const problem = ledgerCheckProblem({ ledgerExists, baselineExists, actualHash, expectedHash });
     if (problem) failures.push(`frozen ledger:\n  ${problem}`);
-    else console.log("✓ Frozen ledger matches its cutover baseline.");
+    else if (ledgerExists) console.log("✓ Frozen ledger matches its cutover baseline.");
   }
 
   // ── The store ───────────────────────────────────────────────────────────
