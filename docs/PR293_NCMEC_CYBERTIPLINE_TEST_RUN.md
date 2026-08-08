@@ -20,9 +20,10 @@ gained a new direct dependency, `fast-xml-parser` (pinned `5.10.1`) — if
 - Other allow-list entries this PR added: none
 
 ## Targeted tests (run always)
-Run from `artifacts/api-server` (or pass the paths below exactly as shown —
-`run-test.sh` `cd`s into the package root before resolving arguments, so a
-path already prefixed with `artifacts/api-server/` won't resolve):
+Run from the **repo root** (the script itself `cd`s into
+`artifacts/api-server`, so the file arguments below are relative to that
+package, not the root — if invoking from inside `artifacts/api-server`
+instead, use `bash scripts/run-test.sh <same file args>`):
 ```
 bash artifacts/api-server/scripts/run-test.sh \
   src/__tests__/migrations.0097.test.ts \
@@ -45,13 +46,26 @@ built-in production guard or test-DB redirection at all** — it runs against
 whatever `DATABASE_URL` is already set to. `ncmecAuditBoundaryStatus.test.ts`
 creates login roles and schemas and mutates role grants (including chains to
 `overhype_audit_maintenance`), so running it against Replit's live database
-would mutate the live cluster. Point `DATABASE_URL` at Replit's isolated
-test database (the same one used for the API-server suite's
-`TEST_DATABASE_URL`/`heliumdb_test`) before running it — mirroring exactly
-what this PR's own new CI step does for GitHub Actions (`overhype_db_test`,
-never `overhype_test`):
+would mutate the live cluster.
+
+**Use a database separate from the one the API-server suite uses**
+(`heliumdb_test`), not that same one — mirroring exactly what this PR's own
+new CI step does on GitHub Actions (a dedicated `overhype_db_test`, never
+`overhype_test`, precisely so the two suites' schema-management sequences
+(this suite's raw `push-force` + `migrate`, versus api-server's `pretest`
+running the same pair in a different order) can never race or drop each
+other's unshadowed objects — see
+[`raw-sql-migration-needs-schema-shadow.md`](../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
+for why that's a real, previously-hit failure mode, not a theoretical one).
+Create or reuse a dedicated isolated database for this suite, apply the
+current schema to it fresh, then run the suite against it:
 ```
-DATABASE_URL=<Replit's isolated test database, NOT the live one> \
+DATABASE_URL=<Replit's dedicated lib/db test database, separate from
+  heliumdb_test, NOT the live one> \
+  pnpm --filter @workspace/db push-force
+DATABASE_URL=<same dedicated database> \
+  pnpm --filter @workspace/db run migrate
+DATABASE_URL=<same dedicated database> \
   pnpm --filter @workspace/db run test
 ```
 Expected: **0 fail**. Asserts `canEffectivelyAssumeRole()`'s reachability
@@ -119,7 +133,24 @@ tracked for this PR's own changes.
    (`jsonb`), `request_metadata` (`jsonb`).
 
    `ncmec_reports` carries the `ncmec_reports_submission_status_check`
-   constraint and the `ncmec_reports_link_quarantine_trg` trigger.
+   constraint, the `ncmec_reports_content_origin_check` constraint, the
+   `ncmec_reports_quarantine_id_fk` foreign key (`quarantine_id` →
+   `quarantined_memes.id`), the `ncmec_reports_link_quarantine_trg`
+   trigger, the `UQ_ncmec_reports_quarantine` unique index (unique on
+   `quarantine_id` WHERE `quarantine_id IS NOT NULL` — this is the
+   one-report-per-quarantine-hit guarantee; a partial migration missing
+   just this index would pass every other check here while leaving that
+   invariant unenforced), and the `IDX_ncmec_nonfinal` /
+   `IDX_ncmec_failed_unalerted` indexes.
+
+   `quarantined_memes` carries the `quarantined_memes_content_origin_check`
+   constraint.
+
+   `ncmec_safety_audit_log` carries the `ncmec_safety_audit_log_action_check`
+   constraint (the closed action vocabulary), the
+   `ncmec_safety_audit_log_report_id_fk` foreign key (`report_id` →
+   `ncmec_reports.id`), and the `IDX_ncmec_audit_report_created` /
+   `IDX_ncmec_audit_created` indexes.
 
    `admin_config` has exactly these 8 new rows (key / value / data_type /
    min / max):
@@ -153,12 +184,34 @@ tracked for this PR's own changes.
    second raw execution requires manually clearing the migration's tracked
    hash first, which isn't part of this routine checklist.
 
-3. **The append-only guarantee — two valid outcomes, depending on whether
-   the audit-ledger hardening runbook has been run.** As a normal
-   (non-superuser) DB session using the application's own role, attempt
-   `UPDATE ncmec_safety_audit_log SET reason = 'x' WHERE id = 1` and
-   `DELETE FROM ncmec_safety_audit_log WHERE id = 1` against any existing
-   row (or a row you insert for the test):
+3. **The append-only guarantee — probe inside a transaction that always
+   rolls back, never against a real row.** Never target an existing row
+   directly: if the guard is broken (the exact failure this check exists to
+   catch), an `UPDATE`/`DELETE` against a real row would rewrite or destroy
+   a genuine audit record with no way back. And even a fresh sentinel row
+   is unsafe outside a transaction: in the *passing* case the guard is
+   supposed to block `DELETE` too, so a plain (non-transactional) test
+   insert would leave a fabricated row nothing can ever remove via ordinary
+   access.
+
+   Run this as one transaction that always ends in `ROLLBACK`, so nothing
+   persists — as the application role, not a superuser:
+   ```sql
+   BEGIN;
+   INSERT INTO ncmec_safety_audit_log (actor_label, action, reason)
+     VALUES ('test-run-sentinel', 'reopen', 'append-only probe, always rolled back')
+     RETURNING id \gset
+   SAVEPOINT before_update;
+   UPDATE ncmec_safety_audit_log SET reason = 'x' WHERE id = :id;  -- expect an error
+   ROLLBACK TO SAVEPOINT before_update;
+   SAVEPOINT before_delete;
+   DELETE FROM ncmec_safety_audit_log WHERE id = :id;              -- expect an error
+   ROLLBACK TO SAVEPOINT before_delete;
+   ROLLBACK;  -- always — discards the sentinel insert too, real row or not
+   ```
+
+   Two valid outcomes for the `UPDATE`/`DELETE` attempts, depending on
+   whether the audit-ledger hardening runbook has been run:
    - **If [`ncmec-audit-ledger-hardening.md`](engineering/ncmec-audit-ledger-hardening.md)'s
      runbook has NOT been run yet** (the default, out-of-the-box state):
      both statements succeed at the privilege level and then raise
@@ -170,7 +223,9 @@ tracked for this PR's own changes.
      that's *more* locked down, not a regression.
 
    Either error is a pass. What would be a real failure: either statement
-   succeeding with no error at all.
+   succeeding with no error at all. The final `ROLLBACK` runs regardless of
+   which outcome occurred, so the ledger ends this check exactly as it
+   started, in both the passing and (hypothetically) failing case.
 
 4. **The reserved-config-key guard rejects filing-capable keys.** As an
    admin, `PATCH /api/admin/config/ncmec_submission_enabled` (or any of the

@@ -59,17 +59,20 @@ genuinely unreachable. That's intentional. It means nobody — including an
 admin using this exact page — can accidentally flip on real NCMEC filing
 before the surface built to do that safely actually exists.
 
-**Not all five matter equally today.** Only three of the five —
-`NCMEC Submission Enabled`, `NCMEC ISPWS Environment`, and `NCMEC Report
-Classifier Hits` — are actually read anywhere when deciding whether to file
-a report. The two backlog-audit keys (`Cutoff`, `Completed At`) are
-currently vestigial for that decision — a later, already-shipped phase
-dropped the backlog-audit check they were meant to gate, pending a cleanup
-migration that will eventually remove them. They're still real config rows
-today, and the generic route still refuses to write them (which is exactly
-what this step tests), but don't read "these five will all move to the
-safety admin surface" as a settled future plan — the two backlog keys'
-future is "removed," not "relocated."
+**Not all five matter equally today.** Only two of the five —
+`NCMEC Submission Enabled` and `NCMEC ISPWS Environment` — are actually
+read anywhere when deciding whether to file a report. `NCMEC Report
+Classifier Hits` is reserved (still refused by this same guard) but not
+yet consulted by anything — it exists for a later phase to start reading.
+The two backlog-audit keys (`Cutoff`, `Completed At`) are similarly
+vestigial for the filing decision — a later, already-shipped phase dropped
+the backlog-audit check they were meant to gate, pending a cleanup
+migration that will eventually remove them. All five are still real config
+rows today, and the generic route still refuses to write every one of them
+(which is exactly what this step tests), but don't read "these five will
+all move to the safety admin surface" as a settled future plan — the two
+backlog keys' future is "removed," not "relocated," and the classifier-hits
+key's own wiring is still ahead of it.
 
 ### 3. Everything else about the config page still works normally
 
@@ -77,6 +80,11 @@ future is "removed," not "relocated."
   touch.
 - ✅ Works exactly as before — this PR only added a refusal for the five
   NCMEC keys named above, nothing else on the page changed.
+- **Cleanup:** anything you edit in this step, or in the regression smoke
+  table below, is a real, persistent write with no undo button — unlike
+  step 2's refused attempts. Note each value *before* you change it and set
+  it back afterward, including `NCMEC Safety Alert Email` if you exercise
+  that row in the smoke table.
 
 ## Regression smoke
 
