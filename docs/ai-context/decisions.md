@@ -478,14 +478,19 @@
   happened, and Stripe never redelivers it. On a response window Stripe
   measures in days, a duplicate chargeback warning is noise; a missing one is
   an undefended chargeback. The advisory check still suppresses the common
-  case (a sequential redelivery of an already-committed event), so this only
-  costs a duplicate alert in the narrow concurrent-delivery window, never a
-  dropped one **through that specific race** — the alert call is separately
-  wrapped best-effort (`try`/`catch`, so a notify failure can't take the
-  entitlement write down with it), so an ordinary `sendEmail`/enqueue failure
-  after the webhook's idempotency claim has already committed still drops the
-  alert with no retry; that's a different, pre-existing failure mode this
-  decision doesn't cover.
+  case (a sequential redelivery of an already-committed event), so the
+  remaining duplicate-alert cost isn't only two deliveries racing before
+  either commits — a *sequential* redelivery re-alerts too whenever the
+  earlier attempt's prepare threw before the claim landed (e.g. a retryable
+  `source_unknown`/`retrieval_failed`), since an uncommitted event still
+  reads as "not yet processed" on the next attempt. The alert itself is sent
+  during *prepare*, before the idempotency claim is ever inserted (the claim
+  commits later, inside apply) — the alert call is separately wrapped
+  best-effort (`try`/`catch`, so a notify failure can't take the entitlement
+  write down with it), so an ordinary `sendEmail`/enqueue failure there drops
+  the alert with no retry regardless of whether the claim that follows ever
+  commits; that's a different, pre-existing failure mode this decision
+  doesn't cover.
 - **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
   before sending notifications"); mechanics in
   [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).

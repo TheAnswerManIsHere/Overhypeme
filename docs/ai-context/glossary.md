@@ -182,10 +182,13 @@
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).
-  **Derived, never assigned**: `users.membership_tier` is a projection
-  computed from a user's entitlement sources, recomputed on every change to
-  them. One narrow, designed exception: admin reinstatement writes it
-  directly, fail-closed, when a source refresh comes back incomplete — see
+  **Derived, never assigned, post-creation**: `users.membership_tier` is a
+  projection computed from a user's entitlement sources, recomputed on every
+  change to them, after the user exists. Account creation is a separate,
+  one-time initialization write (signup's DB default, or an admin's chosen
+  starting tier on Add User), not a competing writer. One narrow, designed
+  exception past that point: admin reinstatement writes it directly,
+  fail-closed, when a source refresh comes back incomplete — see
   [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else).
   → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
 

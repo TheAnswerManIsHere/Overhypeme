@@ -25,16 +25,24 @@ checked one, the grant paths checked none. Any handler that forgot a source
 corrupted the tier. Every one of those bugs was the same bug wearing different
 clothes.
 
-Now one module (`membershipSources.ts`'s `recomputeMembership`) owns the write,
-one expression (`effectiveTierExpr`) owns the read, and nothing else may set
-`membership_tier` directly. **One narrow, designed exception:** admin
-reinstatement (`PATCH /admin/users/:id` in `routes/admin.ts`) writes
-`membershipTier`/`membershipValidUntil` directly, bypassing
-`recomputeMembership`, when a source refresh comes back incomplete — it
-re-derives over only the sources it could verify and writes that fail-closed
-result itself, rather than trusting a recompute that might count a source it
-never actually re-checked. See the reader-inventory section below for the
-mechanics. Any *other* code writing the column directly is a regression.
+Now one module (`membershipSources.ts`'s `recomputeMembership`) owns the write
+for every *post-creation* entitlement change, and one expression
+(`effectiveTierExpr`) owns the read. This scopes to a user's tier changing
+after they exist — account **creation** is a separate case: an ordinary
+signup takes the column's DB default, and `POST /admin/users` (the Add User
+modal) passes the admin's chosen Registered/Unregistered starting tier
+straight into the insert (never Legendary — that's granted afterward through
+`writeAdminGrant`, see the source-type table below). Both are one-time
+auth-state initialization, not a write competing with `recomputeMembership`.
+Past that point, nothing else may set `membership_tier` directly, with **one
+narrow, designed exception:** admin reinstatement (`PATCH /admin/users/:id`
+in `routes/admin.ts`) writes `membershipTier`/`membershipValidUntil`
+directly, bypassing `recomputeMembership`, when a source refresh comes back
+incomplete — it re-derives over only the sources it could verify and writes
+that fail-closed result itself, rather than trusting a recompute that might
+count a source it never actually re-checked. See the reader-inventory section
+below for the mechanics. Any *other* post-creation code writing the column
+directly is a regression.
 
 ## The entitlement model
 
@@ -126,9 +134,16 @@ path splits into two phases:
 
 - **prepare** — every Stripe retrieval and the per-source lease, with **no
   transaction open**. Network calls inside a transaction is the invariant this
-  split exists to prevent.
-- **apply** — the domain writes, inside one transaction, with **no network
-  call in it**.
+  split exists to prevent. **One exception writes durably here, outside any
+  transaction:** on a first purchase whose Stripe customer isn't linked yet,
+  `bindUser` (called from both verifiers during prepare) calls
+  `linkCustomerToUser`, which commits `users.stripe_customer_id`
+  immediately — a write that can survive a later prepare/apply failure. It's
+  narrow (fires once, only for an unlinked customer, and never re-points an
+  already-linked one) but it means "prepare only retrieves" isn't literally
+  true for this one field.
+- **apply** — the entitlement-source domain writes, inside one transaction,
+  with **no network call in it**.
 
 A **lease** is a row-locked scope per `(source_type, provider_ref)`, released
 after apply. For most prepare paths (`prepareSubscriptionRefresh`) it's
@@ -285,10 +300,15 @@ them without archaeology:
    every delivered event type is modeled.** Every event type this system
    handles is authoritative, fenced and idempotent. But `prepareDomainEvent`'s
    `default: break` silently no-ops any event type it doesn't recognize,
-   while the event is still claimed as processed — currently reachable only
-   in theory (checkout is card-only, and a card checkout doesn't produce the
-   async-payment events this would matter for), but the handler doesn't
-   enforce that; enabling a delayed-payment method would open it for real. And
+   while the event is still claimed as processed — and this is reachable
+   today, not merely theoretical: the managed webhook endpoint subscribes to
+   every event type the sync library supports, which includes types with no
+   `prepareDomainEvent` case (e.g. `customer.updated`, `product.updated`), so
+   Stripe delivers and this path silently no-ops them in production now.
+   Card-only checkout narrows only one specific corner of this — the
+   delayed/async-payment scenario can't occur, so that particular case stays
+   theoretical until a delayed-payment method is enabled — it doesn't mean
+   unmodeled events in general go undelivered. And
    if Stripe's whole retry window for a *modeled* event fails, nothing sweeps
    up afterward and finds the discrepancy — and in the direction that costs
    money, nothing on the admin surface can either (grant/revoke only touch

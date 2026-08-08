@@ -19,8 +19,9 @@ for Life" purchase, and an admin can comp it to someone directly.
 
 The one thing worth understanding before anything else: **nobody sets a
 user's tier.** It's computed. At any moment, a user is Legendary if — and only
-if — they currently hold something that entitles them to it: an active
-subscription, a lifetime purchase, or an admin grant. Cancel the subscription,
+if — they currently hold something that entitles them to it: a qualifying
+subscription (active, in trial, or in a bounded grace window after a failed
+payment), a lifetime purchase, or an admin grant. Cancel the subscription,
 refund the purchase, or revoke the grant, and the computed answer changes on
 its own. There is no button, script, or admin field that sets "Legendary"
 directly — with one narrow, designed exception: reinstating a deactivated
@@ -57,10 +58,10 @@ as Legendary. From there:
 Occasionally the subscription panel shows an amber notice saying its own
 records "haven't caught up yet" after a change. That's not an error — the
 change went through at Stripe — it's the panel being honest that its own copy
-of the state hasn't refreshed yet. Normally it corrects itself shortly, no
-action needed, as soon as Stripe's webhook for that change arrives. If that
-webhook never arrives, the notice can persist — the same known gap described
-under *Boundaries & known limitations* below.
+of the state hasn't refreshed yet. No action is needed — it clears on its own
+the moment a scheduled recheck observes Stripe's webhook for that change. If
+that webhook never arrives, the notice can persist — the same known gap
+described under *Boundaries & known limitations* below.
 
 ### For the admin
 
@@ -92,8 +93,10 @@ looking at.
 Every source of membership — a subscription, a lifetime purchase, an admin
 grant — is one row in a table of **entitlement sources**. Whenever a source
 changes, the system asks, right then, whether *any* of a user's sources
-currently qualifies (allowlisted product, no unresolved dispute, correct
-lifecycle status) and stores the answer. A `membership_tier` column still
+currently qualifies and stores the answer: no unresolved dispute, correct
+lifecycle status, and — for the two Stripe-backed source types only — an
+allowlisted product; an admin grant is authorized by the admin's own action
+instead, not by a purchased product. A `membership_tier` column still
 exists on the user, but it's that computed answer, not a hand-set value — the
 one exception is a stored expiry: a request checks the stored tier against a
 stored deadline, so a grace window that has quietly passed still demotes the
