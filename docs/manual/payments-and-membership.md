@@ -55,10 +55,10 @@ as Legendary. From there:
 Occasionally the subscription panel shows an amber notice saying its own
 records "haven't caught up yet" after a change. That's not an error — the
 change went through at Stripe — it's the panel being honest that its own copy
-of the state hasn't refreshed yet. Normally it corrects itself within a minute
-or two, no action needed, as soon as Stripe's webhook for that change arrives.
-If that webhook never arrives, the notice can persist — the same known gap
-described under *Boundaries & known limitations* below.
+of the state hasn't refreshed yet. Normally it corrects itself shortly, no
+action needed, as soon as Stripe's webhook for that change arrives. If that
+webhook never arrives, the notice can persist — the same known gap described
+under *Boundaries & known limitations* below.
 
 ### For the admin
 
@@ -103,10 +103,13 @@ can't fully verify their sources, described below.
 
 Every write to a Stripe-backed entitlement source — a webhook telling us a
 subscription changed, a route handling a cancel/reactivate click — goes
-through the same narrow path: retrieve the current truth from Stripe (never
-trust a value someone merely claims), then apply it under a lock that
-prevents two things from writing the same source at once. An admin grant is
-different on purpose: the admin *is* the authority for that source, so
+through a lock that prevents two things from writing the same source at
+once, and (for most of these paths) a retrieval of the current truth from
+Stripe first, never trusting a value someone merely claims. The one
+exception is a refund: Stripe signs the webhook payload itself, so the
+refund amount is applied straight from that signed event rather than
+re-fetched. An admin grant is different on purpose: the admin *is* the
+authority for that source, so
 granting or revoking one skips that lock — though it still briefly waits
 behind the user's own row lock if something else is recomputing their tier at
 the same moment, and behind the one-active-grant constraint if another grant
@@ -162,17 +165,15 @@ a comp from a real sale.
   hand; grant/revoke only create and end admin grants. This is a known,
   accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-- **The stored tier column itself can lag reality — normally by up to an hour,
-  the sweep's default cadence, but nowhere a person actually looks shows that
-  lag.** (Longer if the sweep is misconfigured to run less often, or a run
-  fails — a failed sweep is logged and reported, not silently skipped, but
-  doesn't guarantee catching up on the very next tick.) Access is never
-  affected:
-  a lapsed grace window demotes a user's access immediately, on every request,
-  because the deadline check happens live regardless of what the stored column
-  says. Admin → Users and every other tier display compute the same live
-  answer, so what an admin actually sees is always current. The lag is purely
-  internal — the raw stored value sits stale until the hourly background sweep
+- **The stored tier column itself can lag reality between background sweeps
+  — a failed or delayed sweep run stretches that lag further — but nowhere a
+  person actually looks shows that lag.** (See the deep spec for the sweep's
+  cadence and failure handling.) Access is never affected: a lapsed grace
+  window demotes a user's access immediately, on every request, because the
+  deadline check happens live regardless of what the stored column says.
+  Admin → Users and every other tier display compute the same live answer,
+  so what an admin actually sees is always current. The lag is purely
+  internal — the raw stored value sits stale until the next background sweep
   catches it up — and the only place it's ever surfaced is the sweep's own
   status strip on Admin → Refunds & Disputes, which exists specifically to
   report that internal drift.

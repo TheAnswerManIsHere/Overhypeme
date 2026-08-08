@@ -194,10 +194,11 @@
   `stripe_subscription`, `stripe_lifetime_payment`, or `admin_grant`. **Not**
   the same as "currently grants membership" — a cancelled, refunded, or
   disputed source is retained, not deleted, and no longer qualifies (a
-  **won** dispute is the exception: it re-qualifies, since the purchase was
-  fine all along). A user's tier is the **union** of their *qualifying*
-  sources (a separate check per row), not a priority order — Legendary if
-  *any* one qualifies.
+  **won** dispute only clears the dispute hold — the source still must pass
+  its own lifecycle check, so a cancellation/refund that happened while it
+  was disputed stays disqualified). A user's tier is the **union** of their
+  *qualifying* sources (a separate check per row), not a priority order —
+  Legendary if *any* one qualifies.
   → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)
 
 - **Grace episode** — the 14-day window a `past_due` subscription keeps
