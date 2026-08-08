@@ -74,7 +74,10 @@ export function judgmentProblems(record) {
   if (!j) return ["judgment is null"];
   const problems = [];
   for (const c of CAUSES) {
-    if (!Number.isInteger(j.causes?.[c])) problems.push(`judgment.causes.${c} must be an integer`);
+    const value = j.causes?.[c];
+    if (!Number.isInteger(value) || value < 0) {
+      problems.push(`judgment.causes.${c} must be a non-negative integer`);
+    }
   }
   if (j.preOpenPreflightMin === null && !j.preOpenPreflightReason) {
     problems.push(
@@ -127,6 +130,12 @@ export function adjudicationProblems(record) {
           `PR #${pr} meets the sampling predicate (pr % 5 === 0: ${pr % 5 === 0}; findings >= 30: ` +
             `${findings >= 30}) so it may not be "never-run" — run the blind adjudication, or record a ` +
             `deferral with a reason`,
+        );
+      }
+      if (denominator === 0) {
+        problems.push(
+          `denominator (valid findings) is 0, so the settled state is "n/a", not "never-run" — there is ` +
+            `nothing to adjudicate`,
         );
       }
       break;
@@ -202,7 +211,15 @@ export function recordProblems(record, filename) {
   }
 
   // ── Measured branch ─────────────────────────────────────────────────────
-  if (!record.closedAt) problems.push("closedAt is missing — the digest windows on it");
+  if (!record.closedAt) {
+    problems.push("closedAt is missing — the digest windows on it");
+  } else if (Number.isNaN(new Date(record.closedAt).getTime())) {
+    // An unparseable closedAt passes every other check here but makes
+    // inWindow() evaluate to NaN — silently excluded from every digest
+    // window while its PR still counts as "present" for completeness, so
+    // the loop is neither reported nor missing.
+    problems.push(`closedAt is not a parseable date (got ${JSON.stringify(record.closedAt)})`);
+  }
 
   const m = record.mechanical;
   if (!m || typeof m !== "object") {
@@ -219,6 +236,30 @@ export function recordProblems(record, filename) {
     }
   }
   if (!Number.isInteger(m.findings)) problems.push("mechanical.findings must be an integer");
+  if (!Number.isInteger(m.rounds)) problems.push("mechanical.rounds must be an integer");
+
+  // perRound is what the digest actually uses for trend eligibility and
+  // volume — findings/rounds being individually well-typed doesn't mean the
+  // three agree with each other. One entry per round, findings summing to
+  // the aggregate, is what "internally coherent" has to mean here.
+  if (!Array.isArray(m.perRound)) {
+    problems.push("mechanical.perRound must be an array");
+  } else {
+    if (Number.isInteger(m.rounds) && m.perRound.length !== m.rounds) {
+      problems.push(
+        `mechanical.perRound has ${m.perRound.length} entries but mechanical.rounds is ${m.rounds} — one ` +
+          `entry per round`,
+      );
+    }
+    if (Number.isInteger(m.findings)) {
+      const perRoundSum = m.perRound.reduce((n, r) => n + (Number.isInteger(r?.findings) ? r.findings : 0), 0);
+      if (perRoundSum !== m.findings) {
+        problems.push(
+          `mechanical.perRound findings sum to ${perRoundSum} but mechanical.findings is ${m.findings}`,
+        );
+      }
+    }
+  }
 
   const deferred = record.judgmentDeferred;
   if (deferred) {

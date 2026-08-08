@@ -148,6 +148,8 @@ test("a loop that does not meet the predicate may not claim completed", () => {
 test("a findings>=30 loop meets the predicate even when its number does not", () => {
   const big = record();
   big.mechanical.findings = 30;
+  big.mechanical.perRound = [{ round: 1, findings: 30 }];
+  big.mechanical.rounds = 1;
   big.judgment.causes = { new: 30, prop: 0, wrong: 0, reRaised: 0, invalid: 0 };
   failsWith(big, 'may not be "never-run"');
 
@@ -187,6 +189,8 @@ test("n/a is accepted only when the valid-finding denominator is zero", () => {
   // genuinely nothing to adjudicate.
   const allInvalid = record({ adjudication: { status: "n/a" } });
   allInvalid.mechanical.findings = 3;
+  allInvalid.mechanical.perRound = [{ round: 1, findings: 3 }];
+  allInvalid.mechanical.rounds = 1;
   allInvalid.judgment.causes = { new: 0, prop: 0, wrong: 0, reRaised: 0, invalid: 3 };
   assert.equal(validFindings(allInvalid), 0);
   ok(allInvalid);
@@ -194,6 +198,8 @@ test("n/a is accepted only when the valid-finding denominator is zero", () => {
   // A zero-finding loop likewise.
   const clean = record({ adjudication: { status: "n/a" } });
   clean.mechanical.findings = 0;
+  clean.mechanical.perRound = [];
+  clean.mechanical.rounds = 0;
   clean.judgment.causes = { new: 0, prop: 0, wrong: 0, reRaised: 0, invalid: 0 };
   ok(clean);
 
@@ -259,4 +265,63 @@ test("adjudicationProblems requires a status at all", () => {
   assert.deepEqual(adjudicationProblems({ pr: 344, mechanical: { findings: 1 }, adjudication: {} }), [
     "adjudication is missing a status",
   ]);
+});
+
+// ── Negative causal counts ──────────────────────────────────────────────────
+
+test("a negative causal count is rejected even though it is an integer", () => {
+  const r = record();
+  r.judgment.causes = { new: 8, prop: -1, wrong: 0, reRaised: 0, invalid: 0 }; // still sums to 7
+  failsWith(r, "judgment.causes.prop must be a non-negative integer");
+});
+
+// ── closedAt must be a real date, not just present ──────────────────────────
+
+test("an unparseable closedAt is rejected, not silently excluded downstream", () => {
+  failsWith(record({ closedAt: "not-a-date" }), "closedAt is not a parseable date");
+});
+
+test("closedAt still accepts a real ISO timestamp", () => {
+  ok(record({ closedAt: "2026-08-07T18:22:10Z" }));
+});
+
+// ── never-run requires at least one valid finding ───────────────────────────
+
+test("never-run is rejected when there are zero valid findings — that state is n/a", () => {
+  const r = record({ adjudication: { status: "never-run" } });
+  r.mechanical.findings = 0;
+  r.mechanical.perRound = [];
+  r.mechanical.rounds = 0;
+  r.judgment.causes = { new: 0, prop: 0, wrong: 0, reRaised: 0, invalid: 0 };
+  failsWith(r, 'the settled state is "n/a", not "never-run"');
+});
+
+test("never-run is still accepted with a nonzero denominator (the common case)", () => {
+  ok(record({ adjudication: { status: "never-run" } }));
+});
+
+// ── perRound must actually agree with rounds/findings ───────────────────────
+
+test("mechanical.perRound must be an array", () => {
+  const r = record();
+  r.mechanical.perRound = null;
+  failsWith(r, "mechanical.perRound must be an array");
+});
+
+test("perRound entry count must match mechanical.rounds", () => {
+  const r = record();
+  r.mechanical.perRound = [{ round: 1, findings: 7 }]; // one entry, rounds says 3
+  failsWith(r, "mechanical.perRound has 1 entries but mechanical.rounds is 3");
+});
+
+test("perRound findings must sum to mechanical.findings", () => {
+  const r = record();
+  r.mechanical.perRound = [{ round: 1, findings: 4 }, { round: 2, findings: 2 }, { round: 3, findings: 0 }]; // sums to 6, not 7
+  failsWith(r, "mechanical.perRound findings sum to 6 but mechanical.findings is 7");
+});
+
+test("mechanical.rounds must be an integer", () => {
+  const r = record();
+  r.mechanical.rounds = "3";
+  failsWith(r, "mechanical.rounds must be an integer");
 });

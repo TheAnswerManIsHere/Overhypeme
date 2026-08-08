@@ -104,6 +104,12 @@ export function adjudicationVerdict(record) {
  */
 export function qualifiesForTrend(record) {
   if ("exempt" in record) return false;
+  // A deferred judgment leaves `judgment` null. `selfInflictedShare` reads it
+  // through optional chaining and would score that as 0% self-inflicted
+  // rather than "not yet classified" — and the churn section below dereferences
+  // `judgment.causes` directly, which crashes the whole digest on a record
+  // that is legitimately mid-triage.
+  if (record.judgmentDeferred) return false;
   if (selfInflictedShare(record) === null) return false;
   if (findingBearingRounds(record) <= 1) return false;
   return adjudicationVerdict(record) !== "unmeasured";
@@ -149,6 +155,18 @@ export function costTotals(records) {
 }
 
 /**
+ * A closed PR is not owed a record until it has been closed for a full
+ * digest window (14 days) — working-modes.md's terminal-point rule. Without
+ * this floor, every PR closed in the last two weeks reports as an actionable
+ * data gap on a normal weekly run, which trains the reader to skip the
+ * section. The inventory (a plain PR listing) doesn't carry reviewer-event
+ * timestamps, so this checks closure age only — the coarser half of the
+ * terminal-point rule, not the full "no reviewer pass" refinement `--write`
+ * enforces with the richer per-PR data it has access to.
+ */
+const SETTLING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
  * Closed loops with no record, from a paginated inventory.
  *
  * Absence leaves no artifact in the store, so completeness cannot be computed
@@ -157,11 +175,12 @@ export function costTotals(records) {
  * silently under-report), filtered to post-cutover loops, and stripped of
  * non-loop authors.
  */
-export function missingRecords(inventory, records) {
+export function missingRecords(inventory, records, now = new Date()) {
   const have = new Set(records.map((r) => r.pr));
   return inventory
     .filter((pr) => pr.number >= FIRST_RECORDED_PR)
     .filter((pr) => pr.closed_at)
+    .filter((pr) => now.getTime() - new Date(pr.closed_at).getTime() >= SETTLING_WINDOW_MS)
     .filter((pr) => !NON_LOOP_AUTHORS.has(pr.user?.login))
     .filter((pr) => !have.has(pr.number))
     .map((pr) => ({ number: pr.number, title: pr.title, closedAt: pr.closed_at }));
@@ -169,6 +188,9 @@ export function missingRecords(inventory, records) {
 
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
 const hours = (h) => `${h.toFixed(1)}h`;
+
+/** Review minutes plus known preflight minutes. Unknown preflight adds nothing — never zero pretending to be complete. */
+const attributableMinutes = (r) => (r.mechanical?.reviewInterval?.hours ?? 0) * 60 + (r.judgment?.preOpenPreflightMin ?? 0);
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -257,9 +279,12 @@ export function renderDigest({ records, since, inventory = null }) {
     out.push("");
 
     // ── Outliers ─────────────────────────────────────────────────────────
+    // Ranked by total attributable cost — review hours plus known preflight
+    // minutes — not review hours alone, or a loop with heavy preflight and
+    // light review would rank below a loop that cost less overall.
     const expensive = windowed
       .slice()
-      .sort((a, b) => (b.mechanical?.reviewInterval?.hours ?? 0) - (a.mechanical?.reviewInterval?.hours ?? 0))
+      .sort((a, b) => attributableMinutes(b) - attributableMinutes(a))
       .slice(0, 3);
     if (expensive.length) {
       out.push("## Most expensive loops in the window");

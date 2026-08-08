@@ -218,12 +218,19 @@ priorities (moderation speed, render/enrichment quality, video). See
   trigger a check-in, with no record of whether one happened (see the
   ledger's row 6).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
-  row** (PR #270). Both Claude Code and Codex now append a row — mechanical
-  columns machine-derived, judgment columns hand-entered and marked as such —
-  every time a review loop closes, adjudicated over the **full** finding
-  population (not a sample; see `decisions.md` for why the sample was
-  removed). The PR's own 16-round, 34-finding loop produced its own row as
-  the pipeline's first real acceptance test. See
+  row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
+  longer append to this table, and adjudication no longer covers every
+  loop's full population — a deterministic **sample of loops** is
+  adjudicated instead (each still over its own full finding population).
+  The paragraph below is the historical record of what PR #270 built, not
+  the current contract; [`working-modes.md`](./working-modes.md#the-loop-ledger)
+  and [`decisions.md`](./decisions.md) are current. Both Claude Code and
+  Codex used to append a row — mechanical columns machine-derived, judgment
+  columns hand-entered and marked as such — every time a review loop closed,
+  adjudicated over the **full** finding population (not a sample; see
+  `decisions.md` for why the original within-loop sample was removed). The
+  PR's own 16-round, 34-finding loop produced its own row as the pipeline's
+  first real acceptance test. See
   [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger).
   **Open next step:** the ledger's designated acceptance test — a blind

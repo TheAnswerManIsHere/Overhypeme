@@ -633,11 +633,12 @@ enactment:
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
   `/maintenance` skill owns the contract; the standing authorization worth
-  restating: green minor/patch Dependabot bumps are one of the two categories
-  of PR I squash-merge myself (the other: green `[LEDGER]` PRs, per the
-  loop-ledger section above). David invokes it roughly weekly; I never schedule it
-  (no-background-check-ins stands). David asked for a one-shot ~4-week
-  reminder (around 2026-08-19) to revisit automating it.
+  restating: green minor/patch Dependabot bumps are the one category of PR I
+  squash-merge myself. (The other category this line used to name, green
+  `[LEDGER]` PRs, is retired along with the `[LEDGER]` PR type itself — see
+  the loop-ledger section above.) David invokes it roughly weekly; I never
+  schedule it (no-background-check-ins stands). David asked for a one-shot
+  ~4-week reminder (around 2026-08-19) to revisit automating it.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed

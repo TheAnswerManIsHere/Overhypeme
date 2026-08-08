@@ -128,6 +128,19 @@ test("an exempt record never enters the population", () => {
   assert.equal(qualifiesForTrend({ schemaVersion: 1, pr: 351, exempt: "dependabot" }), false);
 });
 
+test("a judgmentDeferred record is excluded from the trend, even with multiple finding-bearing rounds", () => {
+  // Without the exclusion, selfInflictedShare reads the absent judgment
+  // through optional chaining and scores 0% rather than "not yet
+  // classified" — this record would otherwise qualify.
+  const deferred = record({ judgment: null, judgmentDeferred: "mechanical only — see row 6 precedent" });
+  assert.equal(qualifiesForTrend(deferred), false);
+});
+
+test("renderDigest does not crash on a judgmentDeferred record with multiple finding-bearing rounds", () => {
+  const deferred = record({ pr: 348, judgment: null, judgmentDeferred: "mechanical only — see row 6 precedent" });
+  assert.doesNotThrow(() => renderDigest({ records: [deferred], since: SINCE }));
+});
+
 // ── Windowing ──────────────────────────────────────────────────────────────
 
 test("the window keys on closedAt, including a loop with no reviews", () => {
@@ -150,6 +163,32 @@ test("unknown preflight is counted as unknown, never summed as zero", () => {
   ]);
   assert.equal(totals.preflightMin, 40);
   assert.equal(totals.preflightUnknown, 1);
+});
+
+test("expensive-loop ranking is by review hours PLUS known preflight, not review hours alone", () => {
+  // Loop A: little review time, heavy preflight. Loop B: more review time,
+  // no preflight, listed FIRST in input order. Ranking by review hours
+  // alone (or by input order) would put B above A; total attributable cost
+  // (review + known preflight) puts A above B. Both records deliberately
+  // don't qualify for the churn/trend section (single finding-bearing
+  // round), so the only place "#344"/"#346" can appear is the ranking.
+  const records = [
+    record({
+      pr: 346,
+      mechanical: { reviewInterval: { hours: 2 }, findings: 4, perRound: [{ round: 1, findings: 4 }] },
+      judgment: { causes: { new: 4, prop: 0, wrong: 0, reRaised: 0, invalid: 0 }, preOpenPreflightMin: 0 },
+    }), // 120 min
+    record({
+      pr: 344,
+      mechanical: { reviewInterval: { hours: 1 }, findings: 4, perRound: [{ round: 1, findings: 4 }] },
+      judgment: { causes: { new: 4, prop: 0, wrong: 0, reRaised: 0, invalid: 0 }, preOpenPreflightMin: 600 },
+    }), // 660 min
+  ];
+  const digest = renderDigest({ records, since: SINCE });
+  const section = digest.slice(digest.indexOf("## Most expensive loops"));
+  const aIndex = section.indexOf("#344");
+  const bIndex = section.indexOf("#346");
+  assert.ok(aIndex > -1 && bIndex > -1 && aIndex < bIndex, "expected #344 (higher total cost) to rank above #346");
 });
 
 test("the digest reports a known preflight subtotal plus an unknown count, and still ranks the unknown loop", () => {
@@ -179,13 +218,18 @@ const inventoryEntry = (number, extra = {}) => ({
   ...extra,
 });
 
+// Comfortably past the 14-day settling window from the fixture's closed_at
+// above, so these tests exercise the missing/present logic on its own,
+// independent of the settling-window tests below.
+const SETTLED_NOW = new Date("2026-08-25T00:00:00Z");
+
 test("a pre-cutover loop is never reported missing", () => {
-  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR - 1)], []);
+  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR - 1)], [], SETTLED_NOW);
   assert.deepEqual(missing, []);
 });
 
 test("the first post-cutover loop with no record is named", () => {
-  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR)], []);
+  const missing = missingRecords([inventoryEntry(FIRST_RECORDED_PR)], [], SETTLED_NOW);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].number, FIRST_RECORDED_PR);
 });
@@ -197,16 +241,30 @@ test("a Dependabot bump is excluded rather than reported as a missing loop", () 
     inventoryEntry(400, { user: { login: "dependabot[bot]" } }),
     inventoryEntry(401),
   ];
-  const missing = missingRecords(inventory, []);
+  const missing = missingRecords(inventory, [], SETTLED_NOW);
   assert.deepEqual(missing.map((m) => m.number), [401]);
 });
 
 test("an open PR is not a closed loop", () => {
-  assert.deepEqual(missingRecords([inventoryEntry(400, { closed_at: null })], []), []);
+  assert.deepEqual(missingRecords([inventoryEntry(400, { closed_at: null })], [], SETTLED_NOW), []);
 });
 
 test("a loop that has a record is not reported missing", () => {
-  assert.deepEqual(missingRecords([inventoryEntry(344)], [record({ pr: 344 })]), []);
+  assert.deepEqual(missingRecords([inventoryEntry(344)], [record({ pr: 344 })], SETTLED_NOW), []);
+});
+
+// ── The settling window: a loop isn't owed a record the moment it closes ──
+
+test("a loop closed less than 14 days ago is not yet reported missing", () => {
+  const now = new Date("2026-08-15T00:00:00Z"); // 9 days after the fixture's closed_at
+  assert.deepEqual(missingRecords([inventoryEntry(400)], [], now), []);
+});
+
+test("a loop closed exactly 14 days ago is reported missing", () => {
+  const now = new Date("2026-08-20T00:00:00Z"); // exactly 14 days after closed_at
+  const missing = missingRecords([inventoryEntry(400)], [], now);
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].number, 400);
 });
 
 test("without an inventory the digest says completeness was not checked", () => {
