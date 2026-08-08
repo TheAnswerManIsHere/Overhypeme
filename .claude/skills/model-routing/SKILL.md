@@ -94,13 +94,12 @@ Two facts that decide how we use it today:
 - **What works now is `Sonnet main + Opus advisor`**, which automates the
   *Debugging new features* row of CLAUDE.md's tier table: Sonnet handles routine work
   and escalates the hard moments without a model switch. It costs
-  advisor-model tokens on top of the main model, and it is experimental —
-  but **David approved trialing it for review loops (2026-08-07)**, as part
-  of the post-round check-in revision (see `working-modes.md`'s *The
-  post-round check-in*): when a Sonnet session is about to drive a review
-  loop, suggesting he set `/advisor opus` for that session is the sanctioned
-  move, replacing the manual switch-to-Opus-and-back-per-round idea, which
-  would have cost David two model-picker trips every round.
+  advisor-model tokens on top of the main model, and it is experimental.
+  **David approved trialing it for review loops on 2026-08-07; that trial is
+  superseded by the structural triggers below as of 2026-08-08 — do not
+  suggest `/advisor opus` for a review loop.** The advisor stays live for
+  the *Debugging new features* row above, which this supersession doesn't
+  touch.
 
 ### Review-loop triage: the structural Opus subagent triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger)
 

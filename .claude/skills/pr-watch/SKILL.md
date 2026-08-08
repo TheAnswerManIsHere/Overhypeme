@@ -105,8 +105,12 @@ the diff *is* the plan. While watching an implementation PR:
   3. **Any recurrence of a swept class** (the shared protocol's process
      failure): the class re-naming goes to the Opus subagent, and the
      recurrence is called out in that round's check-in.
-  Sensitive-path PRs (the tier table's Opus-always rows) run the whole
-  loop on Opus and need none of this machinery.
+  Sensitive-path PRs (the tier table's Opus-always rows) run the whole loop
+  on Opus, so triggers 1–2's Opus-subagent dispatch is redundant there — the
+  main loop already is Opus. **The sweep itself (name the class, write the
+  oracle, sweep to zero) and the recurrence check-in flag still apply on
+  Opus loops** — a swept class recurring is a process signal David needs to
+  see regardless of which tier caught it.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
