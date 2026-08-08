@@ -46,8 +46,13 @@ was wrong: `build.yml`'s `Test` job ran `push-force` + `migrate` for
 same database api-server's sharded tests clone *from*. api-server's own
 `pretest` then runs `push-force` **again** as part of its normal setup. The
 second `push` reconciled an already-migrated database to the Drizzle
-snapshot and silently dropped every object that exists only in raw migration
-SQL and has no `schema.ts` shadow (in this case, `facts_active_requires_concept`
+snapshot and silently dropped every **Drizzle-managed** object that exists
+only in raw migration SQL and has no `schema.ts` shadow. Drizzle reconciles
+CHECK constraints, indexes, and sequences this way; it does NOT reconcile
+functions or triggers, since it has no schema builder for either — PR
+#293's migration `0097` creates several of both with no `schema.ts`
+counterpart, and `push --force` never touches them. In this incident, the
+dropped objects were `facts_active_requires_concept`
 and migration `0095`'s two standalone sequences, `membership_source_state_seq`
 and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, but
 `membershipEntitlements.ts` declares neither as a `pgSequence`, so `push` has

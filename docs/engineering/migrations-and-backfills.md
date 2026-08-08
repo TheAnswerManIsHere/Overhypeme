@@ -35,7 +35,12 @@
   predicate. If a migration needs a constraint to be exactly right on
   replay, rebuild it unconditionally (`DROP CONSTRAINT IF EXISTS` + `ADD
   CONSTRAINT`) rather than inspecting what's already there, wherever the
-  role has permission to.
+  role has permission to — but only once you've confirmed the table has no
+  rows that could already violate the new predicate (an empty table, or an
+  explicit preflight/repair pass on a populated one). The `DROP` always
+  succeeds; the replacement `ADD CONSTRAINT` raises a check violation and
+  rolls back the whole migration if a row the current, possibly-drifted
+  constraint already admitted would fail the tightened one.
 
 ## Drizzle conventions
 
