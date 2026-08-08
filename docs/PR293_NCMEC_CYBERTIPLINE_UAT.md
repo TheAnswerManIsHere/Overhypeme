@@ -36,7 +36,7 @@ filing, even though those settings already exist in the database.
   `NCMEC Safety Alert Email`, `NCMEC Submit — Max Attempts`, and
   `NCMEC Submit — 4th Retry Delay (ms)`.
 
-### 2. The five filing-capable settings refuse to save
+### 2. The five reserved settings refuse to save
 
 - Find **`NCMEC Submission Enabled`** (or any of: `NCMEC ISPWS
   Environment`, `NCMEC Report Classifier Hits`, `NCMEC Backlog Audit
@@ -46,8 +46,11 @@ filing, even though those settings already exist in the database.
   key controls NCMEC CyberTipline filing and cannot be written through the
   generic config route. Use the safety admin surface, which validates the
   resulting configuration before applying it."*
-- ✅ The value shown on the card does not change — your edit did not take
-  effect.
+- **Reload the page** (the card keeps showing whatever you typed until you
+  do — a failed save doesn't reset the field on its own, so this step is
+  the only way to actually confirm nothing was written).
+- ✅ After reloading, the value is back to what it was before your edit —
+  your attempt did not take effect.
 
 This is the actual point of this phase: right now there is no "safety
 admin surface" yet (that's a later phase), so these five settings are
@@ -55,6 +58,18 @@ admin surface" yet (that's a later phase), so these five settings are
 genuinely unreachable. That's intentional. It means nobody — including an
 admin using this exact page — can accidentally flip on real NCMEC filing
 before the surface built to do that safely actually exists.
+
+**Not all five matter equally today.** Only three of the five —
+`NCMEC Submission Enabled`, `NCMEC ISPWS Environment`, and `NCMEC Report
+Classifier Hits` — are actually read anywhere when deciding whether to file
+a report. The two backlog-audit keys (`Cutoff`, `Completed At`) are
+currently vestigial for that decision — a later, already-shipped phase
+dropped the backlog-audit check they were meant to gate, pending a cleanup
+migration that will eventually remove them. They're still real config rows
+today, and the generic route still refuses to write them (which is exactly
+what this step tests), but don't read "these five will all move to the
+safety admin surface" as a settled future plan — the two backlog keys'
+future is "removed," not "relocated."
 
 ### 3. Everything else about the config page still works normally
 
@@ -70,7 +85,7 @@ before the surface built to do that safely actually exists.
 | `/admin/config` loads | Loads normally, all existing keys still present |
 | Edit a normal (non-NCMEC) config key | Saves normally |
 | Edit `NCMEC Safety Alert Email` | Saves normally (not a reserved key) |
-| Edit `NCMEC Submission Enabled` | Fails with the inline red refusal message, value unchanged |
+| Edit `NCMEC Submission Enabled` | Fails with the inline red refusal message; value unchanged after a page reload |
 | Sign in, browse facts, make a meme | All unaffected — this PR touches only the admin config route and a new, uncalled backend client |
 
 ## Known non-bugs
