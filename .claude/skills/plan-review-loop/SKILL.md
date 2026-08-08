@@ -172,6 +172,17 @@ have a draft plan, and the disclosure check passes:
    status. After the go (or on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit `@codex review` comment.
+   **Revisions are class-level, per
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
+   each reply names the finding's class and cites the sweep oracle
+   (`grep`/`ls`/…) with its post-revision zero — a plan-file finding almost
+   always has siblings (a term used inconsistently, a section pattern
+   repeated) — and before each push I re-run every prior round's oracle so a
+   later revision can't reintroduce an earlier class. A finding with no
+   mechanical oracle, or a recurrence of a swept class, escalates per the
+   `model-routing` skill's structural triggers (on this loop's Opus tier the
+   escalation is usually moot, but the recurrence flag still goes in the
+   check-in).
    Codex is the independent technical reviewer. **Every substantive finding
    must be fixed, rebutted with repository evidence, or escalated to David —
    none may be silently ignored.** Codex does not settle architecture or
