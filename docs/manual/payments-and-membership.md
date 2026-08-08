@@ -58,10 +58,13 @@ as Legendary. From there:
 Occasionally the subscription panel shows an amber notice saying its own
 records "haven't caught up yet" after a change. That's not an error — the
 change went through at Stripe — it's the panel being honest that its own copy
-of the state hasn't refreshed yet. No action is needed — it clears on its own
-the moment a scheduled recheck observes Stripe's webhook for that change. If
-that webhook never arrives, the notice can persist — the same known gap
-described under *Boundaries & known limitations* below.
+of the state hasn't refreshed yet. No action is needed — a scheduled recheck
+clears it the moment it observes the local record has caught up, whichever
+of two things gets there first: the refresh that was already running when
+the notice appeared (it isn't cancelled, just abandoned by the request that
+was waiting on it) finishing on its own, or a fresh webhook for the same
+change arriving. If neither ever lands, the notice can persist — the same
+known gap described under *Boundaries & known limitations* below.
 
 ### For the admin
 
@@ -150,13 +153,17 @@ a comp from a real sale.
 
 ## Boundaries & known limitations
 
-- **The grace window's deadline can go unset, in one rare case.** If
-  the system can't pin down exactly when a subscription's failed-payment run
-  actually started — an incomplete Stripe invoice page, an ambiguous episode
-  boundary — it keeps access rather than guess at a deadline and risk cutting
-  off someone who's still paying, so the normally-bounded window is
-  unbounded until an authoritative refresh resolves it. The case is logged
-  for follow-up rather than silently accepted.
+- **The grace window's deadline can go unset, in one rare case — but only the
+  first time.** If the system can't pin down exactly when a subscription's
+  failed-payment run actually started — an incomplete Stripe invoice page, an
+  ambiguous episode boundary — and this is a fresh episode with no deadline
+  already on file, it keeps access rather than guess at a deadline and risk
+  cutting off someone who's still paying, so the window is unbounded until an
+  authoritative refresh resolves it. If a deadline was already set for this
+  episode, an unresolvable refresh instead leaves that deadline exactly as it
+  was — which demotes the user on schedule if it has already passed, same as
+  any other stored deadline. Either way, the case is logged for follow-up
+  rather than silently accepted.
 - **No repair for a webhook Stripe never successfully delivers, or for an
   event type membership doesn't model.** Every event type this system
   handles is applied correctly, including duplicates and events arriving out

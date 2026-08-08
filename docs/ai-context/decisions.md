@@ -535,7 +535,9 @@
   enforcement — **without** the Stripe↔local reconciliation job the original
   plan called for. The job existed, was built, and was pulled out.
 - **Why:** Four Codex review rounds on reconciliation did not converge
-  (15 → 13 → 7 → 15 findings), and round 4's surface was almost entirely the
+  (15 → 13 → 6 → 14 findings, per the loop ledger's script-derived recount —
+  the loop's own contemporaneous narration said 15 → 13 → 7 → 15, off by one
+  at rounds 3 and 4), and round 4's surface was almost entirely the
   reconciliation subsystem plus regressions in the previous round's fixes *to
   that subsystem* — not the settled core, which had stopped generating
   defects. Narrowing scope shipped the part that was actually done instead of

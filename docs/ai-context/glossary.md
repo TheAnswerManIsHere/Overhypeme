@@ -207,9 +207,13 @@
 - **Grace episode** — the 14-day window a `past_due` subscription keeps
   qualifying for, counted from the first failed charge on the earliest
   still-unpaid invoice of the contiguous unpaid run. Not "however long Stripe
-  keeps retrying" — a bounded, computed deadline once the anchor is known; if
-  it can't be resolved yet (incomplete pagination, an ambiguous episode
-  boundary), the source keeps qualifying without a deadline until it can be.
+  keeps retrying" — a bounded, computed deadline once the anchor is known. If
+  it can't be resolved yet **and no deadline is already stored** (incomplete
+  pagination, an ambiguous episode boundary on a fresh episode), the source
+  keeps qualifying without a deadline until it can be resolved. If a deadline
+  *is* already stored, an unresolvable refresh instead retries as a no-op and
+  leaves that stored deadline in force — including past its expiry, which
+  disqualifies the source rather than failing open.
   → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a

@@ -189,11 +189,17 @@ keeps retrying." (See the fail-open exception below for the case where the
 anchor isn't known yet.) Precedence between
 a freshly-resolved anchor and a previously-stored one: the resolved value wins
 only if it is strictly newer, so a duplicate or out-of-order webhook can never
-walk the deadline backward on top of a more-authoritative apply. When the first
-failed attempt can't be resolved (an incomplete invoice page, an ambiguous
-episode boundary), the source **keeps qualifying** and the case is reported
-rather than guessed — a guessed start date can only ever be too early, and too
-early means cutting off someone who is still paying.
+walk the deadline backward on top of a more-authoritative apply. The fail-open
+exception is narrower than "any unresolvable anchor": when the first failed
+attempt can't be resolved (an incomplete invoice page, an ambiguous episode
+boundary) **and no grace deadline is already stored for this source**, the
+source **keeps qualifying** and the case is reported rather than guessed — a
+guessed start date can only ever be too early, and too early means cutting
+off someone who is still paying. If a deadline **is** already stored, the
+refresh instead retries as a no-op and leaves that stored deadline in force
+unchanged — including if it has already passed, in which case the source
+reads as expired (disqualified) rather than fail-open, since the ambiguity
+here is whether a new episode has started, not whether the old one is real.
 
 ## Refunds and disputes
 
@@ -247,13 +253,17 @@ that touches a user's tier (`recomputeMembership`, and the reinstatement
 fail-closed override) checks this explicitly before writing.
 
 **Deactivating an account is not the same as it having no entitlements.**
-Soft-deletion (`is_active = false`) cancels the user's active Stripe
-subscriptions at Stripe and locally, so those sources stop qualifying — but it
-does not touch `stripe_lifetime_payment` or `admin_grant` sources, and it
-doesn't set the stored tier to `unregistered`. A lifetime purchase or an admin
-grant survives deactivation untouched, which is exactly why reinstatement
-re-verifies the retained sources rather than assuming there's nothing left to
-check.
+Soft-deletion (`is_active = false`) makes a best-effort attempt to cancel the
+user's Stripe subscriptions at Stripe and locally — it queries only
+`active`/`trialing` rows, so a grace-bound `past_due` subscription is left
+untouched at both Stripe and locally, and a Stripe API failure on an
+`active`/`trialing` row is logged and swallowed rather than blocking
+deactivation. It does not touch `stripe_lifetime_payment` or `admin_grant`
+sources, and it doesn't set the stored tier to `unregistered`. So a lifetime
+purchase, an admin grant, or a subscription the cancellation attempt missed
+or failed on can all survive deactivation still qualifying, which is exactly
+why reinstatement re-verifies the retained sources rather than assuming
+there's nothing left to check.
 
 ## The admin surfaces are entitlements, not fake payments or a tier field
 

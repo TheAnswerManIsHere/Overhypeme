@@ -49,8 +49,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted)
   and [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
   **The build ran 11 further code-review rounds after the plan converged**
-  (101 findings total across both loops, every one fixed or explicitly
-  recorded as a gap — none silently dropped); David stopped the loop after
+  (101 findings in that implementation loop alone — on top of the 166 the
+  plan-review loop itself had already produced — every one fixed or
+  explicitly recorded as a gap, none silently dropped); David stopped the loop after
   round 11 rather than chasing full convergence, a deliberate call recorded
   on the PR rather than an oversight. One gap surfaced in that final round —
   entitlement sources don't record which Stripe account (live vs. test) they
