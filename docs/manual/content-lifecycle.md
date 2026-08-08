@@ -12,7 +12,7 @@
 ## What it does
 
 A fact can enter Overhype.me exactly three ways — a signed-in user submits
-one, an admin or an external system imports a batch, or someone creates a
+one, an admin or an external system imports a batch, or an admin creates a
 variant of a fact that's already live — and all three land in the same
 place: a pending review, not the live catalogue. There is no fourth path and
 no shortcut in the product itself: nothing in the running application can
@@ -46,16 +46,18 @@ the server with no duplicate flag attached at all, even against a real
 match.
 
 Moving from Write to Preview is a different kind of step — a **required,
-blocking** one. Clicking Continue sends the draft through a grammar pass that
+blocking** one. Clicking Preview sends the draft through a grammar pass that
 resolves the fact's `{NAME}` and pronoun placeholders into a preview across
 example names and pronoun sets, so the submitter can catch an awkward
 conjugation before sending it in. A failed pass leaves the submitter on
 Write with an error rather than letting them continue; only a successful one
 reaches Preview.
 
-Reaching Preview also fetches AI-suggested hashtags to pre-fill the
-(editable) hashtags field — a non-blocking suggestion the submitter can keep,
-edit, or clear.
+That normal path to Preview also fetches AI-suggested hashtags to pre-fill
+the (editable) hashtags field — a non-blocking suggestion the submitter can
+keep, edit, or clear. (A submitter picking up an autosaved draft skips
+straight to Preview with their saved template and doesn't trigger a fresh
+suggestion fetch.)
 
 Submitting requires being signed in. A onetime step also applies before a
 first fact can be submitted: anyone who isn't an admin or an existing
@@ -203,8 +205,7 @@ for the funnel itself.
   by coincidence — not one waiting for the other to finish — can each pass
   the check before either has inserted, and both queue.
 - **A submitter's own pending facts are protected from flooding the review
-  queue** — see `FACT_SUBMIT_PENDING_CAP` in
-  `artifacts/api-server/src/lib/rateLimit.ts` for how.
+  queue** — see `artifacts/api-server/src/lib/rateLimit.ts` for how.
 
 ## Going deeper
 
