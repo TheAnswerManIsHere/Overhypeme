@@ -54,9 +54,15 @@
   `DATABASE_URL` a doc tries to export with
   `TEST_DATABASE_URL` when it's set — see
   [`test-db-isolation.md`](../../.agents/memory/test-db-isolation.md)).
-  Every finding across all five rounds was individually correct; the loop
-  itself was the misallocation, since the worst case of shipping any of it
-  wrong was one confused Replit run, immediately self-catching. Separately,
+  Every finding across all five rounds was individually correct — the doc
+  as drafted genuinely risked live-cluster damage, not just a confused run,
+  which is exactly what a criticality-1 rating requires ruling out (rule 1
+  above). The loop's mistake was trying to make that inherently risky
+  section safe through four rounds of iteration instead of removing it: the
+  suites it told Replit to re-run had already passed in CI on the same
+  code, so the section bought no verification for the risk it carried.
+  Cutting it (not fixing it a fifth time) is what actually made the
+  shipped doc criticality 1. Separately,
   a check-in in that same loop reported a finding to David as *"bash expands
   `$DATABASE_URL` using the already-exported value before applying the
   command-local assignment"* — technically accurate and meaningless to a
