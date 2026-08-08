@@ -405,26 +405,37 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## In-progress slices
 
-- **NCMEC CyberTipline reporting** (PR #293, merged 2026-08-07) — real
-  automated submission to NCMEC for reportable moderation hits, replacing
-  today's stub (`submitNcmecReport()` writes a DB row + admin email; it has
-  never contacted NCMEC). **Phases 1–2 of 8 shipped**: the schema/migration
-  and the ISPWS HTTP client + XML builders. Neither phase can file a report
-  yet — both filing switches are seeded off — but only phase 2 (the client
-  and builders) is callerless; phase 1 is already live in existing paths
-  (`submitNcmecReport()` writes `ncmec_reports`, `quarantineImage()` invokes
-  that stub, and migration `0097`'s `ncmec_reports_link_quarantine_trg`
-  runs against those inserts today — the append-only triggers on
-  `ncmec_safety_audit_log` are separate infrastructure for later phases;
-  the stub never writes to that table. The reserved-config guard is a
-  separate protection: it runs in `PATCH /admin/config/:key`, not on
-  report inserts, rejecting writes to the five filing-capable NCMEC keys
-  regardless of whether a report was ever filed). Phases 3–8
-  (the submission worker, the reconciler, admin routes, the `/admin/safety`
-  page, alerting, and the production-activation gate) remain. See
-  [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
-  and the 2026-08-07 `decisions.md` entry for what changed mid-PR (the
-  audit-ledger privilege-boundary scope cut).
+- **NCMEC CyberTipline reporting** (PR #293, merged 2026-08-07; PR #349,
+  merged 2026-08-08) — real automated submission to NCMEC for reportable
+  moderation hits, replacing today's stub (`submitNcmecReport()` writes a DB
+  row + admin email; it has never contacted NCMEC). **Phases 1–3 of 8
+  shipped**: the schema/migration, the ISPWS HTTP client + XML builders, and
+  `isSubmittable`/`classifyWaitingState` — the single eligibility predicate
+  and the one ordered waiting-state classifier both the future worker and the
+  `/admin/safety` counts will share. None of the three shipped phases can
+  file a report yet — both filing switches are seeded off — and phase 3 has
+  **zero callers**, same as phase 2's client. Phase 1 is already live in
+  existing paths (`submitNcmecReport()` writes `ncmec_reports`,
+  `quarantineImage()` invokes that stub, and migration `0097`'s
+  `ncmec_reports_link_quarantine_trg` runs against those inserts today — the
+  append-only triggers on `ncmec_safety_audit_log` are separate
+  infrastructure for later phases; the stub never writes to that table. The
+  reserved-config guard is a separate protection: it runs in
+  `PATCH /admin/config/:key`, not on report inserts, rejecting writes to the
+  five filing-capable NCMEC keys regardless of whether a report was ever
+  filed).
+  **The plan's backlog-audit ceremony was dropped in phase 3**, not deferred:
+  the platform has never gone live, so every existing row is a test artifact
+  and there's no backlog to review — the activation runbook (not yet
+  written) deletes pre-activation rows instead of auditing them. Phase 3
+  therefore ships seven waiting states, not the plan's eight; see the
+  2026-08-08 `decisions.md` entry. Phases 4–8 (provenance capture in
+  `quarantine.ts`, the submission worker + reconciler, admin routes, the
+  `/admin/safety` page, alerting, and the production-activation gate) remain.
+  See [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces),
+  the 2026-08-07 `decisions.md` entry for what changed mid-PR #293 (the
+  audit-ledger privilege-boundary scope cut), and the 2026-08-08 entry for
+  the backlog-audit drop.
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
 - **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
