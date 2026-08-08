@@ -218,7 +218,7 @@ const inventoryEntry = (number, extra = {}) => ({
   ...extra,
 });
 
-// Comfortably past the 14-day settling window from the fixture's closed_at
+// Comfortably past the 1-hour settling window from the fixture's closed_at
 // above, so these tests exercise the missing/present logic on its own,
 // independent of the settling-window tests below.
 const SETTLED_NOW = new Date("2026-08-25T00:00:00Z");
@@ -258,13 +258,13 @@ test("a loop that has a record is not reported missing", () => {
 
 // ── The settling window: a loop isn't owed a record the moment it closes ──
 
-test("a loop closed less than 14 days ago is not yet reported missing", () => {
-  const now = new Date("2026-08-15T00:00:00Z"); // 9 days after the fixture's closed_at
+test("a loop closed less than an hour ago is not yet reported missing", () => {
+  const now = new Date("2026-08-06T00:40:00Z"); // 40 minutes after the fixture's closed_at
   assert.deepEqual(missingRecords([inventoryEntry(400)], [], now), []);
 });
 
-test("a loop closed exactly 14 days ago is reported missing", () => {
-  const now = new Date("2026-08-20T00:00:00Z"); // exactly 14 days after closed_at
+test("a loop closed exactly an hour ago is reported missing", () => {
+  const now = new Date("2026-08-06T01:00:00Z"); // exactly 1 hour after closed_at
   const missing = missingRecords([inventoryEntry(400)], [], now);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].number, 400);

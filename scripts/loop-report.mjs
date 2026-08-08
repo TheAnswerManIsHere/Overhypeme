@@ -161,15 +161,16 @@ export function costTotals(records) {
 
 /**
  * A closed PR is not owed a record until it has been closed for a full
- * digest window (14 days) — working-modes.md's terminal-point rule. Without
- * this floor, every PR closed in the last two weeks reports as an actionable
- * data gap on a normal weekly run, which trains the reader to skip the
- * section. The inventory (a plain PR listing) doesn't carry reviewer-event
+ * settling window — working-modes.md's terminal-point rule (David,
+ * 2026-08-08: shortened from 14 days to 1 hour, since Codex's review
+ * completes almost immediately in this repo). Without this floor, a PR
+ * closed seconds ago would report as an actionable data gap on every run.
+ * The inventory (a plain PR listing) doesn't carry reviewer-event
  * timestamps, so this checks closure age only — the coarser half of the
  * terminal-point rule, not the full "no reviewer pass" refinement `--write`
  * enforces with the richer per-PR data it has access to.
  */
-const SETTLING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const SETTLING_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Closed loops with no record, from a paginated inventory.

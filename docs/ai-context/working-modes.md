@@ -537,11 +537,13 @@ would be trusted.
 
 **Record at the loop's terminal point, not at PR close.** A loop is ready to
 record when its PR is closed or merged **and** no reviewer pass has landed
-for a full digest window (14 days). Reviews land after merge — frozen-ledger
-rows #323 and #324 are observed cases — so recording at closure would persist
-zero rounds and zero findings and look healthy doing it. If a late review
-arrives after a record exists, re-derive and edit the record; that is an
-ordinary commit.
+for a full settling window — **1 hour** (David, 2026-08-08, shortened from
+14 days: Codex's review completes almost immediately in this repo, so a
+multi-day wait bought no real safety margin). Reviews land after merge —
+frozen-ledger rows #323 and #324 are observed cases — so recording at
+closure would persist zero rounds and zero findings and look healthy doing
+it. If a late review arrives after a record exists, re-derive and edit the
+record; that is an ordinary commit.
 
 **Commit the record on any open PR except the one being measured.** Adding a
 metrics file to the PR it describes changes that PR's diff, which can trigger

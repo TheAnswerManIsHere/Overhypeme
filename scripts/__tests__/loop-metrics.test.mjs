@@ -20,7 +20,7 @@ import {
   recordPath,
   MECHANICAL_KEYS,
   settledAt,
-  daysUntilTerminal,
+  minutesUntilTerminal,
 } from "../loop-metrics.mjs";
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
@@ -1288,7 +1288,7 @@ test("cohort: a PR touching only metrics paths has no code side and lands in pro
 });
 
 // ---------------------------------------------------------------------------
-// settledAt / daysUntilTerminal — the --write terminal-point gate
+// settledAt / minutesUntilTerminal — the --write terminal-point gate
 // ---------------------------------------------------------------------------
 
 test("settledAt is null for a loop with no closedAt", () => {
@@ -1318,33 +1318,33 @@ test("settledAt ignores a reviewer event that precedes closure", () => {
   assert.equal(settledAt(d).toISOString(), "2026-08-10T00:00:00.000Z");
 });
 
-test("daysUntilTerminal is Infinity for a loop that hasn't closed", () => {
-  assert.equal(daysUntilTerminal(derivedFixture({ closedAt: null })), Infinity);
+test("minutesUntilTerminal is Infinity for a loop that hasn't closed", () => {
+  assert.equal(minutesUntilTerminal(derivedFixture({ closedAt: null })), Infinity);
 });
 
-test("daysUntilTerminal is positive inside the 14-day window", () => {
+test("minutesUntilTerminal is positive inside the 1-hour window", () => {
   const d = derivedFixture({ closedAt: "2026-08-02T10:00:00Z", review_interval: null });
-  const now = new Date("2026-08-10T10:00:00Z"); // 8 days later
-  assert.equal(daysUntilTerminal(d, now), 6);
+  const now = new Date("2026-08-02T10:20:00Z"); // 20 minutes later
+  assert.equal(minutesUntilTerminal(d, now), 40);
 });
 
-test("daysUntilTerminal is 0 exactly at the 14-day boundary", () => {
+test("minutesUntilTerminal is 0 exactly at the 1-hour boundary", () => {
   const d = derivedFixture({ closedAt: "2026-08-02T10:00:00Z", review_interval: null });
-  const now = new Date("2026-08-16T10:00:00Z"); // exactly 14 days later
-  assert.equal(daysUntilTerminal(d, now), 0);
+  const now = new Date("2026-08-02T11:00:00Z"); // exactly 1 hour later
+  assert.equal(minutesUntilTerminal(d, now), 0);
 });
 
-test("daysUntilTerminal is 0 (never negative) well past the window", () => {
+test("minutesUntilTerminal is 0 (never negative) well past the window", () => {
   const d = derivedFixture({ closedAt: "2026-08-02T10:00:00Z", review_interval: null });
-  const now = new Date("2026-09-02T10:00:00Z");
-  assert.equal(daysUntilTerminal(d, now), 0);
+  const now = new Date("2026-08-03T10:00:00Z");
+  assert.equal(minutesUntilTerminal(d, now), 0);
 });
 
-test("daysUntilTerminal counts from the last reviewer event, not closure, when a late review lands", () => {
+test("minutesUntilTerminal counts from the last reviewer event, not closure, when a late review lands", () => {
   const d = derivedFixture({
     closedAt: "2026-08-02T10:00:00Z",
-    review_interval: { last_review_at: "2026-08-09T10:00:00Z" }, // 7 days after close
+    review_interval: { last_review_at: "2026-08-02T10:45:00Z" }, // 45 minutes after close
   });
-  const now = new Date("2026-08-16T10:00:00Z"); // 14 days after close, only 7 after the late review
-  assert.equal(daysUntilTerminal(d, now), 7);
+  const now = new Date("2026-08-02T11:00:00Z"); // 1 hour after close, only 15 min after the late review
+  assert.equal(minutesUntilTerminal(d, now), 45);
 });
