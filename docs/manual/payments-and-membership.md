@@ -13,7 +13,7 @@
 
 Overhype.me has two tiers: **Registered** (free — anyone with an account) and
 **Legendary** (paid — unlocks private memes, AI identity memes, AI video
-generation, higher rate limits, and higher daily generation budgets).
+generation, higher rate limits, and a higher generation spend budget).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
 for Life" purchase, and an admin can comp it to someone directly.
 
@@ -201,17 +201,20 @@ a comp from a real sale.
   accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
 - **The stored tier column itself can lag reality between background sweeps
-  — a failed or delayed sweep run stretches that lag further — but nowhere a
-  person actually looks shows that lag.** (See the deep spec for the sweep's
-  cadence and failure handling.) Access is never affected: a lapsed grace
-  window demotes a user's access immediately, on every request, because the
-  deadline check happens live regardless of what the stored column says.
-  Admin → Users and every other tier display compute the same live answer,
-  so what an admin actually sees is always current. The lag is purely
-  internal — the raw stored value sits stale until the next background sweep
-  catches it up — and the only place it's ever surfaced is the sweep's own
-  status strip on Admin → Refunds & Disputes, which exists specifically to
-  report that internal drift.
+  — a failed or delayed sweep run stretches that lag further — and it can
+  surface on the admin screen, though never in a way that affects access.**
+  (See the deep spec for the sweep's cadence and failure handling.) Access is
+  never affected: a lapsed grace window demotes a user's access immediately,
+  on every request, because the deadline check happens live regardless of
+  what the stored column says. Admin → Users' own list load computes the
+  same live answer, so what an admin sees there is current at load time —
+  but saving an unrelated field on that user (editing a display name, say)
+  returns the raw stored row in its response, and the screen replaces the
+  list entry with it verbatim; if the sweep hasn't yet caught up, that
+  overwrites a correctly-demoted display with the stale stored tier until
+  the next full refetch. The sweep's own status strip on Admin → Refunds &
+  Disputes exists specifically to report the underlying internal drift, not
+  this display-level side effect of it.
 - **A test-mode purchase can keep granting access after switching Stripe to
   live mode.** Entitlement sources don't currently record which Stripe
   account created them, so nothing notices a source belongs to the wrong one.

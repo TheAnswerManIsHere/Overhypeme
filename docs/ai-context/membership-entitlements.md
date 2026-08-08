@@ -83,8 +83,10 @@ holding both a lifetime purchase and a subscription stays Legendary if either
 one alone would grant it; refunding the subscription alone does nothing.
 
 `membership_valid_until` is the horizon over the **whole qualifying set**: null
-if any qualifying source is indefinite (lifetime, admin grant, active
-subscription), otherwise the max of the grace-bound sources' deadlines. This is
+if any qualifying source is indefinite — lifetime, admin grant, an active or
+trialing subscription, or a `past_due` subscription whose grace anchor is
+still unresolved (the fail-open case above) — otherwise the max of the
+grace-bound sources' deadlines. This is
 why a lifetime purchase alongside a `past_due` subscription keeps the user
 Legendary past the subscription's own deadline — the union's horizon is
 whichever source lasts longest, not whichever the code happened to check first.
