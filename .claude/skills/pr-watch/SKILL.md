@@ -70,7 +70,9 @@ the diff *is* the plan. While watching an implementation PR:
   critical to the delivery, the causal flag (new ground vs. repairing an
   earlier round's fix vs. impossible-as-specified), and a continue/stop
   recommendation — delivered as a 🛑 NEED YOU banner, then I wait for his go
-  before pushing fixes. **Skip-on-clean:** a round with zero findings or only
+  before pushing fixes. **Every finding in the check-in is written in product
+  English** per the contract's 2026-08-08 addition — David's four-question
+  template, outcomes never mechanics; the mechanics stay in the PR thread. **Skip-on-clean:** a round with zero findings or only
   the unambiguous mechanical nits below doesn't pause — fix silently, one
   status line. **Model mechanics:** the check-in is written on the session's
   current tier (usually Sonnet); when the triage judgment itself is ambiguous
@@ -95,6 +97,20 @@ the diff *is* the plan. While watching an implementation PR:
   what I did. I do **NOT** post a single new top-level PR comment summarizing
   several fixes — David tracks "is every issue addressed?" by seeing a reply on
   each thread, and a catch-all comment defeats that.
+- **The criticality gate fires before every re-request (David, 2026-08-08).**
+  Before posting any `@codex review`, I rate the artifact 1–100 on "what
+  breaks in production if this ships wrong" and say the number in the
+  check-in. Single-digit artifacts **never get a re-request** — transient
+  docs (TEST_RUN checklists) get Codex's automatic first pass, one triage,
+  and the loop is over, regardless of finding badges. This gate exists
+  because PR #356 ran five rounds and 36 findings on a delete-after-one-use
+  checklist; the re-request bullet below applies only to artifacts that pass
+  this gate. On any **docs-only PR** that does warrant a review request, the
+  request itself states the light bar
+  ([`code-review.md`](../../../docs/engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08):
+  generally correct, glaring issues only, no grammar/count nits), and
+  pedantic findings that arrive anyway are declined against that rule in one
+  pass.
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
