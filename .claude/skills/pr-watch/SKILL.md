@@ -102,7 +102,10 @@ the diff *is* the plan. While watching an implementation PR:
   breaks in production if this ships wrong" and say the number in the
   check-in. Single-digit artifacts **never get a re-request** — transient
   docs (TEST_RUN checklists) get Codex's automatic first pass, one triage,
-  and the loop is over, regardless of finding badges. This gate exists
+  and the loop is over, regardless of finding badges. The cap is on rounds,
+  never on fixes: that one triage still fixes anything safety-relevant
+  (an instruction that could touch live state breaks the TEST_RUN
+  read-only contract and is a glaring issue). This gate exists
   because PR #356 ran five rounds and 36 findings on a delete-after-one-use
   checklist; the re-request bullet below applies only to artifacts that pass
   this gate. On any **docs-only PR** that does warrant a review request, the

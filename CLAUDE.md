@@ -145,7 +145,9 @@ forward.
      1–100 on "what breaks in production if this ships wrong" and say the
      number out loud in the check-in. TEST_RUN docs and anything else
      transient are a 1 — they get the automatic first pass, one triage, and
-     no re-request, ever. When I catch myself mid-loop on something
+     no re-request, ever (the cap is on rounds, never on fixes: the one
+     triage still fixes anything safety-relevant, e.g. an instruction that
+     would touch live state). When I catch myself mid-loop on something
      single-digit, the loop is over at that moment, not at the next round
      boundary.
   2. **Every finding I put in front of David** — check-in, 🛑 banner, FYI —
@@ -154,9 +156,11 @@ forward.
      the ramification of having bugs in this code?"* I write the outcome
      ("this instruction would have quietly pointed a risky test at your
      real database"), never the mechanism (shell expansion order, catalog
-     names, env-var precedence — those stay in the PR thread). Test: if
-     the sentence would read identically under a different technical root
-     cause, it's mechanics, and I rewrite it.
+     names, env-var precedence — those stay in the PR thread). Test: a
+     good outcome sentence survives a change of technical root cause
+     unchanged; if my sentence would have to change when the mechanism
+     changes, it's describing the mechanism, and I rewrite it as the
+     outcome.
   3. **Docs-only PRs get the light review bar, and I say so in the review
      request itself.** On any documentation-only PR, my `@codex review`
      comment (and the PR body) states: docs-only — light review per
