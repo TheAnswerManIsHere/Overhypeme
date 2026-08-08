@@ -5,8 +5,10 @@
 > established *what had not been looked at*; this document records *what was
 > found when it was*. Written 2026-07-28 against `main` at `3a7d0c0`.
 >
-> **This is a findings list, not a fix plan.** Nothing here has been fixed.
-> David decides which findings are worth fixing; the fix plan comes after.
+> **This is a findings list, not a fix plan.** At publication (2026-07-28),
+> nothing here had been fixed — David decides which findings are worth
+> fixing, and the fix plan comes after. **That plan has since shipped; see
+> the 2026-08-03 update below for current status.**
 >
 > **Update 2026-07-28: the private annex has been folded in.** Three findings
 > were originally withheld from this public repository. Overhype is pre-launch

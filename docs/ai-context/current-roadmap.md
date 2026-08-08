@@ -37,8 +37,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   [Payments & Membership](../manual/payments-and-membership.md) chapter for
   the product-facing behavior. Comping a membership now writes an
   `admin_grant` entitlement — actor, reason, timestamp, revocation — never a
-  fake payment and never a tier field; the admin membership-tier dropdown is
-  gone, not merely hidden. **Scope was narrowed mid-build** (David,
+  fake payment and never a tier field; direct tier editing on an existing
+  user's Admin → Users screen is gone, not merely hidden (the Add User
+  modal's starting-tier picker is a separate surface that still routes
+  through the same `admin_grant` write, not a direct field set). **Scope was
+  narrowed mid-build** (David,
   2026-07-30): reconciliation — the job that would repair a webhook Stripe
   never successfully delivers — did not converge after four review rounds and
   was pulled into its own deferred item rather than block the settled core.
