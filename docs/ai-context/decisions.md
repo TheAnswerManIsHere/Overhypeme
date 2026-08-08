@@ -36,12 +36,12 @@
   class of surface (audit endpoints, release stamps, a waiting-state branch)
   that would otherwise need building, testing, and reviewing for a case that
   can't occur.
-- **Reference:** PR #349 (phase 3 of 8; the drop lands in its second commit,
-  `5ef0835`), superseding the plan sections listed above
-  (`plan-review/ncmec-cybertipline-submission`, approved 2026-07-30). The
-  code carries the same record: `ncmecWorker.ts`'s module header and
-  `isIdentityUnresolved`'s docstring both state "do not reintroduce the
-  branch — a row predating activation is deleted, not classified."
+- **Reference:** PR #349 (phase 3 of 8, squash-merged as `b720d6f`; the drop
+  landed in that PR's second commit, pre-squash), superseding sections of the
+  plan approved via plan-review PR #280 on 2026-07-30. The code carries the
+  same record: `ncmecWorker.ts`'s module header and `isIdentityUnresolved`'s
+  docstring both state "do not reintroduce the branch — a row predating
+  activation is deleted, not classified."
 - **Revisit if:** the product goes live before NCMEC phases 4–8 ship and real
   quarantine rows start accumulating before the activation runbook's
   pre-activation deletion step exists to clear them. At that point some rows
