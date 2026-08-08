@@ -640,9 +640,10 @@ gets invoked at all, and one because it changes when David hears from me:
   [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
   check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
   skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
-  Opus subagent when the triage itself is ambiguous; the approved
-  `/advisor opus` trial) in the `model-routing` skill — David never switches
-  models mid-loop for this.
+  Opus subagent fired on the structural triggers — any decline, any
+  unmechanizable finding, any recurrence of a swept class, per 2026-08-08)
+  in the `model-routing` skill — David never switches models mid-loop for
+  this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
   "Addressed" means I've either pushed a fix and replied with the commit, or
@@ -796,7 +797,7 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. The post-round check-in is written on Sonnet too; an ambiguous triage call goes to a one-shot announced Opus subagent, not a session switch (see `model-routing`). |
+    | Triaging Codex review comments | **Sonnet**, with structural Opus-subagent triggers | Most comments are mechanical fixes, and the class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical rather than tier-dependent. The Opus subagent fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class (see `model-routing`). |
 
   - **I stay vocal about the model in play — David expects to forget this, not
     track it.** Whenever it's relevant, I state which tier is active and flag

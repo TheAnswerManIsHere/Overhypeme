@@ -102,15 +102,42 @@ Two facts that decide how we use it today:
   move, replacing the manual switch-to-Opus-and-back-per-round idea, which
   would have cost David two model-picker trips every round.
 
-### Post-round check-in triage: the Opus subagent escalation (David, 2026-08-07)
+### Review-loop triage: the structural Opus subagent triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger)
 
-The same revision approved a second, agent-controlled escalation: when the
-check-in's triage judgment is itself ambiguous — propagation vs. new ground,
-impossible-as-specified vs. merely hard — I dispatch a **one-shot Opus
-subagent** for that call, with no session switch and no action from David.
-Same announce-don't-sneak rule as the Fable dispatch above: a subagent
-spending above the session's rate gets said out loud in the same breath as
-dispatching it. This is a sanctioned judgment escalation, not a
-verify-my-own-work subagent (which stays barred by CLAUDE.md's delegation
-caps).
+The 2026-08-07 revision sanctioned a one-shot **Opus subagent** for triage
+calls the driving agent judged ambiguous. The weak link was the judging:
+the cheap tier had to notice its own depth was insufficient, which is
+exactly the assessment a cheap tier is worst at. With the class-and-sweep
+protocol in place (`working-modes.md`'s *"A finding names an instance; the
+fix owes the class"*), the discretionary trigger is **superseded by three
+structural ones** — each a fact about the situation, not a self-assessment:
+
+1. **Any decline.** Before a decline posts, the Opus subagent gets the
+   finding plus my refutation and argues the finding's side; the decline
+   posts only if it survives. Rationale: a wrong fix or a wrong escalation
+   self-corrects downstream (Codex re-reviews, David tests the product); a
+   wrong decline resolves the thread and nothing catches it.
+2. **Any finding with no mechanical oracle.** If the sweep protocol's
+   "write a grep/ls one-liner for the class" step comes up empty, the
+   finding is pure judgment by construction, and its triage verdict comes
+   from the Opus subagent.
+3. **Any recurrence of a swept class.** A later round re-finding a class
+   that was already swept means the class was misnamed at the cheaper
+   tier — the re-naming goes to the Opus subagent, and the recurrence is
+   flagged in that round's check-in.
+
+Unchanged from 2026-08-07: one-shot, no session switch, no action from
+David, and the announce-don't-sneak rule — a subagent spending above the
+session's rate gets said out loud in the same breath as dispatching it.
+This is a sanctioned judgment escalation, not a verify-my-own-work
+subagent (which stays barred by CLAUDE.md's delegation caps). On loops
+already running at Opus (sensitive-path PRs, all plan reviews), triggers
+1–2 are moot; trigger 3's check-in flag still applies.
+
+**The `/advisor opus` review-loop trial is deprioritized by the same
+change (2026-08-08):** the structural triggers cover its review-loop use
+case with tighter scoping and zero cost on routine rounds, where the
+advisor charges Opus tokens across the whole session. The advisor remains
+the sanctioned automation for the tier table's *Debugging new features*
+thrash-escalation row; it just isn't the review-loop mechanism anymore.
 

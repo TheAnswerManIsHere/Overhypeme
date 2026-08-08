@@ -128,6 +128,56 @@ Response 2 is legitimate and under-used. Specifying compare-and-swap semantics
 for a GitHub label write, in a solo-operator repo, because a reviewer correctly
 noted a race, is response 1 applied where response 2 was right.
 
+### A finding names an instance; the fix owes the class (David, 2026-08-08)
+
+Reviewers cite specific lines. Treating the cited lines as the scope of the
+fix is how loops grind: the artifact contains sibling instances the reviewer
+didn't enumerate, the next round finds them, and the loop burns a round per
+sibling. The origin case is PR #366: round 1 flagged "render credits
+described as deployed behavior" at the cited spots; the fix addressed
+exactly those spots; round 2 was three more `credit` references that a
+single `grep -n credit` would have caught in round 1 — plus a referenced
+doc path that didn't exist, which `ls` would have caught the same way. The
+same day produced a third instance of the shape (a CLAUDE.md rule naming
+one model tier where the real gate was "any non-default tier" — swept with
+a grep only after David caught it). Three in one day, same failure: the
+intelligence to fix each instance was present; the forced step from *this
+instance* to *every instance of this type* was not.
+
+So: **a finding is fixed when its class is empty, not when its cited
+instances are.** For every finding, whichever agent is driving the fixes:
+
+1. **Name the class** — restate the finding as a pattern ("the doc asserts
+   credits exist as deployed behavior — anywhere"), not a location. The
+   class statement goes in the thread reply, where a mis-diagnosis is
+   visible and contestable instead of implicit.
+2. **Write a mechanical oracle for the class** — the `grep`/`ls`/`find`/
+   one-liner that detects *every* instance, not just the cited ones. If the
+   finding genuinely cannot be mechanized (a pure design/semantics finding),
+   the reply says so — that inability is itself a signal, and it routes the
+   finding to the driving agent's judgment-escalation triggers.
+3. **Sweep the full scope before fixing, fix every hit, re-run the oracle
+   to zero.** Scope defaults to the whole artifact/diff and widens to the
+   repo when the class plausibly lives outside it. The reply cites the
+   oracle and its post-fix result — a skipped sweep is then visible as a
+   missing line in a public reply.
+4. **Before each round's push, re-run every prior round's oracle.** A
+   round-3 edit must not silently reintroduce a round-1 class; this re-run
+   is what makes "re-fixing the same thing round after round" structurally
+   impossible rather than merely discouraged.
+5. **A recurrence of a swept class in a later round is a process failure by
+   definition** — the class was misnamed or the sweep skipped. It is the
+   "repairing an earlier round's fix" causal flag made mechanically
+   detectable: it gets flagged as such in that round's check-in, and the
+   re-naming of the class escalates to a stronger model rather than being
+   retried at the tier that misnamed it.
+
+When instance = class — a genuinely one-off defect with no plausible
+siblings — saying so in the reply *is* the sweep. The obligation is making
+the generalization step explicit every time, not grepping ritualistically.
+A class that outlives its PR (a repo-wide, durable pattern) is a CI-guard
+candidate at loop close, per the standing recurring-failure-patterns rule.
+
 ### The post-round check-in (David, 2026-08-07)
 
 The stopping rule and the triage above were self-policed — the agent driving

@@ -75,15 +75,44 @@ the diff *is* the plan. While watching an implementation PR:
   template, outcomes never mechanics; the mechanics stay in the PR thread. **Skip-on-clean:** a round with zero findings or only
   the unambiguous mechanical nits below doesn't pause — fix silently, one
   status line. **Model mechanics:** the check-in is written on the session's
-  current tier (usually Sonnet); when the triage judgment itself is ambiguous
-  — propagation vs. new ground, impossible vs. merely hard — I dispatch a
-  one-shot **Opus subagent** for that call, announced when I do it, so David
-  never switches models mid-loop. Sonnet main + `/advisor opus` is the
-  approved automated alternative (see the `model-routing` skill).
+  current tier (usually Sonnet); Opus-subagent escalation is **structural,
+  not self-assessed** — the three triggers in the sweep-protocol bullet
+  below (any decline, any unmechanizable finding, any recurrence of a swept
+  class), which superseded the 2026-08-07 ambiguous-triage judgment call
+  and the `/advisor opus` review-loop trial (see the `model-routing`
+  skill).
+- **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
+  shared contract is
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
+  *"A finding names an instance; the fix owes the class."* My enactment,
+  per finding: the thread reply names the class, cites the mechanical
+  oracle (`grep`/`ls`/`find`/one-liner) and its post-fix zero-hits result;
+  when instance = class, the reply says so and that claim is the sweep.
+  **Before every push of a fix round, I re-run all prior rounds' oracles**
+  so a later fix can't reintroduce an earlier class. And the **judgment
+  escalation is structural, not self-assessed** — three triggers, each a
+  fact about the situation rather than my own sense of ambiguity (they
+  supersede the older "when the triage feels ambiguous" call; full
+  mechanics in the `model-routing` skill):
+  1. **Any decline**: before posting it, a one-shot announced **Opus
+     subagent** gets the finding plus my refutation and argues the
+     finding's side; the decline posts only if it survives. A wrong
+     decline is the one verdict nothing downstream catches — Codex has
+     already fired, David doesn't read diffs.
+  2. **Any finding with no mechanical oracle** (step 2 of the shared
+     protocol came up empty): a pure-judgment finding, so its triage
+     verdict comes from the Opus subagent.
+  3. **Any recurrence of a swept class** (the shared protocol's process
+     failure): the class re-naming goes to the Opus subagent, and the
+     recurrence is called out in that round's check-in.
+  Sensitive-path PRs (the tier table's Opus-always rows) run the whole
+  loop on Opus and need none of this machinery.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
-  are the skip-on-clean category — they don't wait on a check-in.
+  are the skip-on-clean category — they don't wait on a check-in, but they
+  do get the class sweep above (a lint error's class is "this lint rule,
+  everywhere in the diff").
 - **Escalate anything that's a real decision.** A design / architecture /
   trade-off comment (which abstraction to use, whether to refactor more, a
   behavior change) goes to David via AskUserQuestion — I do **not** silently
