@@ -55,9 +55,14 @@ to review.
 
 | Artifact class | Ceremony | Why |
 | --- | --- | --- |
+| **Transient, single-use process docs** — TEST_RUN checklists, one-off run notes, anything deleted after one execution by one person | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request, regardless of what the findings say. | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08). The worst case of shipping it wrong is one confused run by one person, immediately self-catching, fixed in a one-line commit. Nothing touches production. A P1 badge on a finding describes the finding's internal severity, not this artifact's blast radius. |
 | **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
 | **Migrations, backfills, auth, payments, the visual pipeline** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
+
+For the floor tier, say so in the PR body's *What & why* ("transient
+checklist, deleted after one run — findings triaged once, no re-review"),
+so the reviewer and any later reader can calibrate from the same line.
 
 **A plan document is for work whose *approach* could be wrong in a way David
 can't see from the result.** A skill file's approach is legible from the file
@@ -74,17 +79,35 @@ A review loop's exit condition cannot be "keep going until the reviewer stops
 finding things." An adversarial reviewer on a sufficiently detailed artifact
 will keep finding things, and each fix adds surface for the next round.
 
+- **The criticality gate comes before the trend (David, 2026-08-08).** Before
+  requesting round 2 on *any* artifact — and again any time the loop feels
+  like it's grinding — answer this question first: **"if every remaining
+  finding shipped unfixed, what is the realistic worst case for the product
+  in production, and who would notice?"** If the honest answer is "nothing a
+  user or the business would ever feel," the loop is already over: triage the
+  open findings once (accept-and-document is the expected default at this
+  criticality), ship, and move on. Correctness of the findings is not the
+  test — in the loop that taught this rule, every finding was correct and the
+  loop was still the wrong place to spend tokens. Rate the artifact 1–100 on
+  "what breaks in production if this is wrong"; a TEST_RUN checklist is a 1,
+  and nothing rated in the single digits earns a second round.
 - **Findings must fall round over round.** If a round produces **more** findings
   than the one before it, stop and reassess **with David** before starting
   another round. Report the count trend plainly.
-- **Cap by artifact class.** Agent-facing markdown: **1–2 rounds.** Product
-  code: the existing soft cap, and the ~20-round figure is a backstop, not a
-  budget.
+- **Cap by artifact class.** Transient single-use docs: **the automatic first
+  pass only — never a re-request** (see the ceremony table above). Agent-facing
+  markdown: **1–2 rounds.** Product code: the existing soft cap, and the
+  ~20-round figure is a backstop, not a budget.
 - **A rising count is a signal about the artifact or the process, not a reason
   to try harder.** Two live examples, both 2026-08-05: PR #329's guard (9, 11,
   12, 19 — an unbounded parsing surface) and PR #333's plan (12, 1, 4, 6, 12 —
   ceremony mismatched to a markdown file, with later rounds specifying
-  guarantees the platform could not provide).
+  guarantees the platform could not provide). And the one that produced the
+  criticality gate itself, 2026-08-08: PR #356's TEST_RUN doc ran **five
+  rounds and 36 findings on a checklist that gets deleted after a single
+  run** — every finding technically correct, every round a misallocation,
+  resolved by cutting the findings' whole subject (re-running CI-covered test
+  suites) out of the doc rather than fixing round 5.
 
 ### Findings are triaged against the artifact's real risk
 
@@ -133,6 +156,27 @@ report.** The check-in carries:
    evidence bar the loop ledger's *Invalid* category requires — refuted with
    repository or platform evidence, or settled by an explicit prior product
    decision from David. A bare disagreement is neither; it's escalated.
+
+   **Written in product English, for a product manager (David,
+   2026-08-08).** The check-in's audience is David, who does not write code
+   and does not care about internal mechanics — he cares whether the thing
+   being built will meaningfully change how the product behaves. Before
+   writing any finding into the report, run it through his own template:
+   *"What are you trying to build, why do we need it, why does Codex think
+   there's an issue, and what is the ramification of having bugs in this
+   code?"* Each finding in the report answers, in plain sentences: what
+   would go wrong (as an outcome, never as a mechanism) and what that would
+   mean for the product and for production. Shell quoting semantics,
+   Postgres catalog names, bash expansion order, environment-variable
+   precedence — all of that stays in the PR thread, where the reviewer
+   lives; none of it appears in the report to David. The origin case: a
+   check-in explained a finding as *"bash expands `$DATABASE_URL` using the
+   already-exported value before applying the command-local assignment"* —
+   which meant nothing to him. What it should have said: *"one of my test
+   instructions would have quietly pointed a risky operation at your real
+   database instead of the throwaway copy."* A useful test: if the sentence
+   would read the same under a completely different technical root cause,
+   it's carrying mechanics, not meaning — rewrite it.
 3. **The causal flag, explicitly.** Is the finding **new ground**, or is it
    **repairing something an earlier round's fix introduced** (propagation /
    wrong-fix, in the loop ledger's rubric vocabulary), or is it **demanding a
