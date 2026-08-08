@@ -11,7 +11,7 @@
 #
 # Design notes — see docs/ai-context/codex-environment.md for the evidence:
 #   * pnpm 9 is deliberate: .github/workflows/build.yml pins
-#     pnpm/action-setup@v4 to version 9, so Codex resolves the same tree CI
+#     pnpm/action-setup@v6 to version 9, so Codex resolves the same tree CI
 #     does. Do not bump this without bumping CI in the same change.
 #   * --ignore-scripts is safe here. pnpm-workspace.yaml's onlyBuiltDependencies
 #     (@swc/core, esbuild, msw, unrs-resolver) all resolve their native binaries

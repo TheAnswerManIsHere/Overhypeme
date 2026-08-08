@@ -14,7 +14,7 @@ hook, Replit uses its own workflows, and CI uses
 
 ## Why it looks the way it does
 
-**pnpm 9, pinned.** CI pins `pnpm/action-setup@v4` to version 9, so Codex
+**pnpm 9, pinned.** CI pins `pnpm/action-setup@v6` to version 9, so Codex
 resolving with 9 gets the same tree CI does. `pnpm-workspace.yaml` carries
 `overrides`, `onlyBuiltDependencies` and `minimumReleaseAge`; a frozen install
 under 9.15.9 accepts the lockfile unchanged ("Lockfile is up to date"). Bumping
