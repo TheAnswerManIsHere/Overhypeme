@@ -107,13 +107,13 @@ There is no client-trusted JWT.
   IDOR on memes/objects/videos, membership-grant bypass, tier-gate evasion,
   moderation bypass, abusing another user's identity-bound images.
 - **Paying member** — same as above plus refund/downgrade asymmetry games
-  (keeping Legendary after cancel, credit multiplication).
+  (keeping Legendary after cancel).
 - **Malicious content author** — weaponizing user-supplied text/images:
   XSS through rendered fact text or OG shells, prompt injection into the
   enrichment/visual pipeline, uploading disallowed imagery to be laundered
   through our renderer.
 - **Webhook forger** — crafting unsigned/replayed Stripe events to mint
-  membership or credits.
+  membership.
 - **Compromised dependency or CI** — supply-chain code execution in build or
   runtime, exfiltrating env secrets.
 - **Not modeled**: nation-state attackers, malicious Replit/Cloudflare/Stripe
@@ -125,8 +125,8 @@ Findings in these areas warrant **Critical/High** treatment and are worth
 reporting even at Medium confidence:
 
 - **Stripe surfaces** — `artifacts/api-server/src/routes/stripe.ts`, webhook
-  handling, `artifacts/api-server/src/lib/membershipPricing.ts`, grant/cancel symmetry, credit
-  accounting.
+  handling, `artifacts/api-server/src/lib/membershipPricing.ts`, grant/cancel
+  symmetry.
 - **Auth stack** — `artifacts/api-server/src/middlewares/` (`authMiddleware`,
   `apiKeyAuth`, `tierMiddleware`), `routes/auth.ts`, `routes/localAuth.ts`
   (esp. the fail-closed `dev-admin-login` predicate), session lifecycle,
@@ -140,8 +140,9 @@ reporting even at Medium confidence:
 - **Migrations/backfills** (`lib/db`, backfill launchers) — irreversible data
   operations.
 - **The Cloudflare worker's cache decisions** — public/private classification.
-- **Legal/safety moderation** — `lib/moderation/`, `quarantined_memes`,
-  `ncmec_reports`, and any surface that reads or exports that evidence.
+- **Legal/safety moderation** — `artifacts/api-server/src/lib/moderation/`,
+  `quarantined_memes`, `ncmec_reports`, and any surface that reads or exports
+  that evidence.
 
 Lower-stakes surfaces (UI components, docs, internal tooling, test helpers)
 follow the repo's engineer-to-the-blast-radius principle: report real
