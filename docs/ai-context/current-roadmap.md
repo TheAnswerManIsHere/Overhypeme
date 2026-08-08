@@ -192,7 +192,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   append-when-a-loop-closes obligation had nowhere to fail, so it was
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
-  (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
+  (this backfill's own PR). New ledger-coverage guard (since retired), wired
   into the Build job, originally failed CI when a loop that closed *before
   the current PR opened* had neither a row nor a recorded exemption — a
   loop closing while a PR was already in flight stayed unenforced until the
@@ -206,8 +206,21 @@ priorities (moderation speed, render/enrichment quality, video). See
   in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
+  **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
+  is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired. New
+  loops are recorded one JSON file per loop in
+  [`.agents/metrics/loops/`](../../.agents/metrics/loops/), blind
+  adjudication now runs on a deterministic **sample of loops** (each still
+  adjudicated over its full finding population), and the answers reach David
+  through a digest (`scripts/loop-report.mjs`, narrated by `/maintenance`)
+  rather than sitting in a file he never opens. Coverage and permanence
+  stopped being CI gates and became accepted, documented risks. Rationale,
+  including why the sampling reversal does not reintroduce the bias defects
+  that removed the original within-loop sample, is in
+  [`decisions.md`](./decisions.md).
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
-  mechanics, and the pre/post-boundary analysis all live in
+  mechanics, and the pre/post-boundary analysis for the first 46 loops all
+  live in
   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
   — read there, not here.** Duplicating that analysis into this file was
   the original design of this bullet and it went stale twice across PR
@@ -215,23 +228,31 @@ priorities (moderation speed, render/enrichment quality, video). See
   boundary claim each drifted from the canonical ledger before landing);
   this bullet is deliberately kept to a shipped-slice summary from here on.
   See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
-  and [`working-modes.md`](./working-modes.md#the-loop-ledger). Two things
-  surfaced but deliberately left unfixed, for David to decide: the ledger's
-  own `classifyCohort` routes any **non-plan-review** PR carrying a
-  non-ledger markdown file to `prose/contract` (a `[PLAN REVIEW]`-titled PR
-  is checked first and stays `plan-review` regardless), which is part of
-  why the `feature/code` cohort is still empty (see the ledger's
-  cohort-leakage note for the precise mechanism);
-  and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
-  trigger a check-in, with no record of whether one happened (see the
-  ledger's row 6).
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger). One thing
+  surfaced here has since been fixed, and one is still open:
+  **Fixed 2026-08-07** (same plan-review PR #340 as the freeze above):
+  `classifyCohort` no longer routes any non-plan-review PR carrying a
+  markdown file to `prose/contract` by bare presence — it now weighs
+  changed-line counts, so a code-majority mixed PR lands in `feature/code`
+  (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
+  decides when one side is entirely absent. **Still open, for David to
+  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
+  to trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
-  row** (PR #270). Both Claude Code and Codex now append a row — mechanical
-  columns machine-derived, judgment columns hand-entered and marked as such —
-  every time a review loop closes, adjudicated over the **full** finding
-  population (not a sample; see `decisions.md` for why the sample was
-  removed). The PR's own 16-round, 34-finding loop produced its own row as
-  the pipeline's first real acceptance test. See
+  row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
+  longer append to this table, and adjudication no longer covers every
+  loop's full population — a deterministic **sample of loops** is
+  adjudicated instead (each still over its own full finding population).
+  The paragraph below is the historical record of what PR #270 built, not
+  the current contract; [`working-modes.md`](./working-modes.md#the-loop-ledger)
+  and [`decisions.md`](./decisions.md) are current. Both Claude Code and
+  Codex used to append a row — mechanical columns machine-derived, judgment
+  columns hand-entered and marked as such — every time a review loop closed,
+  adjudicated over the **full** finding population (not a sample; see
+  `decisions.md` for why the original within-loop sample was removed). The
+  PR's own 16-round, 34-finding loop produced its own row as the pipeline's
+  first real acceptance test. See
   [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger).
   **Open next step:** the ledger's designated acceptance test — a blind

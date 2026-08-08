@@ -166,6 +166,39 @@ disabling outbound sends during an incident). Post-launch we'll reintroduce stag
 rollouts deliberately. Also pre-launch: **no new external vendors** without David's
 sign-off.
 
+## Engineer to the blast radius
+
+Match engineering depth to actual stakes, not to how thorough it's possible to
+be (David, 2026-08-07). The default instinct — think through every
+conceivable failure and design against all of them — is correct for payments,
+auth, migrations, and the visual pipeline. It is wrong for internal tooling,
+and applying it uniformly is a bug in judgment, not diligence. **Before
+designing, state what tier the thing is and let that set the bar:**
+
+- **Mission-critical** (payments, auth, data migrations, moderation): go as
+  deep as the risk warrants. Nothing changes here.
+- **Internal tooling** (metrics, tracking, dev scripts, reporting): build the
+  boring version. An occasional hand-resolved conflict, a week of missing
+  data, or a manual fix-up is an **acceptable outcome**, not a defect to
+  design away. Perfect idempotency, protocols, and overlay systems are
+  over-engineering here.
+
+The tell that the line's been crossed: specifying reconciliation semantics,
+authorization schemes, or retry/resume logic for something that runs weekly
+and nobody's money depends on. **The worked example is the loop-metrics
+redesign** ([`decisions.md`](./decisions.md)'s 2026-08-07 entry) — round 1 of
+its review added a corrections-overlay system, a dissent array, and a
+deterministic merge protocol to a tracking tool; round 2 then spent half its
+findings attacking that machinery. David's correction: *"We're not curing
+cancer. If it's a simple tracking tool, keep it SIMPLE."* Simplifying deleted
+nine of fourteen findings outright, because their subject no longer existed.
+
+This compounds with the review-triage note above (**How Claude and Codex
+should interact**): a reviewer marking everything "Required Revision" doesn't
+mean every finding's disposition is *fix* — on a low-stakes artifact, the
+right disposition for many findings is **accept-and-document** or **simplify
+the thing away**.
+
 ## Never surface a raw internal ID anywhere in the product
 
 No internal ID, GUID/UUID, session token, or other non-human-interpretable code

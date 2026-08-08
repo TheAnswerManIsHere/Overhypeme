@@ -96,9 +96,62 @@ and re-check **each entry's revisit trigger**:
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
+## 6. Loop-efficacy digest
+
+**Build the closed-PR inventory and pass it — this step is required, not
+optional.** Since this PR retired CI's coverage gate, the digest's
+`--inventory` completeness check is the *only* remaining mechanism that
+notices a missing record; skipping it every week means coverage can rot
+indefinitely while the report keeps saying "not checked" and nobody notices.
+List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
+paginated in small batches) back through `FIRST_RECORDED_PR` in
+`loop-report.mjs` (read the constant rather than hardcoding it here — it moved
+once already when a late `[LEDGER]` PR landed rows during the cutover) —
+**not just the last maintenance window.**
+`missingRecords()` only flags a PR once it's been closed 14 days, so a
+normal 7-day-lookback inventory contains zero eligible entries every single
+run and the "every closed loop has a record" line would be true by
+construction, never by having actually checked. Keep
+`number`/`title`/`closed_at`/`user.login` for each PR — write the array to a
+scratch JSON file and pass it as `--inventory <file>`. If GitHub access
+genuinely isn't available this run, say so explicitly in the report
+("completeness not checked — GitHub access unavailable") rather than
+silently running without `--inventory` and letting the section read as
+routine.
+
+Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
+result to David in plain language** — a few sentences, not the raw tables.
+The script computes; this step interprets; David decides.
+
+This section exists because the measurement half shipped in PR #270 and the
+delivery half never did: for a year the answers sat in a file David doesn't
+open, and he discovered the records were duplicating by stumbling into it.
+**The digest is the product** — if it isn't narrated, the whole system is
+back to where it was.
+
+What to actually say:
+
+- **The headline, if there is one.** Churn moving, an unusually expensive
+  loop, a run of clean ones. If nothing moved, say that in one line.
+- **Anything actionable.** A deferral that has been open for weeks, a loop
+  whose adjudication tripped the disagreement gate, missing records piling
+  up. These are named individually in the digest precisely so they can be
+  acted on rather than counted.
+- **Honest uncertainty.** Below three qualifying loops the digest says "not
+  yet informative" — pass that through rather than dressing two data points
+  as a trend. The frozen ledger withdrew two such readings already.
+
+**Always run the digest, even on a week where nothing closed** — the
+data-health and completeness checks are all-time, not windowed, and this
+digest is now the only mechanism that ever notices a missing or stuck
+record. A quiet week with a real deferral or a growing missing-records list
+still has something to say; only the empty-volume commentary is skippable.
+Say "no loops closed this week" in one line and go straight to data health,
+rather than dropping the section entirely.
+
 ## Report delivery
 
-Single message, five short sections, worst news first. When something needs
+Single message, six short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat

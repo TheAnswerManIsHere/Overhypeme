@@ -1,5 +1,21 @@
 # Loop ledger
 
+> **FROZEN 2026-08-08 — historical archive, rows 1–46.** (Rows 43–46 landed
+> via PR #348, the last `[LEDGER]` PR, which merged while the store that
+> replaces this file was still in review — so the freeze point is four rows
+> higher than originally planned.) New loops are
+> recorded one JSON file per loop in
+> [`.agents/metrics/loops/`](./loops/), and the answers they produce reach
+> David through the digest (`node scripts/loop-report.mjs`, narrated by
+> `/maintenance`) rather than through this file. **Nothing below is edited
+> again**: the contents are pinned by `loop-ledger.sha256` and
+> `scripts/check-loop-metrics.mjs` fails any change to them. There was no
+> migration — these rows stay exactly as written, and the analysis in *What
+> the ledger's adjudicated rows now show* remains the record of what the
+> first 46 loops showed. See
+> [`working-modes.md`](../../docs/ai-context/working-modes.md#the-loop-ledger)
+> for the current ceremony.
+
 Every review loop this repository runs, one row each, permanently.
 
 **Why this exists.** Until 2026-07-27 nothing here recorded a single review
