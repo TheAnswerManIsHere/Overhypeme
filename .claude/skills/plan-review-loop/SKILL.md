@@ -164,7 +164,9 @@ have a draft plan, and the disclosure check passes:
    (count + trend, per-finding nature / affected area / verdict, the causal
    flag — new ground vs. repairing an earlier round's revision vs.
    impossible-as-specified — and a continue/stop recommendation), delivered as
-   a 🛑 NEED YOU banner, waiting for David's go. Skip-on-clean applies: a
+   a 🛑 NEED YOU banner, waiting for David's go — with every finding written
+   in **product English** per that contract's 2026-08-08 addition (David's
+   four-question template; outcomes, never mechanics). Skip-on-clean applies: a
    clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
    rule in step 7 it proceeds straight to the next lens with a one-line
    status. After the go (or on a clean round), I revise the plan
@@ -220,8 +222,15 @@ have a draft plan, and the disclosure check passes:
    once it's served its purpose. This is a prose/structure pass, not a
    technical change, so it doesn't reopen anything Codex already confirmed.
 7. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
-   I do not stop before three completed Codex review rounds, even if an early
-   round comes back clean — in that case I request the re-review through a
+   This cadence presupposes the artifact *earns* a plan loop at all — the
+   criticality gate ([`working-modes.md`](../../../docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target),
+   David 2026-08-08) and the ceremony-tiering rule keep low-criticality
+   artifacts (agent-facing markdown, transient docs) out of this loop
+   entirely; if I catch myself running this ceremony on something
+   single-digit on the 1–100 production-impact scale, the loop itself is
+   the mistake and I exit and say so, rather than applying the minimum
+   below. For a qualifying plan: I do not stop before three completed Codex
+   review rounds, even if an early round comes back clean — in that case I request the re-review through a
    different lens (edge cases, data integrity/migrations, source-of-truth risks,
    failure modes) instead of manufacturing plan churn. From round 3 on, I stop
    only when **all three** hold: (a) no substantive new objections (zero
@@ -332,10 +341,19 @@ edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per
 `workstream-tracking.md`'s ownership rule. A label change with no matching
 narrative update is the exact drift that rule exists to prevent.
 
-**Reviewer efficacy is measured by the loop ledger**
-(`.agents/metrics/loop-ledger.md`): every loop's rounds, findings, and
-self-inflicted share get a permanent row, which is the evidence base for
-changing the reviewer or the ceremony. (This supersedes the original
+**Reviewer efficacy is measured by the loop-metrics store**
+(`.agents/metrics/loops/<pr>.json`, one record per loop, written with
+`node scripts/loop-metrics.mjs --pr <n> --write`): every loop's rounds,
+findings, and self-inflicted share are recorded there, which is the evidence
+base for changing the reviewer or the ceremony. Records are not append-only —
+they can be edited or deleted in an ordinary commit, with PR review as the
+control and git history as the durable record (`decisions.md`, 2026-08-07) —
+so "recorded" here means durable via that control, not permanent by
+construction. The answers reach
+David through the digest (`node scripts/loop-report.mjs`, narrated by
+`/maintenance`), not by anyone reading records. `.agents/metrics/loop-ledger.md`
+is the frozen archive of the first 46 loops and is never appended to again.
+(This supersedes the original
 "first ~3 plans" calibration pilot — a dozen loops have run and the ledger
 measures them better than a one-time comparison would have.)
 

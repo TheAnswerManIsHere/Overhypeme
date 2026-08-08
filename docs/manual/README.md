@@ -8,9 +8,10 @@
 >
 > **Read it front to back and you get the whole product.** The chapters below
 > are ordered to follow the core loop, not the codebase's module boundaries —
-> see *How to read this manual*. Three chapters are written today; the rest are
-> being filled in by the one-time backfill, and the table marks exactly which
-> is which.
+> see *How to read this manual*. Some chapters are written today, the rest are
+> being filled in by the one-time backfill, and the *Contents* table below is
+> the live record of exactly which is which — not restated here as a count
+> that would only go stale again.
 
 ## How to read this manual
 
@@ -170,7 +171,7 @@ In reading order. A chapter file appears only once it holds real content, so
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
 | 1 | `personalization-and-grammar.md` | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | not yet written |
-| 2 | `content-lifecycle.md` | **Submit** — a fact's journey from its three entrances (user submission, admin/API-key bulk import, variant creation) through enrichment to publication | not yet written |
+| 2 | [`content-lifecycle.md`](./content-lifecycle.md) | **Submit** — a fact's three entrances (user submission, admin/API-key bulk import, variant creation) and the one funnel they hand off into review through | ✅ written |
 | 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
 | 5 | `visual-pipeline.md` | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | not yet written |

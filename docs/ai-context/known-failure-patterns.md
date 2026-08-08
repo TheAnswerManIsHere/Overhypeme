@@ -474,6 +474,50 @@ lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
 
+**A related but distinct lesson from the same claim-then-dispatch shape,
+caught during NCMEC phase 3 review (PR #349, known gap G15, not yet built):**
+`asyncJobsTick` stamps a whole claimed batch `processing` in one transaction
+*before* `mapWithConcurrency` dispatches any row to a handler at limited
+concurrency — so a row claimed late in a same-queue batch can queue for real
+minutes before its own handler starts, even with no other queue involved at
+all. Lane-splitting doesn't fix this one; it's within-queue, not cross-queue.
+The lesson is narrower and specific to safety deadlines: **a wall-clock
+invariant meant to bound total elapsed risk must be measured from the true
+start of the risk window (claim time), not from a later sub-phase within it
+(handler start)** — a test that only checks the sub-phase's own constant
+against a cutoff can pass while the invariant it's protecting is still
+violable. Tracked, not yet exploitable (no caller exists for the NCMEC
+worker this would affect); phase 5's worker must bound elapsed time since
+claim.
+
+## A live FK's `ON DELETE SET NULL` can erase the fact an unrelated predicate depends on
+
+**Looks like:** a predicate infers a historical fact ("did this row ever have
+X") from a live column's *current* value ("is X currently non-null"), where
+that column is the target end of a foreign key declared `onDelete: "set
+null"`. **Dangerous:** an entirely unrelated action elsewhere in the app —
+deleting the referenced row for its own, unconnected reasons — silently nulls
+the column via the database's own cascade, with no application code path
+that notices or logs it happening. The predicate then reads the row as
+"never had X" instead of "had X, then lost it," and if the predicate gates a
+security- or compliance-relevant decision, the wrong branch fires with
+nobody having decided anything — it looks like normal operation from every
+surface. **Avoid:** don't infer an immutable historical fact from a column
+that participates in a live FK cascade; capture the fact separately, once,
+at the moment it's true, into a column nothing can silently null out from
+under it. **Overhype:** `isIdentityUnresolved` (NCMEC phase 3,
+`artifacts/api-server/src/lib/moderation/ncmecWorker.ts`) infers "this row's uploader identity was
+never captured" from `reporterSnapshot === null && userId !== null` — but
+`ncmec_reports.user_id` has `onDelete: "set null"`, and the pre-existing,
+unrelated account hard-delete admin action (`routes/admin.ts`) runs
+`db.delete(usersTable)`, which cascades. An admin hard-deleting the uploader
+of a row correctly parked as `identity_unresolved` (a capture defect) turns
+it into a row that reads as honestly anonymous and files automatically with
+the uploader silently omitted — nobody having approved that. Caught in PR
+#349's round-1 review before any caller existed to make it reachable;
+tracked as known gap G14, needing an immutable snapshot-time capture that
+the cascade can't touch (phase 4).
+
 ## Un-frozen input re-resolved live after its freeze point
 
 **Looks like:** a value (identity, config, a selected option) is fixed at one
@@ -966,6 +1010,49 @@ the first was recorded narrowly as a *parser* problem and the lesson did not
 transfer — which is exactly why this entry states it at the general level and
 demotes the parser case to a sub-pattern.
 
+**A third instance, two days later, on a different kind of unachievable
+guarantee (PR #293).** Migration `0097`'s attempt to make the NCMEC
+audit-ledger's append-only guarantee a real PostgreSQL privilege boundary ran
+17 review rounds and accounted for roughly 65 of the PR's 90-plus findings —
+not by finding fewer bugs each round, but by refining the same reachability
+model past what the platform can support: `pg_has_role(...,'usage')` →
+`'member'` → literal `SET ROLE` success → `ADMIN OPTION` → an *inherited*
+admin-option chain → containing-schema ownership → the guard function's own
+schema ownership. Each fix was a real, verified correction — and each one
+sat on the same unfixable foundation: a migration running as the application
+role cannot grant that role a privilege boundary the role cannot already
+cross (see the 2026-08-07 `decisions.md` entry). The late-round shape
+matches the general pattern exactly — fixes that specify guarantees
+(`CREATE ROLE` without conferring membership, a `REVOKE` the current role
+cannot execute) the actor available to the migration cannot actually
+provide. David cut the scope after the concentration became visible: the
+migration now creates the objects and reports the residual state; closing
+the boundary moved to a superuser runbook
+([`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)).
+The tell was available well before round 17 — a scope-vs-blast-radius check
+at round 5 or so, once "every fix targets the same reachability model,"
+would have caught it much earlier than a David-initiated review of the
+finding distribution did.
+
+**A fourth instance, the very next day, on an artifact with no blast radius
+at all (PR #356, 2026-08-08).** The TEST_RUN checklist for PR #293 — a doc
+that is *deleted after one Replit run* — went five review rounds and 36
+findings (9 → 6 → 6 → 6 → 9), nearly all against instructions for re-running
+test suites that had already passed in CI on the same code. Every finding was
+technically correct; every round was a misallocation, because the artifact's
+worst case was one confused test run, not a production defect. Each isolation
+fix opened the next round's gap (culminating in round 5 discovering the
+repo's own test wrappers silently override the variable all the prior fixes
+depended on), and the loop only ended when David asked what any of it had to
+do with the product — the answer being "nothing," the fix was to **delete the
+findings' entire subject from the doc**, not repair it a fifth time. Where
+the first three instances were about *unachievable guarantees*, this one is
+about **criticality**: the loop's subject was achievable and simply not worth
+achieving. That question now has a formal gate — rate the artifact 1–100 on
+"what breaks in production if this is wrong" *before* requesting round 2, and
+single-digit artifacts never loop
+([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)).
+
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
 **Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
@@ -999,3 +1086,85 @@ completeness. See the
 [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
 and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
 docstring section.
+
+## PostgreSQL role/constraint verification traps that look safe and aren't
+
+**Looks like:** code (application, migration, or test) that infers a
+PostgreSQL privilege or constraint's real behavior from a surface signal that
+seems like it should imply it — a role membership check, a rendered
+`pg_get_constraintdef()` string — rather than the thing that actually governs
+behavior. **Dangerous:** each trap fails silently in the safe-looking
+direction (permission appears absent when it is present, or a constraint
+appears correct when it accepts values it shouldn't), so it surfaces as a
+production security gap or a migration that "passed" over an unenforced
+guarantee, not as a crash. All three below were verified empirically against
+this repository's own PostgreSQL 16 target, not taken from documentation —
+each contradicted the intuitive reading. **Avoid:** treat every PostgreSQL
+privilege/constraint check in migration or authorization code as needing
+direct verification against a live instance before trusting it, and prefer
+the specific fixes named below over re-deriving them.
+
+- **`pg_has_role(role, target, 'member')` is not "can this role act as
+  target."** It is true for a grant with `INHERIT FALSE, SET FALSE` — a
+  membership that confers no actual capability. **Use `'usage'`** (ambient,
+  inherited privileges) or `'set'` (can `SET ROLE` to it on demand) for a
+  narrowly defined, single-grant-shape question — never `'member'` for an
+  authorization decision. **Neither `'usage'` nor `'set'` alone answers the
+  broader "can this role EFFECTIVELY reach target at all" question** —
+  `'usage'` misses a SET-only grant, `'set'` misses an INHERIT-only one, and
+  both miss an admin-option chain that lets the role grant itself the
+  target on demand. This repo already implements and tests that full union
+  (`usage OR set OR a transitive admin-option chain`) in
+  `canEffectivelyAssumeRole()` (`lib/db/src/index.ts`) — route an
+  effective-reachability decision through that helper rather than a bare
+  `pg_has_role` call, or risk reintroducing the exact under-reporting this
+  entry's own history is about.
+- **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
+  the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
+  superuser, not the creator.** The creator therefore cannot revoke its own
+  new membership: `REVOKE x FROM <creator>` run by a non-superuser who
+  isn't the grantor does not raise an error. It emits a `WARNING` and changes nothing — a
+  superuser other than the grantor CAN still remove it, bypassing the
+  grantor check entirely; only a non-superuser lacking the grantor's
+  authority is stuck. Code
+  that creates a role and then tries to revoke its own automatic membership
+  needs to verify the revoke actually happened (re-read
+  `pg_auth_members`), not trust the absence of an exception. There is no
+  privileged path around this available to the creator; only the grantor —
+  here, a real superuser — or a superuser can remove the row. (PR #293,
+  `lib/db/migrations/0097_ncmec_submission.sql`'s original `overhype_audit_maintenance`
+  provisioning, later removed entirely — see the 2026-08-07 `decisions.md`
+  entry.)
+- **`pg_get_constraintdef()` is not a fixed point.** Feeding its own output
+  back into `ADD CONSTRAINT` for the identical predicate produces a
+  *different* string: `"action" IN (...)` renders as
+  `ANY ((ARRAY['x'::varchar, ...])::text[])`, but re-applying that rendered
+  text moves the cast onto each array element —
+  `ANY (ARRAY[('x'::varchar)::text, ...])`. Any code that round-trips a
+  constraint through its rendered text (a migration verifying a constraint
+  by comparing `pg_get_constraintdef()` output, `pg_dump`/restore, or
+  `drizzle-kit push` reconciling against a Drizzle-rendered snapshot) can
+  land in either form for a semantically identical constraint. Worse: no
+  amount of pattern-matching on the rendered text can soundly verify a
+  CHECK constraint's *meaning* at all — five successive attempts in PR #293
+  (a literal string match, matching the mentioned literal set, an anchored
+  shape, evaluating the predicate against probe values, then widening the
+  anchored shape for both renderings above) were each defeated by a
+  predicate that rendered acceptably while enforcing something else, most
+  recently one accepting all nine intended literals plus any 13-character
+  string via a `CASE WHEN length(action) = 13 ...` disjunct hidden inside
+  the array. **The fix that actually converged was to stop verifying and
+  rebuild the constraint unconditionally** (`DROP CONSTRAINT IF EXISTS` +
+  `ADD CONSTRAINT`) wherever the role has permission, so the post-condition
+  holds by construction instead of by inspection — but unconditional
+  replacement is only safe when no row can already violate the *new*
+  constraint: append-only triggers stop later mutation, not an `INSERT`
+  the *currently drifted* CHECK still admits, so a row a prior drifted
+  predicate let through would make the replacement `ADD CONSTRAINT` raise
+  a violation and roll back the whole migration. Safe here specifically
+  because phase 1 has no ledger writers yet (the table is empty at replay
+  time) — reusing this "just rebuild it" move against a table that already
+  has rows needs a preflight check (or an owner-run repair of nonconforming
+  rows) first, not an assumption that unconditional replacement is
+  generally replay-safe. See the 2026-08-07 `decisions.md` entry and
+  `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.

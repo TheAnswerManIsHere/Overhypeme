@@ -227,7 +227,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   append-when-a-loop-closes obligation had nowhere to fail, so it was
   silently skipped while every PR stayed green. Backfilled: #274, #282,
   #283, #284 (the ledger's first `bugfix`-cohort row), #285, and #286
-  (this backfill's own PR). New `scripts/check-ledger-coverage.mjs`, wired
+  (this backfill's own PR). New ledger-coverage guard (since retired), wired
   into the Build job, originally failed CI when a loop that closed *before
   the current PR opened* had neither a row nor a recorded exemption — a
   loop closing while a PR was already in flight stayed unenforced until the
@@ -241,8 +241,21 @@ priorities (moderation speed, render/enrichment quality, video). See
   in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
+  **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
+  is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired. New
+  loops are recorded one JSON file per loop in
+  [`.agents/metrics/loops/`](../../.agents/metrics/loops/), blind
+  adjudication now runs on a deterministic **sample of loops** (each still
+  adjudicated over its full finding population), and the answers reach David
+  through a digest (`scripts/loop-report.mjs`, narrated by `/maintenance`)
+  rather than sitting in a file he never opens. Coverage and permanence
+  stopped being CI gates and became accepted, documented risks. Rationale,
+  including why the sampling reversal does not reintroduce the bias defects
+  that removed the original within-loop sample, is in
+  [`decisions.md`](./decisions.md).
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
-  mechanics, and the pre/post-boundary analysis all live in
+  mechanics, and the pre/post-boundary analysis for the first 46 loops all
+  live in
   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
   — read there, not here.** Duplicating that analysis into this file was
   the original design of this bullet and it went stale twice across PR
@@ -250,23 +263,31 @@ priorities (moderation speed, render/enrichment quality, video). See
   boundary claim each drifted from the canonical ledger before landing);
   this bullet is deliberately kept to a shipped-slice summary from here on.
   See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
-  and [`working-modes.md`](./working-modes.md#the-loop-ledger). Two things
-  surfaced but deliberately left unfixed, for David to decide: the ledger's
-  own `classifyCohort` routes any **non-plan-review** PR carrying a
-  non-ledger markdown file to `prose/contract` (a `[PLAN REVIEW]`-titled PR
-  is checked first and stays `plan-review` regardless), which is part of
-  why the `feature/code` cohort is still empty (see the ledger's
-  cohort-leakage note for the precise mechanism);
-  and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
-  trigger a check-in, with no record of whether one happened (see the
-  ledger's row 6).
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger). One thing
+  surfaced here has since been fixed, and one is still open:
+  **Fixed 2026-08-07** (same plan-review PR #340 as the freeze above):
+  `classifyCohort` no longer routes any non-plan-review PR carrying a
+  markdown file to `prose/contract` by bare presence — it now weighs
+  changed-line counts, so a code-majority mixed PR lands in `feature/code`
+  (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
+  decides when one side is entirely absent. **Still open, for David to
+  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
+  to trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
-  row** (PR #270). Both Claude Code and Codex now append a row — mechanical
-  columns machine-derived, judgment columns hand-entered and marked as such —
-  every time a review loop closes, adjudicated over the **full** finding
-  population (not a sample; see `decisions.md` for why the sample was
-  removed). The PR's own 16-round, 34-finding loop produced its own row as
-  the pipeline's first real acceptance test. See
+  row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
+  longer append to this table, and adjudication no longer covers every
+  loop's full population — a deterministic **sample of loops** is
+  adjudicated instead (each still over its own full finding population).
+  The paragraph below is the historical record of what PR #270 built, not
+  the current contract; [`working-modes.md`](./working-modes.md#the-loop-ledger)
+  and [`decisions.md`](./decisions.md) are current. Both Claude Code and
+  Codex used to append a row — mechanical columns machine-derived, judgment
+  columns hand-entered and marked as such — every time a review loop closed,
+  adjudicated over the **full** finding population (not a sample; see
+  `decisions.md` for why the original within-loop sample was removed). The
+  PR's own 16-round, 34-finding loop produced its own row as the pipeline's
+  first real acceptance test. See
   [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
   and [`working-modes.md`](./working-modes.md#the-loop-ledger).
   **Open next step:** the ledger's designated acceptance test — a blind
@@ -419,6 +440,37 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## In-progress slices
 
+- **NCMEC CyberTipline reporting** (PR #293, merged 2026-08-07; PR #349,
+  merged 2026-08-08) — real automated submission to NCMEC for reportable
+  moderation hits, replacing today's stub (`submitNcmecReport()` writes a DB
+  row + admin email; it has never contacted NCMEC). **Phases 1–3 of 8
+  shipped**: the schema/migration, the ISPWS HTTP client + XML builders, and
+  `isSubmittable`/`classifyWaitingState` — the single eligibility predicate
+  and the one ordered waiting-state classifier both the future worker and the
+  `/admin/safety` counts will share. None of the three shipped phases can
+  file a report yet — both filing switches are seeded off — and phase 3 has
+  **zero callers**, same as phase 2's client. Phase 1 is already live in
+  existing paths (`submitNcmecReport()` writes `ncmec_reports`,
+  `quarantineImage()` invokes that stub, and migration `0097`'s
+  `ncmec_reports_link_quarantine_trg` runs against those inserts today — the
+  append-only triggers on `ncmec_safety_audit_log` are separate
+  infrastructure for later phases; the stub never writes to that table. The
+  reserved-config guard is a separate protection: it runs in
+  `PATCH /admin/config/:key`, not on report inserts, rejecting writes to the
+  five filing-capable NCMEC keys regardless of whether a report was ever
+  filed).
+  **The plan's backlog-audit ceremony was dropped in phase 3**, not deferred:
+  the platform has never gone live, so every existing row is a test artifact
+  and there's no backlog to review — the activation runbook (not yet
+  written) deletes pre-activation rows instead of auditing them. Phase 3
+  therefore ships seven waiting states, not the plan's eight; see the
+  2026-08-08 `decisions.md` entry. Phases 4–8 (provenance capture in
+  `quarantine.ts`, the submission worker + reconciler, admin routes, the
+  `/admin/safety` page, alerting, and the production-activation gate) remain.
+  See [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces),
+  the 2026-08-07 `decisions.md` entry for what changed mid-PR #293 (the
+  audit-ledger privilege-boundary scope cut), and the 2026-08-08 entry for
+  the backlog-audit drop.
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
 - **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
@@ -528,4 +580,18 @@ priorities (moderation speed, render/enrichment quality, video). See
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in
   [`decisions.md`](./decisions.md).
+- **NCMEC CyberTipline reporting (PR #293), two open items carried from the
+  plan's known-gaps list, both explicitly needing David:**
+  - Does a **credential-gated NCMEC artifact** (the ISPWS XSD schema —
+    `GET /ispws/xsd` 401s without ESP credentials) belong in this **public**
+    repo if someone with credentials fetches it? Until answered, the XML
+    builders are asserted against exact expected documents and NCMEC's public
+    documentation rather than schema-validated offline.
+  - Where does the **ESP reporting contact email** live? NCMEC requires it on
+    every report, at `<reporter><reportingPerson><email>` in the shipped
+    XML builder, and it must match Availeron Consulting's registration
+    exactly; `buildReportXml` currently
+    takes it as a required argument and throws without one rather than
+    inventing a placeholder. Needs a configured home before phase 5 (the
+    worker) can call it for real.
 - *(Add here when a real product decision is pending — don't guess.)*

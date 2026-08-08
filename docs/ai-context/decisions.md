@@ -13,6 +13,167 @@
 
 ---
 
+### 2026-08-08 · The loop-metrics settling window is removed outright — superseding its own same-day 14-day-to-1-hour shortening
+- **Decision:** `--write`'s terminal-point wait and `missingRecords()`'s
+  settling floor (added in PR #343, shortened from 14 days to 1 hour earlier
+  the same day in PR #358) are both removed entirely, not shortened further.
+  A loop is recordable the moment its PR closes; a closed PR with no record
+  is flagged as missing immediately, with no wait.
+- **Why:** David's instruction: "remove that guard entirely unless it
+  happens completely automatically without me needing to keep a session
+  open or do something special." Nothing in this pipeline is automatic —
+  `--write` requires an agent to run it in a live session, and the digest
+  requires David to invoke `/maintenance` — so a time-based wait was never
+  actually guarding against anything happening *too soon*; the only real
+  effect was a window during which a genuinely missing record went
+  unreported. The concrete problem that motivated recording discipline in
+  the first place — PRs #327 and #335 both claiming the same ledger rows —
+  was a collision from concurrent *writes to one shared file*, already
+  fixed structurally by one JSON record per loop (PR #343). The settling
+  window was solving a narrower, separate concern (a late reviewer pass
+  landing after a record already exists) that doesn't need a wait gate: the
+  documented recourse — re-derive and edit the record, an ordinary commit —
+  covers it without one.
+- **Reference:** PR #358 (this change); working-modes.md's terminal-point
+  rule, restated without a wait; `.claude/skills/maintenance/SKILL.md` §6.
+- **Revisit if:** a late review actually causes a recorded loop's numbers to
+  go unnoticed-stale in practice (not hypothetically) — the fix then is
+  making the re-derive-and-edit step something an agent reliably remembers
+  to do, not reintroducing a wait.
+
+---
+
+### 2026-08-08 · NCMEC backlog-audit ceremony dropped — pre-activation rows are test artifacts, not evidence
+- **Decision:** The approved plan's backlog-audit ceremony — a cutoff-scoped
+  human review of legacy `ncmec_reports` rows before automated filing could
+  activate, with `identity_omission_approved_at` release stamps, §7's audit
+  rollout step, §5.8's audit endpoints, and invariant 8's "unaudited backlog"
+  waiting branch — is dropped entirely, not deferred or descoped. Phase 3
+  (PR #349) ships `isSubmittable`/`classifyWaitingState` with no audit branch
+  at all: seven waiting states, not the plan's eight. The activation runbook
+  (not yet written — lands with phase 6/7) deletes every pre-activation
+  `ncmec_reports` / `quarantined_memes` row and its evidence bytes before the
+  filing switch is ever thrown; no tooling ships to audit, disposition, or
+  individually release such a row, and none should be built.
+- **Why:** the platform has never gone live, so every row in the database
+  today is a test artifact from development and QA, not an incident that
+  happened to a real user. The plan (approved 2026-07-30) predates this fact
+  being stated explicitly and assumed a live backlog might exist that a human
+  needed to review before automated filing could safely sweep it — a
+  reasonable assumption for a product that's shipped, wrong for one that
+  hasn't. Building a review pipeline for zero real rows is ceremony with no
+  referent; deleting the rows is simpler, correct, and removes an entire
+  class of surface (audit endpoints, release stamps, a waiting-state branch)
+  that would otherwise need building, testing, and reviewing for a case that
+  can't occur.
+- **Reference:** PR #349 (phase 3 of 8, squash-merged as `b720d6f`; the drop
+  landed in that PR's second commit, pre-squash), superseding sections of the
+  plan approved via plan-review PR #280 on 2026-07-30. The code carries the
+  same record: `ncmecWorker.ts`'s module header and `isIdentityUnresolved`'s
+  docstring both state "do not reintroduce the branch — a row predating
+  activation is deleted, not classified."
+- **Revisit if:** the product goes live before NCMEC phases 4–8 ship and real
+  quarantine rows start accumulating before the activation runbook's
+  pre-activation deletion step exists to clear them. At that point some rows
+  would be genuine evidence rather than test artifacts, and either the
+  runbook needs to exist and run before any further phase lands, or an
+  equivalent review gate needs designing from scratch — this decision does
+  not carry forward past the moment real usage begins.
+
+---
+
+### 2026-08-07 · Loop metrics move to one record per loop, adjudication samples *loops*, and the insight is delivered by a digest — superseding the 2026-07-27 ledger decision
+- **Decision:** Three changes to how review-loop efficacy is recorded, all
+  superseding parts of *2026-07-27 · The loop ledger* below (which stays in
+  place as history):
+  1. **Storage.** One JSON record per loop at
+     `.agents/metrics/loops/<pr>.json`, keyed by PR number, written by
+     `scripts/loop-metrics.mjs --pr <n> --write`. The markdown table is
+     **frozen** at rows 1–46, pinned by `loop-ledger.sha256`, and never
+     appended to again. **There was no migration** — the old rows stay
+     exactly as written, and the analysis in *What the ledger's adjudicated
+     rows now show* remains the record of what those 46 loops showed.
+  2. **Adjudication scope.** Blind adjudication now runs on a deterministic
+     **sample of loops** — `pr % 5 === 0` or `findings >= 30` — instead of on
+     every loop. **Every adjudication that runs still covers that loop's full
+     finding population.**
+  3. **Delivery.** `scripts/loop-report.mjs` renders a digest that
+     `/maintenance` narrates to David in plain language. The `[LEDGER]` PR
+     type is retired; a record rides any PR except the one it measures.
+- **Why:** Three failures, all observed. **(a)** The single-table design
+  forced concurrent sessions to collide: PRs #327 and #335 both claimed rows
+  24–26 with different contents and each made the other un-mergeable, because
+  CI *required* every `[LEDGER]` PR to carry every owed row. **(b)** The
+  guard had grown to ~970 lines, almost all of it policing problems that
+  design created — and its own PR (#304, 61.1% self-inflicted over 7 rounds)
+  and the ledger's bootstrap (#270, 64.7% over 16 rounds) are two of the four
+  worst loops in the dataset, making the measurement system a top generator
+  of the pathology it measures. **(c)** The insight never reached its
+  consumer: it lived in a ~2,500-word analysis section inside a file David
+  does not open, and he learned the rows were duplicating by stumbling into
+  it. The measurement half had shipped; the delivery half never had.
+- **On the sampling reversal specifically** — the 2026-07-27 entry removed
+  sampling, so this needs to answer it directly rather than quietly differ:
+  - That entry's sample was **within a loop** (30% of one loop's findings),
+    and the two bias defects that killed it were *selection* defects — an
+    id-sort that oversampled round 1's disproportionately-new-ground
+    findings, then a round-robin that silently dropped the latest rounds,
+    where the self-inflicted numerator lives. **This samples loops, not
+    findings.** Each sampled loop is adjudicated in full, so the
+    disagreement gate stays exact and neither defect can recur.
+  - That entry's stated rationale was **cost** ("full coverage costs tokens
+    once per loop close, not anyone's time"). That reasoning still holds and
+    is **not** why this changed.
+  - What changed is the **observed outcome**, which did not exist as evidence
+    in July: roughly 40% of adjudicated rows landed `unmeasured` and were
+    discarded by the >20% disagreement gate. The repo was paying full
+    dual-classification cost on every loop and throwing away two rows in
+    five. Sampling loops keeps a recurring calibration signal at a fraction
+    of that cost.
+  - David's 2026-08-07 scope directive — *"this is an internal tool that has
+    a simple task of tracking how effective our loops are… We're not curing
+    cancer"* — is the authority for accepting a slightly weaker guarantee in
+    exchange for a much simpler system.
+  - The old entry's **"Revisit if"** clause is unaffected and still stands:
+    if the blind adjudicator ever becomes a human rather than a subagent, the
+    cost calculus flips again and this should be reconsidered.
+- **Two guarantees were deliberately dropped**, both recorded as accepted
+  risks rather than solved: records are **no longer append-only** (they can
+  be edited or deleted in an ordinary commit; PR review is the control), and
+  **coverage is no longer a CI gate** (missing records are named in the
+  weekly digest instead of failing an unrelated PR's build). Enforcing the
+  first required a corrections-overlay system whose own review produced more
+  defects than it prevented.
+- **Reference:** the approved plan, committed as `PLAN_LOOP_METRICS_STORE.md`
+  under the plans directory on the never-merged `plan-review/loop-metrics-store`
+  branch (commit `6a15e9d`; plan files never land on `main`), reviewed across four
+  Codex rounds on the closed plan-review PR #340 (14 → 14 → 12 → 12 findings,
+  48 fixed, 2 declined with recorded reasoning). Contract in
+  [`working-modes.md`](./working-modes.md#the-loop-ledger).
+- **Revisit if:** the digest goes unread for a month (the delivery half would
+  have failed the same way the ledger's did, and the answer is a different
+  surface, not more data); or missing records accumulate past a handful,
+  which would mean the no-CI-gate trade was wrong and coverage needs teeth
+  again.
+- **The implementation loop was stopped at four rounds by David, not run to
+  convergence (2026-08-08).** Round counts were 1 → 11 → 6 → 9, and the rise
+  at round 4 tripped
+  [`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
+  stopping rule. All 27 findings were real and all but one were fixed, but
+  they had converged on a shape — one-line validation tightenings on
+  hand-editable JSON fields (a negative number here, an omitted key there) —
+  where each fix exposed the next variant. **Accepted risk:** the guard does
+  not exhaustively validate every field of a hand-edited record. The
+  realistic failure modes are covered (a malformed record that would crash
+  the digest, a state contradiction, a stale doc pointer); an exotic
+  hand-typed value may still pass CI and produce one wrong number in one
+  weekly digest. That is the correct trade for an internal tracking tool per
+  the *engineer to the blast radius* rule, and the alternative — grinding to
+  a clean Codex pass on a metrics guard — is the exact over-engineering that
+  rule exists to stop.
+
+---
+
 ### 2026-08-07 · A migration cannot manufacture a privilege boundary above itself — NCMEC audit-ledger hardening moved to a superuser runbook
 - **Decision:** Migration `0097` (NCMEC CyberTipline reporting, phase 1) no
   longer attempts to make the `ncmec_safety_audit_log` append-only guarantee a
@@ -67,6 +228,8 @@
   with elevated, non-application credentials (in which case the removed
   transfer logic in this PR's history, before `a376f2cc`, is the starting
   point — don't re-derive it from scratch).
+
+---
 
 ### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
 - **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a

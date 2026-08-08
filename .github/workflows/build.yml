@@ -1,16 +1,14 @@
 name: Build
 
 on:
-  # `edited` is explicit, not just the GitHub default (opened/synchronize/
-  # reopened): retitling a PR to `[LEDGER] …` after its last push must
-  # re-run the ledger-coverage step's structural gate against the new
-  # title, or a stale green check from before the retitle would stay
-  # attached to the commit. check-ledger-coverage.mjs's
-  # confirmedLedgerPrNumbers is the primary defense (it re-validates any
-  # [LEDGER]-titled PR's live files rather than trusting title alone), but
-  # re-triggering here means the PR's own check reflects reality
-  # immediately instead of only the next PR's or the push-to-main audit's
-  # re-check.
+  # `edited` was added (PR #304) because the retired `[LEDGER]` PR type made
+  # a PR's TITLE load-bearing for its own checks: retitling after the last
+  # push had to re-run the coverage gate, or a stale green check would stay
+  # attached. Nothing keys off the title any more — the metrics-store guard
+  # reads only the files in `.agents/metrics/` — so this trigger is now
+  # merely harmless rather than necessary. It is kept because a title edit
+  # re-running the suite costs one cheap run and losing the habit would be
+  # invisible if some future check does key on PR metadata again.
   pull_request:
     types: [opened, synchronize, reopened, edited]
     branches:
@@ -73,7 +71,7 @@ jobs:
       run-heavy: ${{ steps.classify.outputs.run-heavy }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The PR's full changed-file list (all commits, not just the latest
       # push) via the API — same semantics GitHub's own paths filters use
@@ -125,15 +123,15 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -165,8 +163,11 @@ jobs:
       - name: Check loop-metrics derivation
         run: node --test scripts/__tests__/loop-metrics.test.mjs
 
-      - name: Check ledger-coverage guard logic
-        run: node --test scripts/__tests__/check-ledger-coverage.test.mjs
+      - name: Check loop-metrics guard logic
+        run: node --test scripts/__tests__/check-loop-metrics.test.mjs
+
+      - name: Check loop-report logic
+        run: node --test scripts/__tests__/loop-report.test.mjs
 
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a
@@ -200,32 +201,18 @@ jobs:
       - name: Check Bash guard decisions
         run: node --test scripts/__tests__/guard-decision.test.mjs
 
-      # The ledger only answers questions if the rows are actually in it. On
-      # 2026-07-29 it held 2 rows against 13 closed loops — the obligation had
-      # nowhere to fail, so it was skipped silently while CI stayed green.
-      # This makes a missing row a red check instead of a memory problem.
-      # PR_NUMBER is empty on push-to-main, where the coverage half is skipped
-      # (a just-merged loop's row belongs to the NEXT PR, not to itself) and
-      # only the offline arithmetic check runs.
-      - name: Check loop-ledger coverage
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-ledger-coverage.mjs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-
-      # The post-merge half. The step above can only see the current PR's
-      # context — nobody asks between PRs, and that interval is where both of
-      # the ledger's real misses (#286, #290) actually happened. Rows ship via
-      # dedicated [LEDGER] PRs (working-modes.md), so this fails `main` when a
-      # merged [LEDGER] carrier skipped a row it owed, or when the no-carrier
-      # backstop trips (2+ merges since a loop closed, row still missing, no
-      # [LEDGER] PR open). Pending-but-not-yet-due rows are printed, not failed.
-      - name: Audit loop-ledger debt
-        if: github.event_name == 'push'
-        run: node scripts/check-ledger-coverage.mjs --audit
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Record validity, offline. Needs no token, no PR context, and no base
+      # diff, so it runs identically on a PR and on push-to-main.
+      #
+      # Coverage is deliberately NOT checked here (David, 2026-08-07). The old
+      # guard failed builds over missing rows, which coupled every unrelated
+      # PR to ledger state and still didn't put the gap in front of the person
+      # who could act on it. Missing records are now named in the digest
+      # `/maintenance` narrates — the surface David actually reads. That trades
+      # a red check nobody sees for a weekly report someone does, and accepts
+      # that tracking can lapse for a week. This is a tracking tool.
+      - name: Check loop-metrics store
+        run: node scripts/check-loop-metrics.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -297,10 +284,10 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -309,7 +296,7 @@ jobs:
       # files (and lacks the test-isolation flag). 22 matches where these tests
       # are verified to run (Replit is on Node 24).
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -401,15 +388,15 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -464,15 +451,15 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -486,7 +473,7 @@ jobs:
       # below only matters on the cache-miss path).
       - name: Cache Playwright Chromium
         id: pw-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -532,7 +519,7 @@ jobs:
 
       - name: Upload traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-smoke-traces
           path: |

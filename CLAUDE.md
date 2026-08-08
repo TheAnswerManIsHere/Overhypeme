@@ -131,6 +131,44 @@ forward.
   product/business consequence. What doesn't clear it: the routine
   correctness/edge-case findings Codex raises by the dozen — those get
   fixed and resolved silently, per the sparse-chat rule below.
+- **Codex findings reach David in product English only, and every loop
+  passes the criticality gate before round 2 (David, 2026-08-08).** Both
+  halves came out of PR #356, where I ran five review rounds on a
+  delete-after-one-use Replit checklist and reported findings to David in
+  terms like "bash expands the variable before the command-local assignment
+  applies" — which meant nothing to him. The shared substance lives in
+  [`working-modes.md`](docs/ai-context/working-modes.md) (the criticality
+  gate under *Review loops need a stopping rule*, the floor tier in the
+  ceremony table, the product-English contract in *The post-round
+  check-in*); my enactment:
+  1. **Before requesting round 2 of any review loop**, I rate the artifact
+     1–100 on "what breaks in production if this ships wrong" and say the
+     number out loud in the check-in. TEST_RUN docs and anything else
+     transient are a 1 — they get the automatic first pass, one triage, and
+     no re-request, ever (the cap is on rounds, never on fixes: the one
+     triage still fixes anything safety-relevant, e.g. an instruction that
+     would touch live state). When I catch myself mid-loop on something
+     single-digit, the loop is over at that moment, not at the next round
+     boundary.
+  2. **Every finding I put in front of David** — check-in, 🛑 banner, FYI —
+     first goes through his own template: *"What are you trying to build,
+     why do we need it, why does Codex think there's an issue, and what is
+     the ramification of having bugs in this code?"* I write the outcome
+     ("this instruction would have quietly pointed a risky test at your
+     real database"), never the mechanism (shell expansion order, catalog
+     names, env-var precedence — those stay in the PR thread). Test: a
+     good outcome sentence survives a change of technical root cause
+     unchanged; if my sentence would have to change when the mechanism
+     changes, it's describing the mechanism, and I rewrite it as the
+     outcome.
+  3. **Docs-only PRs get the light review bar, and I say so in the review
+     request itself.** On any documentation-only PR, my `@codex review`
+     comment (and the PR body) states: docs-only — light review per
+     [`code-review.md`](docs/engineering/code-review.md)'s
+     documentation-only rule; generally correct is good enough; glaring
+     issues only, no grammar or minor-count findings. When Codex raises
+     pedantic findings on a docs PR anyway, they get declined against that
+     rule in one triage pass — not fixed to be polite.
 - **Never narrate webhook echoes of my own replies — in chat or on GitHub
   itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
   events that turn out to be my own comments bouncing back still get the
@@ -161,6 +199,15 @@ forward.
   correctness, source-of-truth risks. The same split governs the **automated
   Codex plan-review loop** (see *Plan review runs through the Codex draft-PR
   loop* below).
+- **Engineer to the blast radius — shared principle, not Claude-specific
+  ceremony (David, 2026-08-07).** Match engineering depth to actual stakes:
+  mission-critical work (payments, auth, migrations, moderation) keeps full
+  depth; internal tooling gets the boring version, where an occasional
+  hand-resolved conflict or a manual fix-up is an accepted outcome, not a
+  defect. This governs Codex too, so the full rule, the tier bar, and the
+  loop-metrics worked example live in
+  [`agent-working-rules.md`](docs/ai-context/agent-working-rules.md#engineer-to-the-blast-radius) —
+  per this file's own single-source-of-truth rule, I don't restate it here.
 
 ### Workflow tweaks (mechanical checks I've missed before)
 
@@ -607,38 +654,41 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
-## I append to the loop ledger when a loop closes
+## I record a loop when it closes
 
 The obligation itself is **shared and lives in
 [`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
 binds Codex too, so it is not restated here. What is mine is only the
 enactment:
 
-- **When a PR I own merges or closes, its row is owed** before I consider the
-  work finished — and it ships via a **dedicated `[LEDGER]`-titled PR whose
-  only change is `.agents/metrics/loop-ledger.md`**, batching every row
-  currently owed (David, 2026-08-02, replacing the old fold-into-next-PR
-  rule; the shared contract is `working-modes.md`'s *"A row ships in a
-  dedicated `[LEDGER]` PR"*). A `[LEDGER]` PR owes no row of its own — the
-  policy exclusion that terminates the recursion — and CI enforces both its
-  file constraint and its carry-everything-owed gate, so the exemption can't
-  be borrowed or half-done. Codex still reviews it; I drive that review to
-  resolution like any other before merging.
-- **David granted standing authorization (2026-08-02) for me to squash-merge
-  a green `[LEDGER]` PR myself** — CI green, Codex review resolved, both
-  ledger gates passed. Same shape as the Dependabot authorization under
-  `/maintenance`; the structural file-constraint gate is what makes it safe.
-  On a regular PR, pending rows are a printed CI warning only, never a red
-  check — the debt is paid through the next `[LEDGER]` PR, not by whatever
-  PR happens to be in flight.
-- **I run `node scripts/loop-metrics.mjs --pr <number>` for the mechanical
-  columns and never type them from memory** — or `--mcp-snapshot <file>` in
+- **When a PR I own reaches its terminal point, its record is owed** before I
+  consider the work finished. Terminal point is: closed or merged, **and** no
+  reviewer pass for a full digest window — reviews land after merge, so
+  recording at close would persist zeroes and look healthy. The record is one
+  file, `.agents/metrics/loops/<pr>.json`, and it **rides any PR of mine
+  except the one it measures** (adding it there changes the diff it
+  describes). No dedicated PR type, no batching, no title prefix — the
+  `[LEDGER]` PR is retired (David, 2026-08-07), and with it the
+  squash-merge-it-myself authorization that existed for that PR type.
+- **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
+  type the mechanical values from memory** — or `--mcp-snapshot <file>` in
   this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
-  real API (my working GitHub access here is the MCP integration). Recalled
-  numbers in this repo have been wrong three times out of three; counted
-  ones have all held.
-- **I classify the judgment columns myself and say so**, including when the
-  causes are my own errors. Ambiguous causes go to self-inflicted.
+  real API (my working GitHub access here is the MCP integration). The
+  snapshot must carry `closed_at` and a complete issue-comment collection;
+  `--write` refuses without them, because a record that understates rounds
+  would land as measured data. Recalled numbers in this repo have been wrong
+  three times out of three; counted ones have all held.
+- **I fill the judgment myself and say so**, including when the causes are my
+  own errors. Ambiguous causes go to self-inflicted. Unknown preflight is
+  recorded as `null` with a reason, never fabricated as zero.
+- **Adjudication is sampled, so most loops legitimately record
+  `never-run`** — `pr % 5 === 0` or `findings >= 30` are the only loops that
+  get the blind pass, and each of those is still adjudicated over its full
+  finding population. A sampled loop I skip fails CI.
+- **Missing records are not a CI failure any more.** They surface in the
+  digest at `/maintenance`. That means *I* am the one who notices them
+  between runs — if I close a loop and don't record it, nothing stops me
+  except this rule.
 - **I dispatch the blind adjudication subagent** — this is a named exception to
   the subagent-delegation rules below, for the same reason the fresh-context
   preflight would be: its value is the *absence* of my context, which my main
@@ -648,11 +698,12 @@ enactment:
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
   `/maintenance` skill owns the contract; the standing authorization worth
-  restating: green minor/patch Dependabot bumps are one of the two categories
-  of PR I squash-merge myself (the other: green `[LEDGER]` PRs, per the
-  loop-ledger section above). David invokes it roughly weekly; I never schedule it
-  (no-background-check-ins stands). David asked for a one-shot ~4-week
-  reminder (around 2026-08-19) to revisit automating it.
+  restating: green minor/patch Dependabot bumps are the one category of PR I
+  squash-merge myself. (The other category this line used to name, green
+  `[LEDGER]` PRs, is retired along with the `[LEDGER]` PR type itself — see
+  the loop-ledger section above.) David invokes it roughly weekly; I never
+  schedule it (no-background-check-ins stands). David asked for a one-shot
+  ~4-week reminder (around 2026-08-19) to revisit automating it.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed

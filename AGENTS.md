@@ -69,7 +69,10 @@ For **billing, Stripe webhooks, or membership** work specifically, also read:
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [testing-guide](docs/engineering/testing-guide.md),
-[migrations-and-backfills](docs/engineering/migrations-and-backfills.md),
+[migrations-and-backfills](docs/engineering/migrations-and-backfills.md)
+(and its worked example,
+[ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
+for a migration that cannot enforce its own privilege boundary),
 [code-review](docs/engineering/code-review.md),
 [test-run-contract](docs/engineering/test-run-contract.md) (what a per-PR
 `TEST_RUN` checklist must contain — Replit executes it post-merge against the

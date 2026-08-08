@@ -16,16 +16,48 @@ re-verifies the *environment*, not the code, and costs execution time (and
 sometimes an hour of environment contention) for no new signal.
 
 Replit's own feedback after executing several of these: roughly half of each
-checklist was re-verification. Structure the doc around the four things below,
+checklist was re-verification. Structure the doc around the things below,
 and demote the rest.
+
+**And it verifies it read-only (David, 2026-08-08).** A TEST_RUN instructs a
+person operating against the live workspace, so the checklist itself must be
+harmless to follow:
+
+- **Never instruct re-running a test suite CI already ran on the merged
+  code** — full or targeted. It adds no signal, and it is where all the risk
+  lives: writing safe isolation for suite re-runs on a live workspace is what
+  PR #356 spent five review rounds and 36 findings failing to do before the
+  sections were simply deleted.
+- **Never instruct anything that mutates cluster-global or live state**: no
+  test files that create/drop PostgreSQL roles or grants (roles are
+  cluster-scoped — no schema- or database-level isolation contains them), no
+  successful writes to live `admin_config` or other production rows, no
+  stopping of workflows without an explicit restart step. The permitted
+  writes are exactly two shapes: a request whose *rejection* is the thing
+  being tested (a 403 refusal probe writes nothing), and a write with a
+  restore path through the same surface, captured **before** the write.
+- **Read-only SQL is the workhorse.** Schema/catalog checks, count queries,
+  backfill-outcome verification — all safe to run any number of times, and
+  they cover what CI genuinely cannot see.
+
+A TEST_RUN doc is criticality 1 on the 1–100 scale
+([`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)) —
+but only because of this rule. A checklist that instructs risky operations
+against production is not a criticality-1 artifact no matter how transient
+the file is; keeping the doc read-only is what keeps it harmless.
 
 ## What earns a section (always include, when applicable)
 
 1. **Live-database migration state.** The highest-value section — nothing
    upstream checks that *this* database received the migration. Name the exact
-   column/table/row to confirm, its type and nullability, and state that
-   re-running the migration is a no-op (and why: `IF NOT EXISTS`, a guarded
-   `WHERE`, etc.).
+   column/table/row to confirm, its type and nullability. For rerun behavior,
+   describe what actually happens — a second `migrate` is **skipped by the
+   content-hash tracker**, not re-executed, so it confirms tracking rather
+   than SQL-level idempotency (don't claim "re-running is a no-op" as though
+   the SQL runs twice; that claim was a round-1 finding on PR #356). If the
+   migration ran a backfill, add a **read-only** count query verifying its
+   outcome on live data — including a bucket for the rows that *should* have
+   been transformed and weren't, not just the malformed ones.
 
 2. **Post-merge repo-health gates.** These depend on the *merged* state of
    `main`, which the PR author could not see when writing the doc — so a gate
@@ -59,27 +91,31 @@ and demote the rest.
    external call — the things unit tests mock. e.g. "force a terminal render
    failure and confirm the queue row goes `failed` after ONE attempt."
 
-4. **The targeted single-file test list**, scoped to exactly the surfaces this
-   PR touched. Best signal-to-cost ratio in the doc — a couple hundred tests in
-   seconds. Keep it scoped; it is not a place to list adjacent files "for
-   safety."
+4. **Targeted test runs — rare, and only for live-environment-specific
+   behavior.** Per the read-only rule above, a test that already passed in CI
+   on the merged code is not re-run here. A targeted run earns its place only
+   when the test genuinely measures something the live environment changes
+   (live config values, real external-service reachability) — and never a
+   file that mutates cluster-global state (role/grant creation), which is
+   banned from TEST_RUN docs outright regardless of wrapper (wrapper
+   isolation is schema-level; roles are cluster-scoped). The default for
+   this section is **none**.
 
 Proof tests / tripwires — a test that asserts a live measurement still fits a
 design budget, so a future change fails CI instead of silently degrading —
-belong in the targeted list and are worth calling out by name. They are the
-highest-value tests we write.
+are worth *naming* in the doc (so Replit knows they exist and what they
+guard), but they run in CI, not here.
 
 ## What to demote
 
 - **The full sharded suite** (`pnpm --filter @workspace/api-server test`) is
-  **conditional, not default.** Include it only when the PR touches shared
-  infra — the test runner, the DB layer, the migration runner, the codegen
-  pipeline (`lib/api-spec`, `lib/api-zod`), or shared middleware. State the
-  verdict explicitly in the heading: *run only if shared infra touched —
-  yes/no + why.* When it is required, add the operational note: **stop the
-  `artifacts/api-server: API Server` workflow first** to release test-DB
-  connections, or the `pretest` chain (push-force → migrate → codegen) stalls
-  against the test database.
+  **omitted by default — CI ran it on this exact code.** Per the read-only
+  rule above, "the PR touches shared infra" is no longer a reason to re-run
+  it on Replit: CI's coverage is the answer to that risk, and a live-workspace
+  re-run adds environment contention plus a stopped-workflow hazard (the
+  suite requires stopping the `artifacts/api-server: API Server` workflow,
+  and nothing restarts it — leaving the app down for the manual checks and
+  the UAT that follow). Include it only if David explicitly asks.
 
 - **Install and typecheck gates** (`pnpm install --frozen-lockfile`,
   `typecheck:libs`, per-package `typecheck`, codegen drift) pass trivially
@@ -138,6 +174,11 @@ is set here.
 Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-check
 only if something below fails.
 
+No test suites here — this PR's suites ran and passed in CI on this exact
+code. Everything below is what CI cannot see: the live database and the live
+app. Nothing below writes a row<, except <the one exception + its
+capture-before/restore-after steps — or delete this clause>>.
+
 ## Repo-health gates (post-merge state — run always)
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
   CI's `build.yml`)
@@ -146,23 +187,18 @@ only if something below fails.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean
 - Other allow-list entries this PR added: <list, or "none">
 
-## Targeted tests (run always)
-<exact command>
-Expected: ~N tests, **0 fail**. Known environmental failures: <list or "none">
-Proof tests to note: <name them, or "none">
-
-## Full sharded suite — shared infra touched: <yes/no + why>
-<If yes:>
-`pnpm --filter @workspace/api-server test`
-(Stop the `artifacts/api-server: API Server` workflow first to free test-DB
-connections.)
-<If no: omit this section's command entirely — the heading's "no" is the
-answer, do not leave an executable command underneath it.>
-
-## Manual DB / behavior checks (run always)
-1. Migration <N> applied — confirm <exact column/table/row, type, nullability>
-2. Re-running migration <N> is a no-op — <why: IF NOT EXISTS / guarded WHERE>
-3. <live behavior check against seeded config / real queue / real data>
+## Live checks (read-only; run always)
+1. Migration <N> applied — confirm <exact column/table/row, type, nullability,
+   constraint/trigger definitions where correctness-critical>
+2. Re-running migration <N>: a second `migrate` skips it via the content-hash
+   tracker — confirm skipped, not re-applied, no changes
+3. <If the migration backfilled: read-only count query over live data,
+   including the should-have-been-transformed-but-wasn't bucket>
+4. <live behavior check against seeded config / real queue / real data —
+   rejected-request probes are fine; successful live writes need a
+   captured-before restore path or don't belong here>
+Proof tests guarding this PR's budgets (run in CI, listed for awareness):
+<name them, or "none">
 
 ## What's deliberately NOT shipped
 - <terse bullets>

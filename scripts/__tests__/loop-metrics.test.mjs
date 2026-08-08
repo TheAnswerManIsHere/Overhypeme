@@ -14,6 +14,11 @@ import {
   gh,
   stripHtmlComments,
   parseArgs,
+  cohortWeights,
+  mechanicalProjection,
+  scaffoldRecord,
+  recordPath,
+  MECHANICAL_KEYS,
 } from "../loop-metrics.mjs";
 
 const BOT = { login: "chatgpt-codex-connector[bot]" };
@@ -329,11 +334,22 @@ test("cohort precedence is top-down, first match wins", () => {
   const plan = { title: "[PLAN REVIEW] whatever — DO NOT MERGE" };
   assert.equal(classifyCohort(plan, [{ filename: "src/a.ts" }]), "plan-review");
 
-  // Mixed code/prose lands in prose — stricter obligations, measured risk.
+  // Mixed code/prose is decided by weight, not by the mere presence of a
+  // prose path (which is what produced the frozen ledger's five-different-
+  // shapes-one-label problem). Code-heavy here, so: feature/code.
   assert.equal(
     classifyCohort({ title: "Add thing" }, [
-      { filename: "src/a.ts" },
-      { filename: "docs/b.md" },
+      { filename: "src/a.ts", additions: 400, deletions: 20 },
+      { filename: "docs/b.md", additions: 30, deletions: 0 },
+    ]),
+    "feature/code",
+  );
+
+  // …and the same file list weighted the other way lands in prose/contract.
+  assert.equal(
+    classifyCohort({ title: "Add thing" }, [
+      { filename: "src/a.ts", additions: 10, deletions: 0 },
+      { filename: "docs/b.md", additions: 900, deletions: 0 },
     ]),
     "prose/contract",
   );
@@ -869,6 +885,7 @@ function realSnapshot(overrides = {}) {
       number: 270,
       title: "Add the loop ledger: track every review loop, count what can be counted",
       created_at: "2026-07-27T20:07:03Z",
+      closed_at: "2026-07-29T18:41:12Z",
     },
     reviews: [MCP_REVIEW],
     files: [{ filename: "scripts/loop-metrics.mjs", additions: 100, deletions: 0 }],
@@ -1049,6 +1066,7 @@ test("parseArgs accepts a single --pr source", () => {
     mcpSnapshot: null,
     prNumber: "270",
     saveTo: null,
+    write: false,
   });
 });
 
@@ -1099,3 +1117,171 @@ test("parseArgs accepts --save-fixture with a path", () => {
     "out.json",
   );
 });
+
+// ---------------------------------------------------------------------------
+// The per-loop metrics store: projection, scaffold, cohort weighting
+// ---------------------------------------------------------------------------
+
+/** A `derive()`-shaped object carrying every key the real one returns. */
+function derivedFixture(overrides = {}) {
+  return {
+    pr: 344,
+    title: "Add a thing",
+    cohort: "feature/code",
+    size: { files: 5, added: 120, removed: 8 },
+    rounds: 3,
+    findings: 7,
+    per_round: [{ round: 1, findings: 4 }, { round: 2, findings: 3 }, { round: 3, findings: 0 }],
+    review_interval: { opened: "2026-08-01T00:00:00Z", last_review: "2026-08-02T00:00:00Z", hours: 24 },
+    adjudication_sample: { size: 7, note: "full population — no sampling; see working-modes.md" },
+    warnings: [],
+    state: "merged",
+    closedAt: "2026-08-02T10:00:00Z",
+    mergedAt: "2026-08-02T10:00:00Z",
+    judgment: { new_ground: null, propagation: null },
+    ...overrides,
+  };
+}
+
+test("mechanicalProjection emits exactly the allowlisted keys", () => {
+  const mechanical = mechanicalProjection(derivedFixture());
+  assert.deepEqual(Object.keys(mechanical).sort(), [...MECHANICAL_KEYS].sort());
+});
+
+test("mechanicalProjection drops pr, judgment, adjudication_sample, and state", () => {
+  // Each of these is authoritative somewhere else in the record (or derived
+  // at read time). Persisting a copy here is how it goes stale on a refresh
+  // while every other check still passes.
+  const mechanical = mechanicalProjection(derivedFixture());
+  for (const forbidden of ["pr", "judgment", "adjudication_sample", "state", "closedAt", "mergedAt"]) {
+    assert.equal(mechanical[forbidden], undefined, `mechanical must not carry ${forbidden}`);
+  }
+});
+
+test("mechanicalProjection renames to the stored camelCase keys", () => {
+  const d = derivedFixture();
+  const mechanical = mechanicalProjection(d);
+  assert.deepEqual(mechanical.perRound, d.per_round);
+  assert.deepEqual(mechanical.reviewInterval, d.review_interval);
+});
+
+test("scaffoldRecord lands judgment as null so an interrupted session cannot leave a valid-looking hole", () => {
+  const record = scaffoldRecord(derivedFixture());
+  assert.equal(record.schemaVersion, 1);
+  assert.equal(record.pr, 344);
+  assert.equal(record.closedAt, "2026-08-02T10:00:00Z");
+  assert.equal(record.judgment, null);
+  assert.equal(record.adjudication, null);
+  assert.equal(record.mechanical.findings, 7);
+});
+
+test("recordPath is keyed by PR number under the store prefix", () => {
+  assert.equal(recordPath(344), ".agents/metrics/loops/344.json");
+});
+
+test("derive retains closure timestamps, including for a loop with no reviews at all", () => {
+  // review_interval is null here — which is exactly why `state` and
+  // `review_interval` cannot supply the window key on their own.
+  const raw = {
+    pr: {
+      number: 400,
+      title: "Clean loop",
+      created_at: "2026-08-01T00:00:00Z",
+      closed_at: "2026-08-03T09:00:00Z",
+      merged_at: "2026-08-03T09:00:00Z",
+    },
+    reviews: [],
+    files: [{ filename: "src/a.ts", additions: 1, deletions: 0 }],
+    comments: [],
+    issueComments: [],
+  };
+  const d = derive(raw);
+  assert.equal(d.review_interval, null);
+  assert.equal(d.closedAt, "2026-08-03T09:00:00Z");
+  assert.equal(d.mergedAt, "2026-08-03T09:00:00Z");
+});
+
+test("derive reports a still-open loop as having no closure timestamp", () => {
+  const d = derive({
+    pr: { number: 401, title: "Open", created_at: "2026-08-01T00:00:00Z" },
+    reviews: [],
+    files: [{ filename: "src/a.ts", additions: 1, deletions: 0 }],
+    comments: [],
+    issueComments: [],
+  });
+  assert.equal(d.closedAt, null);
+  assert.equal(d.state, "open");
+});
+
+test("cohort: a deletion-heavy code change still counts as code", () => {
+  // Weight is additions + deletions — a big removal is real code work, and
+  // scoring additions alone would hand deletion-heavy refactors to prose.
+  assert.equal(
+    classifyCohort({ title: "Remove the dead path" }, [
+      { filename: "src/a.ts", additions: 2, deletions: 500 },
+      { filename: "docs/note.md", additions: 40, deletions: 0 },
+    ]),
+    "feature/code",
+  );
+});
+
+test("cohort: an exact tie lands in prose/contract", () => {
+  assert.equal(
+    classifyCohort({ title: "Balanced" }, [
+      { filename: "src/a.ts", additions: 50, deletions: 50 },
+      { filename: "docs/b.md", additions: 100, deletions: 0 },
+    ]),
+    "prose/contract",
+  );
+});
+
+test("cohort: a docs-only PR carrying a large metrics record is still prose/contract", () => {
+  // The record rides an ordinary PR now, so without the store exclusion a
+  // docs PR would be reclassified by its own bookkeeping.
+  assert.equal(
+    classifyCohort({ title: "Document the thing" }, [
+      { filename: "docs/ai-context/thing.md", additions: 30, deletions: 2 },
+      { filename: ".agents/metrics/loops/344.json", additions: 800, deletions: 0 },
+    ]),
+    "prose/contract",
+  );
+});
+
+test("cohort: the frozen ledger and the store contribute to neither side", () => {
+  const weights = cohortWeights([
+    { filename: ".agents/metrics/loop-ledger.md", additions: 900, deletions: 0 },
+    { filename: ".agents/metrics/loops/344.json", additions: 900, deletions: 0 },
+    { filename: "src/a.ts", additions: 3, deletions: 1 },
+  ]);
+  assert.deepEqual(weights, { code: 4, docs: 0, codeFiles: 1, docsFiles: 0 });
+});
+
+test("cohort: a rename is counted once, at its destination side", () => {
+  // GitHub reports a rename as one record at the destination path with its
+  // own additions/deletions, so moving a doc into code territory must not
+  // score on both sides.
+  assert.deepEqual(
+    cohortWeights([{ filename: "src/moved.ts", additions: 10, deletions: 10 }]),
+    { code: 20, docs: 0, codeFiles: 1, docsFiles: 0 },
+  );
+});
+
+test("cohort: a bugfix tier beats shape, so a code-heavy bugfix is still bugfix", () => {
+  assert.equal(
+    classifyCohort(
+      { title: "Prevent the crash", body: "**Fix tier:** A — regression test shipped" },
+      [{ filename: "src/a.ts", additions: 400, deletions: 10 }],
+    ),
+    "bugfix",
+  );
+});
+
+test("cohort: a PR touching only metrics paths has no code side and lands in prose/contract", () => {
+  assert.equal(
+    classifyCohort({ title: "Record loop 344" }, [
+      { filename: ".agents/metrics/loops/344.json", additions: 40, deletions: 0 },
+    ]),
+    "prose/contract",
+  );
+});
+
