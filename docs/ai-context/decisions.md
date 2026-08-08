@@ -68,85 +68,6 @@
   transfer logic in this PR's history, before `a376f2cc`, is the starting
   point — don't re-derive it from scratch).
 
-### 2026-08-01 · Dispute alerts fire on every delivery attempt, accepting duplicates
-- **Decision:** The admin dispute-created alert fires on every webhook delivery
-  where an advisory `eventAlreadyProcessed` check says the event hasn't
-  committed yet — including two deliveries racing before either one commits,
-  where both see "not yet processed" and both alert. No attempt is made to
-  reserve the alert atomically across that race.
-- **Why:** Reserving it atomically would mean claiming the event during
-  *prepare*, which is the ordering PR #287 specifically removed — a claim that
-  outlives a failed prepare permanently acks an event whose domain write never
-  happened, and Stripe never redelivers it. On a response window Stripe
-  measures in days, a duplicate chargeback warning is noise; a missing one is
-  an undefended chargeback. The advisory check still suppresses the common
-  case (a sequential redelivery of an already-committed event), so this only
-  costs a duplicate alert in the narrow concurrent-delivery window, never a
-  dropped one **through that specific race** — the alert call is separately
-  wrapped best-effort (`try`/`catch`, so a notify failure can't take the
-  entitlement write down with it), so an ordinary `sendEmail`/enqueue failure
-  after the webhook's idempotency claim has already committed still drops the
-  alert with no retry; that's a different, pre-existing failure mode this
-  decision doesn't cover.
-- **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
-  before sending notifications"); mechanics in
-  [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).
-- **Revisit if:** duplicate alerts become an operational nuisance. Closing the
-  gap is smaller than it first looked, but is not a bare config toggle:
-  `notifyAdminsOfDispute` calls `sendEmail`, and `sendEmail` (`email.ts`)
-  already calls `enqueueJob({queue: "email", ...})` internally, so the alert
-  already reaches `async_jobs` — the queue enqueue is not the missing piece.
-  What's missing is a deterministic dedupe key on that enqueue call: `sendEmail`
-  doesn't currently thread one through, so nothing yet stops two racing
-  deliveries from producing two queued alert emails. And even a dedupe key
-  wouldn't fully close it as-is — `async_jobs`'s partial unique index on
-  `(queue, dedupe_key)` covers only non-terminal (`pending`/`processing`) rows
-  by design, so it wouldn't stop a second alert once the first has already
-  completed, which is exactly the race this decision accepts. The real
-  remaining work is plumbing a dedupe key through `sendEmail`'s enqueue call
-  and widening the index's scope (or adding a separate "already alerted for
-  this event" check), not routing the alert into the queue for the first time.
-
-### 2026-08-01 · Membership config relational writes lock the whole config set, not just the touched key
-- **Decision:** `PATCH /admin/config/:key` for a membership-timing key (lease
-  TTL, waiter timeout, sweep interval/threshold) locks and validates **every**
-  membership config row inside the write transaction, not only the key being
-  changed.
-- **Why:** The relational invariants are between *pairs* of settings — a lease
-  must outlive the retrieval-plus-apply budget it protects, a waiter must not
-  outlive the lease it waits for — so validating one key against a value read
-  outside the transaction lets two concurrent writes each pass individually
-  and commit an unsafe pair together. Locking the whole set closes that at the
-  cost of contention between concurrent config writers, which is theoretical
-  here: there is one admin, and will only be one for a while.
-- **Reference:** PR #287 review rounds 4–5 (escalated finding: concurrent
-  `PATCH /admin/config/:key` writes can each validate a safe intermediate
-  state and commit an unsafe pair); `lockAndLoadMembershipConfig` in
-  `membershipTiming.ts`.
-- **Revisit if:** more than one admin account becomes routine and the lock's
-  contention cost stops being theoretical.
-
-### 2026-07-30 · Reconciliation is deferred out of the entitlement-model PR; the gap is accepted
-- **Decision:** PR #287 ships the settled core of the payments/membership
-  rewrite — the entitlement model, its derivation, every write path, read-path
-  enforcement — **without** the Stripe↔local reconciliation job the original
-  plan called for. The job existed, was built, and was pulled out.
-- **Why:** Four Codex review rounds on reconciliation did not converge
-  (15 → 13 → 7 → 15 findings), and round 4's surface was almost entirely the
-  reconciliation subsystem plus regressions in the previous round's fixes *to
-  that subsystem* — not the settled core, which had stopped generating
-  defects. Narrowing scope shipped the part that was actually done instead of
-  letting an unconverging subsystem hold up a correct one.
-- **Reference:** PR #287 body ("Scope narrowed after review round 4"); the gap
-  itself and why it's harder than "write the job" (it can't enumerate from
-  local rows) are recorded under "Stripe↔local membership reconciliation" in
-  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-- **Revisit if:** a real membership is observed out of step with Stripe with
-  no explaining event, or before scaling paid signups materially — whichever
-  comes first (same trigger recorded in `deferred-work.md`).
-
----
-
 ### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
 - **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
   newer push lands on the *same PR* (never a push-to-main or the weekly
@@ -542,6 +463,85 @@
   cap or a return to a fleet-wide store design — this time scoped to avoid
   the hot-path DB-failure boundary that sank the first attempt), or CodeQL's
   query model changes to recognize custom stores/controls directly.
+
+---
+
+### 2026-08-01 · Dispute alerts fire on every delivery attempt, accepting duplicates
+- **Decision:** The admin dispute-created alert fires on every webhook delivery
+  where an advisory `eventAlreadyProcessed` check says the event hasn't
+  committed yet — including two deliveries racing before either one commits,
+  where both see "not yet processed" and both alert. No attempt is made to
+  reserve the alert atomically across that race.
+- **Why:** Reserving it atomically would mean claiming the event during
+  *prepare*, which is the ordering PR #287 specifically removed — a claim that
+  outlives a failed prepare permanently acks an event whose domain write never
+  happened, and Stripe never redelivers it. On a response window Stripe
+  measures in days, a duplicate chargeback warning is noise; a missing one is
+  an undefended chargeback. The advisory check still suppresses the common
+  case (a sequential redelivery of an already-committed event), so this only
+  costs a duplicate alert in the narrow concurrent-delivery window, never a
+  dropped one **through that specific race** — the alert call is separately
+  wrapped best-effort (`try`/`catch`, so a notify failure can't take the
+  entitlement write down with it), so an ordinary `sendEmail`/enqueue failure
+  after the webhook's idempotency claim has already committed still drops the
+  alert with no retry; that's a different, pre-existing failure mode this
+  decision doesn't cover.
+- **Reference:** PR #287 review round 9 (finding: "Claim webhook idempotency
+  before sending notifications"); mechanics in
+  [`membership-entitlements.md`](./membership-entitlements.md#concurrency--leases-fencing-and-the-prepareapply-split).
+- **Revisit if:** duplicate alerts become an operational nuisance. Closing the
+  gap is smaller than it first looked, but is not a bare config toggle:
+  `notifyAdminsOfDispute` calls `sendEmail`, and `sendEmail` (`email.ts`)
+  already calls `enqueueJob({queue: "email", ...})` internally, so the alert
+  already reaches `async_jobs` — the queue enqueue is not the missing piece.
+  What's missing is a deterministic dedupe key on that enqueue call: `sendEmail`
+  doesn't currently thread one through, so nothing yet stops two racing
+  deliveries from producing two queued alert emails. And even a dedupe key
+  wouldn't fully close it as-is — `async_jobs`'s partial unique index on
+  `(queue, dedupe_key)` covers only non-terminal (`pending`/`processing`) rows
+  by design, so it wouldn't stop a second alert once the first has already
+  completed, which is exactly the race this decision accepts. The real
+  remaining work is plumbing a dedupe key through `sendEmail`'s enqueue call
+  and widening the index's scope (or adding a separate "already alerted for
+  this event" check), not routing the alert into the queue for the first time.
+
+### 2026-08-01 · Membership config relational writes lock the whole config set, not just the touched key
+- **Decision:** `PATCH /admin/config/:key` for a membership-timing key (lease
+  TTL, waiter timeout, sweep interval/threshold) locks and validates **every**
+  membership config row inside the write transaction, not only the key being
+  changed.
+- **Why:** The relational invariants are between *pairs* of settings — a lease
+  must outlive the retrieval-plus-apply budget it protects, a waiter must not
+  outlive the lease it waits for — so validating one key against a value read
+  outside the transaction lets two concurrent writes each pass individually
+  and commit an unsafe pair together. Locking the whole set closes that at the
+  cost of contention between concurrent config writers, which is theoretical
+  here: there is one admin, and will only be one for a while.
+- **Reference:** PR #287 review rounds 4–5 (escalated finding: concurrent
+  `PATCH /admin/config/:key` writes can each validate a safe intermediate
+  state and commit an unsafe pair); `lockAndLoadMembershipConfig` in
+  `membershipTiming.ts`.
+- **Revisit if:** more than one admin account becomes routine and the lock's
+  contention cost stops being theoretical.
+
+### 2026-07-30 · Reconciliation is deferred out of the entitlement-model PR; the gap is accepted
+- **Decision:** PR #287 ships the settled core of the payments/membership
+  rewrite — the entitlement model, its derivation, every write path, read-path
+  enforcement — **without** the Stripe↔local reconciliation job the original
+  plan called for. The job existed, was built, and was pulled out.
+- **Why:** Four Codex review rounds on reconciliation did not converge
+  (15 → 13 → 7 → 15 findings), and round 4's surface was almost entirely the
+  reconciliation subsystem plus regressions in the previous round's fixes *to
+  that subsystem* — not the settled core, which had stopped generating
+  defects. Narrowing scope shipped the part that was actually done instead of
+  letting an unconverging subsystem hold up a correct one.
+- **Reference:** PR #287 body ("Scope narrowed after review round 4"); the gap
+  itself and why it's harder than "write the job" (it can't enumerate from
+  local rows) are recorded under "Stripe↔local membership reconciliation" in
+  [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+- **Revisit if:** a real membership is observed out of step with Stripe with
+  no explaining event, or before scaling paid signups materially — whichever
+  comes first (same trigger recorded in `deferred-work.md`).
 
 ---
 

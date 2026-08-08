@@ -54,18 +54,22 @@ access is answered separately, below. Three source types:
 
 | Source type | Created by | Frozen identity | Verified against |
 |---|---|---|---|
-| `stripe_subscription` | a subscription webhook, a Stripe-mutating route, or a refresh | `provider_ref` = the subscription id | The retrieved live `Stripe.Subscription` |
-| `stripe_lifetime_payment` | `checkout.session.completed` (one-time), or synchronously by `POST /stripe/checkout/confirm` if the confirm route reaches it before the webhook does | `provider_ref` = the PaymentIntent id | The retrieved live `Stripe.PaymentIntent` / its charges |
-| `admin_grant` | `POST /admin/users/:id/grant-lifetime` | none (`provider_ref` is null) | Nothing — it *is* the authority |
+| `stripe_subscription` | a subscription webhook, a Stripe-mutating route, or a refresh | `provider_ref` = the subscription id | The retrieved live `Stripe.Subscription`, plus its enumerated subscription items to inspect the purchased products against the allowlist |
+| `stripe_lifetime_payment` | `checkout.session.completed` (one-time), or synchronously by `POST /stripe/checkout/confirm` if the confirm route reaches it before the webhook does | `provider_ref` = the PaymentIntent id | The retrieved live `Stripe.PaymentIntent` / its charges, plus the Checkout Session's enumerated line items to inspect the purchased products against the allowlist |
+| `admin_grant` | `POST /admin/users/:id/grant-lifetime`, or `POST /admin/users` (Add User modal) when the admin selects Legendary | none (`provider_ref` is null) | Nothing — it *is* the authority |
 
 `user_id`, `source_type`, `provider_ref` and `created_at` are **frozen** after
 creation (a `BEFORE UPDATE` trigger enforces it) — nothing may repoint a source
 at a different Stripe object or a different user, not a refresh, not a repair
 script, not a migration backfill.
 
-**Qualification is a conjunction, per source:** the allowlist (`overhype_membership=true`
-on the product), no open dispute hold, no terminal dispute loss, and a
-lifecycle check specific to the source type. **The tier is a set union across
+**Qualification is a conjunction, per source:** for the two Stripe-backed
+source types, the allowlist (`overhype_membership=true` on the product), no
+open dispute hold, no terminal dispute loss, and a lifecycle check specific to
+the source type. `admin_grant` rows skip the allowlist term — they store no
+product metadata (`is_membership_product` is null) and are authorized by W1b
+provenance instead, not by a purchased product — but still carry the dispute-
+hold and lifecycle terms like any other source. **The tier is a set union across
 sources, not a priority order** — Legendary if *any* source qualifies. A user
 holding both a lifetime purchase and a subscription stays Legendary if either
 one alone would grant it; refunding the subscription alone does nothing.
@@ -253,10 +257,14 @@ active → revoked rather than being superseded by a new row.
 ever removes a history row except through account deletion, where the user's
 whole trail goes with the user.
 
-**There is no membership-tier dropdown in Admin → Users.** Setting a tier by
-hand is exactly what this model removes: the next recompute would silently
-overwrite it. `PATCH /admin/users/:id` doesn't accept `membershipTier` for that
-reason.
+**There is no membership-tier dropdown on editing an existing user in Admin →
+Users.** Setting a tier by hand is exactly what this model removes for that
+surface: the next recompute would silently overwrite it. `PATCH
+/admin/users/:id` doesn't accept `membershipTier` for that reason. The Add
+User modal is a separate surface and still renders a tier selector — choosing
+Legendary there routes through `POST /admin/users`, which writes an
+`admin_grant` rather than setting the field directly (see the source-type
+table above).
 
 **Reinstating a deactivated user re-verifies every Stripe-backed source before
 restoring their tier**, and fails closed only over sources it genuinely

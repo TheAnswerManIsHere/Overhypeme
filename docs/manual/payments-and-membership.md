@@ -12,10 +12,10 @@
 ## What it does
 
 Overhype.me has two tiers: **Registered** (free — anyone with an account) and
-**Legendary** (paid — unlocks private memes, AI identity memes, higher rate
-limits, and higher daily generation budgets). Legendary can be bought as a
-recurring subscription or a one-time "Legendary for Life" purchase, and an
-admin can comp it to someone directly.
+**Legendary** (paid — unlocks private memes, AI identity memes, AI video
+generation, higher rate limits, and higher daily generation budgets).
+Legendary can be bought as a recurring subscription or a one-time "Legendary
+for Life" purchase, and an admin can comp it to someone directly.
 
 The one thing worth understanding before anything else: **nobody sets a
 user's tier.** It's computed. At any moment, a user is Legendary if — and only
@@ -23,7 +23,9 @@ if — they currently hold something that entitles them to it: an active
 subscription, a lifetime purchase, or an admin grant. Cancel the subscription,
 refund the purchase, or revoke the grant, and the computed answer changes on
 its own. There is no button, script, or admin field that sets "Legendary"
-directly.
+directly — with one narrow, designed exception: reinstating a deactivated
+user whose sources can't all be re-verified writes the tier directly rather
+than derive it from an incomplete set (see below).
 
 ## How it works
 
@@ -155,9 +157,15 @@ a comp from a real sale.
 - **No repair for a webhook Stripe never successfully delivers, or for an
   event type membership doesn't model.** Every event type this system
   handles is applied correctly, including duplicates and events arriving out
-  of order. An event type it doesn't recognize is silently ignored rather
-  than acted on — not reachable in practice today (checkout only accepts
-  cards), but not actively prevented either. And if Stripe's delivery
+  of order. The managed webhook endpoint is subscribed to every event type
+  the sync library supports, not just the ones membership models — so an
+  event type without a handler (e.g. a `customer.updated` or a
+  `product.updated`) is delivered and silently ignored today, not merely a
+  theoretical gap. Card-only checkout only rules out one specific corner of
+  this: the *delayed/async-payment* scenario (a checkout that can't resolve
+  synchronously) never occurs, so that particular path is unreachable — it
+  doesn't mean unmodeled events in general go undelivered. And if Stripe's
+  delivery
   attempts for a *handled* event all fail — the endpoint down for its whole
   retry window, say — nothing currently notices and fixes it afterward. In
   the direction that would cost the business money (a cancellation or refund
