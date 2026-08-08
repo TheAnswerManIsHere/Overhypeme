@@ -379,7 +379,8 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** The first time a real membership is observed out of
     step with Stripe with no explaining event — or before scaling paid signups
     materially, whichever comes first.
-  - **Sequencing.** Blocked on PR #287 merging.
+  - **Sequencing.** Unblocked — PR #287 merged 2026-08-03. Available to pick
+    up now, subject to the revisit trigger above.
 
 > The other inline marker, `TODO(version-rollback)` in
 > `enrichmentVersioning.ts`, is **product** work (an unbuilt feature) and is

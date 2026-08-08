@@ -188,9 +188,12 @@ single-sourced and enforced at **every** grant surface:
   [`known-failure-patterns.md`](./known-failure-patterns.md)).
 - **Cancellation is symmetric with the grant** — `handleSubscriptionCancelled`
   also checks membership, so canceling a future non-membership subscription
-  can't downgrade a still-active member. Everything fails closed: anything not
-  positively confirmed as a tagged, non-deleted membership product is treated as
-  non-membership.
+  can't downgrade a still-active member. Everything fails closed: a
+  *settled* negative — the product list was fully enumerated and none of them
+  is a tagged, non-deleted membership product — is treated as non-membership.
+  An *unobservable* result (a pagination or retrieval failure mid-check) is
+  not decided against the customer; it retries instead of settling false, so
+  a transient failure can't silently strip access from a real member.
 - **The display/selection layer must apply the same filter, even though it
   isn't a grant surface.** `/api/stripe/plans` returns every active product in
   the catalog (render credits, merch, tips, ...), not just membership ones —

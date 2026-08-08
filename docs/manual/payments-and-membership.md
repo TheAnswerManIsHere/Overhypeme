@@ -196,8 +196,12 @@ a comp from a real sale.
   attempts for a *handled* event all fail — the endpoint down for its whole
   retry window, say — nothing currently notices and fixes it afterward. In
   the direction that would cost the business money (a cancellation or refund
-  that never arrived), there's also no way to fix it from the admin screen by
-  hand; grant/revoke only create and end admin grants. This is a known,
+  that never arrived), grant/revoke only create and end admin grants — they
+  can't force a re-check of a Stripe source. The one indirect route is
+  deactivating the account and then reinstating it, which re-verifies every
+  Stripe-backed source before restoring the tier; it's disruptive (the user
+  is briefly deactivated) and not a substitute for automatic repair, but it
+  is a real way to force the correction by hand today. This is a known,
   accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
 - **The stored tier column itself can lag reality between background sweeps
