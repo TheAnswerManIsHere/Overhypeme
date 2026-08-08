@@ -886,6 +886,25 @@ at round 5 or so, once "every fix targets the same reachability model,"
 would have caught it much earlier than a David-initiated review of the
 finding distribution did.
 
+**A fourth instance, the very next day, on an artifact with no blast radius
+at all (PR #356, 2026-08-08).** The TEST_RUN checklist for PR #293 — a doc
+that is *deleted after one Replit run* — went five review rounds and 36
+findings (9 → 6 → 6 → 6 → 9), nearly all against instructions for re-running
+test suites that had already passed in CI on the same code. Every finding was
+technically correct; every round was a misallocation, because the artifact's
+worst case was one confused test run, not a production defect. Each isolation
+fix opened the next round's gap (culminating in round 5 discovering the
+repo's own test wrappers silently override the variable all the prior fixes
+depended on), and the loop only ended when David asked what any of it had to
+do with the product — the answer being "nothing," the fix was to **delete the
+findings' entire subject from the doc**, not repair it a fifth time. Where
+the first three instances were about *unachievable guarantees*, this one is
+about **criticality**: the loop's subject was achievable and simply not worth
+achieving. That question now has a formal gate — rate the artifact 1–100 on
+"what breaks in production if this is wrong" *before* requesting round 2, and
+single-digit artifacts never loop
+([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)).
+
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
 **Looks like:** writing a from-scratch recognizer — tokenizer plus rules —

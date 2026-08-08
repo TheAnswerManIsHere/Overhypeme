@@ -144,6 +144,32 @@ comment) reads "n/a — no plan"; there, review the diff on its own terms as usu
 Weight findings by this order — a correctness or source-of-truth issue outranks a
 style nit.
 
+### Documentation-only PRs get a light review (David, 2026-08-08)
+
+When a PR changes only documentation — TEST_RUN/UAT docs, `docs/ai-context/`,
+`docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
+**is it generally correct, with no glaring issues?** A glaring issue means an
+instruction that would lead someone to do something harmful or wrong, a claim
+that contradicts how the product or code actually behaves, or a
+safety-relevant error. That's the whole list.
+
+Explicitly **not** findings on a docs-only PR, even when technically true:
+
+- Grammar, phrasing, tone, formatting, and style.
+- Minor numeric or count discrepancies ("the doc says ~25 lines, the file has
+  24") and similar precision drift that misleads no one.
+- Completeness beyond the doc's stated purpose — a checklist or guide does
+  not need to enumerate every edge case to be good enough.
+
+Docs are self-catching and fixed in one commit; pedantic findings on them
+cost more than the defects they describe. This is the *depth* rule; the
+*round-count* rule for the same artifacts (light docs never loop — see the
+criticality gate) lives in
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
+The author's review request on a docs-only PR states this bar explicitly
+("docs-only — light review per code-review.md"), so the reviewer calibrates
+from the request itself, not just from this file.
+
 ## Runtime correctness
 
 - Does it do what the plan/intent says, including edge cases?

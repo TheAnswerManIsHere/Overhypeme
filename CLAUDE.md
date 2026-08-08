@@ -131,6 +131,44 @@ forward.
   product/business consequence. What doesn't clear it: the routine
   correctness/edge-case findings Codex raises by the dozen — those get
   fixed and resolved silently, per the sparse-chat rule below.
+- **Codex findings reach David in product English only, and every loop
+  passes the criticality gate before round 2 (David, 2026-08-08).** Both
+  halves came out of PR #356, where I ran five review rounds on a
+  delete-after-one-use Replit checklist and reported findings to David in
+  terms like "bash expands the variable before the command-local assignment
+  applies" — which meant nothing to him. The shared substance lives in
+  [`working-modes.md`](docs/ai-context/working-modes.md) (the criticality
+  gate under *Review loops need a stopping rule*, the floor tier in the
+  ceremony table, the product-English contract in *The post-round
+  check-in*); my enactment:
+  1. **Before requesting round 2 of any review loop**, I rate the artifact
+     1–100 on "what breaks in production if this ships wrong" and say the
+     number out loud in the check-in. TEST_RUN docs and anything else
+     transient are a 1 — they get the automatic first pass, one triage, and
+     no re-request, ever (the cap is on rounds, never on fixes: the one
+     triage still fixes anything safety-relevant, e.g. an instruction that
+     would touch live state). When I catch myself mid-loop on something
+     single-digit, the loop is over at that moment, not at the next round
+     boundary.
+  2. **Every finding I put in front of David** — check-in, 🛑 banner, FYI —
+     first goes through his own template: *"What are you trying to build,
+     why do we need it, why does Codex think there's an issue, and what is
+     the ramification of having bugs in this code?"* I write the outcome
+     ("this instruction would have quietly pointed a risky test at your
+     real database"), never the mechanism (shell expansion order, catalog
+     names, env-var precedence — those stay in the PR thread). Test: a
+     good outcome sentence survives a change of technical root cause
+     unchanged; if my sentence would have to change when the mechanism
+     changes, it's describing the mechanism, and I rewrite it as the
+     outcome.
+  3. **Docs-only PRs get the light review bar, and I say so in the review
+     request itself.** On any documentation-only PR, my `@codex review`
+     comment (and the PR body) states: docs-only — light review per
+     [`code-review.md`](docs/engineering/code-review.md)'s
+     documentation-only rule; generally correct is good enough; glaring
+     issues only, no grammar or minor-count findings. When Codex raises
+     pedantic findings on a docs PR anyway, they get declined against that
+     rule in one triage pass — not fixed to be polite.
 - **Never narrate webhook echoes of my own replies — in chat or on GitHub
   itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
   events that turn out to be my own comments bouncing back still get the

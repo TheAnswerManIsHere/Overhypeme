@@ -164,7 +164,9 @@ have a draft plan, and the disclosure check passes:
    (count + trend, per-finding nature / affected area / verdict, the causal
    flag — new ground vs. repairing an earlier round's revision vs.
    impossible-as-specified — and a continue/stop recommendation), delivered as
-   a 🛑 NEED YOU banner, waiting for David's go. Skip-on-clean applies: a
+   a 🛑 NEED YOU banner, waiting for David's go — with every finding written
+   in **product English** per that contract's 2026-08-08 addition (David's
+   four-question template; outcomes, never mechanics). Skip-on-clean applies: a
    clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
    rule in step 7 it proceeds straight to the next lens with a one-line
    status. After the go (or on a clean round), I revise the plan
@@ -220,8 +222,15 @@ have a draft plan, and the disclosure check passes:
    once it's served its purpose. This is a prose/structure pass, not a
    technical change, so it doesn't reopen anything Codex already confirmed.
 7. **Convergence: minimum 3 rounds, and three conditions (David, 2026-07-22).**
-   I do not stop before three completed Codex review rounds, even if an early
-   round comes back clean — in that case I request the re-review through a
+   This cadence presupposes the artifact *earns* a plan loop at all — the
+   criticality gate ([`working-modes.md`](../../../docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target),
+   David 2026-08-08) and the ceremony-tiering rule keep low-criticality
+   artifacts (agent-facing markdown, transient docs) out of this loop
+   entirely; if I catch myself running this ceremony on something
+   single-digit on the 1–100 production-impact scale, the loop itself is
+   the mistake and I exit and say so, rather than applying the minimum
+   below. For a qualifying plan: I do not stop before three completed Codex
+   review rounds, even if an early round comes back clean — in that case I request the re-review through a
    different lens (edge cases, data integrity/migrations, source-of-truth risks,
    failure modes) instead of manufacturing plan churn. From round 3 on, I stop
    only when **all three** hold: (a) no substantive new objections (zero
