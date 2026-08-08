@@ -323,36 +323,38 @@ checked analysis, not an equally-valid alternative reading.
 **The pre-boundary trend (n=3) stands as originally measured: 64.7% → 68.4%
 → 72.1%, not falling.** **The confirmed post-boundary population is now n=8
 (#285 still excluded as a boundary straddle), in review-window order: 35.0%
-(#288) → 33.3% (#289) → 42.1% (#301) → 68.8% (#306) → 0% (#308) → 61.1% (#304) → 73.5%
-(#334) → 12.5% (#337)** (#301's window closes 2026-08-04T02:47 UTC, five
-minutes before #306's first finding-bearing round at 02:58:36Z; #306's
-finding-bearing engagement is unusually wide — 2026-08-04T02:58Z to
-2026-08-05T22:46:58Z, the same long-idle-branch shape as #294's 28.9-hour
-pause (row 17) — and overlaps #308's and #304's windows entirely, ending
-minutes into #334's own 2026-08-05T22:26:49Z opening; slotting it by its
-first finding-bearing round, consistent with how every other row in this
-list is ordered, places it between #301 and #308, though the honest
-reading is that these four rows' windows overlap rather than sit cleanly in
-sequence. #308 opens 2026-08-04T21:49:02Z; #308 merged `56804b2` at
+(#288) → 33.3% (#289) → 42.1% (#301) → 0% (#308) → 61.1% (#304) → 73.5%
+(#334) → 12.5% (#337) → 68.8% (#306)** (#301's window closes 2026-08-04T02:47 UTC, well
+before #308 opens 2026-08-04T21:49:02Z; #308 merged `56804b2` at
 2026-08-04T23:09Z, #304 merged `d67b035` at 2026-08-04T23:20Z, eleven
-minutes later; #334 opens 2026-08-05T22:26:49Z; #337 opens
-2026-08-07T17:14:10Z, immediately after #334 merges). Eight points show no
-consistent direction: a slight dip (35.0→33.3), a rise (→42.1), a further
-rise to #306's 68.8% (a `/document` harvest whose mid-loop ledger-backfill
-content — added, then contested, then discarded wholesale — dominates its
-propagation/wrong-fix share, the identical mid-loop-construction mechanism
-#270/#301/#304/#334 already show, applied to this file itself), a drop to a
+minutes later; #334 opens 2026-08-05T22:26:49Z, well after both; #337 opens
+2026-08-07T17:14:10Z, immediately after #334 merges. **#306 goes last, not
+between #301 and #308** — its finding-bearing rounds start early
+(2026-08-04T02:58Z, five minutes after #301's window closes) but its true
+window doesn't close until its final clean-pass review at
+2026-08-07T20:46:19Z, the same long-idle-branch shape as #294's 28.9-hour
+pause (row 17), just more extreme — three days idle mid-loop. That closing
+timestamp is after every other post-boundary row's own close, including
+#337's, so ordering by the same "final reviewer event" key this list
+already uses for every other point puts #306 last, not by its opening
+round). Eight points show no
+consistent direction: a slight dip (35.0→33.3), a rise (→42.1), a drop to a
 genuine, non-structural zero (#308 — the lowest of these eight points, and
 still the only non-structural zero on record), up to the fourth-highest
 recorded share in the ledger at the time (#304, 61.1%), then to the **new
 ledger-wide high** (#334, 73.5% — driven by building and hardening a wholly
 new concurrency-sensitive Action from scratch, the same "novel mid-loop
 machinery" pattern #304 and #306 represent at smaller scale — see row 27), then
-back down to the second-lowest of these eight points (#337, 12.5% — a
+down to the second-lowest of these eight points (#337, 12.5% — a
 small, well-scoped `/document` harvest with clean seams, the opposite pole
-of the same axis; below every point but #308's genuine zero, and above the
+of the same axis), then back up to #306's 68.8% (a `/document` harvest
+whose mid-loop ledger-backfill content — added, then contested, then
+discarded wholesale — dominates its propagation/wrong-fix share, the
+identical mid-loop-construction mechanism #270/#301/#304/#334 already
+show, applied to this file itself) — below every point but #308's genuine
+zero, and above the
 six structural-floor 0% rows, which aren't real measurements per the note
-above). The
+above. The
 "declining slightly" reading this section reported from n=2, and the "not a
 clean decline" reading it reported from n=3, both fail to survive five more
 points: eight points is at least as much within-loop variance as it is a
