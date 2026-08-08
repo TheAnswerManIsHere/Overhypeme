@@ -254,43 +254,6 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** Next time we do meaningful charts work, or a security
     advisory on recharts v2, or the weekly maintenance sweep judges it overdue.
 
-- **GitHub Actions still targeting Node 20 — READY, trigger fired.**
-  - **What.** Every `uses:` action across `.github/workflows/*.yml`
-    (exhaustively enumerated via `grep -rhoE "uses: [a-zA-Z0-9._/-]+@v[0-9]+"
-    .github/workflows/*.yml`, not a partial list from memory — an earlier
-    draft of this entry missed two) targeting Node 20: `actions/checkout@v4`,
-    `actions/setup-node@v4`, `pnpm/action-setup@v4`,
-    `actions/dependency-review-action@v4`, `actions/cache@v4`,
-    `actions/upload-artifact@v4`. GitHub is deprecating Node 20 on runners and
-    currently force-runs them on Node 24 with a warning.
-  - **Why deferred (originally).** Warnings only — the actions still run.
-    Bumping to majors purely for Node 24 support was low-value churn while no
-    Node 24-native major existed yet.
-  - **Update (2026-07-24).** That's no longer true — verified against each
-    action's published `action.yml`: `actions/checkout` is at **v7** (Node 24
-    native), `actions/setup-node`'s latest major declares `using: node24`,
-    `actions/dependency-review-action`'s latest major declares
-    `using: node24`, `pnpm/action-setup@v6` declares `using: node24`,
-    `actions/cache@v6` declares `using: node24`, and
-    `actions/upload-artifact@v6` declares `using: node24`. The trigger has
-    fired for all **six**. (`github/codeql-action/analyze@v4` and
-    `github/codeql-action/init@v4`, also in these workflows, are excluded —
-    checked separately and already `using: node24` at the `v4` we're pinned
-    to; no bump needed there. A commented-out
-    `# uses: actions/setup-example@v1` in `codeql.yml` is template text, not a
-    live dependency — also excluded.)
-  - **Cost of waiting.** Bounded by GitHub's timeline: once the Node 20 fallback
-    is removed, un-updated actions break CI. No longer just a future risk —
-    the fix is available now.
-  - **Revisit trigger.** None remaining on the "does a fix exist" question —
-    but these are **major-version bumps**, which the `/maintenance` skill's
-    own rule never auto-merges. Surface this as a **decision item** for David
-    next `/maintenance` pass (package, old → new, why it matters, recommendation
-    — per that skill's existing major-bump reporting format), not an
-    instruction to bump unilaterally during that pass. If David approves, the
-    actual bump is mechanical and self-verifying via this repo's own CI —
-    but it still needs its own approved PR, the same as any other major bump.
-
 ## Code-level tech debt
 
 - **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**
