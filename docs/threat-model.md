@@ -21,8 +21,10 @@
 Overhype.me is a consumer web app that generates personalized, over-the-top
 "facts" about a named person, rendered as shareable meme images and videos.
 Users sign in, personalize facts, generate/render memes (AI image + video
-generation), share them publicly, and can pay for a Legendary membership and
-render credits via Stripe.
+generation), share them publicly, and can pay for a Legendary membership via
+Stripe. There are **no consumer credits today** — paid rendering is gated by
+membership plus server-side budget caps; a separate purchasable-credits
+product is future scope only (see `product-brief.md`).
 
 | Component | What it is |
 |---|---|
@@ -30,7 +32,7 @@ render credits via Stripe.
 | `artifacts/api-server` | Express 5 API — auth, memes, rendering, Stripe, admin (`/api`) |
 | `lib/db` | PostgreSQL + pgvector via Drizzle ORM |
 | `cloudflare/og-router` | Cloudflare worker — OG unfurls + edge caching in front of public assets |
-| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image/video gen + safety scan), Resend (email), hCaptcha, Sentry |
+| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image/video gen + safety scan), Resend (email), hCaptcha, Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
 | Hosting | Replit deployment (`REPLIT_DEPLOYMENT`), Cloudflare in front |
 
 Auth: Replit OIDC + Google/Apple OAuth + local email/password (bcryptjs), all
@@ -39,9 +41,8 @@ There is no client-trusted JWT.
 
 ## Assets, ranked
 
-1. **Membership/payment integrity** — who is Legendary, render-credit balances,
-   and the Stripe grant path. Money is directly attached; a grant bypass is the
-   worst-case finding.
+1. **Membership/payment integrity** — who is Legendary and the Stripe grant
+   path. Money is directly attached; a grant bypass is the worst-case finding.
 2. **Admin capability** — admin routes reach password resets, moderation
    overrides, bulk backfills, and engine/pricing config. Admin compromise is
    equivalent to full application compromise.
@@ -53,9 +54,15 @@ There is no client-trusted JWT.
 5. **Secrets** — Stripe keys/webhook secret, `ADMIN_API_KEY`, OpenAI/fal/Resend
    keys, session/DB credentials. Env-only, never committed.
 6. **Content/moderation integrity** — the staged moderation pipeline decides
-   what content goes public under the brand; bypassing it publishes unreviewed
-   AI content.
-7. **Availability/cost** — AI render endpoints spend real vendor money per
+   which submitted facts reach the catalogue under the brand; bypassing it
+   activates unreviewed AI content.
+7. **Legal/safety moderation evidence** — `quarantined_memes`, `ncmec_reports`,
+   and the restricted evidence they hold carry a statutory retention
+   requirement and feed the Project Arachnid scan and staged NCMEC ISPWS
+   reporting client. This is the single most sensitive stored content in the
+   system; unauthorized access or a broken audit trail is a legal-exposure
+   event, not just a privacy one.
+8. **Availability/cost** — AI render endpoints spend real vendor money per
    call; abuse is a financial DoS even when nothing "breaks."
 
 ## Trust boundaries and entry points
@@ -69,10 +76,15 @@ There is no client-trusted JWT.
   `stripe-replit-sync`). Deliberately exempt from CSRF-origin checks and the
   global limiter; everything it grants must re-verify product identity
   server-side (see payment invariants below).
-- **Browser → Cloudflare worker → API** — the worker edge-caches public
-  assets. The boundary risk is classification: a private response cached as
-  public, or `Set-Cookie` leaking onto public-asset paths. Client IP trust is
-  `CF-Connecting-IP`, never raw `X-Forwarded-For`.
+- **Browser → Cloudflare worker → API** — the worker force-caches any `200`
+  whose `Cache-Control` doesn't say `no-store`/`private`; it does **not**
+  independently verify visibility, it trusts the origin's header. The
+  boundary risk is exactly that trust: an origin handler that accidentally
+  omits `no-store` on a private response gets it cached publicly at the edge.
+  `Set-Cookie` leaking onto public-asset paths is the same class of risk.
+  Client IP trust for rate-limiting is `CF-Connecting-IP` on the endpoints
+  that use it (see the rate-limit invariant below), never raw
+  `X-Forwarded-For`.
 - **API server → AI vendors (OpenAI, fal.ai)** — user-influenced text and
   images flow outward into prompts and come back as content/URLs. Risks:
   prompt-injection steering generation, SSRF-shaped fetches of
@@ -128,6 +140,8 @@ reporting even at Medium confidence:
 - **Migrations/backfills** (`lib/db`, backfill launchers) — irreversible data
   operations.
 - **The Cloudflare worker's cache decisions** — public/private classification.
+- **Legal/safety moderation** — `lib/moderation/`, `quarantined_memes`,
+  `ncmec_reports`, and any surface that reads or exports that evidence.
 
 Lower-stakes surfaces (UI components, docs, internal tooling, test helpers)
 follow the repo's engineer-to-the-blast-radius principle: report real
@@ -146,23 +160,44 @@ these is a finding regardless of how it arises:
    Cancellation applies the same filter symmetrically. Fail closed.
 2. **Authorization is by resolved ownership/visibility, never URL shape**, and
    routes through the shared helpers (`canAccessObjectEntity`,
-   `userCanReadObject`, `canViewMeme`). Owner-only content 404s (not 403s) to
-   non-owners — no existence disclosure.
+   `userCanReadObject`, `canViewMeme`). **On the meme/slug surfaces**, owner-
+   only content 404s (not 403s) to non-owners — no existence disclosure. Other
+   owner-gated resource endpoints (e.g. `GET /memes/ai-user/image`,
+   `uploadPrivateImageToFalCdn`) correctly return 403 on a failed ownership
+   check; that's the intended behavior for those, not a violation of this
+   invariant.
 3. **`req.user` is rebuilt from the DB every request**; role/membership state
    is never trusted from the session blob or the client.
 4. **`dev-admin-login` can never be enabled in production** — the
    `isDevAdminLoginEnabled()` predicate fails closed and production env wins
    over the opt-in flag.
-5. **Private responses are never publicly/edge-cached**; the worker
-   force-caches only confirmed-public 200s and strips `Set-Cookie` on
-   public-asset paths.
-6. **Secrets stay in env** — no committed env files, DB dumps, or keys; the
-   narrow `.gitignore` rules stay narrow (a blanket `*.sql` would hide real
-   migrations).
-7. **Content reaches public visibility only through the moderation pipeline's
-   single activation chokepoint** — no direct toggles around it.
-8. **Rate-limit identity is `CF-Connecting-IP`**, never raw spoofable
-   forwarding headers.
+5. **Private responses must always send `Cache-Control: no-store` (or
+   `private`)** — the worker itself does not verify visibility, it force-
+   caches any other `200` (see the trust-boundary note above), so this is an
+   origin-side invariant, not a worker guarantee. The worker also strips
+   `Set-Cookie` on public-asset paths.
+6. **Secrets stay in env, with one tracked exception** — no committed env
+   files, DB dumps, or keys; the narrow `.gitignore` rules stay narrow (a
+   blanket `*.sql` would hide real migrations). When no
+   `STRIPE_WEBHOOK_SECRET_{LIVE,TEST}` is configured for the active mode,
+   `stripe-replit-sync` falls back to a managed webhook signing secret stored
+   in `stripe._managed_webhooks` — so in that configuration, live webhook
+   signing material lives in the database, and a DB/backup exposure carries
+   that additional blast radius.
+7. **A submitted fact reaches the public catalogue only through the
+   moderation pipeline's single activation chokepoint** (`facts.is_active`)
+   — no direct toggles around it. This governs fact-catalogue activation
+   specifically; authenticated users publishing their own memes directly
+   (`isPublic` defaults true in `createMemeRecord`) is normal product
+   behavior, not a moderation bypass.
+8. **Rate-limit identity uses `CF-Connecting-IP`-derived trust only on the
+   endpoints built on `checkSharedRateLimit`** (login, registration) —
+   `ipFromRequest()` there deliberately ignores spoofable
+   `X-Forwarded-For`. **`createRateLimiter`/`createFactSubmitRateLimiter`
+   (AI generation, fact submission) key on `req.ip` instead**, which honors
+   `X-Forwarded-For` under `trust proxy`, so those limiters do not carry the
+   same spoof-resistance guarantee today — tracked below, not a guarantee to
+   assume when reviewing those routes.
 
 ## Accepted risks and tracked deferrals
 
@@ -179,6 +214,12 @@ roadmap — report regressions against them, but they are not new findings:
   purge.
 - Admin field-length bounding and backfill `confirm`/`limit` gates are
   deferred follow-ups.
+- The AI-generation and fact-submission rate limiters (`createRateLimiter`,
+  `createFactSubmitRateLimiter`) key on `req.ip`, not the spoof-resistant
+  `CF-Connecting-IP` path the login/registration limiters use — a caller can
+  forge `X-Forwarded-For` to work around these two limits specifically.
+  Financial-abuse risk (burns paid render spend), not an auth bypass. Not yet
+  scheduled; report as a known gap, not a new finding, until it's fixed.
 
 ## Maintenance
 
