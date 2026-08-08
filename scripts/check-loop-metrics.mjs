@@ -53,6 +53,20 @@ const MECHANICAL_KEYS = [
 
 const CAUSES = ["new", "prop", "wrong", "reRaised", "invalid"];
 
+/**
+ * The only keys each adjudication status may carry. `disagreementPct` and
+ * `verdict` were rejected by name for the `completed` case alone; an exact
+ * allowlist closes every other stale-duplicate spelling (`percentage`,
+ * `agreementPct`, `sample`, ...) the same way `MECHANICAL_KEYS` does for
+ * `mechanical`.
+ */
+const ADJUDICATION_KEYS_BY_STATUS = {
+  "n/a": ["status"],
+  "never-run": ["status"],
+  completed: ["status", "population", "disagreements"],
+  deferred: ["status", "reason"],
+};
+
 /** Which loops get blind adjudication. Loops, never findings within a loop. */
 export const meetsSamplingPredicate = (pr, findings) => pr % 5 === 0 || findings >= 30;
 
@@ -85,8 +99,10 @@ export function judgmentProblems(record) {
         `unknown, so it stays distinguishable from a measured zero`,
     );
   }
-  if (j.preOpenPreflightMin !== null && typeof j.preOpenPreflightMin !== "number") {
-    problems.push("preOpenPreflightMin must be a number or null");
+  if (j.preOpenPreflightMin !== null) {
+    if (typeof j.preOpenPreflightMin !== "number" || !Number.isFinite(j.preOpenPreflightMin) || j.preOpenPreflightMin < 0) {
+      problems.push("preOpenPreflightMin must be null or a finite, non-negative number");
+    }
   }
   if (!j.breakersFired) problems.push("breakersFired is missing");
   return problems;
@@ -167,17 +183,12 @@ export function adjudicationProblems(record) {
       if (a.disagreements < 0 || a.disagreements > a.population) {
         problems.push(`adjudication.disagreements (${a.disagreements}) must be between 0 and ${a.population}`);
       }
-      // disagreementPct and verdict are DERIVED at read time, never stored —
-      // two representations of one number can disagree, one cannot.
-      for (const derived of ["disagreementPct", "verdict"]) {
-        if (derived in a) {
-          problems.push(`adjudication.${derived} is derived at read time and must not be stored`);
-        }
-      }
       break;
 
     case "deferred":
-      if (!a.reason) problems.push('a "deferred" adjudication needs a reason');
+      if (typeof a.reason !== "string" || !a.reason.trim()) {
+        problems.push('a "deferred" adjudication needs a reason (a trimmed, non-empty string)');
+      }
       break;
 
     default:
@@ -186,6 +197,23 @@ export function adjudicationProblems(record) {
           `or deferred`,
       );
   }
+
+  // Exact allowlist per status, checked once the status itself is known to
+  // be one of the four — derived values (disagreementPct, verdict, or any
+  // other stale duplicate) are rejected here regardless of what they're
+  // named, rather than blocklisting the two names anticipated in advance.
+  const allowedKeys = ADJUDICATION_KEYS_BY_STATUS[a.status];
+  if (allowedKeys) {
+    for (const key of Object.keys(a)) {
+      if (!allowedKeys.includes(key)) {
+        problems.push(
+          `adjudication carries "${key}", which is not in the allowlist for status "${a.status}" ` +
+            `(${allowedKeys.join(", ")}) — derived values are computed at read time and must not be stored`,
+        );
+      }
+    }
+  }
+
   return problems;
 }
 
@@ -257,8 +285,19 @@ export function recordProblems(record, filename) {
           `entry per round`,
       );
     }
-    if (Number.isInteger(m.findings)) {
-      const perRoundSum = m.perRound.reduce((n, r) => n + (Number.isInteger(r?.findings) ? r.findings : 0), 0);
+    // Every entry's findings must itself be a non-negative integer — a
+    // silent zero-substitution for a malformed entry (e.g. a string "1")
+    // would let it pass the sum check by coincidence while still flowing
+    // into findingBearingRounds() as a truthy-positive value downstream.
+    let allEntriesValid = true;
+    for (const [i, entry] of m.perRound.entries()) {
+      if (!Number.isInteger(entry?.findings) || entry.findings < 0) {
+        problems.push(`mechanical.perRound[${i}].findings must be a non-negative integer`);
+        allEntriesValid = false;
+      }
+    }
+    if (allEntriesValid && Number.isInteger(m.findings)) {
+      const perRoundSum = m.perRound.reduce((n, r) => n + r.findings, 0);
       if (perRoundSum !== m.findings) {
         problems.push(
           `mechanical.perRound findings sum to ${perRoundSum} but mechanical.findings is ${m.findings}`,
@@ -270,8 +309,13 @@ export function recordProblems(record, filename) {
   // reviewInterval.hours feeds the digest's `hours()` formatter directly
   // (`h.toFixed(1)`), which throws on anything but a number — a record
   // edited by hand (or after a late review) is exactly the case that could
-  // introduce a string or missing value here.
-  if (m.reviewInterval !== null && m.reviewInterval !== undefined) {
+  // introduce a string, an omitted key, or a missing value here. The key
+  // must be explicitly present (as null, or a valid object) — an omitted
+  // key would otherwise fall through `?? 0` in the digest and silently
+  // understate cost rather than fail loudly.
+  if (!("reviewInterval" in m)) {
+    problems.push("mechanical.reviewInterval is missing — omit it as null, not absent");
+  } else if (m.reviewInterval !== null) {
     const h = m.reviewInterval?.hours;
     if (typeof h !== "number" || !Number.isFinite(h) || h < 0) {
       problems.push(

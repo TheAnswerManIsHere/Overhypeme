@@ -788,4 +788,7 @@ targeted:** a long loop that keeps surfacing new ground is the loop working,
 while a short loop that is mostly self-repair is worse, and a round target
 scores both backwards.
 
-A row's format and the full column contract live in the ledger file itself.
+A record's shape and the full field contract live in
+[`.agents/metrics/loops/README.md`](../../.agents/metrics/loops/README.md)
+and `scripts/check-loop-metrics.mjs`, the schema CI actually enforces — not
+in the frozen ledger file, which is historical archive only from here on.

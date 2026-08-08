@@ -176,13 +176,13 @@ test("a stored disagreementPct or verdict is rejected as a second representation
     pr: 345,
     adjudication: { status: "completed", population: 7, disagreements: 1, disagreementPct: 14.3 },
   });
-  failsWith(withPct, "adjudication.disagreementPct is derived", "345.json");
+  failsWith(withPct, 'adjudication carries "disagreementPct", which is not in the allowlist', "345.json");
 
   const withVerdict = record({
     pr: 345,
     adjudication: { status: "completed", population: 7, disagreements: 1, verdict: "measured" },
   });
-  failsWith(withVerdict, "adjudication.verdict is derived", "345.json");
+  failsWith(withVerdict, 'adjudication carries "verdict", which is not in the allowlist', "345.json");
 });
 
 test("n/a is accepted only when the valid-finding denominator is zero", () => {
@@ -420,4 +420,72 @@ test("ledgerCheckProblem: mismatched hash fails", () => {
     expectedHash: "expected",
   });
   assert.match(problem, /has changed since it was frozen/);
+});
+
+// ── reviewInterval must be explicitly present, not merely valid when present ─
+
+test("an omitted mechanical.reviewInterval key is rejected, not treated as null", () => {
+  const r = record();
+  delete r.mechanical.reviewInterval;
+  failsWith(r, "mechanical.reviewInterval is missing");
+});
+
+test("mechanical.reviewInterval: null is explicitly accepted", () => {
+  ok(record({ mechanical: { ...record().mechanical, reviewInterval: null } }));
+});
+
+// ── perRound entries must individually be well-typed, not silently zeroed ──
+
+test("a non-integer perRound entry is rejected rather than treated as zero", () => {
+  const r = record();
+  r.mechanical.perRound = [{ round: 1, findings: "4" }, { round: 2, findings: 3 }, { round: 3, findings: 0 }];
+  failsWith(r, "mechanical.perRound[0].findings must be a non-negative integer");
+});
+
+test("a negative perRound entry is rejected", () => {
+  const r = record();
+  r.mechanical.perRound = [{ round: 1, findings: -1 }, { round: 2, findings: 8 }, { round: 3, findings: 0 }];
+  failsWith(r, "mechanical.perRound[0].findings must be a non-negative integer");
+});
+
+// ── preOpenPreflightMin must be non-negative, matching the causal-count fix ─
+
+test("a negative preOpenPreflightMin is rejected", () => {
+  const r = record();
+  r.judgment.preOpenPreflightMin = -60;
+  failsWith(r, "preOpenPreflightMin must be null or a finite, non-negative number");
+});
+
+test("preOpenPreflightMin of exactly 0 is a measured zero, not rejected", () => {
+  ok(record({ judgment: { ...record().judgment, preOpenPreflightMin: 0 } }));
+});
+
+// ── The adjudication field allowlist is exact, per status ──────────────────
+
+test("a completed adjudication carrying an unanticipated derived field is rejected", () => {
+  const r = record({
+    pr: 345,
+    adjudication: { status: "completed", population: 7, disagreements: 1, agreementPct: 85.7 },
+  });
+  failsWith(r, 'adjudication carries "agreementPct", which is not in the allowlist for status "completed"', "345.json");
+});
+
+test("a never-run adjudication carrying an extra field is rejected", () => {
+  const r = record({ adjudication: { status: "never-run", note: "looked fine" } });
+  failsWith(r, 'adjudication carries "note", which is not in the allowlist for status "never-run"');
+});
+
+test("a deferred adjudication carrying an extra field is rejected", () => {
+  const r = record({ adjudication: { status: "deferred", reason: "adjudicator unavailable", by: "someone" } });
+  failsWith(r, 'adjudication carries "by", which is not in the allowlist for status "deferred"');
+});
+
+// ── Deferral reasons must be real strings, not just truthy ─────────────────
+
+test("a whitespace-only deferred reason is rejected", () => {
+  failsWith(record({ adjudication: { status: "deferred", reason: "   " } }), "needs a reason");
+});
+
+test("a non-string deferred reason is rejected", () => {
+  failsWith(record({ adjudication: { status: "deferred", reason: { note: "why" } } }), "needs a reason");
 });

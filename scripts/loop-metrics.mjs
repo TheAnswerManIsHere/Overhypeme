@@ -407,9 +407,12 @@ function featureOracleIsPopulated(body) {
 }
 
 /**
- * Cohort, evaluated top-down, first match wins. A mixed code/prose PR lands in
- * `prose/contract` because that is where the stricter obligations and the
- * measured risk are.
+ * Cohort, evaluated top-down, first match wins. A genuinely mixed code/prose
+ * PR is decided by changed-line weight (`cohortWeights` below): code>docs
+ * lands in `feature/code`, a tie or docs-majority lands in `prose/contract`
+ * — ties keep the stricter obligations rather than guessing. Only when one
+ * side is entirely absent does presence alone decide (see `classifyCohort`'s
+ * own comment on the code-majority rule, added 2026-08-07).
  */
 // Excluded from prose-cohort detection. Historically (until 2026-08-02) a
 // closed loop's row was folded into whichever PR opened next, on ANY subject,

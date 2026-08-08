@@ -207,16 +207,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   boundary claim each drifted from the canonical ledger before landing);
   this bullet is deliberately kept to a shipped-slice summary from here on.
   See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
-  and [`working-modes.md`](./working-modes.md#the-loop-ledger). Two things
-  surfaced but deliberately left unfixed, for David to decide: the ledger's
-  own `classifyCohort` routes any **non-plan-review** PR carrying a
-  non-ledger markdown file to `prose/contract` (a `[PLAN REVIEW]`-titled PR
-  is checked first and stays `plan-review` regardless), which is part of
-  why the `feature/code` cohort is still empty (see the ledger's
-  cohort-leakage note for the precise mechanism);
-  and #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
-  trigger a check-in, with no record of whether one happened (see the
-  ledger's row 6).
+  and [`working-modes.md`](./working-modes.md#the-loop-ledger). One thing
+  surfaced here has since been fixed, and one is still open:
+  **Fixed 2026-08-07** (same plan-review PR #340 as the freeze above):
+  `classifyCohort` no longer routes any non-plan-review PR carrying a
+  markdown file to `prose/contract` by bare presence — it now weighs
+  changed-line counts, so a code-majority mixed PR lands in `feature/code`
+  (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
+  decides when one side is entirely absent. **Still open, for David to
+  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
+  to trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6).
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
   longer append to this table, and adjudication no longer covers every

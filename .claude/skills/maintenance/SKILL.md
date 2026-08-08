@@ -104,11 +104,16 @@ optional.** Since this PR retired CI's coverage gate, the digest's
 notices a missing record; skipping it every week means coverage can rot
 indefinitely while the report keeps saying "not checked" and nobody notices.
 List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
-paginated in small batches) back through at least the last maintenance
-window, keeping `number`/`title`/`closed_at`/`user.login` for each — write
-that array to a scratch JSON file and pass it as `--inventory <file>`. If
-GitHub access genuinely isn't available this run, say so explicitly in the
-report ("completeness not checked — GitHub access unavailable") rather than
+paginated in small batches) back through PR #344 (`FIRST_RECORDED_PR` in
+`loop-report.mjs`) — **not just the last maintenance window.**
+`missingRecords()` only flags a PR once it's been closed 14 days, so a
+normal 7-day-lookback inventory contains zero eligible entries every single
+run and the "every closed loop has a record" line would be true by
+construction, never by having actually checked. Keep
+`number`/`title`/`closed_at`/`user.login` for each PR — write the array to a
+scratch JSON file and pass it as `--inventory <file>`. If GitHub access
+genuinely isn't available this run, say so explicitly in the report
+("completeness not checked — GitHub access unavailable") rather than
 silently running without `--inventory` and letting the section read as
 routine.
 
@@ -134,8 +139,13 @@ What to actually say:
   yet informative" — pass that through rather than dressing two data points
   as a trend. The frozen ledger withdrew two such readings already.
 
-Skip the section entirely on a week where nothing closed; don't manufacture
-commentary about an empty window.
+**Always run the digest, even on a week where nothing closed** — the
+data-health and completeness checks are all-time, not windowed, and this
+digest is now the only mechanism that ever notices a missing or stuck
+record. A quiet week with a real deferral or a growing missing-records list
+still has something to say; only the empty-volume commentary is skippable.
+Say "no loops closed this week" in one line and go straight to data health,
+rather than dropping the section entirely.
 
 ## Report delivery
 
