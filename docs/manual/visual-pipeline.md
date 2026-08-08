@@ -157,4 +157,4 @@ away from it for a given fact.
 **Next:** chapter 6 — *meme and video studio*, what an end user actually
 makes with this pipeline. [Not yet written](./README.md#contents).
 
-*Verified against `0ea4ed8` (2026-08-08) · claim inventory in PR #<TBD>.*
+*Verified against `0ea4ed8` (2026-08-08) · claim inventory in PR #361.*
