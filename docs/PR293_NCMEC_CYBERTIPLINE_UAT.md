@@ -80,11 +80,15 @@ key's own wiring is still ahead of it.
   touch.
 - ✅ Works exactly as before — this PR only added a refusal for the five
   NCMEC keys named above, nothing else on the page changed.
-- **Cleanup:** anything you edit in this step, or in the regression smoke
-  table below, is a real, persistent write with no undo button — unlike
-  step 2's refused attempts. Note each value *before* you change it and set
-  it back afterward, including `NCMEC Safety Alert Email` if you exercise
-  that row in the smoke table.
+- **Cleanup:** anything you edit in this step is a real, persistent write
+  with no undo button — unlike step 2's refused attempts. Note each value
+  *before* you change it and set it back afterward.
+- **One key to leave alone: `NCMEC Safety Alert Email`.** It ships empty,
+  and this page can't set it back to empty once you've typed something in
+  (the save route rejects blank values) — so a test value would stick
+  until someone clears it directly in the database. If it's currently
+  empty, don't save anything to it. If it already holds a real address,
+  it's fine to edit and set back like any other key.
 
 ## Regression smoke
 
@@ -92,7 +96,7 @@ key's own wiring is still ahead of it.
 |---|---|
 | `/admin/config` loads | Loads normally, all existing keys still present |
 | Edit a normal (non-NCMEC) config key | Saves normally |
-| Edit `NCMEC Safety Alert Email` | Saves normally (not a reserved key) |
+| `NCMEC Safety Alert Email` shows an editable card with a working save button | Editable like any other unreserved key — but don't actually save to it if it's empty (see step 3's note) |
 | Edit `NCMEC Submission Enabled` | Fails with the inline red refusal message; value unchanged after a page reload |
 | Sign in, browse facts, make a meme | All unaffected — this PR touches only the admin config route and a new, uncalled backend client |
 
