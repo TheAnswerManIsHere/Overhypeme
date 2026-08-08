@@ -26,17 +26,39 @@ package, not the root — if invoking from inside `artifacts/api-server`
 instead, use `bash scripts/run-test.sh <same file args>`):
 ```
 bash artifacts/api-server/scripts/run-test.sh \
-  src/__tests__/migrations.0097.test.ts \
   src/__tests__/moderation.ncmecClient.test.ts \
   src/__tests__/routes.admin.test.ts
 ```
-Expected: **0 fail**. `migrations.0097.test.ts` covers the append-only
-audit-ledger triggers, the reserved-config-key lockstep between the SQL
-constraint/seed list and the TypeScript constants, and the migration's own
-warning-on-unenforced-boundary behavior. `moderation.ncmecClient.test.ts`
-covers the ISPWS HTTP client and XML builders against committed fixtures
-with zero network access. `routes.admin.test.ts` includes the reserved-key
-403 refusal on `PATCH /admin/config/:key`.
+Expected: **0 fail**. `moderation.ncmecClient.test.ts` covers the ISPWS HTTP
+client and XML builders against committed fixtures with zero network
+access. `routes.admin.test.ts` includes the reserved-key 403 refusal on
+`PATCH /admin/config/:key`.
+
+**`migrations.0097.test.ts` does NOT run through `run-test.sh` above —
+it needs the same disposable cluster as the `lib/db` suite below, for the
+same reason.** `run-test.sh`'s isolation is schema-level only (a
+`heliumdb_test` *schema* inside whatever database `DATABASE_URL` already
+points to, via `search_path` — not a separate database, and not a separate
+cluster). This file unconditionally creates roles — including
+`overhype_audit_maintenance` outside a rolled-back transaction, in more than
+one test case — so running it through `run-test.sh` still creates/drops
+roles in the real cluster's one shared role namespace regardless of which
+schema the tables land in. On a workspace where the audit-ledger hardening
+runbook has already been run, `overhype_audit_maintenance` already exists
+as a real role, and this file's unconditional `CREATE ROLE
+overhype_audit_maintenance` fails outright with `role already exists` —
+contradicting an expected "0 fail" for the wrong reason (a real role
+collision, not a real test failure). Run it directly, after setting up the
+disposable cluster below (share that same cluster and `DATABASE_URL`; no
+need for a second one):
+```
+node --import tsx/esm --test src/__tests__/migrations.0097.test.ts
+```
+(from `artifacts/api-server`, with the disposable cluster's `DATABASE_URL`
+still exported from the steps below). Expected: **0 fail**. Covers the
+append-only audit-ledger triggers, the reserved-config-key lockstep between
+the SQL constraint/seed list and the TypeScript constants, and the
+migration's own warning-on-unenforced-boundary behavior.
 
 Also run `lib/db`'s own suite (see "Full sharded suite" below for why this
 is now wired into CI as a separate step, not folded into api-server's
@@ -50,17 +72,17 @@ would mutate the live cluster.
 
 **This needs a genuinely separate PostgreSQL cluster/service, not merely a
 separate database.** Postgres roles are cluster-scoped, not database-scoped:
-pointing this suite at another database on the *same* cluster as
-`heliumdb_test` (or the live database) still creates, grants, and drops
-roles in that cluster's one shared, global role namespace — and a suite
-that aborts partway can leave roles or grants behind. Use a disposable Postgres instance — a cluster separate from the one
-`heliumdb_test` and the live database live on (e.g. a second Replit
-Postgres service, or a throwaway container) — not just another database
-name alongside `heliumdb_test`.
-CI's own `overhype_db_test` separation (mirrored below) is a *database*
-separation because CI's runner is itself a disposable container-per-job, so
-the cluster-scoping gap never bites there; a long-lived Replit workspace
-does hit it, so mirror the isolated-*cluster* intent here, not just the
+pointing this suite at another database on the *same* cluster as whatever
+`DATABASE_URL` already points to (live or otherwise) still creates, grants,
+and drops roles in that cluster's one shared, global role namespace — and a
+suite that aborts partway can leave roles or grants behind. Use a disposable
+Postgres instance — a cluster separate from wherever `DATABASE_URL` normally
+points (e.g. a second Replit Postgres service, or a throwaway container) —
+not just another database or schema name inside the existing one. CI's own
+`overhype_db_test` separation (mirrored below) is a *database* separation
+because CI's runner is itself a disposable container-per-job, so the
+cluster-scoping gap never bites there; a long-lived Replit workspace does
+hit it, so mirror the isolated-*cluster* intent here, not just the
 database-name mechanics — this is also what keeps the two suites'
 schema-management sequences (this suite's raw `push-force` + `migrate`,
 versus api-server's `pretest` running the same pair in a different order)
@@ -68,22 +90,25 @@ from racing or dropping each other's unshadowed objects — see
 [`raw-sql-migration-needs-schema-shadow.md`](../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
 for why that's a real, previously-hit failure mode, not a theoretical one.
 
-On the disposable cluster: create the `vector` extension before pushing the
-schema (the schema has vector columns, and a fresh database will not have
-the extension yet — this is the same step CI's own `overhype_db_test`
-preparation runs before its `push-force`), then apply the current schema
-and run the suite:
+**Export the disposable cluster's URL once, then run every command against
+it** — do not repeat `DATABASE_URL=<...>` as a prefix on each command line
+while also referencing `"$DATABASE_URL"` inside that same line: bash expands
+`"$DATABASE_URL"` using whatever is *already* exported before applying a
+command-local prefix assignment, so a line like
+`DATABASE_URL=<new> psql "$DATABASE_URL" ...` silently runs against the
+**old** (possibly live) value, not the new one:
 ```
-DATABASE_URL=<disposable Postgres instance's database — a separate cluster/
-  service, NOT another database on heliumdb_test's cluster or the live one> \
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-DATABASE_URL=<same disposable database> \
-  pnpm --filter @workspace/db push-force
-DATABASE_URL=<same disposable database> \
-  pnpm --filter @workspace/db run migrate
-DATABASE_URL=<same disposable database> \
-  pnpm --filter @workspace/db run test
+export DATABASE_URL=<disposable Postgres instance's database — a separate
+  cluster/service, NOT another database or schema inside the existing one>
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+pnpm --filter @workspace/db push-force
+pnpm --filter @workspace/db run migrate
+pnpm --filter @workspace/db run test
 ```
+(The `CREATE EXTENSION` step comes first because the schema has vector
+columns and a fresh database won't have the extension yet — the same step
+CI's own `overhype_db_test` preparation runs before its `push-force`.)
+
 Expected: **0 fail**. Asserts `canEffectivelyAssumeRole()`'s reachability
 union (`usage` OR `set` OR a transitive admin-option chain) against a live
 Postgres instance, including the case that motivated it — a role that can
@@ -149,23 +174,32 @@ tracked for this PR's own changes.
    (`jsonb`), `request_metadata` (`jsonb`).
 
    `ncmec_reports` carries the `ncmec_reports_submission_status_check`
-   constraint, the `ncmec_reports_content_origin_check` constraint, the
-   `ncmec_reports_quarantine_id_fk` foreign key (`quarantine_id` →
-   `quarantined_memes.id`), the `ncmec_reports_link_quarantine_trg`
-   trigger, the `UQ_ncmec_reports_quarantine` unique index (unique on
+   constraint (**verify the definition, not just the name** — a drifted
+   same-named constraint would pass a name-only check):
+   `CHECK (submission_status IN ('pending','in_progress','submitted','filed_manually','failed','not_reportable'))`
+   (exactly these 6 values); the `ncmec_reports_content_origin_check`
+   constraint: `CHECK (content_origin IS NULL OR content_origin IN ('generated','user_upload','stock','template','identity'))`
+   (exactly these 5 values, nullable); the `ncmec_reports_quarantine_id_fk`
+   foreign key (`quarantine_id` → `quarantined_memes.id`, **`ON DELETE SET
+   NULL`**, `ON UPDATE NO ACTION`); the `ncmec_reports_link_quarantine_trg`
+   trigger; the `UQ_ncmec_reports_quarantine` unique index (unique on
    `quarantine_id` WHERE `quarantine_id IS NOT NULL` — this is the
    one-report-per-quarantine-hit guarantee; a partial migration missing
    just this index would pass every other check here while leaving that
-   invariant unenforced), and the `IDX_ncmec_nonfinal` /
+   invariant unenforced); and the `IDX_ncmec_nonfinal` /
    `IDX_ncmec_failed_unalerted` indexes.
 
    `quarantined_memes` carries the `quarantined_memes_content_origin_check`
-   constraint.
+   constraint — same definition as `ncmec_reports`' above (5 values,
+   nullable).
 
    `ncmec_safety_audit_log` carries the `ncmec_safety_audit_log_action_check`
-   constraint (the closed action vocabulary), the
+   constraint: `CHECK (action IN ('retry','send_to_test_started','send_to_test_completed','backlog_audit','approve_identity_omission','mark_manually_filed','correct_manual_filing','reopen','config_write'))`
+   (the closed action vocabulary — exactly these 9 values); the
    `ncmec_safety_audit_log_report_id_fk` foreign key (`report_id` →
-   `ncmec_reports.id`), and the `IDX_ncmec_audit_report_created` /
+   `ncmec_reports.id`, **`ON DELETE RESTRICT`** — deliberately not `SET
+   NULL`, so the ledger can never lose which report an entry was about —
+   `ON UPDATE NO ACTION`); and the `IDX_ncmec_audit_report_created` /
    `IDX_ncmec_audit_created` indexes — **and both append-only triggers**,
    which the behavioral probe below only exercises indirectly and a
    name-only check can miss in a way that leaves the ledger destructible.
@@ -182,19 +216,26 @@ tracked for this PR's own changes.
    one failure mode step 4 cannot catch on its own, which is why both
    triggers need verifying here, not just probing there.
 
-   `admin_config` has exactly these 8 new rows (key / value / data_type /
-   min / max):
+   `admin_config` has exactly these 8 new rows (key / type / min / max).
+   **The 5 reserved keys' values are exact and required** (nothing writes
+   to them outside this migration's own seed, so any drift means a partial
+   or corrupted migration). **The 3 unreserved keys are legitimately
+   editable, and the seed's `ON CONFLICT ("key") DO NOTHING` exists
+   specifically to preserve an operator's later change** — verify their
+   row exists with the right type/bounds/provenance, but treat their
+   *current* value as live state to leave alone, not a required match
+   against the seed:
 
-   | Key | Seeded value | Type | Min | Max |
-   |---|---|---|---|---|
-   | `ncmec_submission_enabled` | `false` | boolean | — | — |
-   | `ncmec_ispws_environment` | `test` | text | — | — |
-   | `ncmec_report_classifier_hits` | `false` | boolean | — | — |
-   | `ncmec_backlog_audit_cutoff` | `` (empty) | text | — | — |
-   | `ncmec_backlog_audit_completed_at` | `` (empty) | text | — | — |
-   | `ncmec_safety_alert_email` | `` (empty) | text | — | — |
-   | `async_job_ncmec_submit_max_attempts` | `8` | integer | `1` | `20` |
-   | `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` | integer | `60000` | `604800000` |
+   | Key | Seeded value | Type | Min | Max | Value check |
+   |---|---|---|---|---|---|
+   | `ncmec_submission_enabled` | `false` | boolean | — | — | must equal seed |
+   | `ncmec_ispws_environment` | `test` | text | — | — | must equal seed |
+   | `ncmec_report_classifier_hits` | `false` | boolean | — | — | must equal seed |
+   | `ncmec_backlog_audit_cutoff` | `` (empty) | text | — | — | must equal seed |
+   | `ncmec_backlog_audit_completed_at` | `` (empty) | text | — | — | must equal seed |
+   | `ncmec_safety_alert_email` | `` (empty) | text | — | — | row/type/bounds only — current value may legitimately differ |
+   | `async_job_ncmec_submit_max_attempts` | `8` | integer | `1` | `20` | row/type/bounds only — current value may legitimately differ |
+   | `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` | integer | `60000` | `604800000` | row/type/bounds only — current value may legitimately differ |
 
 2. **The live `quarantine_id` backfill actually linked what it could —
    verify against real data, not just the schema.** Migration `0097` isn't
@@ -220,19 +261,33 @@ tracked for this PR's own changes.
            SELECT 1 FROM quarantined_memes q
             WHERE q.id = (request_metadata->>'quarantineId')::bigint
          )
-     ) AS dangling
+     ) AS dangling,
+     count(*) FILTER (
+       WHERE request_metadata->>'quarantineId' ~ '^[0-9]{1,18}$'
+         AND EXISTS (
+           SELECT 1 FROM quarantined_memes q
+            WHERE q.id = (request_metadata->>'quarantineId')::bigint
+         )
+     ) AS linkable_but_unlinked
    FROM ncmec_reports
    WHERE quarantine_id IS NULL;
    ```
    Expected: `missing` can be any count (that's the intended, unlinked
-   backlog population — not a failure). **`malformed` and `dangling` must
-   both be reported and explicitly dispositioned, not silently accepted** —
-   a nonzero count here means a real row that should be linked isn't, which
-   leaves the `UQ_ncmec_reports_quarantine` partial unique index unable to
-   constrain it and lets the later orphan reconciler potentially create a
-   second report for the same hit (breaking the one-report-per-hit
-   invariant this migration exists partly to protect). If either is
-   nonzero, flag it to David rather than treating this check as passed.
+   backlog population — not a failure). **`malformed`, `dangling`, and
+   `linkable_but_unlinked` must all be reported and explicitly
+   dispositioned, not silently accepted.** `linkable_but_unlinked` is the
+   one that matters most: a row with a valid, numeric `quarantineId`
+   pointing at a real `quarantined_memes` row that is *still* unlinked
+   matches none of the other three buckets, so without this one the whole
+   check can read "all zero, looks clean" while the exact failure it exists
+   to catch — a linkable row the backfill missed — is still present. A
+   nonzero count in any of the three means a real row that should be linked
+   isn't, which leaves the `UQ_ncmec_reports_quarantine` partial unique
+   index unable to constrain it and lets the later orphan reconciler
+   potentially create a second report for the same hit (breaking the
+   one-report-per-hit invariant this migration exists partly to protect).
+   If any is nonzero, flag it to David rather than treating this check as
+   passed.
 
 3. **Re-running migration `0097` — describe what actually happens, not an
    assumed no-op.** A normal second `pnpm --filter @workspace/db run
@@ -314,12 +369,29 @@ tracked for this PR's own changes.
 Step 5 above successfully writes to `ncmec_safety_alert_email` (a real,
 persistent `admin_config` row that will govern real alert routing once
 production filing exists). Before finishing this checklist: note that row's
-value **before** running step 5, and set it back to that value (or back to
-empty, if it was empty) afterward. Do the same for any of the other two
+value **before** running step 5, and set it back to that value afterward.
+
+**If it was empty before your test (the default, out-of-the-box state —
+per the seed table above), restoring it is NOT a normal PATCH.** The
+generic config route rejects an empty string for text-type keys (see
+`NCMEC_UNRESERVED_CONFIG_KEYS`'s own doc comment in `ncmecConfig.ts`: "an
+admin can write any *nonempty* string"), so a PATCH back to `""` fails with
+400 — you cannot get back to empty through the surface you just tested
+with. Restore it at the database level instead, which is exactly how the
+seed itself got there (raw SQL, not the app route):
+```sql
+UPDATE admin_config SET value = '' WHERE key = 'ncmec_safety_alert_email';
+```
+If it already held a real (non-empty) value before your test, the normal
+PATCH restore works fine — this exception only applies to the empty case.
+
+Do the same value-capture-and-restore for either of the other two
 unreserved keys (`async_job_ncmec_submit_max_attempts`,
 `async_job_ncmec_submit_retry_delay_4_ms`) if you additionally exercised
-them while testing. The five reserved keys need no cleanup — every attempt
-against them is refused before any write happens.
+them while testing (both are numeric with real seeded defaults, so their
+normal PATCH restore path always works — no empty-string exception for
+either). The five reserved keys need no cleanup — every attempt against
+them is refused before any write happens.
 
 ## What's deliberately NOT shipped
 - No caller for the ISPWS client/XML builders yet — nothing can file a
