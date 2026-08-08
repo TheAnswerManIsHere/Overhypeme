@@ -93,8 +93,24 @@ Two facts that decide how we use it today:
   automate our escalation policy.
 - **What works now is `Sonnet main + Opus advisor`**, which automates the
   *Debugging new features* row of CLAUDE.md's tier table: Sonnet handles routine work
-  and escalates the hard moments without a model switch. We have not adopted it
-  as a default — it costs advisor-model tokens on top of the main model, and it
-  is experimental — but it is the obvious thing to try the next time a debugging
-  thread starts thrashing.
+  and escalates the hard moments without a model switch. It costs
+  advisor-model tokens on top of the main model, and it is experimental —
+  but **David approved trialing it for review loops (2026-08-07)**, as part
+  of the post-round check-in revision (see `working-modes.md`'s *The
+  post-round check-in*): when a Sonnet session is about to drive a review
+  loop, suggesting he set `/advisor opus` for that session is the sanctioned
+  move, replacing the manual switch-to-Opus-and-back-per-round idea, which
+  would have cost David two model-picker trips every round.
+
+### Post-round check-in triage: the Opus subagent escalation (David, 2026-08-07)
+
+The same revision approved a second, agent-controlled escalation: when the
+check-in's triage judgment is itself ambiguous — propagation vs. new ground,
+impossible-as-specified vs. merely hard — I dispatch a **one-shot Opus
+subagent** for that call, with no session switch and no action from David.
+Same announce-don't-sneak rule as the Fable dispatch above: a subagent
+spending above the session's rate gets said out loud in the same breath as
+dispatching it. This is a sanctioned judgment escalation, not a
+verify-my-own-work subagent (which stays barred by CLAUDE.md's delegation
+caps).
 

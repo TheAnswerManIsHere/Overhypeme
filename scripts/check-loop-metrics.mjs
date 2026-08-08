@@ -372,7 +372,7 @@ export function ledgerBaselineProblem(actualHash, expectedHash) {
     return (
       `.agents/metrics/loop-ledger.md has changed since it was frozen.\n` +
       `    expected ${expectedHash}\n    actual   ${actualHash}\n` +
-      `  It is the permanent archive of the first 42 loops and is not edited again. New loops go to ` +
+      `  It is the permanent archive of the first 46 loops and is not edited again. New loops go to ` +
       `.agents/metrics/loops/<pr>.json.`
     );
   }
@@ -386,14 +386,14 @@ export function ledgerBaselineProblem(actualHash, expectedHash) {
  *
  * A baseline existing means the ledger is supposed to be permanent, so the
  * ledger going missing is a failure in its own right, not a skip — the
- * archive of the first 42 loops disappearing is exactly the "any post-cutover
+ * archive of the first 46 loops disappearing is exactly the "any post-cutover
  * change fails CI" case this whole mechanism exists for, deletion included.
  */
 export function ledgerCheckProblem({ ledgerExists, baselineExists, actualHash, expectedHash }) {
   if (baselineExists && !ledgerExists) {
     return (
       `.agents/metrics/loop-ledger.md is missing, but a baseline exists at ` +
-      `.agents/metrics/loop-ledger.sha256 — it is the permanent archive of the first 42 loops and must not ` +
+      `.agents/metrics/loop-ledger.sha256 — it is the permanent archive of the first 46 loops and must not ` +
       `be deleted.`
     );
   }

@@ -24,6 +24,27 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Manual tuning-language guard, following PR 1 of the manual backfill**
+  (PR #298, a follow-up guard for PR #291's async-lane de-fork — #291 is PR 1
+  of the backfill; #298 does not itself add a chapter). New
+  `scripts/check-manual-tuning-language.mjs`, wired into the Build job, is
+  part of the CI enforcement for `docs/manual/README.md`'s charter: a chapter
+  may name what a component is and who it serves, but not how it's
+  configured. The script is lexical and catches only the detectable value
+  forms named in its own comments — a green run means no *detected*
+  violation, not full compliance, so it narrows what review still has to
+  catch rather than replacing it. Current detection coverage lives in the
+  script's own comments, not here, so this stays true as the rules evolve.
+  Six finding-bearing review rounds, with an unverified final fix — round 6's
+  fix was never re-reviewed before merge (see
+  [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md) row 22), a genuine
+  loop-closure gap, not a confirmed clean convergence; the
+  generalized lesson from that loop — including a self-referential gap where a
+  fix satisfied the guard by rewording a value instead of removing it — is in
+  the new [`known-failure-patterns.md`](./known-failure-patterns.md#satisfying-a-lexical-guard-by-changing-a-values-form-not-its-meaning)
+  entry. **Open next:** the manual backfill's remaining chapters (tracked in
+  "in-progress slices" below) still need writing; this guard is the mechanical
+  half of the review discipline PR #291 needed by hand.
 - **`/status` split into a per-session skill and a fleet-wide `/status-all`**
   (PR #336). `/status-all` is the original fleet skill, renamed, behavior
   unchanged. `/status` is new: one session's own workstream, the 5-state
@@ -186,7 +207,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
   **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
-  is **frozen** at rows 1–42 and the `[LEDGER]` PR type is retired. New
+  is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired. New
   loops are recorded one JSON file per loop in
   [`.agents/metrics/loops/`](../../.agents/metrics/loops/), blind
   adjudication now runs on a deterministic **sample of loops** (each still
@@ -198,7 +219,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   that removed the original within-loop sample, is in
   [`decisions.md`](./decisions.md).
   **The row-by-row numbers, the self-inflicted-share trend, the cohort
-  mechanics, and the pre/post-boundary analysis for the first 42 loops all
+  mechanics, and the pre/post-boundary analysis for the first 46 loops all
   live in
   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
   — read there, not here.** Duplicating that analysis into this file was
@@ -384,6 +405,26 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## In-progress slices
 
+- **NCMEC CyberTipline reporting** (PR #293, merged 2026-08-07) — real
+  automated submission to NCMEC for reportable moderation hits, replacing
+  today's stub (`submitNcmecReport()` writes a DB row + admin email; it has
+  never contacted NCMEC). **Phases 1–2 of 8 shipped**: the schema/migration
+  and the ISPWS HTTP client + XML builders. Neither phase can file a report
+  yet — both filing switches are seeded off — but only phase 2 (the client
+  and builders) is callerless; phase 1 is already live in existing paths
+  (`submitNcmecReport()` writes `ncmec_reports`, `quarantineImage()` invokes
+  that stub, and migration `0097`'s `ncmec_reports_link_quarantine_trg`
+  runs against those inserts today — the append-only triggers on
+  `ncmec_safety_audit_log` are separate infrastructure for later phases;
+  the stub never writes to that table. The reserved-config guard is a
+  separate protection: it runs in `PATCH /admin/config/:key`, not on
+  report inserts, rejecting writes to the five filing-capable NCMEC keys
+  regardless of whether a report was ever filed). Phases 3–8
+  (the submission worker, the reconciler, admin routes, the `/admin/safety`
+  page, alerting, and the production-activation gate) remain. See
+  [`architecture-map.md`](./architecture-map.md#admin-and-moderation-surfaces)
+  and the 2026-08-07 `decisions.md` entry for what changed mid-PR (the
+  audit-ledger privilege-boundary scope cut).
 - The **"Slice 2A" visual-concept** line of work (candidate concepts) is the most
   recent active thread. **Needs David confirmation** on what's next in that slice.
 - **Stripe billing legibility + multi-plan support** — plan drafted 2026-07-28,
@@ -490,4 +531,18 @@ priorities (moderation speed, render/enrichment quality, video). See
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in
   [`decisions.md`](./decisions.md).
+- **NCMEC CyberTipline reporting (PR #293), two open items carried from the
+  plan's known-gaps list, both explicitly needing David:**
+  - Does a **credential-gated NCMEC artifact** (the ISPWS XSD schema —
+    `GET /ispws/xsd` 401s without ESP credentials) belong in this **public**
+    repo if someone with credentials fetches it? Until answered, the XML
+    builders are asserted against exact expected documents and NCMEC's public
+    documentation rather than schema-validated offline.
+  - Where does the **ESP reporting contact email** live? NCMEC requires it on
+    every report, at `<reporter><reportingPerson><email>` in the shipped
+    XML builder, and it must match Availeron Consulting's registration
+    exactly; `buildReportXml` currently
+    takes it as a required argument and throws without one rather than
+    inventing a placeholder. Needs a configured home before phase 5 (the
+    worker) can call it for real.
 - *(Add here when a real product decision is pending — don't guess.)*

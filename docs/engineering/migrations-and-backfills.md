@@ -14,6 +14,33 @@
 - Prefer **database-backed config** for tunable operational settings over hardcoded
   constants, so operators can adjust without a deploy.
 - Guard destructive operations (see rollback/recovery).
+- **A migration cannot manufacture a privilege boundary above itself.** It
+  runs as the application role, so it owns everything it creates — an
+  `OWNER TO`/`CREATE ROLE` sequence written into the migration either
+  succeeds only where it buys nothing (the application can take the
+  privilege straight back) or actively creates the bypass it's trying to
+  close (see the `CREATE ROLE` auto-grant trap below). If a table needs a
+  real privilege boundary the application role cannot cross, the migration
+  creates the objects and **reports** the residual state
+  (`ncmecAuditBoundaryStatus()`-style); closing the boundary is a superuser
+  runbook run after the migration applies. See
+  [`docs/engineering/ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)
+  for a worked example and the
+  [2026-08-07 `decisions.md` entry](../ai-context/decisions.md#2026-08-07--a-migration-cannot-manufacture-a-privilege-boundary-above-itself--ncmec-audit-ledger-hardening-moved-to-a-superuser-runbook).
+- **Don't verify a CHECK constraint's meaning by pattern-matching
+  `pg_get_constraintdef()`'s rendered text** — it isn't a fixed point (see
+  [`known-failure-patterns.md`'s "PostgreSQL role/constraint verification
+  traps"](../ai-context/known-failure-patterns.md#postgresql-roleconstraint-verification-traps-that-look-safe-and-arent)),
+  and no amount of pattern-refinement converges against an adversarial
+  predicate. If a migration needs a constraint to be exactly right on
+  replay, rebuild it unconditionally (`DROP CONSTRAINT IF EXISTS` + `ADD
+  CONSTRAINT`) rather than inspecting what's already there, wherever the
+  role has permission to — but only once you've confirmed the table has no
+  rows that could already violate the new predicate (an empty table, or an
+  explicit preflight/repair pass on a populated one). The `DROP` always
+  succeeds; the replacement `ADD CONSTRAINT` raises a check violation and
+  rolls back the whole migration if a row the current, possibly-drifted
+  constraint already admitted would fail the tightened one.
 
 ## Drizzle conventions
 

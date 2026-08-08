@@ -737,8 +737,12 @@ Verify against the *fact*, not the string you happened to delete: a paraphrase
 forks exactly as well as a quotation, so a grep for the removed wording can
 pass while the claim survives three lines away in different words.
 
-**Overhype:** PR #291 (the async-lane de-fork) ran six review rounds and this
-pattern accounted for a finding in five of them. The clearest instance: a claim
+**Overhype:** PR #291 (the async-lane de-fork) narrated six review rounds in
+its own body, but the loop ledger's fully-paginated, mechanically-derived
+count (row 23 of `.agents/metrics/loop-ledger.md`) is seven — that figure is
+the one of record, per this file's own reason to exist, and the "six" here is
+superseded by it rather than reconciled against it. This pattern accounted
+for a finding in five of the narrated rounds. The clearest instance: a claim
 equating async-jobs handler concurrency with database pool occupancy was
 corrected in `architecture-map.md` in round 4, which left `background-work.md`
 and `deferred-work.md` asserting the disproved version — so the repo
@@ -785,6 +789,54 @@ caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
 
+## Satisfying a lexical guard by changing a value's form, not its meaning
+
+**Looks like:** a CI text guard flags a stated value in prose. The fix changes
+*how* the value is written — a digit becomes a spelled-out word, a cardinal
+becomes an ordinal, a bare value gets wrapped in markdown emphasis or a link,
+a phrase gets reflowed across a line break — without changing what the
+sentence actually asserts. The guard goes green; the value it exists to keep
+out of that document is still fully present, just spelled differently.
+
+**Dangerous:** a green check reads as "compliant," so the sentence doesn't get
+looked at again — but the source-of-truth risk the rule exists to prevent (the
+same fact living in two places, able to drift independently) is completely
+intact. Because each round of this only narrows the *specific* form just
+caught, not the general risk, a review loop chasing it can run for many
+rounds, one surface form at a time, and look like slow but real progress the
+whole way.
+
+**Avoid:** when a value is flagged, ask "does this sentence's truth depend on
+the number, in *any* form?" — not "does it still contain the literal string
+the rule matched." Removing the concept (say that something exists or is
+true, not how much) is the fix; rewording the same count in a different part
+of speech is not, and is usually just as fast to write, which is what makes it
+tempting. Authoring or extending a guard like this has the mirror-image
+discipline: after closing one evasion, actively probe for the *next* form of
+the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
+markdown markup, a hard-wrapped line split) instead of declaring the class
+closed after the one instance found.
+
+**Overhype:** PR #298 (the manual tuning-language guard) went through six
+finding-bearing Codex review rounds, and this exact pattern recurred inside
+its own fix history — round 5 found "a simpler 2-lane split ... in favor of
+3" and fixed
+it by spelling the count out ("a simpler two-way split ... in favor of a
+third, separate lane"), which round 6 caught as the same lane count restated
+as an ordinal instead of removed; the round-6 fix describes the split
+qualitatively with no number in any form, which is what a genuine fix looks
+like for this pattern — but that fix was never independently re-reviewed
+before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+row 22), so its correctness is this PR's own claim, not a confirmed close.
+Separately, the guard's own detection had to grow across rounds to
+cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
+phrase split across two physical lines, and a spelled-out-number extension
+whose digit-derived "attached s" shorthand accidentally matched an ordinary
+English word ("hundred" + "s" = "hundreds," not a duration). The full list of
+evasions the guard now covers, and why each was needed, lives in
+`scripts/check-manual-tuning-language.mjs`'s own header and rule comments —
+not duplicated here.
+
 ## Chasing completeness against an adversarial reviewer past the artifact's real risk
 
 **Looks like:** a review loop where every finding is correct, every fix is
@@ -809,6 +861,30 @@ them). **The second happened hours after the first was written up**, because
 the first was recorded narrowly as a *parser* problem and the lesson did not
 transfer — which is exactly why this entry states it at the general level and
 demotes the parser case to a sub-pattern.
+
+**A third instance, two days later, on a different kind of unachievable
+guarantee (PR #293).** Migration `0097`'s attempt to make the NCMEC
+audit-ledger's append-only guarantee a real PostgreSQL privilege boundary ran
+17 review rounds and accounted for roughly 65 of the PR's 90-plus findings —
+not by finding fewer bugs each round, but by refining the same reachability
+model past what the platform can support: `pg_has_role(...,'usage')` →
+`'member'` → literal `SET ROLE` success → `ADMIN OPTION` → an *inherited*
+admin-option chain → containing-schema ownership → the guard function's own
+schema ownership. Each fix was a real, verified correction — and each one
+sat on the same unfixable foundation: a migration running as the application
+role cannot grant that role a privilege boundary the role cannot already
+cross (see the 2026-08-07 `decisions.md` entry). The late-round shape
+matches the general pattern exactly — fixes that specify guarantees
+(`CREATE ROLE` without conferring membership, a `REVOKE` the current role
+cannot execute) the actor available to the migration cannot actually
+provide. David cut the scope after the concentration became visible: the
+migration now creates the objects and reports the residual state; closing
+the boundary moved to a superuser runbook
+([`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)).
+The tell was available well before round 17 — a scope-vs-blast-radius check
+at round 5 or so, once "every fix targets the same reachability model,"
+would have caught it much earlier than a David-initiated review of the
+finding distribution did.
 
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
@@ -843,3 +919,85 @@ completeness. See the
 [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
 and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
 docstring section.
+
+## PostgreSQL role/constraint verification traps that look safe and aren't
+
+**Looks like:** code (application, migration, or test) that infers a
+PostgreSQL privilege or constraint's real behavior from a surface signal that
+seems like it should imply it — a role membership check, a rendered
+`pg_get_constraintdef()` string — rather than the thing that actually governs
+behavior. **Dangerous:** each trap fails silently in the safe-looking
+direction (permission appears absent when it is present, or a constraint
+appears correct when it accepts values it shouldn't), so it surfaces as a
+production security gap or a migration that "passed" over an unenforced
+guarantee, not as a crash. All three below were verified empirically against
+this repository's own PostgreSQL 16 target, not taken from documentation —
+each contradicted the intuitive reading. **Avoid:** treat every PostgreSQL
+privilege/constraint check in migration or authorization code as needing
+direct verification against a live instance before trusting it, and prefer
+the specific fixes named below over re-deriving them.
+
+- **`pg_has_role(role, target, 'member')` is not "can this role act as
+  target."** It is true for a grant with `INHERIT FALSE, SET FALSE` — a
+  membership that confers no actual capability. **Use `'usage'`** (ambient,
+  inherited privileges) or `'set'` (can `SET ROLE` to it on demand) for a
+  narrowly defined, single-grant-shape question — never `'member'` for an
+  authorization decision. **Neither `'usage'` nor `'set'` alone answers the
+  broader "can this role EFFECTIVELY reach target at all" question** —
+  `'usage'` misses a SET-only grant, `'set'` misses an INHERIT-only one, and
+  both miss an admin-option chain that lets the role grant itself the
+  target on demand. This repo already implements and tests that full union
+  (`usage OR set OR a transitive admin-option chain`) in
+  `canEffectivelyAssumeRole()` (`lib/db/src/index.ts`) — route an
+  effective-reachability decision through that helper rather than a bare
+  `pg_has_role` call, or risk reintroducing the exact under-reporting this
+  entry's own history is about.
+- **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
+  the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
+  superuser, not the creator.** The creator therefore cannot revoke its own
+  new membership: `REVOKE x FROM <creator>` run by a non-superuser who
+  isn't the grantor does not raise an error. It emits a `WARNING` and changes nothing — a
+  superuser other than the grantor CAN still remove it, bypassing the
+  grantor check entirely; only a non-superuser lacking the grantor's
+  authority is stuck. Code
+  that creates a role and then tries to revoke its own automatic membership
+  needs to verify the revoke actually happened (re-read
+  `pg_auth_members`), not trust the absence of an exception. There is no
+  privileged path around this available to the creator; only the grantor —
+  here, a real superuser — or a superuser can remove the row. (PR #293,
+  `lib/db/migrations/0097_ncmec_submission.sql`'s original `overhype_audit_maintenance`
+  provisioning, later removed entirely — see the 2026-08-07 `decisions.md`
+  entry.)
+- **`pg_get_constraintdef()` is not a fixed point.** Feeding its own output
+  back into `ADD CONSTRAINT` for the identical predicate produces a
+  *different* string: `"action" IN (...)` renders as
+  `ANY ((ARRAY['x'::varchar, ...])::text[])`, but re-applying that rendered
+  text moves the cast onto each array element —
+  `ANY (ARRAY[('x'::varchar)::text, ...])`. Any code that round-trips a
+  constraint through its rendered text (a migration verifying a constraint
+  by comparing `pg_get_constraintdef()` output, `pg_dump`/restore, or
+  `drizzle-kit push` reconciling against a Drizzle-rendered snapshot) can
+  land in either form for a semantically identical constraint. Worse: no
+  amount of pattern-matching on the rendered text can soundly verify a
+  CHECK constraint's *meaning* at all — five successive attempts in PR #293
+  (a literal string match, matching the mentioned literal set, an anchored
+  shape, evaluating the predicate against probe values, then widening the
+  anchored shape for both renderings above) were each defeated by a
+  predicate that rendered acceptably while enforcing something else, most
+  recently one accepting all nine intended literals plus any 13-character
+  string via a `CASE WHEN length(action) = 13 ...` disjunct hidden inside
+  the array. **The fix that actually converged was to stop verifying and
+  rebuild the constraint unconditionally** (`DROP CONSTRAINT IF EXISTS` +
+  `ADD CONSTRAINT`) wherever the role has permission, so the post-condition
+  holds by construction instead of by inspection — but unconditional
+  replacement is only safe when no row can already violate the *new*
+  constraint: append-only triggers stop later mutation, not an `INSERT`
+  the *currently drifted* CHECK still admits, so a row a prior drifted
+  predicate let through would make the replacement `ADD CONSTRAINT` raise
+  a violation and roll back the whole migration. Safe here specifically
+  because phase 1 has no ledger writers yet (the table is empty at replay
+  time) — reusing this "just rebuild it" move against a table that already
+  has rows needs a preflight check (or an owner-run repair of nonconforming
+  rows) first, not an assumption that unconditional replacement is
+  generally replay-safe. See the 2026-08-07 `decisions.md` entry and
+  `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.

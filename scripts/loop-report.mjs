@@ -31,12 +31,17 @@ const STORE_DIR = join(ROOT, ".agents/metrics/loops");
 
 /**
  * The cutover. Loops below this number were recorded in the frozen markdown
- * ledger and deliberately have no JSON record, so reporting them as "missing"
- * would drown the one signal this section exists to give. Same shape as the
- * retired guard's FIRST_ENFORCED_PR, and set to the first loop that closes
- * after the store lands.
+ * ledger (or predate the obligation) and deliberately have no JSON record, so
+ * reporting them as "missing" would drown the one signal this section exists
+ * to give. Same shape as the retired guard's FIRST_ENFORCED_PR.
+ *
+ * Set above every PR that existed when the store landed — #356 was the
+ * highest. It is deliberately NOT the store PR's own number: the last
+ * `[LEDGER]` PR (#348) merged *while* this one was in review and appended
+ * markdown rows for loops up to #345, so a lower cutover would report
+ * loops that already have a row as missing one.
  */
-export const FIRST_RECORDED_PR = 344;
+export const FIRST_RECORDED_PR = 357;
 
 /**
  * Authors whose PRs are not review loops. A Dependabot bump is triaged under

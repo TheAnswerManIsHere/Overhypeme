@@ -26,7 +26,7 @@ digest should probably answer it instead.
 ## Why one file per loop
 
 The predecessor was a single markdown table
-([`../loop-ledger.md`](../loop-ledger.md), now frozen at rows 1–42). Every
+([`../loop-ledger.md`](../loop-ledger.md), now frozen at rows 1–46). Every
 concurrent session appended to the same lines and hand-assigned the same
 ordinals, so two sessions closing loops at once collided by construction —
 PRs #327 and #335 each made the other un-mergeable. Different loops now touch

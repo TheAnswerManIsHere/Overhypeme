@@ -317,17 +317,49 @@ jobs:
 
       # Fail early and clearly if the service/credentials are wrong, and create the
       # pgvector extension before push-force (the schema has vector columns).
+      #
+      # `overhype_db_test` is a SEPARATE database for @workspace/db's own suite, and the
+      # separation is load-bearing rather than tidy. `drizzle-kit push --force` reconciles a
+      # database to the Drizzle snapshot and drops whatever exists only in raw migration SQL;
+      # api-server's `pretest` runs push BEFORE migrate, which is correct on a pristine
+      # database but destructive on one that has already been migrated — and the migrate that
+      # follows cannot repair it, because the journal already records every migration as
+      # applied. Running the db suite against `overhype_test` therefore left api-server's
+      # shards cloning a database with migration-only objects missing (`facts_active_requires_concept`,
+      # the membership-entitlement objects) and CHECK constraints re-created from the Drizzle
+      # snapshot in a different, semantically identical rendering.
       - name: Prepare database
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user;'
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE overhype_db_test;'
+          psql "${DATABASE_URL%/*}/overhype_db_test" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 
       - name: Show runner diagnostics
         run: |
           echo "nproc=$(nproc)"
           node --version
           pnpm --version
+
+      # @workspace/db's own suite (migrate.test.ts, ncmecAuditBoundaryStatus.test.ts) was
+      # previously unreachable from any CI gate — Build only compiles the libraries and this
+      # job ran api-server's suite alone, so a regression in lib/db's own tests (including the
+      # restricted-role privilege-boundary assertions) could fail locally and stay green here.
+      # Applied against `overhype_db_test`, NOT the `overhype_test` database api-server's
+      # shards are cloned from — see the Prepare database step for why that separation is a
+      # correctness requirement and not a preference.
+      - name: Apply schema + migrations for @workspace/db test suite
+        env:
+          DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_db_test
+        run: |
+          pnpm --filter @workspace/db push-force
+          pnpm --filter @workspace/db run migrate
+
+      - name: Run @workspace/db test suite
+        env:
+          DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_db_test
+        run: pnpm --filter @workspace/db test
 
       # `pretest` applies push-force + migrations + codegen; run-tests-sharded.sh
       # then clones an isolated database per shard (auto-selected min(nproc,4)).

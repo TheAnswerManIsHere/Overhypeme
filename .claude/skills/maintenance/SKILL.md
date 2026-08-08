@@ -104,8 +104,10 @@ optional.** Since this PR retired CI's coverage gate, the digest's
 notices a missing record; skipping it every week means coverage can rot
 indefinitely while the report keeps saying "not checked" and nobody notices.
 List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
-paginated in small batches) back through PR #344 (`FIRST_RECORDED_PR` in
-`loop-report.mjs`) — **not just the last maintenance window.**
+paginated in small batches) back through `FIRST_RECORDED_PR` in
+`loop-report.mjs` (read the constant rather than hardcoding it here — it moved
+once already when a late `[LEDGER]` PR landed rows during the cutover) —
+**not just the last maintenance window.**
 `missingRecords()` only flags a PR once it's been closed 14 days, so a
 normal 7-day-lookback inventory contains zero eligible entries every single
 run and the "every closed loop has a record" line would be true by

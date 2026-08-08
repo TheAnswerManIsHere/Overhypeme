@@ -157,7 +157,17 @@ have a draft plan, and the disclosure check passes:
    revision was reviewed.
 4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
    the webhook text alone), confirm which revision it reviewed (compare against
-   the current head), weigh every comment on plan *substance*, revise the plan
+   the current head), weigh every comment on plan *substance* — **and then, on
+   a substantive round, pause for the post-round check-in before revising
+   anything (David, 2026-08-07)**: the report defined in
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-check-in-david-2026-08-07)
+   (count + trend, per-finding nature / affected area / verdict, the causal
+   flag — new ground vs. repairing an earlier round's revision vs.
+   impossible-as-specified — and a continue/stop recommendation), delivered as
+   a 🛑 NEED YOU banner, waiting for David's go. Skip-on-clean applies: a
+   clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
+   rule in step 7 it proceeds straight to the next lens with a one-line
+   status. After the go (or on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit `@codex review` comment.
    Codex is the independent technical reviewer. **Every substantive finding
@@ -246,7 +256,9 @@ have a draft plan, and the disclosure check passes:
    pause and bring David the state via the NEED YOU banner — status, what's
    still open, my recommendation — rather than deciding unilaterally either
    way. If he says keep going, I do, without re-asking at the next
-   milestone unless the shape of the problem changes.
+   milestone unless the shape of the problem changes. (With the per-round
+   check-in in step 4, David already sees every substantive round; this cap
+   is the backstop for a loop he has told to keep running.)
 10. **Split foreseeably multi-subsystem plans into parallel review PRs
     up front, not retroactively (David, 2026-07-25).** If I can tell before
     opening the review PR that a plan spans genuinely independent
@@ -331,7 +343,7 @@ so "recorded" here means durable via that control, not permanent by
 construction. The answers reach
 David through the digest (`node scripts/loop-report.mjs`, narrated by
 `/maintenance`), not by anyone reading records. `.agents/metrics/loop-ledger.md`
-is the frozen archive of the first 42 loops and is never appended to again.
+is the frozen archive of the first 46 loops and is never appended to again.
 (This supersedes the original
 "first ~3 plans" calibration pilot — a dozen loops have run and the ledger
 measures them better than a one-time comparison would have.)

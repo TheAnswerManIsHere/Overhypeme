@@ -131,13 +131,18 @@ forward.
   product/business consequence. What doesn't clear it: the routine
   correctness/edge-case findings Codex raises by the dozen — those get
   fixed and resolved silently, per the sparse-chat rule below.
-- **Never narrate webhook echoes of my own replies (David, 2026-07-27).** While
-  watching a PR, events that turn out to be my own comments bouncing back still
-  get the silent live-state check the watching rules require — but they produce
-  **zero chat output**. No "echo of my own reply — no action needed" lines —
-  they bury the signal the sparse-chat rule exists to protect. Silence in chat does not mean
-  I skipped the verification; it means the verification found nothing worth his
-  attention.
+- **Never narrate webhook echoes of my own replies — in chat or on GitHub
+  itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
+  events that turn out to be my own comments bouncing back still get the
+  silent live-state check the watching rules require — but they produce
+  **zero output on either surface**. No "echo of my own reply — no action
+  needed" lines in chat, and — this is the part I've gotten wrong — no reply
+  comment posted back on the GitHub thread saying so either (e.g. "That's an
+  echo of my own comment"). An echo gets no response of any kind, full stop;
+  they bury the signal the sparse-chat rule exists to protect, and a GitHub
+  reply to my own echo is just noise in the PR thread. Silence does not mean
+  I skipped the verification; it means the verification found nothing worth
+  responding to.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
@@ -362,7 +367,14 @@ loaded:
   specifying compare-and-swap semantics for a GitHub label write. The shared
   contract is [`working-modes.md`](docs/ai-context/working-modes.md)'s
   *"Review loops need a stopping rule"* and *"Findings are triaged against the
-  artifact's real risk."*
+  artifact's real risk."* **And since 2026-08-07, the trend statement grew
+  into a full per-round gate**: every substantive round of any review loop —
+  plan or code — pauses *before* fixes are implemented and brings David the
+  post-round check-in (count + trend, per-finding verdict, the causal flag —
+  new ground vs. repairing an earlier fix vs. impossible-as-specified — and a
+  continue/stop recommendation); clean or trivial-nits-only rounds skip the
+  pause with a one-line status. The contract is `working-modes.md`'s *"The
+  post-round check-in."*
 - **No `send_later` self-check-ins for this loop** — the standing
   no-background-check-ins rule applies.
 
@@ -555,8 +567,8 @@ Codex/bot comments, driving CI green, the per-round `@codex review` re-request,
 the cumulative-diff rule from round 2 on, and when to break a non-converging
 loop.
 
-Four things stay resident, because they gate whether the skill ever gets
-invoked at all:
+Five things stay resident — four because they gate whether the skill ever
+gets invoked at all, and one because it changes when David hears from me:
 
 - **Implementation PRs are watched on Sonnet.** Already on Sonnet → subscribe
   immediately. On Opus → do NOT subscribe yet; tell David the PR is ready to
@@ -570,10 +582,25 @@ invoked at all:
   (`pull_request_read`: threads + CI + latest commits, one batched call) and
   decide from that. Webhooks lag, drop CI successes, and arrive out of order,
   so silence is never "all clear". Echoes of my own replies get the silent
-  live-state check and **zero chat output**.
+  live-state check and **zero output — neither chat narration nor a GitHub
+  reply** (see the echo rule above).
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
+- **Every substantive review round pauses for the post-round check-in before
+  any fix is implemented (David, 2026-08-07).** When a round's findings land,
+  I triage first — nature, affected area, verdict, and the causal flag (new
+  ground vs. repairing an earlier round's fix vs. impossible-as-specified) —
+  and bring David the report with a continue/stop recommendation as a
+  🛑 NEED YOU banner, waiting for his go before pushing fixes. Clean or
+  trivial-nits-only rounds skip the pause (fix silently, one status line).
+  The shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
+  check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
+  skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
+  Opus subagent when the triage itself is ambiguous; the approved
+  `/advisor opus` trial) in the `model-routing` skill — David never switches
+  models mid-loop for this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
   "Addressed" means I've either pushed a fix and replied with the commit, or
@@ -727,7 +754,7 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. |
+    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. The post-round check-in is written on Sonnet too; an ambiguous triage call goes to a one-shot announced Opus subagent, not a session switch (see `model-routing`). |
 
   - **I stay vocal about the model in play — David expects to forget this, not
     track it.** Whenever it's relevant, I state which tier is active and flag

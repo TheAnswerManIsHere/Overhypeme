@@ -250,7 +250,10 @@ test("an open PR is not a closed loop", () => {
 });
 
 test("a loop that has a record is not reported missing", () => {
-  assert.deepEqual(missingRecords([inventoryEntry(344)], [record({ pr: 344 })], SETTLED_NOW), []);
+  // Deliberately a POST-cutover number: using one below FIRST_RECORDED_PR
+  // would pass because the cutoff filtered it, not because it has a record.
+  const pr = FIRST_RECORDED_PR + 1;
+  assert.deepEqual(missingRecords([inventoryEntry(pr)], [record({ pr })], SETTLED_NOW), []);
 });
 
 // ── The settling window: a loop isn't owed a record the moment it closes ──
