@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "pr": 301,
+  "closedAt": "2026-08-04T02:51:51Z",
+  "mechanical": {
+    "title": "docs(CLAUDE): skill migration + ledger rows, link guard, and consolidation pass (supersedes #300)",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 12,
+      "added": 979,
+      "removed": 886
+    },
+    "rounds": 12,
+    "findings": 19,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-01T23:15:49Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-02T00:11:41Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-02T00:22:48Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-02T00:30:52Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-02T00:38:57Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-08-02T00:48:34Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 7,
+        "submitted_at": "2026-08-02T00:55:56Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 8,
+        "submitted_at": "2026-08-03T21:49:24Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 9,
+        "submitted_at": "2026-08-03T22:05:31Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 10,
+        "submitted_at": "2026-08-03T22:15:11Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 11,
+        "submitted_at": "2026-08-03T22:21:14Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 12,
+        "submitted_at": "2026-08-04T02:46:46Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-01T23:08:15Z",
+      "last_review_at": "2026-08-04T02:46:46.000Z",
+      "hours": 51.6
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 11, "prop": 6, "wrong": 2, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": 1,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Backfilled from the frozen ledger (row 18), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment transcribed from the ledger's already-adjudicated figures (author's reading, the more self-critical of two — a blind adjudicator's independent reading landed 26.3% instead of 42.1%, disclosed in the ledger's row 18 note rather than adopted)."
+}

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "pr": 270,
+  "closedAt": "2026-07-27T22:39:30Z",
+  "mechanical": {
+    "title": "Add the loop ledger: track every review loop, count what can be counted",
+    "cohort": "feature/code",
+    "size": {
+      "files": 6,
+      "added": 1959,
+      "removed": 0
+    },
+    "rounds": 16,
+    "findings": 34,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-07-27T20:15:30Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-07-27T20:32:54Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-07-27T20:40:55Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-07-27T20:57:09Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-07-27T21:06:56Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-07-27T21:14:29Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 7,
+        "submitted_at": "2026-07-27T21:20:23Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 8,
+        "submitted_at": "2026-07-27T21:27:08Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 9,
+        "submitted_at": "2026-07-27T21:33:45Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 10,
+        "submitted_at": "2026-07-27T21:47:49Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 11,
+        "submitted_at": "2026-07-27T21:52:33Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 12,
+        "submitted_at": "2026-07-27T22:03:57Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 13,
+        "submitted_at": "2026-07-27T22:08:56Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 14,
+        "submitted_at": "2026-07-27T22:13:42Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 15,
+        "submitted_at": "2026-07-27T22:18:20Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 16,
+        "submitted_at": "2026-07-27T22:21:39Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-07-27T20:07:03Z",
+      "last_review_at": "2026-07-27T22:21:39.000Z",
+      "hours": 2.2
+    },
+    "warnings": [
+      "1 reviewer pass(es) absorbed a bodiless inline-comment review record alongside their announcement (28972c4dce×2). Counted as one round each, per reviewerPasses' announcement rule."
+    ]
+  },
+  "judgment": {
+    "causes": { "new": 12, "prop": 18, "wrong": 4, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": 0,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "completed", "population": 34, "disagreements": 5 },
+  "notes": "Backfilled from the frozen ledger (row 3), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment/adjudication transcribed from the ledger's already-adjudicated figures (author's reading, the more self-critical of two)."
+}

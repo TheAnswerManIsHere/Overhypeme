@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "pr": 282,
+  "closedAt": "2026-07-29T22:40:39Z",
+  "mechanical": {
+    "title": "[PLAN REVIEW] Async job queue hardening — delivery guarantees + working alerts — DO NOT MERGE",
+    "cohort": "plan-review",
+    "size": {
+      "files": 1,
+      "added": 2317,
+      "removed": 0
+    },
+    "rounds": 9,
+    "findings": 86,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-07-29T11:13:43Z",
+        "source": "review",
+        "findings": 11
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-07-29T11:30:53Z",
+        "source": "review",
+        "findings": 9
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-07-29T11:49:36Z",
+        "source": "review",
+        "findings": 12
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-07-29T16:10:40Z",
+        "source": "review",
+        "findings": 9
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-07-29T16:36:20Z",
+        "source": "review",
+        "findings": 11
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-07-29T16:51:37Z",
+        "source": "review",
+        "findings": 9
+      },
+      {
+        "round": 7,
+        "submitted_at": "2026-07-29T17:01:45Z",
+        "source": "review",
+        "findings": 7
+      },
+      {
+        "round": 8,
+        "submitted_at": "2026-07-29T17:12:26Z",
+        "source": "review",
+        "findings": 6
+      },
+      {
+        "round": 9,
+        "submitted_at": "2026-07-29T17:25:18Z",
+        "source": "review",
+        "findings": 12
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-07-29T11:05:37Z",
+      "last_review_at": "2026-07-29T17:25:18.000Z",
+      "hours": 6.3
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 24, "prop": 24, "wrong": 38, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "not measured in the original ledger backfill",
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "completed", "population": 86, "disagreements": 16 },
+  "notes": "Backfilled from the frozen ledger (row 7), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment/adjudication transcribed from the ledger's already-adjudicated figures (author's reading, the more self-critical of two — adjudication passed the 20% gate but only just, per the ledger's own note)."
+}
