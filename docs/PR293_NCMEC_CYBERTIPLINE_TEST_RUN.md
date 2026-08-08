@@ -44,28 +44,44 @@ shards). **Unlike every other test command in this doc, this package's
 `test` script (`node --import tsx/esm --test 'src/**/*.test.ts'`) has no
 built-in production guard or test-DB redirection at all** — it runs against
 whatever `DATABASE_URL` is already set to. `ncmecAuditBoundaryStatus.test.ts`
-creates login roles and schemas and mutates role grants (including chains to
+creates login roles and mutates role grants (including chains to
 `overhype_audit_maintenance`), so running it against Replit's live database
 would mutate the live cluster.
 
-**Use a database separate from the one the API-server suite uses**
-(`heliumdb_test`), not that same one — mirroring exactly what this PR's own
-new CI step does on GitHub Actions (a dedicated `overhype_db_test`, never
-`overhype_test`, precisely so the two suites' schema-management sequences
-(this suite's raw `push-force` + `migrate`, versus api-server's `pretest`
-running the same pair in a different order) can never race or drop each
-other's unshadowed objects — see
+**This needs a genuinely separate PostgreSQL cluster/service, not merely a
+separate database.** Postgres roles are cluster-scoped, not database-scoped:
+pointing this suite at another database on the *same* cluster as
+`heliumdb_test` (or the live database) still creates, grants, and drops
+roles in that cluster's one shared, global role namespace — and a suite
+that aborts partway can leave roles or grants behind. Use a disposable Postgres instance — a cluster separate from the one
+`heliumdb_test` and the live database live on (e.g. a second Replit
+Postgres service, or a throwaway container) — not just another database
+name alongside `heliumdb_test`.
+CI's own `overhype_db_test` separation (mirrored below) is a *database*
+separation because CI's runner is itself a disposable container-per-job, so
+the cluster-scoping gap never bites there; a long-lived Replit workspace
+does hit it, so mirror the isolated-*cluster* intent here, not just the
+database-name mechanics — this is also what keeps the two suites'
+schema-management sequences (this suite's raw `push-force` + `migrate`,
+versus api-server's `pretest` running the same pair in a different order)
+from racing or dropping each other's unshadowed objects — see
 [`raw-sql-migration-needs-schema-shadow.md`](../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
-for why that's a real, previously-hit failure mode, not a theoretical one).
-Create or reuse a dedicated isolated database for this suite, apply the
-current schema to it fresh, then run the suite against it:
+for why that's a real, previously-hit failure mode, not a theoretical one.
+
+On the disposable cluster: create the `vector` extension before pushing the
+schema (the schema has vector columns, and a fresh database will not have
+the extension yet — this is the same step CI's own `overhype_db_test`
+preparation runs before its `push-force`), then apply the current schema
+and run the suite:
 ```
-DATABASE_URL=<Replit's dedicated lib/db test database, separate from
-  heliumdb_test, NOT the live one> \
+DATABASE_URL=<disposable Postgres instance's database — a separate cluster/
+  service, NOT another database on heliumdb_test's cluster or the live one> \
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+DATABASE_URL=<same disposable database> \
   pnpm --filter @workspace/db push-force
-DATABASE_URL=<same dedicated database> \
+DATABASE_URL=<same disposable database> \
   pnpm --filter @workspace/db run migrate
-DATABASE_URL=<same dedicated database> \
+DATABASE_URL=<same disposable database> \
   pnpm --filter @workspace/db run test
 ```
 Expected: **0 fail**. Asserts `canEffectivelyAssumeRole()`'s reachability
@@ -104,7 +120,7 @@ tracked for this PR's own changes.
 
    | Column | Type | Nullable | Default |
    |---|---|---|---|
-   | `id` | `bigserial` | NOT NULL | sequence |
+   | `id` | `bigint` (`bigserial` is sugar — Postgres stores and reports it as `bigint`; there is no queryable `bigserial` type) | NOT NULL | `nextval('ncmec_safety_audit_log_id_seq'::regclass)` |
    | `report_id` | `bigint` | nullable | — |
    | `actor_user_id` | `varchar` | nullable | — |
    | `actor_label` | `text` | NOT NULL | — |
@@ -150,7 +166,21 @@ tracked for this PR's own changes.
    constraint (the closed action vocabulary), the
    `ncmec_safety_audit_log_report_id_fk` foreign key (`report_id` →
    `ncmec_reports.id`), and the `IDX_ncmec_audit_report_created` /
-   `IDX_ncmec_audit_created` indexes.
+   `IDX_ncmec_audit_created` indexes — **and both append-only triggers**,
+   which the behavioral probe below only exercises indirectly and a
+   name-only check can miss in a way that leaves the ledger destructible.
+   Verify both, not just their names:
+
+   | Trigger | Fires on | Enabled | Function |
+   |---|---|---|---|
+   | `ncmec_safety_audit_log_no_mutate` | `BEFORE UPDATE OR DELETE`, `FOR EACH ROW` | `ALWAYS` (`tgenabled = 'A'`, not the default `'O'` — `'O'`-only would let a session that sets `session_replication_role = replica` bypass it) | `ncmec_safety_audit_log_append_only()` |
+   | `ncmec_safety_audit_log_no_truncate` | `BEFORE TRUNCATE`, `FOR EACH STATEMENT` | `ALWAYS` (same reason) | `ncmec_safety_audit_log_append_only()` |
+
+   A deployment missing only `_no_truncate` passes every check above and
+   the transactional `UPDATE`/`DELETE` probe in step 4 below, while an
+   authorized `TRUNCATE` could still erase the entire ledger — this is the
+   one failure mode step 4 cannot catch on its own, which is why both
+   triggers need verifying here, not just probing there.
 
    `admin_config` has exactly these 8 new rows (key / value / data_type /
    min / max):
@@ -166,7 +196,45 @@ tracked for this PR's own changes.
    | `async_job_ncmec_submit_max_attempts` | `8` | integer | `1` | `20` |
    | `async_job_ncmec_submit_retry_delay_4_ms` | `86400000` | integer | `60000` | `604800000` |
 
-2. **Re-running migration `0097` — describe what actually happens, not an
+2. **The live `quarantine_id` backfill actually linked what it could —
+   verify against real data, not just the schema.** Migration `0097` isn't
+   schema-only: it also backfilled `ncmec_reports.quarantine_id` from
+   `request_metadata` on every pre-existing row, classifying each into
+   `missing` (no `quarantineId` in `request_metadata` — legitimate; these
+   are pre-stub rows and are meant to stay `NULL` as the backlog audit's
+   population), `malformed` (a `quarantineId` present but not numeric-shaped
+   — a real defect), or `dangling` (numeric but no matching
+   `quarantined_memes` row — a real defect). The migration's own run logged
+   these counts via `RAISE NOTICE`; if Replit's deploy log from the original
+   migration run is still available, read the counts from there. Either
+   way, also run this **live, read-only** verification against the current
+   data (safe to run any time — it only counts, never writes) since the
+   classification is fully re-derivable from current state:
+   ```sql
+   SELECT
+     count(*) FILTER (WHERE request_metadata->>'quarantineId' IS NULL) AS missing,
+     count(*) FILTER (WHERE request_metadata->>'quarantineId' !~ '^[0-9]{1,18}$') AS malformed,
+     count(*) FILTER (
+       WHERE request_metadata->>'quarantineId' ~ '^[0-9]{1,18}$'
+         AND NOT EXISTS (
+           SELECT 1 FROM quarantined_memes q
+            WHERE q.id = (request_metadata->>'quarantineId')::bigint
+         )
+     ) AS dangling
+   FROM ncmec_reports
+   WHERE quarantine_id IS NULL;
+   ```
+   Expected: `missing` can be any count (that's the intended, unlinked
+   backlog population — not a failure). **`malformed` and `dangling` must
+   both be reported and explicitly dispositioned, not silently accepted** —
+   a nonzero count here means a real row that should be linked isn't, which
+   leaves the `UQ_ncmec_reports_quarantine` partial unique index unable to
+   constrain it and lets the later orphan reconciler potentially create a
+   second report for the same hit (breaking the one-report-per-hit
+   invariant this migration exists partly to protect). If either is
+   nonzero, flag it to David rather than treating this check as passed.
+
+3. **Re-running migration `0097` — describe what actually happens, not an
    assumed no-op.** A normal second `pnpm --filter @workspace/db run
    migrate` does **not** re-execute this file's SQL at all — the runner
    tracks applied migrations by content hash and skips anything already
@@ -184,7 +252,7 @@ tracked for this PR's own changes.
    second raw execution requires manually clearing the migration's tracked
    hash first, which isn't part of this routine checklist.
 
-3. **The append-only guarantee — probe inside a transaction that always
+4. **The append-only guarantee — probe inside a transaction that always
    rolls back, never against a real row.** Never target an existing row
    directly: if the guard is broken (the exact failure this check exists to
    catch), an `UPDATE`/`DELETE` against a real row would rewrite or destroy
@@ -227,23 +295,26 @@ tracked for this PR's own changes.
    which outcome occurred, so the ledger ends this check exactly as it
    started, in both the passing and (hypothetically) failing case.
 
-4. **The reserved-config-key guard rejects filing-capable keys.** As an
+5. **The reserved-config-key guard rejects filing-capable keys.** As an
    admin, `PATCH /api/admin/config/ncmec_submission_enabled` (or any of the
    other four reserved keys — see below) with any body — expect **403**
    with the reserved-key refusal message, not the normal validation
-   response. `PATCH /api/admin/config/ncmec_safety_alert_email` with a
-   valid string, by contrast, should succeed normally — it is deliberately
-   not reserved (see the note below). **Immediately after this check,
-   record whatever the pre-test value of `ncmec_safety_alert_email` was and
-   restore it** (see the cleanup note below) — this is a real write against
-   a persistent, live-effect config row.
+   response. **Before** testing `ncmec_safety_alert_email`, record its
+   current value — recording it only after the PATCH would capture the
+   value your own test just wrote, not the original one, and "restoring"
+   that would leave the row permanently changed. Then `PATCH
+   /api/admin/config/ncmec_safety_alert_email` with a valid string, which
+   should succeed normally (it is deliberately not reserved — see the note
+   below), and restore the value you recorded beforehand** (see the cleanup
+   note below) — this is a real write against a persistent, live-effect
+   config row.
 
 ## Cleanup — restore any config rows this checklist wrote
 
-Step 4 above successfully writes to `ncmec_safety_alert_email` (a real,
+Step 5 above successfully writes to `ncmec_safety_alert_email` (a real,
 persistent `admin_config` row that will govern real alert routing once
 production filing exists). Before finishing this checklist: note that row's
-value **before** running step 4, and set it back to that value (or back to
+value **before** running step 5, and set it back to that value (or back to
 empty, if it was empty) afterward. Do the same for any of the other two
 unreserved keys (`async_job_ncmec_submit_max_attempts`,
 `async_job_ncmec_submit_retry_delay_4_ms`) if you additionally exercised
