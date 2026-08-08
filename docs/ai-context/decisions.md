@@ -13,6 +13,63 @@
 
 ---
 
+### 2026-08-07 · A migration cannot manufacture a privilege boundary above itself — NCMEC audit-ledger hardening moved to a superuser runbook
+- **Decision:** Migration `0097` (NCMEC CyberTipline reporting, phase 1) no
+  longer attempts to make the `ncmec_safety_audit_log` append-only guarantee a
+  real PostgreSQL privilege boundary. It creates the table, the guard function,
+  and both `ENABLE ALWAYS` triggers, then stops: no ownership transfer, no
+  `CREATE ROLE`, no `REVOKE`. Closing the boundary — so the application role
+  cannot disable its own guard trigger — is now
+  [`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md),
+  a runbook run by a superuser after the migration applies.
+  `ncmecAuditBoundaryStatus()` (`lib/db/src/index.ts`) is unchanged and still
+  reports the residual state, which phase 6's activation gate **will** read
+  before allowing production filing — phase 6 hasn't shipped yet, so no
+  caller reads it today. Until then, production filing stays blocked by the
+  seeded-off `ncmec_submission_enabled`/`ncmec_ispws_environment` switches
+  alone.
+- **Why:** the migration runs *as the application role*, so it owns
+  everything it creates — a migration cannot grant itself a boundary it
+  cannot already cross. Every path toward one collapsed to the same shape:
+  `ALTER TABLE ... OWNER TO` requires the ability to `SET ROLE` to the new
+  owner, so the transfer succeeds exactly where it buys nothing (the
+  application can take ownership straight back) and is blocked exactly
+  where it would matter. Worse, having the migration `CREATE ROLE` the new
+  owner/maintenance roles made this actively unsafe rather than merely
+  futile: on PostgreSQL 16, a non-superuser `CREATEROLE` role that creates a
+  role is auto-granted it **WITH ADMIN OPTION**, grantor the bootstrap
+  superuser — so the migration was handing the application a membership in
+  the very role its own trigger gates on, and then trying (and failing) to
+  revoke it. `REVOKE` issued by a non-superuser who isn't the grantor doesn't
+  raise; it emits a `WARNING` and changes nothing — only the grantor itself
+  or **any** superuser (not necessarily the specific bootstrap one) can
+  actually remove the row — so five rounds of "revoke the automatic grant"
+  fixes were each individually correct and none of them worked, because the
+  migration runs as the application role, which is neither.
+  Nine review rounds spent refining exactly this reachability model
+  (`usage` → `member` → `SET` → `ADMIN OPTION` → an inherited admin-option
+  chain → schema ownership → guard-function schema ownership) accounted for
+  roughly three-quarters of this PR's 90-plus review findings before David
+  cut the scope. See the third instance under
+  [`known-failure-patterns.md`'s "Chasing completeness against an
+  adversarial reviewer past the artifact's real
+  risk"](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk)
+  for the general pattern this is an instance of, and
+  ["PostgreSQL role/constraint verification traps"](./known-failure-patterns.md#postgresql-roleconstraint-verification-traps-that-look-safe-and-arent)
+  for the specific mechanics (the `CREATE ROLE` auto-grant, and
+  `pg_get_constraintdef` not being a fixed point, which independently
+  defeated the audit-log action-vocabulary CHECK five times before it was
+  rebuilt unconditionally instead of verified).
+- **Reference:** PR #293 (`a376f2cc`, the scope-cut commit);
+  `docs/engineering/ncmec-audit-ledger-hardening.md`.
+- **Revisit if:** a future PostgreSQL version changes REVOKE-by-non-grantor
+  semantics, or the deployment model changes so migrations genuinely do run
+  with elevated, non-application credentials (in which case the removed
+  transfer logic in this PR's history, before `a376f2cc`, is the starting
+  point — don't re-derive it from scratch).
+
+---
+
 ### 2026-08-07 · CI cancels superseded PR runs and skips the heavy suites on provably docs-only changes
 - **Decision:** `build.yml`/`codeql.yml` now cancel an in-progress run when a
   newer push lands on the *same PR* (never a push-to-main or the weekly
