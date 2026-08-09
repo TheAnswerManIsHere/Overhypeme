@@ -16,8 +16,9 @@ template renders as a different, grammatically correct sentence for every
 reader: their name goes in, their pronouns go in, and every verb that needs
 to agree with those pronouns picks the right form automatically. Nobody
 writing or approving a fact has to think about grammar across every
-possible pronoun set by hand — the system guarantees it at render time,
-for whoever ends up reading it.
+possible pronoun set by hand — the system locks that guarantee in when the
+fact is written, and simply plays it back correctly for whoever ends up
+reading it.
 
 ## How it works
 
@@ -28,16 +29,20 @@ guess at pronouns from that name — with presets (she/her, he/him, they/them)
 and a custom option always available to correct or replace the guess.
 Every fact on the page re-renders instantly for whatever's currently
 selected — this is the personalization step the rest of the product's loop
-runs on. A registered user can also set default pronouns on their own
-profile, so their own submitted facts render the same way for other readers
-who choose to view them that way.
+runs on. A registered user can also save default pronouns on their own
+profile, so every fact renders that way for *them* while they browse —
+signed in, without re-selecting each visit. It has no effect on how anyone
+else sees that user's own submitted facts; every reader always personalizes
+from their own current selection, never the author's.
 
 ### For whoever writes the words
 
-A submitter or moderator never hand-types the placeholders — they write in
-plain English, naming the subject the normal way, and the system converts
-that into a template automatically. That conversion, and what a submitter
-sees happen to their own draft, belongs to
+A submitter or moderator doesn't need to hand-type the placeholders — the
+normal path is to write in plain English, naming the subject the usual way,
+and let the system convert that into a template automatically. An advanced,
+optional editor still lets someone view or hand-adjust the converted result
+afterward, for the rare case that needs it. That conversion, and what a
+submitter sees happen to their own draft, belongs to
 [`content-lifecycle.md`](./content-lifecycle.md#for-the-submitter-writing-a-fact)
 (for a fact submission) and
 [`visual-pipeline.md`](./visual-pipeline.md) (for a moderator authoring a
@@ -104,8 +109,8 @@ end up stored half-corrected depending on which door it came through.
   broken by a later change to how new facts get written.
 - **Article agreement ("a" vs "an") is fixed for a reader's actual name at
   render time**, since it depends on the specific name and can't be decided
-  when the template is written — a small number of names whose pronunciation
-  doesn't match their spelling aren't specially handled.
+  when the template is written; see the [spec](../ai-context/token-rendering-and-grammar.md)
+  for the exact rule and its known edge cases.
 - **The system only ever fills in the placeholders a template actually
   has** — it doesn't reason about grammar beyond that; it substitutes and
   picks the correct pre-decided branch, nothing more creative than that.
