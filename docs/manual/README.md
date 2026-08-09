@@ -174,7 +174,7 @@ In reading order. A chapter file appears only once it holds real content, so
 | 2 | [`content-lifecycle.md`](./content-lifecycle.md) | **Submit** — a fact's three entrances (user submission, admin/API-key bulk import, variant creation) and the one funnel they hand off into review through | ✅ written |
 | 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
-| 5 | `visual-pipeline.md` | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | not yet written |
+| 5 | [`visual-pipeline.md`](./visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
 | 6 | `meme-and-video-studio.md` | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | not yet written |
 | 7 | `public-site-and-sharing.md` | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | not yet written |
 | 8 | `community-and-engagement.md` | Ratings, comments, comment hearts, meme hearts, and the activity feed | not yet written |
