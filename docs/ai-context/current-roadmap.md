@@ -89,9 +89,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   generalized lesson from that loop — including a self-referential gap where a
   fix satisfied the guard by rewording a value instead of removing it — is in
   the new [`known-failure-patterns.md`](./known-failure-patterns.md#satisfying-a-lexical-guard-by-changing-a-values-form-not-its-meaning)
-  entry. **Open next:** the manual backfill's remaining chapters (tracked in
-  "in-progress slices" below) still need writing; this guard is the mechanical
-  half of the review discipline PR #291 needed by hand.
+  entry. The manual backfill this guard follows on from is now closed out (see
+  above); this guard remains the mechanical half of the review discipline
+  PR #291 needed by hand, ongoing for every chapter David writes from here.
 - **`/status` split into a per-session skill and a fleet-wide `/status-all`**
   (PR #336). `/status-all` is the original fleet skill, renamed, behavior
   unchanged. `/status` is new: one session's own workstream, the 5-state
