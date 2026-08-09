@@ -17,13 +17,31 @@
  * and dead ones forever after. Deletion is therefore the point — archiving
  * would extend the retention window on exactly the rows that matter most.
  *
- * **Why batched, rather than one `DELETE ... WHERE expires_at <= now()`:** the
- * first run after this ships faces the entire accumulated backlog, and a single
- * unbounded statement would hold locks across all of it on the same connection
- * pool the request path is using. Each batch is a bounded statement, and the
- * run as a whole is bounded by a batch budget; when that budget is spent with
- * rows still eligible, the caller reschedules rather than the run growing
- * without limit.
+ * **Why batched, rather than one `DELETE ... WHERE expires_at <= <cutoff>`:**
+ * the first run after this ships faces the entire accumulated backlog, and a
+ * single unbounded statement would hold locks across all of it on the same
+ * connection pool the request path is using. Each batch is a bounded
+ * statement, and the run as a whole is bounded by a batch budget; when that
+ * budget is spent with rows still eligible, the caller reschedules rather
+ * than the run growing without limit.
+ *
+ * **Why the cutoff is a JS `Date`, not Postgres `now()` (Codex round 2, PR
+ * #369, confirmed by independent review):** `checkSharedRateLimit` writes
+ * `expires_at` from `new Date(Date.now() + windowMs)`, and its OWN liveness
+ * check — the upsert's `expires_at <= ${now}` — compares that against
+ * another JS `Date`, so any app-server-vs-database clock skew cancels out
+ * algebraically on both sides of that comparison. Deleting here with
+ * Postgres's `now()` instead reintroduces exactly that skew as a mismatch
+ * between the clock the row was written against and the clock it gets
+ * deleted against: if the app server's clock ever runs ahead of the
+ * database's, this job could delete a counter before `checkSharedRateLimit`
+ * itself would consider it expired — silently resetting live rate limits
+ * (auth, admin, fact-sharing) early. Comparing against a JS `Date` instead
+ * makes this job's notion of "expired" the same kind of comparison the
+ * writer already uses, so skew cancels the same way. A `PURGE_GRACE_MS`
+ * margin is added on top so purging — which is housekeeping, not a
+ * correctness gate — only ever deletes *later* than strictly necessary, not
+ * earlier, if any residual skew or clock jitter remains.
  *
  * Scheduled from `src/index.ts` with the same self-rescheduling `setTimeout`
  * pattern as `transientRenderPurger`.
@@ -36,6 +54,14 @@ import { logger } from "../lib/logger";
 
 export const DEFAULT_BATCH_SIZE = 5_000;
 export const DEFAULT_MAX_BATCHES = 20;
+
+/**
+ * Grace margin subtracted from "now" before it becomes the deletion cutoff.
+ * See the file header: this only ever pushes the cutoff earlier (deletes
+ * less), so it's a one-directional safety margin against clock jitter, not
+ * a correctness requirement on its own.
+ */
+export const PURGE_GRACE_MS = 5 * 60 * 1000;
 
 /**
  * Hard bounds on the operator-tunable values. `getConfigInt` returns whatever
@@ -68,7 +94,12 @@ export interface RateLimitCounterPurgeResult {
 }
 
 /**
- * Delete up to `batchSize` expired rows. Returns how many actually went.
+ * Delete up to `batchSize` rows expired as of `cutoff`. Returns how many
+ * actually went.
+ *
+ * `cutoff` is a JS `Date`, not Postgres `now()` — see the file header for why
+ * comparing against the database's own clock would reintroduce the exact
+ * app-vs-database skew this job needs to avoid.
  *
  * Postgres has no `DELETE ... LIMIT`, so the bounded set is chosen by a
  * sub-select and removed by `key_hash` (the primary key). `ORDER BY expires_at`
@@ -88,12 +119,12 @@ export interface RateLimitCounterPurgeResult {
  * directly above it in `sharedRateLimiter.ts`; both are coupled to
  * `rateLimitCountersTable` and must move with it.
  */
-async function deleteOneBatch(batchSize: number): Promise<number> {
+async function deleteOneBatch(batchSize: number, cutoff: Date): Promise<number> {
   const result = await db.execute<{ deleted: number }>(sql`
     WITH victims AS (
       SELECT key_hash
       FROM rate_limit_counters
-      WHERE expires_at <= now()
+      WHERE expires_at <= ${cutoff}
       ORDER BY expires_at
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
@@ -121,6 +152,11 @@ export async function runRateLimitCounterPurger(
     MAX_MAX_BATCHES,
   );
 
+  // Computed once per run, not once per batch: a long run spanning many
+  // batches must not let its own boundary drift while it works, and a
+  // slightly-stale cutoff only ever deletes less, never more.
+  const cutoff = new Date(Date.now() - PURGE_GRACE_MS);
+
   let deleted = 0;
   let batches = 0;
   let budgetExhausted = false;
@@ -132,7 +168,7 @@ export async function runRateLimitCounterPurger(
       budgetExhausted = true;
       break;
     }
-    const deletedInBatch = await deleteOneBatch(batchSize);
+    const deletedInBatch = await deleteOneBatch(batchSize, cutoff);
     batches += 1;
     deleted += deletedInBatch;
     if (deletedInBatch < batchSize) break;

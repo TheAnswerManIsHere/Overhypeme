@@ -23,6 +23,7 @@ import { sql } from "drizzle-orm";
 import {
   runRateLimitCounterPurger,
   countRateLimitCounters,
+  PURGE_GRACE_MS,
 } from "../jobs/rateLimitCounterPurger.js";
 
 async function clearAllCounters(): Promise<void> {
@@ -35,13 +36,27 @@ async function clearAllCounters(): Promise<void> {
  *
  * `md5(prefix || n)` gives a distinct 32-char `key_hash` per row (the column is
  * `varchar(64)`), so distinct prefixes never collide across calls.
+ *
+ * The "expired" offset is well past `PURGE_GRACE_MS` (10 minutes back, against
+ * a 5-minute grace), not just past `expires_at`'s literal timestamp — the
+ * purger's cutoff is `now - PURGE_GRACE_MS`, so a row expired only moments ago
+ * is deliberately NOT eligible yet (see the grace-period test below, which
+ * exercises exactly that boundary).
  */
 async function seedCounters(opts: { prefix: string; count: number; expired: boolean }): Promise<void> {
-  const offset = opts.expired ? sql`now() - interval '1 minute'` : sql`now() + interval '1 hour'`;
+  const offset = opts.expired ? sql`now() - interval '10 minutes'` : sql`now() + interval '1 hour'`;
   await db.execute(sql`
     INSERT INTO rate_limit_counters (key_hash, key_raw, count, expires_at, updated_at)
     SELECT md5(${opts.prefix} || g::text), ${opts.prefix} || g::text, 1, ${offset}, now()
     FROM generate_series(1, ${opts.count}) AS g
+  `);
+}
+
+/** Seeds one row with `expires_at` set exactly `secondsAgo` seconds in the past. */
+async function seedOneCounterExpiredSecondsAgo(key: string, secondsAgo: number): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO rate_limit_counters (key_hash, key_raw, count, expires_at, updated_at)
+    VALUES (md5(${key}), ${key}, 1, now() - (${secondsAgo}::text || ' seconds')::interval, now())
   `);
 }
 
@@ -70,6 +85,29 @@ describe("runRateLimitCounterPurger", () => {
     // them would silently reset counters mid-window.
     assert.equal(await countRateLimitCounters(), 5);
     assert.equal(await countExpired(), 0);
+  });
+
+  it("honors PURGE_GRACE_MS — a row past its own expiry but still inside the grace window survives (Codex round 2)", async () => {
+    // The regression this guards: comparing against Postgres now() instead of
+    // an app-clock cutoff would delete a row the instant its own expires_at
+    // passed, with no margin — exactly the clock-skew risk the grace period
+    // exists to absorb. A row 1 minute past expiry, well inside the 5-minute
+    // default grace, must NOT be deleted yet; one 10 minutes past it must be.
+    const graceMinutes = PURGE_GRACE_MS / 60_000;
+    assert.ok(graceMinutes > 2, "test assumes a multi-minute grace window");
+
+    await seedOneCounterExpiredSecondsAgo("grace-recent", 60);
+    await seedOneCounterExpiredSecondsAgo("grace-stale", (graceMinutes + 5) * 60);
+
+    const result = await runRateLimitCounterPurger({ batchSize: 100, maxBatches: 10 });
+
+    assert.equal(result.deleted, 1, "only the row past the grace window should go");
+    assert.equal(await countRateLimitCounters(), 1);
+
+    const remaining = await db.execute<{ key_raw: string }>(
+      sql`SELECT key_raw FROM rate_limit_counters`,
+    );
+    assert.equal(remaining.rows[0]?.key_raw, "grace-recent", "the recently-expired row must survive this run");
   });
 
   it("is a no-op on an empty table", async () => {
@@ -168,6 +206,15 @@ describe("runRateLimitCounterPurger", () => {
     // a batch's rows locked-but-uncommitted in an explicit transaction and
     // proves a concurrent purger run claims the OTHER rows instead of
     // blocking on the held ones.
+    //
+    // Bounded by an explicit deadline (Codex round 2): the canonical test
+    // runner (scripts/lib/test-db.sh) sets no `--test-timeout`, so without
+    // this, a real SKIP LOCKED regression wouldn't fail this assertion — it
+    // would hang the whole CI job until its 20-minute workflow timeout,
+    // hiding every other test's result behind an opaque stall. The deadline
+    // turns that into a clear, fast failure instead.
+    const LOCK_TEST_DEADLINE_MS = 5_000;
+
     await seedCounters({ prefix: "lockproof-", count: 10, expired: true });
 
     const holder = await pool.connect();
@@ -181,10 +228,26 @@ describe("runRateLimitCounterPurger", () => {
       assert.equal(held.rows.length, 5, "test setup: expected 5 rows available to lock");
 
       // While those 5 are locked but uncommitted, a real purger run must skip
-      // them rather than block waiting for `holder` to finish. If it blocked,
-      // this call would hang until node:test's own timeout fails the test —
-      // completing at all, with exactly 5 deleted, is the proof it didn't.
-      const result = await runRateLimitCounterPurger({ batchSize: 10, maxBatches: 1 });
+      // them rather than block waiting for `holder` to finish. If SKIP LOCKED
+      // regresses to a plain lock wait, this races against the deadline below
+      // instead of hanging indefinitely.
+      let deadlineHandle: NodeJS.Timeout | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        deadlineHandle = setTimeout(() => {
+          reject(new Error(
+            `purge did not complete within ${LOCK_TEST_DEADLINE_MS}ms while 5 rows were locked — ` +
+              "SKIP LOCKED appears to be blocking on the held rows instead of skipping them",
+          ));
+        }, LOCK_TEST_DEADLINE_MS);
+        deadlineHandle.unref();
+      });
+
+      let result;
+      try {
+        result = await Promise.race([runRateLimitCounterPurger({ batchSize: 10, maxBatches: 1 }), deadline]);
+      } finally {
+        clearTimeout(deadlineHandle);
+      }
       assert.equal(result.deleted, 5, "must delete only the 5 unlocked rows, not block on the 5 held ones");
 
       const stillLocked = await db.execute<{ count: string }>(
@@ -195,9 +258,14 @@ describe("runRateLimitCounterPurger", () => {
         5,
         "the 5 held rows must still exist — SKIP LOCKED means skipped, not blocked-then-deleted",
       );
-
-      await holder.query("ROLLBACK");
     } finally {
+      // Runs on every path, including the deadline firing: `holder` is the
+      // one holding the lock, so ending its transaction (not just releasing
+      // the client) is what actually frees it, and skipping this on a
+      // timeout would leak an open BEGIN into whichever test claims this
+      // pooled connection next. `.catch()` guards the case BEGIN itself
+      // never landed.
+      await holder.query("ROLLBACK").catch(() => {});
       holder.release();
     }
 
