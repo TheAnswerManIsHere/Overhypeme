@@ -29,6 +29,9 @@ Start with:
 - [`docs/manual/`](docs/manual/README.md) — the human-facing narrative manual
   (how the system works and *why*); a companion to `docs/ai-context/`, **not** a
   replacement for it
+- [`docs/handoff/`](docs/handoff/README.md) — ephemeral cross-tool coordination
+  (Replit ↔ Codex ↔ Claude Code); every file there is in-flight, never a
+  record — delete once addressed, per its own contract
 
 For **visual pipeline** work, also read:
 
