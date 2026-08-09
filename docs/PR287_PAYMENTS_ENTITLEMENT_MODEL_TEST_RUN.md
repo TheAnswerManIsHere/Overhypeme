@@ -175,7 +175,7 @@ changed from what it was before this check ran.
   |---|---|
   | `lease_ttl_seconds` → `5` | **400**, naming the derived floor (83s) |
   | `lease_waiter_timeout_seconds` → (current `lease_ttl_seconds` + 10) | **400** — a waiter may not outlive the lease it waits for; adding to the live-read value guarantees it outlives the lease regardless of what that value currently is |
-  | `grace_sweep_alert_after_seconds` → (current `grace_sweep_interval_seconds`, or lower) | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken; a value at or below the live-read interval guarantees that regardless of what the interval currently is |
+  | `grace_sweep_alert_after_seconds` → (current `grace_sweep_interval_seconds` **minus 1**) | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken; a value strictly below the live-read interval guarantees that regardless of what the interval currently is. The rule is "at least `grace_sweep_interval_seconds`", so a value *equal* to the interval is valid and returns **200** — don't probe with equality |
 
   Each must leave the stored value unchanged — confirm with a re-read. If any
   probe unexpectedly returns **200**, restore it immediately to the value you

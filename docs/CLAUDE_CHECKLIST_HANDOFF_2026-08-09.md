@@ -4,6 +4,11 @@
 **Purpose:** Handoff of the post-merge `docs/PR*_TEST_RUN.md` investigation.  
 **Current stopping point:** PR293, due to a live-data invariant failure. PR308 has not been run.
 
+> **Claude's review outcome (2026-08-09): the PR293 stop is resolved — PR308 is
+> unblocked.** The dangling reference is not a defect and needs no repair. See
+> [Claude's review outcome](#claudes-review-outcome-2026-08-09) at the end of
+> this document.
+
 ## Executive summary
 
 This investigation was performed in the current Lite environment. No Economy upgrade
@@ -371,3 +376,83 @@ For authenticated live admin probes, the reliable pattern is:
 3. Send it as `x-csrf-token` for POST/PATCH requests.
 
 No secret values are included in this handoff.
+
+## Claude's review outcome (2026-08-09)
+
+### PR293 — resolved, no repair needed, PR308 unblocked
+
+`dangling = 1` is **not** an invariant failure. Flagging it was correct — the
+checklist asked for that — but treating it as a stop condition, and blocking
+PR308 behind it, was not.
+
+Three independent reasons, none of which require inspecting the live row
+further:
+
+1. **Migration 0097 treats `dangling` as a warning by design.** Its
+   classification block raises an exception for `conflicting` only; `malformed`
+   and `dangling` fall through to `RAISE WARNING` and are deliberately left
+   `NULL`. The migration is behaving exactly as written.
+2. **A dangling id cannot cause the harm the checklist named.** The duplicate-report
+   risk comes from the orphan reconciler's pass over quarantine rows that no
+   report references. `quarantined_memes.id = 4` does not exist, so that pass has
+   nothing to find and no second report it can create. The risk is specific to
+   `linkable_but_unlinked`, which was `0`. (The reconciler is also phase 5 — not
+   built yet.)
+3. **The disposition is already settled and is not per-row.** Per David's
+   2026-08-07 decision, recorded in the header of
+   `artifacts/api-server/src/lib/moderation/ncmecWorker.ts`: the platform has
+   never been live, so every `ncmec_reports` / `quarantined_memes` row today is a
+   test artifact rather than evidence, and the activation runbook deletes all of
+   them before the filing switch is thrown. The `"test": "phase1-test-plan"`
+   marker on `ncmec_reports.id = 2` is consistent with that. There is no backlog
+   audit to defer this to — that ceremony was retired by the same decision.
+
+So: **no forward repair migration, no row deletion, no decision record.** The
+row gets cleaned up with everything else at activation.
+
+The checklist was the thing at fault, and it has been corrected in
+`docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`: it was written before the
+2026-08-07 decision, still referred to the retired backlog audit, and lumped
+`dangling` in with `linkable_but_unlinked` under one duplicate-report rationale
+that only applies to the latter. `malformed`/`dangling` are now explicitly
+"record and continue".
+
+### PR287 — the checklist wording issue is confirmed and fixed
+
+The observation was right and the probe row was wrong, not just its prose. The
+validator's rule is "at least `grace_sweep_interval_seconds`", so a value
+*equal* to the interval is valid and returns 200. The checklist now asks for
+`interval − 1` and says so.
+
+### PR242 repair — accepted
+
+Migration 0098's constraint definition is character-identical to 0092's, the
+`check()` declaration in `lib/db/src/schema/facts.ts` matches it, and CI on
+`main` is green over all of it (snapshot chain, docs accuracy, codegen drift).
+The snapshot exemption is consistent with the 34 hand-authored migrations since
+0063 that carry no snapshot.
+
+The lesson recorded above — a raw-SQL constraint needs a matching schema
+declaration or a later schema sync can silently drop it — is correct and worth
+promoting into `docs/ai-context/known-failure-patterns.md`.
+
+### PR276 fixes — accepted, with two notes
+
+Both root causes are right and the fixes are in the correct layer (the test was
+wrong about CSRF; the UI was wrong to render "never synced" for a resource that
+simply hadn't started yet). Two things left as-is, neither blocking:
+
+- A resource that *has* synced before but hasn't started this run now renders a
+  bare `pending`, dropping the `· last synced <when>` it used to show.
+- `data-status` now emits `pending`, which is not a value the API's
+  `SyncResourceStatus` union can hold. Only the e2e spec reads that attribute, so
+  nothing breaks — but the DOM attribute is now presentation state, not the API
+  vocabulary it used to mirror.
+
+### Process note
+
+The three commits described above as "uncommitted" were committed and pushed
+**directly to `main`** (`22a18d2`, `a71f365`, `35b5fa2`) — including a database
+migration, a schema change, and a production UI change — with no pull request and
+no Codex review. CI on `main` passed. Flagged to David separately; it is a
+workflow question, not a defect in the work itself.
