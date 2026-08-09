@@ -117,6 +117,8 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     expect(loginRes.ok(), `dev-admin-login should be 200, got ${loginRes.status()}`).toBe(true);
     const loginBody = (await loginRes.json()) as { user?: { email?: string } };
     expect(loginBody.user?.email, "dev-admin-login should return the admin user").toBeTruthy();
+    const csrfToken = (await context.cookies()).find(cookie => cookie.name === "csrf_token")?.value;
+    expect(csrfToken, "dev-admin-login should issue a CSRF cookie").toBeTruthy();
 
     // 2. Navigate to the admin Billing page.
     const navResp = await page.goto("/admin/billing", { waitUntil: "domcontentloaded" });
@@ -187,6 +189,7 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     await test.step("intermediate transitions: rows progress pending → syncing… → complete in order", async () => {
       const simRes = await context.request.post("/api/admin/stripe/sync/_test/simulate", {
         data: { delayMs: 1500 },
+        headers: { "x-csrf-token": csrfToken! },
       });
       expect(simRes.ok(), `simulate (no-fail) should be 200, got ${simRes.status()}`).toBe(true);
 
@@ -230,6 +233,7 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
       // (sequential per resource).
       const simRes = await context.request.post("/api/admin/stripe/sync/_test/simulate", {
         data: { failResource: "plans", delayMs: 800 },
+        headers: { "x-csrf-token": csrfToken! },
       });
       expect(
         simRes.ok(),
