@@ -5,14 +5,33 @@
 > established *what had not been looked at*; this document records *what was
 > found when it was*. Written 2026-07-28 against `main` at `3a7d0c0`.
 >
-> **This is a findings list, not a fix plan.** Nothing here has been fixed.
-> David decides which findings are worth fixing; the fix plan comes after.
+> **This is a findings list, not a fix plan.** At publication (2026-07-28),
+> nothing here had been fixed — David decides which findings are worth
+> fixing, and the fix plan comes after. **That plan has since shipped; see
+> the 2026-08-03 update below for current status.**
 >
 > **Update 2026-07-28: the private annex has been folded in.** Three findings
 > were originally withheld from this public repository. Overhype is pre-launch
 > with **no real payment data**, so that protection was guarding a harm that
 > does not exist, and the fixes land before launch. They are now published
 > below as findings 9, 10 and 11. Nothing is held back.
+>
+> **Update 2026-08-03: the fix plan this audit commissioned has shipped
+> (PR #287).** This document is now **history, not current architecture** —
+> read [`membership-entitlements.md`](./membership-entitlements.md) for how
+> the system works today. The private-annex findings (9, 10, 11) were the
+> root of the entitlement-model rewrite; most are fixed by construction under
+> the new model rather than patched individually. **This is not a
+> finding-by-finding audit of the audit — don't assume PR #287 closed a given
+> finding without checking current code.** Two gaps are confirmed still open:
+> reconciliation (Stripe↔local drift repair, part of the approved plan rather
+> than one of the numbered findings below) was deferred, not fixed — see
+> [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted)
+> — and finding 10 (the customer portal still runs on Stripe's default
+> configuration) was out of scope for this PR from the start and remains so;
+> see the manual's
+> [Payments & Membership](../manual/payments-and-membership.md#boundaries--known-limitations)
+> chapter.
 
 ---
 

@@ -61,6 +61,12 @@ HTTP headers, or secrets** work, also read:
   the security posture (auth, object/meme authz, membership grant trust,
   headers, secrets, the dev-admin-login gate)
 
+For **billing, Stripe webhooks, or membership** work specifically, also read:
+
+- [`docs/ai-context/membership-entitlements.md`](docs/ai-context/membership-entitlements.md) —
+  the entitlement model: derivation, the trust boundary, per-source leases,
+  grace episodes, the known reconciliation gap
+
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [testing-guide](docs/engineering/testing-guide.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md)

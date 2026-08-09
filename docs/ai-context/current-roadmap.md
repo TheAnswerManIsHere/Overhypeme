@@ -24,6 +24,41 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Membership is derived from entitlements, not assigned per-event** (PR #287,
+  from the plan reviewed on the closed-unmerged
+  [PR #279](https://github.com/TheAnswerManIsHere/Overhypeme/pull/279), 32
+  plan-review rounds). `users.membership_tier` stops being a value fifteen
+  call sites wrote by hand — each with its own idea of which other sources to
+  check first — and becomes a projection derived from durable
+  `membership_entitlements` rows every time something about them changes. See
+  [`membership-entitlements.md`](./membership-entitlements.md) for the model
+  (three source types, the W1a trust boundary, per-source leases with
+  fencing, grace episodes) and the manual's
+  [Payments & Membership](../manual/payments-and-membership.md) chapter for
+  the product-facing behavior. Comping a membership now writes an
+  `admin_grant` entitlement — actor, reason, timestamp, revocation — never a
+  fake payment and never a tier field; direct tier editing on an existing
+  user's Admin → Users screen is gone, not merely hidden (the Add User
+  modal's starting-tier picker is a separate surface; choosing Legendary
+  there routes through the same `admin_grant` write rather than a direct
+  field set, while Registered/Unregistered are written directly since a
+  brand-new account has no entitlement history to derive from). **Scope was
+  narrowed mid-build** (David,
+  2026-07-30): reconciliation — the job that would repair a webhook Stripe
+  never successfully delivers — did not converge after four review rounds and
+  was pulled into its own deferred item rather than block the settled core.
+  See
+  [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted)
+  and [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
+  **The build ran 11 further code-review rounds after the plan converged**
+  (101 findings in that implementation loop alone — on top of the 166 the
+  plan-review loop itself had already produced — every one fixed or
+  explicitly recorded as a gap, none silently dropped); David stopped the loop after
+  round 11 rather than chasing full convergence, a deliberate call recorded
+  on the PR rather than an oversight. One gap surfaced in that final round —
+  entitlement sources don't record which Stripe account (live vs. test) they
+  came from — is filed as pre-launch hardening below rather than fixed inline,
+  since it needs a migration and a backfill-semantics decision.
 - **Manual tuning-language guard, following PR 1 of the manual backfill**
   (PR #298, a follow-up guard for PR #291's async-lane de-fork — #291 is PR 1
   of the backfill; #298 does not itself add a chapter). New
@@ -451,10 +486,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 - **Overhype.me Manual — one-time chapter backfill.** David approved the plan
   on 2026-07-30 and the pass has started. Target: **12 chapters in reading
   order** (9 newly written) plus 6 new `docs/ai-context/` subsystem specs for
-  the areas that had none to link into. Three chapters are already written —
-  moderation, taxonomy/enrichment, and **background work** (the previous
-  wording, under deferred work, listed background work as outstanding; it is
-  not). `docs/manual/README.md`'s table is the live status. This entry is
+  the areas that had none to link into. `docs/manual/README.md`'s Contents
+  table is the live record of which chapters are written — not restated here
+  as a count that would only go stale again (moderation, taxonomy/enrichment,
+  and background work were already written before this entry was last
+  touched; **background work** specifically was previously miswritten
+  elsewhere, under deferred work, as still outstanding — it is not). This
+  entry is
   retired by the pass's final close-out PR, not before — so the roadmap never
   claims the backfill is finished while chapters are missing.
 
@@ -476,8 +514,10 @@ priorities (moderation speed, render/enrichment quality, video). See
     is a guess, and guessing permissively recreates the exact bug the column
     exists to prevent — so the backfill needs David's call, and the migration
     wants `/overhype-migration-review`.
-  - **Sequencing.** Blocked on PR #287 merging: the table it adds a column to
-    only exists on that branch.
+  - **Sequencing.** No longer blocked — PR #287 merged and
+    `membership_entitlements` exists on `main`. This is now the actual next
+    prerequisite for go-live, not a dependency waiting on something else to
+    ship.
   - **Exposure meanwhile.** Operator-only. No customer path reaches it, and no
     live purchase is affected. Found by Codex on PR #287 round 11 and escalated
     rather than patched in at the end of an eleven-round review loop.

@@ -182,7 +182,41 @@
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).
-  → [product-brief](./product-brief.md)
+  **Derived, never assigned, post-creation**: `users.membership_tier` is a
+  projection computed from a user's entitlement sources, recomputed on every
+  change to them, after the user exists. Account creation is a separate,
+  one-time initialization write (signup's DB default, or an admin's chosen
+  starting tier on Add User), not a competing writer. One narrow, designed
+  exception past that point: admin reinstatement writes it directly,
+  fail-closed, when a source refresh comes back incomplete — see
+  [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else).
+  → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
+
+- **Entitlement source** — a `membership_entitlements` row: one durable
+  candidate for membership a user has ever held, of type
+  `stripe_subscription`, `stripe_lifetime_payment`, or `admin_grant`. **Not**
+  the same as "currently grants membership" — a cancelled, refunded, or
+  disputed source is retained, not deleted, and no longer qualifies. A
+  dispute closing **anything but lost** — `won`, `warning_closed`, or
+  `prevented` — only clears the dispute hold; the source still must pass its
+  own lifecycle check, so a cancellation/refund that happened while it was
+  disputed stays disqualified regardless of how the dispute itself resolved.
+  Only `lost` is a separate, permanent disqualification. A user's tier is the **union** of their
+  *qualifying* sources (a separate check per row), not a priority order —
+  Legendary if *any* one qualifies.
+  → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)
+
+- **Grace episode** — the 14-day window a `past_due` subscription keeps
+  qualifying for, counted from the first failed charge on the earliest
+  still-unpaid invoice of the contiguous unpaid run. Not "however long Stripe
+  keeps retrying" — a bounded, computed deadline once the anchor is known. If
+  it can't be resolved yet **and no deadline is already stored** (incomplete
+  pagination, an ambiguous episode boundary on a fresh episode), the source
+  keeps qualifying without a deadline until it can be resolved. If a deadline
+  *is* already stored, an unresolvable refresh instead retries as a no-op and
+  leaves that stored deadline in force — including past its expiry, which
+  disqualifies the source rather than failing open.
+  → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a
   confidence bound on up/down votes) plus score/comment/share counts.
