@@ -1,4 +1,4 @@
-# Community and Engagement
+# Chapter 8 · Community and Engagement
 
 > How people react to what's on Overhype.me — [rating](../ai-context/glossary.md#rating) a fact, [hearting](../ai-context/glossary.md#heart) a
 > [meme](../ai-context/glossary.md#meme) or a comment, leaving a comment of your own — and how you find out

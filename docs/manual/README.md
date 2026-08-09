@@ -213,8 +213,19 @@ In reading order. A chapter file appears only once it holds real content, so
 | 11 | [`admin-console.md`](./admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
 | 12 | [`background-work.md`](./background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 
-When a chapter is added or an area renamed, update this table in the same
-commit.
+**This table is the source of truth for chapter numbers**, and the number now
+appears in two other places that must agree with it: each chapter's own `#
+Chapter N · Title` heading, and the `**Next:** chapter N — …` footer of the
+chapter before it. Inserting or reordering a chapter therefore renumbers a run
+of files, not just this table — do it in the same commit, and check the
+footers, which are the easiest of the three to miss. (Nothing enforces this
+yet; a consistency check is a good candidate for the Build job if it ever
+drifts.)
+
+Deliberately **not** written anywhere: "chapter N **of 12**." A total restated
+across twelve files is exactly the kind of count that goes stale the moment a
+chapter is added — this table stays the one place that knows how many there
+are.
 
 ## Outside this manual
 

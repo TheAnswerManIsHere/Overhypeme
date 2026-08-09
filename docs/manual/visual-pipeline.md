@@ -1,4 +1,4 @@
-# Visual Pipeline
+# Chapter 5 · Visual Pipeline
 
 > How a fact becomes an AI-rendered image, whoever it's personalized for —
 > the shared pipeline behind moderation's [test renders](../ai-context/glossary.md#test-renders) and an end user's AI

@@ -1,4 +1,4 @@
-# Meme and Video Studio
+# Chapter 6 · Meme and Video Studio
 
 > How you actually turn a fact into a meme — with your own photo, an
 > [AI-generated image](../ai-context/glossary.md#ai-image-meme), or an AI-generated video — and what's true about each

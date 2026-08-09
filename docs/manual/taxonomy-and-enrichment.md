@@ -1,4 +1,4 @@
-# Taxonomy and Enrichment
+# Chapter 4 · Taxonomy and Enrichment
 
 > How a submitted fact gets classified — its joke mechanism, tone, and
 > content-safety fit — and how that classification stays current as the

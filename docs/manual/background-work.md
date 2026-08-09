@@ -1,4 +1,4 @@
-# Background Work (Async Jobs)
+# Chapter 12 · Background Work (Async Jobs)
 
 > How Overhype.me runs slow or external work — AI classification, image
 > generation, email, image search, moderation refresh cycles — without making

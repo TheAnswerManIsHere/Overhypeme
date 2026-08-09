@@ -1,4 +1,4 @@
-# Payments & Membership
+# Chapter 10 · Payments & Membership
 
 > Free vs. [Legendary](../ai-context/glossary.md#legendary): what membership unlocks, how someone gets it, and how
 > the system decides — at any moment — whether they still have it.

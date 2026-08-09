@@ -1,4 +1,4 @@
-# Personalization and Grammar
+# Chapter 1 · Personalization and Grammar
 
 > How one [fact](../ai-context/glossary.md#fact) template becomes a sentence about whoever's reading it — and
 > stays grammatically correct no matter which name or pronouns that turns

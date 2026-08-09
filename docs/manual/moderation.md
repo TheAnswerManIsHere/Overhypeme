@@ -1,4 +1,4 @@
-# Moderation
+# Chapter 3 · Moderation
 
 > How a user-submitted fact gets reviewed and either published or rejected —
 > the [three human gates](../ai-context/glossary.md#gate) it passes through, and why the process is shaped to spend

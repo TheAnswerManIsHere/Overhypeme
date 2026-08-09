@@ -1,4 +1,4 @@
-# Public Site and Sharing
+# Chapter 7 · Public Site and Sharing
 
 > Home, search, the leaderboard, your own [library](../ai-context/glossary.md#library), sharing, and [merch](../ai-context/glossary.md#merch) —
 > the surfaces where the loop actually closes: a visitor becomes a reader,

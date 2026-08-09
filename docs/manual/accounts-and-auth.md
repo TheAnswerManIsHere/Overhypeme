@@ -1,4 +1,4 @@
-# Accounts and Authentication
+# Chapter 9 · Accounts and Authentication
 
 > How you get an account on Overhype.me, what "signed in" actually means day
 > to day, and what happens to an account when it's [deactivated](../ai-context/glossary.md#deactivate) or removed.

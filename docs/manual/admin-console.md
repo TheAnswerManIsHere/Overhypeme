@@ -1,4 +1,4 @@
-# Admin Console
+# Chapter 11 · Admin Console
 
 > Where the team runs Overhype.me day to day — reviewing content,
 > managing accounts, tuning how the product behaves, and watching its

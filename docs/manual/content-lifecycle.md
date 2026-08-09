@@ -1,4 +1,4 @@
-# Content Lifecycle
+# Chapter 2 · Content Lifecycle
 
 > How a fact gets into Overhype.me in the first place — the three entrances
 > (a user's own submission, an admin or automated [bulk import](../ai-context/glossary.md#bulk-import), and a new
