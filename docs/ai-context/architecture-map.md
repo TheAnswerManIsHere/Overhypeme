@@ -54,10 +54,13 @@ docs/                this documentation
   `artifacts/overhype-me/src/components/` (not `pages/`): `components/meme-builder/`,
   `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`.
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
-  Dashboard, Facts, Users, Moderation, Comments, Billing, Refunds & Disputes,
+  Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
   Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,
-  Configuration, AI Settings. Shared: `EnrichmentEditor.tsx` (+ `fieldDocs/`),
-  `useTaxonomyHealthActions.ts` (async-status reference).
+  Configuration, Eval, Queue Health — the full, routed inventory is
+  [`admin-console.md`](./admin-console.md). `comments.tsx` and `ai.tsx`
+  exist as files but are dead — their routes redirect elsewhere; they are
+  not part of the live inventory. Shared: `EnrichmentEditor.tsx` (+
+  `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation
   hooks, the meme/video builder flows) intentionally use hand-written `fetch`.
