@@ -292,6 +292,15 @@ landed — so a wrong fix early got built on top of repeatedly and reviewed zero
 times. One bug per PR means every fix is reviewed in isolation, immediately, and
 against a diff that contains nothing else.
 
+The measured worst case is **PR #334** (loop record
+`.agents/metrics/loops/334.json`) — nominally a bugfix, actually eleven
+leftover review findings batched into one PR: **21 rounds, 69 findings, 72%
+self-inflicted (38 propagation + 12 wrong-fix), and no breaker fired.** That
+is what batching produces, now with a number on it — and why a
+"clean up the review findings" batch is named in *When NOT to use bugfix
+mode* below: leftover findings from earlier PRs are N separate defects, each
+owed its own classification and its own PR.
+
 Use a **topic** slug, not a date (`…/bugfix-annual-plan-lookup`, not
 `…/bugfix-jul26`) — with one bug per branch, a date collides the moment two bugs
 land the same day. Create non-resettingly (fail rather than wipe existing work),
@@ -401,7 +410,9 @@ workflows).
    grammar rewrite reaches past a safe anchor*).
 6. **Shaky diagnosis.** No deterministic reproduction, more than one plausible
    root cause, or this symptom has been "fixed" before. Uncertainty at diagnosis
-   is the strongest single predictor that the fix is a guess.
+   is the strongest single predictor that the fix is a guess. ("Fixed before"
+   is knowable, not a memory test — the loop's step 1 history check is where
+   it's answered.)
 7. **The path had no pre-existing tests at all.** Not "this exact regression
    scenario wasn't covered" — by definition almost no escaped bug's precise
    scenario was covered, so that reading would send nearly every real fix to
@@ -489,7 +500,12 @@ oracle and the Tier A/B bugfix oracle below.
 
 ### Per bug — the loop
 
-1. **Reproduce and find the root cause.** Name the mechanism, not the instance.
+1. **Reproduce and find the root cause.** Name the mechanism, not the
+   instance. **Check the history first**:
+   [`known-failure-patterns.md`](./known-failure-patterns.md) and a quick
+   search of merged PRs for the symptom — a match can shortcut the
+   diagnosis, and this check is also what makes Q2's "fixed before"
+   trigger knowable rather than a memory test.
 2. **Classify** against the checklist above. State the tier and the reason.
 3. **Write the regression test first** — a test that **fails on current code
    because of this bug**. This is the difference between fixing a bug once and
@@ -500,14 +516,27 @@ oracle and the Tier A/B bugfix oracle below.
    depends on this behavior — and what you checked. Regression tests pin the fixed
    behavior; they say nothing about the neighbors, which is exactly where a
    small-looking fix does its damage.
-6. **Verify** — the touched tests + typecheck (see
-   [`../tests/testing-guide.md`](../tests/testing-guide.md)). A fix
-   that breaks the build doesn't get committed.
+6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
+   touched tests + typecheck (see
+   [`../tests/testing-guide.md`](../tests/testing-guide.md)), **plus the
+   test suites of the neighbors the blast radius named** — the callers and
+   shared-path dependents step 5 identified. A fix that breaks a neighbor
+   is the exact failure the bugfix oracle warns about, and step 5's output
+   is the checklist for detecting it; establishing a blast radius and then
+   not running its tests checks the diff against itself. A fix that breaks
+   the build doesn't get committed.
 7. **One focused commit** — fix + its regression test together, message naming the
    bug and the fix.
 8. **Open the PR** with the applicable oracle — the Tier A/B oracle below for a
    Tier A/B fix, or the dedicated Tier C block described above for a trivial
    schema fix — and engage the review to convergence.
+9. **At close, harvest what generalizes (David, 2026-08-09).** A root cause
+   that reaches past this one bug is captured before the workstream closes:
+   a [`known-failure-patterns.md`](./known-failure-patterns.md) entry, a
+   CI-guard candidate (the standing recurring-failure-patterns rule), or a
+   one-line `/document` nudge to David. Tier A fixes especially — with no
+   plan and no UAT doc, the merge is the only moment their learning exists
+   anywhere but the diff.
 
 > **Narrow carve-out on step 3:** if a fix is genuinely untestable at reasonable
 > cost (a pure visual/CSS tweak with no assertable behavior), the regression test
@@ -625,7 +654,10 @@ backfill** (Tier C without exception — see above; not gated on product
 consequence; not the `lib/api-zod` Zod schemas, which stay Q1 Tier B), or
 anything where David needs to verify intent — that's **feature mode**, or for a
 trivial database schema fix, migration ceremony run directly per Tier C. Don't
-use bugfix mode to sneak a feature through the lightweight path. When unsure
+use bugfix mode to sneak a feature through the lightweight path. **And a
+"clean up the review findings" batch is not a bug fix (David, 2026-08-09):**
+N leftover findings are N defects, and batching them recreates exactly what
+one-bug-per-PR banned — PR #334 above is the measured cost. When unsure
 which it is, **ask.**
 
 ## The loop ledger

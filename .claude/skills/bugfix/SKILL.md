@@ -75,6 +75,13 @@ constraints*.)
 > exactly one branch), don't put the second bug on the first bug's branch to
 > route around that — stop and ask David for a new assigned branch instead.
 
+**A bug arriving mid-feature-build doesn't touch the feature's working tree
+(David, 2026-08-09).** With routed entry, bug reports can land while a
+feature branch has in-flight work. Don't stash-juggle the feature state: run
+the bugfix in an isolated worktree (`EnterWorktree`, branched from
+`origin/main` per above) or say plainly that a fresh session is cleaner and
+let David choose — either way the feature tree comes back untouched.
+
 Then confirm the branch name (the classification announcement at entry
 already named the workflow).
 
@@ -135,7 +142,10 @@ the PR back only delays the review that catches things.
    has never been pushed, so **no rebase is needed or wanted** — see CLAUDE.md's
    git constraints. If the branch later needs current `main`, **merge, don't
    rebase**.
-2. Open the PR with `mcp__github__create_pull_request` — base `main` normally.
+2. Open the PR with `mcp__github__create_pull_request` — base `main`
+   normally; **as a draft only when the Tier B draft-first flow in step 3
+   applies** (a plain non-draft open is the point for everything else —
+   round 1 fires immediately).
    **Exception: a stacked fix bases against its parent's branch, not `main`**
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
@@ -189,28 +199,29 @@ the PR back only delays the review that catches things.
    frontend-visible type change) takes the **internal/infra-only exception**
    instead: a written verification note in the PR body, no UAT doc (see
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
-   When a UAT doc is due, the filename needs the PR
-   number, so it is PR-first, exactly like feature mode: open the PR with a
-   "Docs pending" note, then commit `docs/PR<N>_<FEATURE>_UAT.md` to the **same
-   PR before merge** and replace the note with a link. Match the most recent
-   surviving `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
-   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section, which
-   now owns that rule — the combined plan/UAT delivery ritual it used to live in
-   was retired). A `TEST_RUN` doc only if something
-   genuinely needs Replit's environment — per
+   When a UAT doc is due, the filename needs the PR number, so the flow is
+   **draft-first (David, 2026-08-09 — replacing the docs-pending +
+   explicit-re-review dance, which bought a guaranteed second round for
+   file-naming reasons):** open the PR **as a draft** (the number now
+   exists, and a draft doesn't trigger the Codex connector — the same
+   property the plan-review loop relies on), commit
+   `docs/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then **mark
+   the PR ready for review** — round 1 fires once, on the complete diff,
+   UAT included. **First-use caveat:** "ready for review" triggering the
+   connector is expected (its own trigger phrase is "open a pull request
+   for review") but unverified in this repo — on the first draft-first fix,
+   confirm a review actually lands; if it doesn't, post one explicit
+   `@codex review` naming the full diff (the old flow's cost, paid once)
+   and record the verified answer here. Match the most recent surviving
+   `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
+   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
+   which owns that rule). A `TEST_RUN` doc only if something genuinely
+   needs Replit's environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
-   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to the
-   workstream issue's State of Play `Artifacts` field once committed** — the
-   same instruction `pr-docs` follows for feature-mode UAT docs, so a
+   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to
+   the workstream issue's State of Play `Artifacts` field once committed** —
+   the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.
-   **This UAT commit lands after round 1 already fired on
-   PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
-   so it needs its own explicit `@codex review` once it's pushed, the same as
-   any other fix-round commit. Don't let the PR reach convergence with a
-   commit Codex never actually saw. The criticality gate (step 4) doesn't
-   exempt this round: the artifact being rated is the **PR**, which is a
-   product-code fix, not the UAT markdown that happens to be the newest
-   commit on it.
 4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
    **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately;
    on **any other tier** — Opus (which a Tier B fix will have put me on),
@@ -249,8 +260,10 @@ What is *bugfix-specific* about the loop:
   round; the light *planning* path must never shade into a light *review*
   path.
 - **Round 1 is automatic.** The Codex connector reviews on non-draft PR
-  open, so no `@codex review` on open. (The plan-review loop needs an
-  explicit trigger only because its PR is a draft.)
+  open — or on marking a draft ready, in the Tier B draft-first flow
+  (step 3, with its first-use caveat) — so no `@codex review` on open.
+  (The plan-review loop needs an explicit trigger only because its PR
+  *stays* a draft.)
 - **A bugfix PR is product code — it passes the criticality gate.** I still
   rate it and say the number per the gate, but a real fix is essentially
   never single-digit: the gate ends loops on transient docs, not on fixes.
@@ -292,4 +305,13 @@ or anything where David needs to verify intent is out of the fast path — a
 non-trivial one goes to **feature mode**, a genuinely trivial database schema
 fix runs migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a
 feature through the fast path — and don't let a fix quietly become one
-mid-build; that's Tier C. When unsure, ask.
+mid-build; that's Tier C.
+
+**A "clean up the review findings" batch is not a bug fix either (David,
+2026-08-09).** Leftover findings from earlier PRs are N separate defects,
+and batching them recreates exactly what one-bug-per-PR banned — PR #334
+(nominally a bugfix, actually eleven batched findings: 21 rounds, 69
+findings, 72% self-inflicted, no breaker fired) is the measured cost. Each
+real defect gets its own classification and its own PR.
+
+When unsure, ask.

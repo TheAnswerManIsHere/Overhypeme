@@ -248,9 +248,15 @@ silently leaving the workstream unlabeled):
   be a gate with nothing to run against it. "Has product-visible behavior"
   is *not* the test by itself — a Tier A fix can be product-visible and
   still ship no UAT doc, which is what makes checking for the doc the right
-  test, not the behavior. Never `stage:done` at merge — that's David's to
-  set once he's actually verified it, the same reason the Project's
-  built-in `PR merged → Done` workflow is off.
+  test, not the behavior. **When that straight-to-close-out case is a
+  product-visible fix that shipped no UAT doc (the Tier A case), the
+  close-out State of Play's *What you need to do* aims David instead of
+  saying "nothing" (David, 2026-08-09):** one line — where in the app to
+  glance next time he's there, and to reopen the workstream if the symptom
+  persists. No gate, no extra stage — David is the acceptance test whether
+  or not a stage tracks it; this just points him. Never `stage:done` at
+  merge — that's David's to set once he's actually verified it, the same
+  reason the Project's built-in `PR merged → Done` workflow is off.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
