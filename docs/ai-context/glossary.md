@@ -142,8 +142,11 @@ anyone else sees facts that user submitted.
 ### Conjugation pair
 
 A two-form verb written into a template as `{laughs|laugh}` — singular form
-first, plural second — so the [grammar pass](#grammar-pass) can pick the form
-that agrees with whichever [pronoun set](#pronoun-set) a reader ends up using.
+first, plural second. The [grammar pass](#grammar-pass) decides *which* verbs
+get wrapped this way (structure, decided once at write time); which form
+actually renders for a given reader is a separate, later decision made fresh
+by [rendering](#rendering) itself, based on whichever
+[pronoun set](#pronoun-set) that reader ends up using (content).
 → [token-rendering](./token-rendering-and-grammar.md)
 
 ---
@@ -315,10 +318,14 @@ in-progress work.
 ### Moderation prep
 
 The paid pipeline that runs only after [provisional approval](#provisional-approval):
-AI classification, stock-image lookup, visual-idea drafting, and the per-image
-test renders. What [Triage](#triage) gates is *this*, not every model call ever
-made about a fact — the cheap pre-submit affordances (tokenizing, duplicate
-checking, hashtag suggestions) already ran before a moderator saw it.
+AI classification, stock-image lookup, and visual-idea drafting — enqueuing
+Visual-Idea candidates, with **no renders yet**. Per-image
+[test renders](#test-renders) are a separate, later spend, unlocked only once
+a moderator approves the [Visual Concept](#visual-concept); they are not part
+of prep itself. What [Triage](#triage) gates is *this pipeline*, not every
+model call ever made about a fact — the cheap pre-submit affordances
+(tokenizing, duplicate checking, hashtag suggestions) already ran before a
+moderator saw it.
 → [moderation-workflow](./moderation-workflow.md#why-staged-moderation-exists)
 
 ### Test Renders
@@ -364,10 +371,15 @@ without anyone re-checking that its Visual Concept still holds up.
 
 ### Quarantine
 
-What happens to an image refused by the legal/safety checks: preserved as
-evidence in storage with **no serving path at all** — no admin viewer, no share
-link. Stronger than "hidden," and a **one-way door**: no appeal, no release, no
-re-review. Deliberately survives even full account deletion.
+Preserving a [refused](#refused) image as evidence — **a separate event from
+the refusal itself**, and not every refusal produces it: some rejection paths
+block the content without ever calling it. Where it happens, the ordinary
+serve routes have no path to a quarantined object — no admin viewer, no share
+link — but that is **not a proven absolute access-control guarantee**: other
+code paths that accept a caller-supplied storage path are a known, tracked
+gap, so "unreachable" is a goal, not something to build future safety code on
+top of. A **one-way door** where it applies: no appeal, no release, no
+re-review.
 → [legal-safety-moderation](./legal-safety-moderation.md)
 
 ---
@@ -842,8 +854,13 @@ something stored on the session.
 
 ### Registered
 
-The free tier: anyone with an account. Can submit facts, comment, rate, and
-build [photo memes](#photo-meme).
+The free tier: the derived `registered` [membership tier](#membership-tier) —
+**not** simply "has an account." An [unregistered](#unregistered) account
+also has a row in the users table but is a distinct auth state the tier
+derivation deliberately never promotes out of, precisely so an admin-created
+unregistered account doesn't silently gain Registered's capabilities. A
+Registered user can submit facts, comment, rate, and build
+[photo memes](#photo-meme).
 → [membership-entitlements](./membership-entitlements.md)
 
 ### Unregistered
@@ -891,8 +908,11 @@ an admin [reinstating](#reinstate) it.
 Going further than [deactivate](#deactivate): a best-effort deletion of the
 account's own uploaded images and personal data. **Content it created — facts,
 comments, memes — is kept**, just no longer tied to a real account. Not a
-"right to be forgotten" erasure. Legal/safety records are kept fully intact
-regardless.
+"right to be forgotten" erasure. A [quarantine](#quarantine) record's evidence
+and row survive a hard delete too, by design — but not the attribution:
+who it's tied to is nulled out along with the account, the same as ordinary
+content. Preserved evidence and preserved *attribution* are different
+guarantees; only the first one holds.
 → [accounts-and-auth](./accounts-and-auth.md)
 
 ### Email verification
@@ -1169,9 +1189,13 @@ backoff and retry up to `maxAttempts`.
 
 ### Abandoned no retry
 
-The derived state for a `failed` row whose attempts hit its retry ceiling
-deliberately — the worker won't retry this one. A different story from having
-retried repeatedly and given up, which is why the two are reported separately.
+The derived state for a `failed` row the worker won't retry — defined by
+**no retry being available**, not by attempts having reached the ceiling.
+Reachable two ways: a deliberate terminal classification that gives up before
+the ceiling (attempts *below* the max), or a single-attempt queue whose one
+attempt failed, ceiling or not. A different story from having retried
+repeatedly and exhausted the budget, which is why the two are reported
+separately.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Sentinel

@@ -11,7 +11,7 @@
 
 ## What it does
 
-Overhype.me has two tiers: **[Registered](../ai-context/glossary.md#registered)** (free — anyone with an account) and
+Overhype.me has two tiers: **[Registered](../ai-context/glossary.md#registered)** (free — the default for anyone who signs up) and
 **Legendary** (paid — unlocks private memes, AI identity memes, AI video
 generation, higher rate limits, and a higher generation spend budget).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
