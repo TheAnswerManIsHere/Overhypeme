@@ -587,7 +587,7 @@ David as done — until both docs exist and the PR body links them**, unless the
 ship-the-UI-surface exception applies. They are **never** a separate later PR.
 
 The **`pr-docs` skill** owns the rest: both templates, the
-[`test-run-contract.md`](docs/engineering/test-run-contract.md) rules (including
+[`test-run-contract.md`](docs/tests/test-run-contract.md) rules (including
 "Replit owns the database connection" and the conditional full-suite run), the
 UAT Artifact page, and the fact that the TEST_RUN half is transient — David
 deletes it once Replit has run it, so a missing `*_TEST_RUN.md` on `main` is

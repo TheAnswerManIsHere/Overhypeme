@@ -47,7 +47,7 @@ Verified by running the script against a clean tree exported from `HEAD`
 
 The last row is the whole trade-off. `artifacts/api-server/src/__tests__/` runs
 against real Postgres + pgvector (see
-[`../engineering/testing-guide.md`](../engineering/testing-guide.md)); with no
+[`../tests/testing-guide.md`](../tests/testing-guide.md)); with no
 database the runner dies before the first test, so the suite that backs CI's
 `Test` job is unavailable to Codex on the fast path.
 

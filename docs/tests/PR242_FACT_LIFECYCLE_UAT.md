@@ -6,7 +6,9 @@ exit"), and every fact enters at the front of the moderation queue ("one
 entrance").** Nothing a normal *user* sees changes — submitting a fact works
 exactly as before. The changes are on the admin/moderation side.
 
-Companion engineering checklist: [`PR242_FACT_LIFECYCLE_TEST_RUN.md`](PR242_FACT_LIFECYCLE_TEST_RUN.md).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ## What to expect
 

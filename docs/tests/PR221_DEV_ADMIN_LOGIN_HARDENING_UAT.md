@@ -6,7 +6,9 @@ used to work for **anyone, anywhere** (including on the live site once launched)
 It's now **off by default and always off in production**, and only works in a
 preview when you explicitly turn it on.
 
-Sibling doc (for Replit): [`PR221_DEV_ADMIN_LOGIN_HARDENING_TEST_RUN.md`](./PR221_DEV_ADMIN_LOGIN_HARDENING_TEST_RUN.md).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ## What changed, in plain terms
 

@@ -17,7 +17,8 @@ anywhere that would have told you — you'd have found out because memes stopped
 appearing.
 
 Companion engineering checklist:
-[`PR288_QUEUE_HEALTH_SURFACE_TEST_RUN.md`](PR288_QUEUE_HEALTH_SURFACE_TEST_RUN.md).
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
 
 ## Where to go
 

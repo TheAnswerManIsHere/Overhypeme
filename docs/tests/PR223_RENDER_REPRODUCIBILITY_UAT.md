@@ -101,5 +101,6 @@ renderJobId / attemptId (if visible):
 ```
 
 See the engineering checklist in
-[`PR223_RENDER_REPRODUCIBILITY_TEST_RUN.md`](PR223_RENDER_REPRODUCIBILITY_TEST_RUN.md)
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md)
 for the automated coverage behind this.

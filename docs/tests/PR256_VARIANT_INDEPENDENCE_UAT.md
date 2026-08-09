@@ -8,7 +8,8 @@ memes, its own visual taxonomy/enrichment, its own Visual Concept, its own
 stock/AI images — none of it borrowed from or blocked by its root anymore.
 
 Companion engineering checklist:
-[`PR256_VARIANT_INDEPENDENCE_TEST_RUN.md`](PR256_VARIANT_INDEPENDENCE_TEST_RUN.md).
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
 
 ## What to expect
 

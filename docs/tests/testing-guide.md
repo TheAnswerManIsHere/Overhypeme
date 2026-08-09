@@ -1,6 +1,6 @@
 # Testing Guide
 
-> How to verify changes in this repo. **`docs/TESTING.md` is the canonical
+> How to verify changes in this repo. **`docs/tests/TESTING.md` is the canonical
 > reference** for DB isolation modes, the production guard, the DB-name glossary,
 > and the CI gate — this is the orientation layer. Do **not** invent commands;
 > the ones below are verified against the repo. **GitHub CI is the authoritative

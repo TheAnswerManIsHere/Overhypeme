@@ -95,13 +95,13 @@ For **billing, Stripe webhooks, or membership** work specifically, also read:
   grace episodes, the known reconciliation gap
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
-[testing-guide](docs/engineering/testing-guide.md),
+[testing-guide](docs/tests/testing-guide.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md)
 (and its worked example,
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
 for a migration that cannot enforce its own privilege boundary),
 [code-review](docs/engineering/code-review.md),
-[test-run-contract](docs/engineering/test-run-contract.md) (what a per-PR
+[test-run-contract](docs/tests/test-run-contract.md) (what a per-PR
 `TEST_RUN` checklist must contain — Replit executes it post-merge against the
 live DB),
 [deferred-work](docs/engineering/deferred-work.md) (the backlog of parked
@@ -214,8 +214,8 @@ paragraph is a summary, not the authority.
 ## Setup, verification, and the CI gate
 
 Full commands, DB isolation, and the production guard are in
-[`docs/engineering/testing-guide.md`](docs/engineering/testing-guide.md) and the
-canonical [`docs/TESTING.md`](docs/TESTING.md). The essentials:
+[`docs/tests/testing-guide.md`](docs/tests/testing-guide.md) and the
+canonical [`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
 
 - Build generated artifacts + libs before package checks:
   `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →

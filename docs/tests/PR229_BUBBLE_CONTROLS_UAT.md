@@ -2,7 +2,8 @@
 
 In-app, click-through acceptance test (David). Written for the end user: where to
 click, what to expect vs. not expect. The engineering checklist is
-[`PR229_BUBBLE_CONTROLS_TEST_RUN.md`](./PR229_BUBBLE_CONTROLS_TEST_RUN.md)
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md)
 (transient — delete after Replit runs it).
 
 ## What this feature does

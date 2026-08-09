@@ -45,7 +45,7 @@ The two docs:
    for Replit (the technical safety net).
 
    **Its content and shape are governed by
-   [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md)** — the
+   [`test-run-contract.md`](../../../docs/tests/test-run-contract.md)** — the
    narrow, shared thing (a contract *Replit executes*), same pattern as the
    Codex plan-review contract. I follow it rather than restating it here. The
    short version, because I kept getting this wrong: **a TEST_RUN verifies what
@@ -88,7 +88,7 @@ The two docs:
    under review, so dropping plan Artifacts did not drop these.
 
 **Structure, depth, and tone:** the TEST_RUN follows
-[`test-run-contract.md`](../../../docs/engineering/test-run-contract.md) (which carries
+[`test-run-contract.md`](../../../docs/tests/test-run-contract.md) (which carries
 the template verbatim); for the UAT, match the most recent surviving
 `docs/PR<N>_…_UAT.md` — the UAT half is durable, so there is always a live
 example to match, whereas TEST_RUN examples get deleted (which is why the

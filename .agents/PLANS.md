@@ -64,7 +64,7 @@ schemas, and audit needs.
 ## Testing Plan
 Automated tests + manual QA. Tests must prove the **general invariant**, not only
 the reported example, with negative cases. Name the runner commands (see
-`docs/engineering/testing-guide.md`).
+`docs/tests/testing-guide.md`).
 
 ## Implementation Steps
 Break into small, ordered steps — the smallest coherent change that satisfies the

@@ -73,7 +73,7 @@
   for the gate and the check-in contract,
   [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08)
   for the light-review bar, and
-  [`test-run-contract.md`](../engineering/test-run-contract.md) for the
+  [`test-run-contract.md`](../tests/test-run-contract.md) for the
   read-only requirement); PR #356 (the incident); the fourth instance on
   [`known-failure-patterns.md`](./known-failure-patterns.md)'s "chasing
   completeness against an adversarial reviewer past the artifact's real
@@ -1066,13 +1066,13 @@
   applied checklists used raw `node --import tsx/esm --test` /
   `pnpm exec tsx --test` for their targeted commands — both bypass
   `run-test.sh`'s production-DB guard entirely (the guard never executes on a
-  direct invocation), which is the exact danger `docs/TESTING.md` already
+  direct invocation), which is the exact danger `docs/tests/TESTING.md` already
   documents. Several shared-infra verdicts (does this PR touch the codegen
   allowlist / a shared worker / shared middleware?) were also initially
   judged from the PR's own description rather than its actual commit diff,
   and had to be corrected once verified.
 - **Reference:** PR #263 (new contract:
-  [`docs/engineering/test-run-contract.md`](../engineering/test-run-contract.md))
+  [`docs/tests/test-run-contract.md`](../tests/test-run-contract.md))
   and PR #264 (applied to the 6 still-live checklists: 224, 228, 229, 234,
   242, 256 — 221/222/223 had already been executed by Replit and deleted
   before #264 merged, per the transient-doc lifecycle).
@@ -1351,8 +1351,8 @@
   and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
   breaker added to bulk-send-back so a persistently-failing fact can't create
   an unbounded number of retry cycles nor be silently declared "migration
-  complete" while still excluded. See `docs/CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md`
-  and `docs/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  complete" while still excluded. See `docs/tests/CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md`
+  and `docs/tests/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
   This entry was a forward-looking "sites to fix" list at decision time — it
   now describes fixed behavior, not a plan.
 

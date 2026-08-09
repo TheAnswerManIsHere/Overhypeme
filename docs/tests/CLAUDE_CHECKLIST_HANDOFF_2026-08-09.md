@@ -354,7 +354,7 @@ Relevant source:
 
 - `lib/db/migrations/0097_ncmec_submission.sql`
 - `lib/db/src/schema/moderation.ts`
-- `docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
+- `docs/tests/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
 
 The migration itself explicitly warns about malformed/dangling quarantine IDs
 and says they must be dispositioned by the pre-activation backlog audit. It also

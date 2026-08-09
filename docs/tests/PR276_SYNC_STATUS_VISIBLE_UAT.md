@@ -14,7 +14,8 @@ Your catalog itself is already fixed — re-running the sync restored all three
 plans. **This PR makes sure the next failure announces itself.**
 
 Companion engineering checklist:
-[`PR276_SYNC_STATUS_VISIBLE_TEST_RUN.md`](PR276_SYNC_STATUS_VISIBLE_TEST_RUN.md).
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
 
 ## What to expect
 
