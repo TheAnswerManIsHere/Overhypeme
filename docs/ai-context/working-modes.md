@@ -1,15 +1,18 @@
 # Working Modes: feature (default) vs. bugfix
 
-> The canonical, cross-agent statement of the two workflows David uses. **David
-> picks the mode explicitly so there is zero guessing.** This applies to Codex,
+> The canonical, cross-agent statement of the two workflows David uses. **The
+> ceremony in force is always visible — announced or declared, never silent**
+> (see *How each agent enters / exits a mode* below). This applies to Codex,
 > Claude, and any agent. (Claude Code layers extra ceremony on top per
 > [`CLAUDE.md`](../../CLAUDE.md) and its `/bugfix` skill; the *distinction* below
 > is the shared truth.)
 
-There are two modes. The default is **feature mode**. **Bugfix mode** is a path
-David turns on explicitly to fix a bug without the planning ceremony — it drops
-the plan and the plan-review loop, **not** the verification, and it tiers its
-remaining ceremony to what the fix actually turns out to touch.
+There are two modes. The default is **feature mode**. **Bugfix mode** fixes a
+bug without the planning ceremony — it drops the plan and the plan-review
+loop, **not** the verification, and it tiers its remaining ceremony to what
+the fix actually turns out to touch. How a request enters it — routed by
+shape (Claude) or declared in the prompt (Codex) — is *How each agent
+enters / exits a mode* below.
 
 ## Feature mode (default)
 
@@ -264,8 +267,8 @@ recorded while the loop runs instead of reconstructed afterwards.
 ## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
 
 A focused fix-and-ship loop for a bug — restoring behavior that was already
-agreed, not deciding new behavior. **David turns it on explicitly** (see *How each
-agent enters/exits a mode* below).
+agreed, not deciding new behavior. Entry is routed or declared, always
+visible (see *How each agent enters/exits a mode* below).
 
 **What bugfix mode saves is the planning ceremony, not the verification.** It
 drops the plan file, the pre-plan conversation, and the multi-round plan-review
@@ -574,31 +577,46 @@ this miss a caller?*
 
 ## How each agent enters / exits a mode
 
-**The mode is always David's explicit choice — never inferred.**
+**The ceremony in force is always visible before code moves — announced or
+declared, never silent.** (Changed 2026-08-09; this line previously read
+"always David's explicit choice — never inferred." The invariant that
+mattered was never the pre-declaration: it was that David always knows which
+contract is in force and can veto it. The routed design preserves that via
+the announcement, and the real misclassification guards — tier-after-
+diagnosis, Tier C's exit, pause-and-ask — never depended on how the mode
+was entered. Rationale in [`decisions.md`](./decisions.md).)
 
-- **Claude Code** has an auto-loading `/bugfix` skill; David types `/bugfix` to
-  enter and any clear exit phrase ("back to features", "exit bugfix mode") to leave.
-- **Codex** has no auto-triggering skill system, so the signal is **in David's
-  prompt**. David starts a request with, e.g., **"Bugfix mode:"** (lightweight fix)
-  or **"Regular mode:"** / **"Feature mode:"** (full workflow, plan first). Codex
-  reads *this doc* via `AGENTS.md` and applies the matching workflow. Absent an
-  explicit signal, Codex is in **feature mode** (the default) and follows the
-  plan-before-implementation rule.
+- **Claude Code** classifies each work request by its shape: clearly
+  bugfix-shaped (already-agreed behavior is broken, observable symptom) →
+  the bugfix workflow, entered with a **one-line announcement** that is
+  David's veto surface; clearly feature-shaped ("let's build / add /
+  change X") → feature mode, as that phrasing always has; genuinely
+  ambiguous → one numbered question. `/bugfix` remains an **explicit
+  override** that forces the light path. Classification is **per-request**
+  — no sticky mode state, no exit phrases.
+- **Codex** has no auto-triggering skill system, so the signal stays **in
+  David's prompt**. David starts a request with, e.g., **"Bugfix mode:"**
+  (lightweight fix) or **"Regular mode:"** / **"Feature mode:"** (full
+  workflow, plan first). Codex reads *this doc* via `AGENTS.md` and applies
+  the matching workflow. Absent an explicit signal, Codex is in **feature
+  mode** (the default) and follows the plan-before-implementation rule; a
+  declared mode governs its thread until David changes it.
   - *Optional:* if a given Codex setup supports custom prompt files (e.g. a
     `/bugfix` prompt), point that prompt at this doc — it doesn't change the
     contract, just the trigger.
 
-**Mode persistence & switching:** a mode stays in force across messages until David
-ends it. If a request that arrives during bugfix mode looks like **building or
-changing product functionality** (a feature, a behavior change) — or diagnosis
-reveals **any *database* schema change, migration, or backfill** (Tier C without
-exception, regardless of product consequence — not the `lib/api-zod` Zod schemas,
-which stay Q1 Tier B — see *Tier C* above) — **do not silently treat
-it as a fix and do not silently switch** — **ask** whether to exit bugfix mode and
-switch to the feature workflow, or (for a genuinely trivial database schema fix)
-proceed straight to migration ceremony per Tier C. Guessing wrong is expensive in
-both directions (skipping a plan a feature or a non-trivial schema change needed,
-or piling ceremony onto a one-line fix), and the confirm costs one question.
+**Misrouting protection is entry-independent:** however a request reached the
+bugfix path — routed, `/bugfix`-forced, or prefix-declared — if it looks like
+**building or changing product functionality** (a feature, a behavior
+change), or diagnosis reveals **any *database* schema change, migration, or
+backfill** (Tier C without exception, regardless of product consequence —
+not the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see *Tier C*
+above), **do not silently treat it as a fix** — **ask** whether it should
+take the feature workflow, or (for a genuinely trivial database schema fix)
+proceed straight to migration ceremony per Tier C. Guessing wrong is
+expensive in both directions (skipping a plan a feature or a non-trivial
+schema change needed, or piling ceremony onto a one-line fix), and the
+confirm costs one question.
 
 ## When NOT to use bugfix mode
 

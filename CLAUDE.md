@@ -225,7 +225,9 @@ forward.
 The shared, cross-agent definition of these two modes (which Codex uses too) lives
 in [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md). Below is
 the **Claude-specific** elaboration — my extra ceremony layered on the shared
-contract. David picks the mode explicitly so there's no guessing:
+contract. Entry is routed by request shape and announced in one line (David,
+2026-08-09 — replacing explicit-only mode picking; the announcement is his
+veto surface, and `/bugfix` survives as an explicit override):
 
 - **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, the automated Codex plan-review loop, the full build,
@@ -250,7 +252,8 @@ contract. David picks the mode explicitly so there's no guessing:
     plan** before I questioned the fit. See the
     [known-failure-patterns entry](docs/ai-context/known-failure-patterns.md).
 - **Bug-fixing mode drops the *planning* ceremony, not the verification** —
-  entered explicitly via the `/bugfix` skill (or "just fix this bug"):
+  entered when a request is bugfix-shaped (announced, vetoable) or forced via
+  `/bugfix`; classification is per-request, no sticky mode state:
   diagnose-classify-fix-ship on a fresh branch off `origin/main`, **one bug
   per branch per PR**, opened as soon as the fix is verified. **No plan file
   and no plan-review loop.** Verification scales by diagnosed tier: **Tier A**
@@ -742,8 +745,8 @@ calls. Two concrete, durable changes:
   question for any task is: **if this goes subtly wrong, will Codex's review
   or David's product-testing catch it before it does damage?** Yes → Sonnet
   is safe. No → Opus, because I'm the only guard.
-  - **Entering `/bugfix` mode** → I suggest switching to Sonnet (`claude-sonnet-5`)
-    for triage and diagnosis. **But the tier classification can send it back up:**
+  - **Entering bugfix mode** (routed or via `/bugfix`) → I suggest switching
+    to Sonnet (`claude-sonnet-5`) for triage and diagnosis. **But the tier classification can send it back up:**
     the moment I classify a fix as **Tier B** (a sensitive subsystem, or a
     structurally risky fix shape — see
     [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake)),
