@@ -63,8 +63,12 @@ documented as security-model.md's C1 finding; this spec doesn't duplicate it.
 (`localAuth.ts:146-154`) — the frontend's requirement that a submitter pick
 pronouns before registering (`Login.tsx:118-123`) is a client-side-only
 gate; the server accepts a registration with no `pronouns` field and stores
-`null`. Google/Apple signups never present pronoun selection at all;
-`pronouns` stays unset until the user visits their profile.
+`null`. Google/Apple signups never present pronoun selection at all — and
+because the OAuth insert (`auth.ts:189-199`) omits the `pronouns` key
+entirely rather than explicitly writing `null`, Postgres applies the
+column's own default (`lib/db/src/schema/auth.ts:41`, `"he/him"`). A fresh
+OAuth account is **not** pronoun-unset — it starts on that default until
+the user visits their profile and changes it.
 
 On success: the row is inserted `isActive: true, captchaVerified: false`
 (`localAuth.ts:173-185`); **a session is created and the cookie set
@@ -138,7 +142,12 @@ system stands today.
   user-facing product copy on `ForgotPassword.tsx`, not just an internal
   config value.
 - On successful reset: new bcrypt hash written, token marked `usedAt`
-  (single-use, enforced: `localAuth.ts:403-423`), and — this is the part
+  (`localAuth.ts:403-423`). **Not atomically single-use** — the
+  password-write and the `usedAt`-write are two separate unconditional
+  statements with no transaction, row lock, or `WHERE used_at IS NULL`
+  claim, so two concurrent requests against the same still-valid token can
+  both pass the `usedAt === null` check before either writes it; both
+  succeed and the later write wins. And — this is the part
   worth flagging to anyone touching this path — **every existing session
   for that user is deleted in one query**, covering both the indexed
   `sessions.userId` column and a legacy fallback matching the embedded
@@ -236,21 +245,36 @@ Replit preview iframe (`auth.ts:121-123`).
 **Dual resolution: Bearer header, then cookie fallback**
 (`getSessionId()`, `auth.ts:188-194`; `authMiddleware.ts:65-85`) — works
 around third-party-iframe cookie partitioning (Chrome/Windows CHIPS drops
-`Set-Cookie` in the Replit canvas preview), so a token is also written to
-`localStorage` and sent as a Bearer header by a fetch interceptor. A stale
-Bearer token can't be evicted server-side (no client-side store to clear
-via `Set-Cookie`); only the cookie path can force-clear.
+`Set-Cookie` in the Replit canvas preview). A global fetch interceptor
+(`main.tsx`) sends `localStorage["auth_token"]` as a Bearer header on every
+request when present, but **ordinary Google/Apple/local sign-ins never
+write that key** — the only runtime path that does is the `GET` form of
+dev-admin-login (`localAuth.ts:788-815`), a dev-only route. A stale Bearer
+session **is** evicted server-side — `authMiddleware.ts:74-85` deletes its
+DB row on the next request that presents it — but the server has no way to
+clear the browser's `localStorage` copy itself (no `Set-Cookie`-equivalent
+for that store), so the client keeps sending a token that will keep
+resolving to nothing.
 
 **`req.user` is rebuilt from the DB on every authenticated request** — role,
-admin, membership, and captcha state are never trusted from the session
-blob (`authMiddleware.ts:88-141`; also security-model.md invariant #3).
+admin, and membership are never trusted from the session blob
+(`authMiddleware.ts:88-141`; also security-model.md invariant #3).
+**Captcha state is the one exception**: `authMiddleware.ts:124` computes it
+as `dbUser.captchaVerified || session.captchaVerified`, so a session that
+recorded captcha completion keeps granting it even if the DB column
+somehow lagged — role/admin/membership have no equivalent session-blob
+fallback, but captcha does.
 **No sliding expiration** — each session's `expire` is set once at creation
 and only bumped by specific `updateSession()` callers (e.g. the admin-mode
 toggle, an email-verification-triggered refresh), not on ordinary
 authenticated requests. **Concurrent sessions are unlimited** — nothing
 caps how many `sessions` rows one `userId` can hold; logging in on a new
-device just inserts another row. The only bulk-revocation paths are
-password reset and admin soft-delete, both revoking *all* of a user's
+device just inserts another row. The bulk-revocation paths are password
+reset and admin soft-delete (both explicit, immediate bulk deletes,
+`localAuth.ts:425-437` / `admin.ts:635-637`), plus admin hard-delete as a
+third, implicit one — deleting the user row (`admin.ts:574`) cascades to
+every session via `sessions.userId`'s `ON DELETE CASCADE`
+(`lib/db/src/schema/auth.ts:64`). All three revoke *all* of a user's
 sessions at once, never selectively.
 
 ## Role derivation

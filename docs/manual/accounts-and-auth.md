@@ -8,11 +8,11 @@
 
 ## What it does
 
-Overhype.me needs to know who you are for exactly two reasons: so a fact you
-submit is attributed to you, and so a membership you're paying for actually
-applies to you. Signing in exists to serve those two things — nothing else on
-the site requires an account, and browsing, personalizing what you see, and
-sharing a meme all work without one.
+Overhype.me needs to know who you are any time an action is tied to a
+person rather than just a page — submitting a fact, saving a meme, rating
+or commenting, and paying for a membership all require being signed in.
+Nothing else does: browsing, personalizing what you see, and sharing a
+meme all work without an account.
 
 ## How it works
 
@@ -21,10 +21,11 @@ sharing a meme all work without one.
 You can create an account with Google, with Apple, or with an email and
 password — all three end up in the same place: a signed-in session that
 looks identical to the rest of the product no matter which door you came
-through. There's no "sign in via a link we email you" option; the only email
-Overhype.me sends that touches sign-in is a one-time verification message
-after you register with email and password, and a separate reset link if
-you've forgotten your password — neither one is a standing way to log in.
+through. There's no "sign in via a link we email you" option; the only
+emails Overhype.me sends that touch sign-in are a one-time verification
+message after you register with email and password (or after you change
+your account's email address), and a separate reset link if you've
+forgotten your password — none of these are a standing way to log in.
 
 If you signed up with Google or Apple and later want to also be able to log
 in with a password, you can set one from your account settings without being
@@ -32,19 +33,24 @@ asked to prove you know a password you never had.
 
 ### Creating an account
 
-Registering with email and password asks for your name, an email, and a
-password; picking pronouns is asked for on the sign-up screen but isn't
-actually required to finish creating the account. If you sign up with Google
-or Apple you're not asked for pronouns at all — you set them later, from your
-profile, the same place anyone can change them.
+Registering with email and password asks for your name, an email, a
+password, and pronouns — the sign-up screen won't let you submit without
+picking pronouns. If you sign up with Google or Apple you're never asked
+for pronouns at all; your account quietly starts on a default pronoun set
+until you visit your profile and pick your own, the same place anyone can
+change them.
 
-There's no separate "guest" or "anonymous" tier of account — every account on
-Overhype.me is a full account. What can feel like a lighter, more limited
-account right after signing up is really a second, one-time step: a short
-onboarding challenge (proving you're a person, not a bot) that a fresh
-account completes once before it can submit its first fact. Until that step
-is done, you can still sign in and look around; you're only stopped at the
-point of trying to submit something.
+There's no separate "guest" or "anonymous" tier of account — every account
+you can sign in as is a full `usersTable` row, not a lighter stand-in.
+What *can* feel like a lighter, more limited account right after signing
+up is really a second, one-time step layered on top: a short onboarding
+challenge (proving you're a person, not a bot) that a fresh account
+completes once before it can submit its first fact. Until that step is
+done, you can still sign in and look around; you're only stopped at the
+point of trying to submit something. (Admin-created accounts are a
+separate case — an admin can create an account that starts genuinely
+unregistered rather than at the normal default, which is its own distinct,
+persisted state rather than something onboarding controls.)
 
 ### Verifying your email
 
@@ -76,18 +82,23 @@ out.
 You can't deactivate or delete your own account from the product today —
 that's an admin-only action, done on request. There are two versions:
 
-- **Deactivating** an account signs it out everywhere, cancels any active
-  paid membership, and locks the account out of signing back in — but
-  leaves everything that account created exactly as it was. Facts,
-  comments, and memes it authored stay live and attributed to it.
-- **Removing** an account goes further: the account's own uploaded images
-  and personal data are deleted, but content it created and other people
-  might be relying on — facts, comments, memes — is **kept**, just no
-  longer tied to a real account. It isn't deleted along with the account,
-  and it isn't secretly left attributed to a name that no longer resolves
-  to anyone. Anything tied to a legal or safety report is deliberately kept
-  fully intact regardless, for as long as that kind of record needs to
-  exist.
+- **Deactivating** an account signs it out everywhere, locks it out of
+  signing back in, and makes a best-effort attempt to cancel any active
+  paid membership — that cancellation isn't guaranteed to succeed in every
+  case, so a rare failure there is a known gap rather than something the
+  product silently papers over. Everything that account created is left
+  exactly as it was — facts, comments, and memes it authored stay live —
+  but the product stops showing who made them once the account itself is
+  deactivated, since attribution is only ever shown for an active account.
+- **Removing** an account goes further: it's a best-effort attempt to
+  delete the account's own uploaded images and other personal data (not
+  every category of upload is guaranteed to be caught), but content it
+  created and other people might be relying on — facts, comments, memes —
+  is **kept**, just no longer tied to a real account. It isn't deleted
+  along with the account, and it isn't secretly left attributed to a name
+  that no longer resolves to anyone. Anything tied to a legal or safety
+  report is deliberately kept fully intact regardless, for as long as that
+  kind of record needs to exist.
 
 A deactivated account can be reinstated by an admin, which signs it back in
 to normal life and re-checks what membership it should actually have — see
@@ -109,11 +120,16 @@ account; everything else only ever affects the one session it happens on.
 Overhype.me distinguishes a handful of standing roles — signed-out visitor,
 registered user, Legendary member, admin — and which one applies to you is
 always figured out fresh from your actual account state, never something
-stored on your session that could go stale or be tampered with. An admin who
+stored on your session that could go stale or be tampered with. For the
+standard admin gate the product relies on almost everywhere, an admin who
 temporarily views the site "as a regular user" (to check what a member
 actually sees) never actually loses their admin permissions on the backend
-while doing it — that toggle only changes what the interface shows them, not
-what they're allowed to do.
+while doing it — that toggle only changes what the interface shows them.
+A handful of narrower, more mechanical endpoints (scheduled-job triggers
+and similar) check the toggle directly rather than going through that
+standard gate, so those specifically would treat a viewing-as-user admin
+as a non-admin for as long as the toggle stays on — a known inconsistency
+in a small corner, not how authorization works generally.
 
 ## Why it works this way
 
