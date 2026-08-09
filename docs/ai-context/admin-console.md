@@ -3,7 +3,7 @@
 > A map of the admin console: every page, what it's for, and where the
 > real depth already lives. **This is a tour, not a deep dive** — fact
 > moderation is [`moderation-workflow.md`](./moderation-workflow.md) /
-> [`content-lifecycle.md`](../manual/content-lifecycle.md); comment
+> [`2-content-lifecycle.md`](../manual/2-content-lifecycle.md); comment
 > moderation, ratings, and hearts are
 > [`community-and-engagement.md`](./community-and-engagement.md); admin
 > role grants, reinstatement, and soft/hard user delete are

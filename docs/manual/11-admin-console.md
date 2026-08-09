@@ -26,7 +26,7 @@ repeats.
 ### Getting in and finding your way around
 
 Admins sign in the same way anyone does (see
-[`accounts-and-auth.md`](./accounts-and-auth.md)); the console itself
+[`9-accounts-and-auth.md`](./9-accounts-and-auth.md)); the console itself
 checks that [role](../ai-context/glossary.md#role) and turns visitors away otherwise. A sidebar groups
 every admin surface together, with a live counter on the [moderation](../ai-context/glossary.md#moderation)
 section so the team can see at a glance whether anything's waiting.
@@ -34,8 +34,8 @@ section so the team can see at a glance whether anything's waiting.
 ### Reviewing content
 
 New facts and comments both go through a review step before they're
-public — covered in full in [`moderation.md`](./moderation.md) and
-[`community-and-engagement.md`](./community-and-engagement.md). Beyond
+public — covered in full in [`3-moderation.md`](./3-moderation.md) and
+[`8-community-and-engagement.md`](./8-community-and-engagement.md). Beyond
 that [review queue](../ai-context/glossary.md#review-queue), there's a separate, broader facts screen for directly
 searching, editing, or removing any fact already in the system, plus
 tools for [bulk-importing](../ai-context/glossary.md#bulk-import) a batch of new facts at once and for
@@ -45,7 +45,7 @@ re-running classification on facts that predate it.
 
 The users screen covers everything from finding an account to changing
 its role, [deactivating](../ai-context/glossary.md#deactivate) or removing it (see
-[`accounts-and-auth.md`](./accounts-and-auth.md)) — plus a few things
+[`9-accounts-and-auth.md`](./9-accounts-and-auth.md)) — plus a few things
 that live only here: manually granting or revoking a lifetime membership
 independent of any payment, manually marking an email verified, and
 creating an account directly rather than through normal sign-up.
@@ -110,7 +110,7 @@ pages are actually getting traffic.
   setting in the list; nothing currently marks them as different.
 - **The "flagged comments" review tab's own description overstates what
   populates it** — see
-  [`community-and-engagement.md`](./community-and-engagement.md#boundaries--known-limitations)
+  [`8-community-and-engagement.md`](./8-community-and-engagement.md#boundaries--known-limitations)
   for the underlying gap.
 
 ## Going deeper
@@ -120,13 +120,13 @@ pages are actually getting traffic.
   surfaces found while writing this chapter.
 - Field reference: [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)
   (enrichment fields only — generated, not a general admin index).
-- Related: [`moderation.md`](./moderation.md),
-  [`community-and-engagement.md`](./community-and-engagement.md),
-  [`accounts-and-auth.md`](./accounts-and-auth.md),
-  [`payments-and-membership.md`](./payments-and-membership.md),
-  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).
+- Related: [`3-moderation.md`](./3-moderation.md),
+  [`8-community-and-engagement.md`](./8-community-and-engagement.md),
+  [`9-accounts-and-auth.md`](./9-accounts-and-auth.md),
+  [`10-payments-and-membership.md`](./10-payments-and-membership.md),
+  [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md).
 
-**Next:** chapter 12 — [`background-work.md`](./background-work.md),
+**Next:** chapter 12 — [`12-background-work.md`](./12-background-work.md),
 async jobs, the scheduling lanes, and how status is surfaced.
 
 *Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #379.*

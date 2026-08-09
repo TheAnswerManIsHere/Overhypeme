@@ -200,18 +200,18 @@ In reading order. A chapter file appears only once it holds real content, so
 
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
-| 1 | [`personalization-and-grammar.md`](./personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
-| 2 | [`content-lifecycle.md`](./content-lifecycle.md) | **Submit** — the two ways a fact is submitted (user submission, admin/API-key bulk import), the one funnel they hand off into review through, and how variants group near-duplicate wordings | ✅ written |
-| 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
-| 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
-| 5 | [`visual-pipeline.md`](./visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
-| 6 | [`meme-and-video-studio.md`](./meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | ✅ written |
-| 7 | [`public-site-and-sharing.md`](./public-site-and-sharing.md) | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | ✅ written |
-| 8 | [`community-and-engagement.md`](./community-and-engagement.md) | Ratings, comments, comment hearts, meme hearts, and the activity feed | ✅ written |
-| 9 | [`accounts-and-auth.md`](./accounts-and-auth.md) | Sign-in methods, the account lifecycle, verification and password journeys | ✅ written |
-| 10 | [`payments-and-membership.md`](./payments-and-membership.md) | Free vs. Legendary, plan shapes, and what a membership unlocks | ✅ written |
-| 11 | [`admin-console.md`](./admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
-| 12 | [`background-work.md`](./background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
+| 1 | [`1-personalization-and-grammar.md`](./1-personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
+| 2 | [`2-content-lifecycle.md`](./2-content-lifecycle.md) | **Submit** — the two ways a fact is submitted (user submission, admin/API-key bulk import), the one funnel they hand off into review through, and how variants group near-duplicate wordings | ✅ written |
+| 3 | [`3-moderation.md`](./3-moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
+| 4 | [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
+| 5 | [`5-visual-pipeline.md`](./5-visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
+| 6 | [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | ✅ written |
+| 7 | [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md) | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | ✅ written |
+| 8 | [`8-community-and-engagement.md`](./8-community-and-engagement.md) | Ratings, comments, comment hearts, meme hearts, and the activity feed | ✅ written |
+| 9 | [`9-accounts-and-auth.md`](./9-accounts-and-auth.md) | Sign-in methods, the account lifecycle, verification and password journeys | ✅ written |
+| 10 | [`10-payments-and-membership.md`](./10-payments-and-membership.md) | Free vs. Legendary, plan shapes, and what a membership unlocks | ✅ written |
+| 11 | [`11-admin-console.md`](./11-admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
+| 12 | [`12-background-work.md`](./12-background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 
 **This table is the source of truth for chapter numbers**, and the number now
 appears in two other places that must agree with it: each chapter's own `#

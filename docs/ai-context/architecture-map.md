@@ -461,7 +461,7 @@ deliberately excludes them and points here instead.
   five filing-capable ones reject writes with a 403 per phase 1's
   reserved-key guard; `ncmec_safety_alert_email` and the two retry keys stay
   plain editable cards). The narrative half lives in
-  [`moderation.md`](../manual/moderation.md)'s legal/safety section.
+  [`3-moderation.md`](../manual/3-moderation.md)'s legal/safety section.
 
 ## Test structure
 

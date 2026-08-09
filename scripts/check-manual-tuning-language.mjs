@@ -205,12 +205,16 @@ const IGNORE_END = "<!-- tuning-ok:end -->";
  * decorates: `**50**`, `*50*`, `` `50` ``, and `[50](../spec.md)` all become
  * bare `50`. PR #298 round 3: an earlier version of this function only
  * stripped bold/code, on the claim that this corpus doesn't use single-
- * asterisk italics or links — both wrong (`docs/manual/moderation.md` uses
+ * asterisk italics or links — both wrong (`docs/manual/3-moderation.md` uses
  * italics throughout; `docs/manual/README.md` is full of reference links).
  *
  * Order matters: links first (so a URL's own digits/colons — irrelevant to
  * whether the LINK TEXT states a tuning value — are dropped, not scanned),
  * then bold, then italics, then inline code.
+ *
+ * Numbered links to manual chapters are also normalized to their chapter title
+ * before scanning. For example, `Related: [2-content-lifecycle.md](...)`
+ * should not look like a `Related: 2` configuration key/value pair.
  *
  * Single-asterisk/underscore italics require a non-whitespace character
  * immediately inside each marker and the marker itself not touching a word
@@ -222,6 +226,10 @@ const IGNORE_END = "<!-- tuning-ok:end -->";
  */
 function stripMarkup(line) {
   return line
+    .replace(
+      /\[`?[1-9]\d*-([^\]`]+)`?\]\(\.\/[1-9]\d*-[^)]+\)/g,
+      "$1",
+    )
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\*\*(.+?)\*\*/g, "$1")
     .replace(/__(.+?)__/g, "$1")

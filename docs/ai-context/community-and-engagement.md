@@ -3,7 +3,7 @@
 > Ratings, comments, comment/meme hearts, and the activity feed — how
 > people react to content and see the status of their own contributions.
 > **Not the fact moderation pipeline** (triage → enrich → activate) — see
-> [`content-lifecycle.md`](../manual/content-lifecycle.md) and
+> [`2-content-lifecycle.md`](../manual/2-content-lifecycle.md) and
 > [`moderation-workflow.md`](./moderation-workflow.md) for that; comments
 > have their own, much simpler moderation queue, documented here. Primary
 > code: `artifacts/api-server/src/lib/reactions.ts` (ratings + hearts, the
@@ -213,7 +213,7 @@ prev/next controls off `totalPages = Math.ceil(total/limit)`.
   `__tests__/activity.test.ts`, `__tests__/routes.reviews.test.ts`
   (activity feed).
 - For fact-submission moderation (a different, AI-assisted pipeline
-  comments don't share): [`content-lifecycle.md`](../manual/content-lifecycle.md),
+  comments don't share): [`2-content-lifecycle.md`](../manual/2-content-lifecycle.md),
   [`moderation-workflow.md`](./moderation-workflow.md).
 - For what `wilsonScore` is used for downstream (search, leaderboard,
   hero): [`public-site-and-sharing.md`](./public-site-and-sharing.md).

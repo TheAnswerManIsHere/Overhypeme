@@ -225,7 +225,7 @@ to promote an `unregistered` user out of that state even here
 (`admin.ts:398-409`). If every source turns out trustworthy after all, it
 writes nothing further — `recomputeMembership`'s result stands
 (`admin.ts:425-431`). **This is the mechanism
-[`payments-and-membership.md`](../manual/payments-and-membership.md)
+[`10-payments-and-membership.md`](../manual/10-payments-and-membership.md)
 describes as "writes the tier directly" — precisely: it re-derives over
 only the sources it can trust and writes that, rather than copying a
 stale or arbitrary prior value.**

@@ -6,7 +6,7 @@
 > third source of facts; they're how near-duplicate wordings get organized,
 > and they're covered here because applying that link is a decision made on
 > the way in. What happens once a fact is in the queue is
-> [`moderation.md`](./moderation.md)'s chapter, not this one.
+> [`3-moderation.md`](./3-moderation.md)'s chapter, not this one.
 >
 > Deep spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md#the-ingestion-funnel--one-entrance).
 > Rationale history: [`decisions.md`](../ai-context/decisions.md).
@@ -21,7 +21,7 @@ application can create a fact directly outside this funnel. (Offline dev/ops
 tooling — a database seed script, a reseed utility — can insert facts
 directly; that's maintenance tooling, not a product ingestion path, and this
 chapter doesn't cover it.) That single funnel is what lets
-[`moderation.md`](./moderation.md) describe one review process and mean it for
+[`3-moderation.md`](./3-moderation.md) describe one review process and mean it for
 every fact, regardless of how it arrived.
 
 **Variants ride that same funnel rather than bypassing it.** A [variant](../ai-context/glossary.md#variant) is an
@@ -119,7 +119,7 @@ unattended.
 
 **Importing only loads the review queue — it never publishes anything.**
 An imported fact is exactly as unpublished as a hand-submitted one; it
-still has to clear every gate in [`moderation.md`](./moderation.md) before
+still has to clear every gate in [`3-moderation.md`](./3-moderation.md) before
 it goes live.
 
 ### Variants: organizing near-duplicate wordings
@@ -186,7 +186,7 @@ earns (votes, comments, rank) is its own rather than the root's.
 a moderator or admin has already approved; they can't write or edit one
 themselves. (Personalizing a fact to a name and pronoun set is a different,
 always-available thing that works on any fact — see
-[`personalization-and-grammar.md`](./personalization-and-grammar.md).) A user
+[`1-personalization-and-grammar.md`](./1-personalization-and-grammar.md).) A user
 who wants a wording that doesn't exist yet submits it like any other fact; it
 becomes a variant only if a moderator links it at Triage.
 
@@ -201,7 +201,7 @@ renders yet — never runs at intake; that work only begins once a human moderat
 provisionally accepts a submission at Triage. (The cheap pre-submit
 affordances a submitter already used on the way in — the grammar/[tokenize](../ai-context/glossary.md#tokenize)
 pass, the duplicate check, hashtag suggestions — do call utility models;
-[`moderation.md`](./moderation.md) draws this same distinction. What's
+[`3-moderation.md`](./3-moderation.md) draws this same distinction. What's
 gated at Triage is the paid moderation-prep pipeline specifically, not every
 model call ever made about the fact.) Intake itself is just: normalize the
 grammar and queue the review — a duplicate check runs on some routes (the
@@ -310,15 +310,15 @@ for the funnel itself.
 - Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — the
   [ingestion funnel](../ai-context/glossary.md#ingestion-funnel), the activation chokepoint, and everything that happens
   to a fact after it's queued.
-- Related: [`moderation.md`](./moderation.md) (the three-gate review a
-  queued fact goes through), [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
+- Related: [`3-moderation.md`](./3-moderation.md) (the three-gate review a
+  queued fact goes through), [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
   (what a fact's classification means and how it's produced), and
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues)
   (the async [lanes](../ai-context/glossary.md#lane) that run a fact's prep work once it's accepted).
 - Rationale: the fact-lifecycle entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 3 — [`moderation.md`](./moderation.md), the three human
+**Next:** chapter 3 — [`3-moderation.md`](./3-moderation.md), the three human
 gates a queued fact walks through before it can go live.
 
 *Verified against `b720d6f` (2026-08-08) · claim inventory in PR #355. The

@@ -9,7 +9,7 @@
 > (34 commits, 11 code-review rounds, 101 findings), replacing code that had
 > never had an independent review since its original build.
 >
-> **Human-facing narrative:** [`docs/manual/payments-and-membership.md`](../manual/payments-and-membership.md).
+> **Human-facing narrative:** [`docs/manual/10-payments-and-membership.md`](../manual/10-payments-and-membership.md).
 > **Decision history:** [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted).
 > **Superseded:** [`stripe-payments-audit-findings.md`](./stripe-payments-audit-findings.md)
 > is the audit that commissioned this rewrite — read it for history, not for

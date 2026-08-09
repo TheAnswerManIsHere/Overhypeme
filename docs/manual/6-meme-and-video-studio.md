@@ -5,8 +5,8 @@
 > path underneath.
 >
 > Deep spec: [`meme-and-video-studio.md`](../ai-context/meme-and-video-studio.md).
-> Related: [`visual-pipeline.md`](./visual-pipeline.md) (the shared machinery
-> behind AI image generation), [`payments-and-membership.md`](./payments-and-membership.md)
+> Related: [`5-visual-pipeline.md`](./5-visual-pipeline.md) (the shared machinery
+> behind AI image generation), [`10-payments-and-membership.md`](./10-payments-and-membership.md)
 > (what [Legendary](../ai-context/glossary.md#legendary) unlocks).
 
 ## What it does
@@ -30,7 +30,7 @@ saves it as your meme.
   pipeline runs depends on which of the two studio builders you land in, not
   on whether you provided a photo: the newer guided builder shares the
   moderation pipeline's machinery for both cases (see
-  [`visual-pipeline.md`](./visual-pipeline.md)); the older builder's
+  [`5-visual-pipeline.md`](./5-visual-pipeline.md)); the older builder's
   source-photo path instead runs a separate, legacy route straight to the
   image engine, with its own scene-prompt generation.
 - **An AI-generated video.** Legendary members can also generate a short
@@ -61,7 +61,7 @@ newer guided builder, an image joins that fact's shared gallery of AI images
 later makes a meme from the same fact, the same way a
 [Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
 authors is shared by everyone who sees that fact
-(see [`visual-pipeline.md`](./visual-pipeline.md)). Through the older
+(see [`5-visual-pipeline.md`](./5-visual-pipeline.md)). Through the older
 builder's source-photo path, the opposite: it's yours, stored only against
 your account, never shared. An AI-generated video is never pooled into a
 shared gallery either way — it's tied to the meme you made with it — but
@@ -125,12 +125,12 @@ already-existing stock photo or template.
 - Spec: [`meme-and-video-studio.md`](../ai-context/meme-and-video-studio.md)
   — the exact routes, the recipe/`imageSource` shape, the AI video job's
   phase state machine, tier-gate specifics, and the storage layout.
-- Related: [`visual-pipeline.md`](./visual-pipeline.md) (the shared image
-  machinery), [`payments-and-membership.md`](./payments-and-membership.md)
+- Related: [`5-visual-pipeline.md`](./5-visual-pipeline.md) (the shared image
+  machinery), [`10-payments-and-membership.md`](./10-payments-and-membership.md)
   (what Legendary unlocks generally).
 - Rationale: the studio/media entries in [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 7 — [`public-site-and-sharing.md`](./public-site-and-sharing.md),
+**Next:** chapter 7 — [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md),
 home, search, [hashtags](../ai-context/glossary.md#hashtags), leaderboard,
 profiles, OG cards, and [merch](../ai-context/glossary.md#merch) — the surfaces
 the loop closes through.

@@ -244,5 +244,5 @@ a comp from a real sale.
 - [`stripe-payments-audit-findings.md`](../ai-context/stripe-payments-audit-findings.md) —
   the original audit; now history, but the record of what this model replaced.
 
-**Next:** chapter 11 — [`admin-console.md`](./admin-console.md), the admin
+**Next:** chapter 11 — [`11-admin-console.md`](./11-admin-console.md), the admin
 surfaces and what each one is for.

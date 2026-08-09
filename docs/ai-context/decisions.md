@@ -1462,7 +1462,7 @@
   structurally impossible rather than merely policy.
 - **Reference:** PR #242. Spec:
   [`moderation-workflow.md`](./moderation-workflow.md). Manual:
-  [`moderation.md`](../manual/moderation.md).
+  [`3-moderation.md`](../manual/3-moderation.md).
 - **Revisit if:** a future ingestion path is added (e.g. a partner API) — it must
   funnel through `createTriageReview` too, or this invariant silently breaks for
   that path alone.

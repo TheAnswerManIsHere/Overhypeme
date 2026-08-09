@@ -46,7 +46,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`membership-entitlements.md`](./membership-entitlements.md) for the model
   (three source types, the W1a trust boundary, per-source leases with
   fencing, grace episodes) and the manual's
-  [Payments & Membership](../manual/payments-and-membership.md) chapter for
+  [Payments & Membership](../manual/10-payments-and-membership.md) chapter for
   the product-facing behavior. Comping a membership now writes an
   `admin_grant` entitlement — actor, reason, timestamp, revocation — never a
   fake payment and never a tier field; direct tier editing on an existing
@@ -226,7 +226,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   (10), which had left zero spare connections once all five lanes were
   simultaneously busy. See
   [`architecture-map.md`](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
-  and the manual's [Background Work](../manual/background-work.md#worker-liveness-and-the-queue-health-surface)
+  and the manual's [Background Work](../manual/12-background-work.md#worker-liveness-and-the-queue-health-surface)
   chapter. **Open next:** Phases 2–4 of the same plan are not yet
   scheduled — Phase 2 (two alert channels: in-app + an out-of-band webhook
   that doesn't depend on the DB-backed email queue), Phase 3 (claim
@@ -369,7 +369,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   review pipeline under its existing id. See
   [`decisions.md`](./decisions.md#2026-07-23--fact-lifecycle-closed-one-entrance-one-exit--activation-is-moderation-only-and-deactivation-is-reversible-through-moderation-not-a-direct-toggle),
   [`moderation-workflow.md`](./moderation-workflow.md), and
-  [`moderation.md`](../manual/moderation.md).
+  [`3-moderation.md`](../manual/3-moderation.md).
 - **Speech & thought bubble controls.** Explicit moderator-authored speech/
   thought balloons compile as a new required, dedupe-exempt prompt section
   with their own dedicated 900-char budget pool (ceiling raised 6000→6900 to

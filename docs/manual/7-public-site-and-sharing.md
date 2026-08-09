@@ -5,8 +5,8 @@
 > a reader becomes a sharer, and a share pulls the next visitor in.
 >
 > Deep spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md).
-> Related: [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
-> (where [hashtags](../ai-context/glossary.md#hashtags) come from), [`meme-and-video-studio.md`](./meme-and-video-studio.md)
+> Related: [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
+> (where [hashtags](../ai-context/glossary.md#hashtags) come from), [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md)
 > (where a shareable [meme](../ai-context/glossary.md#meme) comes from).
 
 ## What it does
@@ -167,13 +167,13 @@ whether anyone went on to buy anything.
 - Spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md)
   — the exact routes, ranking logic, the OG-card pipeline, the Zazzle
   redirect flow, and the specific share/tracking endpoints.
-- Related: [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
-  (where a fact's hashtags come from), [`meme-and-video-studio.md`](./meme-and-video-studio.md)
+- Related: [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
+  (where a fact's hashtags come from), [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md)
   (how a shareable meme gets made in the first place).
 - Rationale: the public-site and sharing entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 8 — [`community-and-engagement.md`](./community-and-engagement.md),
+**Next:** chapter 8 — [`8-community-and-engagement.md`](./8-community-and-engagement.md),
 ratings, comments, comment hearts, meme hearts, and the
 [activity feed](../ai-context/glossary.md#activity-feed).
 

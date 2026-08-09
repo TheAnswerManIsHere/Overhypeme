@@ -30,7 +30,7 @@
 > — and finding 10 (the customer portal still runs on Stripe's default
 > configuration) was out of scope for this PR from the start and remains so;
 > see the manual's
-> [Payments & Membership](../manual/payments-and-membership.md#boundaries--known-limitations)
+> [Payments & Membership](../manual/10-payments-and-membership.md#boundaries--known-limitations)
 > chapter.
 
 ---

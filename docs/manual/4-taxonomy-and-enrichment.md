@@ -201,7 +201,7 @@ side effect of an unrelated config change.
 - Rationale: the staleness/bulk-send-back entry in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 5 — [`visual-pipeline.md`](./visual-pipeline.md), how an
+**Next:** chapter 5 — [`5-visual-pipeline.md`](./5-visual-pipeline.md), how an
 authored Visual Concept becomes a rendered image.
 
 *Verified against `c9c6715` (2026-08-09) · claim inventory in PR #380.*

@@ -43,9 +43,9 @@ and let the system convert that into a template automatically. An advanced,
 optional editor still lets someone view or hand-adjust the converted result
 afterward, for the rare case that needs it. That conversion, and what a
 submitter sees happen to their own draft, belongs to
-[`content-lifecycle.md`](./content-lifecycle.md#for-the-submitter-writing-a-fact)
+[`2-content-lifecycle.md`](./2-content-lifecycle.md#for-the-submitter-writing-a-fact)
 (for a fact submission) and
-[`visual-pipeline.md`](./visual-pipeline.md) (for a moderator authoring a
+[`5-visual-pipeline.md`](./5-visual-pipeline.md) (for a moderator authoring a
 [Visual Concept](../ai-context/glossary.md#visual-concept)) — both routes end up going through the same underlying
 conversion, so a fact and a Visual Concept are personalized identically and
 never drift apart from each other.
@@ -120,13 +120,13 @@ end up stored half-corrected depending on which door it came through.
 - Spec: [`token-rendering-and-grammar.md`](../ai-context/token-rendering-and-grammar.md)
   — the exact token set, the pronoun-map mechanics, the full deterministic
   grammar sequence, and the regression cases that must stay green.
-- Related: [`content-lifecycle.md`](./content-lifecycle.md) (the submission
-  path that produces a template), [`visual-pipeline.md`](./visual-pipeline.md)
+- Related: [`2-content-lifecycle.md`](./2-content-lifecycle.md) (the submission
+  path that produces a template), [`5-visual-pipeline.md`](./5-visual-pipeline.md)
   (the Visual Concept authoring path that shares the same conversion).
 - Rationale: the [tokenizer](../ai-context/glossary.md#tokenize)/grammar entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 2 — [`content-lifecycle.md`](./content-lifecycle.md), how
+**Next:** chapter 2 — [`2-content-lifecycle.md`](./2-content-lifecycle.md), how
 a fact gets into Overhype.me in the first place.
 
 *Verified against `03efc05` (2026-08-09) · claim inventory in PR #367.*

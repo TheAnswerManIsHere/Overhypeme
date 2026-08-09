@@ -5,9 +5,9 @@
 > what happened to the things you submitted.
 >
 > Deep spec: [`community-and-engagement.md`](../ai-context/community-and-engagement.md).
-> Related: [`moderation.md`](./moderation.md) (fact [moderation](../ai-context/glossary.md#moderation) — a
+> Related: [`3-moderation.md`](./3-moderation.md) (fact [moderation](../ai-context/glossary.md#moderation) — a
 > separate, more involved pipeline than [comment moderation](../ai-context/glossary.md#comment-moderation)),
-> [`public-site-and-sharing.md`](./public-site-and-sharing.md) (where a
+> [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md) (where a
 > fact's rating feeds into search and the leaderboard).
 
 ## What it does
@@ -30,7 +30,7 @@ cast one — there's no waiting for a batch process — which is what
 determines where it lands on the leaderboard and how often it turns up
 in the rotating [spotlight](../ai-context/glossary.md#spotlight) on the home page. Search doesn't currently
 factor rating in at all — it's always newest-first, regardless of how a
-fact is rated (see [`public-site-and-sharing.md`](./public-site-and-sharing.md)).
+fact is rated (see [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md)).
 
 ### Leaving a comment
 
@@ -67,7 +67,7 @@ next-page/previous-page navigation rather than a single fixed list.
 - **Comments get a lighter review process than facts, but still always a
   human one.** A comment doesn't carry the same weight as a whole new
   fact entering the product — it doesn't need the fuller review a
-  submitted fact goes through (see [`moderation.md`](./moderation.md))
+  submitted fact goes through (see [`3-moderation.md`](./3-moderation.md))
   — but it's still text anyone can write and everyone can read, so it
   still gets a person's eyes on it before it's public.
 - **Hearting a meme and hearting a comment share one mechanism because
@@ -102,12 +102,12 @@ next-page/previous-page navigation rather than a single fixed list.
   — the exact routes, the shared reaction mechanism behind ratings and
   hearts, the comment-moderation queue, and the activity feed's event
   types.
-- Related: [`moderation.md`](./moderation.md) (the separate, fuller fact
-  moderation pipeline), [`public-site-and-sharing.md`](./public-site-and-sharing.md)
+- Related: [`3-moderation.md`](./3-moderation.md) (the separate, fuller fact
+  moderation pipeline), [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md)
   (how a fact's rating feeds the leaderboard and the home spotlight —
   not search).
 
-**Next:** chapter 9 — [`accounts-and-auth.md`](./accounts-and-auth.md),
+**Next:** chapter 9 — [`9-accounts-and-auth.md`](./9-accounts-and-auth.md),
 sign-in methods, the account lifecycle, verification and password
 journeys.
 

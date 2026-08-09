@@ -74,7 +74,7 @@ via the Facts editor's Parent ID field. **A variant is otherwise a fully
 independent fact** — it owns its own memes, taxonomy/enrichment, Visual
 Concept, and stock/AI images, and it inherits **no** metadata from its root.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts),
-[content-lifecycle](../manual/content-lifecycle.md#variants-organizing-near-duplicate-wordings)
+[2-content-lifecycle](../manual/2-content-lifecycle.md#variants-organizing-near-duplicate-wordings)
 
 ### Root
 
@@ -167,7 +167,7 @@ by [rendering](#rendering) itself, based on whichever
 The account credited with submitting a fact. Not always a real end user: an
 admin-console [bulk import](#bulk-import) attributes the acting admin as
 submitter, and an API-key import has **no** submitter at all.
-→ [content-lifecycle](../manual/content-lifecycle.md)
+→ [2-content-lifecycle](../manual/2-content-lifecycle.md)
 
 ### Preview
 
@@ -178,14 +178,14 @@ pass keeps the submitter on Write. Distinct from
 [rich preview](#rich-preview) (what a shared link looks like elsewhere), the
 admin [compiled-prompt preview](#compiled-prompt), and the merch product
 preview — four different things called "preview."
-→ [content-lifecycle](../manual/content-lifecycle.md#for-the-submitter-writing-a-fact)
+→ [2-content-lifecycle](../manual/2-content-lifecycle.md#for-the-submitter-writing-a-fact)
 
 ### Autosaved draft
 
 A submission in progress, kept so a submitter can come back to it. Picking one
 up skips straight to [Preview](#preview) with the saved template and does
 **not** re-fetch fresh hashtag suggestions.
-→ [content-lifecycle](../manual/content-lifecycle.md#for-the-submitter-writing-a-fact)
+→ [2-content-lifecycle](../manual/2-content-lifecycle.md#for-the-submitter-writing-a-fact)
 
 ### Onboarding
 
@@ -201,7 +201,7 @@ Turning a batch of fact texts into pending reviews in one action — from the
 admin console (JSON, CSV, or one per line) or programmatically via API key
 (with an optional dry-run). **Importing only loads the review queue; it never
 publishes anything.**
-→ [content-lifecycle](../manual/content-lifecycle.md#for-the-admin-bulk-import)
+→ [2-content-lifecycle](../manual/2-content-lifecycle.md#for-the-admin-bulk-import)
 
 ### Exact-text dedupe
 
@@ -211,7 +211,7 @@ review. Deliberately narrower and stricter than
 [duplicate detection](#duplicate-detection) — it catches identical text, not a
 reworded near-match, and it skips silently rather than flagging a human,
 because an exact match leaves nothing to judge.
-→ [content-lifecycle](../manual/content-lifecycle.md#for-the-admin-bulk-import)
+→ [2-content-lifecycle](../manual/2-content-lifecycle.md#for-the-admin-bulk-import)
 
 ### Duplicate detection
 

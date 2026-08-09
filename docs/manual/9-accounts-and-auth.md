@@ -104,7 +104,7 @@ that's an admin-only action, done on request. There are two versions:
 
 A deactivated account can be [reinstated](../ai-context/glossary.md#reinstate) by an admin, which signs it back in
 to normal life and re-checks what membership it should actually have — see
-[`payments-and-membership.md`](./payments-and-membership.md) for how that
+[`10-payments-and-membership.md`](./10-payments-and-membership.md) for how that
 tier gets figured out.
 
 ### Staying signed in
@@ -181,11 +181,11 @@ in a small corner, not how authorization works generally.
   and removal sequence.
 - Security posture: [`security-model.md`](../ai-context/security-model.md) —
   trust boundaries, session security properties, rate limits.
-- Related: [`payments-and-membership.md`](./payments-and-membership.md) (how
+- Related: [`10-payments-and-membership.md`](./10-payments-and-membership.md) (how
   a role and [membership tier](../ai-context/glossary.md#membership-tier) translate into what you can do and pay for).
 - Rationale: the auth entries in [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 10 — [`payments-and-membership.md`](./payments-and-membership.md),
+**Next:** chapter 10 — [`10-payments-and-membership.md`](./10-payments-and-membership.md),
 free vs. Legendary, plan shapes, and what a membership unlocks.
 
 *Verified against `2fc40dd` (2026-08-09) · claim inventory in PR #370.*

@@ -3,10 +3,10 @@
 > How a fact becomes an AI-rendered image, whoever it's personalized for —
 > the shared pipeline behind moderation's [test renders](../ai-context/glossary.md#test-renders) and an end user's AI
 > image memes. It isn't the only way Overhype.me produces a meme;
-> [`meme-and-video-studio.md`](./meme-and-video-studio.md) covers the other
+> [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) covers the other
 > paths. The
 > moderator's experience of *using* this machinery — writing and approving
-> a [Visual Concept](../ai-context/glossary.md#visual-concept) — is [`moderation.md`](./moderation.md)'s chapter; this
+> a [Visual Concept](../ai-context/glossary.md#visual-concept) — is [`3-moderation.md`](./3-moderation.md)'s chapter; this
 > one is the pipeline underneath it.
 >
 > Deep spec: [`visual-pipeline.md`](../ai-context/visual-pipeline.md).
@@ -49,7 +49,7 @@ concepts, not just fragments, each usable regardless of which [render mode](../a
 the fact ends up using. Picking one adopts it whole; nothing from a
 candidate gets partially merged into what's already there, so a moderator
 is never left guessing which half of a scene came from where. See
-[`moderation.md`](./moderation.md#for-the-moderator-three-steps) for what
+[`3-moderation.md`](./3-moderation.md#for-the-moderator-three-steps) for what
 picking, editing, or writing a concept actually looks like from the review
 screen.
 
@@ -105,7 +105,7 @@ it for a given fact.
   human-authored anchor and lets them handle only the mechanical parts:
   identity preservation, layout, style, and the engine's own operational
   rules. Splitting the work this way is also what makes approving the scene
-  (see [`moderation.md`](./moderation.md)) a meaningful human checkpoint
+  (see [`3-moderation.md`](./3-moderation.md)) a meaningful human checkpoint
   instead of a rubber stamp — the moderator is approving the thing that
   actually decides how the joke reads, not a downstream detail.
 - **The engine-facing wording for a balloon has one author, because two
@@ -155,8 +155,8 @@ it for a given fact.
   planner, the compiler's section-by-section assembly, the prompt budget,
   render-mode resolution, frozen-input mechanics, and the full list of
   retired mistakes this pipeline must not reintroduce.
-- Related: [`moderation.md`](./moderation.md) (the Visual Concept gate and
-  the moderator's review experience), [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
+- Related: [`3-moderation.md`](./3-moderation.md) (the Visual Concept gate and
+  the moderator's review experience), [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
   ([enrichment](../ai-context/glossary.md#enrichment) as a planner *input*, never the prompt itself),
   [`token-rendering-and-grammar.md`](../ai-context/token-rendering-and-grammar.md)
   (the same tokenizer core that personalizes both facts and authored
@@ -164,7 +164,7 @@ it for a given fact.
 - Rationale: the visual-pipeline entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 6 — [`meme-and-video-studio.md`](./meme-and-video-studio.md),
+**Next:** chapter 6 — [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md),
 what an end user actually makes with this pipeline.
 
 *Verified against `0ea4ed8` (2026-08-08) · claim inventory in PR #361.*
