@@ -175,7 +175,16 @@ changed from what it was before this check ran.
   |---|---|
   | `lease_ttl_seconds` → `5` | **400**, naming the derived floor (83s) |
   | `lease_waiter_timeout_seconds` → (current `lease_ttl_seconds` + 10) | **400** — a waiter may not outlive the lease it waits for; adding to the live-read value guarantees it outlives the lease regardless of what that value currently is |
-  | `grace_sweep_alert_after_seconds` → (current `grace_sweep_interval_seconds` **minus 1**) | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken; a value strictly below the live-read interval guarantees that regardless of what the interval currently is. The rule is "at least `grace_sweep_interval_seconds`", so a value *equal* to the interval is valid and returns **200** — don't probe with equality |
+  | `grace_sweep_alert_after_seconds` → (current `grace_sweep_interval_seconds` **minus 1**, but see below if the interval is `1`) | **400**, naming the relational rule ("must be at least grace_sweep_interval_seconds") — an alert that fires before the sweep could have run again reports a healthy system as broken; a value strictly below the live-read interval guarantees that regardless of what the interval currently is. The rule is "at least `grace_sweep_interval_seconds`", so a value *equal* to the interval is valid and returns **200** — don't probe with equality |
+
+  **If the live-read `grace_sweep_interval_seconds` is `1`** (its own seeded
+  floor), skip this probe — `interval − 1` would be `0`, which trips
+  `grace_sweep_alert_after_seconds`'s own coarse minimum (also `1`) before the
+  relational rule above is ever reached, and the 400 you'd see would be
+  testing the wrong validator. There is no value that isolates the relational
+  rule at that boundary; note in the run report that the probe was skipped
+  and why, rather than reporting a 400 as confirmation of the rule this
+  section is about.
 
   Each must leave the stored value unchanged — confirm with a re-read. If any
   probe unexpectedly returns **200**, restore it immediately to the value you
