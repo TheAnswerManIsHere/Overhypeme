@@ -246,6 +246,14 @@ check-snapshots: passed
 docs-accuracy: 140 files, all relative links resolve
 ```
 
+During the later rerun, deleting the successful PR256 checklist exposed two
+stale citations in durable documentation. Those citations were updated to point
+to this handoff, and `docs-accuracy` was rerun successfully:
+
+```text
+docs-accuracy: 140 files, all relative links resolve and all cited repo paths exist
+```
+
 Migration 0097 schema checks passed, including:
 
 - New `ncmec_safety_audit_log` table and expected columns.
@@ -288,6 +296,37 @@ SELECT id FROM quarantined_memes WHERE id = 4;
 The row appears to be a historical/test fixture (`request_metadata` also
 contained `"test": "phase1-test-plan"`), but that must be confirmed before
 deciding how to repair it.
+
+The live provenance queries during the rerun showed:
+
+- `ncmec_reports.id = 2` has no matching `ncmec_safety_audit_log` rows.
+- Its evidence URI is
+  `/objects/restricted/quarantine/2026/05/1a3b2b71-fb2e-427c-a79b-0b79b8307227.jpg`.
+- `quarantined_memes.id = 4` does not exist.
+- Existing quarantine rows are IDs `1`, `2`, and `3`.
+- `ncmec_reports.id = 1` is linked to quarantine ID `2`.
+- The orphaned report's metadata is explicitly labeled
+  `"test":"phase1-test-plan"` and contains
+  `{"source":"arachnid","matchType":"exact","quarantineId":4,"classification":"csam"}`.
+- A repository search found no matching application fixture for the exact
+  `phase1-test-plan` value or the orphaned evidence UUID.
+
+The required reserved-config check also passed during the rerun:
+
+```text
+PATCH /api/admin/config/ncmec_submission_enabled
+HTTP 403
+```
+
+The live invariant was rerun after those checks and still returned:
+
+```text
+missing | malformed | dangling | linkable_but_unlinked
+0       | 0         | 1        | 0
+```
+
+Because `dangling` remains nonzero, PR293 is still a significant blocker and
+PR308 was intentionally not run.
 
 Do not:
 
