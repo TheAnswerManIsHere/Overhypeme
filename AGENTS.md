@@ -127,10 +127,13 @@ plan until David has explicitly approved that plan.** An ambiguous nudge or anot
 agent's approval is not David's approval. Full working rules:
 [`docs/ai-context/agent-working-rules.md`](docs/ai-context/agent-working-rules.md).
 
-**Two working modes — David picks explicitly.** Default is **feature mode** (plan
-→ approval → full build → PR). **Bugfix mode** is a lightweight fix-and-commit path
-David turns on by saying so (e.g. a prompt starting **"Bugfix mode:"**); absent an
-explicit signal you are in feature mode. Read
+**Two working modes — the ceremony in force is always visible, never silent.**
+Default is **feature mode** (plan → approval → full build → PR). **Bugfix
+mode** is a lightweight fix-and-commit path. For Codex, David turns it on by
+saying so (e.g. a prompt starting **"Bugfix mode:"**); absent an explicit
+signal you are in feature mode. (Claude routes by request shape with an
+announced, vetoable classification — see the mode-entry section of
+working-modes.md.) Read
 [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
 contract of each and how to switch between them.
 

@@ -1,6 +1,6 @@
 ---
 name: bugfix
-description: Enter bug-fixing mode — fix a bug without the planning ceremony. Use when David says /bugfix, or asks to "just fix" a bug. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
+description: Bug-fixing workflow — fix a bug without the planning ceremony. Use when David says /bugfix (the explicit override), or whenever a request is bugfix-shaped — a report that already-agreed behavior is broken, "just fix this", a defect with an observable symptom. Announce the classification in one line on entry; ask when it could really be a behavior change. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
 ---
 
 # Bug-fixing mode
@@ -12,12 +12,28 @@ description: Enter bug-fixing mode — fix a bug without the planning ceremony. 
 > only what is specific to *me*: git mechanics in this environment, the PR
 > template, the Codex trigger mechanics, and the model-tier prompts.
 
-David invokes `/bugfix` explicitly so there is **zero inference** about the mode.
-Since bugfix mode no longer batches, he invokes it **per bug** — though the mode
-stays in force across messages, so a follow-up bug doesn't need a re-invocation
-(see *Exiting bug-fixing mode*). **It does need step 1 run again, explicitly** —
-see the note there. Skipping it is how a second bug lands on the first bug's
-already-pushed branch, silently breaking one-bug-per-PR.
+Entry is **routed, announced, and vetoable (David, 2026-08-09 — replacing
+explicit-only invocation).** I classify each work request by its shape:
+
+- **Bugfix-shaped** — a report that already-agreed behavior is broken (an
+  error, a wrong output, a defect with an observable symptom) → I enter this
+  workflow and **announce it in one line** ("Treating this as a bugfix — tier
+  after diagnosis; say the word if you want feature ceremony"). The
+  announcement is David's veto surface: he pre-declares nothing, but always
+  sees which contract is in force before code moves.
+- **`/bugfix` is the explicit override** — it forces the light path when I'd
+  otherwise hesitate. It is still a hypothesis, not a verdict: Tier C exits
+  the workflow regardless of how it was entered.
+- **Ambiguous** — the "bug" could really be a behavior change ("fix the
+  ranking, it feels wrong") → one numbered question, per the pause-and-ask
+  rule. No entry design settles these; they were always going to be asked.
+
+**Classification is per-request — there is no sticky mode state.** "Here's
+another one" is bugfix-shaped on its face and needs no re-invocation; a
+feature-shaped request arriving mid-run simply gets the feature workflow
+(announced, like every classification). What *does* recur per bug is the
+branch discipline in step 1 — skipping it is how a second bug lands on the
+first bug's already-pushed branch, silently breaking one-bug-per-PR.
 
 **The one-line summary of what this mode is:** it drops the *planning* ceremony
 (plan file, pre-plan conversation, the multi-round Codex plan-review loop), not
@@ -26,14 +42,12 @@ verification scales to what diagnosis reveals the fix actually touches.
 
 ## 1. Before each bug — set up the branch
 
-**This step runs once per bug, not once per `/bugfix` invocation.** On the
-first bug it runs at `/bugfix`; on every bug after that — sent as a plain
-message with the mode still in force, no re-invocation — it runs again,
-*before* diagnosing that bug. Check state first: if the branch currently
-checked out already has a prior bug's fix pushed to it (its PR is open or
-merged), that branch is spoken for — cut a new one per below. Only skip this
-step if the current branch has no bug on it yet (fresh from `/bugfix`, nothing
-committed).
+**This step runs once per bug, *before* diagnosing it — however the bug's
+request arrived** (routed classification or explicit `/bugfix`). Check state
+first: if the branch currently checked out already has a prior bug's fix
+pushed to it (its PR is open or merged), that branch is spoken for — cut a
+new one per below. Only skip this step if the current branch has no bug on
+it yet (nothing committed).
 
 One bug, one branch, one PR. Cut fresh from current `origin/main` (David
 squash-merges, so a fresh base avoids phantom conflicts), with a **topic** slug:
@@ -61,7 +75,15 @@ constraints*.)
 > exactly one branch), don't put the second bug on the first bug's branch to
 > route around that — stop and ask David for a new assigned branch instead.
 
-Then confirm: branch name + "bug-fixing mode is on."
+**A bug arriving mid-feature-build doesn't touch the feature's working tree
+(David, 2026-08-09).** With routed entry, bug reports can land while a
+feature branch has in-flight work. Don't stash-juggle the feature state: run
+the bugfix in an isolated worktree (`EnterWorktree`, branched from
+`origin/main` per above) or say plainly that a fresh session is cleaner and
+let David choose — either way the feature tree comes back untouched.
+
+Then confirm the branch name (the classification announcement at entry
+already named the workflow).
 
 **Workstream issue.** The disclosure check that gates opening it is a
 shared-contract requirement now
@@ -95,13 +117,21 @@ the PR. Tier A is the exception, by design.
 
 **Model tier follows the classification (CLAUDE.md's *Token / cost discipline*):**
 
-- **Entering `/bugfix`** — Sonnet is fine. Triage and diagnosis are usually
-  shallow, and Codex's diff review is the net.
+- **Entering the bugfix workflow** (routed or via `/bugfix`) — Sonnet is
+  fine. Triage and diagnosis are usually shallow, and Codex's diff review is
+  the net.
 - **The moment I classify a fix as Tier B** — I say so and ask David to switch me
   to **Opus** before I write it. That is the whole point of the tier: these are
   the fixes where a subtle error slips both nets. I don't switch myself; a
   system-reminder confirming the change is what tells me it happened.
-- **Tier C** — stop and escalate to David regardless of tier; it isn't a bug fix.
+- **Tier C** — stop and escalate to David; it isn't a bug fix, so this mode
+  doesn't pick its model tier. Where it goes next does: non-trivial or
+  behavior-changing Tier C work **restarts in feature mode**, which picks the
+  tier there — but a genuinely **trivial database schema fix that David
+  explicitly green-lights runs migration ceremony directly, without
+  restarting anywhere** (see *When NOT to use this mode*), and that path is
+  **Opus, always** per the tier table's migrations row, never the Sonnet
+  triage tier it was diagnosed on.
 
 ## 3. Ship it — PR immediately, no waiting
 
@@ -118,7 +148,10 @@ the PR back only delays the review that catches things.
    has never been pushed, so **no rebase is needed or wanted** — see CLAUDE.md's
    git constraints. If the branch later needs current `main`, **merge, don't
    rebase**.
-2. Open the PR with `mcp__github__create_pull_request` — base `main` normally.
+2. Open the PR with `mcp__github__create_pull_request` — base `main`
+   normally; **as a draft only when the Tier B draft-first flow in step 3
+   applies** (a plain non-draft open is the point for everything else —
+   round 1 fires immediately).
    **Exception: a stacked fix bases against its parent's branch, not `main`**
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
@@ -172,94 +205,107 @@ the PR back only delays the review that catches things.
    frontend-visible type change) takes the **internal/infra-only exception**
    instead: a written verification note in the PR body, no UAT doc (see
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
-   When a UAT doc is due, the filename needs the PR
-   number, so it is PR-first, exactly like feature mode: open the PR with a
-   "Docs pending" note, then commit `docs/PR<N>_<FEATURE>_UAT.md` to the **same
-   PR before merge** and replace the note with a link. Match the most recent
-   surviving `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
-   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section, which
-   now owns that rule — the combined plan/UAT delivery ritual it used to live in
-   was retired). A `TEST_RUN` doc only if something
-   genuinely needs Replit's environment — per
+   When a UAT doc is due, the filename needs the PR number, so the flow is
+   **draft-first (David, 2026-08-09 — replacing the docs-pending +
+   explicit-re-review dance, which bought a guaranteed second round for
+   file-naming reasons):** open the PR **as a draft** (the number now
+   exists, and a draft doesn't trigger the Codex connector — the same
+   property the plan-review loop relies on), commit
+   `docs/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then **mark
+   the PR ready for review** — round 1 fires once, on the complete diff,
+   UAT included. **The connector documents this trigger itself:** its review
+   boilerplate lists exactly three — "Open a pull request for review",
+   **"Mark a draft as ready"**, and commenting `@codex review` (observed on
+   PR #391, 2026-08-09). Still glance that round 1 actually lands on the
+   first draft-first fix; if it somehow doesn't, post one explicit
+   `@codex review` naming the full diff and correct this line. Match the most recent surviving
+   `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
+   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
+   which owns that rule). A `TEST_RUN` doc only if something genuinely
+   needs Replit's environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
-   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to the
-   workstream issue's State of Play `Artifacts` field once committed** — the
-   same instruction `pr-docs` follows for feature-mode UAT docs, so a
+   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to
+   the workstream issue's State of Play `Artifacts` field once committed** —
+   the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.
-   **This UAT commit lands after round 1 already fired on
-   PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
-   so it needs its own explicit `@codex review` once it's pushed, the same as
-   any other fix-round commit. Don't let the PR reach convergence with a
-   commit Codex never actually saw.
 4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
-   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately; on
-   Opus (which a Tier B fix will have put me on) → tell David the PR is ready to
-   watch and ask him to switch me to Sonnet first.
+   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately;
+   on **any other tier** — Opus (which a Tier B fix will have put me on),
+   Fable, or anything future — tell David the PR is ready to watch and ask him
+   to switch me to Sonnet first. The gate is "not Sonnet," not "is Opus":
+   naming one non-default tier is how this rule got read literally and missed
+   once already (David, 2026-08-08).
 
 ## 4. Drive the review to convergence
 
-This is the part the old skill left to a dangling pointer, and it matters more
-here than in feature mode: with no plan and (on Tier A) no UAT doc, **Codex's
-diff review is carrying more of the weight.** It has also earned that trust —
-several entries in
-[`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)
-were caught by Codex review *after* the shipped tests passed.
+The review-loop contract is shared and enacted elsewhere — **the mechanics
+live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
+feature) **and in
+[`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the
+post-round check-in before any fixes are implemented (count + trend, product
+English, causal flags, continue/stop recommendation — skip-on-clean), the
+class-sweep protocol (name the class, cite the mechanical oracle, sweep to
+zero, re-run prior rounds' oracles before every push), the criticality gate
+before every re-request, the fix / accept-and-document / escalate / decline
+triage (a decline posts only after surviving the Opus-subagent challenge),
+resolving each thread myself right after addressing it, per-round
+`@codex review` re-requests naming what the round closes, the
+cumulative-diff rule after 2+ fix rounds, breaking non-converging loops
+(~2 rounds), and unsubscribing at merge/close. **Pointer, not a copy** —
+restating those mechanics here is how this section went stale once already
+(it carried a "never resolve threads" rule for two months after David
+reversed it, 2026-08-06).
 
-- **Round 1 is automatic.** The Codex connector reviews on "open a pull request
-  for review," so a non-draft PR triggers it with no comment from me. (This is
-  why the plan-review loop needs an explicit trigger and this doesn't — that PR
-  is a *draft*.) I don't post a redundant `@codex review` on open.
-- **Every fix round needs an explicit `@codex review`.** A push does **not**
-  reliably re-trigger it, and reactive fix code is exactly where subtle mistakes
-  hide. One comment per round (batched, never per-comment), naming which findings
-  the round was meant to close and asking Codex to confirm each is resolved *in
-  the code* — not merely responded to.
-- **After more than one fix round, ask for the cumulative branch diff**
-  (`git diff origin/main...HEAD --stat` gives the file list to name), not only
-  the newest commits — a fix in one file can break something from the original
-  diff that isn't re-shown.
-- **Reply inline on each comment's own thread**, one reply per comment. Never a
-  standalone summary comment; never resolve threads (that's David's).
-- **Fix the mechanical, escalate the substantive.** A design/architecture/
-  behavior-change call goes to David, not silently into the code — even on a
-  bot's say-so. Break after ~2 non-converging rounds and bring David the
-  diagnosis.
-- Unsubscribe once the PR merges or closes.
+What is *bugfix-specific* about the loop:
 
-The reviewer's own standard for all of this is shared, not my ceremony:
+- **The review carries more weight here than in feature mode.** With no plan
+  and (on Tier A) no UAT doc, Codex's diff review is the main net — and it
+  has earned that: several entries in
+  [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)
+  were caught by review *after* the shipped tests passed. Engage every
+  round; the light *planning* path must never shade into a light *review*
+  path.
+- **Round 1 is automatic.** The Codex connector reviews on non-draft PR
+  open — or on marking a draft ready, in the Tier B draft-first flow
+  (step 3, with its first-use caveat) — so no `@codex review` on open.
+  (The plan-review loop needs an explicit trigger only because its PR
+  *stays* a draft.)
+- **The criticality gate rates the artifact the fix touches — never the fact
+  that it's a fix.** A fix to product code passes the gate normally; a real
+  product fix is essentially never single-digit. But routed entry means a bug
+  can be *in the docs*: when the whole diff is agent-facing markdown or a
+  transient checklist, that artifact's cap governs (1–2 rounds, and the
+  automatic first pass with no re-request, respectively) and the review
+  request states the docs-only light bar — exactly as if the same change had
+  arrived through feature mode. Entering through this mode never raises an
+  artifact's ceremony, and never lowers product code's.
+- **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —
+  it's what lets Codex ask "root cause or symptom-patch?" and "did this
+  miss a caller?", so re-requests reference it the way feature loops
+  reference the approved plan.
+
+The reviewer's own standard is shared, not my ceremony:
 [`code-review.md`](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
 
-## Exiting bug-fixing mode
+## When the next request isn't a bug
 
-The mode persists across messages. It ends in any of these ways:
+There is no mode to exit — classification is per-request. A feature-shaped
+request ("let's build / add / change X") simply gets the feature workflow,
+and the classification announcement makes the switch visible. Two cases
+still deserve care:
 
-1. **David exits explicitly** — "exit bugfix mode", "done with bugs", "back to
-   features", `/bugfix done`. I acknowledge and return to the feature workflow.
+- **A request that could be either** — a "fix" that might really mean
+  re-designing the behavior — gets one numbered question, not a guess
+  (the pause-and-ask rule,
+  [`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#mid-build-ambiguity-pause-and-ask)):
+  guessing wrong is expensive in both directions — either I skip a plan the
+  work needed, or I pile ceremony onto a one-line fix.
+- **Tier C** is the same call arriving from the other direction: the request
+  looked bugfix-shaped, and *diagnosis* revealed it's really
+  feature/migration work. Same escalation, different trigger.
 
-2. **David signals feature work — I ASK, I don't assume.** If a request looks
-   like building or changing product functionality rather than fixing a bug, I do
-   **not** silently treat it as a fix and do **not** silently flip modes. I stop
-   and ask:
-
-   > "It looks like you're ready to build new functionality — should I exit
-   > bug-fixing mode and switch to the feature workflow?"
-
-   This is the pause-and-ask rule
-   ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#mid-build-ambiguity-pause-and-ask))
-   made concrete: guessing wrong is expensive in both directions — either I skip
-   a plan the work needed, or I pile ceremony onto a one-line fix.
-
-   Note this is distinct from a **Tier C** finding, which is the same call
-   arriving from the other direction: David asked for a fix, and *diagnosis*
-   revealed it's really feature/migration work. Same escalation, different
-   trigger.
-
-3. **A new chat or entering plan mode resets to the default automatically.**
-
-Not every non-bug message means "exit." Questions, status checks, and
-meta-discussion don't end the mode — the trigger in case 2 is specifically a
-request to **build or change product functionality.** When genuinely unsure
-whether a message is the next bug or a pivot, I ask.
+Questions, status checks, and meta-discussion aren't work requests and get
+no classification at all.
 
 ## When NOT to use this mode
 
@@ -271,4 +317,13 @@ or anything where David needs to verify intent is out of the fast path — a
 non-trivial one goes to **feature mode**, a genuinely trivial database schema
 fix runs migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a
 feature through the fast path — and don't let a fix quietly become one
-mid-build; that's Tier C. When unsure, ask.
+mid-build; that's Tier C.
+
+**A "clean up the review findings" batch is not a bug fix either (David,
+2026-08-09).** Leftover findings from earlier PRs are N separate defects,
+and batching them recreates exactly what one-bug-per-PR banned — PR #334
+(nominally a bugfix, actually eleven batched findings: 21 rounds, 69
+findings, 72% self-inflicted, no breaker fired) is the measured cost. Each
+real defect gets its own classification and its own PR.
+
+When unsure, ask.

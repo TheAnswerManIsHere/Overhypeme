@@ -1,15 +1,18 @@
 # Working Modes: feature (default) vs. bugfix
 
-> The canonical, cross-agent statement of the two workflows David uses. **David
-> picks the mode explicitly so there is zero guessing.** This applies to Codex,
+> The canonical, cross-agent statement of the two workflows David uses. **The
+> ceremony in force is always visible — announced or declared, never silent**
+> (see *How each agent enters / exits a mode* below). This applies to Codex,
 > Claude, and any agent. (Claude Code layers extra ceremony on top per
 > [`CLAUDE.md`](../../CLAUDE.md) and its `/bugfix` skill; the *distinction* below
 > is the shared truth.)
 
-There are two modes. The default is **feature mode**. **Bugfix mode** is a path
-David turns on explicitly to fix a bug without the planning ceremony — it drops
-the plan and the plan-review loop, **not** the verification, and it tiers its
-remaining ceremony to what the fix actually turns out to touch.
+There are two modes. The default is **feature mode**. **Bugfix mode** fixes a
+bug without the planning ceremony — it drops the plan and the plan-review
+loop, **not** the verification, and it tiers its remaining ceremony to what
+the fix actually turns out to touch. How a request enters it — routed by
+shape (Claude) or declared in the prompt (Codex) — is *How each agent
+enters / exits a mode* below.
 
 ## Feature mode (default)
 
@@ -261,11 +264,11 @@ live ledger classification: they are the same categories the
 [loop ledger's](#the-loop-ledger) adjudication rubric applies at close,
 recorded while the loop runs instead of reconstructed afterwards.
 
-## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
+## Bugfix mode (routed or declared, one bug per PR, tiered by what the fix touches)
 
 A focused fix-and-ship loop for a bug — restoring behavior that was already
-agreed, not deciding new behavior. **David turns it on explicitly** (see *How each
-agent enters/exits a mode* below).
+agreed, not deciding new behavior. Entry is routed or declared, always
+visible (see *How each agent enters/exits a mode* below).
 
 **What bugfix mode saves is the planning ceremony, not the verification.** It
 drops the plan file, the pre-plan conversation, and the multi-round plan-review
@@ -288,6 +291,15 @@ flight at once, and it meant no reviewer saw *any* fix until the whole batch
 landed — so a wrong fix early got built on top of repeatedly and reviewed zero
 times. One bug per PR means every fix is reviewed in isolation, immediately, and
 against a diff that contains nothing else.
+
+The measured worst case is **PR #334** (loop record
+`.agents/metrics/loops/334.json`) — nominally a bugfix, actually eleven
+leftover review findings batched into one PR: **21 rounds, 69 findings, 72%
+self-inflicted (38 propagation + 12 wrong-fix), and no breaker fired.** That
+is what batching produces, now with a number on it — and why a
+"clean up the review findings" batch is named in *When NOT to use bugfix
+mode* below: leftover findings from earlier PRs are N separate defects, each
+owed its own classification and its own PR.
 
 Use a **topic** slug, not a date (`…/bugfix-annual-plan-lookup`, not
 `…/bugfix-jul26`) — with one bug per branch, a date collides the moment two bugs
@@ -398,7 +410,9 @@ workflows).
    grammar rewrite reaches past a safe anchor*).
 6. **Shaky diagnosis.** No deterministic reproduction, more than one plausible
    root cause, or this symptom has been "fixed" before. Uncertainty at diagnosis
-   is the strongest single predictor that the fix is a guess.
+   is the strongest single predictor that the fix is a guess. ("Fixed before"
+   is knowable, not a memory test — the loop's step 1 history check is where
+   it's answered.)
 7. **The path had no pre-existing tests at all.** Not "this exact regression
    scenario wasn't covered" — by definition almost no escaped bug's precise
    scenario was covered, so that reading would send nearly every real fix to
@@ -486,7 +500,12 @@ oracle and the Tier A/B bugfix oracle below.
 
 ### Per bug — the loop
 
-1. **Reproduce and find the root cause.** Name the mechanism, not the instance.
+1. **Reproduce and find the root cause.** Name the mechanism, not the
+   instance. **Check the history first**:
+   [`known-failure-patterns.md`](./known-failure-patterns.md) and a quick
+   search of merged PRs for the symptom — a match can shortcut the
+   diagnosis, and this check is also what makes Q2's "fixed before"
+   trigger knowable rather than a memory test.
 2. **Classify** against the checklist above. State the tier and the reason.
 3. **Write the regression test first** — a test that **fails on current code
    because of this bug**. This is the difference between fixing a bug once and
@@ -497,14 +516,27 @@ oracle and the Tier A/B bugfix oracle below.
    depends on this behavior — and what you checked. Regression tests pin the fixed
    behavior; they say nothing about the neighbors, which is exactly where a
    small-looking fix does its damage.
-6. **Verify** — the touched tests + typecheck (see
-   [`../tests/testing-guide.md`](../tests/testing-guide.md)). A fix
-   that breaks the build doesn't get committed.
+6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
+   touched tests + typecheck (see
+   [`../tests/testing-guide.md`](../tests/testing-guide.md)), **plus the
+   test suites of the neighbors the blast radius named** — the callers and
+   shared-path dependents step 5 identified. A fix that breaks a neighbor
+   is the exact failure the bugfix oracle warns about, and step 5's output
+   is the checklist for detecting it; establishing a blast radius and then
+   not running its tests checks the diff against itself. A fix that breaks
+   the build doesn't get committed.
 7. **One focused commit** — fix + its regression test together, message naming the
    bug and the fix.
 8. **Open the PR** with the applicable oracle — the Tier A/B oracle below for a
    Tier A/B fix, or the dedicated Tier C block described above for a trivial
    schema fix — and engage the review to convergence.
+9. **At close, harvest what generalizes (David, 2026-08-09).** A root cause
+   that reaches past this one bug is captured before the workstream closes:
+   a [`known-failure-patterns.md`](./known-failure-patterns.md) entry, a
+   CI-guard candidate (the standing recurring-failure-patterns rule), or a
+   one-line `/document` nudge to David. Tier A fixes especially — with no
+   plan and no UAT doc, the merge is the only moment their learning exists
+   anywhere but the diff.
 
 > **Narrow carve-out on step 3:** if a fix is genuinely untestable at reasonable
 > cost (a pure visual/CSS tweak with no assertable behavior), the regression test
@@ -574,31 +606,46 @@ this miss a caller?*
 
 ## How each agent enters / exits a mode
 
-**The mode is always David's explicit choice — never inferred.**
+**The ceremony in force is always visible before code moves — announced or
+declared, never silent.** (Changed 2026-08-09; this line previously read
+"always David's explicit choice — never inferred." The invariant that
+mattered was never the pre-declaration: it was that David always knows which
+contract is in force and can veto it. The routed design preserves that via
+the announcement, and the real misclassification guards — tier-after-
+diagnosis, Tier C's exit, pause-and-ask — never depended on how the mode
+was entered. Rationale in [`decisions.md`](./decisions.md).)
 
-- **Claude Code** has an auto-loading `/bugfix` skill; David types `/bugfix` to
-  enter and any clear exit phrase ("back to features", "exit bugfix mode") to leave.
-- **Codex** has no auto-triggering skill system, so the signal is **in David's
-  prompt**. David starts a request with, e.g., **"Bugfix mode:"** (lightweight fix)
-  or **"Regular mode:"** / **"Feature mode:"** (full workflow, plan first). Codex
-  reads *this doc* via `AGENTS.md` and applies the matching workflow. Absent an
-  explicit signal, Codex is in **feature mode** (the default) and follows the
-  plan-before-implementation rule.
+- **Claude Code** classifies each work request by its shape: clearly
+  bugfix-shaped (already-agreed behavior is broken, observable symptom) →
+  the bugfix workflow, entered with a **one-line announcement** that is
+  David's veto surface; clearly feature-shaped ("let's build / add /
+  change X") → feature mode, as that phrasing always has; genuinely
+  ambiguous → one numbered question. `/bugfix` remains an **explicit
+  override** that forces the light path. Classification is **per-request**
+  — no sticky mode state, no exit phrases.
+- **Codex** has no auto-triggering skill system, so the signal stays **in
+  David's prompt**. David starts a request with, e.g., **"Bugfix mode:"**
+  (lightweight fix) or **"Regular mode:"** / **"Feature mode:"** (full
+  workflow, plan first). Codex reads *this doc* via `AGENTS.md` and applies
+  the matching workflow. Absent an explicit signal, Codex is in **feature
+  mode** (the default) and follows the plan-before-implementation rule; a
+  declared mode governs its thread until David changes it.
   - *Optional:* if a given Codex setup supports custom prompt files (e.g. a
     `/bugfix` prompt), point that prompt at this doc — it doesn't change the
     contract, just the trigger.
 
-**Mode persistence & switching:** a mode stays in force across messages until David
-ends it. If a request that arrives during bugfix mode looks like **building or
-changing product functionality** (a feature, a behavior change) — or diagnosis
-reveals **any *database* schema change, migration, or backfill** (Tier C without
-exception, regardless of product consequence — not the `lib/api-zod` Zod schemas,
-which stay Q1 Tier B — see *Tier C* above) — **do not silently treat
-it as a fix and do not silently switch** — **ask** whether to exit bugfix mode and
-switch to the feature workflow, or (for a genuinely trivial database schema fix)
-proceed straight to migration ceremony per Tier C. Guessing wrong is expensive in
-both directions (skipping a plan a feature or a non-trivial schema change needed,
-or piling ceremony onto a one-line fix), and the confirm costs one question.
+**Misrouting protection is entry-independent:** however a request reached the
+bugfix path — routed, `/bugfix`-forced, or prefix-declared — if it looks like
+**building or changing product functionality** (a feature, a behavior
+change), or diagnosis reveals **any *database* schema change, migration, or
+backfill** (Tier C without exception, regardless of product consequence —
+not the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see *Tier C*
+above), **do not silently treat it as a fix** — **ask** whether it should
+take the feature workflow, or (for a genuinely trivial database schema fix)
+proceed straight to migration ceremony per Tier C. Guessing wrong is
+expensive in both directions (skipping a plan a feature or a non-trivial
+schema change needed, or piling ceremony onto a one-line fix), and the
+confirm costs one question.
 
 ## When NOT to use bugfix mode
 
@@ -607,7 +654,10 @@ backfill** (Tier C without exception — see above; not gated on product
 consequence; not the `lib/api-zod` Zod schemas, which stay Q1 Tier B), or
 anything where David needs to verify intent — that's **feature mode**, or for a
 trivial database schema fix, migration ceremony run directly per Tier C. Don't
-use bugfix mode to sneak a feature through the lightweight path. When unsure
+use bugfix mode to sneak a feature through the lightweight path. **And a
+"clean up the review findings" batch is not a bug fix (David, 2026-08-09):**
+N leftover findings are N defects, and batching them recreates exactly what
+one-bug-per-PR banned — PR #334 above is the measured cost. When unsure
 which it is, **ask.**
 
 ## The loop ledger

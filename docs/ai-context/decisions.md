@@ -13,6 +13,34 @@
 
 ---
 
+### 2026-08-09 · Bugfix-mode entry is routed and announced, not explicit-only
+- **Decision:** Claude classifies each work request by shape: clearly
+  bugfix-shaped requests enter the bugfix workflow with a one-line
+  announcement (David's veto surface); `/bugfix` survives as an explicit
+  override that forces the light path; genuinely ambiguous requests get one
+  numbered question, as they always did. Classification is per-request —
+  the sticky mode state, exit phrases, and "is this message the next bug or
+  a pivot?" machinery are retired. Codex is unchanged (prompt-prefix
+  declaration, structurally necessary — it has no skill routing).
+- **Why:** The explicit token never carried the safety weight it appeared
+  to. Misclassification protection lives in tier-after-diagnosis, Tier C's
+  exit, and pause-and-ask — all downstream of entry and identical under any
+  trigger; David's `/bugfix` was always a hypothesis diagnosis could
+  overturn. What explicit-only actually bought was contract clarity, which
+  the announcement preserves at lower cost. Meanwhile the system was
+  already half-routed (the skill triggered on "just fix this" phrasing),
+  feature mode was already intent-routed ("let's build X"), and the
+  original rationale for the asymmetry — defaulting to the heavier path is
+  safe — was overtaken by the repo's own learnings that over-ceremony has
+  been the expensive failure (PRs #333, #356). The mode's stickiness was a
+  legacy of the retired batching era; per-request classification handles
+  "here's another one" naturally.
+- **Reference:** [`working-modes.md`](./working-modes.md#how-each-agent-enters--exits-a-mode),
+  the `bugfix` skill.
+- **Revisit if:** a routed entry misclassifies in a way the announcement +
+  Tier C fail to catch before real work ships wrong — that's the evidence
+  the pre-declaration was load-bearing after all.
+
 ### 2026-08-08 · Review loops get a criticality gate; findings reported to David are product-English; documentation PRs get a light review
 - **Decision:** Three related rules governing how Codex/Claude review loops
   run and report, all triggered by the same incident:
