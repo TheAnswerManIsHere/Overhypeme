@@ -18,9 +18,10 @@
 
 ## What it does
 
-Every fact entering the system — a user submission, an admin/API bulk import,
-or a new variant of an existing fact — lands in a review queue, not the live
-catalogue. There is no other way in: a fact cannot be created directly. A
+Every fact entering the system — a user submission or an admin/API bulk
+import, including one an admin writes as a variant of an existing fact — lands
+in a review queue, not the live catalogue. There is no other way in: a fact
+cannot be created directly. A
 moderator walks it through three gates — **Triage**, **Visual Concept**, and
 **Test Renders** — and only a fact that clears all three goes live. The whole
 design exists to answer two questions cheaply and in order: *does this fact
