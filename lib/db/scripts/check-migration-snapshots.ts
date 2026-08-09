@@ -313,6 +313,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
   "0093_facts_ai_meme_backfill_status",
 
+  // Forward-only repair for the facts_active_requires_concept DB backstop.
+  // The matching check() declaration now lives in schema/facts.ts so future
+  // drizzle-kit push runs cannot remove the constraint again.
+  "0098_fact_lifecycle_check_repair",
+
   // Phase 1 of the async-queue hardening plan: the worker_lane_heartbeats
   // table + its last_scheduled_at index + one seeded admin_config row
   // (instance_heartbeat_ttl_minutes). Hand-authored idempotent DDL, following

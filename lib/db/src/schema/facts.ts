@@ -1,4 +1,5 @@
-import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean, jsonb } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
@@ -157,6 +158,17 @@ export const factsTable = pgTable("facts", {
   index("facts_adult_suitability_idx").on(table.adultSuitability),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
+  // Keep the lifecycle backstop in the schema model as well as the
+  // hand-authored migration. Otherwise drizzle-kit push can remove it after
+  // the migration runner has recorded 0092 as applied.
+  check(
+    "facts_active_requires_concept",
+    sql`${table.isActive} = false OR COALESCE(
+      jsonb_typeof(${table.enrichment} #> '{visualPromptStrategyOverride,coreSceneOverride}') = 'string'
+      AND (${table.enrichment} #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\\S',
+      false
+    )`,
+  ),
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });
