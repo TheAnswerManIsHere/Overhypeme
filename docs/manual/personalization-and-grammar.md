@@ -124,4 +124,4 @@ end up stored half-corrected depending on which door it came through.
 **Next:** chapter 2 — [`content-lifecycle.md`](./content-lifecycle.md), how
 a fact gets into Overhype.me in the first place.
 
-*Verified against `03efc05` (2026-08-09) · claim inventory in PR #<TBD>.*
+*Verified against `03efc05` (2026-08-09) · claim inventory in PR #367.*
