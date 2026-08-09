@@ -84,11 +84,15 @@ PR #349 merged 2026-08-08). Phases 4–8 remain: provenance capture in
 
 ## The scanning layers
 
-Imagery entering the product is checked by more than one independent
-control before it can become anything a user saves or shares. The layer
-contract is defined in `lib/moderation/types.ts:1-12`, and the layers
-themselves live in `arachnid.ts`, `falSafety.ts`, and
-`nsfwClassifier.ts`.
+Several independent controls exist, defined by the layer contract in
+`lib/moderation/types.ts:1-12` and implemented in `arachnid.ts`,
+`falSafety.ts`, and `nsfwClassifier.ts`.
+
+**Do not read that as defense-in-depth on every path.** The suite has
+multiple controls; an individual entry point does not necessarily run
+more than one of them, and at least one live path runs exactly one
+before content can be saved. Describe what the suite contains — never
+assert that any given image received multiple independent checks.
 
 **Two things about coverage are important, and only one belongs in this
 document.** Which control runs on which entry point is *not* uniform, and
@@ -114,16 +118,34 @@ restricted object-storage prefix, inserts a `quarantined_memes` audit
 row, and — for a subset of quarantines, determined at the call site —
 calls `submitNcmecReport()`.
 
-**The bytes are never served to anyone**, and it's worth being precise
-about *which* mechanism delivers that, because the code's comments
-describe an intent stronger than what is implemented.
+**The bytes are not reachable through the ordinary serve routes** — and
+that is a narrower statement than "never served to anyone," which is what
+this document previously claimed and could not support.
 
-The protection that actually works: both the public and private serve
-routes hard-404 anything under the restricted prefix **before any ACL or
-auth check** (`routes/storage.ts:151-154,193-199`). There is no admin
-viewer, no signed-URL path, no proxy. Evidence bytes are to be read
-in-process only; `ncmecClient.ts:27-33` states signed URLs for evidence
-are "forbidden, categorically."
+What is true: both the public and private serve routes hard-404 anything
+under the restricted prefix **before any ACL or auth check**
+(`routes/storage.ts:151-154,193-199`). There is no admin viewer and no
+UI that displays quarantined content.
+
+> ### ⚠️ Those two routes are not the only way to reach an object
+>
+> The serve-route 404s do **not** establish that evidence can never be
+> read or turned into a user-visible derivative. Other code paths accept
+> a caller-supplied object path and read it without a restricted-prefix
+> or ownership check, and the URL-signing helper carries no restricted
+> guard of its own (`objectStorage.ts:245-251`). Treat "unreachable" as
+> an **objective this system has not yet fully met**, not a property you
+> can rely on.
+>
+> Tracked privately as an access-control gap rather than detailed here.
+> **Any new code that resolves a caller-supplied storage path must
+> exclude the restricted prefix explicitly** — do not assume an upstream
+> guard covers you, because for at least one live path it doesn't.
+
+Evidence bytes are intended to be read in-process only;
+`ncmecClient.ts:27-33` states signed URLs for evidence are "forbidden,
+categorically" — an intent the signing helper does not currently
+enforce.
 
 **What is *not* implemented, despite the surrounding comments:** no
 synthetic `system:quarantine` owner is recorded on these objects.
@@ -155,8 +177,12 @@ documentation one.**
 `deletedAt` is never written by any code. There is no release, appeal, or
 re-review mechanism, by design (`types.ts:7-12`, `quarantine.ts:14`).
 
-**`quarantined_memes` is write-only.** No code reads it; nothing displays
-it. Referenced by exactly one non-test file, and only to INSERT.
+**`quarantined_memes` has no application or UI read path.** No
+application code reads it and nothing displays it — it's referenced by
+exactly one non-test file, and only to INSERT. It is **not** literally
+write-only, though: migration 0097's `ncmec_reports_link_quarantine_trg`
+reads it on report inserts to validate and backfill `quarantine_id`.
+Schema work touching this table has to account for that trigger.
 
 **Two schema vocabulary items have no writer and must not be described as
 behavior:** `MEME_STATUSES`'s `"quarantined"` value has zero references
@@ -252,7 +278,8 @@ is out-of-band. **That is the entire behavior — no network call to NCMEC
 is made.**
 
 **Not every quarantine produces a notification, and no quarantine
-produces a reviewable item.** `quarantined_memes` is write-only, there is
+produces a reviewable item.** `quarantined_memes` has no application read
+path, there is
 no UI, and admin alerting is only partially wired — so a substantial
 share of quarantines today are recorded and never seen by a human. This
 is a real operational gap and it is tracked privately rather than

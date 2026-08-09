@@ -451,8 +451,11 @@ deliberately excludes them and points here instead.
   see [`current-roadmap.md`](./current-roadmap.md#in-progress-slices));
   `submitNcmecReport()` remains a stub (DB row + admin email, no live filing)
   until the worker and reconciler land in later phases, and both filing
-  switches are seeded off. Note `quarantined_memes` is **write-only** —
-  no code reads it and nothing displays it. **No dedicated
+  switches are seeded off. Note `quarantined_memes` has **no
+  application or UI read path** — nothing displays it (the only reader is
+  migration 0097's linkage trigger, which validates and backfills
+  `quarantine_id` on report inserts; schema work must not miss that
+  dependency). **No dedicated
   `/admin/safety` surface exists yet** — the seeded NCMEC keys are visible
   and editable today only through the generic `/admin/config` cards (the
   five filing-capable ones reject writes with a 403 per phase 1's

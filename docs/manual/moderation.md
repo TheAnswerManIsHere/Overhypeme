@@ -186,11 +186,12 @@ wired — some quarantines raise an alert and some currently don't.
 that handles these referrals. The plumbing for it has been built and
 tested, but it's deliberately switched off and connected to nothing —
 **no report has ever been filed from this system.** Several later stages
-(the worker that would submit reports, an admin screen for reviewing any
-of this, and alerting) haven't been built at all. The settings that would
-turn filing on are locked: the product refuses to change them through the
-normal settings screen, precisely so nobody can switch on live reporting
-before the rest of it exists.
+haven't been built at all: the worker that would submit reports, an admin
+screen for reviewing any of this, and alerting for when a submission
+*fails* (distinct from the partial alerting that exists today for some
+refusals). The settings that would turn filing on are locked: the product
+refuses to change them through the normal settings screen, precisely so
+nobody can switch on live reporting before the rest of it exists.
 
 **A gap worth naming:** a substantial share of refusals are recorded and
 then seen by nobody — there's no screen anywhere that shows those
