@@ -222,7 +222,7 @@ elsewhere.
   "subtler version" note in
   [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#async-enqueue-treated-as-completion).
 - **The video pipeline doesn't run through this queue yet.** A `fal_video`
-  queue exists in code as a [placeholder](../ai-context/glossary.md#personalization-tokens) for future work but isn't live.
+  queue exists in code as a placeholder for future work but isn't live.
 
 ## Going deeper
 

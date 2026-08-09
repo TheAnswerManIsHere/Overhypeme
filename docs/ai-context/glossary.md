@@ -244,10 +244,15 @@ none of the three-gate machinery.
 
 ### Pending review
 
-The row every [ingestion funnel](#ingestion-funnel) entrance creates — the
-thing a fact actually *becomes* on submission, as opposed to a live catalogue
-entry. All three entrances call the same function to create one, and nothing
-else in the running product does.
+The row every [ingestion funnel](#ingestion-funnel) entrance creates for a
+**first-time** submission — the thing a fact actually *becomes* on
+submission, as opposed to a live catalogue entry. All three entrances call
+the same function to create one, and no other first-time path does. Scoped
+to first-time ingestion: a [send-back refresh](#send-back-to-review) and
+[Resubmit for Moderation](#resubmit-for-moderation) each create their own
+*additional* pending-review row against a fact that already exists — not
+covered by this definition, and not something to apply first-submission
+assumptions to.
 → [moderation-workflow](./moderation-workflow.md#the-ingestion-funnel--one-entrance)
 
 ### Gate
@@ -363,10 +368,13 @@ refresh is never a fact rejection.
 
 ### Resubmit for Moderation
 
-The button on an inactive fact that puts it back through the full three-gate
-review under its existing history. Deliberately **not** a same-click undo of
-deactivation — a direct "flip it back on" toggle would let a fact go live again
-without anyone re-checking that its Visual Concept still holds up.
+The button on an inactive fact that puts it back through review under its
+existing history — re-entering directly at prep and clearing the two
+remaining gates, [Visual Concept](#visual-concept) then
+[Test Renders](#test-renders); [Triage](#triage) is not presented again.
+Deliberately **not** a same-click undo of deactivation — a direct "flip it
+back on" toggle would let a fact go live again without anyone re-checking
+that its Visual Concept still holds up.
 → [moderation-workflow](./moderation-workflow.md#the-activation-chokepoint--one-exit)
 
 ### Quarantine
@@ -721,11 +729,12 @@ costs nothing extra per meme to produce.
 
 ### AI image meme
 
-A Legendary-gated meme whose background is generated around a source photo,
-through the same [visual pipeline](#visual-concept) moderation uses. **It isn't
-private to you** — it joins that fact's shared gallery, usable by anyone who
-later makes a meme from the same fact. An AI *video* meme is the opposite:
-tied to the one meme you made with it.
+A Legendary-gated meme whose background is AI-generated, through the same
+[visual pipeline](#visual-concept) moderation uses — from a source photo when
+one is provided, or from description alone when it isn't; a source photo is
+not required. **It isn't private to you** — it joins that fact's shared
+gallery, usable by anyone who later makes a meme from the same fact. An AI
+*video* meme is the opposite: tied to the one meme you made with it.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
@@ -847,9 +856,11 @@ there.
 ### Role
 
 Which standing category an account falls into — signed-out visitor,
-[Registered](#registered), [Legendary](#legendary), or [admin](#admin).
-Always computed fresh from actual account state, **never** trusted from
-something stored on the session.
+[Unregistered](#unregistered), [Registered](#registered),
+[Legendary](#legendary), or [admin](#admin), derived in that priority order
+(admin beats Legendary beats registered beats unregistered). Always computed
+fresh from actual account state, **never** trusted from something stored on
+the session.
 → [accounts-and-auth](./accounts-and-auth.md), [security-model](./security-model.md)
 
 ### Registered
