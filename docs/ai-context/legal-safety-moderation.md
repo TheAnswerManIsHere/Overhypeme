@@ -11,18 +11,26 @@
 >
 > ## ⚠️ This document is deliberately incomplete, and must stay that way
 >
-> This repo is public. Detection specifics — thresholds, score cutoffs,
-> endpoint shapes, vendor match-label semantics, timeouts, rate-limit
-> numbers, which conditions cause a scanner to fail open or be skipped,
-> and the specific known gaps tracked in code — are **deliberately
-> omitted here** and must not be added. They are readable in the code by
-> anyone who needs them and are documented in-code at their call sites.
-> Publishing them in a discoverable narrative doc would be a roadmap for
-> evading child-safety detection. **If you are an agent updating this
-> file: adding those details is not "improving the docs," it is the
-> failure mode this header exists to prevent.** Describe *that* a control
-> exists, *who* it serves, and *what happens to content* — never the
-> values that would let someone test against it.
+> This repo is public. Detection specifics are **deliberately omitted
+> here and must not be added** — not tuning values, not per-path coverage
+> maps, not vendor/configuration pairings for the classifier layers, not
+> the conditions under which any check degrades, and not the observable
+> differences between one check firing and another. Each is documented
+> in-code beside the logic it governs, which is where it belongs.
+>
+> **If you are an agent updating this file: adding those details is not
+> "improving the docs," it is the failure mode this header exists to
+> prevent.** Describe *that* a control exists, *who* it serves, and *what
+> happens to content and evidence* — never anything that would let
+> someone determine where coverage is thinner, reproduce a check offline
+> to tune against it, or tell from the outside which check they tripped.
+>
+> This applies to composition, not just to individual sentences. Several
+> facts that are harmless alone compose into an evasion methodology; an
+> adversarial review of an earlier draft of this file found exactly that,
+> assembled from four separately-defensible sentences. Before adding
+> anything here, ask what it enables *combined with the rest of the
+> document*, not only on its own.
 
 ## What is actually live vs. what is not
 
@@ -31,12 +39,15 @@ Documenting aspirational safety infrastructure as though it were
 operational would be actively harmful.
 
 **Live and running in production code paths today:**
-- Three-layer scanning on the upload and generation paths (below).
+- Scanning on the upload and generation paths (below). **Note the layer
+  count is a description of the available controls, not of any single
+  path's depth** — no entry point runs all of them, and coverage differs
+  by path.
 - The reject contract: a generic, non-specific error to the caller that
   never reveals which check fired (`types.ts:11-12,49`).
 - Quarantine: evidence bytes written to an unservable restricted prefix,
   plus a `quarantined_memes` audit row (`quarantine.ts:72-132`).
-- An `ncmec_reports` row + admin email, for hash-match hits only
+- An `ncmec_reports` row + admin email, for a subset of quarantines
   (`ncmec.ts:33-73`).
 - The `ncmec_reports_link_quarantine_trg` DB trigger, which backfills
   `quarantine_id` on those inserts (`0097_ncmec_submission.sql:423-447`).
@@ -71,39 +82,37 @@ PR #349 merged 2026-08-08). Phases 4–8 remain: provenance capture in
 `/admin/safety` page, alerting, and the production-activation gate. See
 [`current-roadmap.md`](./current-roadmap.md#in-progress-slices).
 
-## The three scanning layers
+## The scanning layers
 
-Named as such in `lib/moderation/types.ts:1-12`:
+Imagery entering the product is checked by more than one independent
+control before it can become anything a user saves or shares. The layer
+contract is defined in `lib/moderation/types.ts:1-12`, and the layers
+themselves live in `arachnid.ts`, `falSafety.ts`, and
+`nsfwClassifier.ts`.
 
-1. **Project Arachnid Shield** (Canadian Centre for Child Protection) —
-   hash-based CSAM matching (`arachnid.ts`).
-2. **fal.ai built-in safety** — a request-side safety field plus
-   response-side inspection of the model's own NSFW flag
-   (`falSafety.ts`).
-3. **A fal.ai NSFW classifier** on generated/composited imagery
-   (`nsfwClassifier.ts`).
-
-Where they run: user photo upload gets layers 1 and 3
-(`userImageUpload.ts:138-284`); AI meme generation gets layers 2 and 3
-(`aiMemePipeline.ts`); meme-record creation and the video pipeline's
-still frame get layer 3 (`createMemeRecord.ts:322`,
-`videoPipelineRunner.ts:989`).
-
-**Hash matching runs only on the user-photo upload path** — generated
-imagery is never hash-matched, only classifier-scanned. The per-user
-daily upload cap runs *before* the scanning pipeline, deliberately, so a
-rate-limited caller never burns scanner calls (`uploadRateLimit.ts:8-10`).
+**Two things about coverage are important, and only one belongs in this
+document.** Which control runs on which entry point is *not* uniform, and
+the controls differ in kind — one matches against known material, the
+others assess imagery on its own. That shape is deliberate. The specific
+per-path mapping is **intentionally not written down here**; read the
+call sites if you're changing them, and see the header for why.
 
 **The reject contract is uniform and deliberately uninformative**: a
 rejected upload gets HTTP 422 and a fixed generic message
 (`GENERIC_REJECT_MESSAGE`, `types.ts:49`); the response never indicates
-which layer fired. Preserve this property in any change to these paths.
+which check fired. **Preserve this property in any change to these
+paths — including in side effects.** The response body is not the only
+channel a caller can observe; anything that varies visibly depending on
+which check fired (a notification that does or doesn't arrive, an
+account action that does or doesn't follow) weakens the same guarantee
+the generic message exists to provide.
 
 ## Quarantine is a one-way door
 
 `quarantineImage()` (`quarantine.ts:72-132`) writes the bytes to a
 restricted object-storage prefix, inserts a `quarantined_memes` audit
-row, and — for hash-match hits only — calls `submitNcmecReport()`.
+row, and — for a subset of quarantines, determined at the call site —
+calls `submitNcmecReport()`.
 
 **The bytes are never served to anyone.** The restricted prefix is owned
 by a synthetic `system:quarantine` principal, explicitly "so no end-user
@@ -139,6 +148,13 @@ actual knowledge of apparent CSAM, the report and supporting bytes must
 be preserved for at least 90 days (`ncmec.ts:10-16`,
 `schema/moderation.ts:81-86`).
 
+**This section describes the preservation half only, and citing the
+statute is not a claim of compliance with it.** § 2258A's *reporting*
+duty is precisely the part that is not performed — see "Never happened: a
+CyberTipline filing" above. Do not read the detail below as evidence the
+obligation is discharged; it documents what is retained, not that anyone
+has been notified.
+
 Two mechanisms implement it: `ncmec_reports.evidence_retention_until`
 defaults to 90 days out and is NOT NULL
 (`schema/moderation.ts:96-99`), and `deleteObject()` refuses any
@@ -170,21 +186,22 @@ anonymously (`schema/moderation.ts:309-352`).
 
 ## What happens today when the reporting path fires
 
-For a hash-match hit only (`ncmec.ts:33-73`): insert one `ncmec_reports`
-row with `submission_status = 'pending'`; a BEFORE INSERT trigger
-backfills `quarantine_id`; a best-effort email goes to every active admin
-with notifications enabled; and a `logger.warn` records that real
-submission is out-of-band. **That is the entire behavior — no network
-call to NCMEC is made.**
+When it fires (`ncmec.ts:33-73`): insert one `ncmec_reports` row with
+`submission_status = 'pending'`; a BEFORE INSERT trigger backfills
+`quarantine_id`; a best-effort email goes to every active admin with
+notifications enabled; and a `logger.warn` records that real submission
+is out-of-band. **That is the entire behavior — no network call to NCMEC
+is made.**
 
-**Notification is asymmetric, and this is an operational gap worth
-knowing.** A hash-match quarantine emails admins. A **classifier**
-quarantine — the common case, covering every generation path — passes
-`reportToNcmec: false` at every call site, so `submitNcmecReport()` is
-never called and **nobody is notified at all**. The row is written and
-that is the end of it. Combined with `quarantined_memes` being write-only
-and there being no UI, classifier quarantines are currently recorded and
-never seen by a human.
+**Not every quarantine produces a notification, and no quarantine
+produces a reviewable item.** `quarantined_memes` is write-only, there is
+no UI, and admin alerting is only partially wired — so a substantial
+share of quarantines today are recorded and never seen by a human. This
+is a real operational gap and it is tracked privately rather than
+detailed here, because *which* quarantines alert and which don't is
+externally observable and would let a caller infer which check they
+tripped — the same property the generic reject message exists to deny
+them. Read the call sites; don't restate the mapping in this file.
 
 ## The reserved config keys
 
@@ -235,11 +252,10 @@ quarantine.
 
 ## Files to inspect before legal/safety work
 
-- `artifacts/api-server/src/lib/moderation/` — `types.ts` (the layer
-  contract and reject-message rule), `arachnid.ts`, `falSafety.ts`,
-  `nsfwClassifier.ts`, `quarantine.ts`, `ncmec.ts` (the stub),
-  `ncmecClient.ts` / `ncmecXml.ts` / `ncmecWorker.ts` (unwired),
-  `ncmecConfig.ts`, `uploadRateLimit.ts`.
+- `artifacts/api-server/src/lib/moderation/` — the whole directory. Start
+  at `types.ts` for the layer contract and the reject-message rule; the
+  rest is navigable from there. (Deliberately not annotated file-by-file
+  here — see the header.)
 - `lib/db/src/schema/moderation.ts` — all three tables and the FK
   directionality reasoning.
 - `lib/db/migrations/0097_ncmec_submission.sql` — the trigger, the

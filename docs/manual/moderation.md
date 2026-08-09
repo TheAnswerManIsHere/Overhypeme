@@ -125,9 +125,16 @@ asking a completely different question: **is this content illegal?**
 ### What it does
 
 Images entering the product — a photo someone uploads to put their face
-in a meme, and imagery the AI generates — are scanned for child sexual
-abuse material and other abuse content. Scanning happens on the way in,
-before an image becomes anything a user can save or share.
+in a meme, and imagery the AI generates — are checked by automated
+safety controls before they can become anything a user saves or shares.
+
+**Those controls are not all the same thing, and the difference is worth
+stating plainly.** Matching an image against known child sexual abuse
+material is a specific capability that works by comparison against an
+existing catalogue of it. Assessing a novel image for whether it looks
+abusive is a different and weaker kind of judgment. Overhype.me uses both
+kinds, but they don't apply uniformly to every path, and the second kind
+should not be described — or relied on — as though it were the first.
 
 If an image is refused, the person who uploaded it gets a plain,
 deliberately unspecific message that the image can't be uploaded — it
@@ -168,9 +175,9 @@ account can't erase the trace of what that admin did.
 This is the part worth being precise about, because safety infrastructure
 described optimistically is worse than none.
 
-**Working today:** the scanning, the refusal, the quarantine, the
-evidence preservation, and an email to admins when the strongest kind of
-match fires.
+**Working today:** the scanning, the refusal, the quarantine, and the
+evidence preservation. Admin alerting exists but is only partially
+wired — some quarantines raise an alert and some currently don't.
 
 **Not working yet:** the actual reporting to the national clearinghouse
 that handles these referrals. The plumbing for it has been built and
@@ -182,11 +189,16 @@ turn filing on are locked: the product refuses to change them through the
 normal settings screen, precisely so nobody can switch on live reporting
 before the rest of it exists.
 
-**A gap worth naming:** when the AI classifier is the thing that refuses
-an image — which is the common case — the refusal is recorded but nobody
-is notified, and there's no screen anywhere that shows those records. The
-content is still blocked, every time. But no human currently sees that it
-happened.
+**A gap worth naming:** a substantial share of refusals are recorded and
+then seen by nobody — there's no screen anywhere that shows those
+records, and alerting doesn't cover every case. The content is still
+blocked, every time; what's missing is a human ever looking at what was
+blocked, or being able to.
+
+**A consequence worth naming too:** because refusals are automated,
+permanent, and unreviewable, a false positive on an ordinary image is
+currently unappealable. There is no path to have a wrongly-refused image
+looked at by a person.
 
 ### Why it's separate from the review queue
 
